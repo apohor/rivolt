@@ -504,32 +504,22 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
-  publish:
-    name: publish
-    # Only a commit whose tests passed gets an image. Building in parallel
-    # pushed sha-<short> for red commits too, and bump-preview only waited
-    # for the tests when a migration was in range, so a red commit could
-    # reach preview. (tag-validate still requires a fully green run for
-    # prod.) needs: skips publish, and with it bump-preview, when any of
-    # these fail.
-    needs: [go, integration, web]
-    outputs:
-      version: ${{ steps.ver.outputs.version }}
-    # Build & push the image. Main pushes and workflow_dispatch only;
-    # tag pushes take the retag-only path below (skipping tests, since
-    # the code already shipped to preview).
+  image:
+    name: image
+    # Builds the image while the tests run, without pushing or tagging
+    # anything (no registry login here), so publish can rebuild it from a
+    # warm cache in seconds once the tests pass. The cache goes to this
+    # commit's own scope too: main builds run side by side, and another
+    # commit's export can replace the shared scope's index in between.
+    # No needs: it starts with the first jobs.
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write   # push to ghcr.io
-      id-token: write   # reserved for future cosign signing
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}  # e.g. apohor/rivolt
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      devtag: ${{ steps.ver.outputs.devtag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -567,6 +557,65 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Build (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          # amd64 is the DSM target and the only platform Rivolt is
+          # currently deployed on. Multi-arch builds roughly double
+          # the image stage time, so arm64 is opt-in via
+          # workflow_dispatch (`platforms` input) for the rare
+          # cases we need to publish both.
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64' }}
+          push: false
+          provenance: false
+          # Stamp our computed VERSION into the Go binary so /api/health
+          # and the Overview subtitle report it (e.g. v0.19.13+sha-... on
+          # preview, bare semver on workflow_dispatch-rebuilt tags).
+          # publish passes the same value, so its rebuild hits this cache.
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: |
+            type=gha,mode=max
+            type=gha,mode=max,scope=sha-${{ github.sha }}
+
+  publish:
+    name: publish
+    # Only a commit whose tests passed gets an image. Building in parallel
+    # pushed sha-<short> for red commits too, and bump-preview only waited
+    # for the tests when a migration was in range, so a red commit could
+    # reach preview. (tag-validate still requires a fully green run for
+    # prod.) needs: skips publish, and with it bump-preview, when any of
+    # these fail. The build itself already ran in `image`; this rebuilds it
+    # from that cache and pushes.
+    needs: [image, go, integration, web]
+    outputs:
+      version: ${{ needs.image.outputs.version }}
+    # Build & push the image. Main pushes and workflow_dispatch only;
+    # tag pushes take the retag-only path below (skipping tests, since
+    # the code already shipped to preview).
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io
+      id-token: write   # reserved for future cosign signing
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}  # e.g. apohor/rivolt
+    steps:
+      # Shallow: the version stamp comes from the image job.
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -586,30 +635,26 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
-            type=raw,value=${{ steps.ver.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+            type=raw,value=${{ needs.image.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
+      # Same inputs as the image job's build, so every step is a cache hit
+      # and this only assembles and pushes. If the cache was evicted it
+      # builds from scratch: slower, same image.
       - name: Build & push
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          # amd64 is the DSM target and the only platform Rivolt is
-          # currently deployed on. Multi-arch builds roughly double
-          # the image stage time, so arm64 is opt-in via
-          # workflow_dispatch (`platforms` input) for the rare
-          # cases we need to publish both.
           platforms: ${{ github.event.inputs.platforms || 'linux/amd64' }}
           push: true
           provenance: false
-          # Stamp our computed VERSION into the Go binary so /api/health
-          # and the Overview subtitle report it (e.g. v0.19.13+sha-... on
-          # preview, bare semver on workflow_dispatch-rebuilt tags).
           build-args: |
-            VERSION=${{ steps.ver.outputs.version }}
+            VERSION=${{ needs.image.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=sha-${{ github.sha }}
+            type=gha
 
   bump-preview:
     name: bump-preview
