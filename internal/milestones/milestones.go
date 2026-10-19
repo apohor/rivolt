@@ -59,6 +59,7 @@ type Detail struct {
 	CostPerMile float64 `json:"cost_per_mile,omitempty"`
 	Currency    string  `json:"currency,omitempty"`
 	HomeKWh     float64 `json:"home_kwh,omitempty"`
+	HomeCost    float64 `json:"home_cost,omitempty"`
 	Charges     int     `json:"charges,omitempty"`
 	KWhAdded    float64 `json:"kwh_added,omitempty"`
 	DriveMiles  float64 `json:"drive_miles,omitempty"`
@@ -76,10 +77,10 @@ type Found struct {
 
 // Totals are a vehicle's all-time figures from the ledger.
 type totals struct {
-	miles, mipk, cpm  float64
-	currency          string
-	charges           int
-	kwhAdded, homeKWh float64
+	miles, mipk, cpm            float64
+	currency                    string
+	charges                     int
+	kwhAdded, homeKWh, homeCost float64
 }
 
 func allTime(now time.Time) ledger.Period {
@@ -88,7 +89,7 @@ func allTime(now time.Time) ledger.Period {
 
 func totalsOf(in ledger.Input, now time.Time) totals {
 	m := ledger.Build(in, allTime(now), false)
-	t := totals{miles: m.Driving.Miles, currency: m.Currency, charges: m.Energy.Sessions, kwhAdded: m.Energy.KWhAdded, homeKWh: m.Energy.ByPlace["home"].KWh}
+	t := totals{miles: m.Driving.Miles, currency: m.Currency, charges: m.Energy.Sessions, kwhAdded: m.Energy.KWhAdded, homeKWh: m.Energy.ByPlace["home"].KWh, homeCost: m.Energy.ByPlace["home"].Cost}
 	if m.Driving.KWhUsedKnown > 0 && m.Driving.MilesWithEnergy > 0 {
 		t.mipk = m.Driving.MilesWithEnergy / m.Driving.KWhUsedKnown
 	}
@@ -112,7 +113,7 @@ func Evaluate(in ledger.Input, now time.Time, lease LeaseTerm, driveID string) [
 		out = append(out, Found{Key: KindMiles, Kind: KindMiles, Detail: Detail{Miles: round(t.miles, 0), MiPerKWh: round(t.mipk, 2), CostPerMile: round(t.cpm, 3), Currency: t.currency}})
 	}
 	if t.homeKWh >= HomeKWhThreshold {
-		out = append(out, Found{Key: KindHomeMWh, Kind: KindHomeMWh, Detail: Detail{HomeKWh: round(t.homeKWh, 0)}})
+		out = append(out, Found{Key: KindHomeMWh, Kind: KindHomeMWh, Detail: Detail{HomeKWh: round(t.homeKWh, 0), HomeCost: round(t.homeCost, 0), Currency: t.currency}})
 	}
 	if t.charges >= ChargesThreshold {
 		out = append(out, Found{Key: KindCharges, Kind: KindCharges, Detail: Detail{Charges: t.charges, KWhAdded: round(t.kwhAdded, 0)}})
@@ -185,12 +186,30 @@ func money(v float64, cur string, places int) string {
 	return fmt.Sprintf("%.*f %s", places, v, strings.ToUpper(cur))
 }
 
-// Text is the card's title and body, also the push's: aggregates only.
+// thousands writes a whole number with comma separators: 2850 -> "2,850".
+func thousands(v float64) string {
+	n := int64(math.Round(v))
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	s := fmt.Sprintf("%d", n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if neg {
+		s = "-" + s
+	}
+	return s
+}
+
+// Text is the card's title and body, also the push's: aggregates only, one
+// sentence, no exclamation marks. The wording is growth's.
 func Text(kind string, d Detail) (title, body string) {
 	switch kind {
 	case KindMiles:
 		title = "1,000 miles"
-		body = "1,000 miles recorded in Rivolt"
+		body = "Your first 1,000 miles in Rivolt"
 		var parts []string
 		if d.MiPerKWh > 0 {
 			parts = append(parts, fmt.Sprintf("%.2f mi/kWh", d.MiPerKWh))
@@ -201,20 +220,25 @@ func Text(kind string, d Detail) (title, body string) {
 		if len(parts) > 0 {
 			body += ": " + strings.Join(parts, ", ")
 		}
+		body += "."
 	case KindHomeMWh:
-		title, body = "1 MWh at home", "1 MWh charged at home in Rivolt."
+		title = "1,000 kWh at home"
+		body = "1,000 kWh charged at home since you connected."
+		if d.HomeCost > 0 {
+			body += fmt.Sprintf(" About %s at your home rate.", money(d.HomeCost, d.Currency, 0))
+		}
 	case KindCharges:
 		title = "100 charges"
 		body = "100 charges recorded in Rivolt"
 		if d.KWhAdded > 0 {
-			body += fmt.Sprintf(": %.0f kWh added", d.KWhAdded)
+			body += ", " + thousands(d.KWhAdded) + " kWh added"
 		}
 		body += "."
 	case KindLease:
-		title, body = "Halfway through your lease", "You're halfway through your lease term."
+		title, body = "Lease halfway", "Halfway through the term. Open Rivolt to see your mileage pace."
 	case KindBestEff:
-		title = "A new best"
-		body = fmt.Sprintf("Your most efficient long drive yet: %.2f mi/kWh over %.0f mi.", d.DriveMiKWh, d.DriveMiles)
+		title = "Best drive efficiency"
+		body = fmt.Sprintf("%.2f mi/kWh over %.0f mi, your best on a drive this long.", d.DriveMiKWh, d.DriveMiles)
 	default:
 		title, body = "Milestone", "A new milestone in Rivolt."
 	}

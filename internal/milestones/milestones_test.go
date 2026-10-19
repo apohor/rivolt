@@ -144,26 +144,34 @@ func TestPersonalBestEfficiency(t *testing.T) {
 }
 
 func TestText(t *testing.T) {
-	title, body := Text(KindMiles, Detail{Miles: 1080, MiPerKWh: 2.5, CostPerMile: 0.04, Currency: "USD"})
-	if title != "1,000 miles" || body != "1,000 miles recorded in Rivolt: 2.50 mi/kWh, $0.04/mi" {
-		t.Errorf("%q / %q", title, body)
-	}
-	if _, b := Text(KindMiles, Detail{}); b != "1,000 miles recorded in Rivolt" {
-		t.Errorf("bare: %q", b)
-	}
-	if _, b := Text(KindCharges, Detail{KWhAdded: 5230}); b != "100 charges recorded in Rivolt: 5230 kWh added." {
-		t.Errorf("charges: %q", b)
-	}
-	_, b := Text(KindBestEff, Detail{DriveMiles: 80, DriveMiKWh: 2.67})
-	if !strings.Contains(b, "2.67 mi/kWh over 80 mi") {
-		t.Errorf("best: %q", b)
-	}
-	// Aggregates only: nothing that names a place or a time of day.
-	for _, k := range []string{KindMiles, KindHomeMWh, KindCharges, KindLease, KindBestEff} {
-		_, b := Text(k, Detail{Miles: 1, MiPerKWh: 2, HomeKWh: 1000, Charges: 100, DriveMiles: 60, DriveMiKWh: 3})
-		if strings.ContainsAny(b, "@") || strings.Contains(strings.ToLower(b), "latitude") {
-			t.Errorf("%s: %q", k, b)
+	for _, tc := range []struct {
+		kind  string
+		d     Detail
+		title string
+		body  string
+	}{
+		{KindMiles, Detail{Miles: 1080, MiPerKWh: 2.31, CostPerMile: 0.07, Currency: "USD"}, "1,000 miles", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh, $0.07/mi."},
+		{KindMiles, Detail{MiPerKWh: 2.31}, "1,000 miles", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh."},
+		{KindMiles, Detail{}, "1,000 miles", "Your first 1,000 miles in Rivolt."},
+		{KindHomeMWh, Detail{HomeKWh: 1000}, "1,000 kWh at home", "1,000 kWh charged at home since you connected."},
+		{KindHomeMWh, Detail{HomeKWh: 1000, HomeCost: 142, Currency: "USD"}, "1,000 kWh at home", "1,000 kWh charged at home since you connected. About $142 at your home rate."},
+		{KindCharges, Detail{Charges: 100, KWhAdded: 2850}, "100 charges", "100 charges recorded in Rivolt, 2,850 kWh added."},
+		{KindCharges, Detail{Charges: 100}, "100 charges", "100 charges recorded in Rivolt."},
+		{KindLease, Detail{}, "Lease halfway", "Halfway through the term. Open Rivolt to see your mileage pace."},
+		{KindBestEff, Detail{DriveMiles: 120, DriveMiKWh: 2.85}, "Best drive efficiency", "2.85 mi/kWh over 120 mi, your best on a drive this long."},
+		{"nope", Detail{}, "Milestone", "A new milestone in Rivolt."},
+	} {
+		title, body := Text(tc.kind, tc.d)
+		if title != tc.title || body != tc.body {
+			t.Errorf("%s: %q / %q, want %q / %q", tc.kind, title, body, tc.title, tc.body)
 		}
+		// Aggregates only, no cheering, no places.
+		if strings.Contains(body, "!") || strings.Contains(strings.ToLower(body), "congrat") {
+			t.Errorf("%s: %q", tc.kind, body)
+		}
+	}
+	if thousands(2850) != "2,850" || thousands(999) != "999" || thousands(1234567) != "1,234,567" || thousands(0) != "0" {
+		t.Error("thousands")
 	}
 	if !PushAllowed(0) || !PushAllowed(2) || PushAllowed(3) || PushAllowed(4) {
 		t.Error("a milestone push must leave two budget slots: allowed at 0-2 used, not at 3 or 4")
