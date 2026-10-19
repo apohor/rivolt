@@ -185,10 +185,12 @@ jobs:
     env:
       CHART: deploy/helm/rivolt
       KUBE_VERSION: "1.35.0"
+      # Bump each version with its tarball's sha256 (from the release's
+      # checksums file). ct's Python linters: .github/ct-requirements.txt.
       KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
       CT_VERSION: 3.15.0
-      YAMLLINT_VERSION: 1.33.0
-      YAMALE_VERSION: 6.0.0
+      CT_SHA256: 467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
     steps:
       - uses: actions/checkout@v6
         with:
@@ -198,24 +200,22 @@ jobs:
         with:
           version: v4.2.3
 
-      # chart-testing and kubeconform from their releases, checksums verified
-      # (helm/chart-testing-action failed in its own cosign step), with ct's
-      # Python linters pinned in a venv.
+      # chart-testing and kubeconform from their releases, checked against
+      # pinned sha256s (helm/chart-testing-action failed in its own cosign
+      # step), with ct's Python linters hash-pinned in a venv.
       - name: Install ct and kubeconform
         run: |
           cd "$RUNNER_TEMP"
           ct="https://github.com/helm/chart-testing/releases/download/v${CT_VERSION}"
           curl -fsSLO "$ct/chart-testing_${CT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSLO "$ct/checksums.txt"
-          grep " chart-testing_${CT_VERSION}_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+          echo "${CT_SHA256}  chart-testing_${CT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
           mkdir ct && tar xzf "chart-testing_${CT_VERSION}_linux_amd64.tar.gz" -C ct
           kc="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
           curl -fsSLO "$kc/kubeconform-linux-amd64.tar.gz"
-          curl -fsSLO "$kc/CHECKSUMS"
-          grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum -c -
+          echo "${KUBECONFORM_SHA256}  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
           tar xzf kubeconform-linux-amd64.tar.gz kubeconform
           python3 -m venv venv
-          venv/bin/pip install --quiet "yamllint==${YAMLLINT_VERSION}" "yamale==${YAMALE_VERSION}"
+          venv/bin/pip install --quiet --require-hashes -r "$GITHUB_WORKSPACE/.github/ct-requirements.txt"
           { echo "$RUNNER_TEMP"; echo "$RUNNER_TEMP/ct"; echo "$RUNNER_TEMP/venv/bin"; } >> "$GITHUB_PATH"
 
       - name: ct lint
