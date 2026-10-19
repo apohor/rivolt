@@ -13,50 +13,57 @@ import (
 const DefaultPackKWh = 131.0
 
 // InferPackKWh maps a (model, trim-option-id, modelYear) tuple to the
-// best-known usable battery capacity in kWh. Data comes from Rivian's
-// owner-facing spec sheets and community teardowns — the GraphQL
-// API exposes model / modelYear / trimOption.optionId but NOT pack
-// size. Unknown combinations return DefaultPackKWh so the SoC-delta
-// fallback keeps working.
+// best-known USABLE battery capacity in kWh, to seed a truck until it reports
+// its own (the vehicle's batteryCapacity replaces this on its first frame, and
+// that is what drives and overnight charging use). The GraphQL API exposes
+// model / modelYear / trimOption.optionId but NOT pack size. Unknown
+// combinations return DefaultPackKWh.
 //
-// Rivian trim optionId strings observed in the wild:
+// The figures are usable, not gross. Rivian does not publish a usable figure;
+// these are the numbers owners and the press measured and compiled (Rivian
+// Forums "battery size Gen 1 vs Gen 2", InsideEVs on the Max pack, 2026-10):
 //
-//	Gen 1 (2022–2024):
-//	  "LRG-DM-PRFM"  R1T/R1S Large Dual-Motor Performance (131 kWh usable)
-//	  "LRG-DM-STD"   R1T/R1S Large Dual-Motor Standard   (131 kWh usable)
-//	  "LRG-QM"       R1T/R1S Large Quad-Motor            (131 kWh usable)
-//	  "STD-DM"       R1T/R1S Standard Dual-Motor (LFP ~105 kWh usable)
-//	  "MAX-DM"       R1T/R1S Max pack Dual-Motor (~180 kWh usable)
-//	  "MAX-QM"       R1T/R1S Max pack Quad-Motor (~180 kWh usable)
-//	Gen 2 (2025+):
-//	  "G2-STD-DM"    Gen2 Standard+ (~92.5 kWh usable)
-//	  "G2-LRG-DM"    Gen2 Large (~141.5 kWh usable)
-//	  "G2-MAX-DM"    Gen2 Max (~180 kWh usable)
-//	  "G2-TRI-MTR"   Gen2 Tri-Motor
-//	  "G2-QUAD"      Gen2 Quad-Motor (Max pack)
+//	           Gen 1 usable (gross)     Gen 2 usable
+//	Standard   106 (105)                92.5
+//	Standard+  121                      (92.5, named "Standard+" in some trim ids)
+//	Large      131 (135)                109.4
+//	Max        141 (149)                141.5
 //
-// Model year ≥ 2025 or a trim prefix of "G2-" indicates Gen 2. For
-// unambiguously-Gen1 Large trims (2022–2024 model year) we return
-// 131, not 141.5 — those are the same trim code shared across
-// generations only because Rivian reused the configurator option IDs.
+// An earlier version had Max at 180 kWh, which is neither the usable (141) nor
+// the gross (149) figure, and Gen 2 Large at 141.5 (that is the Max pack).
+//
+// The optionIds seen on real trucks (prod, 2026-10) are "PKG-LCH", "PKG-ADV",
+// "PKG-ASC", "BLD-DR1T", "BLD-TR1S" and "BLD-QR1S": they do not encode the pack,
+// so most trucks reach the model-only default below. For a Gen 2 R1 that default
+// is the Max figure, and a Standard or Large Gen 2 owner sees it until the truck
+// reports its own capacity. Pack-size tokens in the trim ("MAX", "LRG", "STD")
+// win when present.
+//
+// Model year >= 2025 or a trim prefix of "G2-" indicates Gen 2.
 func InferPackKWh(model, trimID string, modelYear int) float64 {
 	t := strings.ToUpper(strings.TrimSpace(trimID))
 	gen2 := modelYear >= 2025 || strings.HasPrefix(t, "G2-")
 	// Explicit pack-size tokens take precedence.
 	switch {
+	case strings.Contains(t, "STD-PLUS") || strings.Contains(t, "STANDARD-PLUS"):
+		if gen2 {
+			return 92.5
+		}
+		return 121.0
 	case strings.Contains(t, "MAX"):
-		return 180.0
-	case strings.Contains(t, "LRG") || strings.Contains(t, "LARGE"):
 		if gen2 {
 			return 141.5
 		}
+		return 141.0
+	case strings.Contains(t, "LRG") || strings.Contains(t, "LARGE"):
+		if gen2 {
+			return 109.4
+		}
 		return 131.0
-	case strings.HasPrefix(t, "G2-STD") || strings.Contains(t, "STANDARD-PLUS") || strings.Contains(t, "STD-PLUS"):
-		// Gen2 Standard+ ~92.5 kWh usable
+	case strings.HasPrefix(t, "G2-STD"):
 		return 92.5
 	case strings.HasPrefix(t, "STD") || strings.Contains(t, "STANDARD"):
-		// Gen1 Standard pack ~105 kWh usable (LFP on some builds)
-		return 105.0
+		return 106.0
 	}
 	// Model-only defaults (no pack encoded in trim, e.g. PKG-ADV).
 	m := strings.ToUpper(strings.TrimSpace(model))
