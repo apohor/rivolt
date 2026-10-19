@@ -632,3 +632,91 @@ func TestPlanLegStartsAtTheOrigin(t *testing.T) {
 		t.Errorf("leg from the café = %v, want d-barstow, d-vegas", cmp.Leg.DriveIDs)
 	}
 }
+
+// returnLegFrom is the Las Vegas → home plan (one Primm stop, 50% → 80%,
+// 39.3 kWh at $0.48) leaving with startSoC, as a multi-day day 2 chained from
+// an overnight is planned.
+func returnLegFrom(t *testing.T, startSoC float64) Plan {
+	t.Helper()
+	ib, pb := planJSONFor(t, pvaVegas, pvaHome, "2026-01-25T09:00:00Z",
+		[]pvaStop{{LatLon{35.606006, -115.389080}, "Prizm Outlets (Primm, NV)", "Electrify America", 39.3, 0.48, 50}}, 18.86, "USD")
+	var plan map[string]any
+	if err := json.Unmarshal(pb, &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan["Routes"].([]any)[0].(map[string]any)["Waypoints"].([]any)[0].(map[string]any)["DepartureSoC"] = startSoC
+	pb, _ = json.Marshal(plan)
+	p, err := ParsePlan(ib, pb, time.Date(2026, 1, 24, 20, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A drive that leaves with a different charge than its plan says so, sized
+// from the plan's first stop (kWh per point, its rate), and the stop's
+// energy_differed counts only what that doesn't explain.
+func TestPlanStartSoCDiffered(t *testing.T) {
+	in := pricedBarstow(sampleLedger(t), 0.40)
+	// Primm priced at the plan's rate, so rate_differed stays out of it.
+	for i, c := range in.Charges {
+		if c.Lat != nil && haversineKM(*c.Lat, *c.Lon, 35.606006, -115.389080) < 0.25 {
+			cost := 0.48 * val(c.EnergyKWh)
+			in.Charges[i].Cost, in.Charges[i].Currency = &cost, "USD"
+			in.Charges[i].CostSource, in.Charges[i].Network = SourceNetworkEstimate, "Electrify America"
+		}
+	}
+	trip := MatchPlan(returnLegFrom(t, 90), in)[0].TripID
+	first := driveByID(t, in, mustCompare(t, returnLegFrom(t, 90), in, trip).Leg.DriveIDs[0])
+	left := *first.StartSoC
+	const perPt = 39.3 / 30
+
+	t.Run("left with less", func(t *testing.T) {
+		planned := left + 25
+		cmp := mustCompare(t, returnLegFrom(t, planned), in, trip)
+		cost := metric(t, cmp, "cost")
+		r := hasReason(cost, "start_soc_differed")
+		if r == nil {
+			t.Fatalf("no start_soc_differed in %+v", cost.Reasons)
+		}
+		kwh := 25 * perPt
+		near := func(p *float64, want float64) bool { return p != nil && math.Abs(*p-want) < 0.06 }
+		if !near(r.SoC, left) || !near(r.PlanSoC, planned) || !near(r.KWh, kwh) || !eq(r.Amount, round2(kwh*0.48)) {
+			t.Errorf("reason = %+v", r)
+		}
+		if !strings.HasPrefix(r.Detail, fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%", left, planned)) {
+			t.Errorf("detail %q", r.Detail)
+		}
+		// The stop's planned energy moved by what leaving lower explains.
+		if e := hasReason(cost, "energy_differed"); e != nil && !near(e.PlanKWh, 39.3+kwh) {
+			t.Errorf("energy_differed = %+v, want planned %.1f kWh", e, 39.3+kwh)
+		}
+		if s := hasReason(metric(t, cmp, "arrival_soc"), "start_soc_differed"); s == nil || s.Amount != nil {
+			t.Errorf("arrival_soc reason = %+v, want one with no amount", s)
+		}
+	})
+	t.Run("left with more", func(t *testing.T) {
+		cmp := mustCompare(t, returnLegFrom(t, left-20), in, trip)
+		r := hasReason(metric(t, cmp, "cost"), "start_soc_differed")
+		if r == nil || !eq(r.Amount, -round2(20*perPt*0.48)) || !strings.Contains(r.Detail, "more than the planned") || !strings.HasSuffix(r.Detail, "less).") {
+			t.Errorf("reason = %+v", r)
+		}
+	})
+	t.Run("close enough", func(t *testing.T) {
+		cmp := mustCompare(t, returnLegFrom(t, left+4), in, trip)
+		if r := hasReason(metric(t, cmp, "cost"), "start_soc_differed"); r != nil {
+			t.Errorf("4 points apart: %+v", r)
+		}
+	})
+	t.Run("no planned start", func(t *testing.T) {
+		ib, pb := planJSONFor(t, pvaVegas, pvaHome, "2026-01-25T09:00:00Z",
+			[]pvaStop{{LatLon{35.606006, -115.389080}, "Prizm Outlets (Primm, NV)", "Electrify America", 39.3, 0.48, 50}}, 18.86, "USD")
+		p, _ := ParsePlan(ib, pb, time.Date(2026, 1, 24, 20, 0, 0, 0, time.UTC))
+		if p.StartSoC != nil {
+			t.Fatalf("StartSoC %v from a plan without one", *p.StartSoC)
+		}
+		if r := hasReason(metric(t, mustCompare(t, p, in, trip), "cost"), "start_soc_differed"); r != nil {
+			t.Errorf("reason without a planned start: %+v", r)
+		}
+	})
+}

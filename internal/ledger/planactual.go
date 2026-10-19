@@ -40,20 +40,22 @@ type Plan struct {
 	DistanceMi  *float64
 	DurationMin *float64
 	ArrivalSoC  *float64
+	StartSoC    *float64 // the charge the plan leaves with; nil when not set
 	Cost        *float64 // DC fast spend at the user's own member rates
 	Currency    string
 }
 
 // PlannedStop is one charging stop on the planned route.
 type PlannedStop struct {
-	Name       string
-	Network    string // display name; "" when unknown
-	Lat, Lon   float64
-	ArrivalSoC *float64
-	ChargeMin  *float64
-	EstKWh     *float64 // from the plan's cost breakdown
-	EstRate    *float64 // the user's rate there, per kWh
-	EstCost    *float64
+	Name         string
+	Network      string // display name; "" when unknown
+	Lat, Lon     float64
+	ArrivalSoC   *float64
+	DepartureSoC *float64
+	ChargeMin    *float64
+	EstKWh       *float64 // from the plan's cost breakdown
+	EstRate      *float64 // the user's rate there, per kWh
+	EstCost      *float64
 }
 
 // planInputs is the part of saved_trips.inputs matching needs.
@@ -142,6 +144,10 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 				if !haveO {
 					p.Origin, haveO = LatLon{w.Latitude, w.Longitude}, true
 				}
+				if w.DepartureSoC > 0 {
+					v := w.DepartureSoC
+					p.StartSoC = &v
+				}
 				if p.Departure == nil {
 					if t, err := time.Parse(time.RFC3339, strings.TrimSpace(w.DepartureTimeUTC)); err == nil {
 						t = t.UTC()
@@ -169,6 +175,8 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 				v := w.ArrivalSoC
 				s.ArrivalSoC = &v
 			}
+			v := w.DepartureSoC
+			s.DepartureSoC = &v
 			p.Stops = append(p.Stops, s)
 		}
 	}
@@ -532,6 +540,8 @@ type PlanReason struct {
 	PlanKWh      *float64 `json:"plan_kwh,omitempty"`
 	Count        *int     `json:"count,omitempty"`   // unpriced sessions, extra or skipped stops
 	Percent      *float64 `json:"percent,omitempty"` // drove_further, less_efficient
+	SoC          *float64 `json:"soc,omitempty"`     // start_soc_differed: the charge the drive left with
+	PlanSoC      *float64 `json:"plan_soc,omitempty"`
 	Miles        *float64 `json:"miles,omitempty"`
 	PlanMiles    *float64 `json:"plan_miles,omitempty"`
 	MiPerKWh     *float64 `json:"mi_per_kwh,omitempty"`
@@ -643,7 +653,11 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 	}
 
 	cmp.Leg.Miles = drivenMiles(legDrives)
-	pairs, costReasons := pairStops(p, fast, cfg.Currency)
+	start := startSoCDiffered(p, legDrives, cfg.Currency)
+	pairs, costReasons := pairStops(p, fast, cfg.Currency, start)
+	if start != nil {
+		costReasons = append(costReasons, start.reason)
+	}
 	for _, v := range slowAway {
 		pairs = append(pairs, PlanStopPair{Match: "extra", Actual: actualStop(v)})
 	}
@@ -652,7 +666,7 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 		costMetric(p, cfg, fast, costReasons),
 		energyMetric(p, legDrives),
 		stopsMetric(p, pairs),
-		socMetric(p, arrive, arrived),
+		socMetric(p, arrive, arrived, start),
 		durationMetric(p, cmp.Leg, arrived))
 	return cmp, true
 }
@@ -736,9 +750,68 @@ func planSpan(p Plan, o []tripEvent) legSpan {
 	return sp
 }
 
+// startSoCMinPts is how far (in points) the charge the drive left with must
+// be from the plan's before start_soc_differed explains it.
+const startSoCMinPts = 5.0
+
+// startDiff is a drive that left with a different charge than its plan.
+type startDiff struct {
+	reason PlanReason
+	// kwh is the energy the difference moves onto (positive: left with less)
+	// or off the plan's first stop; 0 when it can't be sized.
+	kwh float64
+}
+
+// startSoCDiffered compares the charge the leg's first drive left with to the
+// plan's: a day 2 that starts lower than the overnight was planned to leave it
+// (driven around town, or charged less), or a trip begun undercharged. It is
+// sized from the plan's first priced stop: its energy per point and its rate.
+func startSoCDiffered(p Plan, legDrives []*Drive, currency string) *startDiff {
+	if p.StartSoC == nil || len(legDrives) == 0 || legDrives[0].StartSoC == nil {
+		return nil
+	}
+	planned, actual := *p.StartSoC, *legDrives[0].StartSoC
+	pts := planned - actual
+	if math.Abs(pts) < startSoCMinPts {
+		return nil
+	}
+	d := &startDiff{reason: PlanReason{Code: "start_soc_differed", SoC: ptrRound1(actual), PlanSoC: ptrRound1(planned)}}
+	for _, s := range p.Stops {
+		if s.EstKWh == nil || s.EstRate == nil || s.ArrivalSoC == nil || s.DepartureSoC == nil || *s.DepartureSoC <= *s.ArrivalSoC {
+			continue
+		}
+		perPt := *s.EstKWh / (*s.DepartureSoC - *s.ArrivalSoC)
+		d.kwh = pts * perPt
+		d.reason.KWh = ptrRound1(math.Abs(d.kwh))
+		d.reason.Amount = ptrRound2(d.kwh * *s.EstRate)
+		break
+	}
+	r := &d.reason
+	switch {
+	case pts > 0 && r.Amount != nil:
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%, so the stops had about %.0f kWh more to add (about %s more).",
+			actual, planned, *r.KWh, money(*r.Amount, currency))
+	case pts > 0:
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%.", actual, planned)
+	case r.Amount != nil:
+		r.Detail = fmt.Sprintf("You started at %.0f%%, more than the planned %.0f%%, so the stops had about %.0f kWh less to add (about %s less).",
+			actual, planned, *r.KWh, money(-*r.Amount, currency))
+	default:
+		r.Detail = fmt.Sprintf("You started at %.0f%%, more than the planned %.0f%%.", actual, planned)
+	}
+	return d
+}
+
 // pairStops pairs planned stops (route order) with the leg's fast
-// sessions, and returns the cost reasons the pairing explains.
-func pairStops(p Plan, fast []sessionView, currency string) ([]PlanStopPair, []PlanReason) {
+// sessions, and returns the cost reasons the pairing explains. When the
+// drive left with a different charge (start), the first paired stop's
+// planned energy is moved by what that difference explains, so the same
+// kWh isn't counted twice as energy_differed.
+func pairStops(p Plan, fast []sessionView, currency string, start *startDiff) ([]PlanStopPair, []PlanReason) {
+	shift := 0.0
+	if start != nil {
+		shift = start.kwh
+	}
 	used := make([]bool, len(fast))
 	var pairs []PlanStopPair
 	var reasons []PlanReason
@@ -796,14 +869,19 @@ func pairStops(p Plan, fast []sessionView, currency string) ([]PlanStopPair, []P
 			}
 			reasons = append(reasons, r)
 		}
-		if s.EstKWh != nil && *s.EstKWh > 0 && math.Abs(akwh-*s.EstKWh) / *s.EstKWh > 0.10 {
-			more := "more"
-			if akwh < *s.EstKWh {
-				more = "less"
+		if s.EstKWh != nil && *s.EstKWh > 0 {
+			// The kWh a different starting charge explains, on the first paired stop only.
+			est := math.Max(*s.EstKWh+shift, 0)
+			shift = 0
+			if est > 0 && math.Abs(akwh-est)/est > 0.10 {
+				more := "more"
+				if akwh < est {
+					more = "less"
+				}
+				reasons = append(reasons, PlanReason{Code: "energy_differed", Amount: ptrRound2((akwh - est) * pr),
+					Network: net, Stop: stopLabel(s), KWh: ptrRound1(akwh), PlanKWh: ptrRound1(est),
+					Detail: fmt.Sprintf("You took %.0f kWh %s than planned at %s.", math.Abs(akwh-est), more, stopLabel(s))})
 			}
-			reasons = append(reasons, PlanReason{Code: "energy_differed", Amount: ptrRound2((akwh - *s.EstKWh) * pr),
-				Network: net, Stop: stopLabel(s), KWh: ptrRound1(akwh), PlanKWh: ptrRound1(*s.EstKWh),
-				Detail: fmt.Sprintf("You took %.0f kWh %s than planned at %s.", math.Abs(akwh-*s.EstKWh), more, stopLabel(s))})
 		}
 	}
 	for j, v := range fast {
@@ -987,12 +1065,20 @@ func stopsMetric(p Plan, pairs []PlanStopPair) PlanMetric {
 	return m
 }
 
-func socMetric(p Plan, arrive *Drive, arrived bool) PlanMetric {
+func socMetric(p Plan, arrive *Drive, arrived bool, start *startDiff) PlanMetric {
 	m := PlanMetric{Metric: "arrival_soc", Unit: "pct", Planned: roundPtr(p.ArrivalSoC, 0), Reasons: []PlanReason{}}
 	if arrived && arrive != nil && arrive.EndSoC != nil {
 		m.Actual = roundPtr(arrive.EndSoC, 0)
 	}
 	m.Delta = diff(m.Actual, m.Planned)
+	// Arriving with less is often just leaving with less: say so (no amount;
+	// the cost row carries it).
+	if start != nil {
+		r := start.reason
+		r.Amount, r.KWh = nil, nil
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%.", *r.SoC, *r.PlanSoC)
+		m.Reasons = append(m.Reasons, r)
+	}
 	return m
 }
 

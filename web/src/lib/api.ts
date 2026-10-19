@@ -2484,7 +2484,8 @@ export type PvaCandidate = {
   in_progress?: boolean;
 };
 
-export type PvaReason = { code: string; amount?: number | null; detail?: string };
+// start_soc_differed carries soc / plan_soc: the charge the drive left with vs the plan's.
+export type PvaReason = { code: string; amount?: number | null; detail?: string; soc?: number; plan_soc?: number };
 
 export type PvaMetric = {
   metric: "cost" | "energy_kwh" | "dcfc_stops" | "arrival_soc" | "duration";
