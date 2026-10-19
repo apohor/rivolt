@@ -1,3 +1,4 @@
+import { useRefreshListsWhenSessionCloses } from "../lib/activityLists";
 import { useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
 import { useApplyUiNext } from "../lib/uiNext";
@@ -255,6 +256,8 @@ function UserLayout() {
 // never mounts anything that fetches user data; everywhere else the usual layout. While an admin
 // is viewing as a user the user pages render as they do on rivolt.dev.
 export default function AppLayout() {
+  // The drive and charge lists refresh when a drive or charge ends, wherever the user is.
+  useRefreshListsWhenSessionCloses();
   const adminOnly = useAdminOnly();
   const impersonating = useImpersonationTarget();
   if (adminOnly.loading) return <div className="p-4"><Spinner /></div>;

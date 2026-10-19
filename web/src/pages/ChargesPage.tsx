@@ -1,3 +1,4 @@
+import { chargesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
@@ -35,10 +36,7 @@ export default function ChargesPage() {
   // hitting reload starts you back on "all" which is what users want.
   const [categoryFilter, setCategoryFilter] =
     useState<ChargePlaceLabel | "">("");
-  const q = useQuery({
-    queryKey: ["charges", "all"],
-    queryFn: () => backend.allCharges(),
-  });
+  const q = useQuery(chargesAllQuery());
   // Clusters are derived from the full charge set server-side and
   // projected onto a map of chargeID → label for the table column.
   // A failed request is non-fatal: absence just means no badge.

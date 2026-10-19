@@ -1,10 +1,11 @@
+import { drivesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
-import { backend, type Drive } from "../lib/api";
+import { type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { DriveTable } from "../components/ActivityTables";
 import { WindowPicker } from "../components/WindowPicker";
@@ -28,10 +29,7 @@ export default function DrivesPage() {
     roundTripRadiusMeters,
     roundTripMaxGapMinutes,
   } = usePreferences();
-  const q = useQuery({
-    queryKey: ["drives", "all"],
-    queryFn: () => backend.allDrives(),
-  });
+  const q = useQuery(drivesAllQuery());
   const rows = useMemo(() => {
     const filtered = filterByWindow(q.data ?? [], win);
     return roundTripsEnabled
