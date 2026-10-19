@@ -1,10 +1,10 @@
 // The note on a plan for a trip more than a month out. The server plans such a
 // trip at today's date (the gateway is never asked about a far departure), so
 // the stops, chargers and times describe today's network, not the trip date, and
-// there is no weather forecast. DA's wording rule: say exactly that, and ask for
-// a re-plan within a month of leaving.
+// there is no weather forecast. Wording is growth's; DA's rule: say that, and ask
+// for a re-plan within a month of leaving.
 export const FAR_FUTURE_NOTE =
-  "This trip is more than a month away. The stops, chargers and arrival times come from today's network and conditions, not the date you leave, and there's no weather forecast this far ahead. Plan it again within a month of leaving.";
+  "This trip is more than a month away. Stops, chargers and arrival times reflect today's network and conditions, not the date you leave; no forecast is used. Re-plan within a month of leaving for current chargers and times.";
 
 export function FarFutureNote({ show }: { show?: boolean }) {
   if (!show) return null;
