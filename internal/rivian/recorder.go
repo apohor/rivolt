@@ -692,6 +692,10 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 	}
 }
 
+// chargeHookMinKWh is the energy below which a closed charge fires no close
+// hook (push, receipts sync): the ledger's crumb threshold (ledger.CrumbKWh).
+const chargeHookMinKWh = 0.05
+
 // Thresholds for the close hooks of sessions closed by
 // applyMutualExclusion: a forced close is often a fragment (a stale
 // gear, stuck charger fields), and its hooks notify the user or fetch
@@ -1331,7 +1335,9 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && !rejected {
+		// A session that moved no energy (a plug-in that only negotiated, then
+		// unplugged) is not worth a "Charging complete · 0.0 kWh" push.
+		if !phantom && !rejected && closedRow.EnergyAddedKWh >= chargeHookMinKWh {
 			m.fireChargeCloseHook(closedRow)
 		}
 		return n
