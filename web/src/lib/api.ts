@@ -917,6 +917,24 @@ export type ChargeCluster = {
   member_ids: string[];
 };
 
+// GET /api/vehicles/{id}/cold-range: the user's own efficiency and range near a temperature (all temperatures in °C).
+// With a figure `reason` is absent; the range fields are null when the pack is unknown (mi/kWh only).
+export type ColdRange = {
+  units: "imperial" | "metric";
+  distance_unit: string;
+  efficiency_unit: string;
+  temp_c: number;
+  reason?: "not_enough_data" | "not_tracked";
+  efficiency_low: number | null;
+  efficiency_high: number | null;
+  range_low: number | null;
+  range_high: number | null;
+  based_on: { drives: number; miles: number; temp_lo_c: number; temp_hi_c: number } | null;
+  available: number[];
+  min_drives: number;
+  min_miles: number;
+};
+
 // GET /api/vehicles/{id}/trends: one row per local month (a month under min_month_distance is a gap in the chart),
 // and the usable-capacity estimate from charges. capacity is null on a truck that cannot be tracked (R2).
 export type TruckTrends = {
@@ -1522,6 +1540,16 @@ export const backend = {
   trends: async (vehicleID: string, units: "imperial" | "metric", months = 12): Promise<TruckTrends | null> => {
     try {
       return await api.get<TruckTrends>(`/api/vehicles/${encodeURIComponent(vehicleID)}/trends?months=${months}&units=${units}`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // Range at a given outside temperature, from the user's own drives. Null when the server has no such endpoint.
+  coldRange: async (vehicleID: string, tempC: number, gridC: number[], units: "imperial" | "metric"): Promise<ColdRange | null> => {
+    const q = new URLSearchParams({ temp_c: String(tempC), grid: gridC.join(","), units });
+    try {
+      return await api.get<ColdRange>(`/api/vehicles/${encodeURIComponent(vehicleID)}/cold-range?${q}`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
