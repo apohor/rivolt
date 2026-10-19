@@ -48,7 +48,7 @@ test("Change network: the manual price field follows the new price without a rel
 test("a confirmed network reads as a recorded price on Money, not an estimate", async ({ page }) => {
   await stubApi(page);
   await page.route("**/api/ledger/monthly**", (r) => {
-    const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())));
+    const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())), new Date(e2eNow()));
     for (const rc of m.receipts) {
       if (rc.cost_source === "network_estimate") {
         rc.network_state = "confirmed";

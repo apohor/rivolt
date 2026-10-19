@@ -598,7 +598,8 @@ export const DCFC_MIN_KW = 50;
 // estimate, a Rivian-billed stop, a user "Free" session, an unpriced
 // one, null energy and a dedupe. NO coordinates, addresses or place
 // names: places are home/away and distances are rounded.
-export function ledgerMonthFixture(month: string): LedgerMonth {
+// now decides which month is "current" (e2e pins it with STUB_NOW).
+export function ledgerMonthFixture(month: string, now = new Date()): LedgerMonth {
   const [y, mo] = month.split("-").map(Number);
   // Local CDT wall clock → UTC (fixture only; fixed -5h offset).
   const at = (day: number, h: number, min = 0) =>
@@ -744,7 +745,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     ]),
   ];
   receipts.sort((a, b) => b.started_at.localeCompare(a.started_at));
-  return ledgerMonthFromReceipts(month, receipts, { homeRate, vid });
+  return ledgerMonthFromReceipts(month, receipts, { homeRate, vid, now });
 }
 
 // ledgerMonthFromReceipts computes a month's totals from its receipts the way
@@ -753,7 +754,8 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
 export function ledgerMonthFromReceipts(
   month: string,
   receipts: Receipt[],
-  opts: { homeRate?: number; vid?: string; miles?: number; drives?: number } = {},
+  // now decides whether month is the current one (default: the real clock).
+  opts: { homeRate?: number; vid?: string; miles?: number; drives?: number; now?: Date } = {},
 ): LedgerMonth {
   const [y, mo] = month.split("-").map(Number);
   const tz = "America/Chicago";
@@ -814,7 +816,7 @@ export function ledgerMonthFromReceipts(
     range: { start: new Date(Date.UTC(y, mo - 1, 1, 5)).toISOString(), end: new Date(Date.UTC(y, mo, 1, 5)).toISOString() },
     currency: "USD",
     vehicle_id: null,
-    is_current_month: month === currentMonth(),
+    is_current_month: month === currentMonth(opts.now),
     first_activity_at: receipts.length ? receipts[receipts.length - 1].started_at : null,
     last_activity_at: receipts.length ? receipts[0].started_at : null,
     spend: {
@@ -866,7 +868,7 @@ export function ledgerSummaryFixture(months: number, now = new Date()): LedgerSu
   for (let i = months - 1; i >= 0; i--) {
     // Only the last two months have "data" in the fixture.
     if (i > 1) continue;
-    const full = ledgerMonthFixture(shiftMonth(cur, -i));
+    const full = ledgerMonthFixture(shiftMonth(cur, -i), now);
     const { receipts: _r, data_quality: { superseded: _s, ...dq }, ...rest } = full;
     list.push({
       ...rest,

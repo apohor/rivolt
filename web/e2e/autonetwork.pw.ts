@@ -124,7 +124,7 @@ for (const [vpName, vp] of [
         r.fulfill({ json: { ...ledgerSummaryFixture(12, new Date(e2eNow())), to_confirm_count: 3, needs_attention_count: 1 } }),
       );
       await page.route("**/api/ledger/monthly**", (r) => {
-        const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())));
+        const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())), new Date(e2eNow()));
         for (const rc of m.receipts) {
           if (rc.cost_source === "network_estimate") {
             rc.network_state = "needs_confirmation";
