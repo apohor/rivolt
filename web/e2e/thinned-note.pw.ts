@@ -12,9 +12,9 @@ const base = {
 
 async function open(page: Page, reduced: boolean | undefined) {
   await stubApi(page);
-  // Only the single-drive response carries the flag, not the list.
+  // The single-drive response carries the flag the page reads.
   await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
-  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j({ ...base, ...(reduced === undefined ? {} : { samples_reduced: reduced }) })));
+  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j({ ...base, ...(reduced === undefined ? {} : { thinned: reduced }) })));
   await page.goto("/drives/drive-old");
   await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
 }
@@ -33,17 +33,6 @@ for (const w of [390, 1280] as const) {
   });
 }
 
-test("the note also shows when the server names the flag `thinned` (either name counts)", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
-  const page = await ctx.newPage();
-  await stubApi(page);
-  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
-  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j({ ...base, thinned: true })));
-  await page.goto("/drives/drive-old");
-  await expect(page.locator("[data-thinned-note]")).toBeVisible();
-  await ctx.close();
-});
-
 test("no note when the drive has full detail or the server doesn't say", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   for (const t of [false, undefined]) {
@@ -60,7 +49,7 @@ test("never in the demo", async ({ browser }) => {
   const page = await ctx.newPage();
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
   await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
-  await page.route(/\/api\/drives\/drive-old/, (r) => r.fulfill(j({ ...base, samples_reduced: true })));
+  await page.route(/\/api\/drives\/drive-old/, (r) => r.fulfill(j({ ...base, thinned: true })));
   await page.goto("/demo/drives/drive-old");
   await page.waitForTimeout(1000);
   await expect(page.locator("[data-thinned-note]")).toHaveCount(0);

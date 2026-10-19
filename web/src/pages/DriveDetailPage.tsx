@@ -443,7 +443,7 @@ export default function DriveDetailPage() {
         }
       />
 
-      {(one.data?.samples_reduced || one.data?.thinned) && !demo && (
+      {one.data?.thinned && !demo && (
         <p data-thinned-note className="text-xs text-neutral-400">
           This drive is older than 90 days, so its route and charts are drawn from a lighter recording. The full detail is in your{" "}
           <Link to="/settings?tab=data" className="underline underline-offset-2 hover:text-neutral-200">
