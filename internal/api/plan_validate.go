@@ -8,20 +8,22 @@ import (
 
 // Limits on what the plan endpoints accept before anything is planned. A
 // departure is a time a person could plausibly pick: a re-plan or a trip that
-// started up to two weeks ago, or one booked up to a month ahead.
+// started up to two weeks ago, or one booked up to six months ahead. A
+// departure more than farFutureAfter (30 days) ahead is planned in shifted time
+// and never sent to Rivian as such (far_future.go).
 const (
 	maxPastDeparture   = 14 * 24 * time.Hour
-	maxFutureDeparture = 30 * 24 * time.Hour
+	maxFutureDeparture = 180 * 24 * time.Hour
 )
 
 // planNow is the clock the plan endpoints validate departures against; tests
 // pin it.
 var planNow = time.Now
 
-// departureWindowErr is non-nil when t is outside [now-14d, now+30d].
+// departureWindowErr is non-nil when t is outside [now-14d, now+180d].
 func departureWindowErr(t, now time.Time) error {
 	if t.Before(now.Add(-maxPastDeparture)) || t.After(now.Add(maxFutureDeparture)) {
-		return fmt.Errorf("must be within 14 days back and 30 days ahead")
+		return fmt.Errorf("must be within 14 days back and 180 days ahead")
 	}
 	return nil
 }

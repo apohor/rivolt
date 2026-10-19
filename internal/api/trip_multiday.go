@@ -107,6 +107,10 @@ type tripPlanMultidayResponse struct {
 	TZ string `json:"tz"`
 	// FromPosition is set when the plan started from the truck's position.
 	FromPosition *fromPosition `json:"from_position,omitempty"`
+	// FarFuture is true when the trip starts more than 30 days out: the stops,
+	// chargers and times come from today's network and conditions and no
+	// weather forecast was used.
+	FarFuture bool `json:"far_future,omitempty"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -258,7 +262,12 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 		// days are chained, and the overnight and the next day start from the
 		// corrected arrival when that is lower than the plan's: the chain is as
 		// conservative as the arrival the user is shown.
-		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
+		now := planNow()
+		shift, farFuture := farFutureShift(startAt, now)
+		if farFuture {
+			planner = shiftedPlanner{inner: planner, shift: shift, now: now}
+		}
+		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack, noWeather: farFuture}
 		enr.load(r.Context())
 		type dayExtras struct {
 			adj   *tripWeatherAdjustmentDTO
@@ -293,7 +302,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return
 		}
 
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, FromPosition: fromPos, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, FromPosition: fromPos, FarFuture: farFuture, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d}
 			if ex, ok := extras[d.Index]; ok {
@@ -448,6 +457,15 @@ func (req *tripPlanMultidayRequest) validate(now time.Time) string {
 			if t, err := time.Parse(time.RFC3339, d.DepartAt); err == nil {
 				if err := departureWindowErr(t, now); err != nil {
 					return n + ": depart_at " + err.Error()
+				}
+				// Days are planned in one shifted time frame (far_future.go): a
+				// day cannot leave more than 30 days after the trip starts.
+				start := now
+				if st, err := time.Parse(time.RFC3339, req.StartAt); err == nil && st.After(now) {
+					start = st
+				}
+				if t.After(start.Add(farFutureAfter)) {
+					return n + ": depart_at must be within 30 days of the trip's start"
 				}
 			}
 		}

@@ -120,6 +120,9 @@ type planEnricher struct {
 
 	vehicleID string
 	packKWh   float64
+	// noWeather skips the forecast (a far-future plan has none); the vehicle
+	// profile and the costs still apply.
+	noWeather bool
 
 	// Loaded once per request by load.
 	profileMult    float64
@@ -165,7 +168,7 @@ func (e *planEnricher) load(ctx context.Context) {
 // neither has signal) and the per-route costs (nil without a pack size).
 func (e *planEnricher) enrich(ctx context.Context, plan *rivian.TripPlan, startingSoC float64, targetArrival *float64) (*tripWeatherAdjustmentDTO, []tripadvice.CostEstimate) {
 	var adj *tripWeatherAdjustmentDTO
-	weatherOn := e.mgr != nil && e.mgr.RecapWeatherEnabled() && e.wc != nil
+	weatherOn := e.mgr != nil && e.mgr.RecapWeatherEnabled() && e.wc != nil && !e.noWeather
 	if weatherOn || e.profileMult != 1.0 {
 		target := 10.0
 		if targetArrival != nil {

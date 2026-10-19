@@ -236,6 +236,13 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			}
 		}
 
+		// A departure more than 30 days out is planned in shifted time and the
+		// gateway never sees it (far_future.go).
+		now := planNow()
+		shift, farFuture := farFutureShift(departAt, now)
+		if farFuture {
+			planner = shiftedPlanner{inner: planner, shift: shift, now: now}
+		}
 		plan, err := planner.PlanTrip(r.Context(), in)
 		if err != nil {
 			// The class only: no gateway text, no coordinates.
@@ -266,9 +273,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			writeUpstreamError(w, err)
 			return
 		}
-		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos}
+		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos, FarFuture: farFuture}
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc,
-			vehicleID: req.VehicleID, packKWh: req.PackKWh}
+			vehicleID: req.VehicleID, packKWh: req.PackKWh, noWeather: farFuture}
 		enr.load(r.Context())
 		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
 		writeJSON(w, http.StatusOK, resp)
@@ -284,6 +291,11 @@ type tripPlanResponse struct {
 	// FromPosition is set when the plan started from the truck's position.
 	FromPosition      *fromPosition             `json:"from_position,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
+	// FarFuture is true for a departure more than 30 days out: the stops,
+	// chargers and times come from today's network and conditions, and no
+	// weather forecast was used. The UI says so and suggests re-planning
+	// within a month of leaving.
+	FarFuture bool `json:"far_future,omitempty"`
 	// Costs is aligned with TripPlan.Routes - Costs[i] is the
 	// DCFC + home-equivalent estimate for Routes[i]. Empty when the
 	// caller didn't pass pack_kwh; the SPA renders the route table
