@@ -22,7 +22,9 @@ export function firstChargeView(o: { charges: Charge[]; drives: Drive[]; homeRat
   if (charge) {
     const cost = charge.Cost > 0 ? charge.Cost : (charge.estimated_cost ?? 0);
     if (o.homeRate > 0 && cost > 0) {
-      const miles = o.drives.reduce((n, d) => n + (d.DistanceMi > 0 ? d.DistanceMi : 0), 0);
+      // Only the first week, the same window the card is shown for: a long history is not "your first miles".
+      const end = anchor + FIRST_CARD_DAYS * 86_400_000;
+      const miles = o.drives.reduce((n, d) => n + (d.DistanceMi > 0 && t(d.StartedAt) >= anchor && t(d.StartedAt) <= end ? d.DistanceMi : 0), 0);
       return {
         state: "A",
         chargeID: charge.ID,
@@ -31,7 +33,7 @@ export function firstChargeView(o: { charges: Charge[]; drives: Drive[]; homeRat
         currency: charge.Currency || charge.estimated_currency || "USD",
         rate: o.homeRate,
         home: charge.MaxPowerKW <= HOME_MAX_KW,
-        ...(miles >= 1 ? { perMile: { cost: cost / miles, miles } } : {}),
+        ...(miles >= 1 && cost / miles >= 0.005 ? { perMile: { cost: cost / miles, miles } } : {}),
       };
     }
     return { state: "B", chargeID: charge.ID, kwh: charge.EnergyAddedKWh };
