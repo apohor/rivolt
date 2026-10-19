@@ -379,12 +379,32 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		put(userSettings)
 		writeStr(`,"vehicle_profiles":`)
 		put(profiles)
+		// Rows that can be regenerated are left out of the backup (the data export
+		// has them): say which, so the file is honest about what it holds.
+		writeStr(`,"derived_omitted":`)
+		put(derivedOmittedFromBackup)
 		streamArray("drives", func(emit func(any) error) error {
 			return ds.EachAll(ctx, func(v drives.Drive) error { return emit(v) })
 		})
 		streamArray("charges", func(emit func(any) error) error {
 			return cs.EachAll(ctx, func(v charges.Charge) error { return emit(v) })
 		})
+		// Saved trips, the per-drive recap and analysis, and milestones: small, and
+		// part of what the user owns. A restore upserts them by their own keys.
+		if d.DB != nil {
+			streamArray("saved_trips", func(emit func(any) error) error {
+				return eachSavedTrip(ctx, d.DB, uid, func(v savedTripRow) error { return emit(v) })
+			})
+			streamArray("drive_recaps", func(emit func(any) error) error {
+				return eachDriveRecap(ctx, d.DB, uid, func(v driveRecapRow) error { return emit(v) })
+			})
+			streamArray("drive_analyses", func(emit func(any) error) error {
+				return eachDriveAnalysis(ctx, d.DB, uid, func(v driveAnalysisRow) error { return emit(v) })
+			})
+			streamArray("milestones", func(emit func(any) error) error {
+				return eachMilestone(ctx, d.DB, uid, func(v milestoneRow) error { return emit(v) })
+			})
+		}
 		// Thinned months come from the archive in full detail; a month that
 		// couldn't be (no readable object) is listed so the file says so.
 		var reduced []string
@@ -676,6 +696,9 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		prog := &restoreProgress{}
 		counts := func(event string) map[string]any {
 			m := map[string]any{"event": event, "drives": prog.drives.Load(), "charges": prog.charges.Load(), "samples": prog.samples.Load()}
+			if n := prog.other.Load(); n > 0 {
+				m["other"] = n
+			}
 			if n := gate.skipped.Load(); n > 0 {
 				m["skipped"] = n
 			}
@@ -697,7 +720,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 				}
 			}
 		}()
-		_, err = restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate, prog)
+		_, err = restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, &restoreExtras{db: d.DB, uid: uid}, tick, gate, prog)
 		close(stopBeat)
 		<-beatDone
 		if err != nil {
@@ -831,12 +854,35 @@ func (c *capReader) Read(p []byte) (int, error) {
 // reads it while the decoder updates it.
 type restoreProgress struct {
 	drives, charges, samples atomic.Int64
+	// other counts the saved trips, recaps, analyses and milestones restored.
+	other atomic.Int64
+}
+
+// restoreExtras is where the restore writes the rows that are not drives,
+// charges or samples. A nil one (or one without a database) skips them.
+type restoreExtras struct {
+	db  *sql.DB
+	uid uuid.UUID
+}
+
+func (x *restoreExtras) put(ctx context.Context, prog *restoreProgress, write func(*sql.DB, uuid.UUID) error) error {
+	if x == nil || x.db == nil {
+		return nil
+	}
+	if err := write(x.db, x.uid); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+	prog.other.Add(1)
+	return nil
 }
 
 type restoreResult struct {
 	Drives  int `json:"drives"`
 	Charges int `json:"charges"`
 	Samples int `json:"samples"`
+	// Other counts the saved trips, drive recaps and analyses and milestones
+	// restored with the backup.
+	Other int `json:"other,omitempty"`
 	// Skipped counts rows left out because their time is outside the
 	// accepted range (a real backup has none).
 	Skipped int `json:"skipped,omitempty"`
@@ -914,7 +960,7 @@ func (g *restoreGate) vehicleOK(id string) error {
 
 // restoreStream decodes the bundle token by token. Keys may come in any
 // order (older backups list charges first); unknown keys are skipped.
-func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate, prog *restoreProgress) (restoreResult, error) {
+func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, extras *restoreExtras, tick func(), gate *restoreGate, prog *restoreProgress) (restoreResult, error) {
 	var res restoreResult
 	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
 	wrap := func(err error) error { return restoreReadErr(ctx, err) }
@@ -1027,6 +1073,41 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 			if err == nil {
 				err = flush()
 			}
+		case "saved_trips":
+			err = array(func() error {
+				var v savedTripRow
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				return extras.put(ctx, prog, func(db *sql.DB, uid uuid.UUID) error { return upsertSavedTrip(ctx, db, uid, v) })
+			})
+		case "drive_recaps":
+			err = array(func() error {
+				var v driveRecapRow
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				return extras.put(ctx, prog, func(db *sql.DB, uid uuid.UUID) error { return upsertDriveRecap(ctx, db, uid, v) })
+			})
+		case "drive_analyses":
+			err = array(func() error {
+				var v driveAnalysisRow
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				return extras.put(ctx, prog, func(db *sql.DB, uid uuid.UUID) error { return upsertDriveAnalysis(ctx, db, uid, v) })
+			})
+		case "milestones":
+			err = array(func() error {
+				var v milestoneRow
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				if err := gate.vehicleOK(v.RivianVehicleID); err != nil {
+					return err
+				}
+				return extras.put(ctx, prog, func(db *sql.DB, uid uuid.UUID) error { return upsertMilestone(ctx, db, uid, v) })
+			})
 		default: // version, created_at, user_settings, vehicle_profiles, anything new
 			var skip json.RawMessage
 			err = dec.Decode(&skip)
@@ -1044,7 +1125,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 	if !sawArray {
 		return res, errRestoreNotBackup
 	}
-	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load()),
+	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Other: int(prog.other.Load()), Skipped: int(gate.skipped.Load()),
 		SamplesPastRetention: int(gate.pastRetention.Load())}
 	return res, nil
 }
