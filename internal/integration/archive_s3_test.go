@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,8 +56,17 @@ func TestArchiveS3Client(t *testing.T) {
 	defer cancel()
 	c := &s3.Client{Endpoint: startMinIO(ctx, t), Region: "us-east-1", Bucket: "rivolt-test-archive",
 		AccessKey: "rivolt-test", SecretKey: "rivolt-test-secret", ListPageSize: 10}
-	if err := c.CreateBucket(ctx); err != nil {
-		t.Fatal(err)
+	// /minio/health/ready can answer before the object layer is up; MinIO
+	// then refuses requests with XMinioServerNotInitialized for a moment.
+	for i := 0; ; i++ {
+		err := c.CreateBucket(ctx)
+		if err == nil {
+			break
+		}
+		if i == 30 || !strings.Contains(err.Error(), "XMinioServerNotInitialized") {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Second)
 	}
 	key := func(i int) string { return fmt.Sprintf("prod/v1/u=user-1/v=veh-%02d/2026-05.csv.gz.enc", i) }
 	for i := 0; i < 25; i++ {
