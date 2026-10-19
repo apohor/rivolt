@@ -50,9 +50,10 @@ type Client struct {
 
 // Object is one ListObjectsV2 entry.
 type Object struct {
-	Key  string
-	Size int64
-	ETag string
+	Key          string
+	Size         int64
+	ETag         string
+	LastModified time.Time
 }
 
 func (c *Client) http() *http.Client {
@@ -140,9 +141,10 @@ func (c *Client) List(ctx context.Context, prefix string, fn func(Object) error)
 		}
 		var out struct {
 			Contents []struct {
-				Key  string
-				Size int64
-				ETag string
+				Key          string
+				Size         int64
+				ETag         string
+				LastModified time.Time
 			}
 			IsTruncated           bool
 			NextContinuationToken string
@@ -153,7 +155,7 @@ func (c *Client) List(ctx context.Context, prefix string, fn func(Object) error)
 			return fmt.Errorf("s3: list %s: %w", prefix, err)
 		}
 		for _, o := range out.Contents {
-			if err := fn(Object{Key: o.Key, Size: o.Size, ETag: strings.Trim(o.ETag, `"`)}); err != nil {
+			if err := fn(Object{Key: o.Key, Size: o.Size, ETag: strings.Trim(o.ETag, `"`), LastModified: o.LastModified}); err != nil {
 				return err
 			}
 		}

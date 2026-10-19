@@ -1062,6 +1062,13 @@ func handleDataReset(d Deps) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
+		// The telemetry archive first: its key goes at once (the objects are
+		// unreadable from here on) and the objects are queued for deletion. A
+		// failure below leaves a retry, which is idempotent.
+		if err := db.ResetUserArchive(ctx, d.DB, uid); err != nil {
+			http.Error(w, "reset archive: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		// Wipe in an order that can't violate FKs; there are no
 		// cross-table FKs on user_id so order is cosmetic.
 		samplesN, err := ss.Reset(ctx)

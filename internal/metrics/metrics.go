@@ -150,6 +150,10 @@ type Metrics struct {
 	// (verified, failed), and the bytes of the verified ones.
 	ArchiveObjectsTotal *prometheus.CounterVec
 	ArchiveBytesTotal   prometheus.Counter
+	// Archive deletions (account deletion, history reset): objects deleted,
+	// and requests pending longer than archive.DeleteWithin (alert on > 0).
+	ArchiveObjectsDeletedTotal prometheus.Counter
+	ArchiveDeletionsOverdue    prometheus.Gauge
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -293,6 +297,14 @@ func New() *Metrics {
 			Name: "rivolt_archive_bytes_total",
 			Help: "Bytes of verified telemetry archive objects written.",
 		}),
+		ArchiveObjectsDeletedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_archive_objects_deleted_total",
+			Help: "Telemetry archive objects deleted for account deletions and history resets.",
+		}),
+		ArchiveDeletionsOverdue: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_archive_deletions_overdue",
+			Help: "Archive deletion requests still pending after 24 hours (the deletion promise).",
+		}),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -351,6 +363,8 @@ func New() *Metrics {
 		m.SamplePartitionsDropped,
 		m.ArchiveObjectsTotal,
 		m.ArchiveBytesTotal,
+		m.ArchiveObjectsDeletedTotal,
+		m.ArchiveDeletionsOverdue,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
 		m.ServerEventsTotal,

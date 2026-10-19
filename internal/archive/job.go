@@ -132,7 +132,8 @@ func NewArchiver(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Archiver, error
 // and never alongside thinning or retention. A failed object is reported and
 // the rest of the month continues; the run then returns an error, and the
 // month is retried the next day. A month where nothing succeeded (only stuck
-// objects left) is passed over so later months still get archived.
+// objects left) is passed over so later months still get archived. A store,
+// network or database error stops the run at once.
 //
 // A (user, vehicle) whose object needs re-archiving (rows restored or
 // imported into an archived month) is not touched here: its month may be
@@ -182,8 +183,15 @@ func (a *Archiver) Run(ctx context.Context) (int64, error) {
 				if firstErr == nil {
 					firstErr = err
 				}
-				if ctx.Err() != nil {
-					break
+				// Only a fault in this object moves on to the next one; the
+				// store, the network or the database being down would fail
+				// every object after it too, each after a full COPY and
+				// encryption, so the run stops there (DA).
+				if !perObject(err) {
+					if a.Report != nil {
+						a.Report(Report{Month: MonthString(month), Done: true, Objects: done, Failed: failed})
+					}
+					return int64(done), errors.Join(stuck, fmt.Errorf("archive %s: stopped: %w", MonthString(month), err))
 				}
 				continue
 			}
@@ -205,6 +213,13 @@ func (a *Archiver) Run(ctx context.Context) (int64, error) {
 		stuck = errors.Join(stuck, err)
 	}
 	return 0, stuck
+}
+
+// perObject reports whether err is a fault of one object (too large, or not
+// matching what was written once read back), as opposed to the store, the
+// network or the database failing, which would fail the next object as well.
+func perObject(err error) bool {
+	return errors.Is(err, errTooLarge) || errors.Is(err, ErrMismatch) || errors.Is(err, ErrCorrupt)
 }
 
 // archivableMonths lists the months of vehicle_state's attached partitions
