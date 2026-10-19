@@ -1902,6 +1902,8 @@ export type RestoreProgress = {
   charges: number;
   samples: number;
   skipped?: number;
+  // Samples older than the install keeps raw samples (their drives and charges are restored).
+  samples_past_retention?: number;
 };
 
 export type ImportResult = {

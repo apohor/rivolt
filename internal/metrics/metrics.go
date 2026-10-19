@@ -136,6 +136,8 @@ type Metrics struct {
 	// Claims left in 'sending' past 15 minutes: a crash between claim and
 	// delivery. Never resent, so a nonzero value is how a lost message shows.
 	EngagementStuckSending prometheus.Gauge
+	// vehicle_state partitions dropped by sample retention.
+	SamplePartitionsDropped prometheus.Counter
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -259,6 +261,10 @@ func New() *Metrics {
 			Name: "rivolt_engagement_stuck_sending",
 			Help: "Engagement claims left in sending for over 15 minutes.",
 		}),
+		SamplePartitionsDropped: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_sample_partitions_dropped_total",
+			Help: "Monthly vehicle_state partitions dropped by sample retention (RIVOLT_SAMPLE_RETENTION_MONTHS).",
+		}),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -312,6 +318,7 @@ func New() *Metrics {
 		m.EngagementSendsTotal,
 		m.RecorderWriteFailuresTotal,
 		m.EngagementStuckSending,
+		m.SamplePartitionsDropped,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
 		m.ServerEventsTotal,

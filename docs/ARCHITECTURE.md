@@ -495,6 +495,20 @@ A monthly cron (or `pg_partman` extension) creates next month's
 partition before month-end. Dropping old data:
 `DROP TABLE samples_2025_01` — instant, no lock on live partitions.
 
+**Retention, as built** (`internal/samples/retention.go`): the table is
+`vehicle_state`, partitioned by month (`vehicle_state_yYYYY_MM`, UTC). With
+`RIVOLT_SAMPLE_RETENTION_MONTHS=N` (unset or `0` keeps everything; less than 3
+is refused at startup), a daily sweep drops every partition wholly older than
+N months: `DETACH PARTITION … CONCURRENTLY` (the recorder keeps writing), then
+`DROP TABLE`, one replica at a time (advisory lock), `lock_timeout 5s`, and an
+interrupted detach is finished on the next run; each dropped partition is
+logged and counted (`rivolt_sample_partitions_dropped_total`). Samples live at least N months
+and less than N+1. Drives, charges and everything derived from them are
+separate tables and stay; what goes is the per-sample detail behind old drive
+and charge pages (charts, and the drive page's map, which is drawn from samples
+today; `drives.route_polyline` is the fallback for an old drive's map). A
+restore skips samples older than the cutoff and reports how many.
+
 **Option B — TimescaleDB**:
 
 Adopt when the first of these is true:

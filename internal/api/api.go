@@ -62,6 +62,11 @@ import (
 // user's uid — there is no singleton "current user" anywhere in
 // the API surface.
 type Deps struct {
+	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
+	// samples forever). A restore skips samples older than the cutoff, which
+	// the next retention sweep would delete anyway.
+	SampleRetentionMonths int
+
 	Rivian rivian.Client
 	// Accounts hands out per-user *rivian.LiveClient instances. The
 	// /api/settings/rivian sign-in surface resolves the request user

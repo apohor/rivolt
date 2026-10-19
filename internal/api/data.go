@@ -634,6 +634,9 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		}
 		defer closeSrc()
 		gate := newRestoreGate(time.Now())
+		if d.SampleRetentionMonths > 0 {
+			gate.sampleFrom = samples.RetentionCutoff(time.Now(), d.SampleRetentionMonths)
+		}
 		if d.DB != nil {
 			if vs, verr := db.ListUserVehicles(r.Context(), d.DB, uid); verr == nil {
 				for _, v := range vs {
@@ -823,6 +826,10 @@ type restoreResult struct {
 	// Skipped counts rows left out because their time is outside the
 	// accepted range (a real backup has none).
 	Skipped int `json:"skipped,omitempty"`
+	// SamplesPastRetention counts samples left out because they are older
+	// than the install keeps raw samples (RIVOLT_SAMPLE_RETENTION_MONTHS);
+	// their drives and charges are restored.
+	SamplesPastRetention int `json:"samples_past_retention,omitempty"`
 }
 
 // A restore file is untrusted input: signups are instant, and every distinct
@@ -842,6 +849,10 @@ type restoreGate struct {
 	owned    map[string]bool // Rivian ids already on the account
 	fresh    map[string]bool // ids this restore would create
 	skipped  atomic.Int64
+	// sampleFrom is the sample retention cutoff (zero: keep all); older
+	// samples are counted in pastRetention and left out.
+	sampleFrom    time.Time
+	pastRetention atomic.Int64
 }
 
 func newRestoreGate(now time.Time) *restoreGate {
@@ -856,6 +867,20 @@ func (g *restoreGate) timesOK(ts ...time.Time) bool {
 			g.skipped.Add(1)
 			return false
 		}
+	}
+	return true
+}
+
+// sampleOK is timesOK for a sample, which must also be inside the install's
+// sample retention: an older one would recreate a dropped partition only for
+// the next sweep to delete it.
+func (g *restoreGate) sampleOK(t time.Time) bool {
+	if !g.timesOK(t) {
+		return false
+	}
+	if !g.sampleFrom.IsZero() && t.Before(g.sampleFrom) {
+		g.pastRetention.Add(1)
+		return false
 	}
 	return true
 }
@@ -973,7 +998,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := dec.Decode(&v); err != nil {
 					return wrap(err)
 				}
-				if !gate.timesOK(v.At) {
+				if !gate.sampleOK(v.At) {
 					return nil
 				}
 				if err := gate.vehicleOK(v.VehicleID); err != nil {
@@ -1005,7 +1030,8 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 	if !sawArray {
 		return res, errRestoreNotBackup
 	}
-	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load())}
+	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load()),
+		SamplesPastRetention: int(gate.pastRetention.Load())}
 	return res, nil
 }
 
