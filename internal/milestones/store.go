@@ -92,6 +92,40 @@ func nullTime(t time.Time) any {
 	return t.UTC()
 }
 
+// PendingPush: see Store. The claim key is the one the push is sent under
+// (milestone:<key>:<vehicle id>), so "pushed" is read from engagement_sends and
+// nothing new is stored.
+func (s *pgStore) PendingPush(ctx context.Context, since time.Time) ([]Row, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.user_id, m.vehicle_id, v.rivian_vehicle_id, m.key, m.achieved_at, m.detail
+		  FROM milestones m
+		  JOIN vehicles v ON v.id = m.vehicle_id
+		  JOIN users u ON u.id = m.user_id AND NOT u.disabled
+		 WHERE m.status = 'achieved' AND m.dismissed_at IS NULL AND m.achieved_at > $1::timestamptz
+		   AND NOT EXISTS (
+		       SELECT 1 FROM engagement_sends e
+		        WHERE e.user_id = m.user_id AND e.kind = 'milestone'
+		          AND e.key = 'milestone:' || m.key || ':' || m.vehicle_id::text
+		          AND e.status = 'sent')
+		 ORDER BY m.achieved_at`, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Row
+	for rows.Next() {
+		r := Row{Status: StatusAchieved}
+		var detail []byte
+		if err := rows.Scan(&r.User, &r.Vehicle, &r.RivianID, &r.Key, &r.AchievedAt, &detail); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(detail, &r.Detail)
+		r.Kind = kindOfKey(r.Key)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // List returns the account's milestone cards: achieved since the cutoff and not
 // dismissed, newest first.
 func (s *PGStore) List(ctx context.Context, uid uuid.UUID, since time.Time) ([]Row, error) {
