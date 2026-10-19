@@ -392,6 +392,9 @@ type failLimiter struct {
 	max    int
 	window time.Duration
 	now    func() time.Time
+	// onLockout, when set, is called once each time a key reaches the limit
+	// (never with the key, so no address leaves the limiter).
+	onLockout func()
 
 	mu    sync.Mutex
 	fails map[string][]time.Time
@@ -438,7 +441,11 @@ func (l *failLimiter) fail(key string) {
 			l.prune(k, now)
 		}
 	}
-	l.fails[key] = append(l.prune(key, now), now)
+	ts := append(l.prune(key, now), now)
+	l.fails[key] = ts
+	if len(ts) == l.max && l.onLockout != nil {
+		l.onLockout()
+	}
 }
 
 func (l *failLimiter) reset(key string) {
