@@ -40,9 +40,12 @@ func TestColdRangeFromOwnDriveWeather(t *testing.T) {
 		return id
 	}
 	av, bv, r2 := mkVeh(alice, "rv-cold-a", "R1T", 100), mkVeh(bob, "rv-cold-b", "R1S", 100), mkVeh(alice, "rv-cold-r2", "R2", 90)
-	at := time.Now().Add(-48 * time.Hour)
+	base := time.Now().Add(-24 * 20 * time.Hour)
+	n := 0
 	drive := func(vid, uid uuid.UUID, id string, mi, kwh float64, tempC *float64) {
 		t.Helper()
+		n++
+		at := base.Add(time.Duration(n) * 3 * time.Hour) // live drives of one truck must not overlap
 		if _, err := pool.ExecContext(ctx, `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, energy_used_kwh, source)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,'live')`, uid, vid, id, at, at.Add(time.Hour), mi, kwh); err != nil {
 			t.Fatal(err)
