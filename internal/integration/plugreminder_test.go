@@ -39,7 +39,7 @@ func TestPlugReminderSource(t *testing.T) {
 	}
 	optedIn, noZone, noDevice, demoish := mk("optin"), mk("nozone"), mk("nodevice"), mk("demoish")
 	for _, u := range []uuid.UUID{optedIn, noZone, demoish} {
-		exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, on_plug_in_reminder) VALUES ($1,'https://push.example/'||$1::text,'k','a', TRUE)`, u)
+		exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, on_plug_in_reminder) VALUES ($1,$2,'k','a', TRUE)`, u, "https://push.example/"+u.String())
 	}
 	exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,'https://push.example/off','k','a')`, noDevice) // default: off
 	exec(`INSERT INTO engagement_prefs (user_id, timezone, plug_threshold_pct, plug_remind_at) VALUES ($1,'America/Chicago',35,'21:30')`, optedIn)
