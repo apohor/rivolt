@@ -429,6 +429,8 @@ func New(d Deps) http.Handler {
 						Kratos:      d.Kratos,
 						Logger:      d.Logger,
 						RememberFor: d.HydraRememberFor,
+						// 10 wrong passwords per address per 15 minutes, from anywhere.
+						Failures: newFailLimiter(10, 15*time.Minute),
 					}
 					mountHydraBridge(r, hd)
 				}
