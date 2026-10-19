@@ -33,6 +33,17 @@ for (const w of [390, 1280] as const) {
   });
 }
 
+test("the note also shows when the server names the flag `thinned` (either name counts)", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
+  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j({ ...base, thinned: true })));
+  await page.goto("/drives/drive-old");
+  await expect(page.locator("[data-thinned-note]")).toBeVisible();
+  await ctx.close();
+});
+
 test("no note when the drive has full detail or the server doesn't say", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   for (const t of [false, undefined]) {

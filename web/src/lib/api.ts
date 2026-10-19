@@ -316,6 +316,8 @@ export type Drive = {
   // True (on GET /api/drives/{id} only) when a month this drive spans is shown from reduced samples: older than 90 days,
   // so its route and charts come from a lighter recording. Absent otherwise, and for a week after an admin restore.
   samples_reduced?: boolean;
+  // The same signal under the name backend's #682 sends today (on the drive detail and list rows); either one counts.
+  thinned?: boolean;
   ID: string;
   VehicleID: string;
   StartedAt: string;
