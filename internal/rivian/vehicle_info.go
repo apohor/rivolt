@@ -31,6 +31,8 @@ const DefaultPackKWh = 131.0
 //
 // An earlier version had Max at 180 kWh, which is neither the usable (141) nor
 // the gross (149) figure, and Gen 2 Large at 141.5 (that is the Max pack).
+// Gen 1 Standard is 105: sources give 105 and 106 for it, and a usable figure
+// cannot exceed the gross one, so the lower, consistent value is used.
 //
 // The optionIds seen on real trucks (prod, 2026-10) are "PKG-LCH", "PKG-ADV",
 // "PKG-ASC", "BLD-DR1T", "BLD-TR1S" and "BLD-QR1S": they do not encode the pack,
@@ -41,46 +43,58 @@ const DefaultPackKWh = 131.0
 //
 // Model year >= 2025 or a trim prefix of "G2-" indicates Gen 2.
 func InferPackKWh(model, trimID string, modelYear int) float64 {
+	kwh, _ := InferPackKWhKnown(model, trimID, modelYear)
+	return kwh
+}
+
+// InferPackKWhKnown is InferPackKWh plus whether the pack was actually
+// identified: true when a pack token in the trim matched (or the model has a
+// single pack, the R2), false for the model-only default. Callers that show the
+// figure as the truck's "spec" must use it, because a guessed default beside the
+// truck's own reported capacity reads as a degradation that is not there (a Gen 2
+// Standard owner would see 141.5 kWh beside a reported ~92).
+func InferPackKWhKnown(model, trimID string, modelYear int) (kwh float64, known bool) {
 	t := strings.ToUpper(strings.TrimSpace(trimID))
 	gen2 := modelYear >= 2025 || strings.HasPrefix(t, "G2-")
 	// Explicit pack-size tokens take precedence.
 	switch {
 	case strings.Contains(t, "STD-PLUS") || strings.Contains(t, "STANDARD-PLUS"):
 		if gen2 {
-			return 92.5
+			return 92.5, true
 		}
-		return 121.0
+		return 121.0, true
 	case strings.Contains(t, "MAX"):
 		if gen2 {
-			return 141.5
+			return 141.5, true
 		}
-		return 141.0
+		return 141.0, true
 	case strings.Contains(t, "LRG") || strings.Contains(t, "LARGE"):
 		if gen2 {
-			return 109.4
+			return 109.4, true
 		}
-		return 131.0
+		return 131.0, true
 	case strings.HasPrefix(t, "G2-STD"):
-		return 92.5
+		return 92.5, true
 	case strings.HasPrefix(t, "STD") || strings.Contains(t, "STANDARD"):
-		return 106.0
+		return 105.0, true
 	}
 	// Model-only defaults (no pack encoded in trim, e.g. PKG-ADV).
 	m := strings.ToUpper(strings.TrimSpace(model))
 	switch m {
 	case "R1T", "R1S":
+		// Not identified: the trim does not name the pack.
 		if gen2 {
-			return 141.5
+			return 141.5, false
 		}
-		return 131.0
+		return 131.0, false
 	case "R2":
 		// R2: the two in the fleet (2027 MY, new) report 91.47 and
 		// 91.64 kWh; R1 Gen2 trucks report ~101% of their 141.5 spec,
 		// so the pack is ~91.5. (75 was a pre-launch guess: pack health
 		// read 122%.)
-		return 91.5
+		return 91.5, true
 	}
-	return DefaultPackKWh
+	return DefaultPackKWh, false
 }
 
 // qVehicleImages pulls pre-rendered mobile images for the vehicle the

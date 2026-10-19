@@ -199,7 +199,13 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 		// Parallax charge_state / legacy batteryCapacity). Their ratio is
 		// the vehicle's own degradation signal; equal (100%) when no live
 		// capacity has been observed yet.
-		documentedKWh := rivian.InferPackKWh(model.String, trim.String, int(modelYear.Int64))
+		// Only a pack we identified is a spec; the model-only default is a guess
+		// and is reported as 0 ("unknown"), so the UI draws no spec line and no
+		// degradation against it.
+		documentedKWh, specKnown := rivian.InferPackKWhKnown(model.String, trim.String, int(modelYear.Int64))
+		if !specKnown {
+			documentedKWh = 0
+		}
 		reportedKWh := nameplateKWh.Float64
 		var reportedPctOfDocumented float64
 		if documentedKWh > 0 && reportedKWh > 0 {

@@ -55,7 +55,7 @@ func TestInferPackKWh(t *testing.T) {
 		{"gen1_trim_but_2025_is_gen2", "R1T", "LRG-DM-STD", 2025, 109.4},
 		{"max_pack", "R1T", "MAX-QM", 2023, 141.0},
 		{"gen2_standard_plus", "R1T", "G2-STD-DM", 2025, 92.5},
-		{"gen1_standard", "R1T", "STD-DM", 2023, 106.0},
+		{"gen1_standard", "R1T", "STD-DM", 2023, 105.0},
 		{"pkg_adv_gen1_falls_back_to_large", "R1T", "PKG-ADV", 2023, 131.0},
 		{"pkg_adv_gen2_falls_back_to_large", "R1T", "PKG-ADV", 2025, 141.5},
 		{"r2", "R2", "", 2027, 91.5},
