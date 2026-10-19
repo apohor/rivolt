@@ -22,6 +22,7 @@ import {
   type OdoTrack,
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
+import { AmbientTempLine } from "./AmbientTempLine";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -374,6 +375,7 @@ export default function NowCard({
             </div>
           ))}
         </dl>
+        {next && <AmbientTempLine ambient={server?.ambient} />}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
           <p data-testid="now-freshness">{freshnessLine(view)}</p>
