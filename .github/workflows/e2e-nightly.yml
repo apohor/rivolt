@@ -7,14 +7,20 @@
 # month) turns over in the zone CI's browsers use, which is when date-bound
 # specs break.
 #
+# Weekly (Mondays 00:45 UTC) the whole chromium suite also runs with the clock
+# pinned (STUB_NOW, web/e2e/clock.ts) at fixed boundary instants: a month's last
+# minutes, the 1st, a Monday and New Year. A spec that depends on the date it
+# runs fails there, in a week, instead of one night a month.
+#
 # A failure opens, or comments on, one open issue titled "e2e red on main"
-# (label: ci). A green run after a red one says so on that issue; the lead
-# closes it.
+# (label: ci). A green run after a red one says so on that issue, naming which
+# run (daily or boundary) it was; the lead closes it.
 name: e2e nightly
 
 on:
   schedule:
     - cron: "15 0 * * *"
+    - cron: "45 0 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -28,6 +34,7 @@ jobs:
   # The same matrix and steps as build.yml's e2e job (keep them in step).
   e2e:
     name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
+    if: github.event.schedule != '45 0 * * 1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -98,11 +105,81 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The suite at fixed instants (STUB_NOW pins every fixture and the browser
+  # clock). The instants are fixed strings here, never inputs.
+  e2e-boundaries:
+    name: e2e at ${{ matrix.at.label }} (${{ matrix.shard }}/3)
+    if: github.event.schedule == '45 0 * * 1' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        at:
+          - { label: month-end, now: "2026-10-31T23:55:00Z" }
+          - { label: month-start, now: "2026-11-01T00:05:00Z" }
+          - { label: monday, now: "2026-11-02T00:05:00Z" }
+          - { label: new-year, now: "2027-01-01T00:05:00Z" }
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Restore Playwright browsers
+        id: pw-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Playwright at ${{ matrix.at.now }}
+        working-directory: web
+        env:
+          CI: "true"
+          STUB_NOW: ${{ matrix.at.now }}
+        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/3
+
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-boundary-${{ matrix.at.label }}-${{ matrix.shard }}
+          path: |
+            web/playwright-report
+            web/e2e/__screenshots__
+            web/e2e/__results__
+          if-no-files-found: ignore
+          retention-days: 7
+
   # One issue, never a pile: a red run opens it or comments on the open one; a
   # green run after a red one comments that it's green again.
   report:
-    needs: e2e
-    if: always() && needs.e2e.result != 'cancelled' && needs.e2e.result != 'skipped'
+    needs: [e2e, e2e-boundaries]
+    if: always() && needs.e2e.result != 'cancelled' && needs.e2e-boundaries.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -110,21 +187,29 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      RESULT: ${{ needs.e2e.result }}
+      DAILY: ${{ needs.e2e.result }}
+      BOUNDARIES: ${{ needs.e2e-boundaries.result }}
       RUN_ID: ${{ github.run_id }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       TITLE: e2e red on main
     steps:
       - name: Open, update or clear the issue
         run: |
+          # Red if either half failed; a half that didn't run this time is skipped.
+          RESULT=success
+          for r in "$DAILY" "$BOUNDARIES"; do [ "$r" = "success" ] || [ "$r" = "skipped" ] || RESULT=failure; done
+          # Name the run, so a green daily run doesn't read as clearing a boundary failure.
+          kinds=""
+          [ "$DAILY" != "skipped" ] && kinds="daily"
+          [ "$BOUNDARIES" != "skipped" ] && kinds="${kinds:+$kinds + }pinned-clock boundary"
           open=$(gh issue list --state open --label ci --search "\"$TITLE\" in:title" --json number,title \
             --jq "[.[] | select(.title == env.TITLE)][0].number // empty")
           if [ "$RESULT" = "success" ]; then
-            [ -n "$open" ] && gh issue comment "$open" --body "Green again on main: $RUN_URL"
+            [ -n "$open" ] && gh issue comment "$open" --body "The $kinds run is green: $RUN_URL"
             exit 0
           fi
           failed=$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name')
-          body=$(printf 'Nightly e2e on main failed: %s\n\nFailed jobs:\n%s\n\nThe artifacts (e2e-nightly-*) hold the report, screenshots and error context for 7 days.' "$RUN_URL" "${failed:-"- (see the run)"}")
+          body=$(printf 'The %s e2e run on main failed: %s\n\nFailed jobs:\n%s\n\nThe artifacts (e2e-nightly-*, e2e-boundary-*) hold the report, screenshots and error context for 7 days.' "$kinds" "$RUN_URL" "${failed:-"- (see the run)"}")
           if [ -n "$open" ]; then
             gh issue comment "$open" --body "$body"
           else
