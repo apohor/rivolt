@@ -917,6 +917,32 @@ export type ChargeCluster = {
   member_ids: string[];
 };
 
+// GET /api/vehicles/{id}/trends: one row per local month (a month under min_month_distance is a gap in the chart),
+// and the usable-capacity estimate from charges. capacity is null on a truck that cannot be tracked (R2).
+export type TruckTrends = {
+  units: "imperial" | "metric";
+  distance_unit: string;
+  efficiency_unit: string;
+  timezone: string;
+  months: number;
+  min_month_distance: number;
+  min_months: number;
+  qualifying_months: number;
+  efficiency: { month: string; distance: number; energy_kwh: number; efficiency: number | null; drives: number }[];
+  capacity: {
+    samples: { at: string; kwh_effective: number }[];
+    median_kwh: number | null;
+    // The documented figure, only when the trim identified the pack; null means draw no spec line.
+    spec_kwh?: number | null;
+    reported_kwh?: number | null;
+    qualifying_count: number;
+    span_days: number;
+    min_samples: number;
+    min_span_days: number;
+    min_soc_delta_pct?: number;
+  } | null;
+};
+
 // Efficiency insights (architect's /api/insights/efficiency): efficiency by outside temperature,
 // speed and drive mode over a period, with labels and values already in the requested units.
 // not_enough_data marks a bucket under min_bucket_distance; efficiency is null only when it has
@@ -1492,6 +1518,15 @@ export const backend = {
         (until ? `&until=${encodeURIComponent(until)}` : "") +
         (vehicleID ? `&vehicle=${encodeURIComponent(vehicleID)}` : ""),
     ),
+  // Per-truck trends (monthly efficiency, estimated usable capacity). Null when the server has no such endpoint.
+  trends: async (vehicleID: string, units: "imperial" | "metric", months = 12): Promise<TruckTrends | null> => {
+    try {
+      return await api.get<TruckTrends>(`/api/vehicles/${encodeURIComponent(vehicleID)}/trends?months=${months}&units=${units}`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
   packHealth: (vehicleID: string) =>
     api.get<PackHealthResponse>(
       `/api/vehicles/${encodeURIComponent(vehicleID)}/pack-health`,
