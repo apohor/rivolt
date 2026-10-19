@@ -50,6 +50,11 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	exec(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source) VALUES
 		($1,$2,'c-sub',$3::timestamptz,$3::timestamptz + interval '15 seconds',0.2,'live')`, src, vid, base.Add(30*time.Hour))
 
+	exec(`INSERT INTO saved_trips (user_id, name, inputs, plan) VALUES ($1,'Austin to Dallas','{"origin":"A"}','{"ok":true}'), ($1,'Weekend','{"origin":"B"}',NULL)`, src)
+	exec(`INSERT INTO drive_recaps (user_id, drive_id, model, recap) VALUES ($1,'d-1','m','a recap'), ($1,'d-2','m','another')`, src)
+	exec(`INSERT INTO drive_efficiency (user_id, drive_id, model, analysis_text, result_json) VALUES ($1,'d-1','m','text','{"a":1}')`, src)
+	exec(`INSERT INTO milestones (user_id, vehicle_id, key, status, detail, dismissed_at) VALUES ($1,$2,'miles:1000','achieved','{"x":1}',now()), ($1,$2,'miles:5000','backfilled','{}',NULL)`, src, vid)
+
 	count := func(uid uuid.UUID, table string) int {
 		t.Helper()
 		var n int
@@ -61,6 +66,14 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	want := map[string]int{"drives": count(src, "drives"), "charges": count(src, "charges"), "samples": count(src, "vehicle_state")}
 	if want["drives"] != 6 || want["charges"] != 3 || want["samples"] != 40 {
 		t.Fatalf("seed = %v", want)
+	}
+	extraTables := map[string]string{"saved_trips": "saved_trips", "drive_recaps": "drive_recaps", "drive_analyses": "drive_efficiency", "milestones": "milestones"}
+	wantExtra := map[string]int{}
+	for key, table := range extraTables {
+		wantExtra[key] = count(src, table)
+	}
+	if wantExtra["saved_trips"] != 2 || wantExtra["drive_recaps"] != 2 || wantExtra["drive_analyses"] != 1 || wantExtra["milestones"] != 2 {
+		t.Fatalf("extras seed = %v", wantExtra)
 	}
 	deps := backupTestDeps(pool)
 
@@ -78,6 +91,12 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	if err := json.Unmarshal(backup, &raw); err != nil {
 		t.Fatal(err)
 	}
+	for key, n := range wantExtra {
+		var arr []json.RawMessage
+		if err := json.Unmarshal(raw[key], &arr); err != nil || len(arr) != n {
+			t.Errorf("backup %s = %d rows (%v), the table holds %d", key, len(arr), err, n)
+		}
+	}
 	for k, dst := range map[string]*[]json.RawMessage{"drives": &bk.Drives, "charges": &bk.Charges, "samples": &bk.Samples} {
 		if err := json.Unmarshal(raw[k], dst); err != nil {
 			t.Fatalf("%s: %v", k, err)
@@ -93,9 +112,20 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("export = %d: %s", rec.Code, rec.Body.String())
 	}
-	var ex struct{ Drives, Charges []json.RawMessage }
+	var ex struct {
+		Drives, Charges []json.RawMessage
+		SavedTrips      []json.RawMessage `json:"saved_trips"`
+		DriveRecaps     []json.RawMessage `json:"drive_recaps"`
+		DriveAnalyses   []json.RawMessage `json:"drive_analyses"`
+		Milestones      []json.RawMessage `json:"milestones"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &ex); err != nil {
 		t.Fatal(err)
+	}
+	if len(ex.SavedTrips) != wantExtra["saved_trips"] || len(ex.DriveRecaps) != wantExtra["drive_recaps"] ||
+		len(ex.DriveAnalyses) != wantExtra["drive_analyses"] || len(ex.Milestones) != wantExtra["milestones"] {
+		t.Errorf("export extras = %d trips, %d recaps, %d analyses, %d milestones; the tables hold %v",
+			len(ex.SavedTrips), len(ex.DriveRecaps), len(ex.DriveAnalyses), len(ex.Milestones), wantExtra)
 	}
 	if len(ex.Drives) != want["drives"] || len(ex.Charges) != want["charges"] {
 		t.Errorf("export rows = %d drives, %d charges; the tables hold %d and %d", len(ex.Drives), len(ex.Charges), want["drives"], want["charges"])
@@ -124,6 +154,11 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 		for table, n := range map[string]int{"drives": want["drives"], "charges": want["charges"]} {
 			if got := count(dst, table); got != n {
 				t.Errorf("after restore %d: %s has %d rows, want %d", i, table, got, n)
+			}
+		}
+		for key, table := range extraTables {
+			if got := count(dst, table); got != wantExtra[key] {
+				t.Errorf("after restore %d: %s has %d rows, want %d", i, table, got, wantExtra[key])
 			}
 		}
 	}
