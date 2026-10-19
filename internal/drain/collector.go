@@ -137,7 +137,38 @@ type session interface {
 type dbSession struct{ conn *sql.Conn }
 
 func (s *dbSession) compute(ctx context.Context, now time.Time) ([]Stat, error) {
-	return Compute(ctx, s.conn, now)
+	var stats []Stat
+	err := inWorkMem(ctx, s.conn, func(q Querier) error {
+		var err error
+		stats, err = Compute(ctx, q, now)
+		return err
+	})
+	return stats, err
+}
+
+// computeWorkMem is the sort/hash memory for the fleet scan. At the default 4 MB
+// the 7-day aggregate spills about 95 MB to temp files on every run (measured on
+// prod, the main source of the database's temp writes); 64 MB keeps it in memory.
+// It is set with SET LOCAL inside a read-only transaction, so it covers this one
+// query and nothing else on the connection or the server.
+const computeWorkMem = "64MB"
+
+// inWorkMem runs fn inside a read-only transaction on conn with work_mem raised
+// for that transaction only. The leader's advisory lock is session-level, so it
+// is not affected by the transaction ending.
+func inWorkMem(ctx context.Context, conn *sql.Conn, fn func(Querier) error) error {
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // read-only; a no-op after Commit
+	if _, err := tx.ExecContext(ctx, `SET LOCAL work_mem = '`+computeWorkMem+`'`); err != nil {
+		return fmt.Errorf("drain: set work_mem: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *dbSession) release(discard bool) {
