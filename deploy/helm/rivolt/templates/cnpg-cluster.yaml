@@ -72,6 +72,15 @@ spec:
         {{- with .connectionLimit }}
         connectionLimit: {{ . }}
         {{- end }}
+        {{- with .inRoles }}
+        # Predefined roles granted by the operator (as superuser): e.g.
+        # pg_read_all_stats lets a reporting role read pg_stat_statements
+        # and pg_stat_activity query text, which the app role can't grant.
+        inRoles:
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+        {{- end }}
         {{- with .passwordSecret }}
         passwordSecret:
           name: {{ .name | quote }}
