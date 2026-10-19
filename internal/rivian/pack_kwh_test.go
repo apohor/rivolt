@@ -45,15 +45,17 @@ func TestInferPackKWhKnownOnlyWhenThePackIsIdentified(t *testing.T) {
 		year        int
 		known       bool
 	}{
-		"PKG-ADV gen1":  {"R1T", "PKG-ADV", 2023, false},
-		"PKG-LCH":       {"R1T", "PKG-LCH", 2022, false},
-		"BLD-DR1T gen2": {"R1T", "BLD-DR1T", 2025, false},
-		"BLD-TR1S gen2": {"R1S", "BLD-TR1S", 2026, false},
-		"unknown model": {"X", "", 2020, false},
-		"max token":     {"R1T", "MAX-QM", 2023, true},
-		"gen2 large":    {"R1S", "G2-LRG-DM", 2025, true},
-		"gen1 standard": {"R1T", "STD-DM", 2022, true},
-		"r2":            {"R2", "BLD-PRF2", 2027, true},
+		"PKG-ADV gen1":   {"R1T", "PKG-ADV", 2023, false},
+		"PKG-LCH":        {"R1T", "PKG-LCH", 2022, false},
+		"BLD-DR1T gen2":  {"R1T", "BLD-DR1T", 2025, false},
+		"BLD-TR1S gen2":  {"R1S", "BLD-TR1S", 2026, false},
+		"unknown model":  {"X", "", 2020, false},
+		"max token":      {"R1T", "MAX-QM", 2023, true},
+		"gen2 large":     {"R1S", "G2-LRG-DM", 2025, true},
+		"gen1 standard":  {"R1T", "STD-DM", 2022, true},
+		"r2":             {"R2", "BLD-PRF2", 2027, true},
+		"r2 unseen trim": {"R2", "BLD-STD2", 2027, false},
+		"r2 no trim":     {"R2", "", 2027, false},
 	} {
 		if _, known := InferPackKWhKnown(c.model, c.trim, c.year); known != c.known {
 			t.Errorf("%s: known = %v, want %v", name, known, c.known)

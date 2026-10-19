@@ -48,8 +48,9 @@ func InferPackKWh(model, trimID string, modelYear int) float64 {
 }
 
 // InferPackKWhKnown is InferPackKWh plus whether the pack was actually
-// identified: true when a pack token in the trim matched (or the model has a
-// single pack, the R2), false for the model-only default. Callers that show the
+// identified: true when a pack token in the trim matched, or the trim is the
+// R2's one seen on real trucks (BLD-PRF2); false for the model-only default and
+// for an R2 trim not seen yet. Callers that show the
 // figure as the truck's "spec" must use it, because a guessed default beside the
 // truck's own reported capacity reads as a degradation that is not there (a Gen 2
 // Standard owner would see 141.5 kWh beside a reported ~92).
@@ -92,7 +93,11 @@ func InferPackKWhKnown(model, trimID string, modelYear int) (kwh float64, known 
 		// 91.64 kWh; R1 Gen2 trucks report ~101% of their 141.5 spec,
 		// so the pack is ~91.5. (75 was a pre-launch guess: pack health
 		// read 122%.)
-		return 91.5, true
+		//
+		// Known only for the trims seen on real R2s: when Rivian ships a second
+		// R2 pack, a new trim must not inherit this one's figure as its "spec"
+		// beside a lower reported capacity (DA, #636).
+		return 91.5, t == "BLD-PRF2"
 	}
 	return DefaultPackKWh, false
 }
