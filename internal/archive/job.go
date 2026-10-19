@@ -1,7 +1,9 @@
 package archive
 
 import (
+	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -145,10 +147,10 @@ func NewArchiver(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Archiver, error
 // objects left) is passed over so later months still get archived. A store,
 // network or database error stops the run at once.
 //
-// A (user, vehicle) whose object needs re-archiving (rows restored or
-// imported into an archived month) is not touched here: its month may be
-// thinned already, and only a merge with the existing object (A4) keeps the
-// full detail.
+// A (user, vehicle) whose object needs re-archiving (rows added to an
+// archived month: restore, import, replay) is rewritten: from the database
+// if its month wasn't thinned (the database still has every row), otherwise
+// merged with the existing object, whose rows win where both have one.
 func (a *Archiver) Run(ctx context.Context) (int64, error) {
 	conn, err := a.db.Conn(ctx)
 	if err != nil {
@@ -266,8 +268,8 @@ func archivableMonths(ctx context.Context, conn *sql.Conn, now time.Time) ([]tim
 
 type pair struct{ user, vehicle uuid.UUID }
 
-// pendingPairs is every (user, vehicle) with rows in month and no archive_months
-// row, or one that was never verified. needs_rearchive rows are left to A4.
+// pendingPairs is every (user, vehicle) with rows in month and no verified
+// archive object, or one flagged for re-archiving.
 func pendingPairs(ctx context.Context, conn *sql.Conn, month time.Time) ([]pair, error) {
 	rows, err := conn.QueryContext(ctx, `
 		SELECT DISTINCT s.user_id, s.vehicle_id
@@ -276,7 +278,7 @@ func pendingPairs(ctx context.Context, conn *sql.Conn, month time.Time) ([]pair,
 		   AND NOT EXISTS (
 		       SELECT 1 FROM archive_months m
 		        WHERE m.user_id = s.user_id AND m.vehicle_id = s.vehicle_id AND m.month = $1::date
-		          AND (m.verified_at IS NOT NULL OR m.needs_rearchive))
+		          AND m.verified_at IS NOT NULL AND NOT m.needs_rearchive)
 		 ORDER BY 1, 2`, month, month.AddDate(0, 1, 0))
 	if err != nil {
 		return nil, err
@@ -350,16 +352,80 @@ func (a *Archiver) archiveOne(ctx context.Context, conn *sql.Conn, cols []column
 		return 0, 0, err
 	}
 	aad := ObjectAAD(uid, vid, MonthString(month))
-	obj, m, err := a.build(ctx, conn, cols, month, uid, vid, key, aad)
+	objKey := ObjectKey(a.env, uid, vid, month)
+
+	// A re-archive: is there a verified object, and was the month thinned?
+	// started is the database's clock before reading anything, to tell a
+	// flag set during this run (kept) from the one that started it.
+	var rearchive, thinned bool
+	var started time.Time
+	if err := conn.QueryRowContext(ctx, `
+		SELECT COALESCE((SELECT verified_at IS NOT NULL AND needs_rearchive FROM archive_months
+		                  WHERE user_id = $1 AND vehicle_id = $2 AND month = $3::date), FALSE),
+		       EXISTS (SELECT 1 FROM sample_tiers WHERE month = $3::date),
+		       clock_timestamp()`, uid, vid, month).Scan(&rearchive, &thinned, &started); err != nil {
+		return 0, 0, err
+	}
+	var merge io.Reader
+	if rearchive && thinned {
+		// The month's database rows are the thinned copy: merge with the
+		// object, which holds every row it was written with.
+		body, err := a.store.Get(ctx, objKey)
+		if err != nil {
+			return 0, 0, fmt.Errorf("re-archive %s: %w", MonthString(month), err)
+		}
+		defer body.Close()
+		dec, err := NewDecryptReader(body, key, aad)
+		if err != nil {
+			return 0, 0, err
+		}
+		gz, err := gzip.NewReader(dec)
+		if err != nil {
+			return 0, 0, fmt.Errorf("archive: gzip: %w", err)
+		}
+		// Read to the end of the encrypted stream: the final chunk is
+		// authenticated last, and a late failure must fail the merge.
+		merge = io.MultiReader(gz, readerFunc(func([]byte) (int, error) {
+			if _, err := io.Copy(io.Discard, dec); err != nil {
+				return 0, err
+			}
+			return 0, io.EOF
+		}))
+	}
+	obj, m, err := a.build(ctx, conn, cols, month, uid, vid, key, aad, merge)
 	if err != nil {
 		return 0, 0, err
 	}
 	if m.Rows == 0 {
 		return 0, 0, nil
 	}
-	objKey := ObjectKey(a.env, uid, vid, month)
-	if err := a.store.Put(ctx, objKey, obj, "application/octet-stream"); err != nil {
-		return m.Rows, m.Bytes, err
+	if rearchive {
+		// Replacing a verified object: write and verify a copy beside it
+		// first, then the object itself, so a good copy is in the store at
+		// every step. A stale .new from a crashed run is overwritten.
+		newKey := objKey + ".new"
+		if err := a.store.Put(ctx, newKey, obj, "application/octet-stream"); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+		if err := a.verify(ctx, newKey, key, aad, m); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+		if err := a.store.Put(ctx, objKey, obj, "application/octet-stream"); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+		if err := a.verify(ctx, objKey, key, aad, m); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+		if err := a.store.Delete(ctx, newKey); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+	} else {
+		if err := a.store.Put(ctx, objKey, obj, "application/octet-stream"); err != nil {
+			return m.Rows, m.Bytes, err
+		}
+		if err := a.verify(ctx, objKey, key, aad, m); err != nil {
+			return m.Rows, m.Bytes, err
+		}
 	}
 	mj, err := json.Marshal(m)
 	if err != nil {
@@ -368,43 +434,66 @@ func (a *Archiver) archiveOne(ctx context.Context, conn *sql.Conn, cols []column
 	if err := a.store.Put(ctx, ManifestKey(a.env, uid, vid, month), mj, "application/json"); err != nil {
 		return m.Rows, m.Bytes, err
 	}
-	if err := a.verify(ctx, objKey, key, aad, m); err != nil {
-		return m.Rows, m.Bytes, err
-	}
 	first, _ := time.Parse(TimeLayout, m.FirstAt)
 	last, _ := time.Parse(TimeLayout, m.LastAt)
-	// A verified row is never overwritten here (it is excluded from the
-	// pending set; the WHERE also holds against a concurrent writer).
+	// A row verified and not flagged is never overwritten (it isn't
+	// pending; the WHERE holds against a concurrent run too). The flag is
+	// cleared only if no write flagged the month after this run started.
 	_, err = conn.ExecContext(ctx, `
 		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, archived_at, verified_at)
 		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $9)
 		ON CONFLICT (user_id, vehicle_id, month) DO UPDATE
 		   SET rows = EXCLUDED.rows, first_at = EXCLUDED.first_at, last_at = EXCLUDED.last_at,
 		       sha256_object = EXCLUDED.sha256_object, bytes = EXCLUDED.bytes,
-		       archived_at = EXCLUDED.archived_at, verified_at = EXCLUDED.verified_at
-		 WHERE archive_months.verified_at IS NULL AND NOT archive_months.needs_rearchive`,
-		uid, vid, month, m.Rows, first, last, m.SHA256Object, m.Bytes, a.Now().UTC())
+		       archived_at = EXCLUDED.archived_at, verified_at = EXCLUDED.verified_at,
+		       needs_rearchive = COALESCE(archive_months.rearchive_requested_at > $10, FALSE)
+		 WHERE archive_months.verified_at IS NULL OR archive_months.needs_rearchive`,
+		uid, vid, month, m.Rows, first, last, m.SHA256Object, m.Bytes, a.Now().UTC(), started)
 	return m.Rows, m.Bytes, err
 }
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 // build streams the (user, vehicle, month) rows from one REPEATABLE READ
 // snapshot into an object, and checks the stream held every row the snapshot
 // counts.
-func (a *Archiver) build(ctx context.Context, conn *sql.Conn, cols []column, month time.Time, uid, vid uuid.UUID, key, aad []byte) ([]byte, Manifest, error) {
+//
+// With merge set (the plaintext CSV of the month's existing object, when the
+// month was thinned), the object's rows are loaded into a temporary table in
+// the same transaction and the month's database rows it lacks are added:
+// Postgres both parses and writes the CSV, so NULLs, empty strings and number
+// formats come out exactly as a fresh archive's.
+func (a *Archiver) build(ctx context.Context, conn *sql.Conn, cols []column, month time.Time, uid, vid uuid.UUID, key, aad []byte, merge io.Reader) ([]byte, Manifest, error) {
 	from, to := month.UTC(), month.UTC().AddDate(0, 1, 0)
-	if _, err := conn.ExecContext(ctx, `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`); err != nil {
+	begin := `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`
+	if merge != nil {
+		begin = `BEGIN ISOLATION LEVEL REPEATABLE READ` // the temporary table
+	}
+	if _, err := conn.ExecContext(ctx, begin); err != nil {
 		return nil, Manifest{}, err
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`) //nolint:errcheck
 	if _, err := conn.ExecContext(ctx, `SET LOCAL extra_float_digits = 1`); err != nil {
 		return nil, Manifest{}, err
 	}
+	// COPY takes no bind parameters: the literals are a uuid.UUID's String()
+	// and RFC 3339 times we formatted.
+	where := ` WHERE user_id = '` + uid.String() + `' AND vehicle_id = '` + vid.String() + `'` +
+		` AND at >= '` + from.Format(time.RFC3339) + `'::timestamptz AND at < '` + to.Format(time.RFC3339) + `'::timestamptz`
+	src := `vehicle_state` + where
+	if merge != nil {
+		if err := a.loadObject(ctx, conn, cols, merge, uid, vid); err != nil {
+			return nil, Manifest{}, err
+		}
+		src = `(SELECT * FROM archive_merge UNION ALL SELECT * FROM vehicle_state v` + where +
+			` AND NOT EXISTS (SELECT 1 FROM archive_merge o WHERE o.at = v.at)) merged`
+	}
 	var m Manifest
 	var first, last sql.NullString
 	if err := conn.QueryRowContext(ctx, `
-		SELECT count(*), `+tsText("min(at)")+`, `+tsText("max(at)")+`
-		  FROM vehicle_state WHERE user_id = $1 AND vehicle_id = $2 AND at >= $3 AND at < $4`,
-		uid, vid, from, to).Scan(&m.Rows, &first, &last); err != nil {
+		SELECT count(*), `+tsText("min(at)")+`, `+tsText("max(at)")+` FROM `+src).Scan(&m.Rows, &first, &last); err != nil {
 		return nil, Manifest{}, err
 	}
 	if m.Rows == 0 {
@@ -421,12 +510,7 @@ func (a *Archiver) build(ctx context.Context, conn *sql.Conn, cols []column, mon
 			sel[i] = id
 		}
 	}
-	// COPY takes no bind parameters: the literals are a uuid.UUID's String()
-	// and RFC 3339 times we formatted.
-	copySQL := `COPY (SELECT ` + strings.Join(sel, ", ") + ` FROM vehicle_state` +
-		` WHERE user_id = '` + uid.String() + `' AND vehicle_id = '` + vid.String() + `'` +
-		` AND at >= '` + from.Format(time.RFC3339) + `'::timestamptz AND at < '` + to.Format(time.RFC3339) + `'::timestamptz` +
-		` ORDER BY at) TO STDOUT WITH (FORMAT csv, HEADER true)`
+	copySQL := `COPY (SELECT ` + strings.Join(sel, ", ") + ` FROM ` + src + ` ORDER BY at) TO STDOUT WITH (FORMAT csv, HEADER true)`
 
 	capBytes := a.MaxObjectBytes
 	if capBytes <= 0 {
@@ -540,3 +624,49 @@ func (c *capWriter) Write(p []byte) (int, error) {
 type countWriter struct{ n int64 }
 
 func (c *countWriter) Write(p []byte) (int, error) { c.n += int64(len(p)); return len(p), nil }
+
+// loadObject copies an existing object's CSV (its header names the columns
+// it was written with, maybe fewer than today's) into the transaction's
+// temporary table archive_merge, shaped like vehicle_state. Every row must
+// be the pair's own. A read error, including the object failing to
+// authenticate at its end, fails the COPY and with it the transaction.
+func (a *Archiver) loadObject(ctx context.Context, conn *sql.Conn, cols []column, merge io.Reader, uid, vid uuid.UUID) error {
+	if _, err := conn.ExecContext(ctx, `CREATE TEMP TABLE archive_merge (LIKE vehicle_state INCLUDING DEFAULTS) ON COMMIT DROP`); err != nil {
+		return err
+	}
+	br := bufio.NewReader(merge)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("archive: object header: %w", err)
+	}
+	known := map[string]bool{}
+	for _, c := range cols {
+		known[c.name] = true
+	}
+	header := strings.Split(strings.TrimRight(line, "\r\n"), ",")
+	ids := make([]string, len(header))
+	for i, h := range header {
+		if !known[h] {
+			return fmt.Errorf("%w: object column %q isn't in vehicle_state", ErrMismatch, h)
+		}
+		ids[i] = pgx.Identifier{h}.Sanitize()
+	}
+	if err := conn.Raw(func(dc any) error {
+		c, ok := dc.(*stdlib.Conn)
+		if !ok {
+			return fmt.Errorf("archive: driver connection is %T, want pgx", dc)
+		}
+		_, err := c.Conn().PgConn().CopyFrom(ctx, br, `COPY archive_merge (`+strings.Join(ids, ", ")+`) FROM STDIN WITH (FORMAT csv)`)
+		return err
+	}); err != nil {
+		return fmt.Errorf("archive: load object: %w", err)
+	}
+	var foreign int64
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM archive_merge WHERE user_id <> $1 OR vehicle_id <> $2`, uid, vid).Scan(&foreign); err != nil {
+		return err
+	}
+	if foreign > 0 {
+		return fmt.Errorf("%w: %d rows in the object aren't this user's and vehicle's", ErrMismatch, foreign)
+	}
+	return nil
+}

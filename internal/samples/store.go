@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/db"
 )
 
@@ -150,12 +151,39 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		return err
 	}
 	defer stmt.Close()
+	touched := map[vehicleMonth]bool{}
 	for _, v := range batch {
-		if _, err := stmt.ExecContext(ctx, s.sampleArgs(uuids[v.VehicleID], v)...); err != nil {
+		res, err := stmt.ExecContext(ctx, s.sampleArgs(uuids[v.VehicleID], v)...)
+		if err != nil {
 			return err
 		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			touched[vehicleMonth{uuids[v.VehicleID], monthOf(v.At)}] = true
+		}
+	}
+	if err := s.markRearchive(ctx, tx, touched); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+// vehicleMonth is a (vehicle, month) a write added rows to.
+type vehicleMonth struct {
+	vehicle uuid.UUID
+	month   time.Time
+}
+
+// markRearchive flags the archived months a write added rows to, in the
+// write's transaction (N19 A4): the archive job re-archives them, merging
+// with the object if the month was thinned. A month without an archive row
+// (the current one, for live writes) is a no-op.
+func (s *Store) markRearchive(ctx context.Context, tx *sql.Tx, touched map[vehicleMonth]bool) error {
+	for vm := range touched {
+		if err := archive.MarkRearchive(ctx, tx, s.userID, vm.vehicle, vm.month); err != nil {
+			return fmt.Errorf("mark %s for re-archiving: %w", vm.month.Format("2006-01"), err)
+		}
+	}
+	return nil
 }
 
 // bulkInsertRows bounds one multi-row INSERT: 500 rows × one param per
@@ -199,7 +227,28 @@ func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 			args = append(args, s.sampleArgs(uuids[v.VehicleID], v)...)
 		}
 		q.WriteString(" ON CONFLICT (vehicle_id, at) DO NOTHING")
-		if _, err := s.db.ExecContext(ctx, q.String(), args...); err != nil {
+		// One transaction per chunk, so the re-archive flag commits with its
+		// rows.
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, q.String(), args...)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			touched := map[vehicleMonth]bool{}
+			for _, v := range chunk {
+				touched[vehicleMonth{uuids[v.VehicleID], monthOf(v.At)}] = true
+			}
+			if err := s.markRearchive(ctx, tx, touched); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}

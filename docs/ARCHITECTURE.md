@@ -543,6 +543,13 @@ an object lacks; a thinned month a vehicle has no readable object for falls
 back to the reduced rows and is listed in the file's `samples_reduced_months`.
 An object that turns out corrupt partway fails the download rather than
 ending it short.
+Rows written into an archived month (restore, import, replay: every
+`samples.Store` insert path) flag it `needs_rearchive` in the same transaction.
+The next archive run rewrites the object: from the database if the month wasn't
+thinned, otherwise merged with the existing object in Postgres (the object's
+rows win), written to `<key>.new`, verified, then to the key and verified
+again. A flag set while that run was reading survives it
+(`rearchive_requested_at`).
 
 **Option B — TimescaleDB**:
 
