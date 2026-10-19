@@ -1,4 +1,6 @@
 import { drivesAllQuery } from "../lib/activityLists";
+import { decodePolyline } from "../lib/polyline";
+import { detailPastKeeping } from "../lib/retention";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -272,6 +274,15 @@ export default function DriveDetailPage() {
     [mapPathSamples],
   );
 
+  // A drive whose samples are gone (kept for a limited time) still has its stored route: draw the map from that, without
+  // speed colouring or a cursor, since there are no samples to colour or point at.
+  const storedRoutePoints = useMemo(
+    () => decodePolyline(drive?.RoutePolyline).map(([lat, lon]) => ({ lat, lon })),
+    [drive?.RoutePolyline],
+  );
+  const noDetail: "route" | "figures" | false =
+    storedRoutePoints.length >= 2 ? "route" : drive && detailPastKeeping(drive.StartedAt) ? "figures" : false;
+
   // GNSS staleness for the map badge (seconds), or null to suppress it.
   // The modem sometimes replays a cached fix, so At runs ahead of
   // LocationFixAt. A lone stale fix (cold start, tunnel, a stop) is
@@ -478,7 +489,7 @@ export default function DriveDetailPage() {
         {samples.isLoading ? (
           <Spinner />
         ) : driveSamples.length === 0 ? (
-          <NoSamples />
+          <NoSamples gone={noDetail} />
         ) : (
           <DriveTimeline
             drive={drive}
@@ -524,7 +535,13 @@ export default function DriveDetailPage() {
         {samples.isLoading ? (
           <Spinner />
         ) : mapPathSamples.length === 0 ? (
-          <NoSamples />
+          storedRoutePoints.length >= 2 ? (
+            <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
+              <DriveMap points={storedRoutePoints} />
+            </Suspense>
+          ) : (
+            <NoSamples gone={noDetail} />
+          )
         ) : (
           <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <DriveMap
@@ -614,10 +631,14 @@ function Stat({
   );
 }
 
-function NoSamples() {
+function NoSamples({ gone }: { gone: "route" | "figures" | false }) {
   return (
-    <p className="text-sm text-neutral-500">
-      No telemetry was recorded for this drive.
+    <p className="text-sm text-neutral-500" data-no-samples={gone || "never"}>
+      {gone === "route"
+        ? "Detailed data for this drive is no longer kept; its route and figures are."
+        : gone === "figures"
+          ? "Detailed data for this drive is no longer kept; its figures are."
+          : "No telemetry was recorded for this drive."}
     </p>
   );
 }

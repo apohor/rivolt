@@ -1,4 +1,5 @@
 import { chargesAllQuery } from "../lib/activityLists";
+import { detailPastKeeping } from "../lib/retention";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
@@ -427,7 +428,7 @@ export default function ChargeDetailPage() {
         {samples.isLoading ? (
           <Spinner />
         ) : socPts.length === 0 ? (
-          <NoSamples />
+          <NoSamples gone={!!charge && detailPastKeeping(charge.StartedAt)} />
         ) : (
           <>
             {/* Interactive legend: every series can be shown/hidden.
@@ -1165,10 +1166,10 @@ function mean(values: number[]): number | null {
   return n > 0 ? sum / n : null;
 }
 
-function NoSamples() {
+function NoSamples({ gone }: { gone: boolean }) {
   return (
-    <p className="text-sm text-neutral-500">
-      No raw samples stored for this time window.
+    <p className="text-sm text-neutral-500" data-no-samples={gone ? "figures" : "never"}>
+      {gone ? "Detailed data for this charge is no longer kept; its figures are." : "No raw samples stored for this time window."}
     </p>
   );
 }
