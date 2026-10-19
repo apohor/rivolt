@@ -168,6 +168,8 @@ Every figure in a plan is an estimate built from your own truck's
 efficiency, the route and the chargers along it. Real charging speed,
 weather and traffic will differ.
 
+<img src="docs/screenshots/plan-multiday-phone.png" width="390" alt="Day 1 of the demo's two-day Las Vegas trip on a phone: one charging stop at Barstow, then the overnight at the hotel">
+
 ![Plan](docs/screenshots/plan.png)
 
 ### Truck — health, sleep and drain
