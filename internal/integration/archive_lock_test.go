@@ -168,6 +168,11 @@ func TestInactivePurgeTakesArchiveLockFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
+	// The first user in an empty table is promoted to admin, and admins are
+	// never purged.
+	if _, err := db.EnsureUser(ctx, pool, "bootstrap-admin"); err != nil {
+		t.Fatal(err)
+	}
 	uid, err := db.EnsureUserFull(ctx, pool, "purge-lock", "purge-lock@example.com", "Purge")
 	if err != nil {
 		t.Fatal(err)
