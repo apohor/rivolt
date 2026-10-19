@@ -68,8 +68,10 @@ type LiveClient struct {
 	// chargingEndpoint overrides DefaultChargingEndpoint for the receipts
 	// calls (tests point it at a stub gateway).
 	chargingEndpoint string
-	clientName       string
-	clientVersion    string
+	// wsEndpointOverride points the WebSocket dial somewhere else (tests).
+	wsEndpointOverride string
+	clientName         string
+	clientVersion      string
 	// rivoltVersion is stamped into X-Rivolt-Version. Defaults to "dev".
 	rivoltVersion string
 

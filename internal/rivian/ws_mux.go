@@ -103,7 +103,11 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 		subs:    map[string]*wsSub{},
 		refs:    1,
 	}
-	conn, _, err := websocket.Dial(ctx, wsEndpoint, c.wsDialOptions())
+	// Bounded: a blackholed dial would otherwise sit here holding muxMu, and with
+	// it every subscription of this user, until the OS gave up (minutes).
+	dialCtx, cancelDial := context.WithTimeout(ctx, wsDialTimeout)
+	conn, _, err := websocket.Dial(dialCtx, c.wsURL(), c.wsDialOptions())
+	cancelDial()
 	if err != nil {
 		c.muxMu.Unlock()
 		c.reportWS(ctx, err)
@@ -121,7 +125,10 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 			"u-sess":         userTok,
 		},
 	}
-	if err := mux.writeJSON(ctx, initFrame); err != nil {
+	initCtx, cancelInit := context.WithTimeout(ctx, wsInitWriteTimeout)
+	err = mux.writeJSON(initCtx, initFrame)
+	cancelInit()
+	if err != nil {
 		conn.Close(websocket.StatusInternalError, "init failed") //nolint:errcheck
 		c.muxMu.Unlock()
 		c.reportWS(ctx, err)
@@ -394,6 +401,21 @@ func (m *wsMux) close(err error) {
 // (vehicleState, charging, parallax), so the one handshake carries the
 // same X-Rivolt-Version the REST calls send (applyBaseHeaders): Rivian
 // can attribute the traffic to a Rivolt build either way.
+// wsURL is the subscription gateway to dial: the production endpoint unless a
+// test points the client elsewhere.
+func (c *LiveClient) wsURL() string {
+	if c.wsEndpointOverride != "" {
+		return c.wsEndpointOverride
+	}
+	return wsEndpoint
+}
+
+// Bounds on opening the shared socket. Variables so tests can shorten them.
+var (
+	wsDialTimeout      = 15 * time.Second
+	wsInitWriteTimeout = 10 * time.Second
+)
+
 func (c *LiveClient) wsDialOptions() *websocket.DialOptions {
 	h := http.Header{}
 	h.Set("X-Rivolt-Version", c.rivoltVersion)
