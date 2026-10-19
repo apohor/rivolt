@@ -88,7 +88,7 @@ test("tap asks for permission, subscribes for software updates only, then shows 
   await page.getByRole("button", { name: "Turn on alerts" }).click();
   await expect(page.locator("[data-first-day-alerts]")).toContainText("Alerts on");
   expect(await prompts(page)).toBe(1);
-  expect(body!.preferences).toEqual({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true });
+  expect(body!.preferences).toEqual({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true, on_milestones: false });
   await expect(page.getByRole("button", { name: "Turn on alerts" })).toHaveCount(0);
 });
 

@@ -109,7 +109,7 @@ function UpdateAlertsRow() {
   async function enable() {
     setState("busy");
     try {
-      const r = await subscribeThisDevice({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true }, { leaveExisting: true });
+      const r = await subscribeThisDevice({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true, on_milestones: false }, { leaveExisting: true });
       setState(r === "on" ? "on" : "blocked");
     } catch {
       setState("error");
