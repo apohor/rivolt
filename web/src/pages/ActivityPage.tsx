@@ -1,7 +1,8 @@
 import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { filterByRange, periodRange, usePeriod } from "../lib/period";
+import { earlyMonthFallback, filterByRange, periodRange, usePeriod } from "../lib/period";
+import { EarlyMonthNote } from "../components/EarlyMonthNote";
 import { useUiNext } from "../lib/uiNext";
 import { displayTimeZone } from "../lib/format";
 import { detailPath, inDemo, appPath } from "../lib/demo";
@@ -50,7 +51,7 @@ export default function ActivityPage() {
   // ui_theme_next: the shared calendar scope filters the feed; off shows everything.
   const next = useUiNext();
   const [period, setPeriod] = usePeriod();
-  const range = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
+  const baseRange = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
   // Table and Map views are a ui_theme_next layer; flag off ignores ?view.
   const view: ActivityView = next ? parseActivityView(params.get("view")) : "feed";
   // Efficiency view: the selected truck's breakdowns for the period.
@@ -61,6 +62,12 @@ export default function ActivityPage() {
 
   const drivesQ = useQuery(drivesAllQuery());
   const chargesQ = useQuery(chargesAllQuery());
+  // Early in the month, with nothing recorded in it yet, follow the last 30 days instead (and say so).
+  const early = useMemo(
+    () => (next ? earlyMonthFallback(period, [...(drivesQ.data ?? []), ...(chargesQ.data ?? [])]) : null),
+    [next, period, drivesQ.data, chargesQ.data],
+  );
+  const range = early ? early.range : baseRange;
   const homeQ = useQuery({
     queryKey: ["settings", "home-location"],
     queryFn: () => backend.homeLocationGet(),
@@ -141,6 +148,7 @@ export default function ActivityPage() {
           </>
         }
       />
+      {early && <EarlyMonthNote />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="tablist" aria-label="Filter" className={`${view === "efficiency" ? "invisible " : ""}inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm`}>
           {FILTERS.map((f) => (

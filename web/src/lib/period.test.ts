@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { barsEndDay, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
+import { barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
@@ -113,5 +113,26 @@ describe("flag-off Now filtering", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("earlyMonthFallback", () => {
+  const EARLY = new Date(2026, 9, 2, 9, 0, 0); // Fri Oct 2
+  const at = (m: number, d: number) => ({ StartedAt: new Date(2026, m, d, 8, 0, 0).toISOString() });
+  const month = { kind: "month", offset: 0 } as const;
+
+  it("shows the last 30 days when this month is empty but recent days are not", () => {
+    const fb = earlyMonthFallback(month, [at(8, 20), at(8, 29)], EARLY)!;
+    expect(fb.period).toEqual({ kind: "custom", offset: 0, from: "2026-09-03", to: "2026-10-02" });
+    expect(ymd(fb.range.start)).toBe("2026-09-03");
+    expect(ymd(fb.range.end)).toBe("2026-10-03");
+    expect(filterByRange([at(8, 20), at(8, 2)], fb.range)).toHaveLength(1);
+  });
+  it("leaves the month alone when it has data, is another period, or the last 30 days are empty too", () => {
+    expect(earlyMonthFallback(month, [at(9, 1)], EARLY)).toBeNull();
+    expect(earlyMonthFallback({ kind: "month", offset: -1 }, [at(8, 20)], EARLY)).toBeNull();
+    expect(earlyMonthFallback({ kind: "year", offset: 0 }, [at(8, 20)], EARLY)).toBeNull();
+    expect(earlyMonthFallback(month, [], EARLY)).toBeNull();
+    expect(earlyMonthFallback(month, [at(5, 1)], EARLY)).toBeNull();
   });
 });
