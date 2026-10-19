@@ -112,7 +112,8 @@ for (const v of [
 
     await page.getByRole("switch", { name: "Weekly recap by email" }).click();
     await expect.poll(() => puts.at(-1)).toEqual({ weekly_recap: true, timezone: "America/Chicago" });
-    await expect(page.getByText("Skipped on weeks with no driving")).toBeVisible();
+    await expect(page.getByText(/Skipped on weeks with no driving\. Turn off any time\./)).toBeVisible();
+    await expect(page.getByText(/haven.t visited/)).toHaveCount(0);
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(SHOTS, `alerts-${v.n}-dark.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

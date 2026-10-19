@@ -1909,7 +1909,7 @@ function WeeklyRecapCard() {
           </label>
           <p className="mt-1 text-xs text-neutral-500">
             One short email on Monday with last week&apos;s miles, energy, cost and efficiency, and your lease pace if you track one. Skipped on weeks
-            with no driving, and one reminder if you haven&apos;t visited in a month. Turn off any time.
+            with no driving. Turn off any time.
           </p>
         </div>
         <Toggle

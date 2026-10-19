@@ -11,7 +11,7 @@ Last updated: October 18, 2026
 - **Your Rivian sign-in:** your Rivian email and the session tokens Rivian issues, stored encrypted, so we can keep reading your vehicle. **Your Rivian password is never stored**; it is used once to sign in to Rivian.
 - **Your vehicle's data**, read from Rivian: charge level, range, odometer, speed, temperatures, tire pressure, software version, trim and picture, and **GPS location**. We turn it into drives, charges and costs. Location is the most sensitive data we hold. It is never shown to other users. Rivolt records the vehicle, not the driver: if someone else drives it, their trips are recorded too.
 - **Rivian charging receipts**, only if you turn them on in Settings (off by default; turning them off deletes the stored receipts): amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.
-- **Your settings:** electricity rates, saved places and trips, notification and email preferences.
+- **Your settings:** electricity rates, saved places and trips, notification and email preferences, and your time zone (for when reminders arrive).
 - **Notifications:** if you turn on notifications, your browser's push address and User-Agent. Notifications you can turn on: charging complete, software updates, a plug-in reminder when the truck is parked at home below a level you choose, and milestones.
 - **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email. We also send a weekly summary if you turn it on.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
@@ -30,6 +30,7 @@ We run our own servers in the United States, and database backups go to storage 
 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
+- A record of which reminders and summaries we sent (not their content) is kept about 13 months, so none is sent twice.
 - If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90, and never delete less than 30 days after that warning. This starts only after this policy is published.
 - In Settings you can export your data, delete your history, or delete your whole account. Signing Rivolt out of Rivian deletes the stored Rivian session; you can also revoke access in the Rivian app.
 - After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days. Records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security, including after you delete your account.
