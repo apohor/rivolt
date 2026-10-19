@@ -2269,15 +2269,22 @@ func buildSealer(logger *slog.Logger) (rivoltcrypto.Sealer, error) {
 		logger.Warn("RIVOLT_ALLOW_NOOP_SEALER=1 — secrets will NOT be encrypted at rest. Dev only.")
 		return rivoltcrypto.NoopSealer{}, nil
 	}
-	rotation := []string{}
-	if rot := strings.TrimSpace(os.Getenv("RIVOLT_KEK_ROTATION")); rot != "" {
-		for _, v := range strings.Split(rot, ",") {
-			if v = strings.TrimSpace(v); v != "" {
-				rotation = append(rotation, v)
-			}
+	// RIVOLT_KEK_ROTATION holds the retired KEKs' VALUES ("<id>:<base64>",
+	// comma-separated), not names of other variables; a malformed entry refuses
+	// to boot rather than leave rows sealed under that key unreadable.
+	var retired []string
+	for _, v := range strings.Split(os.Getenv("RIVOLT_KEK_ROTATION"), ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			retired = append(retired, v)
 		}
 	}
-	return rivoltcrypto.NewEnvSealerFromEnv("RIVOLT_KEK", rotation...)
+	sealer, err := rivoltcrypto.NewEnvSealerWithRotation(os.Getenv("RIVOLT_KEK"), retired)
+	if err != nil {
+		return nil, err
+	}
+	primary, kept := sealer.KEKIDs()
+	logger.Info("KEKs loaded", "primary", primary, "retired", kept)
+	return sealer, nil
 }
 
 // sendReauthEmail notifies a user that their stored Rivian session was
