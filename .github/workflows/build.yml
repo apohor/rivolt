@@ -100,7 +100,14 @@ jobs:
           fi
           # Non-code paths (the ones push events ignore) trigger nothing.
           # Markdown under web/ is shipped page content, so it still counts.
-          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' | awk '!/\.md$/ || /^web\//' || true)
+          # A PR checks out refs/pull/N/merge: the PR merged into the base
+          # branch as it is *now*. github.event.pull_request.base.sha can be
+          # older than that (main moved after the event), so BASE...HEAD
+          # would also count everything merged to main since, and a
+          # README-only PR ran every suite. HEAD^1 is the base tip the merge
+          # was built on, so HEAD^1..HEAD is exactly what this PR changes.
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then RANGE="HEAD^1 HEAD"; else RANGE="$BASE...HEAD"; fi
+          files=$(git diff --name-only $RANGE | grep -v -E '^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' | awk '!/\.md$/ || /^web\//' || true)
           echo "$files"
           # web: anything under web/. go: anything else that isn't web/
           # (Go code, go.mod, migrations, embedded data, the Dockerfile,
