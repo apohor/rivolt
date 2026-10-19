@@ -4,6 +4,7 @@ package drives
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -144,6 +145,21 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 // ListRecent returns the most recent N drives, newest first.
 func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
+	return s.listRecent(ctx, limit, true)
+}
+
+// ListRecentSlim is ListRecent without the route polyline (RoutePolyline is
+// empty): the lists don't draw maps, and the polyline is most of a row's size.
+// Get returns the full row.
+func (s *Store) ListRecentSlim(ctx context.Context, limit int) ([]Drive, error) {
+	return s.listRecent(ctx, limit, false)
+}
+
+func (s *Store) listRecent(ctx context.Context, limit int, polyline bool) ([]Drive, error) {
+	routeCol := `''`
+	if polyline {
+		routeCol = `COALESCE(d.route_polyline,'')`
+	}
 	if limit <= 0 {
 		limit = 50
 	} else if limit > 10000 {
@@ -158,7 +174,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,'')
+		       `+routeCol+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -187,6 +203,42 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// Get returns one drive by its external id, with its route polyline, or nil
+// when the user has no such drive.
+func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
+	var d Drive
+	err := s.db.QueryRowContext(ctx, `
+		SELECT d.external_id, v.rivian_vehicle_id,
+		       d.started_at, d.ended_at,
+		       COALESCE(d.start_soc_pct,0), COALESCE(d.end_soc_pct,0),
+		       COALESCE(d.start_odometer_mi,0), COALESCE(d.end_odometer_mi,0), COALESCE(d.distance_mi,0),
+		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
+		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
+		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
+		       COALESCE(d.energy_used_kwh,0), d.source,
+		       COALESCE(d.route_polyline,'')
+		FROM drives d
+		JOIN vehicles v ON v.id = d.vehicle_id
+		WHERE d.user_id = $1 AND d.external_id = $2
+		ORDER BY d.started_at DESC LIMIT 1`, s.userID, externalID).Scan(
+		&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
+		&d.StartSoCPct, &d.EndSoCPct,
+		&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
+		&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
+		&d.MaxSpeedMph, &d.AvgSpeedMph,
+		&d.EnergyUsedKWh, &d.Source,
+		&d.RoutePolyline)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.StartedAt = d.StartedAt.UTC()
+	d.EndedAt = d.EndedAt.UTC()
+	return &d, nil
 }
 
 // Dedupe is retained for API compatibility but is a no-op on Postgres —

@@ -86,7 +86,16 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/drives/a/b/weather", false},
 		{"GET", "/api/drives/../charges/weather", false},
 		{"GET", "/api/drives/d1/weather/series/extra", false},
-		{"GET", "/api/drives/d1", false},
+		{"GET", "/api/drives/electrafi_ab12cd_d_1700000000", true}, // one drive with its polyline (the demo list serves the same row)
+		{"GET", "/api/drives/d1", false},                           // not a drive id: a future /drives/<word> endpoint must not join the allowlist
+		{"GET", "/api/drives/export", false},
+		{"GET", "/api/drives/live_veh_d_", false},
+		{"GET", "/api/drives/live_veh_d_17x", false},
+		{"GET", "/api/drives/other_veh_d_1760000000", false},
+		{"GET", "/api/drives/live_veh_d_1760000000", true},
+		{"GET", "/api/drives/a%20b", false},
+		{"POST", "/api/drives/live_veh_d_1760000000", false},
+		{"DELETE", "/api/drives/live_veh_d_1760000000", false},
 		{"GET", "/api/drives/d%2F1/weather", false},
 		{"DELETE", "/api/samples", false},
 		// other vehicles

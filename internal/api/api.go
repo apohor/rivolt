@@ -974,8 +974,13 @@ func New(d Deps) http.Handler {
 
 			// Read-only session/telemetry endpoints. Populated by either the
 			// ElectraFi importer or the (future) live Rivian ingester.
-			r.Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// The big list and series reads are gzipped.
+			gz := middleware.Compress(5, "application/json")
+			r.With(gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
+			r.Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
 			// efficiency variance for a drive, with actionable
@@ -1018,7 +1023,7 @@ func New(d Deps) http.Handler {
 			r.Post("/drives/weather/backfill", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherBackfill(d, uid)(w, r)
 			}))
-			r.Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
 			r.Delete("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1062,7 +1067,7 @@ func New(d Deps) http.Handler {
 				r.Get("/summary", withUser(la.summary))
 				r.Get("/trips", withUser(la.trips))
 			})
-			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 			// Per-day asleep/awake hours for the overview sleep graph,
