@@ -148,7 +148,8 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
             control, tire pressure — with a single concrete
             recommendation for your next drive. This sends the
             drive&apos;s date and time, its figures (distance, speed,
-            energy, battery), temperatures, weather, tire pressures and
+            energy, battery, climb and descent), temperatures, weather,
+            tire pressures and
             your vehicle details (tires, wheels, accessories, load,
             towing) to an AI provider; never coordinates or place
             names. The result is saved per-drive so you only pay once.
