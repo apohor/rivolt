@@ -51,7 +51,7 @@ func (s *slowStopSource) count() int {
 func TestRunExitAfterSameTickReacquireKeepsTheSuccessor(t *testing.T) {
 	src := &slowStopSource{started: make(chan int, 4)}
 	m := NewSourceMonitor(src, nil, nil)
-	m.staggerInterval = 0
+	m.stagger = NewStagger(0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.mu.Lock()
@@ -111,7 +111,7 @@ func TestRunExitAfterSameTickReacquireKeepsTheSuccessor(t *testing.T) {
 func TestRunExitWithoutSuccessorFreesTheSlot(t *testing.T) {
 	src := &slowStopSource{started: make(chan int, 4)}
 	m := NewSourceMonitor(src, nil, nil)
-	m.staggerInterval = 0
+	m.stagger = NewStagger(0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.mu.Lock()

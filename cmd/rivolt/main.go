@@ -653,19 +653,17 @@ func runServer() {
 		// concurrent users' needs_reauth flags can't clobber each
 		// other.
 		breaker := rivian.NewBreaker(rivian.DefaultBreakerConfig(), &breakerMetrics{m: appMetrics})
-		var sharedLimiter *ratelimit.Limiter
+		var sharedLimiter *ratelimit.Retrying
 		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
 			rdb := redis.NewClient(&redis.Options{Addr: addr})
-			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
 			rlCfg := ratelimit.DefaultConfig()
 			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
-			limiter, err := ratelimit.New(pingCtx, rdb, rlCfg, logger)
-			pingCancel()
-			if err != nil {
-				logger.Warn("ratelimit: disabled (redis unreachable)", "addr", addr, "err", err.Error())
-				_ = rdb.Close()
-			} else {
-				sharedLimiter = limiter
+			// Redis may not be up yet when the pod boots; the limiter keeps retrying
+			// instead of staying off until the next restart.
+			sharedLimiter = ratelimit.NewRetrying(ctx, rdb, rlCfg, logger, 5*time.Second, 30*time.Second, nil)
+			if sharedLimiter.Ready() {
+				// The other Redis users (live state, plan legs) are wired once, below,
+				// so they still need Redis up at boot.
 				sharedRedis = rdb
 				logger.Info("ratelimit: enabled", "addr", addr, "key_prefix", rlCfg.KeyPrefix)
 			}
@@ -2475,7 +2473,9 @@ func (b *breakerMetrics) OnTrip(reason string) {
 // internal/metrics. Kept here for the same dependency-direction
 // reason as breakerMetrics.
 type rateLimitMetrics struct {
-	l *ratelimit.Limiter
+	l interface {
+		Allow(ctx context.Context, class ratelimit.Class) (bool, time.Duration)
+	}
 	m *metrics.Metrics
 }
 
