@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -197,6 +198,12 @@ func demoBudgetEnv(name string, def int) int {
 // stay last, so "{id}/weather" is matched as a suffix before the bare id.
 var demoPerDriveSuffixes = []string{"/weather", "/weather/series", ""}
 
+// demoDriveIDRe is the shape of a real drive id ("live_<vehicle>_d_<unix>" or
+// "electrafi_<hash>_d_<unix>"). The bare GET /api/drives/{id} is open to the demo
+// only for ids of this shape, so a future single-segment endpoint under /drives
+// (an export, a summary) does not join the allowlist by accident.
+var demoDriveIDRe = regexp.MustCompile(`^(live|electrafi)_[A-Za-z0-9:._-]+_d_[0-9]+$`)
+
 // demoPerDrivePath reports whether p is /api/drives/{id}<suffix> for an
 // allowed suffix and a plain id segment.
 func demoPerDrivePath(p string) bool {
@@ -219,6 +226,9 @@ func demoPerDrivePath(p string) bool {
 			default:
 				return false
 			}
+		}
+		if suf == "" && !demoDriveIDRe.MatchString(id) {
+			return false
 		}
 		return id != "." && id != ".."
 	}
