@@ -832,6 +832,16 @@ export type EngagementSettings = {
   plug_remind_at: string; // HH:MM, local, no later than 22:00
 };
 
+// A milestone the truck reached (GET /api/milestones): once each per vehicle, with the server's own words.
+export type MilestoneItem = {
+  vehicle_id: string;
+  key: string;
+  kind: "miles_1000" | "home_mwh_1" | "charges_100" | "lease_half" | "best_eff" | string;
+  achieved_at: string;
+  title: string;
+  body: string;
+};
+
 // PushStatus is the aggregated state returned by GET /api/push/status.
 export type PushStatus = {
   enabled: boolean;
@@ -1241,6 +1251,17 @@ export const backend = {
   pushVAPIDKey: () =>
     api.get<{ public_key: string }>("/api/push/vapid-key"),
   pushStatus: () => api.get<PushStatus>("/api/push/status"),
+  // Milestones reached in the last 30 days and not dismissed, newest first. Title and body are the server's
+  // words, shown as given. Null when the server has no such call (404).
+  milestones: async (): Promise<MilestoneItem[] | null> => {
+    try {
+      return (await api.get<{ milestones: MilestoneItem[] }>("/api/milestones")).milestones;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+      throw e;
+    }
+  },
+  milestoneDismiss: (vehicle_id: string, key: string) => api.post<{ ok?: boolean }>("/api/milestones/dismiss", { vehicle_id, key }),
   pushSubscribe: (body: PushSubscribeBody) =>
     api.post<{ ok: boolean; preferences: PushPreferences }>("/api/push/subscribe", body),
   engagementGet: () => api.get<EngagementSettings>("/api/settings/engagement"),
