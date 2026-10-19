@@ -196,3 +196,86 @@ func TestDetachedHealReusesAPairMintedMeanwhile(t *testing.T) {
 		t.Errorf("the retry carried %q, want the pair minted meanwhile (csrf-1)", retryCSRF)
 	}
 }
+
+// Another call's refresh fails (it clears the a-sess/csrf pair first) while this
+// call is in flight on the old pair. This call's own retry must not go out with
+// an empty pair: no second request to Rivian, the original error comes back.
+func TestDetachedHealDoesNotRetryWithAnEmptyPair(t *testing.T) {
+	calls := map[string]func(c *LiveClient) error{
+		"PlanTrip": func(c *LiveClient) error {
+			_, err := c.PlanTrip(context.Background(), PlanTripInput{VehicleID: "veh-1", StartingSoC: 80, Waypoints: []PlanTripWaypoint{
+				{Latitude: 34, Longitude: -118, WaypointType: "origin"},
+				{Latitude: 35, Longitude: -118, WaypointType: "destination"},
+			}})
+			return err
+		},
+		"State": func(c *LiveClient) error { _, err := c.State(context.Background(), "veh-1"); return err },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			inFlight := make(chan struct{})
+			release := make(chan struct{})
+			var mu sync.Mutex
+			dataCalls, csrfCalls := 0, 0
+			var emptyHeader bool
+			var once sync.Once
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				if strings.Contains(string(b), "CreateCSRFToken") {
+					mu.Lock()
+					csrfCalls++
+					mu.Unlock()
+					w.WriteHeader(http.StatusInternalServerError) // the refresh fails
+					return
+				}
+				mu.Lock()
+				dataCalls++
+				if r.Header.Get("csrf-token") == "" || r.Header.Get("a-sess") == "" {
+					emptyHeader = true
+				}
+				mu.Unlock()
+				once.Do(func() { close(inFlight) })
+				<-release
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+			}))
+			defer server.Close()
+
+			c := NewLive()
+			c.endpoint = server.URL + "/gateway"
+			c.userSessionToken, c.appSessionToken, c.csrfToken = "u", "stale-a", "stale-c"
+
+			done := make(chan error, 1)
+			go func() { done <- call(c) }()
+			<-inFlight
+			// Call A's refresh fails: the pair is left empty.
+			c.mu.Lock()
+			rerr := c.forceRefreshCSRFLocked(context.Background())
+			c.mu.Unlock()
+			if rerr == nil {
+				t.Fatal("setup: the refresh was meant to fail")
+			}
+			close(release)
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Error("the call succeeded; want the original auth error")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the call never returned")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if dataCalls != 1 {
+				t.Errorf("%d upstream data requests, want exactly 1 (no retry on an empty pair)", dataCalls)
+			}
+			if emptyHeader {
+				t.Error("a request went out with an empty a-sess/csrf-token")
+			}
+			if csrfCalls != 1 {
+				t.Errorf("%d CreateCSRFToken calls, want only the other call's failed one", csrfCalls)
+			}
+		})
+	}
+}

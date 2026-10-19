@@ -551,6 +551,12 @@ func doGraphQLDetached[T any](ctx context.Context, c *LiveClient, req graphQLReq
 		c.markNeedsReauth(ctx, ue.Reason)
 		return out, err
 	}
+	// The pair is empty while another call's refresh is mid-flight, or after it
+	// failed (forceRefreshCSRFLocked clears it first). Retrying then would send a
+	// request with no a-sess/csrf at all; the other call is the one that marks.
+	if fresh["a-sess"] == "" || fresh["csrf-token"] == "" {
+		return out, err
+	}
 	return doGraphQLAt[T](withRetriedCSRF(ctx), c, c.endpoint, req, fresh)
 }
 
