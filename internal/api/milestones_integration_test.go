@@ -102,7 +102,7 @@ func TestMilestonesStoreAndCards(t *testing.T) {
 		t.Fatalf("alice's cards: %v", got)
 	}
 	card := got[0].(map[string]any)
-	if card["key"] != milestones.KindMiles || card["vehicle_id"] != "rv-ms-a" || card["title"] != "1,000 miles" ||
+	if card["key"] != milestones.KindMiles || card["vehicle_id"] != "rv-ms-a" || card["title"] != "1,000 miles recorded" ||
 		card["body"] != "Your first 1,000 miles in Rivolt: 2.50 mi/kWh." {
 		t.Errorf("card %v", card)
 	}

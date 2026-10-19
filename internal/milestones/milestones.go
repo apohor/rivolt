@@ -208,7 +208,7 @@ func thousands(v float64) string {
 func Text(kind string, d Detail) (title, body string) {
 	switch kind {
 	case KindMiles:
-		title = "1,000 miles"
+		title = "1,000 miles recorded"
 		body = "Your first 1,000 miles in Rivolt"
 		var parts []string
 		if d.MiPerKWh > 0 {
@@ -222,7 +222,7 @@ func Text(kind string, d Detail) (title, body string) {
 		}
 		body += "."
 	case KindHomeMWh:
-		title = "1,000 kWh at home"
+		title = "1,000 kWh charged at home"
 		body = "1,000 kWh charged at home since you connected."
 		if d.HomeCost > 0 {
 			body += fmt.Sprintf(" About %s at your home rate.", money(d.HomeCost, d.Currency, 0))
@@ -235,9 +235,9 @@ func Text(kind string, d Detail) (title, body string) {
 		}
 		body += "."
 	case KindLease:
-		title, body = "Lease halfway", "Halfway through the term. Open Rivolt to see your mileage pace."
+		title, body = "Halfway through your lease", "Halfway through the term. Open Rivolt to see your mileage pace."
 	case KindBestEff:
-		title = "Best drive efficiency"
+		title = "Your most efficient drive yet"
 		body = fmt.Sprintf("%.2f mi/kWh over %.0f mi, your best on a drive this long.", d.DriveMiKWh, d.DriveMiles)
 	default:
 		title, body = "Milestone", "A new milestone in Rivolt."

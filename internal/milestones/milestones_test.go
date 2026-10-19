@@ -150,15 +150,15 @@ func TestText(t *testing.T) {
 		title string
 		body  string
 	}{
-		{KindMiles, Detail{Miles: 1080, MiPerKWh: 2.31, CostPerMile: 0.07, Currency: "USD"}, "1,000 miles", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh, $0.07/mi."},
-		{KindMiles, Detail{MiPerKWh: 2.31}, "1,000 miles", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh."},
-		{KindMiles, Detail{}, "1,000 miles", "Your first 1,000 miles in Rivolt."},
-		{KindHomeMWh, Detail{HomeKWh: 1000}, "1,000 kWh at home", "1,000 kWh charged at home since you connected."},
-		{KindHomeMWh, Detail{HomeKWh: 1000, HomeCost: 142, Currency: "USD"}, "1,000 kWh at home", "1,000 kWh charged at home since you connected. About $142 at your home rate."},
+		{KindMiles, Detail{Miles: 1080, MiPerKWh: 2.31, CostPerMile: 0.07, Currency: "USD"}, "1,000 miles recorded", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh, $0.07/mi."},
+		{KindMiles, Detail{MiPerKWh: 2.31}, "1,000 miles recorded", "Your first 1,000 miles in Rivolt: 2.31 mi/kWh."},
+		{KindMiles, Detail{}, "1,000 miles recorded", "Your first 1,000 miles in Rivolt."},
+		{KindHomeMWh, Detail{HomeKWh: 1000}, "1,000 kWh charged at home", "1,000 kWh charged at home since you connected."},
+		{KindHomeMWh, Detail{HomeKWh: 1000, HomeCost: 142, Currency: "USD"}, "1,000 kWh charged at home", "1,000 kWh charged at home since you connected. About $142 at your home rate."},
 		{KindCharges, Detail{Charges: 100, KWhAdded: 2850}, "100 charges", "100 charges recorded in Rivolt, 2,850 kWh added."},
 		{KindCharges, Detail{Charges: 100}, "100 charges", "100 charges recorded in Rivolt."},
-		{KindLease, Detail{}, "Lease halfway", "Halfway through the term. Open Rivolt to see your mileage pace."},
-		{KindBestEff, Detail{DriveMiles: 120, DriveMiKWh: 2.85}, "Best drive efficiency", "2.85 mi/kWh over 120 mi, your best on a drive this long."},
+		{KindLease, Detail{}, "Halfway through your lease", "Halfway through the term. Open Rivolt to see your mileage pace."},
+		{KindBestEff, Detail{DriveMiles: 120, DriveMiKWh: 2.85}, "Your most efficient drive yet", "2.85 mi/kWh over 120 mi, your best on a drive this long."},
 		{"nope", Detail{}, "Milestone", "A new milestone in Rivolt."},
 	} {
 		title, body := Text(tc.kind, tc.d)
