@@ -227,25 +227,6 @@ export default function HomePage() {
     [winDrives, winCharges],
   );
 
-  // Pack capacity as a % of nameplate/documented spec, for the dotted
-  // health-ceiling line on the SoC trend. Shares the ["packHealth", id]
-  // cache with PackHealthStat. Prefer the vehicle-reported ratio (always
-  // present once the car reports a capacity); fall back to the
-  // charge-fit % of nameplate.
-  const packHealth = useQuery({
-    queryKey: ["packHealth", activeVehicleID ?? ""],
-    queryFn: () => backend.packHealth(activeVehicleID as string),
-    enabled: !!activeVehicleID,
-    staleTime: 5 * 60_000,
-  });
-  const capacityPct = useMemo(() => {
-    const h = packHealth.data?.headline;
-    if (!h) return 0;
-    if (h.reported_pct_of_documented > 0) return h.reported_pct_of_documented;
-    if (h.pct_of_nameplate > 0) return h.pct_of_nameplate;
-    return 0;
-  }, [packHealth.data]);
-
   // Idle-awake activity: per-day power-state breakdown from the persisted
   // power_state (migration 0038). Only has data from when recording
   // started, so it fills forward. `since` follows the window picker;
@@ -284,11 +265,6 @@ export default function HomePage() {
     const failed = recent.reduce((n, d) => n + (d.failed_sleeps ?? 0), 0);
     return failed >= 3 ? { sleeps, failed } : null;
   }, [sleepActivity.data]);
-  const capacityBasis =
-    (packHealth.data?.headline.reported_pct_of_documented ?? 0) > 0
-      ? "documented spec"
-      : "nameplate";
-
   const isError = drives.isError || charges.isError;
   // Connected with a vehicle but no history yet: the moment to offer
   // the ElectraFi backfill.
@@ -525,25 +501,6 @@ export default function HomePage() {
                   curve: "monotone",
                   label: "SoC",
                 },
-                // Pack-capacity ceiling: a flat dotted line at the pack's
-                // health % so SoC swings read against the real (degraded)
-                // full, not a notional 100%. Spans the trend's x-range.
-                ...(capacityPct > 0 && trend.length > 0
-                  ? [
-                      {
-                        points: [
-                          { x: trend[0].x, y: capacityPct },
-                          { x: trend[trend.length - 1].x, y: capacityPct },
-                        ],
-                        color: "#f59e0b",
-                        dash: "4 3",
-                        strokeWidth: 1,
-                        curve: "linear" as const,
-                        label: "Capacity",
-                        formatCursor: (y: number) => `${y.toFixed(0)}% cap`,
-                      },
-                    ]
-                  : []),
               ]}
               height={160}
               yDomain={[0, 100]}
@@ -556,16 +513,6 @@ export default function HomePage() {
               }
             />
             )}
-            {capacityPct > 0 && !next ? (
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
-                <span
-                  aria-hidden
-                  className="inline-block h-0 w-4 border-t border-dashed"
-                  style={{ borderColor: "#f59e0b" }}
-                />
-                Pack capacity — {capacityPct.toFixed(0)}% of {capacityBasis}
-              </p>
-            ) : null}
           </Card>
 
           {!next && (

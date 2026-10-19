@@ -4,6 +4,12 @@ import { backend, type PackHealthSample } from "../lib/api";
 // Inline copy of HomePage's local Stat tile shape. Kept here so
 // PackHealthStat can be rendered inside the existing KPI grid
 // without exporting the Stat helper from HomePage.tsx.
+// Our spec table has one pack (Max) at 180 kWh, which reads as a gross figure next to usable ones. Show the
+// spec only where it is a usable figure, so a truck reporting about 140 is not set against 180. Until the server
+// says which specs are confirmed, anything above this is treated as unverified and hidden.
+const SPEC_MAX_VERIFIED_KWH = 150;
+export const specKwh = (kwh: number): number => (kwh > 0 && kwh <= SPEC_MAX_VERIFIED_KWH ? kwh : 0);
+
 function StatTile({
   label,
   value,
@@ -44,29 +50,16 @@ export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
   // available whenever the car has reported a capacity, without needing a
   // qualifying charge session.
   const reported = headline.reported_kwh ?? 0;
-  const documented = headline.documented_kwh ?? 0;
-  const reportedPct = headline.reported_pct_of_documented ?? 0;
-  if (reported > 0 && documented > 0) {
-    const wear = 100 - reportedPct;
-    return (
-      <StatTile
-        label="Pack"
-        value={`${reported.toFixed(1)} kWh`}
-        hint={
-          reportedPct < 99.5
-            ? `${documented.toFixed(0)} kWh spec · ${wear.toFixed(0)}% wear`
-            : `${documented.toFixed(0)} kWh spec`
-        }
-      />
-    );
+  const documented = specKwh(headline.documented_kwh ?? 0);
+  // The truck's own number next to the spec, never a ratio: our spec table is not certain to be like-for-like
+  // with what the truck reports, so a percentage would read as a diagnosis we can't make.
+  if (reported > 0) {
+    return <StatTile label="Pack" value={`${reported.toFixed(1)} kWh`} hint={documented > 0 ? `Rivian's spec: ${documented.toFixed(0)} kWh` : undefined} />;
   }
   if (samples.length === 0 || headline.effective_kwh <= 0) {
     return <StatTile label="Pack" value="—" hint="needs a 30%+ session" />;
   }
-  const pct =
-    headline.pct_of_nameplate > 0
-      ? `${headline.pct_of_nameplate.toFixed(0)}% of nameplate · ${headline.sample_count} sessions`
-      : `${headline.sample_count} sessions`;
+  const pct = `estimate · ${headline.sample_count} sessions`;
   return (
     <StatTile
       label="Pack"
@@ -77,11 +70,8 @@ export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
 }
 
 // PackHealthCard renders the derived effective-pack-capacity for a
-// vehicle: a single headline number ("127 kWh · 97% of nameplate"),
-// the sample count, and a small SVG sparkline of recent samples.
-// Rivian doesn't expose SoH directly so this is the closest signal
-// to "is my battery aging?" the user can get without 3rd-party
-// hardware.
+// vehicle: a single headline number (the truck's reported usable capacity, or our estimate from charges),
+// the spec beside it without a ratio, the sample count, and a small SVG sparkline of recent samples.
 export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
   const q = useQuery({
     queryKey: ["packHealth", vehicleID],
@@ -110,9 +100,8 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
   // capacity) — the car's own degradation signal. Independent of charge
   // sessions, so it renders even before any qualifying session exists.
   const reported = headline.reported_kwh ?? 0;
-  const documented = headline.documented_kwh ?? 0;
-  const reportedPct = headline.reported_pct_of_documented ?? 0;
-  const hasReported = reported > 0 && documented > 0 && reportedPct < 99.5;
+  const documented = specKwh(headline.documented_kwh ?? 0);
+  const hasReported = reported > 0;
   const capacityBlock = hasReported ? (
     <div>
       <div className="flex items-baseline gap-2">
@@ -120,15 +109,10 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
           {reported.toFixed(1)} kWh
         </span>
         <span className="text-xs text-neutral-400">
-          current · vehicle-reported
+          usable, as your truck reports it
         </span>
       </div>
-      <div className="text-xs text-neutral-500 tabular-nums">
-        {documented.toFixed(0)} kWh documented (nameplate) ·{" "}
-        <span className="text-amber-400">
-          {reportedPct.toFixed(0)}% — {(100 - reportedPct).toFixed(0)}% degradation
-        </span>
-      </div>
+      {documented > 0 && <div className="text-xs text-neutral-500 tabular-nums">Rivian&apos;s spec for this pack: {documented.toFixed(0)} kWh</div>}
     </div>
   ) : null;
 
@@ -151,12 +135,7 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
     headline.effective_kwh > 0
       ? `${headline.effective_kwh.toFixed(0)} kWh`
       : "—";
-  const pctText =
-    headline.pct_of_nameplate > 0
-      ? `${headline.pct_of_nameplate.toFixed(0)}% of nameplate`
-      : headline.nameplate_kwh > 0
-        ? ""
-        : "(no nameplate set on this vehicle)";
+  const pctText = documented > 0 ? `estimate · Rivian's spec: ${documented.toFixed(0)} kWh` : "estimate";
 
   return (
     <div className="space-y-2">
