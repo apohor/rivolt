@@ -526,7 +526,14 @@ func doGraphQLDetached[T any](ctx context.Context, c *LiveClient, req graphQLReq
 		return out, err
 	}
 	c.mu.Lock()
-	rerr := c.forceRefreshCSRFLocked(ctx)
+	var rerr error
+	// If another call already minted a new a-sess/csrf pair while this one was
+	// in flight, this call failed on the pair it was sent with, not the current
+	// one: retry with the current pair. Minting again would invalidate the pair
+	// the other call just got and set off a CreateCSRFToken ping-pong.
+	if c.appSessionToken == headers["a-sess"] && c.csrfToken == headers["csrf-token"] {
+		rerr = c.forceRefreshCSRFLocked(ctx)
+	}
 	fresh := c.authHeaders()
 	c.mu.Unlock()
 	if rerr != nil {
