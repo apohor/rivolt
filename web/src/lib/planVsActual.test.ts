@@ -78,6 +78,29 @@ describe("rows", () => {
     )[0];
     expect(r.reasons).toEqual(["big", "small"]);
   });
+  it("leads with leaving on less charge when that explains most of the cost (multi-day day 2)", () => {
+    const r = rows(
+      cmp([
+        m("cost", 2.39, 24.59, {
+          actual_complete: true,
+          reasons: [
+            { code: "energy_differed", amount: 3.74, detail: "You took 8 kWh more than planned at Electrify America." },
+            {
+              code: "start_soc_differed",
+              amount: 18.44,
+              soc: 60.7,
+              plan_soc: 90,
+              detail: "You left with 61%, not the planned 90%, so the stops had about 38 kWh more to add ($18.44).",
+            },
+          ],
+        }),
+      ]),
+    )[0];
+    expect(r.reasons).toEqual([
+      "You left with 61%, not the planned 90%, so the stops had about 38 kWh more to add ($18.44).",
+      "You took 8 kWh more than planned at Electrify America.",
+    ]);
+  });
   it("has no delta when the server gave none", () => {
     const r = rows(cmp([m("energy_kwh", 150, null)]))[0];
     expect(r.actual).toBeNull();

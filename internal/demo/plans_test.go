@@ -229,8 +229,26 @@ func TestTwoDayPlanPairsEachDay(t *testing.T) {
 		if off := c.Signals.StartOffsetMin; off == nil || *off < 0 || *off > 15 {
 			t.Errorf("day %d: start offset %v min, want the drive to leave 0-15 min after the plan", i+1, off)
 		}
-		if _, ok := ledger.ComparePlan(p, in, c.TripID); !ok {
+		cmp, ok := ledger.ComparePlan(p, in, c.TripID)
+		if !ok {
 			t.Errorf("day %d: no comparison", i+1)
+		}
+		// Day 2 leaves the hotel at the overnight's cap in the plan, but the
+		// truck spent Saturday around town: the cost says it left with less.
+		var start *ledger.PlanReason
+		for _, m := range cmp.Metrics {
+			for j := range m.Reasons {
+				if m.Metric == "cost" && m.Reasons[j].Code == "start_soc_differed" {
+					start = &m.Reasons[j]
+				}
+			}
+		}
+		switch {
+		case i == 0 && start != nil:
+			t.Errorf("day 1 left as planned, got %+v", start)
+		case i == 1 && (start == nil || start.PlanSoC == nil || *start.PlanSoC != rivian.SampleOvernightMaxSoC ||
+			start.SoC == nil || *start.SoC > 70 || start.Amount == nil || *start.Amount < 10):
+			t.Errorf("day 2 start_soc_differed = %+v", start)
 		}
 		if p.Cost == nil || len(p.Stops) != 1 {
 			t.Errorf("day %d: plan = %+v", i+1, p)
