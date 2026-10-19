@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { type FromPosition, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
 import { RouteCard } from "./RouteCard";
+import { chargingStopCount } from "./waypoints";
 import { OvernightSuggestions } from "./OvernightSuggestions";
 import type { OvernightAdder } from "./tripTypes";
 import { Stat } from "./Stat";
@@ -125,7 +126,7 @@ export function MultidayResult({
           const miles = r ? r.TotalDriveDistanceMeters / 1609.344 : 0;
           const hrs = r ? r.TotalDriveDurationSec / 3600 : 0;
           const isLongDay = miles > LONG_DAY_THRESHOLD_MI || hrs > LONG_DAY_THRESHOLD_HR;
-          const stops = r ? r.Waypoints.filter((w) => w.WaypointType.toLowerCase() === "charger").length : 0;
+          const stops = r ? chargingStopCount(r) : 0;
           const short = r && r.BatteryEmptyToDestMeters > 0 ? r.BatteryEmptyToDestMeters / 1609.344 : 0;
           return (
             <div key={d.index} className="space-y-3">

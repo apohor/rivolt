@@ -9,6 +9,7 @@ import { formatDistance, usePreferences } from "../lib/preferences";
 import { type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { Card } from "../components/ui";
 import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
+import { isChargingWaypoint } from "./waypoints";
 import { planForTable, routeDiff, routeLabel } from "./RouteChooser";
 import { Stat } from "./Stat";
 
@@ -77,10 +78,7 @@ export function RouteCard({
   // distanceCell can look up the predecessor for leg-distance math.
   const chargingWithIdx = route.Waypoints
     .map((w, i) => ({ w, i }))
-    .filter(({ w }) => {
-      const t = wpType(w);
-      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
-    });
+    .filter(({ w }) => isChargingWaypoint(w));
   const charging = chargingWithIdx.map(({ w }) => w);
   const originIdx = route.Waypoints.findIndex((w) => wpType(w) === "origin");
   const destIdx = (() => {
