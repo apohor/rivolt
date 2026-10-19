@@ -789,15 +789,15 @@ func startSoCDiffered(p Plan, legDrives []*Drive, currency string) *startDiff {
 	r := &d.reason
 	switch {
 	case pts > 0 && r.Amount != nil:
-		r.Detail = fmt.Sprintf("You left with %.0f%%, not the planned %.0f%%, so the stops had about %.0f kWh more to add (%s).",
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%, so the stops had about %.0f kWh more to add (about %s more).",
 			actual, planned, *r.KWh, money(*r.Amount, currency))
 	case pts > 0:
-		r.Detail = fmt.Sprintf("You left with %.0f%%, not the planned %.0f%%.", actual, planned)
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%.", actual, planned)
 	case r.Amount != nil:
-		r.Detail = fmt.Sprintf("You left with %.0f%%, more than the planned %.0f%%, so the stops had about %.0f kWh less to add (%s).",
+		r.Detail = fmt.Sprintf("You started at %.0f%%, more than the planned %.0f%%, so the stops had about %.0f kWh less to add (about %s less).",
 			actual, planned, *r.KWh, money(-*r.Amount, currency))
 	default:
-		r.Detail = fmt.Sprintf("You left with %.0f%%, more than the planned %.0f%%.", actual, planned)
+		r.Detail = fmt.Sprintf("You started at %.0f%%, more than the planned %.0f%%.", actual, planned)
 	}
 	return d
 }
@@ -1076,7 +1076,7 @@ func socMetric(p Plan, arrive *Drive, arrived bool, start *startDiff) PlanMetric
 	if start != nil {
 		r := start.reason
 		r.Amount, r.KWh = nil, nil
-		r.Detail = fmt.Sprintf("You left with %.0f%%, not the planned %.0f%%.", *r.SoC, *r.PlanSoC)
+		r.Detail = fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%.", *r.SoC, *r.PlanSoC)
 		m.Reasons = append(m.Reasons, r)
 	}
 	return m

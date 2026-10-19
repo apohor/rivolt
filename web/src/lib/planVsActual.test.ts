@@ -90,14 +90,14 @@ describe("rows", () => {
               amount: 18.44,
               soc: 60.7,
               plan_soc: 90,
-              detail: "You left with 61%, not the planned 90%, so the stops had about 38 kWh more to add ($18.44).",
+              detail: "You started at 61%, not the planned 90%, so the stops had about 38 kWh more to add (about $18.44 more).",
             },
           ],
         }),
       ]),
     )[0];
     expect(r.reasons).toEqual([
-      "You left with 61%, not the planned 90%, so the stops had about 38 kWh more to add ($18.44).",
+      "You started at 61%, not the planned 90%, so the stops had about 38 kWh more to add (about $18.44 more).",
       "You took 8 kWh more than planned at Electrify America.",
     ]);
   });

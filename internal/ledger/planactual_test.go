@@ -684,7 +684,7 @@ func TestPlanStartSoCDiffered(t *testing.T) {
 		if !near(r.SoC, left) || !near(r.PlanSoC, planned) || !near(r.KWh, kwh) || !eq(r.Amount, round2(kwh*0.48)) {
 			t.Errorf("reason = %+v", r)
 		}
-		if !strings.HasPrefix(r.Detail, fmt.Sprintf("You left with %.0f%%, not the planned %.0f%%", left, planned)) {
+		if !strings.HasPrefix(r.Detail, fmt.Sprintf("You started at %.0f%%, not the planned %.0f%%", left, planned)) {
 			t.Errorf("detail %q", r.Detail)
 		}
 		// The stop's planned energy moved by what leaving lower explains.
@@ -698,7 +698,7 @@ func TestPlanStartSoCDiffered(t *testing.T) {
 	t.Run("left with more", func(t *testing.T) {
 		cmp := mustCompare(t, returnLegFrom(t, left-20), in, trip)
 		r := hasReason(metric(t, cmp, "cost"), "start_soc_differed")
-		if r == nil || !eq(r.Amount, -round2(20*perPt*0.48)) || !strings.Contains(r.Detail, "more than the planned") {
+		if r == nil || !eq(r.Amount, -round2(20*perPt*0.48)) || !strings.Contains(r.Detail, "more than the planned") || !strings.HasSuffix(r.Detail, "less).") {
 			t.Errorf("reason = %+v", r)
 		}
 	})
