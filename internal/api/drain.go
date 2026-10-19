@@ -11,6 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
 // Parked-drain endpoint (B8, scratchpad/drain-contract.md). Per-vehicle,
@@ -45,6 +47,13 @@ const (
 	// A day's idle-awake figure needs this much observed power state.
 	drainMinDailyObsH = 3.0
 	drainCacheTTL     = 5 * time.Minute
+	// The asleep/awake split of the loss is only stated with at least this much
+	// parked time whose power state is known, and this many points lost
+	// (SoC is whole percents, so a few points over a few hours is noise), and
+	// only while most of the parked time has a recorded power state.
+	drainSplitMinHours    = 48.0
+	drainSplitMinPoints   = 3.0
+	drainSplitMinKnownPct = 0.9
 )
 
 type drainWindow struct {
@@ -60,6 +69,25 @@ type drainWindow struct {
 	DaysWithData          int            `json:"days_with_data"`
 	DaysExcluded          map[string]int `json:"days_excluded"`
 	Sufficient            bool           `json:"sufficient"`
+	Split                 drainSplit     `json:"split"`
+}
+
+// drainSplit is how the parked loss of a window divides between the time the
+// truck was asleep and the time it was awake (power state at the start of each
+// parked interval). It is an estimate: SoC is whole percents. Share is null
+// unless Sufficient; Reason says why not.
+type drainSplit struct {
+	Sufficient       bool     `json:"sufficient"`
+	Reason           string   `json:"reason,omitempty"` // not_enough_data | power_state_gaps | power_state_unreliable
+	AsleepHours      float64  `json:"asleep_hours"`
+	AwakeHours       float64  `json:"awake_hours"`
+	AsleepPointsLost *float64 `json:"asleep_points_lost"`
+	AwakePointsLost  *float64 `json:"awake_points_lost"`
+	// AwakeShareOfLoss is 0..1: the awake part of the points lost while parked.
+	AwakeShareOfLoss *float64 `json:"awake_share_of_loss"`
+	AwakeShareOfTime *float64 `json:"awake_share_of_time"`
+	MinHours         float64  `json:"min_hours"`
+	MinPointsLost    float64  `json:"min_points_lost"`
 }
 
 type drainDay struct {
@@ -92,16 +120,21 @@ type drainResponse struct {
 // drainAgg is one scope's (a local day, or a rolling window) sums.
 type drainAgg struct {
 	ParkH, DropPct, ObsH, AwakeH, ChargingH, DrivingH float64
-	Sleeps, Quick                                     int
-	MedianSleepS                                      *float64
+	// The drain pairs split by the power state at their start (windows only).
+	AsleepPairH, AsleepDrop, AwakePairH, AwakeDrop float64
+	Sleeps, Quick                                  int
+	MedianSleepS                                   *float64
 }
 
 // drainRaw is what the store returns; buildDrain turns it into the
 // response.
 type drainRaw struct {
 	PackKWh *float64
-	Days    map[string]drainAgg // keyed by local YYYY-MM-DD
-	W7, W30 drainAgg
+	// PowerStateReliable is false for a model whose power state is best-effort
+	// (the R2 today, rivian.FieldSupport), so no split is stated.
+	PowerStateReliable bool
+	Days               map[string]drainAgg // keyed by local YYYY-MM-DD
+	W7, W30            drainAgg
 }
 
 func drainRound(v float64) float64 { return math.Round(v*100) / 100 }
@@ -163,11 +196,42 @@ func buildDrain(raw drainRaw, now time.Time, loc *time.Location) drainResponse {
 			v := drainRound(24 * a.AwakeH / a.ObsH)
 			w.IdleAwakeHoursPerDay = &v
 		}
+		w.Split = buildDrainSplit(a, raw.PowerStateReliable)
 		return w
 	}
 	out.Windows["7d"] = mk(raw.W7, 7, drainMinParkedH7d)
 	out.Windows["30d"] = mk(raw.W30, 30, drainMinParkedH30d)
 	return out
+}
+
+// buildDrainSplit divides a window's parked loss between asleep and awake time.
+// A side that gained charge over the window (SoC noise) counts as zero lost.
+func buildDrainSplit(a drainAgg, reliable bool) drainSplit {
+	sp := drainSplit{
+		AsleepHours: drainRound(a.AsleepPairH), AwakeHours: drainRound(a.AwakePairH),
+		MinHours: drainSplitMinHours, MinPointsLost: drainSplitMinPoints,
+	}
+	known := a.AsleepPairH + a.AwakePairH
+	switch {
+	case !reliable:
+		sp.Reason = "power_state_unreliable"
+	case a.ParkH > 0 && known < drainSplitMinKnownPct*a.ParkH:
+		sp.Reason = "power_state_gaps"
+	case known < drainSplitMinHours:
+		sp.Reason = "not_enough_data"
+	default:
+		asleep, awake := math.Max(a.AsleepDrop, 0), math.Max(a.AwakeDrop, 0)
+		if asleep+awake < drainSplitMinPoints {
+			sp.Reason = "not_enough_data"
+			return sp
+		}
+		sp.Sufficient = true
+		al, aw := drainRound(asleep), drainRound(awake)
+		share, timeShare := drainRound(awake/(asleep+awake)), drainRound(a.AwakePairH/known)
+		sp.AsleepPointsLost, sp.AwakePointsLost = &al, &aw
+		sp.AwakeShareOfLoss, sp.AwakeShareOfTime = &share, &timeShare
+	}
+	return sp
 }
 
 // drainIntervalsSQL aggregates intervals per local day ($5 = IANA zone)
@@ -207,19 +271,24 @@ SELECT 'd' AS k, to_char((pat AT TIME ZONE $5::text)::date, 'YYYY-MM-DD') AS day
        COALESCE(SUM(h) FILTER (WHERE pair), 0), COALESCE(SUM(d) FILTER (WHERE pair), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps IS NOT NULL), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0),
-       COALESCE(SUM(hc) FILTER (WHERE pcharging), 0), COALESCE(SUM(hc) FILTER (WHERE pdriving), 0)
+       COALESCE(SUM(hc) FILTER (WHERE pcharging), 0), COALESCE(SUM(hc) FILTER (WHERE pdriving), 0),
+       0::float8, 0::float8, 0::float8, 0::float8
   FROM iv GROUP BY 2
 UNION ALL
 SELECT '7d', NULL,
        COALESCE(SUM(h) FILTER (WHERE pair), 0), COALESCE(SUM(d) FILTER (WHERE pair), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps IS NOT NULL), 0),
-       COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0), 0, 0
+       COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0), 0, 0,
+       COALESCE(SUM(h) FILTER (WHERE pair AND pps = 'sleep'), 0), COALESCE(SUM(d) FILTER (WHERE pair AND pps = 'sleep'), 0),
+       COALESCE(SUM(h) FILTER (WHERE pair AND pps IS NOT NULL AND pps <> 'sleep'), 0), COALESCE(SUM(d) FILTER (WHERE pair AND pps IS NOT NULL AND pps <> 'sleep'), 0)
   FROM iv WHERE at >= $6::timestamptz
 UNION ALL
 SELECT '30d', NULL,
        COALESCE(SUM(h) FILTER (WHERE pair), 0), COALESCE(SUM(d) FILTER (WHERE pair), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps IS NOT NULL), 0),
-       COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0), 0, 0
+       COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0), 0, 0,
+       COALESCE(SUM(h) FILTER (WHERE pair AND pps = 'sleep'), 0), COALESCE(SUM(d) FILTER (WHERE pair AND pps = 'sleep'), 0),
+       COALESCE(SUM(h) FILTER (WHERE pair AND pps IS NOT NULL AND pps <> 'sleep'), 0), COALESCE(SUM(d) FILTER (WHERE pair AND pps IS NOT NULL AND pps <> 'sleep'), 0)
   FROM iv WHERE at >= $7::timestamptz`
 
 // drainSleepsSQL counts sleeps by the local day / window they ended in.
@@ -259,10 +328,12 @@ func newDrainStore(pool *sql.DB) drainStore {
 	return func(ctx context.Context, uid uuid.UUID, rivianID string, loc *time.Location, now time.Time) (drainRaw, error) {
 		raw := drainRaw{Days: map[string]drainAgg{}}
 		var pack sql.NullFloat64
+		var model sql.NullString
 		if err := pool.QueryRowContext(ctx,
-			`SELECT pack_kwh FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`, uid, rivianID).Scan(&pack); err != nil && err != sql.ErrNoRows {
+			`SELECT pack_kwh, model FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`, uid, rivianID).Scan(&pack, &model); err != nil && err != sql.ErrNoRows {
 			return raw, err
 		}
+		raw.PowerStateReliable = rivian.FieldSupport(model.String)["power_state"] == rivian.FieldReported
 		if pack.Valid && pack.Float64 > 0 {
 			raw.PackKWh = &pack.Float64
 		}
@@ -278,7 +349,8 @@ func newDrainStore(pool *sql.DB) drainStore {
 			var k string
 			var day sql.NullString
 			var a drainAgg
-			if err := rows.Scan(&k, &day, &a.ParkH, &a.DropPct, &a.ObsH, &a.AwakeH, &a.ChargingH, &a.DrivingH); err != nil {
+			if err := rows.Scan(&k, &day, &a.ParkH, &a.DropPct, &a.ObsH, &a.AwakeH, &a.ChargingH, &a.DrivingH,
+				&a.AsleepPairH, &a.AsleepDrop, &a.AwakePairH, &a.AwakeDrop); err != nil {
 				rows.Close()
 				return raw, err
 			}

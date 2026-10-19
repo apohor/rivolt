@@ -80,6 +80,16 @@ func TestDrainStore_PairsSleepsDaysAndIsolation(t *testing.T) {
 	if raw.W7.Sleeps != 2 || raw.W7.Quick != 1 || raw.W7.MedianSleepS == nil {
 		t.Errorf("7d sleeps = %+v", raw.W7)
 	}
+	// The pairs split by the power state at their start: the 30 min sleep (rows 20 to
+	// 22) and the 30 s one are asleep, the rest awake, and the one lost point came
+	// while awake.
+	near(raw.W7.AsleepPairH, 30.5/60, 0.01, "7d asleep pair hours")
+	near(raw.W7.AsleepPairH+raw.W7.AwakePairH, raw.W7.ParkH, 0.001, "asleep + awake pair hours")
+	near(raw.W7.AsleepDrop, 0, 0.001, "7d asleep drop")
+	near(raw.W7.AwakeDrop, 1, 0.001, "7d awake drop")
+	if !raw.PowerStateReliable {
+		t.Error("a truck with no model is an R1: power state reliable")
+	}
 	if raw.W30.ParkH != raw.W7.ParkH {
 		t.Errorf("30d parked %v != 7d %v for a 6 h history", raw.W30.ParkH, raw.W7.ParkH)
 	}
@@ -145,5 +155,62 @@ func TestDrainStore_NullGearAndChargingStateCountAsParkedAwake(t *testing.T) {
 	}
 	if math.Abs(raw.W7.AwakeH-raw.W7.ObsH) > 1e-9 {
 		t.Fatalf("awake %v should equal observed %v for NULL gear/charging rows", raw.W7.AwakeH, raw.W7.ObsH)
+	}
+}
+
+// A week of parked history in two halves: asleep with no loss, then awake losing
+// ten points. The split says all of the loss came while awake.
+func TestDrainStore_AsleepAwakeSplit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	u, err := db.EnsureUser(ctx, pool, "drain-split")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id, model, pack_kwh) VALUES ($1,'rv-split','R1T',135) RETURNING id`, u).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Minute)
+	start := now.Add(-72 * time.Hour)
+	for i := 0; i < 432; i++ { // 72 h at 10 min
+		soc, ps := 80.0, "sleep"
+		if i >= 216 {
+			ps = "ready"
+			soc = 80 - float64(i-216)/21.6 // ten points over the awake half
+		}
+		if _, err := pool.Exec(`INSERT INTO vehicle_state
+			(user_id, vehicle_id, at, source, battery_level_pct, odometer_mi, power_state, shift_state, speed_mph, charging_state)
+			VALUES ($1,$2,$3,'live',$4,1000,$5,'P',0,'charger_disconnected')`,
+			u, v, start.Add(time.Duration(i)*10*time.Minute), math.Round(soc), ps); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	raw, err := newDrainStore(pool)(ctx, u, "rv-split", time.UTC, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := buildDrain(raw, now, time.UTC).Windows["7d"].Split
+	if !got.Sufficient || got.AwakeShareOfLoss == nil || *got.AwakeShareOfLoss != 1 {
+		t.Fatalf("split = %+v, want sufficient with all of the loss awake", got)
+	}
+	if math.Abs(got.AsleepHours-36) > 0.5 || math.Abs(got.AwakeHours-36) > 0.5 || got.AsleepPointsLost == nil || *got.AsleepPointsLost != 0 || math.Abs(*got.AwakePointsLost-10) > 1 {
+		t.Errorf("split = %+v, want 36 h asleep losing 0, 36 h awake losing about 10", got)
+	}
+	// The same history on an R2 states no split (its power state is best-effort).
+	if _, err := pool.Exec(`UPDATE vehicles SET model = 'R2' WHERE id = $1`, v); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = newDrainStore(pool)(ctx, u, "rv-split", time.UTC, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp := buildDrain(raw, now, time.UTC).Windows["7d"].Split; sp.Sufficient || sp.Reason != "power_state_unreliable" {
+		t.Errorf("R2 split = %+v, want power_state_unreliable", sp)
 	}
 }

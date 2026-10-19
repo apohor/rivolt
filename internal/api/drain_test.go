@@ -107,3 +107,32 @@ func TestDrainHandler_TZValidationAndCache(t *testing.T) {
 		t.Fatalf("cache must be per vehicle, calls = %d", calls)
 	}
 }
+
+func TestBuildDrainSplit(t *testing.T) {
+	ok := drainAgg{ParkH: 70, AsleepPairH: 40, AsleepDrop: 1, AwakePairH: 30, AwakeDrop: 5}
+	got := buildDrainSplit(ok, true)
+	if !got.Sufficient || *got.AwakeShareOfLoss != 0.83 || *got.AsleepPointsLost != 1 || *got.AwakePointsLost != 5 || *got.AwakeShareOfTime != 0.43 {
+		t.Errorf("split = %+v, want 5 of 6 points awake (83%%) over 43%% of the time", got)
+	}
+	cases := []struct {
+		name     string
+		a        drainAgg
+		reliable bool
+		reason   string
+	}{
+		{"unreliable power state", ok, false, "power_state_unreliable"},
+		{"too few hours", drainAgg{ParkH: 40, AsleepPairH: 20, AwakePairH: 20, AwakeDrop: 6}, true, "not_enough_data"},
+		{"too few points", drainAgg{ParkH: 70, AsleepPairH: 40, AwakePairH: 30, AwakeDrop: 2}, true, "not_enough_data"},
+		{"power state gaps", drainAgg{ParkH: 100, AsleepPairH: 30, AwakePairH: 30, AwakeDrop: 6}, true, "power_state_gaps"},
+	}
+	for _, c := range cases {
+		if sp := buildDrainSplit(c.a, c.reliable); sp.Sufficient || sp.Reason != c.reason || sp.AwakeShareOfLoss != nil {
+			t.Errorf("%s: split = %+v, want reason %s and no share", c.name, sp, c.reason)
+		}
+	}
+	// A side that gained charge (SoC noise) counts as zero lost, not a negative.
+	noisy := buildDrainSplit(drainAgg{ParkH: 70, AsleepPairH: 40, AsleepDrop: -2, AwakePairH: 30, AwakeDrop: 4}, true)
+	if !noisy.Sufficient || *noisy.AsleepPointsLost != 0 || *noisy.AwakeShareOfLoss != 1 {
+		t.Errorf("noisy split = %+v", noisy)
+	}
+}
