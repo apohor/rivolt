@@ -1047,6 +1047,20 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 //
 // This is the UI counterpart to what used to be a psql TRUNCATE.
 // Pair with /data/backup to avoid losing work.
+// accountWriteTimeout bounds an account deletion or history reset once it has
+// started. They wait on the user's telemetry-archive lock, which an archive
+// write holds through its COPY, PUT and verify GET (worst case an object at
+// the 256 MB cap, a few minutes against the NAS), so they run past the
+// request: Cloudflare gives up on the origin after ~100 s and the browser may
+// close, and a deletion cut off there would roll back.
+const accountWriteTimeout = 5 * time.Minute
+
+// accountWriteContext is the request's context without its cancellation,
+// bounded by accountWriteTimeout.
+func accountWriteContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), accountWriteTimeout)
+}
+
 func handleDataReset(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
@@ -1061,7 +1075,8 @@ func handleDataReset(d Deps) http.HandlerFunc {
 			http.Error(w, "reset unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		ctx := r.Context()
+		ctx, cancel := accountWriteContext(r)
+		defer cancel()
 		// Samples first, then the telemetry archive. The other way round, an
 		// archive run between the two could archive the samples about to go,
 		// under the user's new key and after the deletion request, and they
@@ -1155,13 +1170,16 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 			}
 			username = u
 		}
-		if err := db.DeleteUserAccount(r.Context(), d.DB, uid); err != nil {
+		// Runs to the end even if the client goes away (see accountWriteContext).
+		delCtx, cancel := accountWriteContext(r)
+		defer cancel()
+		if err := db.DeleteUserAccount(delCtx, d.DB, uid); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
 		// A failed IdP deletion is recorded for the admin page; the
 		// account is gone on our side either way.
-		_, _ = deleteFromIdP(r.Context(), d.DB, d.Users, username, d.Logger)
+		_, _ = deleteFromIdP(delCtx, d.DB, d.Users, username, d.Logger)
 		// Clear the session cookie so the next request from this
 		// browser is unauthenticated. The session row was already
 		// cascaded out of `sessions` by DeleteUser; this just stops

@@ -350,12 +350,15 @@ func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, log *slog.Logger) htt
 			}
 			username = u
 		}
-		if err := db.DeleteUserAccount(r.Context(), d, target); err != nil {
+		// Runs to the end even if the client goes away (see accountWriteContext).
+		delCtx, cancel := accountWriteContext(r)
+		defer cancel()
+		if err := db.DeleteUserAccount(delCtx, d, target); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
 		resp := map[string]any{"ok": true}
-		status, msg := deleteFromIdP(r.Context(), d, ac, username, log)
+		status, msg := deleteFromIdP(delCtx, d, ac, username, log)
 		resp["idp"] = status
 		if msg != "" {
 			resp["idp_error"] = msg
