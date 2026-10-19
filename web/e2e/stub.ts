@@ -435,7 +435,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, {
         units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", timezone: "UTC", months: 12, min_month_distance: 50, min_months: 3, qualifying_months: 1,
         efficiency: [{ month: "2026-10", distance: 48, energy_kwh: 19, efficiency: 2.5, drives: 4 }],
-        capacity: { samples: [], median_kwh: null, nameplate_kwh: 131, qualifying_count: 0, span_days: 0, min_samples: 5, min_span_days: 30 },
+        capacity: { samples: [], median_kwh: null, spec_kwh: 131, reported_kwh: 129, qualifying_count: 0, span_days: 0, min_samples: 5, min_span_days: 30 },
       });
     }
     if (p === `/api/vehicles/${VEHICLE_ID}/pack-health`) {

@@ -107,7 +107,7 @@ function CapacityTrend({ t }: { t: TruckTrends }) {
   const pts = c.samples.map((s) => ({ x: new Date(s.at).getTime(), y: s.kwh_effective }));
   const x0 = Math.min(...pts.map((p) => p.x));
   const x1 = Math.max(...pts.map((p) => p.x));
-  const spec = specKwh(c.nameplate_kwh ?? 0);
+  const spec = specKwh(c.spec_kwh ?? 0);
   const ys = [...pts.map((p) => p.y), c.median_kwh, ...(spec > 0 ? [spec] : [])];
   const lo = Math.floor(Math.min(...ys) - 2);
   const hi = Math.ceil(Math.max(...ys) + 2);

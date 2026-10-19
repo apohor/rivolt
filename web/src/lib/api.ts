@@ -930,7 +930,9 @@ export type TruckTrends = {
   capacity: {
     samples: { at: string; kwh_effective: number }[];
     median_kwh: number | null;
-    nameplate_kwh: number | null;
+    // The documented figure, only when the trim identified the pack; null means draw no spec line.
+    spec_kwh?: number | null;
+    reported_kwh?: number | null;
     qualifying_count: number;
     span_days: number;
     min_samples: number;
