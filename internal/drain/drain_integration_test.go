@@ -4,10 +4,14 @@ package drain_test
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"math"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drain"
@@ -194,4 +198,80 @@ func TestCompute(t *testing.T) {
 	near("rv-d 24h observed h", f(d1.ObservedHours), 8, 1e-6)
 	near("rv-d 24h awake (NULL gear/charging state)", d1.IdleAwakeHPerDay, 24, 1e-6)
 	near("rv-d 24h drain", d1.DrainPctPerDay, 0, 1e-9)
+}
+
+// Two replicas on one database: only the lock holder computes and exports; when
+// it goes away the other takes over on its next tick.
+func TestSingleRunnerAcrossReplicas(t *testing.T) {
+	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {
+		t.Skip("RIVOLT_SKIP_INTEGRATION set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cs := []*drain.Collector{drain.NewCollector(), drain.NewCollector()}
+	ctxs := make([]context.Context, 2)
+	cancels := make([]context.CancelFunc, 2)
+	done := make([]chan struct{}, 2)
+	for i := range cs {
+		ctxs[i], cancels[i] = context.WithCancel(ctx)
+		done[i] = make(chan struct{})
+		go func(i int) { cs[i].Run(ctxs[i], pool, 100*time.Millisecond, logger); close(done[i]) }(i)
+	}
+	defer func() {
+		for i := range cs {
+			cancels[i]()
+			<-done[i]
+		}
+	}()
+	exporting := func() (n int, who int) {
+		who = -1
+		for i, c := range cs {
+			if testutil.CollectAndCount(c) > 0 {
+				n++
+				who = i
+			}
+		}
+		return
+	}
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if ok() {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %s", what)
+	}
+	waitFor("one replica to export", func() bool { n, _ := exporting(); return n == 1 })
+	// It stays one for several ticks: the loser never exports.
+	leader := -1
+	for i := 0; i < 15; i++ {
+		n, who := exporting()
+		if n > 1 {
+			t.Fatalf("%d replicas export at once", n)
+		}
+		if n == 1 {
+			if leader >= 0 && who != leader {
+				t.Fatalf("leadership moved from %d to %d without the leader going away", leader, who)
+			}
+			leader = who
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+	if leader < 0 {
+		t.Fatal("no replica exported")
+	}
+	// The leader goes away; the other takes over.
+	cancels[leader]()
+	<-done[leader]
+	other := 1 - leader
+	waitFor("the other replica to take over", func() bool { return testutil.CollectAndCount(cs[other]) > 0 })
 }
