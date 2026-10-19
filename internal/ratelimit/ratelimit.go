@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -262,4 +263,70 @@ func toInt64(v any) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// Retrying is a Limiter that may not exist yet. Redis can be unreachable when
+// the process boots (a rollout that starts Redis and the app together); the
+// limiter used to be disabled for the life of the process in that case, so a
+// later rollout fired Rivian calls with no global budget at all. Retrying keeps
+// trying in the background and starts limiting as soon as Redis answers. Until
+// then, like a Redis error in Allow, it fails open.
+type Retrying struct {
+	l atomic.Pointer[Limiter]
+}
+
+// Allow delegates to the Limiter once it exists; before that it allows.
+func (r *Retrying) Allow(ctx context.Context, class Class) (bool, time.Duration) {
+	if l := r.l.Load(); l != nil {
+		return l.Allow(ctx, class)
+	}
+	return true, 0
+}
+
+// Ready reports whether the Redis connection has been made.
+func (r *Retrying) Ready() bool { return r.l.Load() != nil }
+
+// NewRetrying tries New once (bounded by pingTimeout) and, if that fails, keeps
+// trying every retryEvery in the background until it works or ctx is done.
+// onReady, when set, is called once when the connection is made later.
+func NewRetrying(ctx context.Context, rdb *redis.Client, cfg Config, logger *slog.Logger, pingTimeout, retryEvery time.Duration, onReady func()) *Retrying {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	r := &Retrying{}
+	try := func() error {
+		pctx, cancel := context.WithTimeout(ctx, pingTimeout)
+		defer cancel()
+		l, err := New(pctx, rdb, cfg, logger)
+		if err != nil {
+			return err
+		}
+		r.l.Store(l)
+		return nil
+	}
+	err := try()
+	if err == nil {
+		return r
+	}
+	logger.Warn("ratelimit: redis unreachable; running without the global budget and retrying", "every", retryEvery.String(), "err", err.Error())
+	go func() {
+		t := time.NewTicker(retryEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := try(); err != nil {
+					continue
+				}
+				logger.Info("ratelimit: redis reachable; global budget enabled")
+				if onReady != nil {
+					onReady()
+				}
+				return
+			}
+		}
+	}()
+	return r
 }

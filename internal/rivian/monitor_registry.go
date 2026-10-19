@@ -62,6 +62,9 @@ type MonitorRegistry struct {
 	sleepObserver      SleepObserver
 	wakeSafety         func(vehicleID string) WakeSafety
 	logger             *slog.Logger
+	// stagger is shared by every monitor the registry creates: the whole
+	// process spaces its first WebSocket connects, not each user on their own.
+	stagger *Stagger
 
 	mu       sync.RWMutex
 	monitors map[uuid.UUID]*monitorEntry
@@ -96,6 +99,7 @@ func NewMonitorRegistry(
 		samples:  samplesF,
 		settings: settingsF,
 		logger:   logger,
+		stagger:  NewStagger(defaultStaggerInterval),
 		monitors: make(map[uuid.UUID]*monitorEntry),
 	}
 }
@@ -288,6 +292,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		}
 		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
 	}
+	mon.SetStagger(r.stagger)
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),

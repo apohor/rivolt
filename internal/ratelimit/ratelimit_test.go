@@ -138,3 +138,53 @@ func TestRetryAfterRoughlyTracksRefill(t *testing.T) {
 		t.Fatalf("retryAfter = %v, want ~1s", retry)
 	}
 }
+
+// Redis down at boot must not disable the limiter for the life of the process:
+// it fails open until Redis answers, then limits (review §4.2).
+func TestRetryingStartsLimitingWhenRedisComesUp(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	addr := mr.Addr()
+	mr.Close() // down at "boot"
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DialTimeout: 100 * time.Millisecond, MaxRetries: -1})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := Config{MainCapacity: 2, MainRefillPerSec: 0.001}
+	ready := make(chan struct{})
+	r := NewRetrying(ctx, rdb, cfg, nil, 200*time.Millisecond, 20*time.Millisecond, func() { close(ready) })
+
+	if r.Ready() {
+		t.Fatal("ready with Redis down")
+	}
+	for i := 0; i < 10; i++ {
+		if ok, _ := r.Allow(ctx, ClassMain); !ok {
+			t.Fatalf("call %d refused while Redis is down; want fail-open", i)
+		}
+	}
+
+	if err := mr.StartAddr(addr); err != nil {
+		t.Fatalf("restart miniredis: %v", err)
+	}
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the limiter never connected after Redis came up")
+	}
+	if !r.Ready() {
+		t.Fatal("not ready after the connection was made")
+	}
+	allowed := 0
+	for i := 0; i < 5; i++ {
+		if ok, _ := r.Allow(ctx, ClassMain); ok {
+			allowed++
+		}
+	}
+	if allowed != 2 {
+		t.Errorf("%d of 5 allowed after connecting, want the bucket's 2", allowed)
+	}
+}

@@ -299,9 +299,10 @@ type StateMonitor struct {
 	// SubscribeVehicleState calls into Rivian's gateway in the same
 	// millisecond. Each run() takes one slot before its first
 	// network call; serialized at staggerInterval (default 50ms).
-	staggerMu       sync.Mutex
-	staggerLastSlot time.Time
-	staggerInterval time.Duration
+	// The slot clock is a *Stagger so the registry can share one across every
+	// user's monitor: a rollout that starts hundreds of single-vehicle users must
+	// space the whole fleet's first connects, not each user's own.
+	stagger *Stagger
 
 	// priceLookup returns the user's configured home $/kWh rate
 	// and currency at the time of call. Consulted by the recorder
@@ -469,7 +470,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		// 50ms between WS subscribe attempts. With a 60-vehicle pod
 		// that's a 3-second cold-start spread, well below Rivian's
 		// observed rate-limit window.
-		staggerInterval: 50 * time.Millisecond,
+		stagger: NewStagger(defaultStaggerInterval),
 	}
 }
 
@@ -3659,28 +3660,18 @@ func (m *StateMonitor) waitReauthClear(ctx context.Context, vehicleID string) bo
 	}
 }
 
-// waitStaggerSlot blocks until at least staggerInterval has passed
+// waitStaggerSlot blocks until this monitor's (possibly shared) Stagger hands
+// out a slot.
 func (m *StateMonitor) waitStaggerSlot(ctx context.Context) {
-	if m.staggerInterval <= 0 {
-		return
+	m.stagger.Wait(ctx)
+}
+
+// SetStagger replaces the monitor's slot clock; the registry passes one shared
+// instance to every monitor. Call before Start.
+func (m *StateMonitor) SetStagger(s *Stagger) {
+	if s != nil {
+		m.stagger = s
 	}
-	m.staggerMu.Lock()
-	now := time.Now()
-	next := m.staggerLastSlot.Add(m.staggerInterval)
-	if now.Before(next) {
-		// Reserve our slot at `next` and release the lock so other
-		// goroutines can queue up behind us.
-		m.staggerLastSlot = next
-		wait := next.Sub(now)
-		m.staggerMu.Unlock()
-		select {
-		case <-ctx.Done():
-		case <-time.After(wait):
-		}
-		return
-	}
-	m.staggerLastSlot = now
-	m.staggerMu.Unlock()
 }
 
 // jitter returns d randomized to [d/2, d*3/2). Used for reconnect
