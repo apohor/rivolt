@@ -31,7 +31,7 @@ We run our own servers in the United States, and database backups go to storage 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
 - A record of which reminders and summaries we sent (not their content) is kept about 13 months, so none is sent twice.
-- If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90 to your verified address, and never delete less than 30 days after that warning. If we have no verified email address for you, there is no warning and the account is deleted at day 120. This starts only after this policy is published.
+- If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90 to your verified address, and never delete less than 30 days after that warning. If we have no verified email address for you, there is no warning and the account is deleted at day 120. For accounts created before this line was published, the 120 days count from the day it was published.
 - In Settings you can export your data, delete your history, or delete your whole account. Signing Rivolt out of Rivian deletes the stored Rivian session; you can also revoke access in the Rivian app.
 - After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days. Records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security, including after you delete your account.
 
