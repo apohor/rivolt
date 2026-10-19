@@ -51,8 +51,9 @@ async function openSaved(page: Page, name: RegExp) {
 }
 
 test("single-day plan for a far trip shows the note; a near trip does not", async ({ page }) => {
-  await page.route("**/api/trips/plan", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...DEMO_PLAN, far_future: true }) }));
   await setup(page, [saved("st-far", "Far trip", undefined)]);
+  // After stubApi: a later route wins.
+  await page.route("**/api/trips/plan", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...DEMO_PLAN, far_future: true }) }));
   await openSaved(page, /Far trip/);
   await page.getByRole("button", { name: "Plan trip" }).click();
   const note = page.locator("[data-far-future-note]");
@@ -70,9 +71,6 @@ test("single-day plan for a far trip shows the note; a near trip does not", asyn
 });
 
 test("multi-day plan for a far trip shows the note", async ({ page }) => {
-  await page.route("**/api/trips/plan-multiday", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ days: DAYS, total: TOTAL, tz: "UTC", far_future: true }) }),
-  );
   await setup(page, [
     saved("st-md", "Far two-day", undefined, {
       extra_stops: [pt("Des Moines", 41.59, -93.62)],
@@ -82,6 +80,9 @@ test("multi-day plan for a far trip shows the note", async ({ page }) => {
       overnight_l2_kw: 7,
     }),
   ]);
+  await page.route("**/api/trips/plan-multiday", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ days: DAYS, total: TOTAL, tz: "UTC", far_future: true }) }),
+  );
   await openSaved(page, /Far two-day/);
   await page.getByRole("button", { name: /Plan 2-day trip/ }).click();
   await expect(page.locator("[data-day-card]")).toHaveCount(2);
