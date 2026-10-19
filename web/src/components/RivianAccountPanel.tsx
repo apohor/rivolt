@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
 import { track } from "../lib/track";
+import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
@@ -55,7 +56,7 @@ export function RivianAccountPanel() {
       track("rivian_connect_start", { authorized_driver: kind === "driver" });
       return backend.rivianLogin(email, password);
     },
-    onError: () => track("rivian_connect_fail", { class: "other" }),
+    onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "password").track }),
     onSuccess: () => {
       setPassword(""); // drop cleartext from memory on success
       invalidate();
@@ -63,6 +64,7 @@ export function RivianAccountPanel() {
   });
   const mfa = useMutation({
     mutationFn: () => backend.rivianMFA(otp),
+    onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "code").track }),
     onSuccess: () => {
       setOtp("");
       setEmail("");
@@ -217,9 +219,7 @@ export function RivianAccountPanel() {
             Cancel
           </button>
         </div>
-        {mfa.isError && (
-          <ErrorBox title="MFA failed" detail={String(mfa.error)} />
-        )}
+        {mfa.isError && <FailureBox f={connectFailure(mfa.error, "code")} />}
       </form>
     );
   }
@@ -344,9 +344,31 @@ export function RivianAccountPanel() {
         <p className="text-xs text-neutral-500">Recommended: a dedicated driver account.</p>
       )}
       {login.isError && (
-        <ErrorBox title="Sign-in failed" detail={String(login.error)} />
+        <FailureBox
+          f={connectFailure(login.error, "password")}
+          action={
+            connectFailure(login.error, "password").cls === "user_action"
+              ? { label: kind === "driver" ? "Use my main Rivian account instead" : "Use a driver account instead", run: () => setKind(kind === "driver" ? "main" : "driver") }
+              : undefined
+          }
+        />
       )}
     </form>
+  );
+}
+
+// A failed connect: the class-based message and, for a rejected login, one way to switch account type. Details stay filled in.
+function FailureBox({ f, action }: { f: ConnectFailure; action?: { label: string; run: () => void } }) {
+  return (
+    <div role="alert" data-connect-failure={f.cls} className="rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-sm">
+      <div className="font-medium text-rose-200">{f.title}</div>
+      <p className="mt-1 text-xs leading-relaxed text-rose-100/80">{f.body}</p>
+      {action && (
+        <button type="button" onClick={action.run} className="mt-2 text-xs text-emerald-300 underline underline-offset-2 hover:text-emerald-200">
+          {action.label}
+        </button>
+      )}
+    </div>
   );
 }
 
