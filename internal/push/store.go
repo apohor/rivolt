@@ -67,29 +67,48 @@ func OpenStore(db *sql.DB, userID uuid.UUID) (*Store, error) {
 // Close is a no-op; the pool is managed by main.
 func (s *Store) Close() error { return nil }
 
-// Upsert inserts or updates a subscription keyed on (user_id, endpoint).
+// Upsert inserts or updates a subscription keyed on (user_id, endpoint). It
+// never sets the two opt-in switches (plug-in reminder, milestones) on: a new
+// row starts with both off and a re-subscribe leaves what is stored. Only
+// SetOptIns, reached from the Settings screen's own control, turns them on, so
+// a stale tab or an old pod posting its local defaults cannot opt anyone in.
 func (s *Store) Upsert(ctx context.Context, sub Subscription) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO push_subscriptions (
 			user_id, endpoint, p256dh, auth,
 			on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
 			user_agent
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		) VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,FALSE,$8)
 		ON CONFLICT (user_id, endpoint) DO UPDATE SET
 			p256dh              = EXCLUDED.p256dh,
 			auth                = EXCLUDED.auth,
 			on_charging_done    = EXCLUDED.on_charging_done,
-			on_plug_in_reminder = EXCLUDED.on_plug_in_reminder,
 			on_anomaly          = EXCLUDED.on_anomaly,
 			on_software_update  = EXCLUDED.on_software_update,
-			on_milestones       = EXCLUDED.on_milestones,
 			user_agent          = EXCLUDED.user_agent,
 			updated_at          = NOW()`,
 		s.userID, sub.Endpoint, sub.P256dh, sub.Auth,
-		sub.OnChargingDone, sub.OnPlugInReminder, sub.OnAnomaly, sub.OnSoftwareUpdate, sub.OnMilestones,
+		sub.OnChargingDone, sub.OnAnomaly, sub.OnSoftwareUpdate,
 		sub.UserAgent,
 	)
 	return err
+}
+
+// SetOptIns sets the plug-in reminder and/or milestones switch on one of the
+// user's subscriptions (nil leaves a switch alone) and reports whether the
+// endpoint is the user's.
+func (s *Store) SetOptIns(ctx context.Context, endpoint string, plugIn, milestones *bool) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE push_subscriptions
+		   SET on_plug_in_reminder = COALESCE($3, on_plug_in_reminder),
+		       on_milestones       = COALESCE($4, on_milestones),
+		       updated_at          = NOW()
+		 WHERE user_id = $1 AND endpoint = $2`, s.userID, endpoint, plugIn, milestones)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
 // Delete removes a subscription. No-op if absent.

@@ -73,15 +73,18 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			}
 		}
 
+		// The plug-in reminder and milestones are opt-in and are NOT taken from
+		// here, whatever the client posts (an old Settings tab or pod would
+		// post its stale local defaults): the stored values stay as they are
+		// and only POST /api/push/optin changes them.
+		prefs.OnPlugInReminder, prefs.OnMilestones = false, false
 		sub := push.Subscription{
 			Endpoint:         body.Endpoint,
 			P256dh:           body.Keys.P256dh,
 			Auth:             body.Keys.Auth,
 			OnChargingDone:   prefs.OnChargingDone,
-			OnPlugInReminder: prefs.OnPlugInReminder,
 			OnAnomaly:        prefs.OnAnomaly,
 			OnSoftwareUpdate: prefs.OnSoftwareUpdate,
-			OnMilestones:     prefs.OnMilestones,
 			UserAgent:        body.UserAgent,
 		}
 		if err := store.Upsert(r.Context(), sub); err != nil {
@@ -227,5 +230,40 @@ func handlePushOff(store *push.Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "devices_changed": n})
+	}
+}
+
+// handlePushOptIn: POST /api/push/optin {endpoint, on_plug_in_reminder?,
+// on_milestones?} sets the opt-in switches of one of the caller's devices. It
+// is the only way either goes on (subscribe ignores them), and it comes from the
+// Settings screen's own control. 404 when the endpoint is not the caller's;
+// never an admin's act while viewing as the user.
+func handlePushOptIn(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			Endpoint         string `json:"endpoint"`
+			OnPlugInReminder *bool  `json:"on_plug_in_reminder"`
+			OnMilestones     *bool  `json:"on_milestones"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Endpoint == "" ||
+			(body.OnPlugInReminder == nil && body.OnMilestones == nil) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "endpoint and at least one switch required"})
+			return
+		}
+		found, err := store.SetOptIns(r.Context(), body.Endpoint, body.OnPlugInReminder, body.OnMilestones)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "push optin", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }

@@ -577,6 +577,9 @@ func New(d Deps) http.Handler {
 				r.Post("/device", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushDevice(d.Push.For(uid))(w, r)
 				}))
+				r.Post("/optin", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushOptIn(d.Push.For(uid))(w, r)
+				}))
 				r.Post("/off", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushOff(d.Push.For(uid))(w, r)
 				}))
