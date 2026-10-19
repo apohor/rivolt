@@ -112,16 +112,24 @@ func NewThinner(db *sql.DB, afterDays int) *Thinner {
 // ends at or before now-afterDays and that is not yet thinned. months must be
 // sorted oldest first.
 func ThinCandidate(months []time.Time, thinned map[time.Time]bool, now time.Time, afterDays int) (time.Time, bool) {
+	c := ThinCandidates(months, thinned, now, afterDays)
+	if len(c) == 0 {
+		return time.Time{}, false
+	}
+	return c[0], true
+}
+
+// ThinCandidates lists every month ThinCandidate would pick in turn, oldest
+// first.
+func ThinCandidates(months []time.Time, thinned map[time.Time]bool, now time.Time, afterDays int) []time.Time {
 	limit := now.UTC().Add(-time.Duration(afterDays) * 24 * time.Hour)
+	var out []time.Time
 	for _, m := range months {
-		if thinned[m] {
-			continue
-		}
-		if !m.AddDate(0, 1, 0).After(limit) {
-			return m, true
+		if !thinned[m] && !m.AddDate(0, 1, 0).After(limit) {
+			out = append(out, m)
 		}
 	}
-	return time.Time{}, false
+	return out
 }
 
 // Run thins at most one month and drops full copies past FullKeep. It returns
@@ -174,19 +182,33 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
+	if t.DryRun {
+		// A dry run changes nothing, so a real run's one-month-a-day order
+		// would report the same oldest month every day (and an emptied month
+		// would hide all the others): report every month a real run would
+		// reach instead.
+		for _, month := range ThinCandidates(months, thinned, now, t.afterDays) {
+			rep, err := t.thin(ctx, conn, month)
+			if err != nil {
+				return 0, err
+			}
+			if t.Report != nil {
+				t.Report(rep)
+			}
+		}
+		return 0, nil
+	}
 	month, ok := ThinCandidate(months, thinned, now, t.afterDays)
 	if !ok {
 		return 0, nil
 	}
-	if !t.DryRun {
-		// Checked again under the partition lock in thin(); this refuses early.
-		ok, err := archive.MonthArchived(ctx, conn, monthPartition(month), now)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, fmt.Errorf("%s: %w", monthPartition(month), ErrNotArchived)
-		}
+	// Checked again under the partition lock in thin(); this refuses early.
+	ok, err = archive.MonthArchived(ctx, conn, monthPartition(month), now)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("%s: %w", monthPartition(month), ErrNotArchived)
 	}
 	rep, err := t.thin(ctx, conn, month)
 	if errors.Is(err, ErrNotArchived) {
@@ -202,9 +224,6 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	}
 	if t.Report != nil {
 		t.Report(rep)
-	}
-	if t.DryRun {
-		return 0, nil
 	}
 	return 1, nil
 }

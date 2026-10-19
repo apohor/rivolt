@@ -68,14 +68,26 @@ func TestSampleThinning(t *testing.T) {
 	var reports []samples.ThinReport
 	th := samples.NewThinner(pool, 90)
 	th.Report = func(r samples.ThinReport) { reports = append(reports, r) }
+	// An emptied older month (an account deleted) must not hide the month
+	// with rows: the dry run reports every month a real run would reach.
+	var emptied string
+	if err := pool.QueryRowContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, day.AddDate(0, -1, 0)).Scan(&emptied); err != nil {
+		t.Fatal(err)
+	}
 	th.DryRun = true
-	if n, err := th.Run(ctx); err != nil || n != 0 || len(reports) != 1 || !reports[0].DryRun {
+	if n, err := th.Run(ctx); err != nil || n != 0 || len(reports) != 2 || !reports[0].DryRun || !reports[1].DryRun {
 		t.Fatalf("dry run: %d %v %+v", n, err, reports)
+	}
+	if reports[0].Partition != emptied || reports[0].RowsBefore != 0 || reports[1].RowsBefore != 10800 {
+		t.Fatalf("dry run reports %+v, want %s (empty) then the seeded month", reports, emptied)
 	}
 	if count() != 10800 {
 		t.Fatal("dry run changed rows")
 	}
-	would := reports[0].RowsAfter
+	would := reports[1].RowsAfter
+	if _, err := pool.ExecContext(ctx, `DROP TABLE `+emptied); err != nil {
+		t.Fatal(err)
+	}
 
 	// Without a verified archive object for the month, a real run refuses and
 	// changes nothing; an object waiting to be re-archived doesn't count.

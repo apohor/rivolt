@@ -38,6 +38,15 @@ func TestThinCandidate(t *testing.T) {
 	if !ok || !got.Equal(m(2026, 7)) {
 		t.Errorf("Oct 30: %v %v, want 2026-07", got, ok)
 	}
+	// Every month a real run would reach, in its order (the dry run reports
+	// them all).
+	all := ThinCandidates(months, map[time.Time]bool{m(2026, 6): true}, time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC), 90)
+	if len(all) != 2 || !all[0].Equal(m(2026, 5)) || !all[1].Equal(m(2026, 7)) {
+		t.Errorf("candidates %v, want 2026-05, 2026-07", all)
+	}
+	if c := ThinCandidates(months, nil, now, 90); len(c) != 2 {
+		t.Errorf("Oct 19: %v, want 2026-05 and 2026-06", c)
+	}
 }
 
 func TestPartitionMonth(t *testing.T) {
