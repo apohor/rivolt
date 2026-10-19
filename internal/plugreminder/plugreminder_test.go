@@ -42,8 +42,8 @@ type engageStore struct {
 	rows   map[string]string
 }
 
-func (e *engageStore) Timezone(context.Context, uuid.UUID) (string, bool, error) {
-	return e.tz, e.stored, nil
+func (e *engageStore) Timezone(context.Context, uuid.UUID) (string, bool, bool, error) {
+	return e.tz, e.stored, e.tz != "", nil
 }
 func (e *engageStore) BudgetUsed(context.Context, uuid.UUID, time.Time) (int, error) { return 99, nil }
 func (e *engageStore) Claim(_ context.Context, m engage.Msg, _, _ time.Time, _ int) (bool, bool, error) {
