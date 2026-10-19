@@ -12,8 +12,10 @@ package signuprequests
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -203,7 +205,7 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 		       decided_at = NOW()
 		 WHERE id = $4 AND status = 'pending'
 		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
-	`, token, expires, by, id).Scan(
+	`, HashToken(token), expires, by, id).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
@@ -218,6 +220,9 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 	if err != nil {
 		return Request{}, fmt.Errorf("signuprequests: approve with token: %w", err)
 	}
+	// The row holds the hash; the caller needs the token itself, once, to build the
+	// link it sends. This is the only place the plain token exists.
+	r.SignupToken = &token
 	return r, nil
 }
 
@@ -258,7 +263,7 @@ func (s *Store) LookupToken(ctx context.Context, token string) (Request, error) 
 		SELECT id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 		  FROM signup_requests
 		 WHERE signup_token = $1
-	`, token).Scan(
+	`, HashToken(token)).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
@@ -303,7 +308,7 @@ func (s *Store) ConsumeToken(ctx context.Context, token string) (Request, error)
 		   AND token_used_at IS NULL
 		   AND (token_expires_at IS NULL OR token_expires_at > NOW())
 		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
-	`, token).Scan(
+	`, HashToken(token)).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
@@ -344,6 +349,15 @@ func (s *Store) PurgeStale(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("signuprequests: purge: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+// HashToken is what is stored for a signup token: the lower-case hex SHA-256 of
+// the token the requester holds. The token is 130 random bits, so a plain hash is
+// enough (nothing to brute-force); a dump of the table or a read by an admin shows
+// no usable link. 64 characters, which no plain token (26) can be mistaken for.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	return hex.EncodeToString(sum[:])
 }
 
 // newSignupToken returns a 26-char URL-safe base32 string (130 bits

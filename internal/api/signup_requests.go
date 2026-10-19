@@ -46,8 +46,14 @@ func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
 		Email:       r.Email,
 		Message:     r.Message,
 		Status:      r.Status,
-		SignupToken: r.SignupToken,
 		RequestedAt: r.RequestedAt.UTC().Format(time.RFC3339),
+	}
+	// The token itself never goes to the admin list (the row holds only its hash,
+	// and the one-time link is in the approval response): a marker says one was
+	// issued, which is all the list shows.
+	if r.SignupToken != nil {
+		issued := "issued"
+		row.SignupToken = &issued
 	}
 	if r.TokenExpiresAt != nil {
 		s := r.TokenExpiresAt.UTC().Format(time.RFC3339)
