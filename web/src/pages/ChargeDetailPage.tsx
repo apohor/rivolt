@@ -1167,8 +1167,8 @@ function mean(values: number[]): number | null {
 
 function NoSamples() {
   return (
-    <p className="text-sm text-neutral-500">
-      No raw samples stored for this time window.
+    <p className="text-sm text-neutral-500" data-no-samples="figures">
+      Detailed data isn&apos;t available for this charge; its figures are.
     </p>
   );
 }
