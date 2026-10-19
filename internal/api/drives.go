@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -60,7 +59,7 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 
 // handleDriveGet serves one drive with its route polyline and the same
 // cost estimate the list carries. 404 when the user has no such drive.
-func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsStore *settings.Store, reduced reducedLookup) http.HandlerFunc {
+func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -79,37 +78,8 @@ func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsSt
 		priced := loadPricedCharges(r.Context(), chargesStore, cfg)
 		fallbackRate, fallbackCur := computeBlendedRate(priced, cfg)
 		rate, cur := rateForDrive(*d, priced, fallbackRate, fallbackCur)
-		resp := decorateDrive(*d, rate, cur)
-		resp.SamplesReduced = reduced.covers(r.Context(), d.VehicleID, d.StartedAt, d.EndedAt)
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, http.StatusOK, decorateDrive(*d, rate, cur))
 	}
-}
-
-// reducedLookup answers which UTC months of a vehicle's raw telemetry are shown
-// from reduced samples (thinned, and not held at full detail by a restore). A nil
-// one answers none, so a deployment without thinning, the demo and old tests are
-// unchanged.
-type reducedLookup func(ctx context.Context, rivianVehicleID string, from, to time.Time) []time.Time
-
-// reducedFrom wraps a user's sample store; a failed lookup answers none (the
-// fields are additive and absent when there is nothing to say).
-func reducedFrom(st *samples.Store) reducedLookup {
-	if st == nil {
-		return nil
-	}
-	return func(ctx context.Context, vehicle string, from, to time.Time) []time.Time {
-		months, err := st.ReducedMonths(ctx, vehicle, from, to)
-		if err != nil {
-			slog.WarnContext(ctx, "reduced months lookup failed", "err", err.Error())
-			return nil
-		}
-		return months
-	}
-}
-
-// covers reports whether any month the session spans is reduced for the vehicle.
-func (f reducedLookup) covers(ctx context.Context, vehicle string, from, to time.Time) bool {
-	return f != nil && len(f(ctx, vehicle, from, to)) > 0
 }
 
 // driveResponse is the wire shape for /api/drives: the stored drive
@@ -118,10 +88,6 @@ func (f reducedLookup) covers(ctx context.Context, vehicle string, from, to time
 // fallback for drives that predate the first known charge).
 type driveResponse struct {
 	drives.Drive
-	// SamplesReduced: the drive's month of raw telemetry is shown from reduced
-	// samples (thinned), so the chart and route are the lighter recording. Absent
-	// when not.
-	SamplesReduced    bool    `json:"samples_reduced,omitempty"`
 	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 	// EstimatedPricePerKWh is the rate used to compute EstimatedCost
@@ -257,7 +223,7 @@ func computeBlendedRate(priced []pricedCharge, cfg settings.ChargingConfig) (flo
 // Optional ?vehicle=<rivian vehicle id> scopes to one truck (the one the
 // drive or charge belongs to); without it every vehicle of the user is
 // returned, as before. An id the user doesn't own yields an empty list.
-func handleSamples(store *samples.Store, reduced reducedLookup) http.HandlerFunc {
+func handleSamples(store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusOK, []any{})
@@ -297,22 +263,6 @@ func handleSamples(store *samples.Store, reduced reducedLookup) http.HandlerFunc
 			// An unbounded or over-7-day window is not bucketed: these are the
 			// oldest rows up to the cap, and the newer ones are missing.
 			w.Header().Set("X-Rivolt-Samples-Truncated", "true")
-		}
-		// Which months of the requested range are shown from reduced samples, for
-		// the vehicle asked about (a header, like the others: the body stays a plain
-		// array). Absent when none, or when no vehicle was named.
-		if v := strings.TrimSpace(r.URL.Query().Get("vehicle")); v != "" && reduced != nil {
-			end := until
-			if end.IsZero() {
-				end = time.Now()
-			}
-			if ms := reduced(r.Context(), v, since, end); len(ms) > 0 {
-				names := make([]string, len(ms))
-				for i, m := range ms {
-					names[i] = m.Format("2006-01")
-				}
-				w.Header().Set("X-Rivolt-Reduced-Months", strings.Join(names, ","))
-			}
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

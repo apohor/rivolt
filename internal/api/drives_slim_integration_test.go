@@ -52,7 +52,7 @@ func TestDrivesSlimListAndGetOne(t *testing.T) {
 		}
 		r := chi.NewRouter()
 		r.Get("/api/drives", handleDrives(df.For(uid), cf.For(uid), sf.For(uid)))
-		r.Get("/api/drives/{id}", handleDriveGet(df.For(uid), cf.For(uid), sf.For(uid), nil))
+		r.Get("/api/drives/{id}", handleDriveGet(df.For(uid), cf.For(uid), sf.For(uid)))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 		return w

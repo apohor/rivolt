@@ -42,7 +42,25 @@ type Drive struct {
 	// drives -- consumers fall back to a straight start->end
 	// line when this is empty.
 	RoutePolyline string
+	// Thinned is set by Get and the lists (not by the backup/export iterators):
+	// the drive's month of raw telemetry has been thinned (sample_tiers) and is not
+	// currently held at full detail by an admin restore, so the detail the drive
+	// page draws from it is the lighter recording. Absent when not. The month is
+	// UTC, as the partitions are; a drive that crosses a month counts as thinned
+	// when either of its months is.
+	Thinned bool `json:"thinned,omitempty"`
 }
+
+// thinnedSQL is the column that fills Drive.Thinned: one of the drive's months
+// (start or end, UTC) has a sample_tiers row and is not held at full detail for
+// this vehicle (archive_months.rethin_after in the future, set by an admin
+// restore; the full rows are back for those days).
+const thinnedSQL = `EXISTS (SELECT 1 FROM sample_tiers t
+		        WHERE t.month IN (date_trunc('month', d.started_at AT TIME ZONE 'UTC')::date,
+		                          date_trunc('month', d.ended_at AT TIME ZONE 'UTC')::date)
+		          AND NOT EXISTS (SELECT 1 FROM archive_months a
+		                           WHERE a.user_id = d.user_id AND a.vehicle_id = d.vehicle_id
+		                             AND a.month = t.month AND a.rethin_after > now()))`
 
 // Store wraps the drives table.
 type Store struct {
@@ -195,7 +213,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool) ([]Dri
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       `+routeCol+`
+		       `+routeCol+`, `+thinnedSQL+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -215,7 +233,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool) ([]Dri
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
-			&d.RoutePolyline,
+			&d.RoutePolyline, &d.Thinned,
 		); err != nil {
 			return nil, err
 		}
@@ -239,7 +257,7 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,'')
+		       COALESCE(d.route_polyline,''), `+thinnedSQL+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1 AND d.external_id = $2
@@ -250,7 +268,7 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 		&d.MaxSpeedMph, &d.AvgSpeedMph,
 		&d.EnergyUsedKWh, &d.Source,
-		&d.RoutePolyline)
+		&d.RoutePolyline, &d.Thinned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

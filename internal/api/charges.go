@@ -290,7 +290,7 @@ func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.
 }
 
 // handleGetCharge serves GET /api/charges/{id}.
-func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, reduced reducedLookup) http.HandlerFunc {
+func handleGetCharge(store networkConfirmer, settingsStore *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := store.GetByExternalID(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")))
 		if err != nil {
@@ -301,9 +301,7 @@ func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, redu
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		resp := decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0]
-		resp.SamplesReduced = reduced.covers(r.Context(), c.VehicleID, c.StartedAt, c.EndedAt)
-		writeJSON(w, http.StatusOK, resp)
+		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0])
 	}
 }
 
@@ -313,9 +311,6 @@ func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, redu
 // both the rate and the observed energy are non-zero.
 type chargeResponse struct {
 	charges.Charge
-	// SamplesReduced: the charge's month of raw telemetry is shown from reduced
-	// samples (thinned). Absent when not.
-	SamplesReduced bool `json:"samples_reduced,omitempty"`
 	// The ledger's classification (cost_source_effective, kind, place,
 	// ledger_flags, ...): the same rules as the Money tab, so the
 	// Charges list and charge page don't re-derive them.
