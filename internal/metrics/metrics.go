@@ -133,6 +133,10 @@ type Metrics struct {
 	// refused for the rest of the window. No labels, so no address is recorded.
 	// A burst is a guessing or targeted-lockout campaign.
 	LoginLockoutsTotal prometheus.Counter
+	// WebSocket "next" frames dropped because a subscription's 16-slot channel
+	// was full (a consumer stuck behind a slow database). A missed gear frame
+	// can merge or lose a drive.
+	WSFramesDroppedTotal prometheus.Counter
 
 	// Non-transactional messages (internal/engage), by kind and outcome (sent,
 	// failed, already_sent, skipped_*). No user ids in labels.
@@ -258,6 +262,10 @@ func New() *Metrics {
 			Name: "rivolt_login_lockouts_total",
 			Help: "Times an email address reached the failed-login limit and was locked out.",
 		}),
+		WSFramesDroppedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_ws_frames_dropped_total",
+			Help: "Rivian WebSocket frames dropped because a subscription consumer was behind.",
+		}),
 		EngagementSendsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_engagement_sends_total",
@@ -326,6 +334,7 @@ func New() *Metrics {
 		m.LoginLockoutsTotal,
 		m.EngagementSendsTotal,
 		m.RecorderWriteFailuresTotal,
+		m.WSFramesDroppedTotal,
 		m.EngagementStuckSending,
 		m.SamplePartitionsDropped,
 		m.FunnelEventsTotal,

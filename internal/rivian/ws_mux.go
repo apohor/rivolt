@@ -308,11 +308,9 @@ func (m *wsMux) receive() {
 			if sub := m.lookup(frame.ID); sub != nil {
 				// Non-blocking send so one slow consumer can't stall
 				// the whole receiver. If the channel is full we drop
-				// the frame — the next one will arrive shortly.
-				select {
-				case sub.framesCh <- frame.Payload:
-				default:
-				}
+				// the frame (the next one will arrive shortly), counted
+				// and logged by deliverFrame.
+				m.deliverFrame(sub, frame.Payload)
 			}
 		case "error":
 			if sub := m.lookup(frame.ID); sub != nil {
