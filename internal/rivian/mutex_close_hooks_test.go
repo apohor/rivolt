@@ -126,3 +126,41 @@ func TestMutualExclusionHookThresholds(t *testing.T) {
 		t.Errorf("hooks fired for fragments: %d drives, %d charges; want none", drivesN, chargesN)
 	}
 }
+
+// A plug-in that only negotiates and is unplugged two minutes later moved no
+// energy: no close hook (so no "Charging complete · 0.0 kWh" push). A charge
+// that did add energy still fires it.
+func TestZeroEnergyChargeFiresNoCloseHook(t *testing.T) {
+	t.Parallel()
+	t0 := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	run := func(kw, soc0, soc1 float64) []charges.Charge {
+		r := NewReplayer("veh-1")
+		var mu sync.Mutex
+		var closed []charges.Charge
+		r.m.chargeCloseHook = func(_ context.Context, c charges.Charge) {
+			mu.Lock()
+			closed = append(closed, c)
+			mu.Unlock()
+		}
+		var fs []State
+		for i := 0; i <= 12; i++ { // two minutes of frames
+			fs = append(fs, State{At: t0.Add(time.Duration(i) * 10 * time.Second), Gear: "P", ChargerState: "charging_active",
+				ChargerStatus: "chrgr_sts_connected_charging", ChargerPowerKW: kw, BatteryLevelPct: soc0 + (soc1-soc0)*float64(i)/12,
+				OdometerKm: 1000, Latitude: 34, Longitude: -118, PowerState: "ready"})
+		}
+		fs = append(fs, State{At: t0.Add(3 * time.Minute), Gear: "P", ChargerState: "charger_disconnected",
+			ChargerStatus: "chrgr_sts_not_connected", BatteryLevelPct: soc1, OdometerKm: 1000, Latitude: 34, Longitude: -118, PowerState: "ready"})
+		r.FeedAll(fs)
+		_ = r.Charges() // waits for the async hooks to settle
+		time.Sleep(100 * time.Millisecond)
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]charges.Charge(nil), closed...)
+	}
+	if got := run(0, 70, 70); len(got) != 0 {
+		t.Errorf("zero-energy charge fired the close hook: %+v", got)
+	}
+	if got := run(11, 70, 72); len(got) != 1 {
+		t.Errorf("a charge that added energy fired %d hooks, want 1", len(got))
+	}
+}
