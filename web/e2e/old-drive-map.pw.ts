@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
 
-// A drive whose second-by-second samples are gone still has its stored route: the map is drawn from it, and the empty
-// states say the detail is no longer kept instead of "no telemetry was recorded".
+// A drive with no second-by-second samples (a gap or an import) still has its stored route: the map is drawn from it, and
+// the empty states say what is missing and what is there, with no claim about age.
 
 function encode5(pts: [number, number][]): string {
   let pl = 0;
@@ -54,14 +54,14 @@ for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
   { n: "desktop", vp: { width: 1280, height: 900 } },
 ] as const) {
-  test(`an old drive with no samples draws its stored route and says the detail is no longer kept · ${v.n}`, async ({ browser }) => {
+  test(`a drive with no samples draws its stored route and says what is there · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, "/drives/old-route");
-    await expect(page.locator("[data-no-samples='route']").first()).toContainText("Detailed data for this drive is no longer kept; its route and figures are.");
+    await expect(page.locator("[data-no-samples='route']").first()).toContainText("Detailed data isn't available for this drive; its route and figures are.");
     // The map is drawn from the stored route: no "no telemetry" message in the Route card.
     await expect(page.locator(".leaflet-container").first()).toBeVisible();
-    await expect(page.getByText("No telemetry was recorded for this drive.")).toHaveCount(0);
+    await expect(page.getByText(/No telemetry was recorded/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.waitForTimeout(1500);
     const shots = path.join(process.cwd(), "e2e", "__screenshots__");
@@ -74,22 +74,23 @@ for (const v of [
   });
 }
 
-test("an old drive with no route says its figures are kept; a recent one with no samples keeps the old wording", async ({ browser }) => {
+test("a drive with no samples and no route says its figures are there, whatever its age", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, "/drives/old-bare");
-  await expect(page.locator("[data-no-samples='figures']").first()).toContainText("Detailed data for this drive is no longer kept; its figures are.");
-  await page.goto("/drives/new-bare");
-  await expect(page.locator("[data-no-samples='never']").first()).toContainText("No telemetry was recorded for this drive.");
+  for (const id of ["old-bare", "new-bare"]) {
+    await open(page, `/drives/${id}`);
+    await expect(page.locator("[data-no-samples='figures']").first()).toContainText("Detailed data isn't available for this drive; its figures are.");
+    await expect(page.getByText(/no longer kept|No telemetry was recorded/)).toHaveCount(0);
+  }
   await ctx.close();
 });
 
-test("charges: an old one says its figures are kept, a recent one keeps the old wording", async ({ browser }) => {
+test("charges: no samples says the figures are there, old or new", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, "/charges/old-charge");
-  await expect(page.locator("[data-no-samples='figures']").first()).toContainText("Detailed data for this charge is no longer kept; its figures are.");
-  await page.goto("/charges/new-charge");
-  await expect(page.locator("[data-no-samples='never']").first()).toContainText("No raw samples stored for this time window.");
+  for (const id of ["old-charge", "new-charge"]) {
+    await open(page, `/charges/${id}`);
+    await expect(page.locator("[data-no-samples='figures']").first()).toContainText("Detailed data isn't available for this charge; its figures are.");
+  }
   await ctx.close();
 });

@@ -1,6 +1,5 @@
 import { drivesAllQuery } from "../lib/activityLists";
 import { decodePolyline } from "../lib/polyline";
-import { detailPastKeeping } from "../lib/retention";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -280,8 +279,7 @@ export default function DriveDetailPage() {
     () => decodePolyline(drive?.RoutePolyline).map(([lat, lon]) => ({ lat, lon })),
     [drive?.RoutePolyline],
   );
-  const noDetail: "route" | "figures" | false =
-    storedRoutePoints.length >= 2 ? "route" : drive && detailPastKeeping(drive.StartedAt) ? "figures" : false;
+  const hasStoredRoute = storedRoutePoints.length >= 2;
 
   // GNSS staleness for the map badge (seconds), or null to suppress it.
   // The modem sometimes replays a cached fix, so At runs ahead of
@@ -489,7 +487,7 @@ export default function DriveDetailPage() {
         {samples.isLoading ? (
           <Spinner />
         ) : driveSamples.length === 0 ? (
-          <NoSamples gone={noDetail} />
+          <NoSamples route={hasStoredRoute} />
         ) : (
           <DriveTimeline
             drive={drive}
@@ -540,7 +538,7 @@ export default function DriveDetailPage() {
               <DriveMap points={storedRoutePoints} />
             </Suspense>
           ) : (
-            <NoSamples gone={noDetail} />
+            <NoSamples route={hasStoredRoute} />
           )
         ) : (
           <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
@@ -631,14 +629,13 @@ function Stat({
   );
 }
 
-function NoSamples({ gone }: { gone: "route" | "figures" | false }) {
+// A drive with no samples is a gap or an import, not necessarily an old drive: say what is missing and what is there.
+function NoSamples({ route }: { route: boolean }) {
   return (
-    <p className="text-sm text-neutral-500" data-no-samples={gone || "never"}>
-      {gone === "route"
-        ? "Detailed data for this drive is no longer kept; its route and figures are."
-        : gone === "figures"
-          ? "Detailed data for this drive is no longer kept; its figures are."
-          : "No telemetry was recorded for this drive."}
+    <p className="text-sm text-neutral-500" data-no-samples={route ? "route" : "figures"}>
+      {route
+        ? "Detailed data isn't available for this drive; its route and figures are."
+        : "Detailed data isn't available for this drive; its figures are."}
     </p>
   );
 }
