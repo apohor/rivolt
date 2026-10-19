@@ -243,7 +243,7 @@ the lease tracker and the monthly statement email. Setup reminders by
 email stop as soon as Rivolt has data from your truck, and every
 email has a one-click unsubscribe.
 
-<img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: 26 kWh at the home rate, with links to the receipt and Money">
+<img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: 26 kWh and its cost at the home rate, with links to the receipt and Money">
 <img src="docs/screenshots/three-things.png" width="390" alt="The Three things card: charge-done notifications, lease tracker and monthly statement by email">
 
 ---
