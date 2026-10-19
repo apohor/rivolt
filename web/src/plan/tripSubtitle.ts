@@ -50,3 +50,11 @@ export function tripTag(inputs: SavedTripInputs): string | null {
 export function multiDayFirst<T extends { inputs: SavedTripInputs }>(trips: T[]): T[] {
   return [...trips].sort((a, b) => Number(nightsOf(b.inputs).length > 0) - Number(nightsOf(a.inputs).length > 0));
 }
+
+// A place as it reads in a suggested trip name: the geocoder's full address ("1 Ferry Building, San Francisco,
+// California, United States") is far too long for a name field, so only the first part is kept.
+export function shortPlace(label?: string): string {
+  const l = (label ?? "").replace(/\s*\(sample\)\s*$/i, "").trim();
+  if (/^current vehicle position$/i.test(l)) return "Truck";
+  return l.split(",")[0].trim() || l;
+}

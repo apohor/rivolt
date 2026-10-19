@@ -18,7 +18,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
 import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
-import { multiDayFirst, tripSubtitle, tripTag } from "../plan/tripSubtitle";
+import { multiDayFirst, shortPlace, tripSubtitle, tripTag } from "../plan/tripSubtitle";
 import { SaveTripBar } from "../plan/SaveTripBar";
 import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
@@ -350,10 +350,9 @@ export default function TripPlanPage() {
     </>
   );
   // The trip being shown, named for a Save that is one tap on the result.
-  const tripLabel = (l?: string) => (l ?? "").replace(/\s*\(sample\)\s*$/i, "").trim();
   const defaultTripName = (() => {
-    const o = tripLabel(origin?.label);
-    const d = tripLabel(destination?.label);
+    const o = shortPlace(origin?.label);
+    const d = shortPlace(destination?.label);
     const days = overnightFlags.filter(Boolean).length + 1;
     const base = o && d && o !== d ? `${o} to ${d}` : o ? `${o} round trip` : "My trip";
     return days > 1 ? `${base} · ${days} days` : base;
@@ -504,6 +503,7 @@ export default function TripPlanPage() {
                     vehicle_id: vid,
                     starting_soc: soc,
                     origin_bearing: 0,
+                    ...(departureAt ? { depart_at: new Date(departureAt).toISOString() } : {}),
                     target_arrival_soc_percent: target,
                     drive_mode: driveMode || undefined,
                     has_adapter: hasAdapter,

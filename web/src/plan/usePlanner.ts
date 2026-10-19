@@ -268,6 +268,8 @@ export function usePlanner() {
         vehicle_id: vid,
         starting_soc: soc,
         origin_bearing: 0,
+        // The date and time picked in the bar: without it the plan was always for now.
+        ...(departureAt ? { depart_at: new Date(departureAt).toISOString() } : {}),
         target_arrival_soc_percent: target,
         drive_mode: driveMode || undefined,
         has_adapter: hasAdapter,

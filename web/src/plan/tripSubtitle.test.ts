@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SavedTripInputs } from "../lib/api";
-import { multiDayFirst, tripSubtitle, tripTag } from "./tripSubtitle";
+import { multiDayFirst, shortPlace, tripSubtitle, tripTag } from "./tripSubtitle";
 
 const pt = (label: string, lat: number, lon: number) => ({ label, lat, lon });
 const home = pt("Rose Bowl parking (sample)", 34.16, -118.17);
@@ -34,5 +34,14 @@ describe("tripTag and ordering", () => {
     expect(tripTag(multi)).toBe("2 days · hotel night");
     expect(tripTag(single)).toBeNull();
     expect(multiDayFirst([{ inputs: single, id: "a" }, { inputs: multi, id: "b" }, { inputs: single, id: "c" }]).map((t) => t.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("shortPlace", () => {
+  it("keeps the first part of a geocoder address and names the truck's position", () => {
+    expect(shortPlace("1 Ferry Building, San Francisco, California, United States")).toBe("1 Ferry Building");
+    expect(shortPlace("Current vehicle position")).toBe("Truck");
+    expect(shortPlace("Rose Bowl parking (sample)")).toBe("Rose Bowl parking");
+    expect(shortPlace(undefined)).toBe("");
   });
 });
