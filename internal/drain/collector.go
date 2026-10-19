@@ -3,6 +3,7 @@ package drain
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,16 +25,22 @@ const computeTimeout = 2 * time.Minute
 // refreshes it; scrapes never touch the database. Series for a vehicle
 // with no rows in the last 7 days disappear on the next refresh.
 //
-// Every replica computes and exports the same fleet-wide series (prod
-// runs two pods), so they differ only in the scrape's instance label.
-// Query them aggregated, max by (vehicle, window), as the dashboard in
-// the parked-drain Grafana dashboard does; never sum them.
+// One replica (the holder of a Postgres advisory lock) computes and
+// exports the fleet-wide series; the others export nothing, so a pod that
+// lost the lock can't keep serving stale numbers. The 7-day fleet scan is
+// the cost, and it would otherwise double with every replica. Failover is
+// within one interval after the leader pod goes away. Query the series
+// aggregated, max by (vehicle, window), as the parked-drain Grafana dashboard
+// does; never sum them.
 //
 // The vehicle label is the Rivian vehicle id. That's fine for the
 // admin-only Grafana these feed, but keep these series off any public
 // or shared dashboard.
 type Collector struct {
 	snap atomic.Pointer[snapshot]
+	// elect tries to become the computing replica. Run sets it for the database;
+	// tests replace it.
+	elect func(ctx context.Context) (session, error)
 
 	drain, parked, awake, observed, sleeps, quick, median *prometheus.Desc
 	lastOK, duration                                      *prometheus.Desc
@@ -110,22 +117,112 @@ func (c *Collector) Set(stats []Stat, at time.Time, took time.Duration) {
 	c.snap.Store(&snapshot{stats: stats, at: at, took: took})
 }
 
-// Run recomputes now and then every interval until ctx is done. A
-// failed recompute keeps the previous snapshot (its last-success
-// timestamp ages, which is what to alert on) and logs a warning.
+// leaderLockKey names the Postgres advisory lock the computing replica holds
+// (hashed to the lock id in SQL, so it can't collide with the numeric ids the
+// maintenance jobs use).
+const leaderLockKey = "rivolt-drain-metrics"
+
+// session is a held leader lock and the connection it lives on. Computing on
+// that same connection means a dead connection (and with it the lock) shows up
+// as a compute error.
+type session interface {
+	compute(ctx context.Context, now time.Time) ([]Stat, error)
+	// release gives the lock up. discard drops the connection instead of
+	// returning it to the pool, which is what frees a lock that could not be
+	// released cleanly.
+	release(discard bool)
+}
+
+// dbSession is the session on a *sql.Conn.
+type dbSession struct{ conn *sql.Conn }
+
+func (s *dbSession) compute(ctx context.Context, now time.Time) ([]Stat, error) {
+	return Compute(ctx, s.conn, now)
+}
+
+func (s *dbSession) release(discard bool) {
+	if !discard {
+		uctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var ok bool
+		err := s.conn.QueryRowContext(uctx, `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, leaderLockKey).Scan(&ok)
+		cancel()
+		discard = err != nil || !ok
+	}
+	if discard {
+		// An advisory lock belongs to the database session, and closing a
+		// *sql.Conn only returns it to the pool. Reporting the connection bad
+		// makes the pool close the session, which frees the lock.
+		_ = s.conn.Raw(func(any) error { return driver.ErrBadConn })
+	}
+	_ = s.conn.Close()
+}
+
+func dbElect(db *sql.DB) func(ctx context.Context) (session, error) {
+	return func(ctx context.Context) (session, error) {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var got bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, leaderLockKey).Scan(&got); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			_ = conn.Close()
+			return nil, err
+		}
+		if !got {
+			_ = conn.Close() // no lock taken: back to the pool
+			return nil, nil
+		}
+		return &dbSession{conn: conn}, nil
+	}
+}
+
+// Run recomputes now and then every interval until ctx is done, while this
+// replica holds the leader lock. Without it the snapshot is cleared (the
+// replica exports no drain series) and the next tick tries again. A failed
+// recompute keeps the previous snapshot (its last-success timestamp ages, which
+// is what to alert on), gives the lock up with the connection, and retries on
+// the next tick.
 func (c *Collector) Run(ctx context.Context, db *sql.DB, interval time.Duration, logger *slog.Logger) {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
+	elect := c.elect
+	if elect == nil {
+		elect = dbElect(db)
+	}
+	var lead session
+	defer func() {
+		if lead != nil {
+			lead.release(false)
+		}
+	}()
 	refresh := func() {
+		if lead == nil {
+			s, err := elect(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Warn("drain metrics: leader election failed", "err", err.Error())
+				}
+				return
+			}
+			if s == nil {
+				c.snap.Store(nil) // another replica computes
+				return
+			}
+			lead = s
+			logger.Info("drain metrics: this replica computes")
+		}
 		qctx, cancel := context.WithTimeout(ctx, computeTimeout)
 		defer cancel()
 		start := time.Now()
-		stats, err := Compute(qctx, db, start)
+		stats, err := lead.compute(qctx, start)
 		if err != nil {
 			if ctx.Err() == nil {
 				logger.Warn("drain metrics: compute failed", "err", err.Error())
 			}
+			lead.release(true)
+			lead = nil
 			return
 		}
 		took := time.Since(start)

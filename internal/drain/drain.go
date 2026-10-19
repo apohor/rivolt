@@ -138,10 +138,16 @@ SELECT v.rivian_vehicle_id,
   LEFT JOIN sl ON sl.vehicle_id = a.vehicle_id
  ORDER BY v.rivian_vehicle_id`
 
+// Querier is what Compute reads through: a *sql.DB, or the *sql.Conn the
+// collector holds its leader lock on.
+type Querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 // Compute returns every vehicle's stats for the 24 h and 7 d windows
 // ending at now, two per vehicle with any rows in the last 7 days.
 // It reads across all users (the app role owns the tables).
-func Compute(ctx context.Context, db *sql.DB, now time.Time) ([]Stat, error) {
+func Compute(ctx context.Context, db Querier, now time.Time) ([]Stat, error) {
 	now = now.UTC()
 	rows, err := db.QueryContext(ctx, fleetQuery, now.Add(-7*24*time.Hour), now.Add(-24*time.Hour), now)
 	if err != nil {
