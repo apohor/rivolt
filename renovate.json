@@ -13,6 +13,7 @@
   "prConcurrentLimit": 8,
   "postUpdateOptions": ["gomodTidy"],
   "platformAutomerge": false,
+  "rebaseWhen": "conflicted",
   "automergeSchedule": ["at any time"],
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": "1 day" },
