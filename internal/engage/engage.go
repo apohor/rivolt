@@ -81,9 +81,10 @@ type Msg struct {
 
 // Store is the persistence Engage needs.
 type Store interface {
-	// Timezone is the account's zone: the one its browser stored (stored=true),
-	// else the statement email's, else "UTC" (stored=false).
-	Timezone(ctx context.Context, uid uuid.UUID) (tz string, stored bool, err error)
+	// Timezone is the account's zone: the one its browser stored (stored=true,
+	// known=true), else the statement email's (stored=false, known=true), else
+	// none (known=false, tz "UTC" only so callers need not special-case it).
+	Timezone(ctx context.Context, uid uuid.UUID) (tz string, stored, known bool, err error)
 	// BudgetUsed counts budgeted claims (not skipped ones) since the cutoff.
 	BudgetUsed(ctx context.Context, uid uuid.UUID, since time.Time) (int, error)
 	// Claim inserts the (user, kind, key) row as 'sending'. For a budgeted
@@ -147,14 +148,18 @@ func (e *Engage) Send(ctx context.Context, m Msg, deliver func(ctx context.Conte
 		return done(SkippedOff, nil)
 	}
 	now := e.now()
-	// 2. The clock. Pushes keep to 09:00-20:00 local; a utility keeps to
-	// 07:00-22:00 local and needs a stored zone.
+	// 2. The clock. Pushes keep to 09:00-20:00 local, in a zone the account
+	// has (its browser's, else the statement email's); a utility keeps to
+	// 07:00-22:00 local and needs the browser's.
 	if m.Utility || m.Channel == Push {
-		tz, stored, err := e.Store.Timezone(ctx, m.User)
+		tz, stored, known, err := e.Store.Timezone(ctx, m.User)
 		if err != nil {
 			return done("", fmt.Errorf("engage: timezone: %w", err))
 		}
-		if m.Utility && !stored {
+		// No zone at all is no guess either way: a budgeted push at UTC hours
+		// would land in the middle of the night; a utility needs a zone the
+		// browser stored.
+		if !known || (m.Utility && !stored) {
 			return done(SkippedNoTZ, nil)
 		}
 		loc, lerr := time.LoadLocation(tz)

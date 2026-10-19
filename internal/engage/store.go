@@ -14,26 +14,26 @@ type pgStore struct{ db *sql.DB }
 // NewStore returns the Postgres store.
 func NewStore(db *sql.DB) Store { return &pgStore{db: db} }
 
-func (s *pgStore) Timezone(ctx context.Context, uid uuid.UUID) (string, bool, error) {
+func (s *pgStore) Timezone(ctx context.Context, uid uuid.UUID) (string, bool, bool, error) {
 	var tz sql.NullString
 	err := s.db.QueryRowContext(ctx, `SELECT timezone FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&tz)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", false, err
+		return "", false, false, err
 	}
 	if tz.Valid && tz.String != "" {
-		return tz.String, true, nil
+		return tz.String, true, true, nil
 	}
 	// Not stored by the browser: the statement email's zone is a fair guess for
 	// quiet hours (never for a utility, which checks `stored`).
 	var st sql.NullString
 	err = s.db.QueryRowContext(ctx, `SELECT timezone FROM statement_email_prefs WHERE user_id = $1`, uid).Scan(&st)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", false, err
+		return "", false, false, err
 	}
 	if st.Valid && st.String != "" {
-		return st.String, false, nil
+		return st.String, false, true, nil
 	}
-	return "UTC", false, nil
+	return "UTC", false, false, nil
 }
 
 func (s *pgStore) BudgetUsed(ctx context.Context, uid uuid.UUID, since time.Time) (int, error) {
