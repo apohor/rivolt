@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/maps"
 )
 
 // Per-user ceilings for the same-origin map proxies. Valhalla calls are
@@ -26,4 +27,17 @@ func mapsUserLimiter(perMin int) *ipLimiter {
 		return clientIP(r)
 	}
 	return l
+}
+
+// valhallaMount and tilesMount are what api.go mounts at /api/maps/valhalla and
+// /api/maps/tiles. The prefix is stripped first, so the allowlist sees the path
+// the upstream will see ("/route", "/us.pmtiles"), not the public one.
+func valhallaMount(proxy http.Handler) http.Handler {
+	return mapsUserLimiter(mapsValhallaPerMin).Middleware(
+		http.StripPrefix("/api/maps/valhalla", maps.AllowValhalla(proxy)))
+}
+
+func tilesMount(proxy http.Handler) http.Handler {
+	return mapsUserLimiter(mapsTilesPerMin).Middleware(
+		http.StripPrefix("/api/maps/tiles", maps.AllowTiles(proxy)))
 }
