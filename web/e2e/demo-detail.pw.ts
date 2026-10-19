@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Signed-out demo: receipts and Activity rows open working, read-only
 // detail views under /demo, and back / refresh / a fresh open all work.
@@ -214,7 +215,7 @@ test("without a basemap archive the map says so, and calls no third-party tile h
 test("a charge's pin names the network on the receipt, never a neighbouring brand", async ({ page }) => {
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
   const session = (id: string, network: string) => ({
-    charge_id: id, started_at: new Date().toISOString(), ended_at: new Date().toISOString(), soc_start: 20, soc_end: 80,
+    charge_id: id, started_at: new Date(e2eNow()).toISOString(), ended_at: new Date(e2eNow()).toISOString(), soc_start: 20, soc_end: 80,
     kwh: 50, peak_kw: 150, cost: 20, price_per_kwh: 0.4, cost_source: "network_estimate", network,
     final_state: "charging_complete", source: "live", flags: [], kind: "dcfc", place: "away",
   });
@@ -229,12 +230,12 @@ test("a charge's pin names the network on the receipt, never a neighbouring bran
         driving: { drives: 0, miles: 0, miles_with_energy: 0, kwh_used_known: 0, coverage: null, cost_per_mile: null, cost_per_mile_basis: "spend_over_miles" },
         data_quality: {},
         receipts: [
-          { receipt_id: "r-ran", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 200, started_at: new Date().toISOString(),
-            ended_at: new Date().toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
+          { receipt_id: "r-ran", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 200, started_at: new Date(e2eNow()).toISOString(),
+            ended_at: new Date(e2eNow()).toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
             cost: 20, cost_source: "network_estimate", rate: 0.4, network: "Rivian Adventure Network", session_count: 1, unpriced_sessions: 0,
             flags: [], sessions: [session("charge-1", "Rivian Adventure Network")] },
-          { receipt_id: "r-ea", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 300, started_at: new Date().toISOString(),
-            ended_at: new Date().toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
+          { receipt_id: "r-ea", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 300, started_at: new Date(e2eNow()).toISOString(),
+            ended_at: new Date(e2eNow()).toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
             cost: 20, cost_source: "network_estimate", rate: 0.4, network: "Electrify America", session_count: 1, unpriced_sessions: 0,
             flags: [], sessions: [session("charge-2", "Electrify America")] },
         ],

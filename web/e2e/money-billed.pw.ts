@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 import { currentMonth, ledgerMonthFixture } from "../src/lib/ledger";
+import { e2eNow } from "./clock";
 
 // Money with Rivian receipts (flag rivian_receipts): a matched session shows what Rivian
 // billed with "Billed by Rivian", the rest show "Estimated"; the month total is split the
@@ -13,7 +14,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 function withReceipts(on: boolean) {
-  const m = ledgerMonthFixture(currentMonth());
+  const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())));
   if (!on) return m;
   const awayIdx = m.receipts.findIndex((r) => r.place === "away" && r.cost_source === "network_estimate");
   m.receipts.forEach((r, i) => {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Admin > Operations flag rows: Money tab and statement email (who they are on for), and the AI
 // call cap. Each change is an editor, one confirm, then the save.
@@ -10,7 +11,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const H = 3_600_000;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const mk = (id: string, name: string, role = "user") => ({ id, username: `${name.toLowerCase()}@example.com`, email: `${name.toLowerCase()}@example.com`, display_name: name, role, disabled: false, created_at: ago(900 * H), vehicle_count: 1, drive_count: 1, import_count: 0, rivian_connected: true, needs_reauth: false });
 const U1 = "11111111-1111-1111-1111-111111111111", U2 = "22222222-2222-2222-2222-222222222222", U3 = "33333333-3333-3333-3333-333333333333";
 const USERS = [mk(U1, "Owner", "admin"), mk(U2, "Ann"), mk(U3, "Bob")];

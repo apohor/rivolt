@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // Regression: /api/samples is user-scoped. An account with two trucks
 // driving the same minutes must still get a clean single-truck route
@@ -10,7 +11,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 test("route map ignores a second truck's samples", async ({ page }) => {
-  const T0 = Date.now() - 3 * 3_600_000;
+  const T0 = e2eNow() - 3 * 3_600_000;
   const mk = (vid: string, lat0: number, lon0: number, i: number) => ({
     VehicleID: vid, At: new Date(T0 + i * 5000).toISOString(),
     Lat: lat0 + i * 0.0006 + 0.01 * Math.sin(i / 8), Lon: lon0 + i * 0.0006, SpeedMph: 20 + (i % 40),

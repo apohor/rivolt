@@ -1,12 +1,13 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // The admin site, signed out: a visitor who got through the edge but has no Rivolt session is sent to
 // sign in and comes back to /admin, instead of a bare "not authorized".
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 const HEALTH = {
-  generated_at: new Date().toISOString(), version: "0.36.21",
+  generated_at: new Date(e2eNow()).toISOString(), version: "0.36.21",
   alerts: { status: "ok", items: [] }, kill_switch: { status: "ok", paused: false },
   rivian: { status: "ok", window: "24h", results: {}, error_rate: null, breaker_state: 0, breaker_trips: {}, rate_limited: {} },
   vehicles: { status: "ok", leased: 0, streaming: 0 }, disk: { status: "ok", used_pct: 30 }, backup: { status: "ok", age_seconds: 3600 },

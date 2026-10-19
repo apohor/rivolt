@@ -1,12 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // The Users list keeps its search and filter in the URL (so Back, "All users", a reload and a shared
 // link return to the same view), and adding a user is an on-demand form.
 const H = 3_600_000;
 const D = 24 * H;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const base = { disabled: false, vehicle_count: 1, drive_count: 4, import_count: 0, rivian_connected: true, needs_reauth: false, created_at: ago(30 * D), last_seen_at: ago(H) };
 const USERS = [
   { ...base, id: "a1", username: "owner@example.com", email: "owner@example.com", display_name: "Owner", role: "admin" },

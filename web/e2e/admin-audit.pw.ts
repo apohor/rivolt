@@ -3,13 +3,14 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Admin > Audit (new look, read-only, paged, filterable) and the per-user history on the user detail.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const H = 3_600_000;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const ADMIN = { id: "11111111-1111-1111-1111-111111111111", username: "owner@example.com", email: "owner@example.com", display_name: "Owner", role: "admin", disabled: false, created_at: ago(900 * H), vehicle_count: 1, drive_count: 1, import_count: 0, rivian_connected: true, needs_reauth: false };
 const USER = { ...ADMIN, id: "22222222-2222-2222-2222-222222222222", username: "ann@example.com", email: "ann@example.com", display_name: "Ann", role: "user" };
 

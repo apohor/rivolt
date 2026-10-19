@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { currentMonth, ledgerMonthFixture } from "../src/lib/ledger";
+import { e2eNow } from "./clock";
 
 // qa2: after Change/Confirm the charge page's manual price field must
 // follow the server, and a confirmed Money row must stop reading as an
@@ -8,8 +9,8 @@ import { currentMonth, ledgerMonthFixture } from "../src/lib/ledger";
 
 const charge = (o: Record<string, unknown>) => ({
   ID: "charge-2", VehicleID: VEHICLE_ID,
-  StartedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-  EndedAt: new Date(Date.now() - 2 * 86_400_000 + 1_800_000).toISOString(),
+  StartedAt: new Date(e2eNow() - 2 * 86_400_000).toISOString(),
+  EndedAt: new Date(e2eNow() - 2 * 86_400_000 + 1_800_000).toISOString(),
   StartSoCPct: 20, EndSoCPct: 80, EnergyAddedKWh: 86.6, MilesAdded: 150, MaxPowerKW: 180, AvgPowerKW: 110,
   FinalState: "charging_complete", Lat: 40.9, Lon: -100.9, Source: "live", Currency: "USD", ...o,
 });
@@ -47,7 +48,7 @@ test("Change network: the manual price field follows the new price without a rel
 test("a confirmed network reads as a recorded price on Money, not an estimate", async ({ page }) => {
   await stubApi(page);
   await page.route("**/api/ledger/monthly**", (r) => {
-    const m = ledgerMonthFixture(currentMonth());
+    const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())));
     for (const rc of m.receipts) {
       if (rc.cost_source === "network_estimate") {
         rc.network_state = "confirmed";

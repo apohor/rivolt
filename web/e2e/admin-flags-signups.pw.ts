@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Admin > Signups (cap usage + queue) and Operations (kill switch with a typed confirm, flags with
 // who changed them), new look.
@@ -10,7 +11,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const H = 3_600_000;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const ADMIN = { id: "u-sample", username: "sample@example.com", email: "sample@example.com", display_name: "Owner", role: "admin", disabled: false, created_at: ago(900 * H), vehicle_count: 1, drive_count: 1, import_count: 0, rivian_connected: true, needs_reauth: false };
 
 type State = { paused: boolean; reason: string; planner: boolean; cap: number; used: number };

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // /signup copy now that email signup is instant, and the terms gate in front of /onboarding.
 
@@ -69,7 +70,7 @@ async function signupFlow(page: Page) {
   );
   await page.route("**/api/terms/accept", (r) => {
     accepted = true;
-    return r.fulfill({ json: { ok: true, terms: { current: "2026-10-17", accepted: "2026-10-17", accepted_at: new Date().toISOString(), required: false } } });
+    return r.fulfill({ json: { ok: true, terms: { current: "2026-10-17", accepted: "2026-10-17", accepted_at: new Date(e2eNow()).toISOString(), required: false } } });
   });
   await page.goto("/signup?token=T1");
   await page.locator('input[type="password"]').first().fill("Correct-Horse-9-Battery");

@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // ui_theme_next: Now drops the idle-awake chart for a compact tile (today, average,
 // 7-day sparkline) linking to Truck's full sleep chart; the wake warning stays.
@@ -72,7 +73,7 @@ for (const theme of ["dark", "light"] as const) {
     await stubApi(page, { scenario: "parked", drain: "ok" });
     await page.route("**/api/sleep-activity**", (r) => {
       const days = Array.from({ length: 14 }, (_, i) => ({
-        day: new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
+        day: new Date(e2eNow() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
         asleep_h: 18, idle_awake_h: i === 13 ? 3.62 : 1.43, sleeps: 3, failed_sleeps: 0,
       }));
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(days) });
@@ -106,7 +107,7 @@ test("a new truck's idle tile keeps the caption: today · no full days yet, on o
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked", drain: "ok" });
   await page.route("**/api/sleep-activity**", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ day: new Date().toISOString().slice(0, 10) + "T00:00:00Z", asleep_h: 10, idle_awake_h: 1.1, sleeps: 1, failed_sleeps: 0 }]) }),
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ day: new Date(e2eNow()).toISOString().slice(0, 10) + "T00:00:00Z", asleep_h: 10, idle_awake_h: 1.1, sleeps: 1, failed_sleeps: 0 }]) }),
   );
   await page.goto("/");
   const tile = page.getByTestId("idle-tile");

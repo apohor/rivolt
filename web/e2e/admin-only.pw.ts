@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // The admin site (features.admin_only): the new admin look is on without /api/ledger/enabled, the
 // shell has no user navigation, no status pill and no user-side fetches, and every non-admin path
@@ -12,7 +13,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const ok = { status: "ok" };
 const HEALTH = {
-  generated_at: new Date().toISOString(), version: "0.36.21",
+  generated_at: new Date(e2eNow()).toISOString(), version: "0.36.21",
   alerts: { ...ok, items: [] }, kill_switch: { ...ok, paused: false },
   rivian: { ...ok, window: "24h", results: { success: 10 }, error_rate: 0, breaker_state: 0, breaker_trips: {}, rate_limited: {} },
   vehicles: { ...ok, leased: 1, streaming: 1 }, disk: { ...ok, used_pct: 30 }, backup: { ...ok, age_seconds: 3600 },

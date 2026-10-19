@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, type NowScenario, type StubOptions } from "./stub";
+import { e2eNow } from "./clock";
 
 // Smoke + screenshot harness. Every page is stubbed with fake data,
 // the money_tab_enabled shell is on, and each view is captured on a
@@ -32,7 +33,7 @@ type View = {
 // grouping (the Activity errands row) can't form: the test would depend on the
 // time it runs.
 function middayZone(): string {
-  const off = Math.max(-12, Math.min(14, 12 - new Date().getUTCHours()));
+  const off = Math.max(-12, Math.min(14, 12 - new Date(e2eNow()).getUTCHours()));
   // Etc/GMT signs are inverted: Etc/GMT-5 is UTC+5.
   return off === 0 ? "Etc/GMT" : `Etc/GMT${off > 0 ? "-" : "+"}${Math.abs(off)}`;
 }
