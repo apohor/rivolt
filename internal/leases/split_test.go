@@ -43,7 +43,11 @@ func TestCoordinatorHealsASplitUserStopThenWaitThenRelease(t *testing.T) {
 	fs := newFakeStore()
 	st := &splitStore{fakeStore: fs, events: events}
 
-	streaming := true
+	// Which vehicles this pod is subscribed to. v2's subscription closes a moment
+	// after onRelease; the "stopped" event is logged under the same lock that
+	// flips the flag the coordinator polls, so nothing can observe the flag
+	// without the event already being in the log.
+	streaming := map[string]bool{"v1": true, "v2": true}
 	var smu sync.Mutex
 	c := newCoordinator(st, func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
 		func(v string) { events.add("acquire " + v) },
@@ -53,12 +57,12 @@ func TestCoordinatorHealsASplitUserStopThenWaitThenRelease(t *testing.T) {
 			go func() {
 				time.Sleep(150 * time.Millisecond)
 				smu.Lock()
-				streaming = false
-				smu.Unlock()
 				events.add("stopped " + v)
+				streaming[v] = false
+				smu.Unlock()
 			}()
 		}, nil, time.Hour)
-	c.SetStreamingCheck(func(string) bool { smu.Lock(); defer smu.Unlock(); return streaming })
+	c.SetStreamingCheck(func(v string) bool { smu.Lock(); defer smu.Unlock(); return streaming[v] })
 
 	c.reconcile(context.Background()) // acquires v1 and v2
 	st.split = []string{"v2"}
