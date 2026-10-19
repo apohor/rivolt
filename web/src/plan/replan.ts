@@ -53,6 +53,7 @@ export function mergeReplan(
     days,
     total: totalsOf(days),
     ...(resp.simulated ? { simulated: true } : {}),
+    ...(resp.far_future ? { far_future: true } : {}),
     ...(resp.failed_day ? { failed_day: fromDay + resp.failed_day - 1 } : {}),
     ...(resp.error ? { error: resp.error } : {}),
     ...(resp.error_class ? { error_class: resp.error_class } : {}),

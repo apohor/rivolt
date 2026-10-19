@@ -2159,6 +2159,9 @@ export type TripPlan = {
   // than the user's floor. Server-omitted (and thus undefined here)
   // when the weather toggle is off or every leg's fetch failed.
   weather_adjustment?: TripWeatherAdjustment;
+  // true when the trip leaves more than 30 days from now: planned from today's network and
+  // conditions, with no weather forecast (the server plans such a trip at today's date).
+  far_future?: boolean;
   // costs is aligned with Routes - costs[i] is the DCFC + home
   // equivalent estimate for Routes[i]. Omitted when the caller
   // didn't pass pack_kwh on the plan request.
@@ -2316,6 +2319,8 @@ export type TripPlanMultidayResponse = {
   total: { distance_meters: number; drive_duration_sec: number; charging_duration_sec: number };
   // Any day came from preview data rather than Rivian's planner.
   simulated?: boolean;
+  // The trip starts more than 30 days out: see TripPlan.far_future.
+  far_future?: boolean;
   // The day that could not be planned (1-based); the days before it are complete and chaining stopped there.
   failed_day?: number;
   error?: string;
@@ -2567,6 +2572,7 @@ export type SavedMultidayPlan = {
   days: TripPlanMultidayDay[];
   total?: TripPlanMultidayResponse["total"];
   simulated?: boolean;
+  far_future?: boolean;
 };
 
 export const isSavedMultiday = (p: unknown): p is SavedMultidayPlan =>
