@@ -53,9 +53,17 @@ test("sparse history says how far along it is, with no charts", async ({ browser
   await open(page, SPARSE);
   const card = page.locator("[data-trends]");
   await expect(card).toContainText("1 of 3 months with at least 50 mi");
-  await expect(card).toContainText("2 so far");
+  await expect(card).toContainText("So far: 2 of 5 charges, over 3 of 30 days.");
   await expect(card.getByRole("img")).toHaveCount(0);
   await page.screenshot({ path: path.join(SHOTS, "trends-sparse-iphone-dark.png"), fullPage: true });
+  await ctx.close();
+});
+
+test("enough charges but too short a span still says what is missing", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, { ...SPARSE, capacity: { ...SPARSE.capacity, qualifying_count: 5, span_days: 12 } });
+  await expect(page.locator("[data-trends]")).toContainText("So far: 5 of 5 charges, over 12 of 30 days.");
   await ctx.close();
 });
 
