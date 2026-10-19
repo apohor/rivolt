@@ -56,8 +56,8 @@ func NewDeleter(db *sql.DB, cfg Config) (*Deleter, error) {
 		return nil, fmt.Errorf("archive: bad env %q", cfg.Env)
 	}
 	return &Deleter{
-		db:    db,
-		store: &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
+		db:          db,
+		store:       &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
 		env:         cfg.Env,
 		ClockMargin: time.Minute,
 	}, nil
