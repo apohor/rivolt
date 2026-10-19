@@ -6,8 +6,19 @@ import (
 	"time"
 )
 
-// bgShutdownWait bounds how long shutdown waits for fire-and-forget work.
-const bgShutdownWait = 10 * time.Second
+// The shutdown budget. The pod gets a 30 s grace period (terminationGracePeriod)
+// and the chart's preStop hook spends 5 s of it before our signal arrives; every
+// step below is bounded, and TestShutdownBudgetFitsTheGracePeriod holds their sum
+// under the rest. Change one and the test says what has to give.
+const (
+	gracePeriod         = 30 * time.Second
+	preStopSleep        = 5 * time.Second // charts: lifecycle.preStop
+	drainFlushTimeout   = 2 * time.Second // write the in-progress sessions the throttle held back
+	leaseReleaseTimeout = 3 * time.Second
+	httpDrainTimeout    = 10 * time.Second
+	// bgShutdownWait bounds how long shutdown waits for fire-and-forget work.
+	bgShutdownWait = 8 * time.Second
+)
 
 // exitOnSecondSignal exits at once when a second termination signal arrives while
 // a graceful shutdown is under way: an operator who sends SIGTERM twice means it,

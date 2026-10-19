@@ -146,3 +146,26 @@ func TestUnsubscribeFlushesTheVehiclesSkippedSession(t *testing.T) {
 		t.Error("another vehicle's session was flushed by v1's hand-off")
 	}
 }
+
+// While draining, every hand-off flush ends at the one shared deadline; outside a
+// drain each has a short timeout of its own.
+func TestHandoffFlushesShareTheDrainDeadline(t *testing.T) {
+	t.Cleanup(func() { drainDeadline.Store(0) })
+	drainDeadline.Store(0)
+	ctx, cancel := flushContext()
+	dl, ok := ctx.Deadline()
+	cancel()
+	if !ok || time.Until(dl) > 3*time.Second+100*time.Millisecond {
+		t.Fatalf("outside a drain: deadline %v (set %v), want a short timeout", time.Until(dl), ok)
+	}
+	shared := time.Now().Add(time.Second)
+	BeginDrain(shared)
+	for i := 0; i < 3; i++ {
+		ctx, cancel := flushContext()
+		got, ok := ctx.Deadline()
+		cancel()
+		if !ok || !got.Equal(shared) {
+			t.Fatalf("flush %d during the drain: deadline %v, want the shared %v", i, got, shared)
+		}
+	}
+}

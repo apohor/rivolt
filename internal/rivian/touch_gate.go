@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -51,6 +52,24 @@ func (m *StateMonitor) FlushPending(ctx context.Context) int {
 		n += m.flushVehicleLocked(ctx, vid)
 	}
 	return n
+}
+
+// drainDeadline (unix nanos; 0: not draining) is the one deadline every flush
+// shares once shutdown has begun, so N hand-off flushes cost the drain budget
+// once, not N times their own timeout.
+var drainDeadline atomic.Int64
+
+// BeginDrain starts the shutdown drain: from now on the per-vehicle flushes end
+// at deadline.
+func BeginDrain(deadline time.Time) { drainDeadline.Store(deadline.UnixNano()) }
+
+// flushContext is the context for one hand-off flush: the shared drain deadline
+// while draining, otherwise a short timeout of its own.
+func flushContext() (context.Context, context.CancelFunc) {
+	if d := drainDeadline.Load(); d != 0 {
+		return context.WithDeadline(context.Background(), time.Unix(0, d))
+	}
+	return context.WithTimeout(context.Background(), 3*time.Second)
 }
 
 // flushVehicle is FlushPending for one vehicle.
