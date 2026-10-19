@@ -212,6 +212,12 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			skipped++
 			continue
 		}
+		// A row dated outside the window the sample store accepts would create
+		// partitions for its month: skip it like any other corrupt row.
+		if !samples.TimeInWindow(s.at, time.Now()) {
+			skipped++
+			continue
+		}
 
 		if i.Samples != nil {
 			sampleBuf = append(sampleBuf, samples.Sample{
