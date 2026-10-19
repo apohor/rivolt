@@ -437,13 +437,16 @@ func New(d Deps) http.Handler {
 				}
 			})
 		}
-		if d.DB != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil {
+		runStatement, runWeekly := emailSweepsAllowed(d)
+		if runStatement {
 			startStatementJob(d, d.StatementSigner)
 		}
 		// Weekly recap email (opt-in, internal/weekly): the sweep, and its signed
 		// one-click unsubscribe, public like the statement's.
 		if d.DB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled() {
-			startWeeklyJob(d)
+			if runWeekly {
+				startWeeklyJob(d)
+			}
 			wu := &weeklyUnsub{db: d.DB, signer: d.WeeklySigner, now: time.Now}
 			wl := newIPLimiter(30, time.Minute, time.Hour)
 			wl.key = demoClientKey

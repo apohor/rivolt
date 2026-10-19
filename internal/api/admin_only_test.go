@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,9 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/statement"
 )
 
 func TestAdminOnlyPublicSet(t *testing.T) {
@@ -299,5 +303,29 @@ func TestAdminOnlyRouter_ServiceTokenOnlyPassesTheDoor(t *testing.T) {
 	}
 	if got := a.get("/api/admin/users", svc("other.access")); got != 403 {
 		t.Errorf("unlisted service token = %d, want 403", got)
+	}
+}
+
+// The email sweeps (the monthly statement, the weekly recap) are background
+// work: they run on a normal deployment and never on the admin one, whatever it
+// has mounted.
+func TestEmailSweepsNeverRunInAdminOnlyMode(t *testing.T) {
+	secret := []byte("a-long-enough-secret-for-tests-1234")
+	d := Deps{
+		DB: &sql.DB{}, Email: &email.Client{}, Flags: &flags.Store{},
+		StatementSigner: statement.NewSigner(secret), WeeklySigner: statement.NewScopedSigner(secret, "weekly"),
+	}
+	if st, wk := emailSweepsAllowed(d); !st || !wk {
+		t.Fatalf("normal deployment: statement=%v weekly=%v, want both", st, wk)
+	}
+	d.AdminOnly = true
+	if st, wk := emailSweepsAllowed(d); st || wk {
+		t.Errorf("admin-only: statement=%v weekly=%v, want neither", st, wk)
+	}
+	// Missing pieces still switch a sweep off.
+	d.AdminOnly = false
+	d.Email = nil
+	if st, wk := emailSweepsAllowed(d); st || wk {
+		t.Errorf("no mailer: statement=%v weekly=%v", st, wk)
 	}
 }

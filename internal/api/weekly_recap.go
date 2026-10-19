@@ -107,6 +107,19 @@ func leasePace(ctx context.Context, pool *sql.DB, uid uuid.UUID, now time.Time) 
 	return nil
 }
 
+// emailSweepsAllowed says which background email sweeps (the monthly statement,
+// the weekly recap) this deployment runs. They are background work: never on the
+// admin deployment, whatever secrets it has mounted; claims would stop duplicate
+// mail, but the admin pods are not senders.
+func emailSweepsAllowed(d Deps) (statement, weekly bool) {
+	if d.AdminOnly {
+		return false, false
+	}
+	statement = d.DB != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil
+	weekly = d.DB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled()
+	return statement, weekly
+}
+
 // startWeeklyJob runs the recap sweep for the life of the process. Safe on every
 // replica: the engage claim makes each (account, week) once.
 func startWeeklyJob(d Deps) {
