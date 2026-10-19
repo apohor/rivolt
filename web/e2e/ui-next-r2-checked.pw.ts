@@ -37,6 +37,9 @@ for (const v of [
     await expect(card).toContainText("Rivolt supports the R2.");
     await expect(card).toContainText("Checked on real R2s");
     await expect(card).toContainText("Shown as an estimate");
+    await expect(card).toContainText("sleep and power state, which are still being confirmed on the R2");
+    await expect(card).toContainText("reported battery capacity");
+    await expect(card).not.toContainText("battery health");
     await expect(card).toContainText("Not on the R2 yet");
     await expect(card).toContainText("Outside temperature doesn't come through for any truck");
     await expect(page.getByText("unverified", { exact: false })).toHaveCount(0);
