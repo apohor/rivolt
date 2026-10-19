@@ -17,13 +17,15 @@ import (
 	"github.com/apohor/rivolt/internal/archive/s3"
 )
 
-// startMinIO runs the MinIO release prod runs and returns its endpoint.
+// startMinIO runs MinIO and returns its endpoint. MinIO no longer publishes
+// images to Docker Hub (minio/minio pulls are refused), so this is Chainguard's
+// maintained build, pinned by digest; it runs as non-root, hence /tmp.
 func startMinIO(ctx context.Context, t *testing.T) string {
 	t.Helper()
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "minio/minio:RELEASE.2025-09-07T16-13-09Z",
-			Cmd:          []string{"server", "/data", "--address=:9000"},
+			Image:        "cgr.dev/chainguard/minio@sha256:709099319add48dfb44aa596a7070d3ddd8dd04d7ae881765719aec29df9e510",
+			Cmd:          []string{"server", "/tmp/minio-data", "--address=:9000"},
 			ExposedPorts: []string{"9000/tcp"},
 			Env:          map[string]string{"MINIO_ROOT_USER": "rivolt-test", "MINIO_ROOT_PASSWORD": "rivolt-test-secret"},
 			WaitingFor:   wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp").WithStartupTimeout(90 * time.Second),
