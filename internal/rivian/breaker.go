@@ -70,6 +70,13 @@ type BreakerConfig struct {
 	// instead of asymptotically never.
 	MaxCooldown time.Duration
 
+	// ProbeTimeout is how long a half-open probe may stay unreported before
+	// another is admitted. A probe can be admitted and never come back (the call
+	// was refused by a later gate, failed before it reached the network, or its
+	// outcome was never reported), and without a deadline the breaker would stay
+	// half-open, rejecting everything, for good. Defaults to Cooldown.
+	ProbeTimeout time.Duration
+
 	// Now is injectable for tests; defaults to time.Now.
 	Now func() time.Time
 }
@@ -112,6 +119,7 @@ type Breaker struct {
 	outageHits      []time.Time
 	openedAt        time.Time
 	currentCooldown time.Duration
+	probeAt         time.Time // when the current half-open probe was admitted
 }
 
 // NewBreaker builds a breaker with the given config. Pass nil
@@ -133,6 +141,9 @@ func NewBreaker(cfg BreakerConfig, obs BreakerObserver) *Breaker {
 	}
 	if cfg.MaxCooldown <= 0 {
 		cfg.MaxCooldown = d.MaxCooldown
+	}
+	if cfg.ProbeTimeout <= 0 {
+		cfg.ProbeTimeout = cfg.Cooldown
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -157,9 +168,16 @@ func (b *Breaker) Allow(_ context.Context) error {
 		}
 		// Cooldown elapsed — admit a probe.
 		b.transition(BreakerHalfOpen)
+		b.probeAt = b.cfg.Now()
 		return nil
 	case BreakerHalfOpen:
-		// We've already admitted the probe; everyone else waits.
+		// We've already admitted the probe; everyone else waits, unless it has
+		// not reported for a whole ProbeTimeout: then it is lost, and the next
+		// caller is the probe.
+		if now := b.cfg.Now(); now.Sub(b.probeAt) >= b.cfg.ProbeTimeout {
+			b.probeAt = now
+			return nil
+		}
 		return ErrUpstreamBreakerOpen
 	}
 	return nil
@@ -205,6 +223,16 @@ func (b *Breaker) Observe(class ErrorClass) {
 		// window stays bounded.
 		b.rateLimitedHits = pruneBefore(b.rateLimitedHits, cutoff)
 		b.outageHits = pruneBefore(b.outageHits, cutoff)
+		// But the half-open probe must come back with an answer. A user-action
+		// error means the gateway answered (it is up): close. Anything else
+		// (transient, unclassified) did not show it is: back to open, longer.
+		if b.state == BreakerHalfOpen {
+			if class == ClassUserAction {
+				b.closeFromProbe()
+			} else {
+				b.reopen("unclassified")
+			}
+		}
 	}
 }
 
@@ -215,11 +243,16 @@ func (b *Breaker) ObserveSuccess() {
 	defer b.mu.Unlock()
 
 	if b.state == BreakerHalfOpen {
-		b.transition(BreakerClosed)
-		b.currentCooldown = b.cfg.Cooldown
-		b.rateLimitedHits = nil
-		b.outageHits = nil
+		b.closeFromProbe()
 	}
+}
+
+// closeFromProbe closes a half-open breaker whose probe succeeded. Caller holds b.mu.
+func (b *Breaker) closeFromProbe() {
+	b.transition(BreakerClosed)
+	b.currentCooldown = b.cfg.Cooldown
+	b.rateLimitedHits = nil
+	b.outageHits = nil
 }
 
 // State returns the current breaker state. Lock-free read isn't

@@ -106,6 +106,7 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 	conn, _, err := websocket.Dial(ctx, wsEndpoint, c.wsDialOptions())
 	if err != nil {
 		c.muxMu.Unlock()
+		c.reportWS(ctx, err)
 		return nil, fmt.Errorf("ws dial: %w", err)
 	}
 	conn.SetReadLimit(1 << 20)
@@ -123,6 +124,7 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 	if err := mux.writeJSON(ctx, initFrame); err != nil {
 		conn.Close(websocket.StatusInternalError, "init failed") //nolint:errcheck
 		c.muxMu.Unlock()
+		c.reportWS(ctx, err)
 		return nil, fmt.Errorf("ws init: %w", err)
 	}
 
@@ -135,8 +137,12 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 
 	if err := mux.waitReady(ctx); err != nil {
 		c.releaseMux(mux)
+		c.reportWS(ctx, err)
 		return nil, err
 	}
+	// The gateway acknowledged the connection: that is a successful call as far as
+	// the breaker goes (it closes a half-open one).
+	c.reportWS(ctx, nil)
 	return mux, nil
 }
 
@@ -396,5 +402,24 @@ func (c *LiveClient) wsDialOptions() *websocket.DialOptions {
 	return &websocket.DialOptions{
 		Subprotocols: []string{"graphql-transport-ws"},
 		HTTPHeader:   h,
+	}
+}
+
+// reportWS tells the breaker how a WebSocket dial and ack went. These calls pass
+// the breaker's gate like any other, but they do not go through the GraphQL call
+// path that reports outcomes, so a half-open probe spent on one would never
+// report. A cancelled context says nothing about Rivian and is not reported (the
+// probe deadline covers it); anything else that failed is a transient failure,
+// which reopens a half-open breaker without counting toward a trip.
+func (c *LiveClient) reportWS(ctx context.Context, err error) {
+	if c.breaker == nil {
+		return
+	}
+	switch {
+	case err == nil:
+		c.breaker.ObserveSuccess()
+	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
+	default:
+		c.breaker.Observe(ClassTransient)
 	}
 }
