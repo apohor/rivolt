@@ -8,14 +8,14 @@ describe("connectFailure", () => {
   it("a rejected login explains the likely causes and tracks as user-action", () => {
     const f = connectFailure(err(401, { error: "Rivian didn't accept that email or password. Double-check both", class: "user_action" }), "password");
     expect(f.cls).toBe("user_action");
-    expect(f.title).toBe("Rivian didn't accept that email or password");
+    expect(f.title).toBe("Rivian didn't accept that sign-in");
     expect(f.body).toContain("accepted your invite");
     expect(f.track).toBe("user-action");
   });
   it("Rivian being slow or down says it is not the user's details, and never shows the upstream text", () => {
     for (const cls of ["transient", "outage"]) {
       const f = connectFailure(err(503, { error: "graphql: INTERNAL_SERVER_ERROR at gateway", class: cls }), "password");
-      expect(f.title).toBe("Rivian isn't responding right now");
+      expect(f.title).toBe("Rivian isn't answering right now");
       expect(f.body).not.toMatch(/graphql|gateway/i);
       expect(f.track).toBe("other");
     }

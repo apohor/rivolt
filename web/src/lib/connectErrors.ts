@@ -18,24 +18,29 @@ const classOf = (err: unknown): ConnectFailure["cls"] => {
 export function connectFailure(err: unknown, step: "password" | "code"): ConnectFailure {
   const cls = classOf(err);
   if (cls === "rate_limited") {
-    return { cls, title: "Too many tries", body: "Rivian asked us to slow down. Wait a few minutes, then try again.", track: "rate" };
+    return {
+      cls,
+      title: "Too many tries",
+      body: "Rivian pauses sign-ins after several attempts. Wait about 10 minutes, then try once more; your details are fine as long as they match the Rivian app.",
+      track: "rate",
+    };
   }
   if (cls === "transient" || cls === "outage") {
     return {
       cls,
-      title: "Rivian isn't responding right now",
-      body: "That's not a problem with your details. They're still filled in; try again in a few minutes.",
+      title: "Rivian isn't answering right now",
+      body: "This isn't a problem with your details. Rivian's sign-in is slow or down; try again in a few minutes.",
       track: "other",
     };
   }
   if (step === "code") {
-    return { cls, title: "That code didn't work", body: "Codes expire quickly. Enter the newest one, or cancel and sign in again.", track: "mfa" };
+    return { cls, title: "That code didn't work", body: "Codes expire after a few minutes. Ask Rivian for a new one and enter the newest code you receive.", track: "mfa" };
   }
   if (cls === "user_action") {
     return {
       cls,
-      title: "Rivian didn't accept that email or password",
-      body: "Check both and try again. This is the login you use in the Rivian app. For a driver account, the driver must have accepted your invite and set their own password in the Rivian app.",
+      title: "Rivian didn't accept that sign-in",
+      body: "Check the email and password; they're the ones you use in the Rivian app. If this is a driver account, the driver has to accept your invite and set their own password in the Rivian app first.",
       track: "user-action",
     };
   }

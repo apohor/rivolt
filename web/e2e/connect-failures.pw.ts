@@ -44,15 +44,15 @@ for (const v of [
     await open(page, "disconnected", { status: 401, body: { error: "Rivian didn't accept that email or password. Double-check both", class: "user_action" } });
     await fill(page);
     const box = page.locator("[data-connect-failure='user_action']");
-    await expect(box).toContainText("Rivian didn't accept that email or password");
-    await expect(box).toContainText("accepted your invite");
+    await expect(box).toContainText("Rivian didn't accept that sign-in");
+    await expect(box).toContainText("accept your invite");
     await expect(box).not.toContainText(/^Error:/);
     await expect(page.getByPlaceholder("you@example.com")).toHaveValue("driver@example.invalid");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect((await new AxeBuilder({ page }).include("[data-connect-failure]").analyze()).violations.filter((x) => x.impact === "serious" || x.impact === "critical")).toEqual([]);
     await box.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `connect-failure-${v.n}-dark.png`) });
-    await box.getByRole("button", { name: "Use my main Rivian account instead" }).click();
+    await box.getByRole("button", { name: "Use my main account instead" }).click();
     await expect(page.getByRole("radio", { name: /main Rivian account/ })).toBeChecked();
     await ctx.close();
   });
@@ -63,7 +63,9 @@ test("Rivian down or rate limited: not the user's fault, and the upstream text n
   const a = await ctx.newPage();
   await open(a, "disconnected", { status: 503, body: { error: "graphql: INTERNAL_SERVER_ERROR at gateway", class: "outage" } });
   await fill(a);
-  await expect(a.locator("[data-connect-failure='outage']")).toContainText("Rivian isn't responding right now");
+  await expect(a.locator("[data-connect-failure='outage']")).toContainText("Rivian isn't answering right now");
+  await expect(a.locator("[data-connect-failure='outage']").getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(a.locator("[data-connect-failure='outage']").getByRole("button", { name: "I'll do this later" })).toBeVisible();
   await expect(a.locator("[data-connect-failure]")).not.toContainText(/graphql|gateway/i);
   const b = await ctx.newPage();
   await open(b, "disconnected", { status: 429, body: { error: "slow down", class: "rate_limited" } });
@@ -79,6 +81,8 @@ test("a wrong code says codes expire, and the failure is tracked with its class"
   await page.getByPlaceholder("123456").fill("123456");
   await page.getByRole("button", { name: "Verify" }).click();
   await expect(page.locator("[data-connect-failure]")).toContainText("That code didn't work");
+  await expect(page.locator("[data-connect-failure]").getByRole("button", { name: "Enter code again" })).toBeVisible();
+  await expect(page.locator("[data-connect-failure]").getByRole("button", { name: "Start again for a new code" })).toBeVisible();
   await expect.poll(() => events.join(" "), { timeout: 10_000 }).toContain('"class":"mfa"');
   await ctx.close();
 });
