@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -34,12 +35,16 @@ func handleChargersAlong(a *chargers.Archive) http.HandlerFunc {
 			return
 		}
 		var req chargersAlongRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if len(req.Path) < 2 {
 			http.Error(w, "path requires >= 2 points", http.StatusBadRequest)
+			return
+		}
+		if len(req.Path) > chargers.MaxPathPoints {
+			http.Error(w, "path has too many points", http.StatusBadRequest)
 			return
 		}
 		// Lazy load if the startup warm failed.
@@ -54,7 +59,15 @@ func handleChargersAlong(a *chargers.Archive) http.HandlerFunc {
 		out, err := a.QueryCorridor(req.Path, chargers.Filter(req.Filter), chargers.QueryCorridorOptions{
 			CorridorKm: req.CorridorKm,
 			MinPowerKW: req.MinPowerKW,
+			Context:    r.Context(),
 		})
+		if errors.Is(err, chargers.ErrQueryTooLarge) || errors.Is(err, chargers.ErrBadPath) {
+			http.Error(w, "path is too large or not valid", http.StatusBadRequest)
+			return
+		}
+		if r.Context().Err() != nil {
+			return // the client went away
+		}
 		if err != nil {
 			http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 			return
