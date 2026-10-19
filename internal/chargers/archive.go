@@ -354,6 +354,9 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 walk:
 	for tx := box.txMin; tx <= box.txMax; tx++ {
 		for ty := box.tyMin; ty <= box.tyMax; ty++ {
+			if ctx.Err() != nil {
+				break walk // a done context wins over a free slot
+			}
 			select {
 			case <-ctx.Done():
 				break walk
