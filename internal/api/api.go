@@ -37,6 +37,7 @@ import (
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/planleg"
@@ -575,6 +576,13 @@ func New(d Deps) http.Handler {
 			// Terms acceptance: records the version the user agreed to.
 			// Not on the demo allowlist (POST); nothing is blocked on it.
 			r.Post("/terms/accept", withUser(handleTermsAccept(d.DB)))
+
+			// Milestone cards (internal/milestones): read, and dismiss one.
+			if d.DB != nil {
+				ms := &milestonesAPI{store: milestones.NewStore(d.DB), now: time.Now}
+				r.Get("/milestones", withUser(ms.list))
+				r.Post("/milestones/dismiss", withUser(ms.dismiss))
+			}
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))

@@ -123,6 +123,39 @@ func (s *Service) NotifyPlugInReminder(store *Store, soc int) {
 	}, selectPlugInReminder)
 }
 
+// DeliverMilestone sends a milestone push to every subscription of the store's
+// user that has milestones on, and waits. It reports how many sends succeeded;
+// an error means none did.
+func (s *Service) DeliverMilestone(ctx context.Context, store *Store, title, body string) (int, error) {
+	if s == nil || store == nil {
+		return 0, errors.New("push: not configured")
+	}
+	subs, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	p := Payload{Title: title, Body: body, Tag: "rivolt-milestone", URL: "/", Kind: "milestone"}
+	var ok int
+	var last error
+	for _, sub := range subs {
+		if !sub.OnMilestones {
+			continue
+		}
+		if err := s.sendOne(ctx, store, sub, p); err != nil {
+			last = err
+			continue
+		}
+		ok++
+	}
+	if ok == 0 {
+		if last == nil {
+			last = errors.New("push: no subscription has milestones on")
+		}
+		return 0, last
+	}
+	return ok, nil
+}
+
 // NotifyAnomaly fires when an anomaly is detected for the user. Scoped
 // to the user via store.
 func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {
