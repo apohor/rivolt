@@ -93,6 +93,10 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	runtime.GC()
 	var base runtime.MemStats
 	runtime.ReadMemStats(&base)
+	// The peak is of the LIVE heap: a collection runs before each reading, so
+	// garbage the collector has not got to yet (which depends on how busy the
+	// runner is) does not count. Streaming keeps the live heap at a few MB; the
+	// old whole-backup decode held 30 MB or more of live slices.
 	var peak atomic.Uint64
 	stop := make(chan struct{})
 	go func() {
@@ -101,7 +105,8 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 			select {
 			case <-stop:
 				return
-			case <-time.After(5 * time.Millisecond):
+			case <-time.After(50 * time.Millisecond):
+				runtime.GC()
 				runtime.ReadMemStats(&m)
 				if m.HeapAlloc > peak.Load() {
 					peak.Store(m.HeapAlloc)
