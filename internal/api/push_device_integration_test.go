@@ -149,7 +149,7 @@ func TestPushOptInsOnlyThroughOptIn(t *testing.T) {
 		}
 		return s.OnPlugInReminder, s.OnMilestones
 	}
-	const ep = "https://push.example/legacy"
+	const ep = "https://fcm.googleapis.com/fcm/send/legacy"
 	legacy := `{"endpoint":"` + ep + `","keys":{"p256dh":"k","auth":"a"},"preferences":{"on_charging_done":true,"on_plug_in_reminder":true,"on_anomaly":true,"on_software_update":true,"on_milestones":true}}`
 
 	// A stale tab subscribing with the reminder on: it is off.
