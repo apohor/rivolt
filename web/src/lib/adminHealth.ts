@@ -27,8 +27,26 @@ export type HealthSummary = {
     first_data_28d: number;
     median_seconds_to_first_data: number | null;
     emails_sent: Record<string, number>;
+    // Last 8 signup weeks, oldest first. Counts only. Absent on a server that predates it.
+    funnel_weeks?: FunnelWeek[];
   };
 };
+
+// One signup week (Monday, UTC): returned_day2 is out of day2_eligible (signups at least a day old), not out of signups.
+export type FunnelWeek = { week: string; signups: number; connected: number; first_data: number; day2_eligible: number; returned_day2: number };
+
+// Session records are purged about 30 days after they expire, so "returned after day 1" undercounts for older weeks.
+export const FUNNEL_RETURNED_TRACKED_DAYS = 28;
+
+export const pctOf = (n: number, d: number): string => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
+
+// The "returned after day 1" cell: "—" for a week too old to be counted reliably, or with nobody old enough yet.
+export function funnelReturned(w: FunnelWeek, nowMs: number): { text: string; tracked: boolean } {
+  const ageDays = (nowMs - new Date(`${w.week}T00:00:00Z`).getTime()) / 86_400_000;
+  if (!(ageDays <= FUNNEL_RETURNED_TRACKED_DAYS)) return { text: "—", tracked: false };
+  if (w.day2_eligible <= 0) return { text: "—", tracked: true };
+  return { text: `${w.returned_day2} of ${w.day2_eligible} · ${pctOf(w.returned_day2, w.day2_eligible)}`, tracked: true };
+}
 
 export type Tone = "ok" | "warn" | "bad" | "unknown";
 export type Check = { id: string; label: string; tone: Tone; detail: string };
