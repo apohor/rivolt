@@ -231,10 +231,9 @@ func (s *Store) prepareBatch(ctx context.Context, batch []Sample) (map[string]uu
 	// Ensure every distinct month present in the batch before the
 	// INSERT runs. The helper is idempotent and bounded — at most
 	// (months spanned by batch) calls, typically 1-2 per flush.
-	months := map[time.Time]struct{}{}
-	for _, v := range batch {
-		m := time.Date(v.At.UTC().Year(), v.At.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
-		months[m] = struct{}{}
+	months, err := checkBatch(batch, nowFn())
+	if err != nil {
+		return nil, err
 	}
 	for m := range months {
 		if _, err := s.db.ExecContext(ctx,
