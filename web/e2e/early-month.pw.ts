@@ -75,6 +75,17 @@ test("no note once the month has data, or when another period is chosen, or when
   await open(b, new Date(2026, 11, 20, 9, 0, 0), "/activity", OCT);
   await b.waitForTimeout(800);
   await expect(b.locator("[data-early-month]")).toHaveCount(0);
-  await expect(b.getByText("Nothing recorded in this period")).toBeVisible();
+  await expect(b.getByText(/No drives or charges in Dec/)).toBeVisible();
+  await ctx.close();
+});
+
+test("a brand-new account on Activity gets the new-account sentence; the tiles carry the Last 30 days tag on Now", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const a = await ctx.newPage();
+  await open(a, new Date(2026, 10, 2, 9, 0, 0), "/activity", { drives: [], charges: [] });
+  await expect(a.getByText("Nothing recorded yet. Drives and charges appear here as you use the truck.")).toBeVisible();
+  const b = await ctx.newPage();
+  await open(b, new Date(2026, 10, 2, 9, 0, 0), "/", OCT);
+  await expect(b.locator('[data-ui-grid="now"]')).toContainText(/Last 30 days · 2 drives/);
   await ctx.close();
 });
