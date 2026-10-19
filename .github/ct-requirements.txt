@@ -1,6 +1,8 @@
 # ct's Python linters for the chart job (.github/workflows/build.yml), pinned
-# with hashes (pip --require-hashes). Wheel and sdist hashes, so a runner
-# Python without a matching PyYAML wheel builds it from the pinned source.
+# with hashes (pip --require-hashes --only-binary :all:). Wheels only: a sdist
+# build would fetch its build tools unhashed, so a runner Python without a
+# matching PyYAML wheel (cp312) fails closed; add that wheel's hash then. The
+# sdist hashes are inert.
 yamllint==1.33.0 \
     --hash=sha256:28a19f5d68d28d8fec538a1db21bb2d84c7dc2e2ea36266da8d4d1c5a683814d \
     --hash=sha256:2dceab9ef2d99518a2fcf4ffc964d44250ac4459be1ba3ca315118e4a1a81f7d

@@ -215,7 +215,7 @@ jobs:
           echo "${KUBECONFORM_SHA256}  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
           tar xzf kubeconform-linux-amd64.tar.gz kubeconform
           python3 -m venv venv
-          venv/bin/pip install --quiet --require-hashes -r "$GITHUB_WORKSPACE/.github/ct-requirements.txt"
+          venv/bin/pip install --quiet --require-hashes --only-binary :all: -r "$GITHUB_WORKSPACE/.github/ct-requirements.txt"
           { echo "$RUNNER_TEMP"; echo "$RUNNER_TEMP/ct"; echo "$RUNNER_TEMP/venv/bin"; } >> "$GITHUB_PATH"
 
       - name: ct lint
