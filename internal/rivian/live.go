@@ -359,11 +359,10 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 			return err
 		}
 	}
-	if c.breaker != nil {
-		if err := c.breaker.Allow(ctx); err != nil {
-			return err
-		}
-	}
+	// The rate limiter comes before the breaker: a half-open breaker admits one
+	// probe, and a probe that the limiter then refuses never reaches Rivian, so it
+	// would never report and the breaker would wait on it. The cost is a token
+	// spent on a call the open breaker then refuses.
 	if c.rateLimit != nil {
 		// Class is propagated via context; default is "main". The
 		// helper looks for the priority sentinel set by callers
@@ -375,6 +374,11 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 		ok, retry := c.rateLimit.Allow(ctx, class)
 		if !ok {
 			return &ErrRateLimited{RetryAfter: retry}
+		}
+	}
+	if c.breaker != nil {
+		if err := c.breaker.Allow(ctx); err != nil {
+			return err
 		}
 	}
 	return nil

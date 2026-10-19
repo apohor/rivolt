@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -161,5 +162,135 @@ func TestBreakerOutageThreshold(t *testing.T) {
 	b.Observe(ClassOutage)
 	if b.State() != BreakerOpen {
 		t.Fatalf("8th outage should trip, state=%s", b.State())
+	}
+}
+
+// trippedAfterCooldown returns a breaker that tripped and whose cooldown has
+// elapsed, so the next Allow admits the probe.
+func trippedAfterCooldown(t *testing.T) (*Breaker, *fakeClock) {
+	t.Helper()
+	b, clk := newTestBreaker(nil)
+	for i := 0; i < 3; i++ {
+		b.Observe(ClassRateLimited)
+	}
+	if b.State() != BreakerOpen {
+		t.Fatal("did not trip")
+	}
+	clk.advance(31 * time.Second)
+	return b, clk
+}
+
+// A half-open probe that never reports (it was refused by a later gate, failed
+// before the network, or its outcome was never reported) must not wedge the
+// breaker: after the probe timeout the next caller is the probe.
+func TestHalfOpenProbeHasADeadline(t *testing.T) {
+	t.Parallel()
+	b, clk := trippedAfterCooldown(t)
+	ctx := context.Background()
+	if err := b.Allow(ctx); err != nil || b.State() != BreakerHalfOpen {
+		t.Fatalf("probe not admitted: %v %s", err, b.State())
+	}
+	clk.advance(10 * time.Second)
+	if err := b.Allow(ctx); err != ErrUpstreamBreakerOpen {
+		t.Fatalf("a second caller inside the probe window: %v, want rejected", err)
+	}
+	clk.advance(21 * time.Second) // 31 s since the probe: past the 30 s timeout
+	if err := b.Allow(ctx); err != nil {
+		t.Fatalf("the lost probe was never replaced: %v", err)
+	}
+	// And the new probe is the only one again.
+	if err := b.Allow(ctx); err != ErrUpstreamBreakerOpen {
+		t.Errorf("two probes at once: %v", err)
+	}
+	b.ObserveSuccess()
+	if b.State() != BreakerClosed {
+		t.Errorf("state %s after the probe succeeded", b.State())
+	}
+}
+
+// A probe that comes back with an error that is neither an outage nor a rate
+// limit still has to settle the breaker: an unclassified failure reopens it
+// (longer), and a user-action answer (the gateway replied) closes it.
+func TestHalfOpenProbeAlwaysSettles(t *testing.T) {
+	t.Parallel()
+	for _, class := range []ErrorClass{ClassTransient, ClassUnknown} {
+		b, _ := trippedAfterCooldown(t)
+		_ = b.Allow(context.Background())
+		b.Observe(class)
+		if b.State() != BreakerOpen {
+			t.Errorf("%v: state %s, want open", class, b.State())
+		}
+		if b.currentCooldown != 60*time.Second {
+			t.Errorf("%v: cooldown %v, want doubled", class, b.currentCooldown)
+		}
+	}
+	b, _ := trippedAfterCooldown(t)
+	_ = b.Allow(context.Background())
+	b.Observe(ClassUserAction)
+	if b.State() != BreakerClosed {
+		t.Errorf("user action: state %s, want closed", b.State())
+	}
+	// In the closed state those classes still do nothing.
+	c, _ := newTestBreaker(nil)
+	c.Observe(ClassTransient)
+	c.Observe(ClassUnknown)
+	if c.State() != BreakerClosed {
+		t.Errorf("closed breaker moved to %s", c.State())
+	}
+}
+
+type denyLimiter struct{ deny bool }
+
+func (d *denyLimiter) Allow(context.Context, string) (bool, time.Duration) {
+	return !d.deny, time.Second
+}
+
+// The rate limiter is asked first: a probe the limiter then refuses would never
+// reach Rivian and so never report.
+func TestRateLimiterRefusalDoesNotSpendTheProbe(t *testing.T) {
+	t.Parallel()
+	b, _ := trippedAfterCooldown(t)
+	rl := &denyLimiter{deny: true}
+	c := &LiveClient{breaker: b, rateLimit: rl}
+	var rle *ErrRateLimited
+	if err := c.checkUpstream(context.Background()); !errors.As(err, &rle) {
+		t.Fatalf("limiter refusal: %v", err)
+	}
+	if b.State() != BreakerOpen {
+		t.Fatalf("a refused call touched the breaker: %s", b.State())
+	}
+	rl.deny = false
+	if err := c.checkUpstream(context.Background()); err != nil || b.State() != BreakerHalfOpen {
+		t.Fatalf("with a token the probe should go: %v %s", err, b.State())
+	}
+}
+
+// WebSocket dial and ack outcomes reach the breaker.
+func TestWebSocketOutcomesAreReported(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	b, _ := trippedAfterCooldown(t)
+	c := &LiveClient{breaker: b}
+	_ = b.Allow(ctx)
+	c.reportWS(ctx, nil)
+	if b.State() != BreakerClosed {
+		t.Errorf("an acknowledged connection left the breaker %s", b.State())
+	}
+	b, _ = trippedAfterCooldown(t)
+	c = &LiveClient{breaker: b}
+	_ = b.Allow(ctx)
+	c.reportWS(ctx, errors.New("dial tcp: connection refused"))
+	if b.State() != BreakerOpen {
+		t.Errorf("a failed dial left the breaker %s, want open", b.State())
+	}
+	// A cancelled context says nothing about Rivian.
+	b, _ = trippedAfterCooldown(t)
+	c = &LiveClient{breaker: b}
+	_ = b.Allow(ctx)
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	c.reportWS(cctx, context.Canceled)
+	if b.State() != BreakerHalfOpen {
+		t.Errorf("a cancelled dial moved the breaker to %s", b.State())
 	}
 }
