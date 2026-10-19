@@ -40,6 +40,8 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/settings/charging", true},
 		{"GET", "/api/settings/home-location", true},
 		{"GET", "/api/vehicles/" + demoVeh + "/pack-health", true},
+		{"GET", "/api/vehicles/" + demoVeh + "/trends", true},
+		{"POST", "/api/vehicles/" + demoVeh + "/trends", false},
 		{"PUT", "/api/settings/charging", false},
 		{"PUT", "/api/settings/home-location", false},
 		{"GET", "/api/settings/charging/networks", true},
@@ -74,6 +76,7 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/maps/chargers-along", false},
 		{"GET", "/api/live-drive", false},
 		{"GET", "/api/vehicles/other/pack-health", false},
+		{"GET", "/api/vehicles/other/trends", false},
 		// per-drive detail (weather only) and samples
 		{"GET", "/api/drives/drive-abc/weather", true},
 		{"GET", "/api/drives/live_veh_d_1760000000/weather/series", true},
