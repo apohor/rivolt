@@ -1,8 +1,8 @@
 import { attachRoutes, drivesAllQuery, drivesRoutesQuery, chargesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { earlyMonthFallback, filterByRange, periodRange, usePeriod } from "../lib/period";
-import { EarlyMonthNote } from "../components/EarlyMonthNote";
+import { earlyMonthFallback, filterByRange, periodLabel, periodRange, usePeriod } from "../lib/period";
+import { EarlyMonthNote, NEW_ACCOUNT_LINE, emptyMonthLine } from "../components/EarlyMonthNote";
 import { useUiNext } from "../lib/uiNext";
 import { displayTimeZone } from "../lib/format";
 import { detailPath, inDemo, appPath } from "../lib/demo";
@@ -70,6 +70,15 @@ export default function ActivityPage() {
     [next, period, drivesQ.data, chargesQ.data],
   );
   const range = early ? early.range : baseRange;
+  // Empty-state line: a brand-new account, an explicitly chosen empty month, or another empty period.
+  const noHistory = (drivesQ.data?.length ?? 0) + (chargesQ.data?.length ?? 0) === 0;
+  const emptyText = noHistory && next
+    ? NEW_ACCOUNT_LINE
+    : next && period.kind === "month"
+      ? emptyMonthLine(periodLabel(period))
+      : range.start || range.end
+        ? "Nothing recorded in this period. Step to another period or pick All."
+        : "Nothing recorded yet. Drives and charges appear here as they happen.";
   const homeQ = useQuery({
     queryKey: ["settings", "home-location"],
     queryFn: () => backend.homeLocationGet(),
@@ -201,9 +210,7 @@ export default function ActivityPage() {
         recordCount === 0 ? (
           <Card>
             <p className="text-sm text-neutral-400">
-              {range.start || range.end
-                ? "Nothing recorded in this period. Step to another period or pick All."
-                : "Nothing recorded yet. Drives and charges appear here as they happen."}
+              {emptyText}
             </p>
           </Card>
         ) : (
@@ -257,9 +264,7 @@ export default function ActivityPage() {
       ) : total === 0 ? (
         <Card>
           <p className="text-sm text-neutral-400">
-            {range.start || range.end
-              ? "Nothing recorded in this period. Step to another period or pick All."
-              : "Nothing recorded yet. Drives and charges appear here as they happen."}
+            {emptyText}
           </p>
         </Card>
       ) : (

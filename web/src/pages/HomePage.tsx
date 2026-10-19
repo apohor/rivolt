@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
-import { EarlyMonthNote } from "../components/EarlyMonthNote";
+import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
 import ThreeThingsCard from "../components/ThreeThingsCard";
@@ -73,6 +73,8 @@ export default function HomePage() {
   const range = early ? early.range : baseRange;
   // The period the page is following: the chosen one, or the last 30 days.
   const scope: Period = early ? early.period : period;
+  // KPI hints carry the period when the page is following the last 30 days instead of the chosen month.
+  const tag = early ? `${EARLY_MONTH_TAG} · ` : "";
   // Recorded drives in the window. Counts and averages use these, like
   // Money and the API; the round-trip collapse only groups rows for the
   // charts below (the miles are the same either way).
@@ -401,12 +403,12 @@ export default function HomePage() {
             <Stat
               label="Miles"
               value={num(ds.miles, 1, "mi")}
-              hint={`${ds.count} drives · avg ${num(ds.avgTripMi, 1, "mi")}`}
+              hint={`${tag}${ds.count} drives · avg ${num(ds.avgTripMi, 1, "mi")}`}
             />
             <Stat
               label="Energy added"
               value={num(cs.energyKWh, 1, "kWh")}
-              hint={`${cs.count} charges · peak ${num(cs.maxPowerKW, 0, "kW")}`}
+              hint={`${tag}${cs.count} charges · peak ${num(cs.maxPowerKW, 0, "kW")}`}
             />
             <Stat
               label="Efficiency"
