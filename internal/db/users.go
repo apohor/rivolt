@@ -457,8 +457,8 @@ func deleteFromThinnedCopiesTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) e
 func queueArchiveDeletionTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO archive_deletions (user_id, prefix)
-		SELECT $1, 'v1/u=' || $1::text || '/'
-		 WHERE EXISTS (SELECT 1 FROM archive_keys WHERE user_id = $1)`, uid)
+		SELECT $1::uuid, 'v1/u=' || $1::uuid::text || '/'
+		 WHERE EXISTS (SELECT 1 FROM archive_keys WHERE user_id = $1::uuid)`, uid)
 	return err
 }
 
