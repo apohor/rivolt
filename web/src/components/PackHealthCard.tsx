@@ -135,7 +135,7 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
     headline.effective_kwh > 0
       ? `${headline.effective_kwh.toFixed(0)} kWh`
       : "—";
-  const pctText = specKwh(headline.nameplate_kwh) > 0 ? `estimate · Rivian's spec: ${headline.nameplate_kwh.toFixed(0)} kWh` : "estimate";
+  const pctText = documented > 0 ? `estimate · Rivian's spec: ${documented.toFixed(0)} kWh` : "estimate";
 
   return (
     <div className="space-y-2">
