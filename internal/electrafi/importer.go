@@ -52,6 +52,11 @@ type Result struct {
 	// recorder's row is authoritative; importing it again would double
 	// count the trip or the kWh).
 	SkippedLive int
+	// SamplesPastRetention counts raw samples left out because they are older
+	// than the install's sample retention (Importer.SampleFrom): importing them
+	// would recreate a dropped partition only for the next sweep to delete it.
+	// Drives and charges derived from those rows are still imported.
+	SamplesPastRetention int `json:"samples_past_retention,omitempty"`
 }
 
 // Importer runs against the three stores. Samples is optional — when
@@ -74,6 +79,11 @@ type Importer struct {
 	// as UTC (the pre-v0.4.2 behavior) shifts every timestamp by the
 	// user's offset. Nil means UTC for backwards compatibility.
 	Location *time.Location
+	// SampleFrom is the sample retention cutoff (samples.RetentionCutoff); zero
+	// keeps every sample. Raw samples older than it are skipped and counted in
+	// Result.SamplesPastRetention; the drives and charges derived from the same
+	// rows are unaffected.
+	SampleFrom time.Time
 	// OnProgress, when non-nil, is called periodically during a
 	// single file import with a phase label and a row count so an
 	// HTTP handler can emit heartbeats to the client. The callback
@@ -174,6 +184,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		rows         int
 		skipped      int
 		sampleCount  int
+		pastRetained int
 		sampleBuf    []samples.Sample
 		driveGroups  = map[string][]snapshot{}
 		chargeGroups = map[string][]snapshot{}
@@ -219,7 +230,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			continue
 		}
 
-		if i.Samples != nil {
+		if !i.SampleFrom.IsZero() && s.at.Before(i.SampleFrom) {
+			pastRetained++
+		} else if i.Samples != nil {
 			sampleBuf = append(sampleBuf, samples.Sample{
 				VehicleID:       vehicleID,
 				At:              s.at,
@@ -337,6 +350,8 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		Charges:     chargeRowsEmitted,
 		SkippedRows: skipped,
 		SkippedLive: skippedLive,
+
+		SamplesPastRetention: pastRetained,
 	}, nil
 }
 
@@ -666,8 +681,9 @@ func isChargingState(s string) bool {
 // that exercise the hash function shape. Production imports through
 // the HTTP endpoint always provide a real vehicle id.
 //
-//nolint:unused // kept for documentation; may be reintroduced if a
 // CLI-side --vehicle-id default is needed again.
+//
+//nolint:unused // kept for documentation; may be reintroduced if a
 func deriveVehicleID(path string) string {
 	h := sha1.Sum([]byte(path))
 	return "electrafi-" + hex.EncodeToString(h[:])[:12]

@@ -89,6 +89,11 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			Samples:   ss,
 			VehicleID: rivianVehicleID,
 		}
+		// Samples older than the install's retention would recreate a dropped
+		// partition for the next sweep to delete; drives and charges still import.
+		if d.SampleRetentionMonths > 0 {
+			imp.SampleFrom = samples.RetentionCutoff(time.Now(), d.SampleRetentionMonths)
+		}
 		if v := r.FormValue("pack_kwh"); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 				imp.PackKWh = f
