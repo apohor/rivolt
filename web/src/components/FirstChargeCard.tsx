@@ -7,6 +7,7 @@ import { formatMoney } from "../lib/ledger";
 import { isIOSNotInstalled } from "../lib/installPrompt";
 import { InstallOfferRow } from "./InstallOfferRow";
 import { pushSupported, subscribeThisDevice } from "../lib/push";
+import { appPath } from "../lib/demo";
 import { Card } from "./ui";
 
 const DISMISS_KEY = "rivolt.firstCharge.dismissed";
@@ -30,18 +31,29 @@ function setFlag(key: string) {
 // "Your first charge" (new look): once the first charge, or the first drive, is recorded, the card says what it
 // was and what to do next, for a week or until hidden. It takes the place of "Your first day", which is for the
 // time before anything is recorded.
-export default function FirstChargeCard({ vehicleID, charges, drives }: { vehicleID: string; charges: Charge[]; drives: Drive[] }) {
-  const [dismissed, setDismissed] = useState(() => flag(DISMISS_KEY));
-  const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000 });
-  const lease = useQuery({ queryKey: ["lease", "terms", vehicleID], queryFn: () => backend.leaseGet(vehicleID), staleTime: 60_000, retry: 0 });
-  if (dismissed || settings.isPending) return null;
-  const homeRate = settings.data?.home_price_per_kwh ?? 0;
-  const v = firstChargeView({ charges, drives, homeRate });
+// In the demo (`demo`) the sample truck's first charge is shown as a worked example: no account calls, the rate
+// is the one that charge was priced at, the week limit does not apply, and Hide lasts for the visit.
+export default function FirstChargeCard({ vehicleID, charges, drives, demo = false }: { vehicleID: string; charges: Charge[]; drives: Drive[]; demo?: boolean }) {
+  const [dismissed, setDismissed] = useState(() => !demo && flag(DISMISS_KEY));
+  const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, enabled: !demo });
+  const lease = useQuery({ queryKey: ["lease", "terms", vehicleID], queryFn: () => backend.leaseGet(vehicleID), staleTime: 60_000, retry: 0, enabled: !demo });
+  if (dismissed || (!demo && settings.isPending)) return null;
+  // The demo's example is its first priced charge, whatever came before it.
+  const demoCharges = demo ? charges.filter((c) => c.EnergyAddedKWh > 0 && c.Cost > 0) : charges;
+  const demoFirst = demo ? [...demoCharges].sort((a, b) => a.StartedAt.localeCompare(b.StartedAt))[0] : undefined;
+  if (demo && !demoFirst) return null;
+  const homeRate = demoFirst ? demoFirst.Cost / demoFirst.EnergyAddedKWh : (settings.data?.home_price_per_kwh ?? 0);
+  const v = firstChargeView({
+    charges: demoCharges,
+    drives,
+    homeRate,
+    now: demoFirst ? new Date(new Date(demoFirst.StartedAt).getTime() + 86_400_000) : undefined,
+  });
   if (!v) return null;
   const currency = settings.data?.home_currency || "USD";
   const hide = () => {
     setDismissed(true);
-    setFlag(DISMISS_KEY);
+    if (!demo) setFlag(DISMISS_KEY);
   };
   const rateText = (r: number) => `${formatMoney(r, currency, Math.abs(r * 100 - Math.round(r * 100)) > 1e-9 ? 3 : 2)}/kWh`;
   const link = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500";
@@ -89,10 +101,10 @@ export default function FirstChargeCard({ vehicleID, charges, drives }: { vehicl
         <div className="flex flex-wrap gap-2">
           {v.state === "A" && (
             <>
-              <Link to={`/charges/${v.chargeID}`} className={link}>
+              <Link to={appPath(`/charges/${v.chargeID}`)} className={link}>
                 See the receipt
               </Link>
-              <Link to="/money" className={link}>
+              <Link to={appPath("/money")} className={link}>
                 Open Money
               </Link>
             </>
@@ -115,6 +127,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives }: { vehicl
             </>
           )}
         </div>
+        {!demo && (
         <ul className="space-y-2">
           <NotifyRow />
           {!lease.isPending && !lease.data && (
@@ -129,6 +142,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives }: { vehicl
             </li>
           )}
         </ul>
+        )}
       </div>
     </Card>
   );
