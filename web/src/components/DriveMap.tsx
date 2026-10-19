@@ -6,6 +6,7 @@
 // a personal tool but you'd swap in a self-hosted or paid provider for
 // higher traffic.
 
+import { escapeHTML } from "../lib/escapeHtml";
 import { decodePolyline } from "../lib/polyline";
 import { displayTimeZone } from "../lib/format";
 import { useEffect, useRef } from "react";
@@ -314,24 +315,6 @@ async function snapToRoads(
 // extracts we slice from at build time.
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
-
-// Minimal HTML-entity escape for the few places we inject untrusted
-// strings (OSM POI names) into innerHTML / popup content. Just the
-// five XML-spec essentials; we never inject inside script or URL
-// contexts so this is sufficient.
-function escapeHTML(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    c === "&"
-      ? "&amp;"
-      : c === "<"
-      ? "&lt;"
-      : c === ">"
-      ? "&gt;"
-      : c === '"'
-      ? "&quot;"
-      : "&#39;",
-  );
-}
 
 // Friendly labels for the OSM `socket:*` keys we care about. Keys
 // not in this map fall through to a tidied-up version of the raw

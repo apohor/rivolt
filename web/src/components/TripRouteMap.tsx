@@ -1,3 +1,4 @@
+import { escapeHTML } from "../lib/escapeHtml";
 import { useEffect, useRef, useState } from "react";
 import { inDemo } from "../lib/demo";
 import L from "leaflet";
@@ -506,14 +507,6 @@ function waypointTooltip(w: PlannedWaypoint, i: number, total: number): string {
   }
   lines.push(`</div>`);
   return lines.join("");
-}
-
-function escapeHTML(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function dotIcon(color: string, size = 10): L.DivIcon {

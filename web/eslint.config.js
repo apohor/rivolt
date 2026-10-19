@@ -58,6 +58,13 @@ export default tseslint.config(
       // nice to fix but too noisy on legitimate stable-ref cases to
       // block CI.
       "react-hooks/exhaustive-deps": "warn",
+      // Saved-trip names, recap text and anything a restore can write into an account must render as text, never as
+      // HTML: React escapes it, and dangerouslySetInnerHTML is banned. (Map popups build HTML strings through
+      // lib/escapeHtml.)
+      "no-restricted-syntax": [
+        "error",
+        { selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']", message: "Render text through React, or escape it with lib/escapeHtml." },
+      ],
       // We use `_` as a leading sigil for intentional unused
       // parameters in destructured signatures; teach the rule.
       "@typescript-eslint/no-unused-vars": [
