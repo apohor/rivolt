@@ -1255,6 +1255,17 @@ export const backend = {
   pushVAPIDKey: () =>
     api.get<{ public_key: string }>("/api/push/vapid-key"),
   pushStatus: () => api.get<PushStatus>("/api/push/status"),
+  // Whether this user has turned AI on (off by default). The AI calls answer 403 {class: "ai_off"} until they have.
+  // Null on 404 (a server from before the switch existed).
+  aiConsentGet: async (): Promise<{ enabled: boolean } | null> => {
+    try {
+      return await api.get<{ enabled: boolean }>("/api/settings/ai-consent");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+  aiConsentPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/ai-consent", { enabled }),
   // Milestones reached in the last 30 days and not dismissed, newest first. Title and body are the server's
   // words, shown as given. Null when the server has no such call (404).
   milestones: async (): Promise<MilestoneItem[] | null> => {

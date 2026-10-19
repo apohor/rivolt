@@ -1,15 +1,23 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { type TripAdvice } from "../lib/api";
 import { Card, Spinner } from "../components/ui";
+import { AI_SETTINGS_PATH } from "../lib/aiConsent";
 
 export function TripAdviceCard({
   advice,
   loading,
   onAnalyze,
+  aiOff = false,
+  error,
 }: {
   advice?: TripAdvice;
   loading: boolean;
   onAnalyze?: () => void;
+  // The user has not turned AI on (Settings), so there is nothing to tap yet.
+  aiOff?: boolean;
+  // A failed request that is not "AI is off": said in a plain sentence.
+  error?: string | null;
 }) {
   // Collapsed-by-default once advice arrives: keeps the card a single
   // line so the map below doesn't jump when the LLM response lands.
@@ -24,7 +32,16 @@ export function TripAdviceCard({
 
   return (
     <Card title="Trip analysis">
-      {!loading && !advice && (
+      {!loading && !advice && aiOff && (
+        <p className="text-sm text-neutral-300" data-ai-off>
+          AI advice is off.{" "}
+          <Link to={AI_SETTINGS_PATH} className="text-emerald-300 underline">
+            Turn on AI advice in Settings
+          </Link>{" "}
+          to use it. Nothing is sent until you tap Get AI advice on a trip.
+        </p>
+      )}
+      {!loading && !advice && !aiOff && (
         <div className="space-y-2">
           <p className="text-xs text-neutral-400" data-ai-disclosure>
             Nothing is sent until you tap. AI advice sends charger names, your locations rounded to about 11 km, your tire pressures, your home
@@ -38,6 +55,11 @@ export function TripAdviceCard({
           >
             Get AI advice
           </button>
+          {error && (
+            <p role="alert" className="text-xs text-rose-400">
+              Couldn&apos;t get AI advice just now. Try again in a moment.
+            </p>
+          )}
         </div>
       )}
       {loading && !advice && (

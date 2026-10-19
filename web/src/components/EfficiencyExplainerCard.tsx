@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   backend,
   type DriveEfficiency,
   type EfficiencyFactor,
 } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
+import { AI_SETTINGS_PATH, isAIOff, useAIConsent } from "../lib/aiConsent";
 import { usePreferences } from "../lib/preferences";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { formatDateTime } from "../lib/format";
@@ -29,6 +31,9 @@ import { formatDateTime } from "../lib/format";
 // useState only, so a hard refresh wiped it.
 export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
   const enabled = useAIEnabled();
+  const aiConsent = useAIConsent();
+  // The server said AI is off for this user (they have not turned it on in Settings).
+  const [aiOffHit, setAiOffHit] = useState(false);
   const prefs = usePreferences();
   const [data, setData] = useState<DriveEfficiency | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,7 +97,8 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
       const fresh = await backend.driveEfficiencyGenerate(driveId, body);
       setData(fresh);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (isAIOff(e)) setAiOffHit(true);
+      else setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -102,7 +108,7 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
     <Card
       title="Efficiency analysis"
       actions={
-        data && !busy && !loading ? (
+        data && !busy && !loading && aiConsent.consent !== false && !aiOffHit ? (
           <button
             type="button"
             onClick={generate}
@@ -126,6 +132,14 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
         </div>
       ) : err ? (
         <ErrorBox title="Analysis failed" detail={err} />
+      ) : !data && (aiConsent.consent === false || aiOffHit) ? (
+        <p className="text-sm text-neutral-300" data-ai-off>
+          AI analysis is off.{" "}
+          <Link to={AI_SETTINGS_PATH} className="text-emerald-300 underline">
+            Turn on AI analysis in Settings
+          </Link>{" "}
+          to use it. Nothing is sent until you tap Analyze efficiency.
+        </p>
       ) : !data ? (
         <div className="space-y-3 text-sm">
           <p className="text-xs text-neutral-500">

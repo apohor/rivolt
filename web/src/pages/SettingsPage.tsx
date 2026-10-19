@@ -1,3 +1,5 @@
+import { useAIEnabled } from "../lib/config";
+import { useAIConsent } from "../lib/aiConsent";
 import { R2CheckedSettings } from "../components/R2Checked";
 import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
 import { useUiNext } from "../lib/uiNext";
@@ -171,6 +173,7 @@ function SettingsPageInner() {
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
+          <AIFeaturesCard />
           {shell && <AppearanceCard />}
           {shell && (
             <Card title="Rivolt account">
@@ -1920,6 +1923,49 @@ function WeeklyRecapCard() {
             setPending(v);
             engagement
               .save({ weekly_recap: v })
+              .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+              .finally(() => setPending(null));
+          }}
+        />
+      </div>
+      {err && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          Couldn&apos;t save: {err}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// AIFeaturesCard: the user's own AI switch, off by default. Only offered where the server has an AI provider.
+function AIFeaturesCard() {
+  const serverAI = useAIEnabled();
+  const ai = useAIConsent();
+  const [pending, setPending] = useState<boolean | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  if (!serverAI || ai.consent === undefined) return null;
+  const on = pending ?? ai.consent;
+  return (
+    <Card title="AI features" id="ai-features">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="ai-consent-toggle" className="text-sm text-neutral-100">
+            AI trip advice and drive analysis
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            Off by default. When on, tapping Get AI advice on a trip, or Analyze on a drive, sends data to an AI provider. Trip advice sends charger
+            names, your locations rounded to about 11 km, your tire pressures, your home electricity rate and the weather along the route. Drive
+            analysis sends the drive&apos;s figures and elevation profile, with no GPS coordinates. Nothing is sent until you tap, and the text you type
+            is never sent. Turn this off any time.
+          </p>
+        </div>
+        <Toggle
+          id="ai-consent-toggle"
+          checked={on}
+          onChange={(v) => {
+            setErr(null);
+            setPending(v);
+            ai.set(v)
               .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
               .finally(() => setPending(null));
           }}
