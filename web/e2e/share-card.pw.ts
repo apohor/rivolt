@@ -54,6 +54,8 @@ for (const v of [
 test("a drive offers Share trip, with a generic file name and no request", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", acceptDownloads: true });
   const page = await ctx.newPage();
+  // The new look's sticky page header is its own stacking context, which is where the nav used to cover the sheet.
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
   await expect(page.getByRole("button", { name: "Share trip" })).toBeVisible();
@@ -68,6 +70,12 @@ test("a drive offers Share trip, with a generic file name and no request", async
   expect((await download).suggestedFilename()).toMatch(/^rivolt-trip-\d{4}-\d{2}\.png$/);
   expect(requests).toEqual([]);
   await page.screenshot({ path: path.join(SHOTS, "share-trip-iphone-dark.png") });
+  // The sheet sits above the phone bottom nav, so Cancel is the top element at its centre and closes it.
+  const box = await dlg.getByRole("button", { name: "Cancel" }).boundingBox();
+  const top = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.textContent, [box!.x + box!.width / 2, box!.y + box!.height / 2]);
+  expect(top).toBe("Cancel");
+  await dlg.getByRole("button", { name: "Cancel" }).click();
+  await expect(dlg).toHaveCount(0);
   await ctx.close();
 });
 
