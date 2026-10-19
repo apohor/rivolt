@@ -75,9 +75,13 @@ test("Rivian down or rate limited: not the user's fault, and the upstream text n
 });
 
 test("a wrong code says codes expire, and the failure is tracked with its class", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 700 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   const events = await open(page, "mfa", { status: 401, body: { error: "bad otp", class: "user_action" } });
+  // The code row (input, Verify, Cancel) fits even at 320 (WebKit gives the input a wider default) with no sideways scroll.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const cancel = await page.getByRole("button", { name: "Cancel" }).boundingBox();
+  expect(cancel!.x + cancel!.width).toBeLessThanOrEqual(320);
   await page.getByPlaceholder("123456").fill("123456");
   await page.getByRole("button", { name: "Verify" }).click();
   await expect(page.locator("[data-connect-failure]")).toContainText("That code didn't work");
