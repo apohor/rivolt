@@ -777,7 +777,7 @@ func (c *Coordinator) fireCount() {
 }
 
 // Shutdown drops every lease this pod owns and fires onRelease for
-// each. Used from the SIGTERM hook so a planned pod restart hands
+// each, stopping the subscriptions first. Used from the SIGTERM hook so a planned pod restart hands
 // vehicles to surviving pods immediately. Best-effort with a
 // caller-supplied (timeout-bound) context — if Postgres is
 // unreachable the leases will still age out via the TTL.
@@ -787,17 +787,57 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	for vid := range c.owned {
 		owned = append(owned, vid)
 	}
-	c.owned = make(map[string]struct{})
 	c.mu.Unlock()
 
+	// Stop the subscriptions first, wait (bounded) until they have stopped, and only
+	// then give the leases up. Releasing first lets a peer dial a vehicle while this
+	// pod's WebSocket for it is still up: the collision the lease healing avoids.
+	for _, vid := range owned {
+		c.onRelease(vid)
+	}
+	c.waitAllStopped(ctx, owned)
+
+	c.mu.Lock()
+	c.owned = make(map[string]struct{})
+	c.mu.Unlock()
 	if n, err := c.store.ReleaseAll(ctx); err != nil {
 		c.log.Warn("lease release-all failed", "err", err.Error())
 	} else {
 		c.log.Info("lease release-all", "count", n)
 	}
-
-	for _, vid := range owned {
-		c.onRelease(vid)
-	}
 	c.fireCount()
+}
+
+// waitAllStopped waits until none of vids is streaming, for at most handoffWait
+// and at most two thirds of what is left of ctx, so ReleaseAll always keeps time
+// to run. Without a streaming check there is nothing to wait on.
+func (c *Coordinator) waitAllStopped(ctx context.Context, vids []string) {
+	if c.streaming == nil || len(vids) == 0 {
+		return
+	}
+	limit := handoffWait
+	if dl, ok := ctx.Deadline(); ok {
+		if share := time.Until(dl) * 2 / 3; share < limit {
+			limit = share
+		}
+	}
+	deadline := time.Now().Add(limit)
+	for time.Now().Before(deadline) {
+		busy := false
+		for _, vid := range vids {
+			if c.streaming(vid) {
+				busy = true
+				break
+			}
+		}
+		if !busy {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	c.log.Warn("lease shutdown: subscriptions still running; releasing anyway", "waited", limit.String())
 }
