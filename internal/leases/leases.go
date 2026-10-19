@@ -102,7 +102,8 @@ func (s *Store) Acquire(ctx context.Context, vehicleID string) (bool, error) {
 
 	// The SELECT ... WHERE NOT EXISTS guards the fresh-insert path (the ON
 	// CONFLICT predicate only filters the update path): refused when another pod
-	// holds an unexpired lease on a different vehicle of the same user.
+	// holds an unexpired lease on a different vehicle of the same user group (users
+	// linked through a shared Rivian id; see userGroups).
 	const q = `
         INSERT INTO subscription_leases (vehicle_id, pod_id, acquired_at, renewed_at, expires_at)
         SELECT $1, $2, now(), now(), now() + $3::interval
@@ -143,10 +144,34 @@ func (s *Store) Acquire(ctx context.Context, vehicleID string) (bool, error) {
 	return winner == s.podID, nil
 }
 
-// vehicleUsers returns the users that have a vehicles row for this Rivian id,
-// sorted (the lock order). None for a vehicle with no row.
+// userGroups is a CTE labelling every user with the smallest id of the group of
+// users linked through a shared Rivian id (the same VIN under two accounts).
+// Most users are a group of one. Acquire and SplitVehicles must use the same
+// groups: if only one did, one would refuse what the other keeps and the pods
+// would flap. (Without the linking, user A {X, Y} and user B {Y, Z} with pod 1 on
+// X and pod 2 on Z leave Y refused on both pods and unrecorded.)
+const userGroups = `
+	WITH RECURSIVE edges AS (
+	    SELECT DISTINCT v1.user_id AS a, v2.user_id AS b
+	      FROM vehicles v1 JOIN vehicles v2 ON v2.rivian_vehicle_id = v1.rivian_vehicle_id
+	), reach(a, b) AS (
+	    SELECT a, b FROM edges
+	    UNION
+	    SELECT r.a, e.b FROM reach r JOIN edges e ON e.a = r.b
+	), grp AS (
+	    SELECT a AS user_id, min(b::text) AS gid FROM reach GROUP BY a
+	)`
+
+// vehicleUsers returns every user in the group of the users that have a vehicles
+// row for this Rivian id, sorted (the lock order). None for a vehicle with no row.
 func vehicleUsers(ctx context.Context, tx *sql.Tx, vehicleID string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT user_id::text FROM vehicles WHERE rivian_vehicle_id = $1 ORDER BY 1`, vehicleID)
+	rows, err := tx.QueryContext(ctx, userGroups+`
+	SELECT DISTINCT g2.user_id::text
+	  FROM vehicles v
+	  JOIN grp g1 ON g1.user_id = v.user_id
+	  JOIN grp g2 ON g2.gid = g1.gid
+	 WHERE v.rivian_vehicle_id = $1
+	 ORDER BY 1`, vehicleID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,11 +193,13 @@ func vehicleUsers(ctx context.Context, tx *sql.Tx, vehicleID string) ([]string, 
 // pods never release at once and the split converges. The Coordinator releases
 // them (unsubscribe first, then Release).
 func (s *Store) SplitVehicles(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, userGroups+`
         SELECT DISTINCT l.vehicle_id
           FROM subscription_leases l
           JOIN vehicles v  ON v.rivian_vehicle_id = l.vehicle_id
-          JOIN vehicles v2 ON v2.user_id = v.user_id
+          JOIN grp g1      ON g1.user_id = v.user_id
+          JOIN grp g2      ON g2.gid = g1.gid
+          JOIN vehicles v2 ON v2.user_id = g2.user_id
           JOIN subscription_leases l2 ON l2.vehicle_id = v2.rivian_vehicle_id
          WHERE l.pod_id = $1
            AND l2.vehicle_id <> l.vehicle_id

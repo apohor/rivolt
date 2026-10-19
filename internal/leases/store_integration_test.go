@@ -534,3 +534,74 @@ func TestAcquire_SameRivianIDUnderTwoUsers(t *testing.T) {
 		t.Fatal("acquires deadlocked")
 	}
 }
+
+// A vehicle shared by two accounts must not be stranded. User A has {X, Y}, user B
+// has {Y, Z}; pod-a holds X and pod-b holds Z. Linking users through the shared id
+// puts A and B in one group, so Y is refused to both pods for now, and the
+// greater pod (pod-b) is told to yield; after it does, pod-a takes Y and Z and the
+// whole group is on one pod (review of #602).
+func TestSharedVIN_GroupHealsInsteadOfStrandingTheSharedVehicle(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "sv-a", "sv-x", "sv-y")
+	seedUserVehicles(ctx, t, pool, "sv-b", "sv-y", "sv-z")
+	a, b := twoPods(t, pool)
+	for _, row := range [][2]string{{"sv-x", "pod-a"}, {"sv-z", "pod-b"}} {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO subscription_leases (vehicle_id, pod_id, acquired_at, renewed_at, expires_at) VALUES ($1,$2,now(),now(),now()+interval '2 minutes')`, row[0], row[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Y is refused to both pods while the group is split.
+	if ok, _ := a.Acquire(ctx, "sv-y"); ok {
+		t.Fatal("pod-a took the shared vehicle while pod-b holds the group's other vehicle")
+	}
+	if ok, _ := b.Acquire(ctx, "sv-y"); ok {
+		t.Fatal("pod-b took the shared vehicle while pod-a holds the group's other vehicle")
+	}
+	// The split is seen by the greater pod only, across the shared id.
+	if got, err := a.SplitVehicles(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("pod-a split vehicles = %v, %v; want none", got, err)
+	}
+	got, err := b.SplitVehicles(ctx)
+	if err != nil || len(got) != 1 || got[0] != "sv-z" {
+		t.Fatalf("pod-b split vehicles = %v, %v; want [sv-z]", got, err)
+	}
+	// pod-b yields; pod-a now takes everything and the group is whole.
+	if err := b.Release(ctx, "sv-z"); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"sv-y", "sv-z"} {
+		if ok, err := a.Acquire(ctx, v); err != nil || !ok {
+			t.Fatalf("pod-a %s after healing: ok=%v err=%v", v, ok, err)
+		}
+	}
+	var pods int
+	if err := pool.QueryRowContext(ctx, `SELECT count(DISTINCT pod_id) FROM subscription_leases WHERE vehicle_id IN ('sv-x','sv-y','sv-z')`).Scan(&pods); err != nil {
+		t.Fatal(err)
+	}
+	if pods != 1 {
+		t.Errorf("the group is on %d pods, want 1", pods)
+	}
+	if got, _ := b.SplitVehicles(ctx); len(got) != 0 {
+		t.Errorf("still split: %v", got)
+	}
+}
+
+// Users who share nothing stay separate groups: pod-b may hold one while pod-a
+// holds another.
+func TestSharedVIN_UnlinkedUsersAreNotGrouped(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "sv-solo-1", "sv-s1a", "sv-s1b")
+	seedUserVehicles(ctx, t, pool, "sv-solo-2", "sv-s2a")
+	a, b := twoPods(t, pool)
+	if ok, _ := a.Acquire(ctx, "sv-s1a"); !ok {
+		t.Fatal("pod-a s1a")
+	}
+	if ok, _ := b.Acquire(ctx, "sv-s2a"); !ok {
+		t.Fatal("pod-b took an unrelated user's vehicle: grouping is too wide")
+	}
+	if got, _ := b.SplitVehicles(ctx); len(got) != 0 {
+		t.Errorf("unlinked users reported as split: %v", got)
+	}
+}
