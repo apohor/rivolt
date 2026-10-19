@@ -27,6 +27,11 @@ type fakePurgeStore struct {
 	deleteErr map[uuid.UUID]error
 	deleteLog []uuid.UUID
 	counts    [3]int
+	// accounts with no verified address to warn
+	unwarnDue     []uuid.UUID
+	unwarnDeleted map[uuid.UUID]string
+	unwarnLog     []uuid.UUID
+	unwarnCount   int
 }
 
 func (f *fakePurgeStore) CancelWarnings(context.Context) (int, error) { return f.cancelled, nil }
@@ -54,6 +59,15 @@ func (f *fakePurgeStore) Delete(_ context.Context, uid uuid.UUID) (string, bool,
 func (f *fakePurgeStore) Counts(context.Context) (int, int, int, error) {
 	return f.counts[0], f.counts[1], f.counts[2], nil
 }
+func (f *fakePurgeStore) UnwarnableDue(context.Context, int) ([]uuid.UUID, error) {
+	return f.unwarnDue, nil
+}
+func (f *fakePurgeStore) DeleteUnwarnable(_ context.Context, uid uuid.UUID) (string, bool, error) {
+	f.unwarnLog = append(f.unwarnLog, uid)
+	name, ok := f.unwarnDeleted[uid]
+	return name, ok, nil
+}
+func (f *fakePurgeStore) UnwarnableCount(context.Context) (int, error) { return f.unwarnCount, nil }
 
 type fakeMailer struct {
 	sent []email.Message
@@ -227,5 +241,47 @@ func TestInactivePurgeStateEnabled(t *testing.T) {
 		if got := tc.s.Enabled(u); got != tc.want {
 			t.Errorf("%s: %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+// An account with no verified address cannot be warned, so it is deleted at day
+// 120 with no mail, even without a mailer; the IdP removal runs; an account that
+// verified or connected since the list is skipped; a rehearsal list limits it like
+// the warned deletions.
+func TestInactivePurgeDeletesUnwarnableAccountsWithoutAMail(t *testing.T) {
+	a, b, c := uuid.New(), uuid.New(), uuid.New()
+	st := &fakePurgeStore{
+		unwarnDue:     []uuid.UUID{a, b, c},
+		unwarnDeleted: map[uuid.UUID]string{a: "a-user", c: "c-user"}, // b connected since the list was built
+	}
+	var buf bytes.Buffer
+	j, fi := newTestPurge(st, flags.InactivePurgeState{Users: []string{a.String(), b.String()}}, nil, &buf) // no mailer; c not in the list
+	res := j.RunOnce(context.Background())
+	if res.UnwarnableDeleted != 1 || len(fi.deleted) != 1 || fi.deleted[0] != "a-user" {
+		t.Errorf("result %+v, idp %v, want only a deleted", res, fi.deleted)
+	}
+	for _, u := range st.unwarnLog {
+		if u == c {
+			t.Error("an account outside the rehearsal list was touched")
+		}
+	}
+}
+
+func TestInactivePurgeDryRunCountsUnwarnableAccounts(t *testing.T) {
+	st := &fakePurgeStore{unwarnCount: 3, unwarnDue: []uuid.UUID{uuid.New()}}
+	var buf bytes.Buffer
+	j, _ := newTestPurge(st, flags.InactivePurgeState{DryRun: true, All: true}, &fakeMailer{}, &buf)
+	res := j.RunOnce(context.Background())
+	if res.UnwarnableDue != 3 || len(st.unwarnLog) != 0 || !strings.Contains(buf.String(), "unwarnable_due=3") {
+		t.Errorf("dry run: %+v, deleted %v, log %s", res, st.unwarnLog, buf.String())
+	}
+}
+
+func TestInactivePurgeOffNeverTouchesUnwarnableAccounts(t *testing.T) {
+	st := &fakePurgeStore{unwarnDue: []uuid.UUID{uuid.New()}, unwarnDeleted: map[uuid.UUID]string{}}
+	var buf bytes.Buffer
+	j, _ := newTestPurge(st, flags.InactivePurgeState{}, &fakeMailer{}, &buf)
+	if res := j.RunOnce(context.Background()); !res.Off || len(st.unwarnLog) != 0 {
+		t.Errorf("flag off: %+v, touched %v", res, st.unwarnLog)
 	}
 }

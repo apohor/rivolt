@@ -15,17 +15,17 @@ import (
 // anything?" without a per-user drill-down. Cheap scalar subqueries
 // at our scale (<100 users); paginate if that ever changes.
 type AdminUserRow struct {
-	ID              uuid.UUID  `json:"id"`
-	Username        string     `json:"username"`
-	Email           string     `json:"email,omitempty"`
-	DisplayName     string     `json:"display_name,omitempty"`
-	Role            string     `json:"role"`
-	Disabled        bool       `json:"disabled"`
-	CreatedAt       time.Time  `json:"created_at"`
-	VehicleCount    int        `json:"vehicle_count"`
-	DriveCount      int        `json:"drive_count"`
-	ImportCount     int        `json:"import_count"`
-	RivianConnected bool       `json:"rivian_connected"`
+	ID              uuid.UUID `json:"id"`
+	Username        string    `json:"username"`
+	Email           string    `json:"email,omitempty"`
+	DisplayName     string    `json:"display_name,omitempty"`
+	Role            string    `json:"role"`
+	Disabled        bool      `json:"disabled"`
+	CreatedAt       time.Time `json:"created_at"`
+	VehicleCount    int       `json:"vehicle_count"`
+	DriveCount      int       `json:"drive_count"`
+	ImportCount     int       `json:"import_count"`
+	RivianConnected bool      `json:"rivian_connected"`
 	// NeedsReauth surfaces stuck Rivian sessions in the user table
 	// itself — these users' drives have stopped recording and they
 	// won't see the in-app banner unless they log in.
@@ -46,8 +46,8 @@ type AdminUserRow struct {
 	// as the job itself would schedule it: the later of signup+120 days and
 	// warning+30 days, where an unsent warning is taken as going out at the
 	// next run (signup+90 days, or now if that has passed). Null when the
-	// account is out of the job's scope (admin, disabled, connected Rivian,
-	// no email). It does not say whether the flag is on: see purge_enabled.
+	// account is out of the job's scope (admin, disabled, connected Rivian).
+	// An account with no verified address has no warning and is due signup+120 days. It does not say whether the flag is on: see purge_enabled.
 	PurgeAt *time.Time `json:"purge_at"`
 }
 
@@ -85,6 +85,8 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		       CASE WHEN `+inactiveScope+` AND COALESCE(u.email, '') <> ''
 		            THEN GREATEST(u.created_at + $1::interval,
 		                          COALESCE(u.inactive_warned_at, GREATEST(u.created_at + $2::interval, now())) + $3::interval)
+		            -- no verified address to warn: deleted at day 120, no warning
+		            WHEN `+unwarnableScope+` THEN u.created_at + $1::interval
 		       END
 		FROM users u
 		ORDER BY u.created_at ASC
@@ -135,15 +137,15 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 // one round-trip: identity, Rivian session age, per-vehicle telemetry
 // freshness, lifetime totals, signup source, active session count.
 type AdminUserDetail struct {
-	ID                uuid.UUID  `json:"id"`
-	Username          string     `json:"username"`
-	Email             string     `json:"email,omitempty"`
-	DisplayName       string     `json:"display_name,omitempty"`
-	Role              string     `json:"role"`
-	Disabled          bool       `json:"disabled"`
-	OnboardingDone    bool       `json:"onboarding_completed"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID             uuid.UUID `json:"id"`
+	Username       string    `json:"username"`
+	Email          string    `json:"email,omitempty"`
+	DisplayName    string    `json:"display_name,omitempty"`
+	Role           string    `json:"role"`
+	Disabled       bool      `json:"disabled"`
+	OnboardingDone bool      `json:"onboarding_completed"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 
 	// Rivian state (DB-only — runtime in-memory state is per-pod and
 	// not authoritative; admins should trust what's persisted).
@@ -154,16 +156,16 @@ type AdminUserDetail struct {
 	NeedsReauthAt     *time.Time `json:"needs_reauth_at,omitempty"`
 
 	// Activity rollups.
-	LastSeenAt        *time.Time `json:"last_seen_at,omitempty"`
-	ActiveSessions    int        `json:"active_sessions"`
-	DriveCount        int        `json:"drive_count"`
-	DriveMilesTotal   float64    `json:"drive_miles_total"`
-	ChargeCount       int        `json:"charge_count"`
-	ChargeKWhTotal    float64    `json:"charge_kwh_total"`
-	SampleCount       int64      `json:"sample_count"`
-	OldestSampleAt    *time.Time `json:"oldest_sample_at,omitempty"`
-	NewestSampleAt    *time.Time `json:"newest_sample_at,omitempty"`
-	ImportCount       int        `json:"import_count"`
+	LastSeenAt      *time.Time `json:"last_seen_at,omitempty"`
+	ActiveSessions  int        `json:"active_sessions"`
+	DriveCount      int        `json:"drive_count"`
+	DriveMilesTotal float64    `json:"drive_miles_total"`
+	ChargeCount     int        `json:"charge_count"`
+	ChargeKWhTotal  float64    `json:"charge_kwh_total"`
+	SampleCount     int64      `json:"sample_count"`
+	OldestSampleAt  *time.Time `json:"oldest_sample_at,omitempty"`
+	NewestSampleAt  *time.Time `json:"newest_sample_at,omitempty"`
+	ImportCount     int        `json:"import_count"`
 
 	Vehicles      []AdminUserVehicle   `json:"vehicles"`
 	SignupRequest *AdminSignupSnapshot `json:"signup_request,omitempty"`
