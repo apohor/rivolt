@@ -368,7 +368,7 @@ func (a *Archiver) archiveOne(ctx context.Context, conn *sql.Conn, cols []column
 		// object, which holds every row it was written with. If a previous
 		// run's write of it failed its read-back, the good copy is the .new
 		// beside it (DA on #628).
-		srcKey, err := a.readableKey(ctx, objKey, key, aad)
+		srcKey, err := readableKey(ctx, a.store, objKey, key, aad)
 		if err != nil {
 			return 0, 0, fmt.Errorf("re-archive %s: %w", MonthString(month), err)
 		}
@@ -497,7 +497,7 @@ func (a *Archiver) build(ctx context.Context, conn *sql.Conn, cols []column, mon
 		` AND at >= '` + from.Format(time.RFC3339) + `'::timestamptz AND at < '` + to.Format(time.RFC3339) + `'::timestamptz`
 	src := `vehicle_state` + where
 	if merge != nil {
-		if err := a.loadObject(ctx, conn, cols, merge, uid, vid); err != nil {
+		if err := loadObject(ctx, conn, cols, merge, uid, vid); err != nil {
 			return nil, Manifest{}, 0, err
 		}
 		src = `(SELECT * FROM archive_merge UNION ALL SELECT * FROM vehicle_state v` + where +
@@ -643,7 +643,7 @@ func (c *countWriter) Write(p []byte) (int, error) { c.n += int64(len(p)); retur
 // temporary table archive_merge, shaped like vehicle_state. Every row must
 // be the pair's own. A read error, including the object failing to
 // authenticate at its end, fails the COPY and with it the transaction.
-func (a *Archiver) loadObject(ctx context.Context, conn *sql.Conn, cols []column, merge io.Reader, uid, vid uuid.UUID) error {
+func loadObject(ctx context.Context, conn *sql.Conn, cols []column, merge io.Reader, uid, vid uuid.UUID) error {
 	if _, err := conn.ExecContext(ctx, `CREATE TEMP TABLE archive_merge (LIKE vehicle_state INCLUDING DEFAULTS) ON COMMIT DROP`); err != nil {
 		return err
 	}
@@ -687,19 +687,19 @@ func (a *Archiver) loadObject(ctx context.Context, conn *sql.Conn, cols []column
 // readableKey returns objKey if that object reads back whole with the key,
 // or its .new copy if only that does (a run whose write to objKey failed its
 // read-back left the good copy there).
-func (a *Archiver) readableKey(ctx context.Context, objKey string, key, aad []byte) (string, error) {
-	err := a.readsWhole(ctx, objKey, key, aad)
+func readableKey(ctx context.Context, store *s3.Client, objKey string, key, aad []byte) (string, error) {
+	err := readsWhole(ctx, store, objKey, key, aad)
 	if err == nil {
 		return objKey, nil
 	}
-	if nerr := a.readsWhole(ctx, objKey+".new", key, aad); nerr == nil {
+	if nerr := readsWhole(ctx, store, objKey+".new", key, aad); nerr == nil {
 		return objKey + ".new", nil
 	}
 	return "", err
 }
 
-func (a *Archiver) readsWhole(ctx context.Context, objKey string, key, aad []byte) error {
-	body, err := a.store.Get(ctx, objKey)
+func readsWhole(ctx context.Context, store *s3.Client, objKey string, key, aad []byte) error {
+	body, err := store.Get(ctx, objKey)
 	if err != nil {
 		return err
 	}

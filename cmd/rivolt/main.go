@@ -110,6 +110,8 @@ func main() {
 			os.Exit(runRepairR2History(os.Args[2:]))
 		case "announce":
 			os.Exit(runAnnounce(os.Args[2:]))
+		case "archive":
+			os.Exit(runArchive(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -2069,6 +2071,14 @@ func runServer() {
 				logger.Info("sample thinning", "partition", r.Partition, "dry_run", r.DryRun,
 					"rows_before", r.RowsBefore, "rows_after", r.RowsAfter, "bytes_before", r.BytesBefore, "bytes_after", r.BytesAfter)
 			}
+			thinner.OnRethin = func(partition string, uid, vid uuid.UUID, deleted int64) {
+				logger.Info("sample thinning: restored month thinned again", "partition", partition,
+					"user_id", uid.String(), "vehicle_id", vid.String(), "rows_deleted", deleted)
+			}
+			thinner.OnRepair = func(partition string, flagged int64) {
+				appMetrics.ArchiveRepairsTotal.Add(float64(flagged))
+				logger.Warn("sample thinning: rows the archive lacks; flagged for re-archiving", "partition", partition, "objects", flagged)
+			}
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_thinning", Run: thinner.Run})
 		}
 		go retention.Run(ctx, logger, jobs)
@@ -2120,6 +2130,7 @@ func runServer() {
 	// archive. A typed nil would make a non-nil interface, so set it only
 	// when there is a reader.
 	var archiveRows samples.ArchiveRows
+	var archiveRestorer api.ArchiveRestorer
 	if archiveOn && pgPool != nil {
 		rd, err := archive.NewReader(pgPool, archiveCfg, sealer)
 		if err != nil {
@@ -2132,10 +2143,17 @@ func runServer() {
 				"month", archive.MonthString(month), "err", err.Error())
 		}
 		archiveRows = rd
+		rs, err := archive.NewRestorer(pgPool, archiveCfg, sealer)
+		if err != nil {
+			logger.Error("telemetry archive restorer", "err", err.Error())
+			os.Exit(1)
+		}
+		archiveRestorer = rs
 	}
 	handler := api.New(api.Deps{
 		SampleRetentionMonths: sampleRetentionMonths,
 		ArchiveRows:           archiveRows,
+		ArchiveRestorer:       archiveRestorer,
 		StatementSigner:       statementSigner,
 		WeeklySigner:          weeklySigner,
 		Rivian:                rivianClient,

@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/archive"
 )
 
@@ -65,6 +67,12 @@ type Thinner struct {
 	// Report, when set, is told each month processed: in a dry run what it
 	// would keep, otherwise what it kept.
 	Report func(r ThinReport)
+	// OnRethin, when set, is told each restored (user, vehicle) month thinned
+	// again once its hold (archive_months.rethin_after) ran out.
+	OnRethin func(partition string, uid, vid uuid.UUID, deleted int64)
+	// OnRepair, when set, is told how many objects were flagged for
+	// re-archiving because their month's rows no longer matched them.
+	OnRepair func(partition string, flagged int64)
 }
 
 // ThinReport is one month's thinning.
@@ -141,6 +149,9 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 		if err := t.dropExpiredFull(ctx, conn, now); err != nil {
 			return 0, err
 		}
+		if err := t.rethinDue(ctx, conn, now); err != nil {
+			return 0, err
+		}
 	}
 	months, err := attachedMonths(ctx, conn)
 	if err != nil {
@@ -178,6 +189,14 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 		}
 	}
 	rep, err := t.thin(ctx, conn, month)
+	if errors.Is(err, ErrNotArchived) {
+		// The exact gate refused: an object lacks rows the month has. Flag
+		// those for re-archiving so the next archive run heals the month
+		// (DA on #628); thinning retries tomorrow.
+		if n, ferr := archive.FlagMismatched(ctx, conn, monthPartition(month)); ferr == nil && n > 0 && t.OnRepair != nil {
+			t.OnRepair(monthPartition(month), n)
+		}
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -394,6 +413,109 @@ func (t *Thinner) dropExpiredFull(ctx context.Context, conn *sql.Conn, now time.
 		if _, err := conn.ExecContext(ctx, `UPDATE sample_tiers SET full_dropped_at = $2 WHERE month = $1`, m, now); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// rethinDue thins again the restored (user, vehicle) months whose hold ran
+// out (archive_months.rethin_after), one vehicle at a time and only that
+// vehicle's rows: the rest of the month is thinned already. Each needs its
+// object to hold exactly the vehicle's rows (verified, not flagged); one that
+// doesn't is flagged for re-archiving and retried on a later run.
+func (t *Thinner) rethinDue(ctx context.Context, conn *sql.Conn, now time.Time) error {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT user_id, vehicle_id, month FROM archive_months
+		 WHERE rethin_after IS NOT NULL AND rethin_after <= $1 ORDER BY month LIMIT 20`, now)
+	if err != nil {
+		return err
+	}
+	type due struct {
+		uid, vid uuid.UUID
+		month    time.Time
+	}
+	var list []due
+	for rows.Next() {
+		var d due
+		if err := rows.Scan(&d.uid, &d.vid, &d.month); err != nil {
+			rows.Close()
+			return err
+		}
+		d.month = time.Date(d.month.Year(), d.month.Month(), 1, 0, 0, 0, 0, time.UTC)
+		list = append(list, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, d := range list {
+		if err := t.rethinPair(ctx, conn, d.uid, d.vid, d.month); err != nil {
+			return fmt.Errorf("rethin %s: %w", monthPartition(d.month), err)
+		}
+	}
+	return nil
+}
+
+func (t *Thinner) rethinPair(ctx context.Context, conn *sql.Conn, uid, vid uuid.UUID, month time.Time) error {
+	name := monthPartition(month)
+	var exists bool
+	if err := conn.QueryRowContext(ctx, `SELECT to_regclass($1) IS NOT NULL`, name).Scan(&exists); err != nil {
+		return err
+	}
+	clear := `UPDATE archive_months SET rethin_after = NULL WHERE user_id = $1 AND vehicle_id = $2 AND month = $3::date`
+	if !exists {
+		_, err := conn.ExecContext(ctx, clear, uid, vid, month)
+		return err
+	}
+	q := `"` + name + `"`
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
+		return err
+	}
+	// No row reaches the old month while this vehicle's rows are checked and
+	// reduced.
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE `+q+` IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return err
+	}
+	ok, mismatch, err := archive.PairArchivedExact(ctx, tx, name, uid, vid)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if mismatch {
+			if err := archive.MarkRearchive(ctx, tx, uid, vid, month); err != nil {
+				return err
+			}
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			if t.OnRepair != nil {
+				t.OnRepair(name, 1)
+			}
+		}
+		return nil // flagged or not verified: after the next archive run
+	}
+	// uid and vid are uuid.UUID strings: safe as literals in the relation.
+	pair := fmt.Sprintf(`(SELECT * FROM %s WHERE user_id = '%s' AND vehicle_id = '%s') pair`, q, uid, vid)
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM `+q+` v
+		 WHERE v.user_id = $1 AND v.vehicle_id = $2
+		   AND NOT EXISTS (SELECT 1 FROM (`+fmt.Sprintf(keepSQL, pair)+`) k WHERE k.vehicle_id = v.vehicle_id AND k.at = v.at)`, uid, vid)
+	if err != nil {
+		return err
+	}
+	deleted, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, clear, uid, vid, month); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if t.OnRethin != nil {
+		t.OnRethin(name, uid, vid, deleted)
 	}
 	return nil
 }
