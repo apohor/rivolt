@@ -103,8 +103,11 @@ type exportData struct {
 	Recaps     []driveRecapRow
 	Analyses   []driveAnalysisRow
 	Milestones []milestoneRow
-	Settings   map[string]string
-	Profiles   []exportProfile
+	// Stored weather per drive (a coarse start location and the hour), whole rows.
+	Weather       []json.RawMessage
+	WeatherSeries []json.RawMessage
+	Settings      map[string]string
+	Profiles      []exportProfile
 	// Terms is the Terms version the user accepted and when (nil = never).
 	Terms db.Terms
 	// Onboarding is what we hold about the welcome and setup emails.
@@ -284,6 +287,9 @@ saved_trips.json  your saved trips (name, inputs, plan, advice)
 drive_recaps.json     the recap text generated for each drive
 drive_analyses.json   the efficiency analysis generated for each drive
 milestones.json       your milestones, per vehicle
+drive_weather.json    the weather stored for each drive (a coarse start location, about 11 km,
+                      and the hour)
+drive_weather_series.json  the same weather over the drive, step by step
 trips.csv    auto-detected multi-day trips (ledger), with cost and mix
 settings.json    your preferences (credentials are never included)
 vehicles.json    per-vehicle profile (pack capacity, tires, ...) and lease terms
@@ -299,7 +305,8 @@ func (e exportData) meta() map[string]any {
 		"version": e.Version, "created_at": e.CreatedAt.UTC().Format(time.RFC3339),
 		"tz": e.TZ, "currency": e.Currency,
 		"counts": map[string]int{"charges": len(e.Charges), "drives": len(e.Drives), "trips": len(e.Trips),
-			"saved_trips": len(e.SavedTrips), "drive_recaps": len(e.Recaps), "drive_analyses": len(e.Analyses), "milestones": len(e.Milestones)},
+			"saved_trips": len(e.SavedTrips), "drive_recaps": len(e.Recaps), "drive_analyses": len(e.Analyses), "milestones": len(e.Milestones),
+			"drive_weather": len(e.Weather), "drive_weather_series": len(e.WeatherSeries)},
 	}
 	ts := func(t *time.Time) any {
 		if t == nil {
@@ -352,6 +359,8 @@ func writeExportZip(w io.Writer, e exportData) error {
 		{"drive_recaps.json", jsonFile(nonNil(e.Recaps))},
 		{"drive_analyses.json", jsonFile(nonNil(e.Analyses))},
 		{"milestones.json", jsonFile(nonNil(e.Milestones))},
+		{"drive_weather.json", jsonFile(nonNil(e.Weather))},
+		{"drive_weather_series.json", jsonFile(nonNil(e.WeatherSeries))},
 		{"settings.json", jsonFile(e.Settings)},
 		{"vehicles.json", jsonFile(e.Profiles)},
 		{"export.json", jsonFile(e.meta())},
@@ -380,17 +389,19 @@ func writeExportJSON(w io.Writer, e exportData) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(map[string]any{
-		"export":           e.meta(),
-		"charges":          cs,
-		"drives":           e.Drives,
-		"trips":            e.Trips,
-		"rivian_receipts":  e.Receipts,
-		"saved_trips":      nonNil(e.SavedTrips),
-		"drive_recaps":     nonNil(e.Recaps),
-		"drive_analyses":   nonNil(e.Analyses),
-		"milestones":       nonNil(e.Milestones),
-		"settings":         e.Settings,
-		"vehicle_profiles": e.Profiles,
+		"export":               e.meta(),
+		"charges":              cs,
+		"drives":               e.Drives,
+		"trips":                e.Trips,
+		"rivian_receipts":      e.Receipts,
+		"saved_trips":          nonNil(e.SavedTrips),
+		"drive_recaps":         nonNil(e.Recaps),
+		"drive_analyses":       nonNil(e.Analyses),
+		"milestones":           nonNil(e.Milestones),
+		"drive_weather":        nonNil(e.Weather),
+		"drive_weather_series": nonNil(e.WeatherSeries),
+		"settings":             e.Settings,
+		"vehicle_profiles":     e.Profiles,
 	})
 }
 
@@ -448,6 +459,16 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 		}
 		if err = collect("drive analyses", func() error {
 			return eachDriveAnalysis(ctx, d.DB, uid, func(r driveAnalysisRow) error { e.Analyses = append(e.Analyses, r); return nil })
+		}); err != nil {
+			return e, err
+		}
+		if err = collect("drive weather", func() error {
+			return eachDerivedRow(ctx, d.DB, uid, "drive_weather", func(b json.RawMessage) error { e.Weather = append(e.Weather, b); return nil })
+		}); err != nil {
+			return e, err
+		}
+		if err = collect("drive weather series", func() error {
+			return eachDerivedRow(ctx, d.DB, uid, "drive_weather_series", func(b json.RawMessage) error { e.WeatherSeries = append(e.WeatherSeries, b); return nil })
 		}); err != nil {
 			return e, err
 		}

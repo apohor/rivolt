@@ -55,6 +55,9 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	exec(`INSERT INTO drive_efficiency (user_id, drive_id, model, analysis_text, result_json) VALUES ($1,'d-1','m','text','{"a":1}')`, src)
 	exec(`INSERT INTO milestones (user_id, vehicle_id, key, status, detail, dismissed_at) VALUES ($1,$2,'miles:1000','achieved','{"x":1}',now()), ($1,$2,'miles:5000','backfilled','{}',NULL)`, src, vid)
 
+	exec(`INSERT INTO drive_weather (user_id, drive_id, coarse_lat, coarse_lon, sampled_at, provider, temp_c) VALUES ($1,'d-1',30.3,-97.7,$2::timestamptz,'open-meteo',5), ($1,'d-2',30.3,-97.7,$2::timestamptz,'open-meteo',6)`, src, base)
+	exec(`INSERT INTO drive_weather_series (user_id, drive_id, sampled_at, cadence_minutes, coarse_lat, coarse_lon, provider) VALUES ($1,'d-1',$2::timestamptz,60,30.3,-97.7,'open-meteo'), ($1,'d-1',$2::timestamptz + interval '1 hour',60,30.3,-97.7,'open-meteo'), ($1,'d-2',$2::timestamptz,60,30.3,-97.7,'open-meteo')`, src, base)
+
 	count := func(uid uuid.UUID, table string) int {
 		t.Helper()
 		var n int
@@ -75,6 +78,10 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	if wantExtra["saved_trips"] != 2 || wantExtra["drive_recaps"] != 2 || wantExtra["drive_analyses"] != 1 || wantExtra["milestones"] != 2 {
 		t.Fatalf("extras seed = %v", wantExtra)
 	}
+	wantWeather := map[string]int{"drive_weather": count(src, "drive_weather"), "drive_weather_series": count(src, "drive_weather_series")}
+	if wantWeather["drive_weather"] != 2 || wantWeather["drive_weather_series"] != 3 {
+		t.Fatalf("weather seed = %v", wantWeather)
+	}
 	deps := backupTestDeps(pool)
 
 	// Backup.
@@ -90,6 +97,14 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(backup, &raw); err != nil {
 		t.Fatal(err)
+	}
+	// Derived weather is not in the backup, and the file says so.
+	var omitted []string
+	if err := json.Unmarshal(raw["derived_omitted"], &omitted); err != nil || len(omitted) != 2 {
+		t.Errorf("derived_omitted = %s (%v), want the two weather tables", raw["derived_omitted"], err)
+	}
+	if _, has := raw["drive_weather"]; has {
+		t.Error("the backup carries drive_weather, which it says it omits")
 	}
 	for key, n := range wantExtra {
 		var arr []json.RawMessage
@@ -118,9 +133,14 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 		DriveRecaps     []json.RawMessage `json:"drive_recaps"`
 		DriveAnalyses   []json.RawMessage `json:"drive_analyses"`
 		Milestones      []json.RawMessage `json:"milestones"`
+		Weather         []json.RawMessage `json:"drive_weather"`
+		WeatherSeries   []json.RawMessage `json:"drive_weather_series"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &ex); err != nil {
 		t.Fatal(err)
+	}
+	if len(ex.Weather) != wantWeather["drive_weather"] || len(ex.WeatherSeries) != wantWeather["drive_weather_series"] {
+		t.Errorf("export weather = %d drive rows, %d series rows; the tables hold %v", len(ex.Weather), len(ex.WeatherSeries), wantWeather)
 	}
 	if len(ex.SavedTrips) != wantExtra["saved_trips"] || len(ex.DriveRecaps) != wantExtra["drive_recaps"] ||
 		len(ex.DriveAnalyses) != wantExtra["drive_analyses"] || len(ex.Milestones) != wantExtra["milestones"] {

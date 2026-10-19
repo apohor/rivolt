@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -207,3 +208,33 @@ func upsertMilestone(ctx context.Context, d *sql.DB, uid uuid.UUID, r milestoneR
 		uid, r.RivianVehicleID, r.Key, r.Status, r.AchievedAt, jsonOrDefault(r.Detail, "{}"), r.DismissedAt)
 	return err
 }
+
+// eachDerivedRow streams a per-user table whose rows are derived from a drive
+// (stored weather), as JSON objects with the user_id left out. Table is one of
+// derivedTables, never user input. Used for the export only: these are regenerable,
+// so the backup leaves them out and says so (derived_omitted).
+func eachDerivedRow(ctx context.Context, d *sql.DB, uid uuid.UUID, table string, fn func(json.RawMessage) error) error {
+	order := map[string]string{"drive_weather": "drive_id", "drive_weather_series": "drive_id, sampled_at"}[table]
+	if order == "" {
+		return fmt.Errorf("not a derived table: %q", table)
+	}
+	rows, err := d.QueryContext(ctx, `SELECT to_jsonb(t) - 'user_id' FROM `+table+` t WHERE user_id = $1 ORDER BY `+order, uid)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return err
+		}
+		if err := fn(json.RawMessage(b)); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// derivedOmittedFromBackup lists what the backup does not carry because it can
+// be regenerated; the backup file names it.
+var derivedOmittedFromBackup = []string{"drive_weather", "drive_weather_series"}

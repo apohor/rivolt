@@ -379,6 +379,10 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		put(userSettings)
 		writeStr(`,"vehicle_profiles":`)
 		put(profiles)
+		// Rows that can be regenerated are left out of the backup (the data export
+		// has them): say which, so the file is honest about what it holds.
+		writeStr(`,"derived_omitted":`)
+		put(derivedOmittedFromBackup)
 		streamArray("drives", func(emit func(any) error) error {
 			return ds.EachAll(ctx, func(v drives.Drive) error { return emit(v) })
 		})
