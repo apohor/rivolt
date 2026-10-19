@@ -50,12 +50,15 @@ func (m *StateMonitor) noteWriteFailure(kind, vehicleID, id string, err error) {
 
 // writeFailureReason is what is safe to log about a failed write. A Postgres
 // error's DETAIL can quote the whole failing row (coordinates included), so only
-// its SQLSTATE and constraint name are kept; other errors (connection refused,
+// its SQLSTATE, table and constraint name are kept; other errors (connection refused,
 // timeouts) carry no row data.
 func writeFailureReason(err error) string {
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
 		r := "sqlstate " + pg.Code
+		if pg.TableName != "" {
+			r += " table " + pg.TableName
+		}
 		if pg.ConstraintName != "" {
 			r += " constraint " + pg.ConstraintName
 		}

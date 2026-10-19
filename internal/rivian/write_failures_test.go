@@ -103,14 +103,14 @@ func TestLiveDriveUpsertFailureIsWarnedAndCounted(t *testing.T) {
 func TestWriteFailureLogOmitsRowDetail(t *testing.T) {
 	var buf bytes.Buffer
 	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	pgErr := &pgconn.PgError{Code: "23514", ConstraintName: "drives_check_times",
+	pgErr := &pgconn.PgError{Code: "23514", ConstraintName: "drives_check_times", TableName: "drives",
 		Message: "new row violates check constraint", Detail: "Failing row contains (live_v_d_1, 30.2672, -97.7431)."}
 	m.noteWriteFailure("drive_upsert", "veh-1", "live_v_d_1", fmt.Errorf("insert: %w", pgErr))
 	out := buf.String()
 	if strings.Contains(out, "30.2672") || strings.Contains(out, "-97.7431") || strings.Contains(out, "Failing row") {
 		t.Errorf("row detail leaked into the log: %s", out)
 	}
-	if !strings.Contains(out, "23514") || !strings.Contains(out, "drives_check_times") {
+	if !strings.Contains(out, "23514") || !strings.Contains(out, "drives_check_times") || !strings.Contains(out, "table drives") {
 		t.Errorf("sqlstate/constraint missing: %s", out)
 	}
 }
