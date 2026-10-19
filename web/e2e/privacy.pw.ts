@@ -25,7 +25,7 @@ for (const theme of ["dark", "light"] as const) {
       // and the Terms reference links to section 2.
       await expect(doc).toContainText("Anton Pohorilyi");
       await expect(doc).toContainText("Texas");
-      await expect(doc).toContainText("Last updated: October 18, 2026");
+      await expect(doc).toContainText("Last updated: October 19, 2026");
       const text = await doc.innerText();
       expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
       for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]"]) expect(text, gone).not.toContain(gone);

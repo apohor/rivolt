@@ -688,7 +688,8 @@ func New(d Deps) http.Handler {
 					frameAt: func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time {
 						return monitorFor(d, uid).VehicleStateFrameAt(ctx, rivianID)
 					},
-					now: time.Now,
+					ambient: ambientLookup(ambientOptIn(d.Settings), d.WeatherClient, newAmbientCache(), d.Logger, isDemoUser),
+					now:     time.Now,
 				}
 				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).
 					Get("/vehicles/{vehicleID}/now", withUser(na.handle))
@@ -819,6 +820,10 @@ func New(d Deps) http.Handler {
 
 			// Per-user switch for sending trip/drive data to the AI provider.
 			// Off by default; the advice endpoints refuse until it is on.
+			// Opt-in to looking up the outside temperature (Open-Meteo, location
+			// rounded to ~11 km). Off by default; see ambient_temp.go.
+			r.Get("/settings/ambient-temp", withUser(handleAmbientTempGet(d.Settings)))
+			r.Put("/settings/ambient-temp", withUser(handleAmbientTempPut(d.Settings)))
 			r.Get("/settings/ai-consent", withUser(handleAIConsentGet(d.Settings)))
 			r.Put("/settings/ai-consent", withUser(handleAIConsentPut(d.Settings)))
 
