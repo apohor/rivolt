@@ -19,6 +19,11 @@ import { track } from "../lib/track";
 //
 // Credentials are never stored in React state longer than the request
 // itself; the backend owns the bearer tokens.
+// The usual reasons a signed-in Rivian account shows no vehicle (growth's words), shared by every place that says so.
+export const NO_VEHICLE_CAUSE =
+  "Usual cause: a driver account whose invite isn't accepted yet. Sign in to the Rivian app on a phone with this account once, then tap";
+export const NO_VEHICLE_MAIN_ACCOUNT = "Connected your main account instead? Make sure a vehicle shows in the Rivian app on it, then check again.";
+
 export function RivianAccountPanel() {
   const qc = useQueryClient();
   const status = useQuery({
@@ -382,10 +387,10 @@ function ConnectedVehicles({
         No vehicles on this Rivian account
       </div>
       <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-        Sign-in worked, but no vehicle is on this account yet. If this is a driver account, the invite probably
-        isn&apos;t accepted: sign in to the Rivian app on a phone with this account once, then tap{" "}
+        Sign-in worked, but no vehicle is on this account yet. {NO_VEHICLE_CAUSE}{" "}
         <strong>Check again</strong>.
       </p>
+      <p className="mt-1 text-xs leading-relaxed text-amber-100/80">{NO_VEHICLE_MAIN_ACCOUNT}</p>
       <button
         type="button"
         onClick={onRecheck}

@@ -49,13 +49,14 @@ describe("connect step: driver account first", () => {
     expect(screen.getByRole("button", { name: "Sign in" }).textContent).not.toMatch(/Authorized Driver/);
   });
 
-  it("uses the PM's copy for an account with no vehicles", async () => {
+  it("uses growth's copy for an account with no vehicles", async () => {
     stubFetchRoutes({
       "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
       "/api/vehicles/owned": { body: { vehicles: [] } },
     });
     renderPanel();
-    expect(await screen.findByText(/invite probably isn't accepted/)).toBeInTheDocument();
+    expect(await screen.findByText(/Usual cause: a driver account whose invite isn't accepted yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Connected your main account instead\?/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
   });
 });
