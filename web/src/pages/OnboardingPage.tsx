@@ -72,7 +72,7 @@ export default function OnboardingPage() {
             app and Rivolt starts pulling live telemetry, drive sessions, and
             charge history.
           </p>
-          <RivianAccountPanel />
+          <RivianAccountPanel onLater={finish} />
           {!connected && <AuthorizedDriverNote />}
         </div>
 

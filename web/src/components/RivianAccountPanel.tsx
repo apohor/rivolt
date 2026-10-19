@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
 import { track } from "../lib/track";
+import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
@@ -24,7 +25,8 @@ export const NO_VEHICLE_CAUSE =
   "Usual cause: a driver account whose invite isn't accepted yet. Sign in to the Rivian app on a phone with this account once, then tap";
 export const NO_VEHICLE_MAIN_ACCOUNT = "Connected your main account instead? Make sure a vehicle shows in the Rivian app on it, then check again.";
 
-export function RivianAccountPanel() {
+// `onLater` (onboarding) adds an "I'll do this later" step to a failure that is Rivian's, not the user's.
+export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   const qc = useQueryClient();
   const status = useQuery({
     queryKey: ["rivian", "status"],
@@ -55,7 +57,7 @@ export function RivianAccountPanel() {
       track("rivian_connect_start", { authorized_driver: kind === "driver" });
       return backend.rivianLogin(email, password);
     },
-    onError: () => track("rivian_connect_fail", { class: "other" }),
+    onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "password").track }),
     onSuccess: () => {
       setPassword(""); // drop cleartext from memory on success
       invalidate();
@@ -63,6 +65,7 @@ export function RivianAccountPanel() {
   });
   const mfa = useMutation({
     mutationFn: () => backend.rivianMFA(otp),
+    onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "code").track }),
     onSuccess: () => {
       setOtp("");
       setEmail("");
@@ -218,7 +221,11 @@ export function RivianAccountPanel() {
           </button>
         </div>
         {mfa.isError && (
-          <ErrorBox title="MFA failed" detail={String(mfa.error)} />
+          <FailureBox
+            f={connectFailure(mfa.error, "code")}
+            primary={{ label: "Enter code again", run: () => { setOtp(""); mfa.reset(); } }}
+            secondary={{ label: "Start again for a new code", run: () => logout.mutate() }}
+          />
         )}
       </form>
     );
@@ -344,9 +351,40 @@ export function RivianAccountPanel() {
         <p className="text-xs text-neutral-500">Recommended: a dedicated driver account.</p>
       )}
       {login.isError && (
-        <ErrorBox title="Sign-in failed" detail={String(login.error)} />
+        <FailureBox
+          f={connectFailure(login.error, "password")}
+          primary={{ label: "Try again", run: () => login.mutate() }}
+          secondary={
+            connectFailure(login.error, "password").cls === "user_action"
+              ? { label: kind === "driver" ? "Use my main account instead" : "Use a driver account instead", run: () => { login.reset(); setKind(kind === "driver" ? "main" : "driver"); } }
+              : onLater && ["transient", "outage"].includes(connectFailure(login.error, "password").cls)
+                ? { label: "I'll do this later", run: onLater }
+                : undefined
+          }
+        />
       )}
     </form>
+  );
+}
+
+// A failed connect: the class-based message with a primary step and, where there is one, a secondary. Details stay filled in.
+type Step = { label: string; run: () => void };
+function FailureBox({ f, primary, secondary }: { f: ConnectFailure; primary: Step; secondary?: Step }) {
+  return (
+    <div role="alert" data-connect-failure={f.cls} className="rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-sm">
+      <div className="font-medium text-rose-200">{f.title}</div>
+      <p className="mt-1 text-xs leading-relaxed text-rose-100/80">{f.body}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={primary.run} className="rounded-md border border-rose-400/50 px-3 py-1.5 text-xs font-medium text-rose-100 hover:bg-rose-500/10">
+          {primary.label}
+        </button>
+        {secondary && (
+          <button type="button" onClick={secondary.run} className="text-xs text-emerald-300 underline underline-offset-2 hover:text-emerald-200">
+            {secondary.label}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
