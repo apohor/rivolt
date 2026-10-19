@@ -2250,6 +2250,15 @@ func runServer() {
 	// can pick the vehicles up while we're still draining
 	// in-flight requests. ReleaseAll uses a short bounded context;
 	// a Postgres blip just delays acquisition until the TTL.
+	// Write the drives and charges the 10 s throttle left behind first, so the
+	// peer that takes the vehicles over finds current rows.
+	if monitorRegistry != nil {
+		fctx, fcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if n := monitorRegistry.FlushPending(fctx); n > 0 {
+			logger.Info("flushed in-progress sessions at shutdown", "sessions", n)
+		}
+		fcancel()
+	}
 	if leaseCoordinator != nil {
 		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
 		leaseCoordinator.Shutdown(lctx)

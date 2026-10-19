@@ -198,6 +198,7 @@ func (m *StateMonitor) touchLiveDrive(ctx context.Context, vehicleID string, d *
 		return
 	}
 	if d != nil && !d.touch.due(liveTouchNow()) {
+		d.touch.dirty = true
 		return
 	}
 	m.upsertLiveDrive(ctx, vehicleID, d)
@@ -210,6 +211,7 @@ func (m *StateMonitor) touchLiveCharge(ctx context.Context, vehicleID string, c 
 		return
 	}
 	if c != nil && !c.touch.due(liveTouchNow()) {
+		c.touch.dirty = true
 		return
 	}
 	m.upsertLiveCharge(ctx, vehicleID, c)
