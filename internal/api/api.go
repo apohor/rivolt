@@ -36,6 +36,7 @@ import (
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -552,10 +553,12 @@ func New(d Deps) http.Handler {
 			// strips the prefix from r.URL.Path itself; the
 			// proxy.Director then forwards as-is.
 			if d.ValhallaProxy != nil {
-				r.Mount("/maps/valhalla", http.StripPrefix("/api/maps/valhalla", d.ValhallaProxy))
+				r.Mount("/maps/valhalla", mapsUserLimiter(mapsValhallaPerMin).Middleware(
+					maps.AllowValhalla(http.StripPrefix("/api/maps/valhalla", d.ValhallaProxy))))
 			}
 			if d.TilesProxy != nil {
-				r.Mount("/maps/tiles", http.StripPrefix("/api/maps/tiles", d.TilesProxy))
+				r.Mount("/maps/tiles", mapsUserLimiter(mapsTilesPerMin).Middleware(
+					maps.AllowTiles(http.StripPrefix("/api/maps/tiles", d.TilesProxy))))
 			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range
