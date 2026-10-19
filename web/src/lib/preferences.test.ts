@@ -21,3 +21,39 @@ describe("formatDistance", () => {
     expect(formatDistance(null, "mi")).toBe("—");
   });
 });
+
+describe("temperature unit default", () => {
+  it("follows the distance unit until a unit is picked", async () => {
+    const { defaultTemperatureUnit } = await import("./preferences");
+    expect(defaultTemperatureUnit("mi")).toBe("f");
+    expect(defaultTemperatureUnit("km")).toBe("c");
+  });
+
+  async function fresh(stored?: object) {
+    const { vi } = await import("vitest");
+    vi.resetModules();
+    window.localStorage.clear();
+    if (stored) window.localStorage.setItem("rivolt.preferences.v1", JSON.stringify(stored));
+    return import("./preferences");
+  }
+
+  it("a new user in miles gets °F, and km gives °C", async () => {
+    let m = await fresh();
+    expect(m.usePreferences).toBeDefined();
+    m.setDistanceUnit("km");
+    expect(JSON.parse(window.localStorage.getItem("rivolt.preferences.v1") as string).temperatureUnit).toBe("c");
+    m.setDistanceUnit("mi");
+    expect(JSON.parse(window.localStorage.getItem("rivolt.preferences.v1") as string).temperatureUnit).toBe("f");
+    m = await fresh();
+    m.setTemperatureUnit("c");
+    m.setDistanceUnit("mi");
+    expect(JSON.parse(window.localStorage.getItem("rivolt.preferences.v1") as string).temperatureUnit).toBe("c");
+  });
+
+  it("preferences saved before this keep their unit", async () => {
+    const m = await fresh({ temperatureUnit: "c", distanceUnit: "mi" });
+    m.setDistanceUnit("km");
+    m.setDistanceUnit("mi");
+    expect(JSON.parse(window.localStorage.getItem("rivolt.preferences.v1") as string).temperatureUnit).toBe("c");
+  });
+});
