@@ -50,7 +50,7 @@ for (const v of [
     await page.getByRole("button", { name: "Got it" }).click();
     await expect(card).toHaveCount(0);
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Truck" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Truck", exact: true })).toBeVisible();
     await expect(page.locator("[data-r2-checked]")).toHaveCount(0);
     // Always reachable again from Settings → Vehicle.
     await page.goto("/settings?tab=vehicle");
@@ -65,7 +65,7 @@ test("a truck that is not an R2 gets no R2 card, here or in Settings", async ({ 
   const page = await ctx.newPage();
   await withR2(page, { ...R2, name: "Sample R1S", model: "R1S", field_support: {} });
   await page.goto("/truck");
-  await expect(page.getByRole("heading", { name: "Truck" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Truck", exact: true })).toBeVisible();
   await expect(page.locator("[data-r2-checked]")).toHaveCount(0);
   await page.goto("/settings?tab=vehicle");
   await expect(page.getByRole("heading", { name: "Vehicle profile" })).toBeVisible();
