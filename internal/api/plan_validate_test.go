@@ -30,7 +30,9 @@ func TestDepartureWindow(t *testing.T) {
 		"13 days ago":   {testNow.Add(-13 * 24 * time.Hour), true},
 		"15 days ago":   {testNow.Add(-15 * 24 * time.Hour), false},
 		"29 days ahead": {testNow.Add(29 * 24 * time.Hour), true},
-		"31 days ahead": {testNow.Add(31 * 24 * time.Hour), false},
+		"31 days ahead": {testNow.Add(31 * 24 * time.Hour), true},
+		"179 days":      {testNow.Add(179 * 24 * time.Hour), true},
+		"181 days":      {testNow.Add(181 * 24 * time.Hour), false},
 		"year 9999":     {time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), false},
 		"the beginning": {time.Time{}, false},
 	} {
