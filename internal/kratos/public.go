@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Identity is the subset of an identity object we surface from the
@@ -108,12 +109,18 @@ func (c *Client) LoginByPassword(ctx context.Context, email, password string) (*
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var out struct {
-			Session struct {
+			SessionToken string `json:"session_token"`
+			Session      struct {
 				Identity Identity `json:"identity"`
 			} `json:"session"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return nil, fmt.Errorf("decode login: %w", err)
+		}
+		// The caller only needs to know who this is: the session Kratos just
+		// opened for it is never used, so close it rather than leave a live token.
+		if out.SessionToken != "" {
+			c.revokeSession(ctx, out.SessionToken)
 		}
 		if out.Session.Identity.ID == "" {
 			return nil, errors.New("kratos: login response missing identity")
@@ -223,3 +230,24 @@ var ErrNotFound = errors.New("kratos: identity not found")
 // ErrNoSession is returned by Whoami when there is no active
 // Kratos session for the supplied cookie.
 var ErrNoSession = errors.New("kratos: no active session")
+
+// revokeSession ends a native-flow session by its token (best effort: the login
+// has already succeeded, and an unrevoked session still expires on its own).
+func (c *Client) revokeSession(ctx context.Context, token string) {
+	buf, err := json.Marshal(map[string]string{"session_token": token})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.cfg.PublicURL+"/self-service/logout/api", bytes.NewReader(buf))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
+}

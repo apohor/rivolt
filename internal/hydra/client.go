@@ -179,6 +179,10 @@ type Redirect struct {
 	RedirectTo string `json:"redirect_to"`
 }
 
+// ErrBadChallenge wraps the error for a login or consent challenge Hydra does not
+// accept: unknown, expired or already used.
+var ErrBadChallenge = errors.New("hydra: unknown or used challenge")
+
 // GetLoginRequest fetches the login challenge from Hydra.
 func (c *Client) GetLoginRequest(ctx context.Context, challenge string) (*LoginRequest, error) {
 	if !c.Enabled() {
@@ -263,8 +267,14 @@ func (c *Client) do(ctx context.Context, method, target string, reqBody, respOut
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("hydra %s %s: status=%d body=%s",
+		err := fmt.Errorf("hydra %s %s: status=%d body=%s",
 			method, target, resp.StatusCode, truncate(raw, 512))
+		switch resp.StatusCode {
+		case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusGone:
+			// An unknown, expired or already-used challenge.
+			return fmt.Errorf("%w: %w", ErrBadChallenge, err)
+		}
+		return err
 	}
 	if respOut == nil {
 		return nil

@@ -50,6 +50,10 @@ func TestHydraLoginPOST_sendsRememberFor(t *testing.T) {
 	})
 	var seenRememberFor float64
 	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet { // the challenge is looked up before the password is tried
+			_, _ = w.Write([]byte(`{"challenge":"c","client":{"client_id":"argo"}}`))
+			return
+		}
 		if r.Method == http.MethodPut {
 			body, _ := io.ReadAll(r.Body)
 			var b map[string]any
@@ -180,6 +184,10 @@ func TestHydraLoginPOST_success(t *testing.T) {
 	})
 	var seenSubject string
 	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"challenge":"c","client":{"client_id":"argo"}}`))
+			return
+		}
 		if r.Method == http.MethodPut {
 			body, _ := io.ReadAll(r.Body)
 			var b map[string]any
@@ -213,7 +221,11 @@ func TestHydraLoginPOST_invalidCreds(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("hydra must not be called when credentials fail: %s %s", r.Method, r.URL.Path)
+		if r.Method == http.MethodGet { // only the challenge lookup
+			_, _ = w.Write([]byte(`{"challenge":"c","client":{"client_id":"argo"}}`))
+			return
+		}
+		t.Errorf("hydra must not accept a login when credentials fail: %s %s", r.Method, r.URL.Path)
 	})
 	d := hydraDeps{Hydra: hyd, Kratos: kr, Logger: discardLogger()}
 	body := bytes.NewBufferString(`{"challenge":"c","email":"u@x","password":"bad"}`)

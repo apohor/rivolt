@@ -430,11 +430,7 @@ func New(d Deps) http.Handler {
 						Logger:      d.Logger,
 						RememberFor: d.HydraRememberFor,
 					}
-					r.Route("/hydra", func(r chi.Router) {
-						r.Get("/login", hydraLoginGET(hd))
-						r.Post("/login", hydraLoginPOST(hd))
-						r.Get("/consent", hydraConsentGET(hd))
-					})
+					mountHydraBridge(r, hd)
 				}
 			})
 		}

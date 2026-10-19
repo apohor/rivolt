@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/kratos"
@@ -150,6 +152,19 @@ func hydraLoginPOST(d hydraDeps) http.HandlerFunc {
 		in.Email = strings.TrimSpace(in.Email)
 		if in.Challenge == "" || in.Email == "" || in.Password == "" {
 			http.Error(w, "challenge, email, password required", http.StatusBadRequest)
+			return
+		}
+
+		// The challenge is checked before the password is: otherwise anyone could
+		// use this endpoint as a password oracle with no login in progress. A
+		// challenge Hydra does not know answers exactly like a wrong password.
+		if _, err := d.Hydra.GetLoginRequest(r.Context(), in.Challenge); err != nil {
+			if errors.Is(err, hydra.ErrBadChallenge) {
+				http.Error(w, "invalid credentials", http.StatusUnauthorized)
+				return
+			}
+			d.Logger.Error("hydra login: get challenge", "err", err)
+			http.Error(w, "hydra fetch failed", http.StatusBadGateway)
 			return
 		}
 
@@ -326,4 +341,20 @@ func emailLocalPart(email string) string {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(email[:at]))
+}
+
+// mountHydraBridge mounts the Hydra login and consent handlers under /hydra. The
+// login routes are a password endpoint on the public internet, so each has a
+// per-IP limit (the real client address, from the trusted proxy header): the
+// POST is tight, the GET looser.
+func mountHydraBridge(r chi.Router, hd hydraDeps) {
+	loginGet := newIPLimiter(30, time.Minute, time.Hour)
+	loginGet.key = demoClientKey
+	loginPost := newIPLimiter(10, time.Minute, time.Hour)
+	loginPost.key = demoClientKey
+	r.Route("/hydra", func(r chi.Router) {
+		r.With(loginGet.Middleware).Get("/login", hydraLoginGET(hd))
+		r.With(loginPost.Middleware).Post("/login", hydraLoginPOST(hd))
+		r.Get("/consent", hydraConsentGET(hd))
+	})
 }
