@@ -509,6 +509,29 @@ and charge pages (charts, and the drive page's map, which is drawn from samples
 today; `drives.route_polyline` is the fallback for an old drive's map). A
 restore skips samples older than the cutoff and reports how many.
 
+**Archive, as built** (N19, `internal/archive`): nothing is deleted. With
+`RIVOLT_ARCHIVE_ENV` set (`prod`, `preview`; plus `RIVOLT_ARCHIVE_S3_ACCESS_KEY`
+and `…_SECRET_KEY`; endpoint, bucket and region default to the in-cluster MinIO
+and `rivolt-telemetry-archive`), a daily job takes the oldest month wholly older
+than 90 days (`ArchiveAfterDays`) that has a (user, vehicle) without a verified
+object. For each, it writes `<env>/v1/u=<user>/v=<vehicle>/YYYY-MM.csv.gz.enc`:
+the rows as Postgres `COPY` CSV (all columns, ordered by `at`, UTC
+timestamps) from one `REPEATABLE READ` snapshot, gzipped and encrypted in 64 KiB
+AES-256-GCM chunks (STREAM) with the user's data key from `archive_keys`
+(random, sealed with the KEK; deleting the user deletes it, which makes every
+copy unreadable), plus a `.manifest.json` with counts, times and hashes. The
+object is then read back to the end, decrypted, and must match the rows,
+first/last `at` and hashes before `archive_months.verified_at` is set. It shares
+the sample-maintenance advisory lock with thinning and retention, and runs
+before them. Rows restored or imported into an archived month set
+`needs_rearchive`; those are merged later, never rewritten from a thinned
+partition. Logged per object; `rivolt_archive_objects_total{outcome}` and
+`rivolt_archive_bytes_total`. Thinning and the retention drop pass the same
+gate (`archive.MonthArchived`, else `ErrNotArchived`): every (user, vehicle)
+with rows in the partition has a verified object that isn't waiting to be
+re-archived or held back after an admin restore. Thinning checks it again under
+its partition lock.
+
 **Option B — TimescaleDB**:
 
 Adopt when the first of these is true:

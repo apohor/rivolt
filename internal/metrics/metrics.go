@@ -146,6 +146,10 @@ type Metrics struct {
 	EngagementStuckSending prometheus.Gauge
 	// vehicle_state partitions dropped by sample retention.
 	SamplePartitionsDropped prometheus.Counter
+	// Telemetry archive objects (one per user, vehicle and month) by outcome
+	// (verified, failed), and the bytes of the verified ones.
+	ArchiveObjectsTotal *prometheus.CounterVec
+	ArchiveBytesTotal   prometheus.Counter
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -281,6 +285,14 @@ func New() *Metrics {
 			Name: "rivolt_sample_partitions_dropped_total",
 			Help: "Monthly vehicle_state partitions dropped by sample retention (RIVOLT_SAMPLE_RETENTION_MONTHS).",
 		}),
+		ArchiveObjectsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_archive_objects_total",
+			Help: "Telemetry archive objects (one per user, vehicle and month) written, by outcome: verified (read back and matched) or failed.",
+		}, []string{"outcome"}),
+		ArchiveBytesTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_archive_bytes_total",
+			Help: "Bytes of verified telemetry archive objects written.",
+		}),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -337,6 +349,8 @@ func New() *Metrics {
 		m.WSFramesDroppedTotal,
 		m.EngagementStuckSending,
 		m.SamplePartitionsDropped,
+		m.ArchiveObjectsTotal,
+		m.ArchiveBytesTotal,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
 		m.ServerEventsTotal,

@@ -33,6 +33,7 @@ import (
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
+	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/changelog"
@@ -1964,6 +1965,13 @@ func runServer() {
 		logger.Error("sample retention", "err", err.Error())
 		os.Exit(1)
 	}
+	// Telemetry archive (N19): on only when RIVOLT_ARCHIVE_ENV is set; then a
+	// bad config or a missing KEK stops startup rather than skipping it.
+	archiveCfg, archiveOn, err := archive.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		logger.Error("telemetry archive", "err", err.Error())
+		os.Exit(1)
+	}
 	if pgPool != nil && !adminOnlyMode {
 		jobs := []retention.Job{
 			{Name: "admin_audit", Run: adminaudit.New(pgPool).Purge},
@@ -1990,6 +1998,31 @@ func runServer() {
 		}})
 		if signupRequestStore != nil {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
+		}
+		// The telemetry archive runs before the sample jobs: thinning and
+		// retention only touch months it has verified.
+		if archiveOn {
+			arch, err := archive.NewArchiver(pgPool, archiveCfg, sealer)
+			if err != nil {
+				logger.Error("telemetry archive", "err", err.Error())
+				os.Exit(1)
+			}
+			logger.Info("telemetry archive on", "env", archiveCfg.Env, "endpoint", archiveCfg.Endpoint, "bucket", archiveCfg.Bucket)
+			arch.Report = func(r archive.Report) {
+				if r.Done {
+					logger.Info("telemetry archive", "month", r.Month, "objects", r.Objects, "failed", r.Failed)
+					return
+				}
+				if r.Err != nil {
+					appMetrics.ArchiveObjectsTotal.WithLabelValues("failed").Inc()
+					logger.Warn("telemetry archive: object failed", "month", r.Month, "vehicle_id", r.VehicleID.String(), "err", r.Err.Error())
+					return
+				}
+				appMetrics.ArchiveObjectsTotal.WithLabelValues("verified").Inc()
+				appMetrics.ArchiveBytesTotal.Add(float64(r.Bytes))
+				logger.Info("telemetry archive: object verified", "month", r.Month, "vehicle_id", r.VehicleID.String(), "rows", r.Rows, "bytes", r.Bytes)
+			}
+			jobs = append(jobs, retention.Job{Name: "telemetry_archive", Run: arch.Run})
 		}
 		// vehicle_state past the retention period: whole monthly partitions are
 		// dropped ("deleted" counts partitions). Drives, charges and their totals
