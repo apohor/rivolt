@@ -1466,7 +1466,10 @@ export const backend = {
   // `allDrives` / `allCharges` pull enough history to drive the
   // overview analytics and detail-page lookups without paginating.
   // The store queries cap out at a few hundred rows so this stays cheap.
-  allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
+  // slim leaves the route polyline out of each row (the lists draw no maps): most of the weight of the full list.
+  allDrives: (o: { slim?: boolean } = {}) => api.get<Drive[]>(`/api/drives?limit=5000${o.slim ? "&slim=1" : ""}`),
+  // One drive with its route polyline and cost estimate. 404 for an unknown id or someone else's drive.
+  drive: (id: string) => api.get<Drive>(`/api/drives/${encodeURIComponent(id)}`),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
   recentCharges: (n: number) => api.get<Charge[]>(`/api/charges?limit=${n}`),
   // Per-day asleep/awake hours for the overview sleep graph. `since`

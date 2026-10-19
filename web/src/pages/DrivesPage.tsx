@@ -1,4 +1,4 @@
-import { drivesAllQuery } from "../lib/activityLists";
+import { attachRoutes, drivesAllQuery, drivesRoutesQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
@@ -30,6 +30,8 @@ export default function DrivesPage() {
     roundTripMaxGapMinutes,
   } = usePreferences();
   const q = useQuery(drivesAllQuery());
+  // Routes are fetched only for the map view, which draws them.
+  const routesQ = useQuery({ ...drivesRoutesQuery(), enabled: view === "map" });
   const rows = useMemo(() => {
     const filtered = filterByWindow(q.data ?? [], win);
     return roundTripsEnabled
@@ -73,7 +75,7 @@ export default function DrivesPage() {
             <SummaryStrip totals={totals} />
             {view === "map" ? (
               <DrivesOverviewMap
-                drives={rows}
+                drives={attachRoutes(rows, routesQ.data)}
                 onSelect={(id) => navigate(appPath(`/drives/${id}`))}
                 height={480}
               />

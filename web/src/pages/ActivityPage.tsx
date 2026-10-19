@@ -1,4 +1,4 @@
-import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
+import { attachRoutes, drivesAllQuery, drivesRoutesQuery, chargesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { filterByRange, periodRange, usePeriod } from "../lib/period";
@@ -60,6 +60,8 @@ export default function ActivityPage() {
   const [mapLayer, setMapLayer] = useState<"drives" | "charges">("drives");
 
   const drivesQ = useQuery(drivesAllQuery());
+  // Routes are fetched only for the map view, which draws them.
+  const routesQ = useQuery({ ...drivesRoutesQuery(), enabled: view === "map" });
   const chargesQ = useQuery(chargesAllQuery());
   const homeQ = useQuery({
     queryKey: ["settings", "home-location"],
@@ -223,7 +225,7 @@ export default function ActivityPage() {
                 {filter === "all" && <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Drives</h2>}
                 <Card>
                   {view === "map" ? (
-                    <DrivesOverviewMap drives={driveRows} onSelect={(id) => navigate(detailPath("drives", id))} height={380} />
+                    <DrivesOverviewMap drives={attachRoutes(driveRows, routesQ.data)} onSelect={(id) => navigate(detailPath("drives", id))} height={380} />
                   ) : (
                     <DriveTable drives={driveRows} compact />
                   )}
