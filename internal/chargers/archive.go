@@ -231,17 +231,94 @@ type QueryCorridorOptions struct {
 	// If true, includes destinations that project onto the route's
 	// endpoint segment. Off by default (matches SPA behaviour).
 	IncludeEndpoints bool
+	// Context, when set, ends the query early once it is done (a client that
+	// went away, a request timeout).
+	Context context.Context
+}
+
+// Limits on a corridor query, so one request cannot ask for a continent of tiles.
+const (
+	// MaxPathPoints is the longest route polyline accepted.
+	MaxPathPoints = 5000
+	// MaxCorridorKm is the widest search band accepted (half-width).
+	MaxCorridorKm = 50.0
+	// maxLatitude is the Web Mercator limit; a latitude beyond it is clamped.
+	maxLatitude = 85.05
+	// maxQueryTiles bounds the tile box a query may span (a coast-to-coast route
+	// is about 1.2 million tiles at this zoom).
+	maxQueryTiles = 4_000_000
+)
+
+var (
+	// ErrBadPath is a path with a coordinate that is not a number.
+	ErrBadPath = errors.New("chargers: path has a coordinate that is not a number")
+	// ErrQueryTooLarge is a path with too many points or spanning too many tiles.
+	ErrQueryTooLarge = errors.New("chargers: query is too large")
+)
+
+// corridorBox is a validated query: the corridor half-width (km, clamped) and the
+// tile box to read.
+type corridorBox struct {
+	corridorKM                 float64
+	txMin, txMax, tyMin, tyMax uint32
+}
+
+// planCorridor validates and clamps a query before anything is read: coordinates
+// are clamped to the map (latitude +-85.05, longitude +-180), the corridor to
+// MaxCorridorKm, and the path to MaxPathPoints; a box of more than maxQueryTiles
+// tiles is refused. It does not touch the archive. The returned path is a
+// clamped copy.
+func planCorridor(path [][2]float64, corridorKM float64) ([][2]float64, corridorBox, error) {
+	if len(path) > MaxPathPoints {
+		return nil, corridorBox{}, ErrQueryTooLarge
+	}
+	if corridorKM <= 0 {
+		corridorKM = defaultCorridorKM
+	}
+	corridorKM = math.Min(corridorKM, MaxCorridorKm)
+	clamped := make([][2]float64, len(path))
+	for i, p := range path {
+		if math.IsNaN(p[0]) || math.IsNaN(p[1]) || math.IsInf(p[0], 0) || math.IsInf(p[1], 0) {
+			return nil, corridorBox{}, ErrBadPath
+		}
+		clamped[i] = [2]float64{math.Max(-maxLatitude, math.Min(maxLatitude, p[0])), math.Max(-180, math.Min(180, p[1]))}
+	}
+	minLat, maxLat := clamped[0][0], clamped[0][0]
+	minLon, maxLon := clamped[0][1], clamped[0][1]
+	for _, p := range clamped {
+		minLat, maxLat = math.Min(minLat, p[0]), math.Max(maxLat, p[0])
+		minLon, maxLon = math.Min(minLon, p[1]), math.Max(maxLon, p[1])
+	}
+	midLat := (minLat + maxLat) / 2
+	dLat := corridorKM / 111.32
+	dLon := corridorKM / (111.32 * math.Cos(midLat*math.Pi/180))
+	minLat = math.Max(-maxLatitude, minLat-dLat)
+	maxLat = math.Min(maxLatitude, maxLat+dLat)
+	minLon = math.Max(-180, minLon-dLon)
+	maxLon = math.Min(180, maxLon+dLon)
+
+	// Tile bounds at z14 (TMS y increases southward).
+	box := corridorBox{
+		corridorKM: corridorKM,
+		txMin:      lonToTileX(minLon, chargersZoom), txMax: lonToTileX(maxLon, chargersZoom),
+		tyMin: latToTileY(maxLat, chargersZoom), tyMax: latToTileY(minLat, chargersZoom),
+	}
+	if box.txMax < box.txMin || box.tyMax < box.tyMin {
+		return nil, corridorBox{}, ErrBadPath
+	}
+	if tiles := uint64(box.txMax-box.txMin+1) * uint64(box.tyMax-box.tyMin+1); tiles > maxQueryTiles {
+		return nil, corridorBox{}, ErrQueryTooLarge
+	}
+	return clamped, box, nil
 }
 
 // QueryCorridor returns all chargers passing `filter` within
-// `corridorKm` of any non-endpoint point on `path`. Concurrent-safe.
+// `corridorKm` of any non-endpoint point on `path`. Concurrent-safe. The query is
+// validated first (see planCorridor); ErrBadPath and ErrQueryTooLarge say why it
+// was refused, and a done opts.Context stops it early with the context's error.
 func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorridorOptions) ([]POI, error) {
 	if len(path) < 2 {
 		return nil, nil
-	}
-	corridorKM := opts.CorridorKm
-	if corridorKM <= 0 {
-		corridorKM = defaultCorridorKM
 	}
 	trimM := opts.EndpointTrimMeter
 	if trimM <= 0 {
@@ -250,79 +327,61 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	if filter == "" {
 		filter = FilterDCFC
 	}
-
-	// Bounding box + corridor expansion (degrees).
-	minLat, maxLat := path[0][0], path[0][0]
-	minLon, maxLon := path[0][1], path[0][1]
-	for _, p := range path {
-		if p[0] < minLat {
-			minLat = p[0]
-		}
-		if p[0] > maxLat {
-			maxLat = p[0]
-		}
-		if p[1] < minLon {
-			minLon = p[1]
-		}
-		if p[1] > maxLon {
-			maxLon = p[1]
-		}
+	path, box, err := planCorridor(path, opts.CorridorKm)
+	if err != nil {
+		return nil, err
 	}
-	midLat := (minLat + maxLat) / 2
-	dLat := corridorKM / 111.32
-	dLon := corridorKM / (111.32 * math.Cos(midLat*math.Pi/180))
-	minLat -= dLat
-	maxLat += dLat
-	minLon -= dLon
-	maxLon += dLon
-
-	// Tile bounds at z14 (TMS y increases southward).
-	txMin := lonToTileX(minLon, chargersZoom)
-	txMax := lonToTileX(maxLon, chargersZoom)
-	tyMin := latToTileY(maxLat, chargersZoom)
-	tyMax := latToTileY(minLat, chargersZoom)
+	corridorKM := box.corridorKM
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	// Project once for perpendicular-distance + arc-length math.
 	proj := projectPath(path)
 
-	type result struct{ pois []POI }
-	tasks := make([][2]uint32, 0, (txMax-txMin+1)*(tyMax-tyMin+1))
-	for tx := txMin; tx <= txMax; tx++ {
-		for ty := tyMin; ty <= tyMax; ty++ {
-			tasks = append(tasks, [2]uint32{tx, ty})
-		}
-	}
 	// Bounded-concurrency parallel decode. The tile reads are
 	// in-memory; the bottleneck is MVT decoding CPU. Cap at 8 to
-	// avoid lock contention on the leafDirs sync.Map.
+	// avoid lock contention on the leafDirs sync.Map. Tiles are walked, not
+	// listed: the box can be large, the work in flight never is.
 	const concurrency = 8
-	out := make(chan []POI, len(tasks))
 	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
-	for _, t := range tasks {
-		tx, ty := t[0], t[1]
-		sem <- struct{}{}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			pois, err := a.featuresInTile(chargersZoom, tx, ty, filter, proj, trimM, corridorKM*1000, opts)
-			if err != nil || len(pois) == 0 {
-				out <- nil
-				return
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		chunks [][]POI
+	)
+walk:
+	for tx := box.txMin; tx <= box.txMax; tx++ {
+		for ty := box.tyMin; ty <= box.tyMax; ty++ {
+			select {
+			case <-ctx.Done():
+				break walk
+			case sem <- struct{}{}:
 			}
-			out <- pois
-		}()
+			wg.Add(1)
+			go func(tx, ty uint32) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				pois, err := a.featuresInTile(chargersZoom, tx, ty, filter, proj, trimM, corridorKM*1000, opts)
+				if err != nil || len(pois) == 0 {
+					return
+				}
+				mu.Lock()
+				chunks = append(chunks, pois)
+				mu.Unlock()
+			}(tx, ty)
+		}
 	}
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Dedup by EntityID; preserve first-seen.
 	seen := make(map[string]struct{}, 256)
 	pois := make([]POI, 0, 64)
-	for chunk := range out {
+	for _, chunk := range chunks {
 		for _, p := range chunk {
 			key := p.EntityID
 			if key == "" {
@@ -344,7 +403,6 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 		}
 		return pois[i].Lat < pois[j].Lat
 	})
-	_ = result{} // unused; kept for future per-tile metrics
 	return pois, nil
 }
 
