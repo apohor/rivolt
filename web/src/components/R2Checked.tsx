@@ -47,7 +47,7 @@ export function R2CheckedContent() {
         </p>
       </div>
       <p className="text-xs text-neutral-500">
-        Outside temperature isn&apos;t shown for any truck; Rivolt uses weather data where it&apos;s needed.
+        Outside temperature doesn&apos;t come through for any truck; Rivolt can look it up from weather data if you turn that on (off by default).
       </p>
       <p>
         <a href={R2_REPORT_URL} target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">

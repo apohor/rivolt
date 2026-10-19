@@ -38,7 +38,7 @@ for (const v of [
     await expect(card).toContainText("Checked on real R2s");
     await expect(card).toContainText("Shown as an estimate");
     await expect(card).toContainText("Not on the R2 yet");
-    await expect(card).toContainText("Outside temperature isn't shown for any truck");
+    await expect(card).toContainText("Outside temperature doesn't come through for any truck");
     await expect(page.getByText("unverified", { exact: false })).toHaveCount(0);
     await expect(card.getByRole("link", { name: "Something looks wrong on your R2? Tell us" })).toHaveAttribute("href", /issues\/new\?template=r2-report\.yml$/);
     await page.waitForTimeout(500);
