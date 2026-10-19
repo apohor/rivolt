@@ -1062,18 +1062,22 @@ func handleDataReset(d Deps) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		// The telemetry archive first: its key goes at once (the objects are
-		// unreadable from here on) and the objects are queued for deletion. A
-		// failure below leaves a retry, which is idempotent.
-		if err := db.ResetUserArchive(ctx, d.DB, uid); err != nil {
-			http.Error(w, "reset archive: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Wipe in an order that can't violate FKs; there are no
-		// cross-table FKs on user_id so order is cosmetic.
+		// Samples first, then the telemetry archive. The other way round, an
+		// archive run between the two could archive the samples about to go,
+		// under the user's new key and after the deletion request, and they
+		// would outlive the reset. With the samples gone first, a run that
+		// already had them finishes under the archive lock before
+		// ResetUserArchive, whose deletion then covers its object. A failure
+		// leaves a retry, which is idempotent.
 		samplesN, err := ss.Reset(ctx)
 		if err != nil {
 			http.Error(w, "reset samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// The archive key goes at once (the objects are unreadable from here
+		// on) and the objects are queued for deletion.
+		if err := db.ResetUserArchive(ctx, d.DB, uid); err != nil {
+			http.Error(w, "reset archive: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		drivesN, err := ds.Reset(ctx)
