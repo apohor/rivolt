@@ -1,5 +1,6 @@
 import { OVERNIGHT_CHARGERS, type OvernightOptions } from "../plan/days";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useUiNext } from "../lib/uiNext";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
@@ -816,6 +817,16 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     }
   };
   const trips = multiDayFirst(list.data?.trips ?? []);
+  // /demo/trips/plan?preset=<id> (the sample-trip pages link here) opens that trip once the list is there.
+  const presetParam = new URLSearchParams(useLocation().search).get("preset");
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!presetParam || autoOpened.current || !list.data) return;
+    const p = list.data.trips.find((x) => x.id === presetParam || x.saved_trip_id === presetParam);
+    autoOpened.current = true;
+    if (p) void open(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetParam, list.data]);
   const next = useUiNext();
   if (next) {
     return (

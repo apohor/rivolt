@@ -217,3 +217,11 @@ test("demo planner: opening a preset highlights its seeded saved trip's Plan vs 
   await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
   await expect(page.locator('[data-highlight="true"]')).toHaveCount(1);
 });
+
+// The sample-trip pages link to /demo/trips/plan?preset=<id>, which opens that trip without a click.
+test("demo planner: ?preset= opens that sample trip", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.goto("/demo/trips/plan?preset=la-vegas");
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  await expect(page.getByText(/Sample plan/).first()).toBeVisible();
+});
