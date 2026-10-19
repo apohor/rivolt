@@ -29,6 +29,9 @@ var readonlyTables = []string{
 	"flags", "subscription_leases", "ai_usage", "ai_call_usage",
 	"drive_recaps", "drive_efficiency", "drive_weather",
 	"vehicle_pack_health_samples", "saved_trips", "locations",
+	// Fleet bookkeeping of sample thinning (migration 0072), for the
+	// storage dashboard; no user columns.
+	"sample_tiers",
 	// A view: a has-a-Rivian-session boolean per user, never the
 	// session itself (migration 0052).
 	"user_rivian_connected",
