@@ -155,3 +155,62 @@ func TestArchiveUserLock(t *testing.T) {
 		})
 	}
 }
+
+// TestInactivePurgeTakesArchiveLockFirst: the inactive-account purge waits for
+// the user's archive lock before it locks the user row, so it can't hold the
+// row while the archive job (holding the archive lock) needs it (DA on #615).
+// While the purge waits, the row is still free.
+func TestInactivePurgeTakesArchiveLockFirst(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUserFull(ctx, pool, "purge-lock", "purge-lock@example.com", "Purge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '200 days', email_verified = TRUE,
+	        inactive_warned_at = now() - interval '60 days' WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for the archive job: hold the user's archive lock.
+	holder, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if _, err := holder.ExecContext(ctx, `SELECT pg_advisory_lock(hashtextextended('rivolt-archive-user:' || $1::uuid::text, 0))`, uid); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, _, err := db.DeleteInactiveAccount(ctx, pool, uid); done <- err }()
+	time.Sleep(time.Second)
+	select {
+	case err := <-done:
+		t.Fatalf("the purge didn't wait for the archive lock (err %v)", err)
+	default:
+	}
+	// The user row isn't locked by the waiting purge.
+	tx, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var one int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE NOWAIT`, uid).Scan(&one); err != nil {
+		t.Errorf("the waiting purge holds the user row: %v", err)
+	}
+	_ = tx.Rollback()
+	if _, err := holder.ExecContext(ctx, `SELECT pg_advisory_unlock(hashtextextended('rivolt-archive-user:' || $1::uuid::text, 0))`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = $1`, uid).Scan(&n); err != nil || n != 0 {
+		t.Errorf("the purge didn't delete the account (%d, %v)", n, err)
+	}
+}
