@@ -21,9 +21,11 @@ type Subscription struct {
 	OnPlugInReminder bool
 	OnAnomaly        bool
 	OnSoftwareUpdate bool
-	UserAgent        string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// OnMilestones is the opt-in push for milestone moments (default off).
+	OnMilestones bool
+	UserAgent    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Preferences captures the per-subscription event filters.
@@ -32,6 +34,7 @@ type Preferences struct {
 	OnPlugInReminder bool `json:"on_plug_in_reminder"`
 	OnAnomaly        bool `json:"on_anomaly"`
 	OnSoftwareUpdate bool `json:"on_software_update"`
+	OnMilestones     bool `json:"on_milestones"`
 }
 
 // VAPID is the server identity used to sign outbound push requests.
@@ -68,9 +71,9 @@ func (s *Store) Upsert(ctx context.Context, sub Subscription) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO push_subscriptions (
 			user_id, endpoint, p256dh, auth,
-			on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update,
+			on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
 			user_agent
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		ON CONFLICT (user_id, endpoint) DO UPDATE SET
 			p256dh              = EXCLUDED.p256dh,
 			auth                = EXCLUDED.auth,
@@ -78,10 +81,11 @@ func (s *Store) Upsert(ctx context.Context, sub Subscription) error {
 			on_plug_in_reminder = EXCLUDED.on_plug_in_reminder,
 			on_anomaly          = EXCLUDED.on_anomaly,
 			on_software_update  = EXCLUDED.on_software_update,
+			on_milestones       = EXCLUDED.on_milestones,
 			user_agent          = EXCLUDED.user_agent,
 			updated_at          = NOW()`,
 		s.userID, sub.Endpoint, sub.P256dh, sub.Auth,
-		sub.OnChargingDone, sub.OnPlugInReminder, sub.OnAnomaly, sub.OnSoftwareUpdate,
+		sub.OnChargingDone, sub.OnPlugInReminder, sub.OnAnomaly, sub.OnSoftwareUpdate, sub.OnMilestones,
 		sub.UserAgent,
 	)
 	return err
@@ -99,7 +103,7 @@ func (s *Store) Delete(ctx context.Context, endpoint string) error {
 func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT endpoint, p256dh, auth,
-		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update,
+		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
 		       COALESCE(user_agent, ''), created_at, updated_at
 		FROM push_subscriptions
 		WHERE user_id = $1
@@ -112,7 +116,7 @@ func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 	for rows.Next() {
 		var v Subscription
 		if err := rows.Scan(&v.Endpoint, &v.P256dh, &v.Auth,
-			&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate,
+			&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones,
 			&v.UserAgent, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
