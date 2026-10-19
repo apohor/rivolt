@@ -68,21 +68,42 @@ func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, erro
 // Close is a no-op; the pool is managed by main.
 func (s *Store) Close() error { return nil }
 
-// Reset deletes every drive for this store's user. Intended for the
-// Settings → Danger zone reset button; the session external_id is
-// derived from the parsed timestamp, so changing importer inputs
-// (tz, pack size) creates parallel rows instead of ON CONFLICT
-// upserts. Clearing lets a re-import land on a clean slate.
-// Returns the number of rows deleted.
+// Reset deletes every drive for this store's user, and the per-drive rows
+// derived from them. Intended for the Settings → Danger zone reset button;
+// the session external_id is derived from the parsed timestamp, so changing
+// importer inputs (tz, pack size) creates parallel rows instead of ON
+// CONFLICT upserts. Clearing lets a re-import land on a clean slate.
+//
+// The recap, efficiency and weather rows are keyed (user_id, drive_id =
+// drives.external_id) with no foreign key to drives, so deleting the drives
+// does not remove them. They hold the drive's coarse start location and hour
+// (weather) and generated text (recaps), so "delete your history" removes them
+// in the same transaction. Returns the number of drives deleted.
 func (s *Store) Reset(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM drives WHERE user_id = $1`, s.userID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	for _, t := range perDriveTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+t+` WHERE user_id = $1`, s.userID); err != nil {
+			return 0, fmt.Errorf("reset %s: %w", t, err)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM drives WHERE user_id = $1`, s.userID)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
 }
+
+// perDriveTables are the tables keyed (user_id, drive_id) that hang off a drive
+// without a foreign key (see Reset).
+var perDriveTables = []string{"drive_recaps", "drive_efficiency", "drive_weather", "drive_weather_series"}
 
 // Upsert inserts or replaces a drive by external_id within the
 // (user_id, vehicle_id) scope.
