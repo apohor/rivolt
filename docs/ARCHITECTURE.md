@@ -537,6 +537,12 @@ queue the prefix in `archive_deletions`, and clear the user's rows from
 thinning's detached `_full` copies; an hourly job deletes the queued objects
 written before the request, so they are gone within 24 hours
 (`rivolt_archive_deletions_overdue` counts any that aren't).
+The backup download (`/api/data/backup`) reads a thinned month's samples back
+from the user's objects in full detail, plus any of the month's database rows
+an object lacks; a thinned month a vehicle has no readable object for falls
+back to the reduced rows and is listed in the file's `samples_reduced_months`.
+An object that turns out corrupt partway fails the download rather than
+ending it short.
 
 **Option B — TimescaleDB**:
 

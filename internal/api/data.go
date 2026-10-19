@@ -385,9 +385,18 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		streamArray("charges", func(emit func(any) error) error {
 			return cs.EachAll(ctx, func(v charges.Charge) error { return emit(v) })
 		})
+		// Thinned months come from the archive in full detail; a month that
+		// couldn't be (no readable object) is listed so the file says so.
+		var reduced []string
 		streamArray("samples", func(emit func(any) error) error {
-			return ss.EachAll(ctx, func(v samples.Sample) error { return emit(v) })
+			var err error
+			reduced, err = ss.EachAllArchived(ctx, d.ArchiveRows, func(v samples.Sample) error { return emit(v) })
+			return err
 		})
+		if len(reduced) > 0 {
+			writeStr(`,"samples_reduced_months":`)
+			put(reduced)
+		}
 		writeStr("}\n")
 		flush()
 	}

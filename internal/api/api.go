@@ -66,6 +66,10 @@ type Deps struct {
 	// samples forever). A restore skips samples older than the cutoff, which
 	// the next retention sweep would delete anyway.
 	SampleRetentionMonths int
+	// ArchiveRows reads the telemetry archive (N19) so the backup download
+	// carries full detail for months thinning has reduced; nil when the
+	// archive is off, and the backup is the database alone.
+	ArchiveRows samples.ArchiveRows
 
 	Rivian rivian.Client
 	// Accounts hands out per-user *rivian.LiveClient instances. The
