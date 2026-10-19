@@ -157,6 +157,11 @@ func DeleteInactiveAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) (usern
 		return "", false, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	// The telemetry archive lock before the row lock below, as on every
+	// account-delete path: the archive job takes row locks while holding it.
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return "", false, err
+	}
 	var name sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT u.username FROM users u

@@ -37,6 +37,10 @@ func DeleteUserAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 // deleteUserAccountTx is DeleteUserAccount's body inside a caller's
 // transaction.
 func deleteUserAccountTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	// First, before any row lock (deleteUserTx takes it again; it's reentrant).
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM signup_requests
 		 WHERE lower(email) IN (

@@ -57,7 +57,7 @@ func NewDeleter(db *sql.DB, cfg Config) (*Deleter, error) {
 	}
 	return &Deleter{
 		db:          db,
-		store:       &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
+		store:       &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey, HTTP: cfg.HTTP},
 		env:         cfg.Env,
 		ClockMargin: time.Minute,
 	}, nil

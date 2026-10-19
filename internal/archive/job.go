@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -44,7 +45,16 @@ type Config struct {
 	Region    string
 	AccessKey string
 	SecretKey string
+	// HTTP overrides the S3 client's HTTP client (tests); nil is the default.
+	HTTP *http.Client
 }
+
+// userLockSQL is the per-user advisory lock the archive job holds while it
+// writes one of the user's objects, and that account deletion and history
+// reset take (internal/db, the same expression) before they shred the key
+// and queue the objects: a deletion can't land in the middle of a write and
+// leave an object written after its cutoff (DA on #609).
+const userLockSQL = `hashtextextended('rivolt-archive-user:' || $1::uuid::text, 0)`
 
 // ConfigFromEnv reads RIVOLT_ARCHIVE_*. The archive is on only when
 // RIVOLT_ARCHIVE_ENV is set; then both S3 keys are required.
@@ -119,7 +129,7 @@ func NewArchiver(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Archiver, error
 	}
 	return &Archiver{
 		db:     db,
-		store:  &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
+		store:  &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey, HTTP: cfg.HTTP},
 		sealer: sealer,
 		env:    cfg.Env,
 		Now:    time.Now,
@@ -328,6 +338,13 @@ func tsText(expr string) string {
 // archiveOne writes, uploads and verifies one object, then records it. It
 // returns the rows and the object's size.
 func (a *Archiver) archiveOne(ctx context.Context, conn *sql.Conn, cols []column, month time.Time, uid, vid uuid.UUID) (int64, int64, error) {
+	// Held from reading the key to recording the object; account deletion
+	// and history reset wait for it, so their deletion request comes after
+	// this object and covers it.
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(`+userLockSQL+`)`, uid); err != nil {
+		return 0, 0, err
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(`+userLockSQL+`)`, uid) //nolint:errcheck
 	key, err := a.dataKey(ctx, uid)
 	if err != nil {
 		return 0, 0, err

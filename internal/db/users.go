@@ -394,6 +394,9 @@ func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 
 // deleteUserTx is DeleteUser's body inside a caller's transaction.
 func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM subscription_leases
 		 WHERE vehicle_id IN (
@@ -450,14 +453,26 @@ func deleteFromThinnedCopiesTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) e
 	return nil
 }
 
+// lockArchiveUserTx takes uid's archive lock for the transaction: an archive
+// object being written for uid finishes first (internal/archive holds the
+// same lock, archive.userLockSQL), so the deletion queued after it covers that
+// object too. Taken before any row lock, so the archive job (which takes row
+// locks while holding it) can't deadlock with us.
+func lockArchiveUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('rivolt-archive-user:' || $1::uuid::text, 0))`, uid)
+	return err
+}
+
 // queueArchiveDeletionTx queues every telemetry archive object of uid for
 // deletion (internal/archive.Deleter). Only a user with an archive key can
 // have objects, so nothing is queued otherwise. The prefix is relative to the
-// archive's environment ("v1/u=<uid>/").
+// archive's environment ("v1/u=<uid>/"). requested_at is clock_timestamp(),
+// not NOW() (the transaction's start, before it waited for the archive
+// lock): the deletion covers objects written up to the moment it is queued.
 func queueArchiveDeletionTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO archive_deletions (user_id, prefix)
-		SELECT $1::uuid, 'v1/u=' || $1::uuid::text || '/'
+		INSERT INTO archive_deletions (user_id, prefix, requested_at)
+		SELECT $1::uuid, 'v1/u=' || $1::uuid::text || '/', clock_timestamp()
 		 WHERE EXISTS (SELECT 1 FROM archive_keys WHERE user_id = $1::uuid)`, uid)
 	return err
 }
@@ -476,6 +491,9 @@ func ResetUserArchive(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return err
+	}
 	if err := queueArchiveDeletionTx(ctx, tx, uid); err != nil {
 		return err
 	}
