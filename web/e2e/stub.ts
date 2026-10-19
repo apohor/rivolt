@@ -430,6 +430,14 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         link: { trip_id: "trip_1", confidence: 0.91, band: "high", linked_at: iso(86_400_000) },
       });
     }
+    if (p === `/api/vehicles/${VEHICLE_ID}/trends`) {
+      // The demo's generated history is short: one qualifying month, so the card shows its sparse sentences.
+      return json(route, {
+        units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", timezone: "UTC", months: 12, min_month_distance: 50, min_months: 3, qualifying_months: 1,
+        efficiency: [{ month: "2026-10", distance: 48, energy_kwh: 19, efficiency: 2.5, drives: 4 }],
+        capacity: { samples: [], median_kwh: null, nameplate_kwh: 131, qualifying_count: 0, span_days: 0, min_samples: 5, min_span_days: 30 },
+      });
+    }
     if (p === `/api/vehicles/${VEHICLE_ID}/pack-health`) {
       const samples = Array.from({ length: 8 }, (_, i) => ({
         vehicle_id: VEHICLE_ID, charge_id: `c${i}`, at: iso((8 - i) * 5 * 86_400_000),
