@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { DEMO_PLAN, stubApi } from "./stub";
+import { DEMO_PLAN, DEMO_PRESETS, stubApi } from "./stub";
 
 // The public demo opens a multi-day sample trip: a stored multi-day plan, shown as saved, with no
 // planner call, no re-plan and no hotel suggestions (the demo has neither).
@@ -59,11 +59,28 @@ for (const v of [
       calls.push(new URL(r.request().url()).pathname);
       return r.abort();
     });
-    await page.route("**/api/demo/trips", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ trips: [PRESET] }) }));
+    await page.route("**/api/demo/trips", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ trips: [...DEMO_PRESETS, PRESET] }) }));
     await page.route(/\/api\/demo\/trips\/la-vegas-2day\/plan$/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PLAN) }));
     await page.goto("/demo/trips/plan");
-    await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas and back/ }).click();
+    // The multi-day sample is first in the list, tagged, and described as a round trip.
+    const buttons = page.getByTestId("demo-presets").getByRole("button");
+    await expect(buttons.first()).toContainText("LA to Las Vegas and back");
+    await expect(buttons.first()).toContainText("2 days · hotel night");
+    await expect(buttons.first()).toContainText("Los Angeles ↔ Sample Inn, Las Vegas · 2 days · 540 mi");
+    await buttons.first().click();
     await expect(page.locator("[data-day-card]")).toHaveCount(2);
+    // The result is in sight without scrolling hunting: on a wide screen it sits beside the list, on a phone it is brought up.
+    const heading = page.getByText(/^2-day round trip from/);
+    await expect(heading).toBeVisible();
+    await expect.poll(async () => {
+      const b = (await heading.boundingBox())!;
+      return b.y >= 0 && b.y + b.height <= v.vp.height;
+    }, { message: "the result's heading is within the first screen" }).toBe(true);
+    if (v.n === "desktop") {
+      const list = (await page.getByTestId("demo-presets").boundingBox())!;
+      const res = (await heading.boundingBox())!;
+      expect(res.x).toBeGreaterThan(list.x + list.width);
+    }
     await expect(page.locator("[data-overnight-row]")).toHaveCount(1);
     await expect(page.locator("[data-overnight-row]")).toContainText("Overnight at Sample Inn, Las Vegas");
     // The demo has no Rivian planner, no hotel suggestions and no truck to re-plan from.

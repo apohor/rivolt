@@ -74,9 +74,14 @@ export function MultidayResult({
   const totalHrs = response.total.drive_duration_sec / 3600;
   const chargeMin = Math.round(response.total.charging_duration_sec / 60);
   const failed = response.failed_day;
+  // A trip that ends where it began is a round trip, not "Los Angeles → Los Angeles".
+  const title =
+    originLabel && originLabel === destLabel
+      ? `${response.days.length}-day round trip from ${originLabel}`
+      : `${response.days.length}-day trip: ${originLabel || "Origin"} → ${destLabel || "Destination"}`;
   const cause = response.error_reason || response.error || "Rivian's planner didn't return a route";
   return (
-    <Card title={`${response.days.length}-day trip: ${originLabel || "Origin"} → ${destLabel || "Destination"}`}>
+    <Card title={title}>
       <dl className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Days" value={String(response.days.length)} />
         <Stat label="Total distance" value={`${totalMiles.toFixed(0)} mi`} />

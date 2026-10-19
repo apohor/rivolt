@@ -18,6 +18,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
 import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
+import { multiDayFirst, tripSubtitle, tripTag } from "../plan/tripSubtitle";
 import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
@@ -33,18 +34,22 @@ export default function TripPlanPage() {
   const moneyShell = useMoneyTabEnabled();
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
-  // Phones: when a plan arrives, bring the map up under the top bar so it fills the
-  // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
-  // is not moved (the results announcement keeps it).
+  // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
+  // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
+  // (a multi-day trip under a tall form); a map or a result beside the form is already in sight. Smooth unless
+  // the user prefers reduced motion; focus is not moved (the results announcement keeps it).
   useEffect(() => {
-    if (!nextUi || !resultKey || planTab !== "planner" || window.innerWidth >= 1024) return;
+    if (!nextUi || !resultKey || planTab !== "planner") return;
+    const wide = window.innerWidth >= 1024;
     let r2 = 0;
     const r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => {
-        const el = document.querySelector("[data-plan-area='map']");
+        const el = document.querySelector("[data-plan-area='map']:not([data-empty]), [data-plan-wide]");
         if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (wide && rect.top < window.innerHeight * 0.7) return;
         const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
-        const top = el.getBoundingClientRect().top + window.scrollY - bar - 8;
+        const top = rect.top + window.scrollY - bar - 8;
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         window.scrollTo({ top: Math.max(0, top), behavior: reduce ? "auto" : "smooth" });
       });
@@ -351,7 +356,10 @@ export default function TripPlanPage() {
         activeId={activeTripId}
         canSave={!!origin && !!destination}
         saveDisabled={saveTripMutation.isPending}
-        onLoad={loadSavedTrip}
+        onLoad={(t) => {
+          loadSavedTrip(t);
+          setPlanTab("planner");
+        }}
         readOnly={inDemo()}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
@@ -366,7 +374,7 @@ export default function TripPlanPage() {
       )}
 
       {multiday && (
-        <div data-plan-wide className="space-y-3">
+        <div data-plan-wide data-plan-beside={inDemo() ? "" : undefined} className="space-y-3">
           {multidaySnapshot && activeTripId && !inDemo() && (
             <ReplanFromHere
               tripId={activeTripId}
@@ -777,7 +785,7 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
       setBusy(null);
     }
   };
-  const trips = list.data?.trips ?? [];
+  const trips = multiDayFirst(list.data?.trips ?? []);
   const next = useUiNext();
   if (next) {
     return (
@@ -798,9 +806,14 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
                     p.id === activeId ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
                   }`}
                 >
-                  <span className="block text-neutral-100">{p.name}</span>
+                  <span className="flex flex-wrap items-center gap-x-2 text-neutral-100">
+                    {p.name}
+                    {tripTag(p.inputs) && (
+                      <span className="rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>
+                    )}
+                  </span>
                   <span className="block text-xs text-neutral-500">
-                    {p.inputs.origin?.label} → {p.inputs.destination?.label} · {Math.round(p.summary.distance_mi)} mi
+                    {tripSubtitle(p.inputs)} · {Math.round(p.summary.distance_mi)} mi
                   </span>
                 </button>
               </li>
@@ -833,10 +846,11 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
                 }`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-neutral-100">{p.name}</span>
-                  <span className="block text-xs text-neutral-500">
-                    {p.inputs.origin?.label} → {p.inputs.destination?.label}
+                  <span className="block truncate text-neutral-100">
+                    {p.name}
+                    {tripTag(p.inputs) && <span className="ml-2 rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>}
                   </span>
+                  <span className="block text-xs text-neutral-500">{tripSubtitle(p.inputs)}</span>
                 </span>
                 <span className="shrink-0 text-right text-xs tabular-nums text-neutral-400">
                   {Math.round(p.summary.distance_mi)} mi · {p.summary.charge_stops} {p.summary.charge_stops === 1 ? "stop" : "stops"}
@@ -924,7 +938,7 @@ function SavedTripsCard({
                 >
                   <span className="text-neutral-100">{t.name}</span>
                   <span className="ml-2 text-xs text-neutral-500">
-                    {t.inputs.origin?.label} → {t.inputs.destination?.label}
+                    {tripSubtitle(t.inputs)}
                   </span>
                 </button>
                 {!readOnly && (
