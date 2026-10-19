@@ -87,3 +87,88 @@ func TestFirstDataAndEngagement(t *testing.T) {
 		t.Errorf("emails %v", sum.EmailsSent)
 	}
 }
+
+// The funnel by signup week counts, per cohort: signups, a real vehicle, a closed
+// drive or charge, and a return at least a day after signup. It leaves out
+// disabled accounts and the demo, counts an ElectraFi-only account as signed up but
+// not connected, and does not count a session inside the first day as a return.
+func TestFunnelByWeek(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(name string, signedUp time.Time) uuid.UUID {
+		t.Helper()
+		uid, err := db.EnsureUserVerified(ctx, pool, name, name+"@x.test", name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(`UPDATE users SET created_at = $2 WHERE id = $1`, uid, signedUp)
+		return uid
+	}
+	vehicle := func(uid uuid.UUID, rid string) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,$2) RETURNING id`, uid, rid).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	session := func(uid uuid.UUID, seen time.Time) {
+		exec(`INSERT INTO sessions (id, user_id, token_hash, created_at, last_seen_at, expires_at, user_agent, ip_address)
+		      VALUES ($1,$2,$3,$4,$5, now() + interval '1 day', 'ua', '203.0.113.9')`, uuid.New(), uid, []byte(uuid.NewString()), seen.Add(-time.Hour), seen)
+	}
+	now := time.Now().UTC()
+	old := now.Add(-10 * 24 * time.Hour)
+	week := func(t time.Time) string {
+		d := t.UTC().Truncate(24 * time.Hour)
+		return d.AddDate(0, 0, -((int(d.Weekday()) + 6) % 7)).Format("2006-01-02")
+	}
+
+	full := mk("fun-full", old) // connected, first data, came back on day 3
+	vid := vehicle(full, "rv-fun-1")
+	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source)
+	      VALUES ($1,$2,'fd1', $3, $4, 5, 'live')`, full, vid, old.Add(26*time.Hour), old.Add(27*time.Hour))
+	session(full, old.Add(3*24*time.Hour))
+	vehicleOnly := mk("fun-veh", old) // connected, nothing else, never came back
+	vehicle(vehicleOnly, "rv-fun-2")
+	session(vehicleOnly, old.Add(2*time.Hour)) // inside the first day: not a return
+	mk("fun-none", old)                        // signed up only
+	efi := mk("fun-efi", old)                  // ElectraFi import only: not connected
+	vehicle(efi, "electrafi-abc")
+	fresh := mk("fun-fresh", now.Add(-2*time.Hour)) // too new to have returned
+	vehicle(fresh, "rv-fun-3")
+	off := mk("fun-off", old)
+	exec(`UPDATE users SET disabled = TRUE WHERE id = $1`, off)
+	mk(db.DemoUsername, old)
+
+	sum := adminhealth.New(adminhealth.Config{DB: pool}).Summary(ctx).Engagement
+	if sum.Status != adminhealth.OK {
+		t.Fatalf("engagement %+v", sum)
+	}
+	got := map[string]adminhealth.FunnelWeek{}
+	for _, w := range sum.FunnelWeeks {
+		got[w.Week] = w
+	}
+	// Old cohort: full, vehicleOnly, none, efi. The disabled account and the demo
+	// are left out.
+	if o := got[week(old)]; o != (adminhealth.FunnelWeek{Week: week(old), Signups: 4, Connected: 2, FirstData: 1, Day2Eligible: 4, ReturnedDay2: 1}) {
+		t.Errorf("old week = %+v, want 4 signups, 2 connected, 1 with data, 4 eligible, 1 returned", o)
+	}
+	// This week: the fresh account, connected, too new to have returned.
+	if f := got[week(now)]; f != (adminhealth.FunnelWeek{Week: week(now), Signups: 1, Connected: 1}) {
+		t.Errorf("this week = %+v, want 1 signup, connected, not yet eligible", f)
+	}
+	if len(sum.FunnelWeeks) > adminhealth.FunnelWeeks {
+		t.Errorf("%d weeks, want at most %d", len(sum.FunnelWeeks), adminhealth.FunnelWeeks)
+	}
+}
