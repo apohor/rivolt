@@ -10,11 +10,11 @@ const base = {
   StartLat: 40, StartLon: -100, EndLat: 40.1, EndLon: -100.1, MaxSpeedMph: 60, AvgSpeedMph: 35, EnergyUsedKWh: 4, Source: "live",
 };
 
-async function open(page: Page, thinned: boolean | undefined) {
+async function open(page: Page, reduced: boolean | undefined) {
   await stubApi(page);
-  const row = { ...base, ...(thinned === undefined ? {} : { thinned }) };
-  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([row])));
-  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j(row)));
+  // Only the single-drive response carries the flag, not the list.
+  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
+  await page.route(/\/api\/drives\/drive-old(\?|$)/, (r) => r.fulfill(j({ ...base, ...(reduced === undefined ? {} : { samples_reduced: reduced }) })));
   await page.goto("/drives/drive-old");
   await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
 }
@@ -48,7 +48,8 @@ test("never in the demo", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
-  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([{ ...base, thinned: true }])));
+  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([base])));
+  await page.route(/\/api\/drives\/drive-old/, (r) => r.fulfill(j({ ...base, samples_reduced: true })));
   await page.goto("/demo/drives/drive-old");
   await page.waitForTimeout(1000);
   await expect(page.locator("[data-thinned-note]")).toHaveCount(0);

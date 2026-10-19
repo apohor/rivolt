@@ -313,9 +313,9 @@ export type VehicleState = {
 };
 
 export type Drive = {
-  // True when this drive's month has been thinned (older than 90 days): its route and charts come from a lighter
-  // recording. Absent on a server that doesn't say, which reads as not thinned.
-  thinned?: boolean;
+  // True (on GET /api/drives/{id} only) when a month this drive spans is shown from reduced samples: older than 90 days,
+  // so its route and charts come from a lighter recording. Absent otherwise, and for a week after an admin restore.
+  samples_reduced?: boolean;
   ID: string;
   VehicleID: string;
   StartedAt: string;
