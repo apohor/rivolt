@@ -56,6 +56,7 @@ import (
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/onboardmail"
 	"github.com/apohor/rivolt/internal/otadetails"
@@ -1021,6 +1022,65 @@ func runServer() {
 			})
 			go receiptSyncer.Run(ctx)
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
+		}
+		// Milestones (internal/milestones): after a drive or charge closes, notice a
+		// round number passed (1,000 mi, 1 MWh at home, 100 charges, lease halfway, a
+		// personal-best efficiency). A card always; a push only to devices that turned
+		// milestones on, through engage and only while two budget slots stay free for
+		// the weekly recap. Nothing is announced until the one-off backfill has marked
+		// the milestones already passed.
+		if pgPool != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+			msStore := milestones.NewStore(pgPool)
+			msEngage := &engage.Engage{Store: engage.NewStore(pgPool), Observe: func(kind, outcome string) {
+				appMetrics.EngagementSendsTotal.WithLabelValues(kind, outcome).Inc()
+			}}
+			checker := &milestones.Checker{
+				Store: msStore, Input: api.MilestoneLedgerInput(pgPool, settingsFactory), Lease: api.MilestoneLease(pgPool), Logger: logger,
+			}
+			if pushSvc != nil && pushFactory != nil {
+				checker.Push = func(ctx context.Context, uid, vehicle uuid.UUID, r milestones.Row) {
+					store := pushFactory.For(uid)
+					if store == nil {
+						return
+					}
+					used, err := msEngage.Store.BudgetUsed(ctx, uid, time.Now().Add(-engage.BudgetWindow))
+					if err != nil || !milestones.PushAllowed(used) {
+						appMetrics.EngagementSendsTotal.WithLabelValues("milestone", "skipped_reserve").Inc()
+						return
+					}
+					title, body := milestones.Text(r.Kind, r.Detail)
+					_, _ = msEngage.Send(ctx, engage.Msg{
+						User: uid, Kind: "milestone", Key: "milestone:" + r.Key + ":" + vehicle.String(), Channel: engage.Push,
+						Toggle: func(ctx context.Context) (bool, error) {
+							subs, err := store.List(ctx)
+							for _, sub := range subs {
+								if sub.OnMilestones {
+									return true, err
+								}
+							}
+							return false, err
+						},
+					}, func(ctx context.Context) error {
+						_, err := pushSvc.DeliverMilestone(ctx, store, title, body)
+						return err
+					})
+				}
+			}
+			monitorRegistry.AddDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
+				return func(ctx context.Context, d drives.Drive) {
+					ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+					defer cancel()
+					checker.Check(ctx, uid, d.VehicleID, d.ID)
+				}
+			})
+			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				return func(ctx context.Context, c charges.Charge) {
+					ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+					defer cancel()
+					checker.Check(ctx, uid, c.VehicleID, "")
+				}
+			})
+			go checker.Run(ctx)
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
