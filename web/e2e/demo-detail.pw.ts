@@ -99,10 +99,11 @@ test("Share statement gives visible feedback in the demo", async ({ page }) => {
   await openDemo(page, "/demo/money");
   const share = page.getByRole("button", { name: "Share statement" });
   await expect(share).toBeEnabled();
-  const download = page.waitForEvent("download");
   await share.click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("dialog").getByRole("button", { name: "Save image" }).click();
   await download;
-  await expect(page.getByRole("status").filter({ hasText: /Saved rivolt-.*\.png/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Saved rivolt-month-.*\.png/ })).toBeVisible();
 });
 
 test("browser back from a demo drive detail throws no page error", async ({ page }) => {

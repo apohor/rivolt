@@ -14,6 +14,7 @@ const DriveMap = lazy(() =>
   import("../components/DriveMap").then((m) => ({ default: m.DriveMap })),
 );
 import { DriveTimeline } from "../components/DriveTimeline";
+import { ShareTripButton } from "../components/ShareButtons";
 import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
   formatDateTime,
@@ -430,12 +431,15 @@ export default function DriveDetailPage() {
         title="Drive"
         subtitle={`${formatDateTime(drive.StartedAt)} → ${formatDateTime(drive.EndedAt)}`}
         actions={
-          <Link
-            to={listPath("drives")}
-            className="text-xs text-neutral-400 hover:text-neutral-200"
-          >
-            ← all drives
-          </Link>
+          <span className="flex items-center gap-4">
+            <ShareTripButton drive={drive} />
+            <Link
+              to={listPath("drives")}
+              className="text-xs text-neutral-400 hover:text-neutral-200"
+            >
+              ← all drives
+            </Link>
+          </span>
         }
       />
 
