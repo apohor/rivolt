@@ -42,6 +42,10 @@ type StateMonitor struct {
 	// must not re-take a lock the hot path just dropped.
 	sampleMu     sync.Mutex
 	lastSampleAt map[string]time.Time
+	// parked skips unchanged parked rows (parked_dedupe.go); parkedDedupe is
+	// the switch.
+	parked       parkedGate
+	parkedDedupe bool
 	// fallbackAt is when /api/state on this pod last fetched a vehicle
 	// it doesn't stream straight from Rivian (ServeState), so that path
 	// calls Rivian at most once per stateRefetchEvery.
@@ -447,6 +451,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
+		parkedDedupe:          parkedDedupeEnabled(),
 		wsSeen:          make(map[string]bool),
 		active:          make(map[string]context.CancelFunc),
 		activeCtx:       make(map[string]context.Context),
