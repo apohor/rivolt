@@ -175,3 +175,17 @@ func TestAmbientPutRefusedWhileViewingAs(t *testing.T) {
 		t.Fatalf("code=%d, want 403 for an admin viewing as a user", w.Code)
 	}
 }
+
+func TestAmbientNoLookupWhileViewingAsTheUser(t *testing.T) {
+	tr := &ambientTransport{}
+	var logs bytes.Buffer
+	look := ambientFixture(true, tr, &logs)
+	ctx := auth.WithImpersonation(context.Background(), uuid.New(), uuid.New())
+	if got := look(ctx, uuid.New(), 30.2672, -97.7431); got != nil || tr.calls.Load() != 0 {
+		t.Errorf("while viewing as: %+v, %d upstream calls, want none", got, tr.calls.Load())
+	}
+	// The same user's own session still gets the value.
+	if got := look(context.Background(), uuid.New(), 30.2672, -97.7431); got == nil {
+		t.Error("the user's own session got nothing")
+	}
+}

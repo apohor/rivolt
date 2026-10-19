@@ -43,6 +43,11 @@ func ambientLookup(optedIn func(context.Context, uuid.UUID) bool, client *weathe
 		if isDemoUser != nil && isDemoUser(uid) {
 			return nil
 		}
+		// The consent is "only while you have Rivolt open"; an admin viewing as
+		// the user does not count, so no lookup for their position.
+		if auth.IsImpersonating(ctx) {
+			return nil
+		}
 		if !optedIn(ctx, uid) {
 			return nil
 		}
