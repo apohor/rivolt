@@ -46,7 +46,7 @@ for (const v of [
     await expect(card).toHaveAttribute("data-first-charge", "A");
     await expect(card).toContainText("Your first charge: 42.5 kWh, $6.38");
     await expect(card).toContainText("Priced at your home rate of $0.15/kWh. Every charge from now on is priced the same way and lands in Money.");
-    await expect(card).toContainText("That charge added about 120 mi of range, about $0.05/mi.");
+    await expect(card).toContainText("That charge added about 120 mi of range (estimate), about $0.05/mi.");
     await expect(card.getByRole("link", { name: "See the receipt" })).toHaveAttribute("href", "/charges/c-first");
     await expect(card.getByRole("link", { name: "Open Money" })).toHaveAttribute("href", "/money");
     await expect(card.getByRole("link", { name: "Add lease" })).toBeVisible();

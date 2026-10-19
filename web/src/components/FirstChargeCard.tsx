@@ -74,7 +74,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives, demo = fal
                 </p>
                 {v.perMile && (
                   <p className="mt-1 text-sm text-neutral-400">
-                    That charge added about {Math.round(v.perMile.miles)} mi of range, about {formatMoney(v.perMile.cost, v.currency)}/mi.
+                    That charge added about {Math.round(v.perMile.miles)} mi of range (estimate), about {formatMoney(v.perMile.cost, v.currency)}/mi.
                   </p>
                 )}
               </>
