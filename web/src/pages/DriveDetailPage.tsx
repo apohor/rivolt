@@ -59,7 +59,7 @@ export default function DriveDetailPage() {
   // renders the first leg, contradicting the list. We also accept
   // the second leg's ID for completeness (a merged row is
   // addressable via either leg).
-  const drive = useMemo(() => {
+  const driveRow = useMemo(() => {
     if (!drives.data) return undefined;
     const direct = drives.data.find((d) => d.ID === id);
     if (!prefs.roundTripsEnabled) return direct;
@@ -87,6 +87,19 @@ export default function DriveDetailPage() {
     prefs.roundTripRadiusMeters,
     prefs.roundTripMaxGapMinutes,
   ]);
+  // The list leaves routes out; this drive's route comes with the drive itself (a merged round trip keeps its first leg's).
+  const oneID = driveRow?.ID;
+  const one = useQuery({
+    queryKey: ["drives", "one", oneID ?? ""],
+    queryFn: () => backend.drive(oneID as string),
+    enabled: !!oneID,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
+  const drive = useMemo(
+    () => (driveRow ? { ...driveRow, RoutePolyline: one.data?.RoutePolyline || driveRow.RoutePolyline } : undefined),
+    [driveRow, one.data?.RoutePolyline],
+  );
 
   // Pull a bit of padding around the drive so chart doesn't start
   // exactly at the first sample edge, and — critically — so we catch

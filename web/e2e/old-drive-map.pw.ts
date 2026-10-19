@@ -44,7 +44,14 @@ async function open(page: Page, path: string) {
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
-  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j([drive("old-route", 200, ROUTE), drive("old-bare", 200, ""), drive("new-bare", 1, "")])));
+  const all = [drive("old-route", 200, ROUTE), drive("old-bare", 200, ""), drive("new-bare", 1, "")];
+  // The list leaves routes out (slim=1); one drive comes with its route.
+  await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j(new URL(r.request().url()).searchParams.get("slim") === "1" ? all.map((d) => ({ ...d, RoutePolyline: "" })) : all)));
+  await page.route(/\/api\/drives\/[^/?]+$/, (r) => {
+    const id = new URL(r.request().url()).pathname.split("/").pop();
+    const d = all.find((x) => x.ID === id);
+    return d ? r.fulfill(j(d)) : r.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+  });
   await page.route(/\/api\/charges(\?|$)/, (r) => r.fulfill(j([charge("old-charge", 200), charge("new-charge", 1)])));
   await page.route(/\/api\/samples/, (r) => r.fulfill(j([])));
   await page.goto(path);

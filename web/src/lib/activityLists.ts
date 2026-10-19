@@ -6,7 +6,17 @@ import { backend, type VehicleState } from "./api";
 // fetched once, kept for a few minutes, and refreshed when a session ends, not on a timer.
 export const LIST_STALE_MS = 5 * 60_000;
 
-export const drivesAllQuery = () => ({ queryKey: ["drives", "all"] as const, queryFn: () => backend.allDrives(), staleTime: LIST_STALE_MS });
+// The drive list without route polylines (the lists draw no maps), which is most of its weight.
+export const drivesAllQuery = () => ({ queryKey: ["drives", "all"] as const, queryFn: () => backend.allDrives({ slim: true }), staleTime: LIST_STALE_MS });
+// The same list with each drive's route, fetched only where a map of many drives is drawn.
+export const drivesRoutesQuery = () => ({ queryKey: ["drives", "all", "routes"] as const, queryFn: () => backend.allDrives(), staleTime: LIST_STALE_MS });
+
+// Puts each drive's stored route (from the full list) on the rows a map is about to draw.
+export function attachRoutes<T extends { ID: string; RoutePolyline?: string }>(rows: T[], full: { ID: string; RoutePolyline?: string }[] | undefined): T[] {
+  if (!full) return rows;
+  const byID = new Map(full.map((d) => [d.ID, d.RoutePolyline]));
+  return rows.map((d) => ({ ...d, RoutePolyline: byID.get(d.ID) || d.RoutePolyline }));
+}
 export const chargesAllQuery = () => ({ queryKey: ["charges", "all"] as const, queryFn: () => backend.allCharges(), staleTime: LIST_STALE_MS });
 
 // A drive or a charge is under way: the truck is in gear, moving, or the charger is pulling power.
