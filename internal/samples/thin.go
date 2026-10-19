@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/apohor/rivolt/internal/archive"
 )
 
 // MinThinAfterDays is the youngest data thinning may touch: recent detail is
@@ -46,15 +48,11 @@ var thinPartitionName = regexp.MustCompile(`^vehicle_state_y([0-9]{4})_([0-9]{2}
 // swapped.
 var ErrThinVerify = errors.New("thinned copy failed verification")
 
-// ErrNotArchived refuses a thinning that would lose detail no archive holds.
-// Under N19 a month is thinned only after its full-resolution samples are
-// archived and verified (telemetry archive, A2).
-var ErrNotArchived = errors.New("month not archived: thinning needs a verified archive first")
-
-// archiveGate stands in for A2's per-month archive check: until the telemetry
-// archive exists, no month counts as archived, so a real (non-dry) thinning
-// never runs, even with RIVOLT_SAMPLE_THIN_AFTER_DAYS set. Dry runs are allowed.
-const archiveGate = false
+// ErrNotArchived refuses a thinning or a drop that would lose detail no
+// archive holds. Under N19 a month is reduced only after every (user, vehicle)
+// in it has a verified archive object (archive.MonthArchived). Dry runs don't
+// need one.
+var ErrNotArchived = errors.New("month not archived: needs a verified archive first")
 
 // Thinner thins old vehicle_state partitions.
 type Thinner struct {
@@ -169,8 +167,15 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	if !ok {
 		return 0, nil
 	}
-	if !t.DryRun && !archiveGate {
-		return 0, fmt.Errorf("%s: %w", monthPartition(month), ErrNotArchived)
+	if !t.DryRun {
+		// Checked again under the partition lock in thin(); this refuses early.
+		ok, err := archive.MonthArchived(ctx, conn, monthPartition(month), now)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			return 0, fmt.Errorf("%s: %w", monthPartition(month), ErrNotArchived)
+		}
 	}
 	rep, err := t.thin(ctx, conn, month)
 	if err != nil {
@@ -289,6 +294,17 @@ func (t *Thinner) thin(ctx context.Context, conn *sql.Conn, month time.Time) (Th
 	for _, s := range steps {
 		if err := exec(s.q); err != nil {
 			return rep, fmt.Errorf("%s %s: %w", s.what, name, err)
+		}
+		if s.what == "lock" {
+			// Under the SHARE lock no row can arrive, so this is the check that
+			// counts: every (user, vehicle) in the month is archived and verified.
+			ok, err := archive.MonthArchived(ctx, tx, name, t.Now().UTC())
+			if err != nil {
+				return rep, err
+			}
+			if !ok {
+				return rep, fmt.Errorf("%s: %w", name, ErrNotArchived)
+			}
 		}
 	}
 	if err := verifyThin(ctx, tx, old, thin); err != nil {

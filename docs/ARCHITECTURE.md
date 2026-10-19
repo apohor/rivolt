@@ -526,7 +526,11 @@ the sample-maintenance advisory lock with thinning and retention, and runs
 before them. Rows restored or imported into an archived month set
 `needs_rearchive`; those are merged later, never rewritten from a thinned
 partition. Logged per object; `rivolt_archive_objects_total{outcome}` and
-`rivolt_archive_bytes_total`.
+`rivolt_archive_bytes_total`. Thinning and the retention drop pass the same
+gate (`archive.MonthArchived`, else `ErrNotArchived`): every (user, vehicle)
+with rows in the partition has a verified object that isn't waiting to be
+re-archived or held back after an admin restore. Thinning checks it again under
+its partition lock.
 
 **Option B — TimescaleDB**:
 

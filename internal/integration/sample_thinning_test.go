@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -76,13 +77,20 @@ func TestSampleThinning(t *testing.T) {
 	}
 	would := reports[0].RowsAfter
 
-	// Until the telemetry archive (A2) can confirm a month is archived, a
-	// real run refuses and changes nothing.
+	// Without a verified archive object for the month, a real run refuses and
+	// changes nothing; an object waiting to be re-archived doesn't count.
 	th.DryRun = false
 	if n, err := th.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || n != 0 || count() != 10800 {
 		t.Fatalf("real run before the archive: %d, %v, %d rows", n, err, count())
 	}
-	t.Skip("the rest exercises the swap, which runs once A2 lifts the archive gate")
+	markArchived(ctx, t, pool, uid.String(), vid, month, true)
+	if n, err := th.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || n != 0 || count() != 10800 {
+		t.Fatalf("real run with needs_rearchive: %d, %v, %d rows", n, err, count())
+	}
+	markArchived(ctx, t, pool, uid.String(), vid, month, false)
+	if n, err := th.Run(ctx); err != nil || n != 1 {
+		t.Fatalf("real run after the archive: %d, %v", n, err)
+	}
 	after := count()
 	// driving 1200 s / 30 = 40, charging 1800 s / 120 = 15, parked 7800 s / 900 ≈ 10 buckets (split by the
 	// charging/parked boundaries), plus ends and changes: a few dozen more at most.
@@ -118,5 +126,19 @@ func TestSampleThinning(t *testing.T) {
 	var exists bool
 	if err := pool.QueryRowContext(ctx, `SELECT to_regclass($1) IS NOT NULL`, full).Scan(&exists); err != nil || exists {
 		t.Errorf("full copy still there after 8 days (%v)", err)
+	}
+}
+
+// markArchived records (user, vehicle, month) as archived: verified, or waiting
+// to be re-archived. It stands in for the archive job (TestArchiveJob covers
+// that) in the thinning and retention gate tests.
+func markArchived(ctx context.Context, t *testing.T, pool *sql.DB, uid, vid string, month time.Time, needsRearchive bool) {
+	t.Helper()
+	if _, err := pool.ExecContext(ctx, `
+		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, verified_at, needs_rearchive)
+		VALUES ($1, $2, $3::date, 1, $3, $3, 'test', 1, NOW(), $4)
+		ON CONFLICT (user_id, vehicle_id, month) DO UPDATE SET verified_at = NOW(), needs_rearchive = EXCLUDED.needs_rearchive`,
+		uid, vid, month, needsRearchive); err != nil {
+		t.Fatal(err)
 	}
 }

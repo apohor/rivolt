@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/apohor/rivolt/internal/archive"
 )
 
 // MinRetentionMonths is the shortest retention accepted: anything shorter is
@@ -128,6 +130,17 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 	for _, p := range parts {
 		if !p.month.Before(cutoff) || !p.month.Before(cur) {
 			continue
+		}
+		// N19: nothing is dropped that the telemetry archive doesn't hold
+		// verified. Checked on the partition itself, so a detach left pending by
+		// an interrupted sweep is checked too. Restores skip samples past the
+		// cutoff, so no row arrives in between.
+		ok, err := archive.MonthArchived(ctx, conn, p.name, r.now())
+		if err != nil {
+			return dropped, err
+		}
+		if !ok {
+			return dropped, fmt.Errorf("%s: %w", p.name, ErrNotArchived)
 		}
 		// Names come from the catalog and match partitionName, so quoting is
 		// plain double quotes.

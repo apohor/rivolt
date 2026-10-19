@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -57,6 +58,17 @@ func TestSampleRetentionDropsOldPartitions(t *testing.T) {
 	}
 
 	r := samples.NewRetention(pool, 12)
+	// N19: nothing is dropped that the telemetry archive doesn't hold verified.
+	if dropped, err := r.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || dropped != 0 {
+		t.Fatalf("sweep before the archive: %d, %v; want ErrNotArchived", dropped, err)
+	}
+	if n, _ := count(); n != 15 {
+		t.Fatalf("%d rows after a refused sweep, want 15", n)
+	}
+	for back := 14; back >= 0; back-- {
+		m := month(back)
+		markArchived(ctx, t, pool, uid.String(), vid, time.Date(m.Year(), m.Month(), 1, 0, 0, 0, 0, time.UTC), false)
+	}
 	dropped, err := r.Run(ctx)
 	if err != nil {
 		t.Fatal(err)
