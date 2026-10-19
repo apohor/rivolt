@@ -22,7 +22,7 @@ import (
 
 // TestArchiveJob: the archive job writes one encrypted object per (user,
 // vehicle) for the oldest month past ArchiveAfterDays, reads it back and
-// records it verified; it leaves recent months and needs_rearchive rows
+// records it verified; it leaves recent months and archived objects
 // alone, records nothing for an object that failed, and a second run is a
 // no-op. The object decrypts with the user's key to the exact rows,
 // NULLs and quoting included.
@@ -96,10 +96,11 @@ func TestArchiveJob(t *testing.T) {
 		  FROM generate_series(0, 2999) g`, uid, v1, older.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	// v2's month is marked for re-archiving (A4's merge): the job leaves it.
+	// v2's month is already archived (verified, not flagged): the job leaves
+	// it. (Flagged months are re-archived: TestArchiveRearchive.)
 	if _, err := pool.ExecContext(ctx, `
-		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, needs_rearchive)
-		VALUES ($1, $2, $3::date, 1, $4, $4, 'x', 1, true)`, uid, v2, old, t0); err != nil {
+		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, verified_at)
+		VALUES ($1, $2, $3::date, 1, $4, $4, 'x', 1, NOW())`, uid, v2, old, t0); err != nil {
 		t.Fatal(err)
 	}
 	verified := func() int {
@@ -144,8 +145,8 @@ func TestArchiveJob(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM archive_months WHERE month = $1::date`, older).Scan(&olderVerified); err != nil || olderVerified != 0 {
 		t.Fatalf("the failed object was recorded (%d, %v)", olderVerified, err)
 	}
-	if verified() != 1 {
-		t.Fatalf("%d verified after the capped run, want the old month's 1", verified())
+	if verified() != 2 {
+		t.Fatalf("%d verified after the capped run, want v2's and the old month's", verified())
 	}
 
 	a, err := archive.NewArchiver(pool, cfg, sealer)
@@ -172,8 +173,8 @@ func TestArchiveJob(t *testing.T) {
 	if rows != 3 || !first.Equal(t0) || !last.Equal(t0.Add(time.Hour)) || size <= 0 {
 		t.Errorf("recorded rows=%d bytes=%d first=%s last=%s", rows, size, first, last)
 	}
-	if verified() != 2 {
-		t.Errorf("%d verified rows, want 2 (older and old for v1); the recent month and v2 must not be archived", verified())
+	if verified() != 3 {
+		t.Errorf("%d verified rows, want 3 (v2's, older and old for v1); the recent month must not be archived", verified())
 	}
 	if n, err := a.Run(ctx); err != nil || n != 0 {
 		t.Errorf("second run: %d, %v; want a no-op", n, err)
