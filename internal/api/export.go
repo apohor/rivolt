@@ -57,6 +57,7 @@ var exportedSettingKeys = map[string]bool{
 	"planner.has_adapter":           true,
 	"planner.favorites":             true,
 	"privacy.rivian_receipts":       true,
+	"privacy.ai_advice":             true,
 	"recap.weather_enabled":         true,
 }
 
