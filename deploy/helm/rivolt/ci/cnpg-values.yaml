@@ -1,0 +1,5 @@
+# CI render: in-cluster Postgres via CloudNativePG (the homelab quick start).
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true

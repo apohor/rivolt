@@ -1,0 +1,6 @@
+# CI render: the chart's defaults plus the two values every install must set
+# (a KEK and a database). Test-only key; never use it anywhere.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+externalDatabase:
+  host: postgres.example.invalid

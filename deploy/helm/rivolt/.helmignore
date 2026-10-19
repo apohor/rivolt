@@ -8,3 +8,5 @@
 *.bak
 *.swp
 README.md.tmpl
+# CI values for ct/helm lint and the render matrix (.github/workflows/build.yml).
+ci/

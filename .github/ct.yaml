@@ -1,0 +1,8 @@
+# chart-testing (ct) config for the build workflow's chart job.
+target-branch: main
+chart-dirs:
+  - deploy/helm
+# Maintainer names would be looked up on GitHub (an unauthenticated API call per
+# run); the chart has one maintainer, so that check adds nothing but flakiness.
+validate-maintainers: false
+check-version-increment: true
