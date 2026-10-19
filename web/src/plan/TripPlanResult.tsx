@@ -9,6 +9,7 @@ import { RouteChooser } from "./RouteChooser";
 import { RouteCard } from "./RouteCard";
 import { OvernightSuggestions } from "./OvernightSuggestions";
 import { TripAdviceCard } from "./TripAdvice";
+import { FarFutureNote } from "./FarFutureNote";
 
 export function TripPlanResult({
   plan,
@@ -52,6 +53,7 @@ export function TripPlanResult({
     <div className="space-y-4" data-plan-contents={nextUi ? "" : undefined}>
       {/* AI analysis costs money: never offered in the public demo. */}
       {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
+      <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
       {nextUi ? (
         (() => {

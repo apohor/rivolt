@@ -437,6 +437,7 @@ export function usePlanner() {
             days: md.days,
             total: md.total,
             ...(md.simulated ? { simulated: true } : {}),
+            ...(md.far_future ? { far_future: true } : {}),
           }
         : undefined;
       const body = {
@@ -503,7 +504,7 @@ export function usePlanner() {
       const p = t.plan;
       lastMultidayRequest.current = p.request;
       setMultidaySnapshot({
-        response: { days: p.days, total: p.total ?? totalsOf(p.days), ...(p.simulated ? { simulated: true } : {}) },
+        response: { days: p.days, total: p.total ?? totalsOf(p.days), ...(p.simulated ? { simulated: true } : {}), ...(p.far_future ? { far_future: true } : {}) },
         name: t.name,
         updatedAt: t.updated_at,
       });

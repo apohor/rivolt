@@ -6,6 +6,7 @@ import { chargingStopCount } from "./waypoints";
 import { OvernightSuggestions } from "./OvernightSuggestions";
 import type { OvernightAdder } from "./tripTypes";
 import { Stat } from "./Stat";
+import { FarFutureNote } from "./FarFutureNote";
 
 // LONG_DAY_THRESHOLD_MI / LONG_DAY_THRESHOLD_HR drive the "long day"
 // chip on each day card. Picked from the road-trip rule of thumb that
@@ -93,6 +94,11 @@ export function MultidayResult({
           Re-planned from day {replan.fromDay}: from your truck at {Math.round(replan.position.soc)}%, as of{" "}
           {new Date(replan.position.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}. Your saved plan is unchanged until you update it.
         </p>
+      )}
+      {response.far_future && (
+        <div className="mb-3">
+          <FarFutureNote show />
+        </div>
       )}
       {response.simulated && (
         <div className="mb-3">
