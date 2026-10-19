@@ -273,7 +273,7 @@ export default function DriveDetailPage() {
     [mapPathSamples],
   );
 
-  // A drive whose samples are gone (kept for a limited time) still has its stored route: draw the map from that, without
+  // A drive with no samples (a gap or an import) still has its stored route: draw the map from that, without
   // speed colouring or a cursor, since there are no samples to colour or point at.
   const storedRoutePoints = useMemo(
     () => decodePolyline(drive?.RoutePolyline).map(([lat, lon]) => ({ lat, lon })),
