@@ -44,11 +44,11 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	// What the lists hide: a 20 s drive with real distance, a 30 s one, a re-parking
 	// row (no distance, same SoC, over a minute), and a 15 s charge.
 	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, start_soc_pct, end_soc_pct, source) VALUES
-		($1,$2,'d-sub-a',$3,$3 + interval '20 seconds',0.4,50,50,'live'),
-		($1,$2,'d-sub-b',$3 + interval '1 hour',$3 + interval '1 hour 30 seconds',0,50,50,'live'),
-		($1,$2,'d-reparking',$3 + interval '2 hours',$3 + interval '2 hours 5 minutes',0,50,50,'live')`, src, vid, base)
+		($1,$2,'d-sub-a',$3::timestamptz,$3::timestamptz + interval '20 seconds',0.4,50,50,'live'),
+		($1,$2,'d-sub-b',$3::timestamptz + interval '1 hour',$3::timestamptz + interval '1 hour 30 seconds',0,50,50,'live'),
+		($1,$2,'d-reparking',$3::timestamptz + interval '2 hours',$3::timestamptz + interval '2 hours 5 minutes',0,50,50,'live')`, src, vid, base)
 	exec(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source) VALUES
-		($1,$2,'c-sub',$3,$3 + interval '15 seconds',0.2,'live')`, src, vid, base.Add(30*time.Hour))
+		($1,$2,'c-sub',$3::timestamptz,$3::timestamptz + interval '15 seconds',0.2,'live')`, src, vid, base.Add(30*time.Hour))
 
 	count := func(uid uuid.UUID, table string) int {
 		t.Helper()
