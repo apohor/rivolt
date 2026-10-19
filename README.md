@@ -241,7 +241,7 @@ its kWh and cost at your rate, and a one-time card points at three
 things most people haven't switched on: charge-done notifications,
 the lease tracker and the monthly statement email. Setup reminders by
 email stop as soon as Rivolt has data from your truck, and every
-email has a one-click unsubscribe.
+reminder email has a one-click unsubscribe.
 
 <img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: 26 kWh and its cost at the home rate, with links to the receipt and Money">
 <img src="docs/screenshots/three-things.png" width="390" alt="The Three things card: charge-done notifications, lease tracker and monthly statement by email">
@@ -255,9 +255,10 @@ real R2s, so you know what to trust.
 
 - **Checked on real R2s:** drives · charges and plug-in · charge limit
   · battery, range and odometer · location · cabin and battery
-  temperature · tire pressure · sleep and power state · battery health.
+  temperature · tire pressure · reported battery capacity.
 - **Shown as an estimate:** time to full charge (Rivian's own
-  countdown, labelled "estimate"). Power state can take a minute to
+  countdown, labelled "estimate"), and sleep and power state, which
+  are still being confirmed on the R2. Power state can take a minute to
   appear after Rivolt reconnects.
 - **Not on the R2 yet:** trip charge target · why a charge stopped ·
   camp and pet modes · Rivian's parked-energy breakdown ·
