@@ -1,0 +1,133 @@
+# Nightly Playwright on main.
+#
+# PRs run e2e (build.yml), main pushes don't, so a spec that breaks on its own
+# (a date that crosses midnight or a month boundary, a merge that only fails
+# combined) stays hidden until an unrelated PR trips on it. This runs the full
+# e2e matrix on main at 00:15 UTC, just after the day (and, on the 1st, the
+# month) turns over in the zone CI's browsers use, which is when date-bound
+# specs break.
+#
+# A failure opens, or comments on, one open issue titled "e2e red on main"
+# (label: ci). A green run after a red one says so on that issue; the lead
+# closes it.
+name: e2e nightly
+
+on:
+  schedule:
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: false
+
+jobs:
+  # The same matrix and steps as build.yml's e2e job (keep them in step).
+  e2e:
+    name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { suite: next, project: chromium, shard: 1, total: 3 }
+          - { suite: next, project: chromium, shard: 2, total: 3 }
+          - { suite: next, project: chromium, shard: 3, total: 3 }
+          - { suite: next, project: webkit, shard: 1, total: 1 }
+          - { suite: legacy, project: chromium, shard: 1, total: 2 }
+          - { suite: legacy, project: chromium, shard: 2, total: 2 }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      # Restores main's browser cache (saved by build.yml's playwright-cache job).
+      - name: Restore Playwright browsers
+        id: pw-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps ${{ matrix.project }}
+          else
+            npx playwright install --with-deps ${{ matrix.project }}
+          fi
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Playwright (${{ matrix.suite }}, ${{ matrix.project }})
+        working-directory: web
+        env:
+          CI: "true"
+          E2E_WEBKIT: "1"
+          SUITE: ${{ matrix.suite }}
+        run: |
+          if [ "$SUITE" = "next" ]; then files="ui-next-"; else files=$(ls e2e/*.pw.ts | grep -v '^e2e/ui-next-'); fi
+          npx playwright test $files --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-nightly-${{ matrix.suite }}-${{ matrix.project }}-${{ matrix.shard }}
+          path: |
+            web/playwright-report
+            web/e2e/__screenshots__
+            web/e2e/__results__
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # One issue, never a pile: a red run opens it or comments on the open one; a
+  # green run after a red one comments that it's green again.
+  report:
+    needs: e2e
+    if: always() && needs.e2e.result != 'cancelled' && needs.e2e.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RESULT: ${{ needs.e2e.result }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TITLE: e2e red on main
+    steps:
+      - name: Open, update or clear the issue
+        run: |
+          open=$(gh issue list --state open --label ci --search "\"$TITLE\" in:title" --json number,title \
+            --jq "[.[] | select(.title == env.TITLE)][0].number // empty")
+          if [ "$RESULT" = "success" ]; then
+            [ -n "$open" ] && gh issue comment "$open" --body "Green again on main: $RUN_URL"
+            exit 0
+          fi
+          failed=$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name')
+          body=$(printf 'Nightly e2e on main failed: %s\n\nFailed jobs:\n%s\n\nThe artifacts (e2e-nightly-*) hold the report, screenshots and error context for 7 days.' "$RUN_URL" "${failed:-"- (see the run)"}")
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh label create ci --color B60205 --description "CI health" 2>/dev/null || true
+            gh issue create --title "$TITLE" --label ci --body "$body"
+          fi
