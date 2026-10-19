@@ -77,9 +77,43 @@ func (s *Store) PodID() string { return s.podID }
 // step so two pods racing on the same expired lease both can't win:
 // Postgres' row-level lock during ON CONFLICT serializes them.
 func (s *Store) Acquire(ctx context.Context, vehicleID string) (bool, error) {
+	// One pod holds all of a user's vehicles: Rivian's gateway takes one
+	// connection per session token, so a user split across pods would have them
+	// kick each other off. The check and the insert run under a per-user advisory
+	// lock; without it two pods acquiring two different vehicles of one user both
+	// pass the check (write skew). A Rivian id can belong to several users (the
+	// same VIN under two accounts), so every such user is locked, in sorted order
+	// so two pods never take the same pair the other way round.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("acquire %s: %w", vehicleID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	users, err := vehicleUsers(ctx, tx, vehicleID)
+	if err != nil {
+		return false, fmt.Errorf("acquire %s: %w", vehicleID, err)
+	}
+	for _, u := range users {
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('lease-user:' || $1::text, 0))`, u); err != nil {
+			return false, fmt.Errorf("acquire %s: lock: %w", vehicleID, err)
+		}
+	}
+
+	// The SELECT ... WHERE NOT EXISTS guards the fresh-insert path (the ON
+	// CONFLICT predicate only filters the update path): refused when another pod
+	// holds an unexpired lease on a different vehicle of the same user.
 	const q = `
         INSERT INTO subscription_leases (vehicle_id, pod_id, acquired_at, renewed_at, expires_at)
-        VALUES ($1, $2, now(), now(), now() + $3::interval)
+        SELECT $1, $2, now(), now(), now() + $3::interval
+         WHERE NOT EXISTS (
+               SELECT 1
+                 FROM subscription_leases l
+                 JOIN vehicles lv ON lv.rivian_vehicle_id = l.vehicle_id
+                WHERE lv.user_id::text = ANY($4::text[])
+                  AND l.vehicle_id <> $1
+                  AND l.pod_id <> $2
+                  AND l.expires_at > now())
         ON CONFLICT (vehicle_id) DO UPDATE
             SET pod_id      = EXCLUDED.pod_id,
                 acquired_at = EXCLUDED.acquired_at,
@@ -94,16 +128,69 @@ func (s *Store) Acquire(ctx context.Context, vehicleID string) (bool, error) {
         RETURNING pod_id`
 
 	var winner string
-	err := s.db.QueryRowContext(ctx, q, vehicleID, s.podID, fmt.Sprintf("%d seconds", int(s.ttl.Seconds()))).Scan(&winner)
+	err = tx.QueryRowContext(ctx, q, vehicleID, s.podID, fmt.Sprintf("%d seconds", int(s.ttl.Seconds())), users).Scan(&winner)
 	if errors.Is(err, sql.ErrNoRows) {
-		// ON CONFLICT predicate didn't match — a healthy lease held
-		// by some other pod. Not our error, just not our turn.
+		// Nothing written: a healthy lease held by another pod, or a sibling of
+		// this user's held elsewhere. Not our error, just not our turn.
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("acquire %s: %w", vehicleID, err)
 	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("acquire %s: commit: %w", vehicleID, err)
+	}
 	return winner == s.podID, nil
+}
+
+// vehicleUsers returns the users that have a vehicles row for this Rivian id,
+// sorted (the lock order). None for a vehicle with no row.
+func vehicleUsers(ctx context.Context, tx *sql.Tx, vehicleID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT user_id::text FROM vehicles WHERE rivian_vehicle_id = $1 ORDER BY 1`, vehicleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// SplitVehicles lists the vehicles this pod holds whose user also has an
+// unexpired lease on another vehicle held by a pod with a LOWER pod id. Such a
+// user is split across pods; the greater pod id gives its share up, so both
+// pods never release at once and the split converges. The Coordinator releases
+// them (unsubscribe first, then Release).
+func (s *Store) SplitVehicles(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+        SELECT DISTINCT l.vehicle_id
+          FROM subscription_leases l
+          JOIN vehicles v  ON v.rivian_vehicle_id = l.vehicle_id
+          JOIN vehicles v2 ON v2.user_id = v.user_id
+          JOIN subscription_leases l2 ON l2.vehicle_id = v2.rivian_vehicle_id
+         WHERE l.pod_id = $1
+           AND l2.vehicle_id <> l.vehicle_id
+           AND l2.pod_id < $1
+           AND l2.expires_at > now()`, s.podID)
+	if err != nil {
+		return nil, fmt.Errorf("split vehicles: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 // Renew extends every lease this pod currently owns. Returns the
@@ -260,6 +347,16 @@ type storeAPI interface {
 	Release(ctx context.Context, vehicleID string) error
 	ReleaseAll(ctx context.Context) (int, error)
 }
+
+// splitFinder is the optional part of a store that can find users split across
+// pods. The real Store has it; the fakes in unit tests need not.
+type splitFinder interface {
+	SplitVehicles(ctx context.Context) ([]string, error)
+}
+
+// handoffWait bounds how long healing waits for a released vehicle's
+// subscription to stop before it gives the lease up.
+const handoffWait = 5 * time.Second
 
 // NewCoordinator builds a coordinator. onAcquire/onRelease must be
 // non-nil; the rest are optional (logger defaults to slog.Default,
@@ -544,6 +641,8 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		}
 	}
 
+	c.healSplitUsers(rctx)
+
 	c.healUnstreamed()
 
 	// Pull the cluster's vehicle set and try to acquire anything we
@@ -586,6 +685,58 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	}
 
 	c.fireCount()
+}
+
+// healSplitUsers gives up the vehicles of a user that is also held by a pod with
+// a lower id (see Store.SplitVehicles), so a split left by a rollout, or by the
+// old per-vehicle rule, converges onto one pod. The order matters: stop the
+// subscription first (onRelease), wait a bounded moment for it to actually stop,
+// and only then release the lease. Releasing first would let the other pod dial
+// while this connection is still up, the very collision this removes.
+func (c *Coordinator) healSplitUsers(ctx context.Context) {
+	sf, ok := c.store.(splitFinder)
+	if !ok {
+		return
+	}
+	split, err := sf.SplitVehicles(ctx)
+	if err != nil {
+		c.log.Warn("lease split check failed", "err", err.Error())
+		return
+	}
+	for _, vid := range split {
+		c.mu.Lock()
+		_, mine := c.owned[vid]
+		c.mu.Unlock()
+		if !mine {
+			continue
+		}
+		c.log.Info("lease released: the user's other vehicles are held by a lower pod id", "vehicle", vid)
+		c.onRelease(vid)
+		c.waitStopped(ctx, vid)
+		if rerr := c.store.Release(ctx, vid); rerr != nil {
+			c.log.Warn("split lease release failed", "vehicle", vid, "err", rerr.Error())
+			continue
+		}
+		c.mu.Lock()
+		delete(c.owned, vid)
+		c.mu.Unlock()
+	}
+}
+
+// waitStopped waits, up to handoffWait, until the streaming check says this pod
+// no longer subscribes to vid. Without a check there is nothing to wait on.
+func (c *Coordinator) waitStopped(ctx context.Context, vid string) {
+	if c.streaming == nil {
+		return
+	}
+	deadline := time.Now().Add(handoffWait)
+	for c.streaming(vid) && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func (c *Coordinator) fireCount() {
