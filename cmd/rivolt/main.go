@@ -458,6 +458,10 @@ func runServer() {
 	// the function scope so the post-switch monitorRegistry wiring
 	// can install a LiveStateStore factory against the same client.
 	var sharedRedis *redis.Client
+	// redisUp is true once sharedRedis has answered: at boot, or later when the
+	// retrying limiter connects. The live-state store is gated on it, so it can be
+	// installed before Redis is reachable and start working when it is.
+	var redisUp atomic.Bool
 	// settingsMgr is constructed further below (after sealer + auth
 	// setup) but the recorder's drive-close hook factory needs to
 	// reference it before the boot hydrate sweep starts new monitors.
@@ -618,6 +622,7 @@ func runServer() {
 				_ = rdb.Close()
 			} else {
 				sharedRedis = rdb
+				redisUp.Store(true)
 			}
 		}
 	case "mock":
@@ -662,11 +667,13 @@ func runServer() {
 			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
 			// Redis may not be up yet when the pod boots; the limiter keeps retrying
 			// instead of staying off until the next restart.
-			sharedLimiter = ratelimit.NewRetrying(ctx, rdb, rlCfg, logger, 5*time.Second, 30*time.Second, nil)
+			sharedLimiter = ratelimit.NewRetrying(ctx, rdb, rlCfg, logger, 5*time.Second, 30*time.Second, func() { redisUp.Store(true) })
+			// The other Redis users (live state, plan legs) are wired once, below, over
+			// this client whether or not Redis answered yet: the plan-leg cache bounds
+			// and backs off its own calls, and the live-state store is gated on redisUp.
+			sharedRedis = rdb
 			if sharedLimiter.Ready() {
-				// The other Redis users (live state, plan legs) are wired once, below,
-				// so they still need Redis up at boot.
-				sharedRedis = rdb
+				redisUp.Store(true)
 				logger.Info("ratelimit: enabled", "addr", addr, "key_prefix", rlCfg.KeyPrefix)
 			}
 		}
@@ -844,7 +851,7 @@ func runServer() {
 		// on 2026-05-07).
 		if sharedRedis != nil {
 			monitorRegistry.SetLiveStateStoreFactory(func(uid uuid.UUID) rivian.LiveStateStore {
-				return rivian.NewRedisLiveStateStore(sharedRedis, uid.String(), redisKeyPrefix)
+				return rivian.NewGatedLiveStateStore(rivian.NewRedisLiveStateStore(sharedRedis, uid.String(), redisKeyPrefix), redisUp.Load)
 			})
 			logger.Info("live state store: enabled (redis)")
 		}
