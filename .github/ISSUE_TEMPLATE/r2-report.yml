@@ -7,6 +7,8 @@ body:
   - type: markdown
     attributes:
       value: |
+        Issues here are public on GitHub, so anyone can read them.
+
         Thanks for telling us. Please leave out your VIN, your address and any screenshot that shows a location.
         "It just worked" is useful to hear too.
 
