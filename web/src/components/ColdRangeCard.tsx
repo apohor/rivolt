@@ -90,13 +90,19 @@ function Result({ d, temp, unit }: { d: ColdRange; temp: number; unit: Temperatu
       </p>
     );
   }
-  const eff = `${d.efficiency_low.toFixed(1)}–${d.efficiency_high.toFixed(1)} ${d.efficiency_unit}`;
+  // One value when the band's ends round to the same number, never "283–283".
+  const band = (lo: number, hi: number, digits: number, unit: string) => {
+    const a = lo.toFixed(digits);
+    const b = hi.toFixed(digits);
+    return a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`;
+  };
+  const eff = band(d.efficiency_low, d.efficiency_high, 1, d.efficiency_unit);
   return (
     <div data-cold-state="ok" className="space-y-1">
       <p className="text-neutral-100">
         {d.range_low != null && d.range_high != null ? (
           <>
-            Around {at}, a full charge usually gives about <span className="font-semibold tabular-nums">{Math.round(d.range_low)}–{Math.round(d.range_high)} {d.distance_unit}</span>, from your own drives (estimate).
+            Around {at}, a full charge usually gives about <span className="font-semibold tabular-nums">{band(d.range_low, d.range_high, 0, d.distance_unit)}</span>, from your own drives (estimate).
           </>
         ) : (
           <>

@@ -73,6 +73,17 @@ test("no range without a pack: the mi/kWh band alone; too little history says wh
   await ctx.close();
 });
 
+test("a band whose ends are the same number shows one value", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, (t) => ({ body: { ...fig(t), efficiency_low: 2.31, efficiency_high: 2.33, range_low: 283.2, range_high: 283.4 } }));
+  const card = page.locator("[data-cold-range]");
+  await expect(card).toContainText("a full charge usually gives about 283 mi, from your own drives");
+  await expect(card).toContainText("That is 2.3 mi/kWh.");
+  await expect(card).not.toContainText("283–283");
+  await ctx.close();
+});
+
 test("a truck that can't be tracked says so; a server without it shows no card", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const a = await ctx.newPage();
