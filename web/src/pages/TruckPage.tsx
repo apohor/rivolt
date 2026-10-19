@@ -9,6 +9,7 @@ import { inDemo } from "../lib/demo";
 import { BarChart } from "../components/charts";
 import { PackHealthCard } from "../components/PackHealthCard";
 import { TrendsCard } from "../components/TrendsCard";
+import { ColdRangeCard } from "../components/ColdRangeCard";
 import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { LeaseCard } from "../components/LeaseCard";
@@ -113,6 +114,8 @@ export default function TruckPage() {
       </Card>
 
       {next && selectedID && <TrendsCard vehicleID={selectedID} />}
+
+      {next && selectedID && <ColdRangeCard vehicleID={selectedID} />}
 
       <Card id="sleep" title="Sleep and idle-awake" span="full">
         {sleep.trouble && (
