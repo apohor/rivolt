@@ -342,6 +342,25 @@ func IsAuthFlavoredReason(reason string) bool {
 	return false
 }
 
+// forbiddenIsExpected lists the read-only operations for which Rivian answers
+// "forbidden" to shared and authorized-driver accounts as a normal outcome
+// (see IsNotAvailable): that answer says nothing about the session.
+var forbiddenIsExpected = map[string]bool{
+	"GetChargingSchedule": true,
+	"getOTAUpdateDetails": true,
+}
+
+// marksReauth reports whether a UserAction failure of operation op, with this
+// reason, means the session needs the user's attention (needs_reauth, the
+// email, parked monitoring). A "forbidden" from an operation that shared
+// accounts are expected to be refused on does not.
+func marksReauth(op, reason string) bool {
+	if reason == "forbidden" && forbiddenIsExpected[op] {
+		return false
+	}
+	return IsAuthFlavoredReason(reason)
+}
+
 // statusReason picks a stable short reason for HTTP-status-only
 // classifications so needs_reauth_reason is human-readable in
 // the users row.

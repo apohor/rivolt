@@ -363,3 +363,50 @@ func TestErrCodeIsNotAvailableDescribe(t *testing.T) {
 		t.Errorf("Describe echoed an unknown error: %s", got)
 	}
 }
+
+// A shared or authorized-driver account is expected to be refused (HTTP 403 or
+// a FORBIDDEN code) on the charging-schedule and OTA reads. That must not flip
+// needs_reauth, email the user or park monitoring; a 403 on an operation where
+// it is not expected still does (review §4.3).
+func TestExpectedForbiddenDoesNotFlipNeedsReauth(t *testing.T) {
+	respond := map[string]func(http.ResponseWriter){
+		"http403": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"errors":[{"message":"not allowed"}]}`)
+		},
+		"graphql FORBIDDEN": func(w http.ResponseWriter) {
+			_, _ = io.WriteString(w, `{"errors":[{"message":"nope","extensions":{"code":"FORBIDDEN"}}]}`)
+		},
+	}
+	for name, write := range respond {
+		for _, tc := range []struct {
+			op   string
+			flip bool
+		}{
+			{"GetChargingSchedule", false},
+			{"getOTAUpdateDetails", false},
+			{"GetVehicleState", true},
+		} {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { write(w) }))
+			sinkCalls := 0
+			c := NewLive()
+			c.endpoint = server.URL + "/gateway"
+			c.WithReauthSink(func(_ context.Context, _ string) { sinkCalls++ })
+			_, err := doGraphQLAt[map[string]any](context.Background(), c, c.endpoint,
+				graphQLRequest{OperationName: tc.op, Query: "query x { ok }"}, nil)
+			server.Close()
+			if err == nil {
+				t.Fatalf("%s %s: expected an error", name, tc.op)
+			}
+			if !IsNotAvailable(err) {
+				t.Errorf("%s %s: IsNotAvailable = false, the callers' back-off would not apply", name, tc.op)
+			}
+			// A GraphQL FORBIDDEN code has never been an auth failure; only the
+			// HTTP 403 is, where it is not expected.
+			want := tc.flip && name == "http403"
+			if needs, _ := c.NeedsReauth(); needs != want || (sinkCalls > 0) != want {
+				t.Errorf("%s %s: needs_reauth=%v sink calls=%d, want flip=%v", name, tc.op, needs, sinkCalls, want)
+			}
+		}
+	}
+}
