@@ -74,7 +74,7 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 			http.Error(w, "user stores unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		ds, err := drivesStore.ListAll(r.Context())
+		ds, err := drivesStore.ListAllListed(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

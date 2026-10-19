@@ -87,7 +87,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		}
 
 		// Locate the (collapsed) drive.
-		ds, err := drivesStore.ListAll(r.Context())
+		ds, err := drivesStore.ListAllListed(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
