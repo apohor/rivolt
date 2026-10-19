@@ -86,7 +86,11 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/drives/a/b/weather", false},
 		{"GET", "/api/drives/../charges/weather", false},
 		{"GET", "/api/drives/d1/weather/series/extra", false},
-		{"GET", "/api/drives/d1", false},
+		{"GET", "/api/drives/d1", true}, // one drive with its polyline (the demo list serves the same row)
+		{"GET", "/api/drives/live_veh_d_1760000000", true},
+		{"GET", "/api/drives/a%20b", false},
+		{"POST", "/api/drives/d1", false},
+		{"DELETE", "/api/drives/d1", false},
 		{"GET", "/api/drives/d%2F1/weather", false},
 		{"DELETE", "/api/samples", false},
 		// other vehicles

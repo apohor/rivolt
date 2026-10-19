@@ -191,7 +191,11 @@ func demoBudgetEnv(name string, def int) int {
 // handlers scope by the demo user's id, so another user's drive id is
 // a 404 (weather) or an empty series, never data. Deliberately NOT
 // included: /efficiency (the AI recap) and anything that writes.
-var demoPerDriveSuffixes = []string{"/weather", "/weather/series"}
+//
+// The bare "" suffix is GET /api/drives/{id}, one drive with its route polyline:
+// the same row the demo's list already serves, scoped to the demo user. It must
+// stay last, so "{id}/weather" is matched as a suffix before the bare id.
+var demoPerDriveSuffixes = []string{"/weather", "/weather/series", ""}
 
 // demoPerDrivePath reports whether p is /api/drives/{id}<suffix> for an
 // allowed suffix and a plain id segment.

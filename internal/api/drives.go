@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/charges"
@@ -23,7 +24,13 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 			return
 		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		out, err := store.ListRecent(r.Context(), limit)
+		// ?slim=1 leaves out the route polyline (the lists draw no maps);
+		// GET /api/drives/{id} has it for one drive.
+		list := store.ListRecent
+		if r.URL.Query().Get("slim") == "1" {
+			list = store.ListRecentSlim
+		}
+		out, err := list(r.Context(), limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -47,6 +54,31 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 			decorated = append(decorated, decorateDrive(d, rate, cur))
 		}
 		writeJSON(w, http.StatusOK, decorated)
+	}
+}
+
+// handleDriveGet serves one drive with its route polyline and the same
+// cost estimate the list carries. 404 when the user has no such drive.
+func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		d, err := store.Get(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if d == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
+		priced := loadPricedCharges(r.Context(), chargesStore, cfg)
+		fallbackRate, fallbackCur := computeBlendedRate(priced, cfg)
+		rate, cur := rateForDrive(*d, priced, fallbackRate, fallbackCur)
+		writeJSON(w, http.StatusOK, decorateDrive(*d, rate, cur))
 	}
 }
 
