@@ -548,8 +548,9 @@ Rows written into an archived month (restore, import, replay: every
 The next archive run rewrites the object: from the database if the month wasn't
 thinned, otherwise merged with the existing object in Postgres (the object's
 rows win), written to `<key>.new`, verified, then to the key and verified
-again. A flag set while that run was reading survives it
-(`rearchive_requested_at`).
+again. A flag the run's snapshot didn't see (a writer uncommitted then, or
+later) survives it: writers bump `rearchive_gen`, and the run clears the flag
+only if the counter is what its snapshot read.
 
 **Option B — TimescaleDB**:
 

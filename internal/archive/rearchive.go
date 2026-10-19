@@ -22,7 +22,7 @@ type Execer interface {
 func MarkRearchive(ctx context.Context, ex Execer, uid, vehicleID uuid.UUID, month time.Time) error {
 	m := month.UTC()
 	_, err := ex.ExecContext(ctx, `
-		UPDATE archive_months SET needs_rearchive = TRUE, rearchive_requested_at = clock_timestamp()
+		UPDATE archive_months SET needs_rearchive = TRUE, rearchive_gen = rearchive_gen + 1
 		 WHERE user_id = $1 AND vehicle_id = $2 AND month = $3::date`,
 		uid, vehicleID, time.Date(m.Year(), m.Month(), 1, 0, 0, 0, 0, time.UTC))
 	return err

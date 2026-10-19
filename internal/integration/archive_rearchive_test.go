@@ -175,17 +175,74 @@ func TestArchiveRearchive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A flag set after a run started (simulated: requested in the future)
-	// survives the run, so that write is archived next time.
-	if _, err := pool.ExecContext(ctx, `UPDATE archive_months SET needs_rearchive = TRUE, rearchive_requested_at = now() + interval '1 hour'
-		WHERE user_id = $1 AND month = $2::date`, uid, plain); err != nil {
+	// A writer that flags the month and adds a row, but hasn't committed when
+	// the run reads, keeps the month flagged (DA on #628): the run's snapshot
+	// can't see the row, and its upsert waits for the writer's lock and sees
+	// the counter it bumped. The next run takes the row.
+	// An earlier, committed write flags the month (so the run picks it up);
+	// then a second writer adds a row and flags it again, and stays open.
+	if err := archive.MarkRearchive(ctx, pool, uid, vid, plain); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := plain.Add(50 * time.Hour)
+	if _, err := writer.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'held')`, uid, vid, held); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.MarkRearchive(ctx, writer, uid, vid, plain); err != nil {
+		t.Fatal(err)
+	}
+	runDone := make(chan error, 1)
+	go func() { _, err := arch.Run(ctx); runDone <- err }()
+	time.Sleep(2 * time.Second)
+	if err := writer.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-runDone; err != nil {
+		t.Fatalf("run with a writer open: %v", err)
+	}
+	if s := monthState(plain); !s.needs {
+		t.Fatalf("a flag from a writer the run couldn't see was cleared: %+v", s)
+	}
+	if n, err := arch.Run(ctx); err != nil || n != 1 {
+		t.Fatalf("next run: %d, %v", n, err)
+	}
+	if s := monthState(plain); s.needs || s.rows != 5 {
+		t.Errorf("after the next run: %+v, want 5 rows, not flagged", s)
+	}
+	if _, src := objectRows(plain); !src["held"] {
+		t.Error("the held writer's row isn't in the object")
+	}
+
+	// A previous run whose write of the key failed its read-back leaves the
+	// good copy at .new: the merge reads that (DA on #628).
+	objKey := archive.ObjectKey("test", uid, vid, thin)
+	body, err := bucket.Get(ctx, objKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var good bytes.Buffer
+	_, _ = good.ReadFrom(body)
+	body.Close()
+	if err := bucket.Put(ctx, objKey+".new", good.Bytes(), "application/octet-stream"); err != nil {
+		t.Fatal(err)
+	}
+	bad := append([]byte{}, good.Bytes()...)
+	bad[len(bad)-3] ^= 1
+	if err := bucket.Put(ctx, objKey, bad, "application/octet-stream"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertBatch(ctx, []samples.Sample{{VehicleID: "RV-R", At: day.Add(-2 * time.Hour), Source: "late2"}}); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := arch.Run(ctx); err != nil || n != 1 {
-		t.Fatalf("run with a later flag: %d, %v", n, err)
+		t.Fatalf("merge from .new: %d, %v", n, err)
 	}
-	if s := monthState(plain); !s.needs {
-		t.Error("a flag set during the run was cleared")
+	if n, src := objectRows(thin); n != 3602 || !src["late2"] {
+		t.Errorf("after merging from .new: %d rows", n)
 	}
 
 	// A write that inserts nothing (the row exists) flags nothing.
