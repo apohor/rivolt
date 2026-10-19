@@ -1,3 +1,4 @@
+import { R2CheckedSettings } from "../components/R2Checked";
 import { useUiNext } from "../lib/uiNext";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { inDemo } from "../lib/demo";
@@ -183,6 +184,7 @@ function SettingsPageInner() {
           <Card title="Vehicle profile" id="profile">
             <VehicleProfilePanel />
           </Card>
+          <R2CheckedSettings />
           {nextUi && (
             <Card title="Lease" id="lease">
               <LeasePanel />

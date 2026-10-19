@@ -1,3 +1,4 @@
+import { fieldHidden, fieldLabel } from "../lib/fieldSupport";
 import { detailPath } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -220,11 +221,11 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 is in progress. */}
             {chargingFieldsVisible(s) && s.time_to_end_mins > 0 ? (
               <Field
-                label="Time to full"
+                label={fieldLabel(vehicle, "charge_time_remaining", "Time to full")}
                 value={formatChargeDuration(s.time_to_end_mins)}
               />
             ) : null}
-            {chargingFieldsVisible(s) && s.trip_target_soc_pct > 0 ? (
+            {chargingFieldsVisible(s) && s.trip_target_soc_pct > 0 && !fieldHidden(vehicle, "trip_target") ? (
               <Field
                 label="Trip target"
                 value={
@@ -270,7 +271,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           <Section title="Drive">
             <Field label="Gear" value={formatGear(s.gear)} />
             <Field label="Mode" value={formatDriveMode(s.drive_mode)} />
-            <Field label="Power" value={formatPower(s.power_state)} />
+            <Field label="Power" value={s.power_state ? formatPower(s.power_state) : "—"} />
             <Field label="Speed" value={num(kphToMph(s.speed_kph), 0, "mph")} />
             <Field label="Heading" value={formatHeading(s.heading_deg)} />
             <Field label="Altitude" value={num(mToFt(s.altitude_m), 0, "ft")} />
@@ -329,7 +330,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 We still hide on === 0 so the very first second after
                 ignition (before the first REST poll lands) doesn't
                 render a misleading "0 °C". */}
-            {s.outside_temp_c !== 0 ? (
+            {s.outside_temp_c !== 0 && !fieldHidden(vehicle, "outside_temp") ? (
               <Field label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
             ) : null}
             <Field
