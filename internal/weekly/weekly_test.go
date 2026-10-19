@@ -123,7 +123,9 @@ type claims struct {
 	rows map[string]string
 }
 
-func (c *claims) Timezone(context.Context, uuid.UUID) (string, bool, error)     { return "UTC", false, nil }
+func (c *claims) Timezone(context.Context, uuid.UUID) (string, bool, bool, error) {
+	return "UTC", false, true, nil
+}
 func (c *claims) BudgetUsed(context.Context, uuid.UUID, time.Time) (int, error) { return 0, nil }
 func (c *claims) Claim(_ context.Context, m engage.Msg, _, _ time.Time, _ int) (bool, bool, error) {
 	c.mu.Lock()
