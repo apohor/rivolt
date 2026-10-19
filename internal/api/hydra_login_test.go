@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -170,5 +172,66 @@ func TestHydraLoginIsRateLimitedPerIP(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "challenge") {
 		t.Errorf("GET from the same address: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Wrong passwords are counted per email address across client addresses: the
+// eleventh failure for one address is a 429 even from a new IP, another address
+// is not affected, a right password is never counted and clears the count, and
+// the window rolls.
+func TestHydraLoginLimitsFailuresPerEmail(t *testing.T) {
+	f := &fakeHydraKratos{goodChallenge: "good", password: "right"}
+	hs, ks := httptest.NewServer(f.hydraHandler()), httptest.NewServer(f.kratosHandler())
+	t.Cleanup(hs.Close)
+	t.Cleanup(ks.Close)
+	hc, _ := hydra.New(hydra.Config{AdminURL: hs.URL})
+	kc, _ := kratos.New(kratos.Config{AdminURL: ks.URL, PublicURL: ks.URL})
+	fl := newFailLimiter(10, 15*time.Minute)
+	clock := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	fl.now = func() time.Time { return clock }
+	h := hydraLoginPOST(hydraDeps{Hydra: hc, Kratos: kc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Failures: fl})
+
+	post := func(email, password, ip string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"challenge": "good", "email": email, "password": password})
+		req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(body))
+		req.RemoteAddr = ip + ":1"
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		return rec
+	}
+	for i := 0; i < 10; i++ { // ten different client addresses, one account
+		if rec := post("Victim@X.test", "wrong", "198.51.100."+strconv.Itoa(i+1)); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("guess %d: %d", i+1, rec.Code)
+		}
+	}
+	if rec := post("victim@x.test", "wrong", "203.0.113.99"); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("11th guess (new address, lower case): %d retry-after %q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	attempts := f.kratosLogins.Load()
+	if rec := post("victim@x.test", "right", "203.0.113.99"); rec.Code != http.StatusTooManyRequests || f.kratosLogins.Load() != attempts {
+		t.Errorf("while blocked even the right password is refused without trying Kratos: %d", rec.Code)
+	}
+	if rec := post("someone-else@x.test", "right", "203.0.113.99"); rec.Code != http.StatusOK {
+		t.Errorf("another account: %d", rec.Code)
+	}
+	clock = clock.Add(16 * time.Minute) // the window rolled
+	if rec := post("victim@x.test", "right", "203.0.113.99"); rec.Code != http.StatusOK {
+		t.Errorf("after the window: %d", rec.Code)
+	}
+	// A right password clears the count: nine wrong ones then one right one, and nine more are allowed.
+	for i := 0; i < 9; i++ {
+		post("careful@x.test", "wrong", "198.51.100.200")
+	}
+	if rec := post("careful@x.test", "right", "198.51.100.200"); rec.Code != http.StatusOK {
+		t.Fatalf("the 10th try with the right password: %d", rec.Code)
+	}
+	for i := 0; i < 9; i++ {
+		if rec := post("careful@x.test", "wrong", "198.51.100.200"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("after a success, wrong #%d: %d", i+1, rec.Code)
+		}
+	}
+	// The key is a hash, not the address.
+	if k := emailLimitKey(" Victim@X.test "); strings.Contains(k, "victim") || k != emailLimitKey("victim@x.test") {
+		t.Errorf("key %q", k)
 	}
 }

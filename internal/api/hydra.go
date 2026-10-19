@@ -1,11 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,6 +33,10 @@ type hydraDeps struct {
 	// itself expires" (Hydra's default). Applied to both the
 	// AcceptLoginRequest and AcceptConsentRequest calls.
 	RememberFor time.Duration
+	// Failures limits wrong passwords per email address, across all client
+	// addresses (the per-IP limit alone leaves a distributed guess on one account
+	// unthrottled). nil: no per-email limit (tests that do not need one).
+	Failures *failLimiter
 }
 
 // rememberForSeconds returns RememberFor in whole seconds, clamped at
@@ -168,9 +177,22 @@ func hydraLoginPOST(d hydraDeps) http.HandlerFunc {
 			return
 		}
 
+		emailKey := ""
+		if d.Failures != nil {
+			emailKey = emailLimitKey(in.Email)
+			if wait := d.Failures.blocked(emailKey); wait > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many attempts, try again later"})
+				return
+			}
+		}
+
 		identity, err := d.Kratos.LoginByPassword(r.Context(), in.Email, in.Password)
 		if err != nil {
 			if errors.Is(err, kratos.ErrInvalidCredentials) {
+				if d.Failures != nil {
+					d.Failures.fail(emailKey)
+				}
 				// Constant-time-ish: same response for "no such user"
 				// and "wrong password". Don't log the email at info
 				// level — it's PII-adjacent.
@@ -182,6 +204,9 @@ func hydraLoginPOST(d hydraDeps) http.HandlerFunc {
 			return
 		}
 
+		if d.Failures != nil {
+			d.Failures.reset(emailKey)
+		}
 		redirect, err := d.Hydra.AcceptLoginRequest(r.Context(), in.Challenge,
 			hydra.AcceptLoginRequest{
 				Subject:     identity.ID,
@@ -357,4 +382,74 @@ func mountHydraBridge(r chi.Router, hd hydraDeps) {
 		r.With(loginPost.Middleware).Post("/login", hydraLoginPOST(hd))
 		r.Get("/consent", hydraConsentGET(hd))
 	})
+}
+
+// failLimiter counts failed logins per key in a sliding window and blocks a key
+// that has too many. Only failures count: a user who gets their password right is
+// never throttled by someone else's earlier guesses past the window. State is in
+// process (per pod), so the effective limit is up to pods x max.
+type failLimiter struct {
+	max    int
+	window time.Duration
+	now    func() time.Time
+
+	mu    sync.Mutex
+	fails map[string][]time.Time
+}
+
+func newFailLimiter(max int, window time.Duration) *failLimiter {
+	return &failLimiter{max: max, window: window, now: time.Now, fails: map[string][]time.Time{}}
+}
+
+// prune drops failures older than the window (caller holds mu).
+func (l *failLimiter) prune(key string, now time.Time) []time.Time {
+	ts := l.fails[key]
+	i := 0
+	for i < len(ts) && now.Sub(ts[i]) >= l.window {
+		i++
+	}
+	ts = ts[i:]
+	if len(ts) == 0 {
+		delete(l.fails, key)
+		return nil
+	}
+	l.fails[key] = ts
+	return ts
+}
+
+// blocked reports how long until the key may try again (0: not blocked).
+func (l *failLimiter) blocked(key string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	ts := l.prune(key, now)
+	if len(ts) < l.max {
+		return 0
+	}
+	return ts[len(ts)-l.max].Add(l.window).Sub(now)
+}
+
+func (l *failLimiter) fail(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	if len(l.fails) > 4096 { // bound the map under address/email rotation
+		for k := range l.fails {
+			l.prune(k, now)
+		}
+	}
+	l.fails[key] = append(l.prune(key, now), now)
+}
+
+func (l *failLimiter) reset(key string) {
+	l.mu.Lock()
+	delete(l.fails, key)
+	l.mu.Unlock()
+}
+
+// emailLimitKey is an opaque key for an address: the hash of its lower-cased form,
+// so the address itself is not held in the limiter.
+func emailLimitKey(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return hex.EncodeToString(sum[:16])
 }
