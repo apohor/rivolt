@@ -522,6 +522,8 @@ export type NowSnapshot = {
   tire_pressure_min_bar: number | null;
   failed_sleeps_6h: number;
   charge: { started_at: string; soc_start: number; peak_kw: number } | null;
+  // Present only when the user turned outside temperature on: an Open-Meteo reading for the truck's area.
+  ambient?: { temp_c: number; source: string; as_of: string };
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
@@ -1265,6 +1267,16 @@ export const backend = {
       throw e;
     }
   },
+  // Outside temperature (off by default). Null on 404 (a server without the setting).
+  ambientTempGet: async (): Promise<{ enabled: boolean } | null> => {
+    try {
+      return await api.get<{ enabled: boolean }>("/api/settings/ambient-temp");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+  ambientTempPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/ambient-temp", { enabled }),
   aiConsentPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/ai-consent", { enabled }),
   // Milestones reached in the last 30 days and not dismissed, newest first. Title and body are the server's
   // words, shown as given. Null when the server has no such call (404).

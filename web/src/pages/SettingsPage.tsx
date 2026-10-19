@@ -1,5 +1,6 @@
 import { useAIEnabled } from "../lib/config";
 import { useAIConsent } from "../lib/aiConsent";
+import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
 import { R2CheckedSettings } from "../components/R2Checked";
 import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
 import { useUiNext } from "../lib/uiNext";
@@ -174,6 +175,7 @@ function SettingsPageInner() {
             <RivianAccountPanel />
           </Card>
           <AIFeaturesCard />
+          <AmbientTempCard />
           {shell && <AppearanceCard />}
           {shell && (
             <Card title="Rivolt account">
@@ -1923,6 +1925,44 @@ function WeeklyRecapCard() {
             setPending(v);
             engagement
               .save({ weekly_recap: v })
+              .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+              .finally(() => setPending(null));
+          }}
+        />
+      </div>
+      {err && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          Couldn&apos;t save: {err}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// AmbientTempCard: the outside-temperature switch, off by default. Not offered in the demo or on a server without it.
+function AmbientTempCard() {
+  const amb = useAmbientTemp();
+  const [pending, setPending] = useState<boolean | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  if (amb.enabled === undefined || amb.enabled === null) return null;
+  const on = pending ?? amb.enabled;
+  return (
+    <Card title="Outside temperature" id="ambient-temp">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="ambient-temp-toggle" className="text-sm text-neutral-100">
+            Show outside temperature
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">{AMBIENT_TEMP_TEXT}</p>
+        </div>
+        <Toggle
+          id="ambient-temp-toggle"
+          checked={on}
+          onChange={(v) => {
+            setErr(null);
+            setPending(v);
+            amb
+              .set(v)
               .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
               .finally(() => setPending(null));
           }}
