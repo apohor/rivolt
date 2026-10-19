@@ -3,7 +3,7 @@
 // for the hub), so the page needs no API call. Fixture data only; no coordinates besides the simplified route.
 
 export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_est: number };
-export type SampleOvernight = { name: string; parked_hours: number; l2_kw: number; added_kwh: number; soc_after: number };
+export type SampleOvernight = { name: string; nights?: number; parked_hours: number; l2_kw: number; added_kwh: number; soc_after: number };
 export type SampleDay = {
   label: string;
   depart_at: string;

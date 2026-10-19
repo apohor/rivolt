@@ -88,7 +88,7 @@ function Day({ d, currency }: { d: SampleDay; currency: string }) {
       )}
       {d.overnight && (
         <p className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300">
-          Overnight at {d.overnight.name}: parked about {Math.round(d.overnight.parked_hours)} h on Level 2 at {d.overnight.l2_kw} kW, adding about {Math.round(d.overnight.added_kwh)} kWh, to{" "}
+          Overnight at {d.overnight.name}: {d.overnight.nights && d.overnight.nights > 1 ? `${d.overnight.nights} nights, ` : ""}parked about {Math.round(d.overnight.parked_hours)} h on Level 2 at {d.overnight.l2_kw} kW, adding about {Math.round(d.overnight.added_kwh)} kWh, to{" "}
           {Math.round(d.overnight.soc_after)}%.
         </p>
       )}

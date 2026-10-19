@@ -46,7 +46,7 @@ for (const v of [
     const calls = await open(page, `/sample-trips/${TRIP.slug}`, "sample-trip", TRIP);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(TRIP.title);
     await expect(page.getByText(/Barstow, CA/).first()).toBeVisible();
-    await expect(page.getByText(/Overnight at Las Vegas hotel/)).toBeVisible();
+    await expect(page.getByText(/Overnight at Las Vegas hotel.*2 nights, parked about 45 h/)).toBeVisible();
     await expect(page.getByRole("img", { name: /Route of/ })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in the demo planner" })).toHaveAttribute("href", TRIP.demo_url);
     await expect(page.getByRole("link", { name: "Plan your own" })).toHaveAttribute("href", "/signup");
