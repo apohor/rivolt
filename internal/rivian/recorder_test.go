@@ -1324,3 +1324,28 @@ func TestHandleDriveLifecycle_BlackoutParkDoesNotInflateEndedAt(t *testing.T) {
 		t.Errorf("short gap: ended at +%s, want +6m", s.lastClosed.endAt.Sub(t0))
 	}
 }
+
+// The opening frame of a drive can carry no odometer (a failed REST seed after a
+// restart). The drive must not then measure the truck's whole odometer (review
+// §4.3: ~20,000 mi); the first frame with an odometer becomes the start.
+func TestHandleDriveLifecycle_MissingStartOdometerDoesNotMeasureWholeOdometer(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", SpeedKph: 40}, nil, m, ctx) // no odometer yet
+	if row := m.liveDriveRow("v", s.drive); row.DistanceMi != 0 {
+		t.Fatalf("distance with no odometer at all = %v, want 0", row.DistanceMi)
+	}
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(10 * time.Second), Gear: "D", SpeedKph: 40, OdometerKm: 32000}, nil, m, ctx)
+	row := m.liveDriveRow("v", s.drive)
+	if row.DistanceMi != 0 || row.StartOdometerMi < 19000 {
+		t.Fatalf("after the first odometer: distance %v start %v, want 0 and the odometer", row.DistanceMi, row.StartOdometerMi)
+	}
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(5 * time.Minute), Gear: "D", SpeedKph: 60, OdometerKm: 32010}, nil, m, ctx)
+	row = m.liveDriveRow("v", s.drive)
+	if want := 10 * kmToMi; row.DistanceMi < want-0.01 || row.DistanceMi > want+0.01 {
+		t.Fatalf("distance = %v mi, want %.2f", row.DistanceMi, want)
+	}
+}

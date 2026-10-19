@@ -896,6 +896,12 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		s.drive.endSoC = curr.BatteryLevelPct
 		if odoMi := curr.OdometerKm * kmToMi; odoMi > 0 {
+			// The opening frame can lack an odometer (a failed REST seed after a
+			// restart); the first frame that has one is then the start, or the
+			// drive would measure the truck's whole odometer.
+			if s.drive.startOdoMi <= 0 {
+				s.drive.startOdoMi = odoMi
+			}
 			s.drive.endOdoMi = odoMi
 		}
 		// A driving frame cancels any pending (uncorroborated) close —
@@ -1026,6 +1032,15 @@ func foldedDriveEnd(d *liveDrive, curr *State) time.Time {
 		end = limit
 	}
 	return end
+}
+
+// driveDistanceMi is the distance driven, 0 while the start odometer is still
+// unknown (never the whole odometer reading) or the end is behind the start.
+func driveDistanceMi(d *liveDrive) float64 {
+	if d.startOdoMi <= 0 || d.endOdoMi < d.startOdoMi {
+		return 0
+	}
+	return d.endOdoMi - d.startOdoMi
 }
 
 // runChargeCloseHook invokes the configured ChargeCloseHook with a
@@ -1495,10 +1510,7 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 	if d.speedN > 0 {
 		avg = d.sumSpeed / float64(d.speedN)
 	}
-	distance := d.endOdoMi - d.startOdoMi
-	if distance < 0 {
-		distance = 0
-	}
+	distance := driveDistanceMi(d)
 	// Pack-side energy consumed, derived from SoC delta × usable pack
 	// capacity. Same fallback the live /api/drive-live snapshot uses.
 	var energy float64
