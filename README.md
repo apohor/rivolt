@@ -264,7 +264,7 @@ real R2s, so you know what to trust.
   smart-charging status. Each appears once it has been confirmed on an
   R2.
 
-Rivian doesn't report outside temperature for any truck; Rivolt can
+Outside temperature doesn't come through for any truck; Rivolt can
 look it up from weather data if you turn that on (off by default).
 Something looks wrong on your R2?
 [Open an R2 report](https://github.com/apohor/rivolt/issues/new?template=r2-report.yml):
