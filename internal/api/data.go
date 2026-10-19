@@ -197,6 +197,13 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
+		// A full copy of a user's data is not something an admin viewing as them
+		// may take: view-as is a GET-only read of what the user sees, and this is a
+		// GET that hands over everything.
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
 		ds := d.Drives.For(uid)
 		cs := d.Charges.For(uid)
 		ss := d.Samples.For(uid)
