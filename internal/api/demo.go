@@ -297,7 +297,8 @@ func demoAllowed(method, path, vehicleID string) bool {
 		p == "/api/state/"+vehicleID ||
 		p == "/api/vehicles/"+vehicleID+"/now" ||
 		p == "/api/vehicles/"+vehicleID+"/pack-health" ||
-		p == "/api/vehicles/"+vehicleID+"/trends"
+		p == "/api/vehicles/"+vehicleID+"/trends" ||
+		p == "/api/vehicles/"+vehicleID+"/cold-range"
 }
 
 // demoOnlyPublic reports whether method+path may be served at all by the
