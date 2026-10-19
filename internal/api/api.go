@@ -701,6 +701,8 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
+			// One truck's own efficiency and battery trend by month (the Truck page chart).
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
 			}))

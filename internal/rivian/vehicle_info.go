@@ -234,11 +234,15 @@ func FieldSupport(model string) map[string]string {
 		"user_modes":         FieldUnavailable,
 		"parked_energy":      FieldUnavailable,
 		"smart_charging":     FieldUnavailable,
+		// The pack-capacity estimate needs measured charge energy; R1 sessions have it.
+		"pack_capacity_estimate": FieldEstimate,
 	}
 	if r2 {
 		out["charge_time_remaining"] = FieldEstimate
 		out["power_state"] = FieldBestEffort
 		out["trip_target"] = FieldUnavailable
+		// No R2 charge session has produced a usable sample yet (0 of the fleet's R2s).
+		out["pack_capacity_estimate"] = FieldUnavailable
 	}
 	return out
 }
