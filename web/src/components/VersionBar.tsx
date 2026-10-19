@@ -65,7 +65,7 @@ export function VersionBar() {
     <div
       role="status"
       data-testid="version-bar"
-      className="fixed inset-x-0 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-full border border-emerald-600/40 bg-neutral-900 px-4 py-2 text-sm text-neutral-100 shadow-lg"
+      className="fixed inset-x-0 z-[1050] mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-full border border-emerald-600/40 bg-neutral-900 px-4 py-2 text-sm text-neutral-100 shadow-lg"
       style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 5rem)" }}
     >
       <span>New version available</span>
