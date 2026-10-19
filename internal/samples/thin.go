@@ -46,6 +46,16 @@ var thinPartitionName = regexp.MustCompile(`^vehicle_state_y([0-9]{4})_([0-9]{2}
 // swapped.
 var ErrThinVerify = errors.New("thinned copy failed verification")
 
+// ErrNotArchived refuses a thinning that would lose detail no archive holds.
+// Under N19 a month is thinned only after its full-resolution samples are
+// archived and verified (telemetry archive, A2).
+var ErrNotArchived = errors.New("month not archived: thinning needs a verified archive first")
+
+// archiveGate stands in for A2's per-month archive check: until the telemetry
+// archive exists, no month counts as archived, so a real (non-dry) thinning
+// never runs, even with RIVOLT_SAMPLE_THIN_AFTER_DAYS set. Dry runs are allowed.
+const archiveGate = false
+
 // Thinner thins old vehicle_state partitions.
 type Thinner struct {
 	db        *sql.DB
@@ -158,6 +168,9 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	month, ok := ThinCandidate(months, thinned, now, t.afterDays)
 	if !ok {
 		return 0, nil
+	}
+	if !t.DryRun && !archiveGate {
+		return 0, fmt.Errorf("%s: %w", monthPartition(month), ErrNotArchived)
 	}
 	rep, err := t.thin(ctx, conn, month)
 	if err != nil {

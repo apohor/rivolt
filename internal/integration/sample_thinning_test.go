@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -75,10 +76,13 @@ func TestSampleThinning(t *testing.T) {
 	}
 	would := reports[0].RowsAfter
 
+	// Until the telemetry archive (A2) can confirm a month is archived, a
+	// real run refuses and changes nothing.
 	th.DryRun = false
-	if n, err := th.Run(ctx); err != nil || n != 1 {
-		t.Fatalf("run: %d %v", n, err)
+	if n, err := th.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || n != 0 || count() != 10800 {
+		t.Fatalf("real run before the archive: %d, %v, %d rows", n, err, count())
 	}
+	t.Skip("the rest exercises the swap, which runs once A2 lifts the archive gate")
 	after := count()
 	// driving 1200 s / 30 = 40, charging 1800 s / 120 = 15, parked 7800 s / 900 ≈ 10 buckets (split by the
 	// charging/parked boundaries), plus ends and changes: a few dozen more at most.
