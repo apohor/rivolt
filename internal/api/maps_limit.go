@@ -14,6 +14,9 @@ import (
 const (
 	mapsValhallaPerMin = 60
 	mapsTilesPerMin    = 1200
+	// Each call walks a tile box on the server (bounded by the corridor caps),
+	// so a re-render per route edit is fine and a loop is not.
+	mapsChargersAlongPerMin = 30
 )
 
 // mapsUserLimiter buckets by the signed-in user, so one account cannot

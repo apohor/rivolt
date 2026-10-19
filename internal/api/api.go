@@ -571,7 +571,7 @@ func New(d Deps) http.Handler {
 			// reads per planner re-render) with one POST that returns
 			// the decoded POI list.
 			if d.ChargersArchive != nil {
-				r.Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
+				r.With(mapsUserLimiter(mapsChargersAlongPerMin).Middleware).Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
 			}
 			// Onboarding — marks the first-run stepper as done for the
 			// current user. Called by the frontend when the user
