@@ -2262,14 +2262,27 @@ func runServer() {
 	signal.Notify(second, syscall.SIGINT, syscall.SIGTERM)
 	go exitOnSecondSignal(second, os.Exit, logger)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpDrainTimeout)
 	defer cancel()
 	// Release leases BEFORE the HTTP server shuts down so peers
 	// can pick the vehicles up while we're still draining
 	// in-flight requests. ReleaseAll uses a short bounded context;
 	// a Postgres blip just delays acquisition until the TTL.
+	// Write the drives and charges the 10 s throttle left behind first, so the
+	// peer that takes the vehicles over finds current rows.
+	if monitorRegistry != nil {
+		// One deadline for the whole drain flush: the per-vehicle hand-off flushes
+		// that follow (Unsubscribe) share it instead of taking their own.
+		deadline := time.Now().Add(drainFlushTimeout)
+		rivian.BeginDrain(deadline)
+		fctx, fcancel := context.WithDeadline(context.Background(), deadline)
+		if n := monitorRegistry.FlushPending(fctx); n > 0 {
+			logger.Info("flushed in-progress sessions at shutdown", "sessions", n)
+		}
+		fcancel()
+	}
 	if leaseCoordinator != nil {
-		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		lctx, lcancel := context.WithTimeout(context.Background(), leaseReleaseTimeout)
 		leaseCoordinator.Shutdown(lctx)
 		lcancel()
 	}

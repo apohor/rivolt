@@ -44,3 +44,14 @@ func TestSecondSignalWatcherStopsWhenTheChannelCloses(t *testing.T) {
 		t.Fatal("watcher did not return")
 	}
 }
+
+// The worst case of the shutdown steps must fit what is left of the pod's grace
+// period after the preStop sleep. (The steps run one after another: the drain
+// flush, the lease release, the HTTP drain, the wait for background work.)
+func TestShutdownBudgetFitsTheGracePeriod(t *testing.T) {
+	total := preStopSleep + drainFlushTimeout + leaseReleaseTimeout + httpDrainTimeout + bgShutdownWait
+	if total > gracePeriod {
+		t.Fatalf("shutdown can take %v (preStop %v + flush %v + leases %v + HTTP %v + background %v), over the %v grace period",
+			total, preStopSleep, drainFlushTimeout, leaseReleaseTimeout, httpDrainTimeout, bgShutdownWait, gracePeriod)
+	}
+}

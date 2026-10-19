@@ -1037,6 +1037,11 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		delete(m.activeCtx, vehicleID)
 	}
 	m.mu.Unlock()
+	// A lease hand-off: write any session the throttle left behind before the
+	// peer takes the vehicle over.
+	fctx, fcancel := flushContext()
+	m.flushVehicle(fctx, vehicleID)
+	fcancel()
 	m.forgetVehicle(vehicleID)
 	if ok && cancel != nil {
 		cancel()
