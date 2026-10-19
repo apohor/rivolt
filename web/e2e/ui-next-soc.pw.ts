@@ -21,6 +21,9 @@ for (const theme of ["dark", "light"] as const) {
         await page.addInitScript(([s, t]) => {
           localStorage.setItem("rivolt.ui.next", s);
           localStorage.setItem("rivolt.theme", t);
+          // All time, not "this month": the chart spans the period, so near a month's
+          // start (or end) the stub's last hours are a sliver with no band to find.
+          localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
         }, [state, theme]);
         await stubApi(page, { scenario: "charging" });
         await page.goto("/");

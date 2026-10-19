@@ -122,6 +122,9 @@ for (const url of ["/", "/activity", "/truck"]) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 600 }, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, "on");
+    // All time: enough rows to scroll under the nav whatever the date (in a month's
+    // first minutes "this month" has almost nothing on /activity).
+    await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
     await page.goto(url);
     const header = page.locator("[data-ui-header]").first();
     await expect(header).toBeVisible();

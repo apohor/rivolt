@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { e2eNow } from "./clock";
 import { stubApi } from "./stub";
 
 // qa2's demo audit (new look): the Now cost tile is the period's charging spend, the same number
@@ -75,6 +76,11 @@ test("All time: the miles chart spans the recorded data, not a 30-day window", a
 test("Money compares a month in progress with the same days of the last month", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
+  // Mid-month of the fixtures' month (set after stubApi so a pinned run keeps it):
+  // on the 1st there's no earlier spend to compare "Oct 1–1" with, so the app rightly
+  // shows no comparison, and the nightly run at 00:15 UTC would land there.
+  const d = new Date(e2eNow());
+  await page.clock.setFixedTime(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 15, 12)));
   await page.goto("/money");
   const hero = page.getByRole("region", { name: "Statement" });
   await expect(hero).toBeVisible();
