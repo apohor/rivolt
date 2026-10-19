@@ -14,6 +14,7 @@ Last updated: October 19, 2026
 - **Your settings:** electricity rates, saved places and trips, notification and email preferences, and your time zone (for when reminders arrive).
 - **Notifications:** if you turn on notifications, your browser's push address and User-Agent. Notifications you can turn on: charging complete, software updates, a plug-in reminder when the truck is parked at home below a level you choose, and milestones.
 - **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email. We also send a weekly summary if you turn it on.
+- **Cards you share:** Cards you create to share are made on your device. Rivolt doesn't upload, post or track them.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
 

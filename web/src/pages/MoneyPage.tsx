@@ -1,13 +1,14 @@
 import { chargesAllQuery } from "../lib/activityLists";
 import { useUiNext } from "../lib/uiNext";
 import { appPath, inDemo } from "../lib/demo";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { track } from "../lib/track";
 import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
+import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
+import { ShareSheet } from "../components/ShareSheet";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -520,9 +521,8 @@ function Statement({
   );
 }
 
-// Exports the month as a 1080x1080 PNG built from aggregate totals only
-// (no places, coordinates or receipts). Uses the share sheet when the
-// device can share files, otherwise downloads.
+// Opens the share sheet for the month: a 1080x1080 card built from aggregate totals only (no places, coordinates
+// or receipts), masked by default: dollars appear only if the user turns "Include cost" on.
 function ShareStatementButton({
   m,
   partialFrom,
@@ -535,56 +535,26 @@ function ShareStatementButton({
   // Arrived via the statement email's "Share it" link (share=1).
   prompt?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const onClick = async () => {
-    setBusy(true);
-    setErr(null);
-    setDone(null);
-    try {
-      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom, sample: inDemo() }));
-      if (!blob) throw new Error("Image export isn't available in this browser.");
-      const file = new File([blob], `rivolt-${m.period}.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Rivolt ${m.period}` });
-        setDone("Shared.");
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name;
-        a.click();
-        // Revoking immediately can cancel the download in Safari/Firefox.
-        window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-        setDone(`Saved ${file.name} to your downloads.`);
-      }
-    } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
-        setErr(e instanceof Error ? e.message : "Couldn't create the image.");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
+  const sample = inDemo();
+  const build = useCallback((includeCost: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom }), [m, sample, partialFrom]);
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onClick={onClick}
-        disabled={disabled || busy}
+        onClick={() => setOpen(true)}
+        disabled={disabled}
         className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
-        title="Image with totals only: no places or addresses"
+        title="An image of your month. No places or addresses; cost only if you add it"
       >
-        {busy ? "Preparing…" : "Share statement"}
+        Share statement
       </button>
       {prompt && !disabled && (
         <span role="status" className="text-xs text-emerald-300">
           Your statement is ready to share. Tap Share statement.
         </span>
       )}
-      {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
-      {done && <span role="status" className="text-xs text-emerald-300">{done}</span>}
+      {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle onClose={() => setOpen(false)} />}
     </div>
   );
 }
