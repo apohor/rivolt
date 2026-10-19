@@ -87,6 +87,7 @@ jobs:
     outputs:
       web: ${{ steps.f.outputs.web }}
       go: ${{ steps.f.outputs.go }}
+      chart: ${{ steps.f.outputs.chart }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -96,7 +97,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; echo "chart=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # Non-code paths (the ones push events ignore) trigger nothing.
           # Markdown under web/ is shipped page content, so it still counts.
@@ -119,7 +120,12 @@ jobs:
           # (chargerNetwork.vectors.test.ts), so a change there runs web too.
           if echo "$files" | grep -q '^internal/dcfcrates/testdata/'; then web=true; fi
           if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
-          echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"
+          # chart: the Helm chart, which the filter above drops with the rest of
+          # deploy/ (no Go or web suite needs it), so it is matched on the full
+          # diff. Workflow edits run it too.
+          chart=false
+          if git diff --name-only $RANGE | grep -q -E '^deploy/helm/|^\.github/'; then chart=true; fi
+          echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"; echo "chart=$chart" >> "$GITHUB_OUTPUT"
 
   web:
     name: web
@@ -163,6 +169,73 @@ jobs:
       - name: Build web
         working-directory: web
         run: npm run build
+
+  # The Helm chart: chart-testing lint (yamllint, Chart.yaml schema and, on PRs, a
+  # version bump for any chart change), helm lint --strict and a render of every
+  # deploy/helm/rivolt/ci/*-values.yaml case (defaults, CNPG, existingSecret,
+  # prod-like) through kubeconform -strict, with CRD schemas (CNPG,
+  # Prometheus operator) from the datree catalog. A render with no KEK must
+  # fail, as the chart promises. PRs that touch deploy/helm (or .github) only.
+  chart:
+    name: chart
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.chart == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHART: deploy/helm/rivolt
+      KUBE_VERSION: "1.35.0"
+      KUBECONFORM_VERSION: v0.8.0
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # ct compares with origin/main
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+
+      - uses: helm/chart-testing-action@v2
+        with:
+          version: 3.15.0
+
+      - name: Install kubeconform
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
+          curl -fsSLO "$base/kubeconform-linux-amd64.tar.gz"
+          curl -fsSLO "$base/CHECKSUMS"
+          grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum -c -
+          tar xzf kubeconform-linux-amd64.tar.gz kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: ct lint
+        run: |
+          # PRs: the charts changed against main, which must bump their version.
+          # Pushes: nothing differs from main, so lint every chart, no bump check.
+          extra=""
+          [ "${{ github.event_name }}" = "pull_request" ] || extra="--all --check-version-increment=false"
+          ct lint --config .github/ct.yaml $extra
+
+      - name: helm lint --strict and kubeconform, per values case
+        run: |
+          set -o pipefail
+          for f in "$CHART"/ci/*-values.yaml; do
+            echo "::group::$(basename "$f")"
+            helm lint --strict "$CHART" -f "$f"
+            helm template rivolt "$CHART" -f "$f" \
+              | kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            echo "::endgroup::"
+          done
+
+      - name: No KEK, no render
+        run: |
+          if out=$(helm template rivolt "$CHART" --set externalDatabase.host=db.invalid 2>&1); then
+            echo "::error::the chart rendered without secrets.kek or secrets.existingSecret"; exit 1
+          fi
+          echo "$out" | grep -q 'rivolt: set secrets.kek' || { echo "$out"; echo "::error::unexpected failure"; exit 1; }
 
   # Functional Playwright specs (ui-next-*), against `vite preview` and the stub
   # API (web/e2e/stub.ts): no backend, no real data. PRs that touch web only.

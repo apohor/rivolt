@@ -576,4 +576,3 @@ elevation:
   # disk persistence (mem-only LRU). Typical value: "/data/elevation"
   # paired with persistence.enabled=true.
   cacheDir: ""
-

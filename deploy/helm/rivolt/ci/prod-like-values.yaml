@@ -1,0 +1,81 @@
+# CI render: the shape of a production install (placeholders, not real names):
+# existingSecret, two replicas, CNPG with object-store backups, a scheduled
+# backup, managed roles and a PodMonitor, ingress with TLS, ServiceMonitor,
+# Redis rate limiting, the routing/geocoding/tile services, extra env.
+replicaCount: 2
+secrets:
+  existingSecret: rivolt-app
+  autoGenerateKek: false
+cnpg:
+  enabled: true
+  instances: 1
+  monitoring:
+    podMonitor:
+      enabled: true
+  storage:
+    size: 8Gi
+  backup:
+    enabled: true
+    retentionPolicy: "365d"
+    barmanObjectStore:
+      destinationPath: s3://example-pg-backups/
+      endpointURL: http://objectstore.example.invalid:9000
+      s3Credentials:
+        accessKeyId:
+          name: pg-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: pg-backup-credentials
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+    scheduled:
+      enabled: true
+      schedule: "0 30 2 * * *"
+      immediate: true
+  managedRoles:
+    - name: reporting_ro
+      bypassrls: true
+      connectionLimit: 5
+      passwordSecret:
+        name: pg-reporting-ro-password
+extraEnvFrom:
+  - secretRef:
+      name: mail-credentials
+      optional: true
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: rivolt.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: rivolt-example-tls
+      hosts:
+        - rivolt.example.com
+metrics:
+  serviceMonitor:
+    enabled: true
+ratelimit:
+  redis:
+    addr: redis.example.invalid:6379
+maps:
+  valhalla:
+    baseUrl: http://valhalla.example.invalid
+  photon:
+    baseUrl: http://photon.example.invalid
+  tiles:
+    baseUrl: http://tiles.example.invalid
