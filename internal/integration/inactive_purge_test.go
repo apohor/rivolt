@@ -338,6 +338,10 @@ func TestUnwarnableGrandfathered(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
+	// The first user is made an admin; keep it out of the way.
+	if _, err := db.EnsureUser(ctx, pool, "bootstrap-admin-3"); err != nil {
+		t.Fatal(err)
+	}
 	day := 24 * time.Hour
 	oldStart := db.UnwarnablePolicyStart
 	t.Cleanup(func() { db.UnwarnablePolicyStart = oldStart })
