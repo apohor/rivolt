@@ -70,16 +70,15 @@ type chargingSchedulesData struct {
 // ChargingSchedules reads the vehicle's charging schedules. An empty list
 // is a valid answer (no schedule set).
 func (c *LiveClient) ChargingSchedules(ctx context.Context, vehicleID string) ([]ChargingSchedule, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
-	data, err := doGraphQL[chargingSchedulesData](ctx, c, graphQLRequest{
+	data, err := doGraphQLDetached[chargingSchedulesData](ctx, c, graphQLRequest{
 		OperationName: "GetChargingSchedule",
 		Query:         qChargingSchedules,
 		Variables:     map[string]any{"vehicleId": vehicleID},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("GetChargingSchedule: %w", err)
 	}
