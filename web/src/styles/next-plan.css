@@ -89,6 +89,12 @@ html[data-ui='next'] [data-plan-area='map'][data-empty='true'] {
   html[data-ui='next'] [data-plan-split] > [data-plan-wide] {
     grid-column: 1 / -1;
   }
+  /* In the demo the left column is only the list of samples, so the multi-day result goes in the empty
+     right column beside it instead of under the whole list. */
+  html[data-ui='next'] [data-plan-split] > [data-plan-wide][data-plan-beside] {
+    grid-column: 2;
+    grid-row: 1 / span 30;
+  }
   html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
     grid-column: 2;
     grid-row: 1 / span 30;

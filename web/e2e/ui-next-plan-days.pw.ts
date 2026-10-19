@@ -267,7 +267,8 @@ test(`a saved multi-day trip keeps its days and reopens with no planner call · 
   await page2.goto("/trips/plan");
   await page2.getByRole("tab", { name: "Saved" }).click();
   await page2.getByRole("button", { name: /Chicago to Denver/ }).click();
-  await page2.getByRole("tab", { name: "Planner" }).click();
+  // Opening a saved trip takes you to its result: no hunting for the Planner tab.
+  await expect(page2.getByRole("tab", { name: "Planner" })).toHaveAttribute("aria-selected", "true");
   await expect(page2.locator("[data-day-card]")).toHaveCount(3);
   await expect(page2.locator("[data-overnight-row]")).toHaveCount(2);
   await expect(page2.getByText("Simulated", { exact: true })).toBeVisible();
