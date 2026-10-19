@@ -1,8 +1,11 @@
 package rivian
 
 import (
+	"errors"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // RecorderWriteFailureObserver, when set (once, at startup, before serving), is
@@ -37,9 +40,26 @@ func (m *StateMonitor) noteWriteFailure(kind, vehicleID, id string, err error) {
 		m.writeFails.last[key] = now
 	}
 	m.writeFails.mu.Unlock()
+	why := writeFailureReason(err)
 	if loud {
-		m.logger.Warn("live write failed", "kind", kind, "vehicle", vehicleID, "id", id, "err", err.Error())
+		m.logger.Warn("live write failed", "kind", kind, "vehicle", vehicleID, "id", id, "err", why)
 		return
 	}
-	m.logger.Debug("live write failed", "kind", kind, "vehicle", vehicleID, "id", id, "err", err.Error())
+	m.logger.Debug("live write failed", "kind", kind, "vehicle", vehicleID, "id", id, "err", why)
+}
+
+// writeFailureReason is what is safe to log about a failed write. A Postgres
+// error's DETAIL can quote the whole failing row (coordinates included), so only
+// its SQLSTATE and constraint name are kept; other errors (connection refused,
+// timeouts) carry no row data.
+func writeFailureReason(err error) string {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		r := "sqlstate " + pg.Code
+		if pg.ConstraintName != "" {
+			r += " constraint " + pg.ConstraintName
+		}
+		return r
+	}
+	return err.Error()
 }

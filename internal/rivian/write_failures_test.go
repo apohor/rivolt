@@ -5,12 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/google/uuid"
@@ -93,5 +95,22 @@ func TestLiveDriveUpsertFailureIsWarnedAndCounted(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "level=WARN") || !strings.Contains(buf.String(), "drive_upsert") {
 		t.Errorf("no Warn for the failed drive upsert at Info level:\n%s", buf.String())
+	}
+}
+
+// A Postgres error's DETAIL can quote the failing row, coordinates included; the
+// log keeps only the SQLSTATE and constraint name.
+func TestWriteFailureLogOmitsRowDetail(t *testing.T) {
+	var buf bytes.Buffer
+	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	pgErr := &pgconn.PgError{Code: "23514", ConstraintName: "drives_check_times",
+		Message: "new row violates check constraint", Detail: "Failing row contains (live_v_d_1, 30.2672, -97.7431)."}
+	m.noteWriteFailure("drive_upsert", "veh-1", "live_v_d_1", fmt.Errorf("insert: %w", pgErr))
+	out := buf.String()
+	if strings.Contains(out, "30.2672") || strings.Contains(out, "-97.7431") || strings.Contains(out, "Failing row") {
+		t.Errorf("row detail leaked into the log: %s", out)
+	}
+	if !strings.Contains(out, "23514") || !strings.Contains(out, "drives_check_times") {
+		t.Errorf("sqlstate/constraint missing: %s", out)
 	}
 }
