@@ -1535,7 +1535,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 			d.rejected, d.rejectedAt = true, time.Now()
 			return
 		}
-		m.logger.Debug("live drive upsert failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())
+		m.noteWriteFailure("drive_upsert", vehicleID, d.id, err)
 		return
 	}
 	if d.rejected {
@@ -1579,7 +1579,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 			c.rejected, c.rejectedAt = true, time.Now()
 			return
 		}
-		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())
+		m.noteWriteFailure("charge_upsert", vehicleID, c.id, err)
 		return
 	}
 	if c.rejected {
@@ -2108,7 +2108,7 @@ func (m *StateMonitor) closeStaleOpenCharges(ctx context.Context, vehicleID, kee
 	defer cancel()
 	n, err := m.chargesStore.CloseStaleOpenLive(cctx, vehicleID, keepID)
 	if err != nil {
-		m.logger.Debug("stale charge cleanup failed", "vehicle", vehicleID, "err", err.Error())
+		m.noteWriteFailure("stale_charge", vehicleID, keepID, err)
 		return
 	}
 	if n > 0 {
