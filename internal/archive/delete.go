@@ -162,10 +162,17 @@ func (d *Deleter) deletePrefix(ctx context.Context, uid uuid.UUID, prefix string
 	return len(keys), nil
 }
 
-// Every runs fn every interval (the first run after a random part of it, so
-// replicas don't start together) until ctx is done, logging failures.
+// firstRunWithin bounds the random delay before Every's first run. A pod
+// restart starts the wait over, and preview rolls out on every main merge, so
+// a delay drawn from the whole interval could keep pushing the first run out
+// (and the overdue gauge stays unset until a run reports it).
+const firstRunWithin = 10 * time.Minute
+
+// Every runs fn shortly after start (a random delay under firstRunWithin, or
+// under interval if shorter, so replicas don't start together) and then every
+// interval until ctx is done, logging failures.
 func Every(ctx context.Context, interval time.Duration, name string, log *slog.Logger, fn func(context.Context) (int64, error)) {
-	wait := time.Duration(rand.Int63n(int64(interval)))
+	wait := time.Duration(rand.Int63n(int64(min(interval, firstRunWithin))))
 	for {
 		select {
 		case <-ctx.Done():
