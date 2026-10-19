@@ -1,6 +1,7 @@
 package bg
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -62,6 +63,8 @@ func TestConcurrentGoAndWait(t *testing.T) {
 	var g Group
 	stop := make(chan struct{})
 	var spawned atomic.Int32
+	started := make(chan struct{})
+	var once sync.Once
 	go func() {
 		for {
 			select {
@@ -69,9 +72,11 @@ func TestConcurrentGoAndWait(t *testing.T) {
 				return
 			default:
 				g.Go(func() { spawned.Add(1) })
+				once.Do(func() { close(started) })
 			}
 		}
 	}()
+	<-started // the spawner is running, so the Waits below overlap with Go
 	for i := 0; i < 200; i++ {
 		g.Wait(time.Millisecond)
 	}
