@@ -11,6 +11,10 @@
 
 import { IMPERSONATE_HEADER, impersonationHeaderID } from "./impersonation";
 
+// How many samples a drive or charge detail page asks for. The server buckets a window that goes over the limit across its
+// whole span (first, last and the peaks kept), so 2,000 draws the same charts as 20,000 and moves a tenth of the data.
+export const DETAIL_SAMPLE_LIMIT = 2_000;
+
 export class ApiError extends Error {
   status: number;
   body: unknown;

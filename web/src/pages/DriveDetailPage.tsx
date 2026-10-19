@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { forVehicle } from "../lib/vehicleSamples";
-import { backend, ApiError, type DriveWeatherSeries, type Sample } from "../lib/api";
+import { backend, ApiError, type DriveWeatherSeries, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 // Lazy-load DriveMap so the Leaflet + Protomaps bundle only ships
 // when a drive is actually opened.
@@ -110,7 +110,7 @@ export default function DriveDetailPage() {
       // rows that the SPA throws away after a filter pass.
       const until = new Date(endMs + 10 * 60_000);
       // The endpoint isn't vehicle-scoped: keep this drive's truck only.
-      return backend.samples(since, 20_000, until, drive!.VehicleID).then((r) => forVehicle(r, drive!.VehicleID));
+      return backend.samples(since, DETAIL_SAMPLE_LIMIT, until, drive!.VehicleID).then((r) => forVehicle(r, drive!.VehicleID));
     },
   });
 
