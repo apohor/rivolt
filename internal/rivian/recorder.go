@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apohor/rivolt/internal/bg"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
@@ -749,7 +750,7 @@ func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
 	if m.chargeCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("c", row.ID) {
 		return
 	}
-	go m.runChargeCloseHook(row)
+	bg.Go(func() { m.runChargeCloseHook(row) })
 }
 
 // fireDriveCloseHook is fireChargeCloseHook for drives.
@@ -757,7 +758,7 @@ func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
 	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
 		return
 	}
-	go m.runDriveCloseHook(row)
+	bg.Go(func() { m.runDriveCloseHook(row) })
 }
 
 // switchMovedMi: the odometer moving this far since the open charge
