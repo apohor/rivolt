@@ -574,6 +574,15 @@ func New(d Deps) http.Handler {
 				r.Post("/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
+				r.Post("/device", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushDevice(d.Push.For(uid))(w, r)
+				}))
+				r.Post("/optin", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushOptIn(d.Push.For(uid))(w, r)
+				}))
+				r.Post("/off", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushOff(d.Push.For(uid))(w, r)
+				}))
 			})
 
 			// Rivian live endpoints. /api/vehicles returns [] when no real

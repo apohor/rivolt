@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/push"
 )
 
@@ -72,15 +73,18 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			}
 		}
 
+		// The plug-in reminder and milestones are opt-in and are NOT taken from
+		// here, whatever the client posts (an old Settings tab or pod would
+		// post its stale local defaults): the stored values stay as they are
+		// and only POST /api/push/optin changes them.
+		prefs.OnPlugInReminder, prefs.OnMilestones = false, false
 		sub := push.Subscription{
 			Endpoint:         body.Endpoint,
 			P256dh:           body.Keys.P256dh,
 			Auth:             body.Keys.Auth,
 			OnChargingDone:   prefs.OnChargingDone,
-			OnPlugInReminder: prefs.OnPlugInReminder,
 			OnAnomaly:        prefs.OnAnomaly,
 			OnSoftwareUpdate: prefs.OnSoftwareUpdate,
-			OnMilestones:     prefs.OnMilestones,
 			UserAgent:        body.UserAgent,
 		}
 		if err := store.Upsert(r.Context(), sub); err != nil {
@@ -163,6 +167,101 @@ func handlePushTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 			// provider's response (e.g. Apple's BadJwtToken / InvalidToken)
 			// and surfacing it in the UI beats generic "Save failed".
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+// handlePushDevice: POST /api/push/device {endpoint} returns that device's
+// stored switches, so the Settings panel shows what the server has instead of
+// local defaults. A POST, so the endpoint (a capability URL) stays out of
+// access logs. 404 when the endpoint is not one of the caller's.
+func handlePushDevice(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Endpoint string `json:"endpoint"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Endpoint == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "endpoint required"})
+			return
+		}
+		sub, err := store.Get(r.Context(), body.Endpoint)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "push device", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		if sub == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"preferences": push.Preferences{
+			OnChargingDone:   sub.OnChargingDone,
+			OnPlugInReminder: sub.OnPlugInReminder,
+			OnAnomaly:        sub.OnAnomaly,
+			OnSoftwareUpdate: sub.OnSoftwareUpdate,
+			OnMilestones:     sub.OnMilestones,
+		}})
+	}
+}
+
+// handlePushOff: POST /api/push/off {"kind":"plug_in_reminder"|"milestones"} is
+// the one-tap stop: it turns that switch off on every device of the account, not
+// only the one in hand. Never an admin's act while viewing as the user.
+func handlePushOff(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil ||
+			(body.Kind != "plug_in_reminder" && body.Kind != "milestones") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind must be plug_in_reminder or milestones"})
+			return
+		}
+		n, err := store.SwitchOffAll(r.Context(), body.Kind)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "push off", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "devices_changed": n})
+	}
+}
+
+// handlePushOptIn: POST /api/push/optin {endpoint, on_plug_in_reminder?,
+// on_milestones?} sets the opt-in switches of one of the caller's devices. It
+// is the only way either goes on (subscribe ignores them), and it comes from the
+// Settings screen's own control. 404 when the endpoint is not the caller's;
+// never an admin's act while viewing as the user.
+func handlePushOptIn(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			Endpoint         string `json:"endpoint"`
+			OnPlugInReminder *bool  `json:"on_plug_in_reminder"`
+			OnMilestones     *bool  `json:"on_milestones"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Endpoint == "" ||
+			(body.OnPlugInReminder == nil && body.OnMilestones == nil) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "endpoint and at least one switch required"})
+			return
+		}
+		found, err := store.SetOptIns(r.Context(), body.Endpoint, body.OnPlugInReminder, body.OnMilestones)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "push optin", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
