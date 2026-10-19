@@ -1007,7 +1007,7 @@ func New(d Deps) http.Handler {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
 			r.Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
+				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), reducedFrom(d.Samples.For(uid)))(w, r)
 			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
 			// efficiency variance for a drive, with actionable
@@ -1079,7 +1079,7 @@ func New(d Deps) http.Handler {
 					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
 					return
 				}
-				handleGetCharge(st, d.Settings.For(uid))(w, r)
+				handleGetCharge(st, d.Settings.For(uid), reducedFrom(d.Samples.For(uid)))(w, r)
 			}))
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
@@ -1095,7 +1095,7 @@ func New(d Deps) http.Handler {
 				r.Get("/trips", withUser(la.trips))
 			})
 			r.With(gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSamples(d.Samples.For(uid))(w, r)
+				handleSamples(d.Samples.For(uid), reducedFrom(d.Samples.For(uid)))(w, r)
 			}))
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).

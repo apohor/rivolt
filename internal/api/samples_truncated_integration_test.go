@@ -47,7 +47,7 @@ func TestSamplesSaysWhenAWideWindowWasTruncated(t *testing.T) {
 
 	get := func(q url.Values) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		handleSamples(store)(w, httptest.NewRequest(http.MethodGet, "/api/samples?"+q.Encode(), nil))
+		handleSamples(store, nil)(w, httptest.NewRequest(http.MethodGet, "/api/samples?"+q.Encode(), nil))
 		return w
 	}
 	rfc := func(t time.Time) string { return t.Format(time.RFC3339) }
