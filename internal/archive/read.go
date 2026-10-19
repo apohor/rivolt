@@ -27,6 +27,10 @@ type Reader struct {
 	// read back: corrupt, truncated, or not this user's. For a thinned month
 	// that is the full-resolution data lost, so the caller counts and alerts.
 	OnCorrupt func(uid, vehicleID uuid.UUID, month time.Time, err error)
+
+	// key and get fetch the user's data key and an object (tests replace them).
+	key func(ctx context.Context, uid uuid.UUID) ([]byte, error)
+	get func(ctx context.Context, objKey string) (io.ReadCloser, error)
 }
 
 // NewReader refuses to run without a real KEK, like the archiver.
@@ -40,12 +44,15 @@ func NewReader(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Reader, error) {
 	if !envName.MatchString(cfg.Env) {
 		return nil, fmt.Errorf("archive: bad env %q", cfg.Env)
 	}
-	return &Reader{
+	r := &Reader{
 		db:     db,
 		store:  &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
 		sealer: sealer,
 		env:    cfg.Env,
-	}, nil
+	}
+	r.key = func(ctx context.Context, uid uuid.UUID) ([]byte, error) { return openKey(ctx, r.db, r.sealer, uid) }
+	r.get = r.store.Get
+	return r, nil
 }
 
 // ObjectRef is one readable object: verified. One waiting to be re-archived
@@ -112,11 +119,27 @@ func (r Row) Get(name string) (string, bool) {
 // any row.
 func (r *Reader) EachRow(ctx context.Context, uid, vehicleID uuid.UUID, month time.Time, fn func(Row) error) error {
 	err := r.eachRow(ctx, uid, vehicleID, month, fn)
-	if err != nil && r.OnCorrupt != nil && corrupt(err) {
-		r.OnCorrupt(uid, vehicleID, month, err)
+	if err == nil || !corrupt(err) {
+		return err
+	}
+	// A connection cut short of the body reads exactly like a truncated
+	// object (the last chunk fails to authenticate). Read it once more, whole,
+	// without passing rows on: if that works the store's copy is fine and only
+	// this read failed. The caller still fails (rows went out), but nothing is
+	// counted as lost.
+	verr := r.eachRow(ctx, uid, vehicleID, month, func(Row) error { return nil })
+	if verr == nil {
+		return fmt.Errorf("archive %s: read interrupted, the object reads whole on retry: %w", MonthString(month), ErrInterrupted)
+	}
+	if corrupt(verr) && r.OnCorrupt != nil {
+		r.OnCorrupt(uid, vehicleID, month, verr)
 	}
 	return err
 }
+
+// ErrInterrupted is a read that failed partway while the object itself reads
+// back whole: a network fault, not a corrupt object.
+var ErrInterrupted = errors.New("archive: read interrupted")
 
 // corrupt reports whether err is the object's fault rather than the store's,
 // the network's or the caller's.
@@ -127,11 +150,11 @@ func corrupt(err error) bool {
 }
 
 func (r *Reader) eachRow(ctx context.Context, uid, vehicleID uuid.UUID, month time.Time, fn func(Row) error) error {
-	key, err := openKey(ctx, r.db, r.sealer, uid)
+	key, err := r.key(ctx, uid)
 	if err != nil {
 		return err
 	}
-	body, err := r.store.Get(ctx, ObjectKey(r.env, uid, vehicleID, month))
+	body, err := r.get(ctx, ObjectKey(r.env, uid, vehicleID, month))
 	if err != nil {
 		return err
 	}
