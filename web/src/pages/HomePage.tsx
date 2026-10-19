@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
+import ThreeThingsCard from "../components/ThreeThingsCard";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type Charge, type ChargeCluster } from "../lib/api";
@@ -302,6 +303,7 @@ export default function HomePage() {
         <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} />
       )}
       {next && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
+      {!historyEmpty && next && !inDemo() && activeVehicleID && !!rivianStatus.data?.authenticated && <ThreeThingsCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
