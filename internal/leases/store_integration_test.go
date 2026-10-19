@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -361,5 +362,175 @@ func TestListSubscribableVehicleIDs(t *testing.T) {
 	}
 	if subscribableSet(ctx, t, pool)["01-connected"] {
 		t.Error("after logout (session deleted) the vehicle must leave the subscribable set")
+	}
+}
+
+// ---- user-affine leases: one pod holds all of a user's vehicles -------------
+
+func seedUserVehicles(ctx context.Context, t *testing.T, pool *sql.DB, user string, rivianIDs ...string) {
+	t.Helper()
+	uid, err := db.EnsureUser(ctx, pool, user)
+	if err != nil {
+		t.Fatalf("EnsureUser %s: %v", user, err)
+	}
+	for _, id := range rivianIDs {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,$2)`, uid, id); err != nil {
+			t.Fatalf("vehicle %s: %v", id, err)
+		}
+	}
+}
+
+func twoPods(t *testing.T, pool *sql.DB) (*leases.Store, *leases.Store) {
+	t.Helper()
+	a, err := leases.NewStore(pool, "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := leases.NewStore(pool, "pod-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a, b
+}
+
+// A pod that holds one of a user's vehicles keeps the others: the peer is refused
+// them (Rivian's gateway takes one connection per session token), while a
+// different user's vehicle is free for the peer.
+func TestAcquire_UserVehiclesStayOnOnePod(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "ua-alice", "ua-a1", "ua-a2")
+	seedUserVehicles(ctx, t, pool, "ua-bob", "ua-b1")
+	a, b := twoPods(t, pool)
+
+	if ok, err := a.Acquire(ctx, "ua-a1"); err != nil || !ok {
+		t.Fatalf("pod-a first vehicle: ok=%v err=%v", ok, err)
+	}
+	if ok, err := b.Acquire(ctx, "ua-a2"); err != nil || ok {
+		t.Fatalf("pod-b took the second vehicle of a user pod-a holds: ok=%v err=%v", ok, err)
+	}
+	if ok, err := a.Acquire(ctx, "ua-a2"); err != nil || !ok {
+		t.Fatalf("pod-a second vehicle: ok=%v err=%v", ok, err)
+	}
+	if ok, err := b.Acquire(ctx, "ua-b1"); err != nil || !ok {
+		t.Fatalf("pod-b other user's vehicle: ok=%v err=%v", ok, err)
+	}
+}
+
+// Both pods racing for both of a user's vehicles never end up with one each.
+func TestAcquire_RaceNeverSplitsAUser(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	for round := 0; round < 15; round++ {
+		u := "ua-race-" + string(rune('a'+round))
+		v1, v2 := u+"-1", u+"-2"
+		seedUserVehicles(ctx, t, pool, u, v1, v2)
+		a, b := twoPods(t, pool)
+		var wg sync.WaitGroup
+		for _, p := range []*leases.Store{a, b} {
+			for _, v := range []string{v1, v2} {
+				wg.Add(1)
+				go func() { defer wg.Done(); _, _ = p.Acquire(ctx, v) }()
+			}
+		}
+		wg.Wait()
+		var pods int
+		if err := pool.QueryRowContext(ctx, `SELECT count(DISTINCT pod_id) FROM subscription_leases WHERE vehicle_id IN ($1,$2)`, v1, v2).Scan(&pods); err != nil {
+			t.Fatal(err)
+		}
+		if pods > 1 {
+			t.Fatalf("round %d: the user's vehicles are on %d pods", round, pods)
+		}
+	}
+}
+
+// When the holder's leases expire the peer takes the user over, one vehicle at a
+// time as each lapses.
+func TestAcquire_UserHandoverAfterExpiry(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "ua-hand", "ua-h1", "ua-h2")
+	a, b := twoPods(t, pool)
+	for _, v := range []string{"ua-h1", "ua-h2"} {
+		if ok, _ := a.Acquire(ctx, v); !ok {
+			t.Fatalf("pod-a %s", v)
+		}
+	}
+	// h1 lapses first; h2 is still healthy, so the peer is still refused h1.
+	expireLease(ctx, t, pool, "ua-h1")
+	if ok, _ := b.Acquire(ctx, "ua-h1"); ok {
+		t.Fatal("pod-b took h1 while pod-a still holds a healthy lease on h2")
+	}
+	expireLease(ctx, t, pool, "ua-h2")
+	for _, v := range []string{"ua-h1", "ua-h2"} {
+		if ok, err := b.Acquire(ctx, v); err != nil || !ok {
+			t.Fatalf("pod-b %s after both lapsed: ok=%v err=%v", v, ok, err)
+		}
+	}
+}
+
+// A split already in the table (left by a rollout, or by the per-vehicle rule) is
+// reported to the pod with the greater id only, so one of them yields and the
+// split converges instead of both releasing.
+func TestSplitVehicles_OnlyTheGreaterPodYields(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "ua-split", "ua-s1", "ua-s2")
+	a, b := twoPods(t, pool)
+	for _, row := range [][2]string{{"ua-s1", "pod-a"}, {"ua-s2", "pod-b"}} {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO subscription_leases (vehicle_id, pod_id, acquired_at, renewed_at, expires_at) VALUES ($1,$2,now(),now(),now()+interval '2 minutes')`, row[0], row[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gotA, err := a.SplitVehicles(ctx)
+	if err != nil || len(gotA) != 0 {
+		t.Fatalf("pod-a (lower id) split vehicles = %v, %v; want none", gotA, err)
+	}
+	gotB, err := b.SplitVehicles(ctx)
+	if err != nil || len(gotB) != 1 || gotB[0] != "ua-s2" {
+		t.Fatalf("pod-b split vehicles = %v, %v; want [ua-s2]", gotB, err)
+	}
+	// Once pod-b gives it up, pod-a can take it and the user is whole.
+	if err := b.Release(ctx, "ua-s2"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := a.Acquire(ctx, "ua-s2"); !ok {
+		t.Fatal("pod-a could not take the released vehicle")
+	}
+	if got, _ := b.SplitVehicles(ctx); len(got) != 0 {
+		t.Errorf("still split after healing: %v", got)
+	}
+}
+
+// The same Rivian id under two accounts (the same VIN, seen on preview): each
+// user is checked on its own, and the locks are taken in a fixed order so two
+// pods acquiring the shared vehicle do not deadlock.
+func TestAcquire_SameRivianIDUnderTwoUsers(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "ua-two-1", "ua-shared", "ua-own-1")
+	seedUserVehicles(ctx, t, pool, "ua-two-2", "ua-shared", "ua-own-2")
+	a, b := twoPods(t, pool)
+	if ok, _ := a.Acquire(ctx, "ua-own-1"); !ok {
+		t.Fatal("pod-a own-1")
+	}
+	// The shared id belongs to user 1 too, so pod-b is refused it.
+	if ok, _ := b.Acquire(ctx, "ua-shared"); ok {
+		t.Fatal("pod-b took a vehicle shared with a user pod-a holds")
+	}
+	done := make(chan struct{})
+	go func() {
+		var wg sync.WaitGroup
+		for _, p := range []*leases.Store{a, b} {
+			wg.Add(1)
+			go func() { defer wg.Done(); _, _ = p.Acquire(ctx, "ua-shared"); _, _ = p.Acquire(ctx, "ua-own-2") }()
+		}
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("acquires deadlocked")
 	}
 }
