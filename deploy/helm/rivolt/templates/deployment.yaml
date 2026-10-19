@@ -91,6 +91,14 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             {{- end }}
+            # The container's memory limit, in bytes: the binary sets the Go
+            # runtime's soft limit (GOMEMLIMIT) to 90% of it, so the GC works
+            # harder before the kernel OOM-kills the pod. An explicit
+            # GOMEMLIMIT in env wins.
+            - name: RIVOLT_MEMORY_LIMIT_BYTES
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
             {{- if .Values.metrics.port }}
             - name: RIVOLT_METRICS_ADDR
               value: {{ printf ":%v" .Values.metrics.port | quote }}
@@ -208,6 +216,10 @@ spec:
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -217,11 +229,15 @@ spec:
           # brief race where new traffic can still hit a terminating
           # pod. A short preStop sleep gives kube-proxy / Traefik
           # time to remove the endpoint before the binary starts
-          # tearing down — eliminates 502s during rollouts.
+          # tearing down — eliminates 502s during rollouts. The kubelet's
+          # own sleep action (Kubernetes 1.30+): the image is distroless,
+          # so an exec hook has no shell or sleep to run.
+          {{- if gt (int .Values.preStopSleepSeconds) 0 }}
           lifecycle:
             preStop:
-              exec:
-                command: ["/bin/sh", "-c", "sleep {{ .Values.preStopSleepSeconds }}"]
+              sleep:
+                seconds: {{ int .Values.preStopSleepSeconds }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:

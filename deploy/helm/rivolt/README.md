@@ -19,7 +19,8 @@ helm install cnpg --namespace cnpg-system --create-namespace \
 #    in (see the OIDC section below).
 helm install rivolt ./deploy/helm/rivolt \
   --namespace rivolt --create-namespace \
-  --set cnpg.enabled=true
+  --set cnpg.enabled=true \
+  --set secrets.kek="v1:$(openssl rand -base64 32)"
 
 # 3. BACK UP THE KEK out-of-band before loading real data.
 kubectl -n rivolt get secret rivolt-app \
@@ -113,9 +114,17 @@ The chart supports three sourcing modes:
 
 | Mode                                                    | When to use                                | Behaviour                                                                                                  |
 | ------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `secrets.autoGenerateKek: true` + `kek=""` (**default**) | Homelab quick-start                        | Chart mints a `v1:<base64>` KEK on first install via Sprig `randBytes 32`, persists in the chart-managed Secret with `helm.sh/resource-policy: keep`. On `helm upgrade`, `lookup` reads the existing value back so it's never rotated by accident. |
+| `secrets.autoGenerateKek: true` + `kek=""` (opt-in)     | Plain `helm install` only, never ArgoCD/Flux | Chart mints a `v1:<base64>` KEK on first install via Sprig `randBytes 32`, persists in the chart-managed Secret with `helm.sh/resource-policy: keep`. On `helm upgrade`, `lookup` reads the existing value back so it's never rotated by accident. |
 | `secrets.kek: "v1:..."` inline                          | Explicit operator control                  | Value is templated as-is. Generate with `echo "v1:$(openssl rand -base64 32)"`. Sealed-secrets / SOPS recommended.                                                                  |
 | `secrets.existingSecret: <name>`                        | Production / GitOps with ExternalSecrets   | Chart references the Secret via `envFrom` and never templates anything. Provision the KEK out of band.                                                                              |
+
+With none of them set, `helm template` / `install` fails with a message
+saying so (chart 0.11.0+; before that, auto-generation was the default).
+
+**Upgrading from chart < 0.11.0 with an auto-generated KEK:** add
+`--set secrets.autoGenerateKek=true` (or move the KEK into `secrets.kek` /
+`existingSecret`). `lookup` then reads the existing KEK back, so it isn't
+rotated. Under ArgoCD, auto-generation was never safe: use `existingSecret`.
 
 Whichever mode you pick:
 

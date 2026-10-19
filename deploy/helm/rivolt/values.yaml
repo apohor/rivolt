@@ -57,8 +57,9 @@ updateStrategy:
 
 # -- Graceful shutdown knobs.
 #
-# preStopSleepSeconds: how long to sleep in the container's preStop
-# hook before the binary receives SIGTERM. Buys kube-proxy /
+# preStopSleepSeconds: how long the kubelet sleeps in the container's
+# preStop hook (lifecycle.preStop.sleep, Kubernetes 1.30+; 0 = none)
+# before the binary receives SIGTERM. Buys kube-proxy /
 # Traefik time to drop the pod from the Service's Endpoints, so
 # in-flight rollouts don't 502.
 #
@@ -212,6 +213,17 @@ persistence:
 # Failure thresholds picked per "liveness more patient than
 # readiness": 6 × 10s = 60s of wedged HTTP before restart;
 # 3 × 5s = 15s of unreachable DB before traffic stops.
+# The binary waits up to 60s for Postgres and up to 5 minutes for
+# migrations before /healthz answers. The startup probe covers that
+# window (6 minutes: 72 × 5s) so a long migration isn't killed by the
+# liveness probe mid-run; liveness and readiness start once it passes.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 72
 livenessProbe:
   httpGet:
     path: /healthz
@@ -291,11 +303,12 @@ secrets:
   # Required. 32-byte AES-256 key, base64-encoded, prefixed with a
   # key-id and a colon — `v1:<base64>`. Three sourcing modes:
   #
-  #   1. Leave `kek` empty + `autoGenerateKek: true` (default) — the
-  #      chart generates one on first install via Sprig's `randBytes`,
-  #      reads back the existing value via `lookup` on subsequent
-  #      upgrades. The Secret is annotated `helm.sh/resource-policy:
-  #      keep` so `helm uninstall` cannot accidentally delete it.
+  #   1. Leave `kek` empty + `autoGenerateKek: true` (opt-in, plain
+  #      `helm install` only) — the chart generates one on first install
+  #      via Sprig's `randBytes`, reads back the existing value via
+  #      `lookup` on subsequent upgrades. The Secret is annotated
+  #      `helm.sh/resource-policy: keep` so `helm uninstall` cannot
+  #      accidentally delete it. NEVER under ArgoCD/Flux (see below).
   #   2. Set `kek` inline — fine for explicit Ops control, but the
   #      value lives in your values file (and probably in shell
   #      history / CI logs). Generate with:
@@ -312,8 +325,10 @@ secrets:
   # client-side where `lookup` returns nil, so every sync would
   # regenerate the KEK. With ArgoCD either set `kek` inline (sealed-
   # secrets / SOPS) or use `existingSecret` + ExternalSecrets.
+  #
+  # With none of the three set, rendering fails rather than guess.
   kek: ""
-  autoGenerateKek: true
+  autoGenerateKek: false
 
   # Optional comma-separated list of retired KEKs kept around so old
   # ciphertexts decrypt during rotation:
