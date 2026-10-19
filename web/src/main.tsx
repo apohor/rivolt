@@ -5,6 +5,8 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { VersionBar } from "./components/VersionBar";
 import { registerServiceWorker } from "./pwa";
+// Catches the browser's install prompt early (it fires once, at load); the first-charge card offers it.
+import "./lib/installPrompt";
 // Leaflet stylesheet first so index.css can override the popup theme.
 // DriveMap's lazy import would otherwise land it after index.css and
 // the popup renders with Leaflet's default white background.

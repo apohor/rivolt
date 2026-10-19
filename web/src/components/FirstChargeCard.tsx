@@ -1,0 +1,234 @@
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { backend, type Charge, type Drive, type PushPreferences } from "../lib/api";
+import { firstChargeView } from "../lib/firstCharge";
+import { formatMoney } from "../lib/ledger";
+import { canInstall, isIOSNotInstalled, onInstallChange, promptInstall } from "../lib/installPrompt";
+import { pushSupported, subscribeThisDevice } from "../lib/push";
+import { Card } from "./ui";
+
+const DISMISS_KEY = "rivolt.firstCharge.dismissed";
+const NOTIFY_HIDE_KEY = "rivolt.firstCharge.notifyHidden";
+const INSTALL_HIDE_KEY = "rivolt.firstCharge.installHidden";
+
+function flag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+function setFlag(key: string) {
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch {
+    /* private mode etc. - hides for this visit only */
+  }
+}
+
+// "Your first charge" (new look): once the first charge, or the first drive, is recorded, the card says what it
+// was and what to do next, for a week or until hidden. It takes the place of "Your first day", which is for the
+// time before anything is recorded.
+export default function FirstChargeCard({ vehicleID, charges, drives }: { vehicleID: string; charges: Charge[]; drives: Drive[] }) {
+  const [dismissed, setDismissed] = useState(() => flag(DISMISS_KEY));
+  const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000 });
+  const lease = useQuery({ queryKey: ["lease", "terms", vehicleID], queryFn: () => backend.leaseGet(vehicleID), staleTime: 60_000, retry: 0 });
+  if (dismissed || settings.isPending) return null;
+  const homeRate = settings.data?.home_price_per_kwh ?? 0;
+  const v = firstChargeView({ charges, drives, homeRate });
+  if (!v) return null;
+  const currency = settings.data?.home_currency || "USD";
+  const hide = () => {
+    setDismissed(true);
+    setFlag(DISMISS_KEY);
+  };
+  const rateText = (r: number) => `${formatMoney(r, currency, Math.abs(r * 100 - Math.round(r * 100)) > 1e-9 ? 3 : 2)}/kWh`;
+  const link = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500";
+  return (
+    <Card>
+      <div data-first-charge={v.state} className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            {v.state === "A" && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-100">
+                  Your first charge: {v.kwh.toFixed(1)} kWh, {formatMoney(v.cost, v.currency)}
+                </h2>
+                <p className="mt-1 text-sm text-neutral-400">
+                  {v.home
+                    ? `Priced at your home rate of ${rateText(v.rate)}. Every charge from now on is priced the same way and lands in Money.`
+                    : "Every charge from now on is priced and lands in Money."}
+                </p>
+                {v.perMile && (
+                  <p className="mt-1 text-sm text-neutral-400">
+                    That&apos;s about {formatMoney(v.perMile.cost, v.currency)}/mi over your first {Math.round(v.perMile.miles)} miles.
+                  </p>
+                )}
+              </>
+            )}
+            {v.state === "B" && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-100">Your first charge: {v.kwh.toFixed(1)} kWh</h2>
+                <p className="mt-1 text-sm text-neutral-400">Set your home rate and this charge gets a price now; later charges are priced as they arrive.</p>
+              </>
+            )}
+            {v.state === "C" && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-100">
+                  Your first drive: {v.miles.toFixed(1)} mi{v.miPerKwh ? ` at ${v.miPerKwh.toFixed(1)} mi/kWh` : ""}
+                </h2>
+                <p className="mt-1 text-sm text-neutral-400">Charges appear here as the truck is plugged in; a home rate prices them automatically.</p>
+              </>
+            )}
+          </div>
+          <button type="button" onClick={hide} className="shrink-0 text-xs text-neutral-400 hover:text-neutral-200">
+            Hide this
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {v.state === "A" && (
+            <>
+              <Link to={`/charges/${v.chargeID}`} className={link}>
+                See the receipt
+              </Link>
+              <Link to="/money" className={link}>
+                Open Money
+              </Link>
+            </>
+          )}
+          {v.state === "B" && (
+            <Link to="/settings?tab=charging#cost" className={link}>
+              Set home rate
+            </Link>
+          )}
+          {v.state === "C" && (
+            <>
+              <Link to={`/drives/${v.driveID}`} className={link}>
+                See the drive
+              </Link>
+              {homeRate <= 0 && (
+                <Link to="/settings?tab=charging#cost" className={link}>
+                  Set home rate
+                </Link>
+              )}
+            </>
+          )}
+        </div>
+        <ul className="space-y-2">
+          <NotifyRow />
+          {!lease.isPending && !lease.data && (
+            <li data-first-charge-row="lease" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2">
+              <div className="min-w-[180px] flex-1">
+                <div className="text-sm text-neutral-200">Add your lease</div>
+                <div className="text-xs text-neutral-400">Optional. Enter your allowance and term to see projected miles at lease return and the overage cost.</div>
+              </div>
+              <Link to="/settings#lease" className={link}>
+                Add lease
+              </Link>
+            </li>
+          )}
+        </ul>
+      </div>
+    </Card>
+  );
+}
+
+// "Get a notification when charging finishes": opt in on this device at the moment it is useful, from a tap. On an
+// iPhone that is not on the home screen yet, say how; where the browser offers to install the app, offer that too.
+// A row that is done, or that the user said not now to, goes away.
+function NotifyRow() {
+  const status = useQuery({ queryKey: ["push-status"], queryFn: () => backend.pushStatus(), retry: 0, staleTime: 60_000 });
+  const [state, setState] = useState<"idle" | "busy" | "on" | "blocked" | "error">(() => (pushSupported() && Notification.permission === "denied" ? "blocked" : "idle"));
+  const [subscribed, setSubscribed] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [hidden, setHidden] = useState(() => flag(NOTIFY_HIDE_KEY));
+  const [installHidden, setInstallHidden] = useState(() => flag(INSTALL_HIDE_KEY));
+  const installable = useSyncExternalStore(onInstallChange, canInstall, () => false);
+  useEffect(() => {
+    if (!pushSupported()) {
+      setChecked(true);
+      return;
+    }
+    void navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((s) => setSubscribed(!!s))
+      .catch(() => undefined)
+      .finally(() => setChecked(true));
+  }, []);
+  const row = "flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2";
+  const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
+
+  // iPhone, not on the home screen: push is not offered yet. Say how.
+  if (!pushSupported() && isIOSNotInstalled()) {
+    if (hidden) return null;
+    return (
+      <li data-first-charge-row="notify-ios" className={row}>
+        <div className="min-w-[180px] flex-1">
+          <div className="text-sm text-neutral-200">Get a notification when charging finishes</div>
+          <div className="text-xs text-neutral-400">On iPhone, add Rivolt to your home screen first (Share → Add to Home Screen), then turn this on here.</div>
+        </div>
+        <button type="button" onClick={() => { setHidden(true); setFlag(NOTIFY_HIDE_KEY); }} className="text-xs text-neutral-400 hover:text-neutral-200">
+          Not now
+        </button>
+      </li>
+    );
+  }
+  if (!pushSupported() || !status.data?.enabled) {
+    // No push here, but a browser that can install the app still gets that offer.
+    return installable && !installHidden ? <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} /> : null;
+  }
+  const on = state === "on" || (subscribed && state !== "blocked");
+  if (on || (hidden && !installable)) return installable && !installHidden && !on ? <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} /> : null;
+  async function turnOn() {
+    setState("busy");
+    try {
+      // Only charging-complete goes on, and a device that is already subscribed keeps the choices it has.
+      const prefs: PushPreferences = { on_charging_done: true, on_plug_in_reminder: false, on_anomaly: false, on_software_update: false, on_milestones: false };
+      const r = await subscribeThisDevice(prefs, { leaveExisting: true });
+      setState(r === "on" ? "on" : "blocked");
+    } catch {
+      setState("error");
+    }
+  }
+  return (
+    <>
+      {!hidden && (
+        <li data-first-charge-row="notify" className={row}>
+          <div className="min-w-[180px] flex-1">
+            <div className="text-sm text-neutral-200">Get a notification when charging finishes</div>
+            {state === "blocked" && <div className="text-xs text-neutral-400">Notifications are blocked in this browser. You can allow them in the browser&apos;s site settings.</div>}
+            {state === "error" && <div role="alert" className="text-xs text-rose-400">Couldn&apos;t turn that on. Try again in a moment.</div>}
+          </div>
+          {state !== "blocked" && (
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => { setHidden(true); setFlag(NOTIFY_HIDE_KEY); }} className="text-xs text-neutral-400 hover:text-neutral-200">
+                Not now
+              </button>
+              <button type="button" onClick={turnOn} disabled={state === "busy" || !checked} className={btn}>
+                Turn on
+              </button>
+            </div>
+          )}
+        </li>
+      )}
+      {installable && !installHidden && <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} />}
+    </>
+  );
+}
+
+function InstallRow({ row, btn, onNotNow }: { row: string; btn: string; onNotNow: () => void }) {
+  return (
+    <li data-first-charge-row="install" className={row}>
+      <div className="min-w-[180px] flex-1 text-sm text-neutral-200">Add Rivolt to your home screen</div>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={onNotNow} className="text-xs text-neutral-400 hover:text-neutral-200">
+          Not now
+        </button>
+        <button type="button" onClick={() => void promptInstall()} className={btn}>
+          Install
+        </button>
+      </div>
+    </li>
+  );
+}
