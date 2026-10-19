@@ -1,3 +1,4 @@
+import { drivesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -48,10 +49,7 @@ export default function DriveDetailPage() {
     setViewWindow(null);
     setCursorMs(null);
   }, [id]);
-  const drives = useQuery({
-    queryKey: ["drives", "all"],
-    queryFn: () => backend.allDrives(),
-  });
+  const drives = useQuery(drivesAllQuery());
 
   // The drives list collapses A→B / B→A pairs into a single round-trip
   // row, but the row's link points at the first leg's ID. Apply the

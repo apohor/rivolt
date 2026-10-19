@@ -1,3 +1,4 @@
+import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } from "../lib/ledger";
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
@@ -59,14 +60,8 @@ export default function HomePage() {
     roundTripMaxGapMinutes,
   } = usePreferences();
 
-  const drives = useQuery({
-    queryKey: ["drives", "all"],
-    queryFn: () => backend.allDrives(),
-  });
-  const charges = useQuery({
-    queryKey: ["charges", "all"],
-    queryFn: () => backend.allCharges(),
-  });
+  const drives = useQuery(drivesAllQuery());
+  const charges = useQuery(chargesAllQuery());
 
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);

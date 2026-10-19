@@ -1,3 +1,4 @@
+import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { filterByRange, periodRange, usePeriod } from "../lib/period";
@@ -58,8 +59,8 @@ export default function ActivityPage() {
   // The All map shows one layer at a time (Drives or Charges), not two stacked maps.
   const [mapLayer, setMapLayer] = useState<"drives" | "charges">("drives");
 
-  const drivesQ = useQuery({ queryKey: ["drives", "all"], queryFn: () => backend.allDrives() });
-  const chargesQ = useQuery({ queryKey: ["charges", "all"], queryFn: () => backend.allCharges() });
+  const drivesQ = useQuery(drivesAllQuery());
+  const chargesQ = useQuery(chargesAllQuery());
   const homeQ = useQuery({
     queryKey: ["settings", "home-location"],
     queryFn: () => backend.homeLocationGet(),

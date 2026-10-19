@@ -1,3 +1,4 @@
+import { chargesAllQuery } from "../lib/activityLists";
 import { useUiNext } from "../lib/uiNext";
 import { appPath, inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -100,12 +101,7 @@ export default function MoneyPage() {
   const toConfirmN = summaryQ.data?.data.to_confirm_count ?? null;
   // The "To confirm" view spans every month, so it comes from the charge
   // list (the Money month only carries its own receipts).
-  const chargesQ = useQuery({
-    queryKey: ["charges", "all"],
-    queryFn: () => backend.allCharges(),
-    enabled: (toConfirmN ?? 0) > 0,
-    staleTime: 60_000,
-  });
+  const chargesQ = useQuery({ ...chargesAllQuery(), enabled: (toConfirmN ?? 0) > 0 });
   const confirmCharges = (chargesQ.data ?? []).filter((c) => isOpenNetworkState(c.network_state));
 
   const m = monthQ.data?.data;

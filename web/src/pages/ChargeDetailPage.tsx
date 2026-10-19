@@ -1,3 +1,4 @@
+import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
@@ -115,10 +116,7 @@ export default function ChargeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const charges = useQuery({
-    queryKey: ["charges", "all"],
-    queryFn: () => backend.allCharges(),
-  });
+  const charges = useQuery(chargesAllQuery());
 
   const charge = useMemo(
     () => charges.data?.find((c) => c.ID === id),
