@@ -2126,6 +2126,11 @@ func runServer() {
 			logger.Error("telemetry archive reader", "err", err.Error())
 			os.Exit(1)
 		}
+		rd.OnCorrupt = func(uid, vid uuid.UUID, month time.Time, err error) {
+			appMetrics.ArchiveReadCorruptTotal.Inc()
+			logger.Error("telemetry archive: object failed to read back", "user_id", uid.String(), "vehicle_id", vid.String(),
+				"month", archive.MonthString(month), "err", err.Error())
+		}
 		archiveRows = rd
 	}
 	handler := api.New(api.Deps{

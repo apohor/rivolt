@@ -99,6 +99,8 @@ func TestBackupFromArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	corrupt := 0
+	reader.OnCorrupt = func(uuid.UUID, uuid.UUID, time.Time, error) { corrupt++ }
 	collect := func() (map[string]int, []string, error) {
 		got := map[string]int{}
 		reduced, err := store.EachAllArchived(ctx, reader, func(v samples.Sample) error {
@@ -133,7 +135,21 @@ func TestBackupFromArchive(t *testing.T) {
 		t.Fatalf("with late rows: %v, reduced %v", got, reduced)
 	}
 
-	// The object corrupted in the store: the backup fails rather than ending short.
+	// The object marked for re-archiving (as a writer does when rows land in an
+	// archived month) is still used: object plus the rows it lacks (DA on A4).
+	if _, err := pool.ExecContext(ctx, `UPDATE archive_months SET needs_rearchive = true WHERE vehicle_id = $1`, v1); err != nil {
+		t.Fatal(err)
+	}
+	got, reduced, err = collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[key("RV-A", thinM)] != 3601 || len(reduced) != 1 {
+		t.Fatalf("with needs_rearchive: %v, reduced %v; want the object still used", got, reduced)
+	}
+
+	// The object corrupted in the store: the backup fails rather than ending
+	// short, and the corruption is reported (full detail lost: an alert).
 	obj := archive.ObjectKey("test", uid, v1, thin)
 	body, err := bucket.Get(ctx, obj)
 	if err != nil {
@@ -149,6 +165,9 @@ func TestBackupFromArchive(t *testing.T) {
 	}
 	if _, _, err := collect(); err == nil {
 		t.Error("a corrupt archive object didn't fail the backup")
+	}
+	if corrupt != 1 {
+		t.Errorf("OnCorrupt called %d times, want 1", corrupt)
 	}
 
 	// The archive off: the database alone, as before.

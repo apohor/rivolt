@@ -23,6 +23,10 @@ type Reader struct {
 	store  *s3.Client
 	sealer crypto.Sealer
 	env    string
+	// OnCorrupt, when set, is told about an object that exists but fails to
+	// read back: corrupt, truncated, or not this user's. For a thinned month
+	// that is the full-resolution data lost, so the caller counts and alerts.
+	OnCorrupt func(uid, vehicleID uuid.UUID, month time.Time, err error)
 }
 
 // NewReader refuses to run without a real KEK, like the archiver.
@@ -44,8 +48,9 @@ func NewReader(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Reader, error) {
 	}, nil
 }
 
-// ObjectRef is one readable object: verified, and not waiting to be
-// re-archived (so it holds every row of its month that was ever archived).
+// ObjectRef is one readable object: verified. One waiting to be re-archived
+// (needs_rearchive) still holds every row it was written with; the rows that
+// came since are in the database, and readers take the union.
 type ObjectRef struct {
 	VehicleID uuid.UUID
 	Month     time.Time
@@ -56,7 +61,7 @@ type ObjectRef struct {
 func (r *Reader) Objects(ctx context.Context, uid uuid.UUID) ([]ObjectRef, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT vehicle_id, month, rows FROM archive_months
-		 WHERE user_id = $1 AND verified_at IS NOT NULL AND NOT needs_rearchive
+		 WHERE user_id = $1 AND verified_at IS NOT NULL
 		 ORDER BY month, vehicle_id`, uid)
 	if err != nil {
 		return nil, err
@@ -106,6 +111,22 @@ func (r Row) Get(name string) (string, bool) {
 // the caller must fail as a whole. A missing object is s3.ErrNotFound before
 // any row.
 func (r *Reader) EachRow(ctx context.Context, uid, vehicleID uuid.UUID, month time.Time, fn func(Row) error) error {
+	err := r.eachRow(ctx, uid, vehicleID, month, fn)
+	if err != nil && r.OnCorrupt != nil && corrupt(err) {
+		r.OnCorrupt(uid, vehicleID, month, err)
+	}
+	return err
+}
+
+// corrupt reports whether err is the object's fault rather than the store's,
+// the network's or the caller's.
+func corrupt(err error) bool {
+	var ce *csv.ParseError
+	return errors.Is(err, ErrCorrupt) || errors.Is(err, ErrMismatch) || errors.Is(err, gzip.ErrHeader) ||
+		errors.Is(err, gzip.ErrChecksum) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &ce)
+}
+
+func (r *Reader) eachRow(ctx context.Context, uid, vehicleID uuid.UUID, month time.Time, fn func(Row) error) error {
 	key, err := openKey(ctx, r.db, r.sealer, uid)
 	if err != nil {
 		return err

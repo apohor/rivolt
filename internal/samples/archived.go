@@ -23,9 +23,11 @@ type ArchiveRows interface {
 
 // EachAllArchived is EachAll with full detail for thinned months (N19): a
 // month thinning has reduced is read from the user's archive objects, plus
-// any of the month's rows in Postgres an object lacks. A thinned month with a
-// vehicle that has no readable object falls back to the reduced rows in
-// Postgres and is returned in reduced ("2026-05"), for the backup to say so.
+// any of the month's rows in Postgres an object lacks (rows that came after
+// it was archived, needs_rearchive or not). A thinned month with a vehicle
+// that has no object, or whose object is missing from the store, falls back
+// to the reduced rows in Postgres and is returned in reduced ("2026-05"),
+// for the backup to say so.
 // Months go oldest first; inside a thinned month, vehicle by vehicle, each by
 // at. With src nil it is EachAll.
 //
