@@ -52,9 +52,9 @@ func ManifestKey(env string, uid, vehicleID uuid.UUID, month time.Time) string {
 
 // Manifest describes one object.
 type Manifest struct {
-	Schema       string    `json:"schema"`
-	Columns      []string  `json:"columns"`
-	Rows int64 `json:"rows"`
+	Schema  string   `json:"schema"`
+	Columns []string `json:"columns"`
+	Rows    int64    `json:"rows"`
 	// FirstAt and LastAt are checked at verify and recorded in archive_months,
 	// but not written to the plaintext manifest: after a crypto-shred the
 	// manifest lingers until the deletion job runs, and should say nothing
