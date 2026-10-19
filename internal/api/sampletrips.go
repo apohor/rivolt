@@ -189,18 +189,12 @@ var tmplFuncs = template.FuncMap{
 	"kw":    func(f float64) string { return fmt.Sprintf("%.0f kW", f) },
 	"kwh":   func(f float64) string { return fmt.Sprintf("%.1f kWh", f) },
 	"hm":    durationHM,
-	"clock": func(t time.Time) string { return t.In(tripZone).Format("Mon 3:04 PM MST") },
+	// Times of day only: the presets have fixed dates, which would read as
+	// stale on an evergreen page.
+	"clock": func(t time.Time) string { return t.In(demo.TripZone()).Format("3:04 PM") },
 	"h1":    func(title string) string { return strings.TrimSuffix(title, " | Rivolt") },
 	"path":  func(slug string) string { return pathSampleTrips + "/" + slug },
 }
-
-// tripZone is where every sample trip happens (California, Nevada).
-var tripZone = func() *time.Location {
-	if l, err := time.LoadLocation("America/Los_Angeles"); err == nil {
-		return l
-	}
-	return time.FixedZone("PT", -8*3600)
-}()
 
 func durationHM(min float64) string {
 	m := int(math.Round(min))
@@ -235,7 +229,7 @@ var tripTemplate = template.Must(template.New("trip").Funcs(tmplFuncs).Parse(`<a
 <tr><td>Depart {{.From}}</td><td></td><td></td><td>{{clock .DepartAt}}</td><td></td><td></td></tr>
 {{range .Stops}}<tr><td>{{.Name}}</td><td>{{.Network}}</td><td>{{pct .ArriveSoC}}</td><td>{{pct .DepartSoC}}</td><td>{{hm .ChargeMin}}{{if .MaxKW}} (up to {{kw .MaxKW}}){{end}}</td><td>{{usd .CostEst}}</td></tr>
 {{end}}<tr><td>Arrive {{.To}}</td><td></td><td>{{pct .ArrivalSoC}}</td><td>{{clock .ArriveAt}}</td><td></td><td></td></tr>
-{{with .Overnight}}<tr><td>Overnight at {{.Name}}</td><td>Level 2</td><td></td><td>{{pct .SoCAfter}}</td><td>{{printf "%.0f h" .ParkedHours}} parked, {{kw .L2KW}}</td><td>adds {{kwh .AddedKWh}}</td></tr>
+{{with .Overnight}}<tr><td>Hotel stay at {{.Name}}, {{.Nights}} night{{if ne .Nights 1}}s{{end}}</td><td>Level 2</td><td></td><td>{{pct .SoCAfter}}</td><td>{{printf "%.0f h" .ParkedHours}} parked, {{kw .L2KW}}</td><td>adds {{kwh .AddedKWh}}</td></tr>
 {{end}}</tbody>
 </table>
 <p>{{mi .DistanceMi}}, {{hm .DriveMin}} driving.</p>
@@ -305,7 +299,7 @@ func tripMarkdown(t demo.SampleTrip, canon string) string {
 			fmt.Fprintf(&b, "| %s | %s | %.0f%% | %.0f%% | %s | $%.2f |\n", s.Name, s.Network, s.ArriveSoC, s.DepartSoC, durationHM(s.ChargeMin), s.CostEst)
 		}
 		if o := d.Overnight; o != nil {
-			fmt.Fprintf(&b, "| Overnight at %s | Level 2 | | %.0f%% | %.0f h parked, %.0f kW | adds %.1f kWh |\n", o.Name, o.SoCAfter, o.ParkedHours, o.L2KW, o.AddedKWh)
+			fmt.Fprintf(&b, "| Hotel stay at %s, %d night(s) | Level 2 | | %.0f%% | %.0f h parked, %.0f kW | adds %.1f kWh |\n", o.Name, o.Nights, o.SoCAfter, o.ParkedHours, o.L2KW, o.AddedKWh)
 		}
 		fmt.Fprintf(&b, "\n%.0f mi, %s driving, arriving at %.0f%%.\n\n", d.DistanceMi, durationHM(d.DriveMin), d.ArrivalSoC)
 	}

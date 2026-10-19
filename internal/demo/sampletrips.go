@@ -123,7 +123,10 @@ type SampleTripStop struct {
 
 // SampleTripOvernight is a slow charge where the trip stops for the night.
 type SampleTripOvernight struct {
-	Name        string  `json:"name"`
+	Name string `json:"name"`
+	// Nights is how many nights the stop spans (local dates between arriving
+	// and leaving): the Las Vegas preset arrives Saturday and leaves Monday.
+	Nights      int     `json:"nights"`
 	ParkedHours float64 `json:"parked_hours"`
 	L2KW        float64 `json:"l2_kw"`
 	AddedKWh    float64 `json:"added_kwh"`
@@ -257,6 +260,11 @@ func buildSampleTrip(page SampleTripPage, indexPolyline string) (SampleTrip, err
 			if d.Overnight != nil {
 				day.Overnight = &SampleTripOvernight{Name: d.Overnight.Name, ParkedHours: d.Overnight.ParkedHours,
 					L2KW: d.Overnight.L2KW, AddedKWh: d.Overnight.AddedKWh, SoCAfter: d.Overnight.PostSoC}
+			}
+			if day.Overnight != nil && i+1 < len(m.Days) {
+				if next, ok := firstDepart(m.Days[i+1].Plan); ok {
+					day.Overnight.Nights = nightsBetween(day.ArriveAt, next)
+				}
 			}
 			t.Days = append(t.Days, day)
 			pts, err := decodeRoute6(route.RoutePolyline)
@@ -392,4 +400,31 @@ func decodeRoute6(s string) ([][2]float64, error) {
 		out = append(out, [2]float64{float64(lat) / 1e6, float64(lon) / 1e6})
 	}
 	return out, nil
+}
+
+// tripZone is where the sample trips happen (California, Nevada).
+var tripZone = func() *time.Location {
+	if l, err := time.LoadLocation("America/Los_Angeles"); err == nil {
+		return l
+	}
+	return time.FixedZone("PT", -8*3600)
+}()
+
+// TripZone is the zone the sample trips' times are shown in.
+func TripZone() *time.Location { return tripZone }
+
+func firstDepart(p singlePlan) (time.Time, bool) {
+	if len(p.Routes) == 0 || len(p.Routes[0].Waypoints) == 0 {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, p.Routes[0].Waypoints[0].DepartureTimeUTC)
+	return t, err == nil
+}
+
+// nightsBetween counts the local dates passed from arriving to leaving.
+func nightsBetween(arrive, leave time.Time) int {
+	a, l := arrive.In(tripZone), leave.In(tripZone)
+	da := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
+	dl := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, time.UTC)
+	return int(dl.Sub(da).Hours() / 24)
 }
