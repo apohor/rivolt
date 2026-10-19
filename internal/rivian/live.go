@@ -489,7 +489,7 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 		return out, nil
 	}
 	var ue *UpstreamError
-	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !IsAuthFlavoredReason(ue.Reason) {
+	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !marksReauth(req.OperationName, ue.Reason) {
 		// Not an auth-heal candidate. The deferred mark was withheld,
 		// but non-auth errors never mark anyway, so nothing to undo.
 		return out, err
@@ -712,7 +712,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 	if err != nil {
 		class, reason := ClassifyNetwork(err)
 		ue := &UpstreamError{Class: class, Op: req.OperationName, Reason: reason, Cause: err}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
+		if class == ClassUserAction && marksReauth(req.OperationName, reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -738,7 +738,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:     reason,
 			Cause:      fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256)),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
+		if class == ClassUserAction && marksReauth(req.OperationName, reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -767,7 +767,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:  reason,
 			Cause:   fmt.Errorf("%s", strings.Join(msgs, "; ")),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
+		if class == ClassUserAction && marksReauth(req.OperationName, reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
