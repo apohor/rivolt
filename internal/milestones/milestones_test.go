@@ -185,7 +185,7 @@ type fakeStore struct {
 	ready     bool
 	rows      map[string]Row
 	veh       VehicleRef
-	sent      map[string]bool // key -> its push went out (engagement_sends 'sent')
+	sent      map[string]bool // key -> its push went out (an engagement_sends row exists)
 	dismissed map[string]bool
 }
 

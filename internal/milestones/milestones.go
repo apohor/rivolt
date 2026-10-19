@@ -270,8 +270,8 @@ type Store interface {
 	// charge since the given time (the zero time: all).
 	Vehicles(ctx context.Context, active time.Time) ([]VehicleRef, error)
 	// PendingPush lists achieved, undismissed milestones achieved since the
-	// cutoff whose push was never sent (no engagement_sends row with status
-	// 'sent' for their claim key), oldest first.
+	// cutoff whose push was never claimed (no engagement_sends row for their
+	// claim key, whatever its status), oldest first.
 	PendingPush(ctx context.Context, since time.Time) ([]Row, error)
 }
 

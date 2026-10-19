@@ -94,7 +94,10 @@ func nullTime(t time.Time) any {
 
 // PendingPush: see Store. The claim key is the one the push is sent under
 // (milestone:<key>:<vehicle id>), so "pushed" is read from engagement_sends and
-// nothing new is stored.
+// nothing new is stored. Pending means no engagement_sends row at all: engage
+// leaves no row for a refused send, and never re-sends a claimed key (sent,
+// failed or stuck), so a failed push must not hold the account's one re-offer
+// slot.
 func (s *pgStore) PendingPush(ctx context.Context, since time.Time) ([]Row, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.user_id, m.vehicle_id, v.rivian_vehicle_id, m.key, m.achieved_at, m.detail
@@ -105,8 +108,7 @@ func (s *pgStore) PendingPush(ctx context.Context, since time.Time) ([]Row, erro
 		   AND NOT EXISTS (
 		       SELECT 1 FROM engagement_sends e
 		        WHERE e.user_id = m.user_id AND e.kind = 'milestone'
-		          AND e.key = 'milestone:' || m.key || ':' || m.vehicle_id::text
-		          AND e.status = 'sent')
+		          AND e.key = 'milestone:' || m.key || ':' || m.vehicle_id::text)
 		 ORDER BY m.achieved_at`, since.UTC())
 	if err != nil {
 		return nil, err
