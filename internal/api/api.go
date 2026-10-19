@@ -429,13 +429,17 @@ func New(d Deps) http.Handler {
 				// leave a half-broken flow, so guard on both.
 				if d.Hydra != nil && d.Hydra.Enabled() &&
 					d.Kratos != nil && d.Kratos.Enabled() {
+					failures := newFailLimiter(10, 15*time.Minute)
+					if d.Metrics != nil {
+						failures.onLockout = d.Metrics.LoginLockoutsTotal.Inc
+					}
 					hd := hydraDeps{
 						Hydra:       d.Hydra,
 						Kratos:      d.Kratos,
 						Logger:      d.Logger,
 						RememberFor: d.HydraRememberFor,
 						// 10 wrong passwords per address per 15 minutes, from anywhere.
-						Failures: newFailLimiter(10, 15*time.Minute),
+						Failures: failures,
 					}
 					mountHydraBridge(r, hd)
 				}

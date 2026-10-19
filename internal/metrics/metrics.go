@@ -129,6 +129,10 @@ type Metrics struct {
 	// stale_charge). Nonzero means drives or charges are being lost or left
 	// stale, typically a database outage.
 	RecorderWriteFailuresTotal *prometheus.CounterVec
+	// Sign-in lockouts: an email address reached the failed-login limit and is
+	// refused for the rest of the window. No labels, so no address is recorded.
+	// A burst is a guessing or targeted-lockout campaign.
+	LoginLockoutsTotal prometheus.Counter
 
 	// Non-transactional messages (internal/engage), by kind and outcome (sent,
 	// failed, already_sent, skipped_*). No user ids in labels.
@@ -250,6 +254,10 @@ func New() *Metrics {
 			},
 			[]string{"kind"},
 		),
+		LoginLockoutsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_login_lockouts_total",
+			Help: "Times an email address reached the failed-login limit and was locked out.",
+		}),
 		EngagementSendsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_engagement_sends_total",
@@ -315,6 +323,7 @@ func New() *Metrics {
 		m.EmailSendTotal,
 		m.DemoClientKeyTotal,
 		m.DemoRateLimitedTotal,
+		m.LoginLockoutsTotal,
 		m.EngagementSendsTotal,
 		m.RecorderWriteFailuresTotal,
 		m.EngagementStuckSending,

@@ -235,3 +235,28 @@ func TestHydraLoginLimitsFailuresPerEmail(t *testing.T) {
 		t.Errorf("key %q", k)
 	}
 }
+
+func TestFailLimiterCountsEachLockoutOnce(t *testing.T) {
+	t.Parallel()
+	l := newFailLimiter(3, time.Minute)
+	n := 0
+	l.onLockout = func() { n++ }
+	for i := 0; i < 3; i++ {
+		l.fail("a")
+	}
+	if n != 1 {
+		t.Fatalf("lockouts after reaching the limit = %d, want 1", n)
+	}
+	l.fail("b")
+	l.fail("b")
+	if n != 1 {
+		t.Fatalf("below the limit counted: %d", n)
+	}
+	l.reset("a")
+	for i := 0; i < 3; i++ {
+		l.fail("a")
+	}
+	if n != 2 {
+		t.Fatalf("a second lockout of the same key = %d, want 2", n)
+	}
+}
