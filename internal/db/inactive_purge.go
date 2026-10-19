@@ -58,6 +58,20 @@ const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE AND u.email_veri
 const unwarnableScope = `u.role <> 'admin' AND u.disabled = FALSE
 	AND (NOT u.email_verified OR COALESCE(u.email, '') = '') AND NOT ` + rivianConnected
 
+// UnwarnablePolicyStart is when the privacy policy line that deletes unwarnable
+// accounts at day 120 without a warning takes effect (the deploy date of the
+// policy text). Accounts that signed up under the earlier text were promised a
+// warning, so their 120 days count from the later of signup and this date.
+// Keep it equal to the "Last updated" date of the privacy page that carries the
+// line. A var only so tests can move it.
+var UnwarnablePolicyStart = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+
+// unwarnableClock is the SQL for the age of an unwarnable account, with the
+// policy start as the given parameter.
+func unwarnableClock(param string) string {
+	return `GREATEST(u.created_at, ` + param + `::timestamptz)`
+}
+
 // CancelInactiveWarnings clears the warning of accounts that connected Rivian
 // (a vehicle or a stored session) since it was sent, so the record doesn't
 // linger. It returns how many
@@ -219,9 +233,9 @@ func ListUnwarnableDeleteDue(ctx context.Context, d *sql.DB, limit int) ([]uuid.
 	rows, err := d.QueryContext(ctx, `
 		SELECT u.id FROM users u
 		 WHERE `+unwarnableScope+`
-		   AND `+inactiveClock+` <= now() - $1::interval
-		 ORDER BY `+inactiveClock+`
-		 LIMIT $2`, pgInterval(InactiveDeleteAfter), limit)
+		   AND `+unwarnableClock("$2")+` <= now() - $1::interval
+		 ORDER BY `+unwarnableClock("$2")+`
+		 LIMIT $3`, pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -255,8 +269,8 @@ func DeleteUnwarnableAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) (use
 	err = tx.QueryRowContext(ctx, `
 		SELECT u.username FROM users u
 		 WHERE u.id = $1 AND `+unwarnableScope+`
-		   AND `+inactiveClock+` <= now() - $2::interval
-		 FOR UPDATE OF u`, uid, pgInterval(InactiveDeleteAfter)).Scan(&name)
+		   AND `+unwarnableClock("$3")+` <= now() - $2::interval
+		 FOR UPDATE OF u`, uid, pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart).Scan(&name)
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}
@@ -276,7 +290,7 @@ func DeleteUnwarnableAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) (use
 // deletion. A count only.
 func CountUnwarnableDue(ctx context.Context, d *sql.DB) (n int, err error) {
 	err = d.QueryRowContext(ctx, `
-		SELECT count(*) FROM users u WHERE `+unwarnableScope+` AND `+inactiveClock+` <= now() - $1::interval`,
-		pgInterval(InactiveDeleteAfter)).Scan(&n)
+		SELECT count(*) FROM users u WHERE `+unwarnableScope+` AND `+unwarnableClock("$2")+` <= now() - $1::interval`,
+		pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart).Scan(&n)
 	return
 }

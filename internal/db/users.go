@@ -86,11 +86,11 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		            THEN GREATEST(u.created_at + $1::interval,
 		                          COALESCE(u.inactive_warned_at, GREATEST(u.created_at + $2::interval, now())) + $3::interval)
 		            -- no verified address to warn: deleted at day 120, no warning
-		            WHEN `+unwarnableScope+` THEN u.created_at + $1::interval
+		            WHEN `+unwarnableScope+` THEN `+unwarnableClock("$4")+` + $1::interval
 		       END
 		FROM users u
 		ORDER BY u.created_at ASC
-	`, pgInterval(InactiveDeleteAfter), pgInterval(InactiveWarnAfter), pgInterval(InactiveWarnGrace))
+	`, pgInterval(InactiveDeleteAfter), pgInterval(InactiveWarnAfter), pgInterval(InactiveWarnGrace), UnwarnablePolicyStart)
 	if err != nil {
 		return nil, fmt.Errorf("list users for admin: %w", err)
 	}

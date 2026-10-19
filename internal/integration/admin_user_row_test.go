@@ -89,6 +89,9 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 		return id
 	}
 	day := 24 * time.Hour
+	oldStart := db.UnwarnablePolicyStart
+	db.UnwarnablePolicyStart = time.Unix(0, 0) // policy long in force: the clock is signup
+	t.Cleanup(func() { db.UnwarnablePolicyStart = oldStart })
 	warned := mk("warned", "warned@x.test", "user", 100*day, 5*day, false)  // max(+20d, +25d)
 	young := mk("young", "young@x.test", "user", 10*day, 0, false)          // max(+110d, now+30d) = +110d
 	old := mk("old", "old@x.test", "user", 200*day, 0, false)               // warns on the next run: now+30d

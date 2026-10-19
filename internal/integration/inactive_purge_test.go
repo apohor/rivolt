@@ -239,6 +239,10 @@ func TestUnwarnableAccountPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 	day := 24 * time.Hour
+	// The policy is already in force for this test (see TestUnwarnableGrandfathered).
+	old := db.UnwarnablePolicyStart
+	db.UnwarnablePolicyStart = time.Unix(0, 0)
+	t.Cleanup(func() { db.UnwarnablePolicyStart = old })
 	mk := func(name, mail string, verified bool, age time.Duration) uuid.UUID {
 		t.Helper()
 		id, err := db.EnsureUserFull(ctx, pool, name, mail, name)
@@ -320,5 +324,63 @@ func TestUnwarnableAccountPurge(t *testing.T) {
 		if _, ok, _ := db.DeleteUnwarnableAccount(ctx, pool, id); ok {
 			t.Errorf("%s was deleted by the unwarnable arm", name)
 		}
+	}
+}
+
+// Accounts that signed up under the earlier privacy text were promised a warning,
+// so the no-warning deletion counts its 120 days from the later of signup and the
+// day the new text took effect.
+func TestUnwarnableGrandfathered(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	day := 24 * time.Hour
+	oldStart := db.UnwarnablePolicyStart
+	t.Cleanup(func() { db.UnwarnablePolicyStart = oldStart })
+	id, err := db.EnsureUserFull(ctx, pool, "gf", "gf@example.com", "gf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '200 days', email_verified = FALSE WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	purgeAt := func() time.Time {
+		rows, err := db.ListUsersForAdmin(ctx, pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rows {
+			if r.ID == id {
+				if r.PurgeAt == nil {
+					t.Fatal("no purge_at")
+				}
+				return *r.PurgeAt
+			}
+		}
+		t.Fatal("user not listed")
+		return time.Time{}
+	}
+	// Policy took effect 10 days ago: 200 days old, but the clock starts 10 days ago.
+	db.UnwarnablePolicyStart = time.Now().Add(-10 * day)
+	if ids, err := db.ListUnwarnableDeleteDue(ctx, pool, 10); err != nil || len(ids) != 0 {
+		t.Fatalf("due = %v (err %v), want none: 10 days into the grace", ids, err)
+	}
+	if n, _ := db.CountUnwarnableDue(ctx, pool); n != 0 {
+		t.Errorf("dry-run count = %d, want 0", n)
+	}
+	if _, ok, _ := db.DeleteUnwarnableAccount(ctx, pool, id); ok {
+		t.Fatal("deleted before policy start + 120 days")
+	}
+	if d := time.Until(purgeAt()) - 110*day; d > time.Minute || d < -time.Minute {
+		t.Errorf("purge_at = %v from now, want about 110 days", time.Until(purgeAt()))
+	}
+	// Policy took effect 121 days ago: due.
+	db.UnwarnablePolicyStart = time.Now().Add(-121 * day)
+	if ids, err := db.ListUnwarnableDeleteDue(ctx, pool, 10); err != nil || len(ids) != 1 {
+		t.Fatalf("due = %v (err %v), want the account", ids, err)
 	}
 }
