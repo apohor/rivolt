@@ -1,0 +1,31 @@
+{
+  "hub": {
+    "title": "Sample Rivian road trips, planned | Rivolt",
+    "description": "Three real road trips planned in Rivolt for a Rivian, with charging stops, arrival charge and cost estimates. No sign-in.",
+    "intro": "Three sample road trips planned with Rivolt's trip planner on real roads: where to charge, how long it takes and what it costs. They use a generated sample truck, not anyone's data."
+  },
+  "trips": [
+    {
+      "slug": "la-las-vegas-two-days",
+      "preset": "919ca13a-123f-5423-994d-12d7ccd31319",
+      "map_presets": ["7041ba4f-947f-50d3-882d-e5f5f9d08b82", "5d929483-6bf5-52b2-903d-672064da254a"],
+      "title": "Los Angeles to Las Vegas in a Rivian, over two days | Rivolt",
+      "description": "A two-day Rivian trip from Pasadena to Las Vegas and back, with a hotel Level 2 charging night, charging stops and cost estimates.",
+      "intro": "A weekend trip from Pasadena to Las Vegas and back, planned in two days: a fast-charging stop on the way out, a night on a hotel Level 2 charger, and one more stop on the way home."
+    },
+    {
+      "slug": "pasadena-san-francisco",
+      "preset": "san-francisco",
+      "title": "Pasadena to San Francisco in a Rivian: charging stops | Rivolt",
+      "description": "A long I-5 Rivian trip from Pasadena to San Francisco: where to fast charge, how long it takes and what it costs.",
+      "intro": "The long drive north on I-5, planned for a Rivian: where to stop, how much to charge and what you arrive with."
+    },
+    {
+      "slug": "la-mammoth-lakes",
+      "preset": "mammoth",
+      "title": "Los Angeles to Mammoth Lakes in a Rivian: elevation and range | Rivolt",
+      "description": "A Rivian trip from Los Angeles to Mammoth Lakes, with a climb over 8,000 feet, a charging stop and cost estimates.",
+      "intro": "A mountain trip up US-395 to Mammoth Lakes: the climb costs range, so the plan shows where to charge and what you arrive with."
+    }
+  ]
+}

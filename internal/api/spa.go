@@ -30,8 +30,16 @@ func spaHandler(fsys fs.FS) http.Handler {
 	// indexable host the head is rewritten (see seo.go); every other
 	// route, and every other host, is marked noindex.
 	shell := func(w http.ResponseWriter, r *http.Request) {
-		noCacheIndex(w)
 		host := requestHost(r)
+		// The sample-trip pages are pre-rendered and publicly cacheable, so they
+		// take over before the shell's no-cache headers are set.
+		if host == hostApp && isSampleTripPath(r.URL.Path) && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			if b, err := fs.ReadFile(fsys, "index.html"); err == nil {
+				serveSampleTrip(w, r, b)
+				return
+			}
+		}
+		noCacheIndex(w)
 		page, canon, ok := seoLookup(host, r.URL.Path)
 		if !ok {
 			w.Header().Set("X-Robots-Tag", "noindex")

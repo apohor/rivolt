@@ -167,6 +167,13 @@ func llmsTxt(host string) (string, bool) {
 	if _, ok := pages[pathChangelog]; ok {
 		b.WriteString("- [What's new](" + base + pathChangelog + "): release notes, with an Atom feed at " + base + "/changelog.atom\n")
 	}
+	if host == hostApp {
+		for _, p := range sampleTripPaths() {
+			if title, desc, ok := sampleTripInfo(p); ok {
+				b.WriteString("- [" + title + "](" + base + p + "): " + desc + "\n")
+			}
+		}
+	}
 	b.WriteString("\n## Source\n\n")
 	b.WriteString("- [GitHub](" + repoURL + "): source code and self-hosting\n")
 	b.WriteString("- [Sign-up and import guide](" + repoURL + "/blob/main/docs/SIGNUP.md)\n\n")
@@ -262,7 +269,11 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range []string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi, pathChangelog} {
+	paths := []string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi, pathChangelog}
+	if host == hostApp {
+		paths = append(paths, sampleTripPaths()...)
+	}
+	for _, p := range paths {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}
