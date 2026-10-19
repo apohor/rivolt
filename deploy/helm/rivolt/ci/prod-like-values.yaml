@@ -39,6 +39,8 @@ cnpg:
     - name: reporting_ro
       bypassrls: true
       connectionLimit: 5
+      inRoles:
+        - pg_read_all_stats
       passwordSecret:
         name: pg-reporting-ro-password
 extraEnvFrom:
