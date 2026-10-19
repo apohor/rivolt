@@ -101,19 +101,17 @@ func TestArchiveRearchive(t *testing.T) {
 	}
 
 	type state struct {
-		rows      int64
-		needs     bool
-		requested bool
+		rows  int64
+		needs bool
+		gen   int64
 	}
 	monthState := func(m time.Time) state {
 		t.Helper()
 		var s state
-		var req *time.Time
-		if err := pool.QueryRowContext(ctx, `SELECT rows, needs_rearchive, rearchive_requested_at FROM archive_months
-			WHERE user_id = $1 AND vehicle_id = $2 AND month = $3::date`, uid, vid, m).Scan(&s.rows, &s.needs, &req); err != nil {
+		if err := pool.QueryRowContext(ctx, `SELECT rows, needs_rearchive, rearchive_gen FROM archive_months
+			WHERE user_id = $1 AND vehicle_id = $2 AND month = $3::date`, uid, vid, m).Scan(&s.rows, &s.needs, &s.gen); err != nil {
 			t.Fatal(err)
 		}
-		s.requested = req != nil
 		return s
 	}
 	objectRows := func(m time.Time) (n int, sources map[string]bool) {
@@ -140,10 +138,10 @@ func TestArchiveRearchive(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if s := monthState(thin); !s.needs || !s.requested {
+	if s := monthState(thin); !s.needs || s.gen != 1 {
 		t.Fatalf("thinned month not flagged: %+v", s)
 	}
-	if s := monthState(plain); !s.needs || !s.requested {
+	if s := monthState(plain); !s.needs || s.gen != 1 {
 		t.Fatalf("plain month not flagged: %+v", s)
 	}
 	for i := 0; i < 2; i++ {
@@ -246,13 +244,14 @@ func TestArchiveRearchive(t *testing.T) {
 	}
 
 	// A write that inserts nothing (the row exists) flags nothing.
-	if _, err := pool.ExecContext(ctx, `UPDATE archive_months SET needs_rearchive = FALSE, rearchive_requested_at = NULL WHERE user_id = $1`, uid); err != nil {
+	if _, err := pool.ExecContext(ctx, `UPDATE archive_months SET needs_rearchive = FALSE WHERE user_id = $1`, uid); err != nil {
 		t.Fatal(err)
 	}
+	before := monthState(plain).gen
 	if err := store.InsertBatch(ctx, []samples.Sample{{VehicleID: "RV-R", At: latePlain, Source: "late"}}); err != nil {
 		t.Fatal(err)
 	}
-	if s := monthState(plain); s.needs || s.requested {
+	if s := monthState(plain); s.needs || s.gen != before {
 		t.Errorf("a duplicate write flagged the month: %+v", s)
 	}
 }
