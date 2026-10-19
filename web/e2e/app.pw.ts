@@ -175,14 +175,37 @@ for (const view of views) {
         // The statement's hero total must contrast with the page (it was
         // once near-white on white in light mode).
         if (view.name === "money") {
-          const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
           const lum = ([r, g, b]: number[]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
           const hero = page.getByRole("region", { name: "Statement" }).locator("div.text-4xl").first();
-          const [fg, bg] = await Promise.all([
-            hero.evaluate((el) => getComputedStyle(el).color),
-            page.evaluate(() => getComputedStyle(document.body).backgroundColor),
-          ]);
-          expect(Math.abs(lum(rgb(fg)) - lum(rgb(bg)))).toBeGreaterThan(80);
+          // Computed colours can be oklch(), lab() or color(srgb …), not just
+          // rgb(): the browser's own canvas converts any of them to sRGB. The
+          // page colour is the first opaque one up from body (else the
+          // browser's canvas for the color-scheme), and a translucent text
+          // colour is blended over it.
+          const [fg, bg] = await hero.evaluate((el) => {
+            const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+            const srgb = (c: string) => {
+              ctx.clearRect(0, 0, 1, 1);
+              ctx.fillStyle = "#000";
+              ctx.fillStyle = c;
+              ctx.fillRect(0, 0, 1, 1);
+              const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+              return [r, g, b, a / 255];
+            };
+            let page = getComputedStyle(document.documentElement).colorScheme.includes("dark") ? [18, 18, 18] : [255, 255, 255];
+            for (const n of [document.body, document.documentElement]) {
+              const c = srgb(getComputedStyle(n).backgroundColor);
+              if (c[3] > 0) {
+                page = c.slice(0, 3);
+                break;
+              }
+            }
+            const t = srgb(getComputedStyle(el).color);
+            const text = [0, 1, 2].map((i) => t[i] * t[3] + page[i] * (1 - t[3]));
+            return [text, page];
+          });
+          expect([...fg, ...bg].every(Number.isFinite), `colours ${fg} on ${bg}`).toBe(true);
+          expect(Math.abs(lum(fg) - lum(bg))).toBeGreaterThan(80);
         }
 
         await page.waitForTimeout(250);
