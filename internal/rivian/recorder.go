@@ -958,8 +958,8 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		if odoMi := curr.OdometerKm * kmToMi; odoMi > s.drive.endOdoMi {
 			s.drive.endOdoMi = odoMi
 			s.drive.endSoC = curr.BatteryLevelPct
-			if curr.At.After(s.drive.endAt) {
-				s.drive.endAt = curr.At
+			if end := foldedDriveEnd(s.drive, curr); end.After(s.drive.endAt) {
+				s.drive.endAt = end
 			}
 			if curr.Latitude != 0 || curr.Longitude != 0 {
 				s.drive.endLat = curr.Latitude
@@ -1000,6 +1000,23 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		return n
 	}
 	return 0
+}
+
+// foldedDriveEnd is the ended_at for a drive closed by a parking frame that
+// arrived after a telemetry gap. curr.At is wall-clock arrival, so after a
+// blackout (the car parks and sleeps for hours before the socket is back) it is
+// when we noticed, not when the drive ended. Prefer the parking frame's own GPS
+// fix time when it falls inside the gap, and never run past the stale-session
+// bound (liveDriveMaxGap) beyond the last frame that saw the drive moving.
+func foldedDriveEnd(d *liveDrive, curr *State) time.Time {
+	end := curr.At
+	if fix := curr.LocationFixAt; !fix.IsZero() && fix.After(d.endAt) && !fix.After(curr.At) {
+		end = fix
+	}
+	if limit := d.endAt.Add(liveDriveMaxGap); end.After(limit) {
+		end = limit
+	}
+	return end
 }
 
 // runChargeCloseHook invokes the configured ChargeCloseHook with a

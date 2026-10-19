@@ -1283,3 +1283,44 @@ func TestResumedChargeKeepsItsEnergy(t *testing.T) {
 		t.Errorf("recorded %.1f kWh for 31 -> 90%% on a 131 kWh pack, want ~%.1f (it was ~8.7 before the fix)", got.EnergyAddedKWh, want)
 	}
 }
+
+// A parking frame that arrives hours after a telemetry blackout must not stretch
+// the drive to the arrival time (review §4.3): the car stopped long before the
+// socket came back.
+func TestHandleDriveLifecycle_BlackoutParkDoesNotInflateEndedAt(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 18, 8, 0, 0, 0, time.UTC)
+	run := func(fixAt time.Time) *liveDrive {
+		m := NewStateMonitor(nil, nil)
+		s := &liveSessions{}
+		_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 50}, nil, m, ctx)
+		// Three hours later: parked, two miles further on.
+		_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(3 * time.Hour), Gear: "P", OdometerKm: 60003, LocationFixAt: fixAt}, nil, m, ctx)
+		if s.drive != nil || s.lastClosed == nil {
+			t.Fatal("setup: the parking frame must close the drive")
+		}
+		return s.lastClosed
+	}
+
+	// No fix time: capped at the stale-session bound.
+	if d := run(time.Time{}); !d.endAt.Equal(t0.Add(liveDriveMaxGap)) {
+		t.Errorf("no fix time: ended %s after the last driving frame, want %s", d.endAt.Sub(t0), liveDriveMaxGap)
+	}
+	// A GPS fix time inside the gap is the end.
+	fix := t0.Add(12 * time.Minute)
+	if d := run(fix); !d.endAt.Equal(fix) {
+		t.Errorf("with a fix: ended at +%s, want +12m", d.endAt.Sub(t0))
+	}
+	// A fix time from the future of the frame, or before the drive's last frame, is ignored.
+	if d := run(t0.Add(4 * time.Hour)); !d.endAt.Equal(t0.Add(liveDriveMaxGap)) {
+		t.Errorf("future fix: ended at +%s", d.endAt.Sub(t0))
+	}
+	// An ordinary gap (a few minutes) is unchanged: it ends at the parking frame.
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 50}, nil, m, ctx)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(6 * time.Minute), Gear: "P", OdometerKm: 60003}, nil, m, ctx)
+	if !s.lastClosed.endAt.Equal(t0.Add(6 * time.Minute)) {
+		t.Errorf("short gap: ended at +%s, want +6m", s.lastClosed.endAt.Sub(t0))
+	}
+}
