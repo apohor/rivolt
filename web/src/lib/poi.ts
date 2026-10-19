@@ -335,7 +335,9 @@ async function findInArchive(
 }
 
 // findChargersAlongPath returns all chargers passing `filter` within
-// the route corridor. Server-side: hits /api/maps/chargers-along,
+// the route corridor, or null when there is no charger source at all (the
+// signed-out demo, or a server without the archive): then there's nothing
+// to filter or count, so callers hide their charger controls. Server-side: hits /api/maps/chargers-along,
 // which holds the chargers.pmtiles archive in memory and runs the
 // corridor scan in Go. Replaces a per-tile PMTiles fan-out that
 // could fire hundreds of HTTPS range requests per planner render.
@@ -344,7 +346,7 @@ export type ChargerFilter = "dcfc" | "l2" | "hotels" | "all";
 export async function findChargersAlongPath(
   path: [number, number][],
   filter: ChargerFilter = "dcfc",
-): Promise<POI[]> {
+): Promise<POI[] | null> {
   if (path.length < 2) return [];
   // Server-side corridor query. Replaces the per-tile PMTiles fan-out
   // (hundreds of HTTPS range requests per planner re-render) with one
@@ -353,15 +355,15 @@ export async function findChargersAlongPath(
   // MVT parsing + corridor math, not network.
   // The corridor query is a server-side POST: not available to the
   // signed-out demo, which draws no charger overlay.
-  if (inDemo()) return [];
+  if (inDemo()) return null;
   let resp: { chargers: ServerCharger[]; count: number };
   try {
     resp = await backend.chargersAlongPath({ path, filter });
   } catch (e: unknown) {
-    // 404 = server-side archive disabled; fall back to empty so the
+    // 404 = server-side archive disabled: no charger source, so the
     // map renders without chargers rather than erroring. Anything
     // else bubbles up so the caller's spinner shows the failure.
-    if (e instanceof ApiError && e.status === 404) return [];
+    if (e instanceof ApiError && e.status === 404) return null;
     throw e;
   }
   return resp.chargers.map((c) => ({

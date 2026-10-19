@@ -449,6 +449,9 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       ]);
     }
     if (p === "/api/admin/users") return json(route, { users: [] });
+    // The charger corridor query: signed in it finds none along the stub's routes
+    // (the chips and their "no chargers here" note show); the demo never calls it.
+    if (p === "/api/maps/chargers-along") return json(route, { chargers: [], count: 0 });
     // Anything else answers 404 like an absent feature.
     return json(route, { error: "not stubbed" }, 404);
   });
