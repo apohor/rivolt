@@ -33,7 +33,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -491,6 +491,7 @@ export default function TripPlanPage() {
               advice={displayAdvice}
               adviceLoading={adviceMutation.isPending}
               onAnalyze={() => fireAdvice(displayPlan)}
+              aiEnabled={aiEnabled}
               onPreviewStop={async (stop) => {
                 if (!origin || !destination) return null;
                 const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);

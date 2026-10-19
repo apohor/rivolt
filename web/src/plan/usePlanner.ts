@@ -287,7 +287,7 @@ export function usePlanner() {
         ],
       });
     },
-    onSuccess: (plan) => {
+    onSuccess: () => {
       adviceMutation.reset();
       setLoadedSnapshot(null);
       // Persist the inputs that produced this plan so reopening the
@@ -303,22 +303,8 @@ export function usePlanner() {
           routePrefs,
         });
       }
-      // Auto-fire AI analysis on non-trivial trips so the user
-      // doesn't need an extra tap on the road-trip path. "Non-trivial"
-      // = >200 mi total drive OR at least one planner-picked charging
-      // stop. Small commutes still wait for the explicit Analyze
-      // button. Skipped entirely when no AI provider is configured.
-      const r = plan.Routes[0];
-      if (aiEnabled && r) {
-        const miles = r.TotalDriveDistanceMeters / 1609.344;
-        const hasStops = r.Waypoints.some((w) => {
-          const t = w.WaypointType.toLowerCase();
-          return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
-        });
-        if (miles > 200 || hasStops) {
-          fireAdvice(plan);
-        }
-      }
+      // No AI request here: advice is only ever sent after the user taps Get AI advice, and the card says what it
+      // sends first. (It used to fire by itself on trips over 200 mi or with a charging stop.)
     },
   });
 
