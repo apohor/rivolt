@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import Logo from "../components/Logo";
 import { formatMoney } from "../lib/ledger";
-import { fmtDuration, readSampleTrip, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
+import { fmtDuration, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
 import { useSystemTheme } from "../lib/theme";
 
 // /sample-trips and /sample-trips/<slug>: public pages that show the trip planner on three sample trips. The
@@ -115,8 +115,8 @@ function TripBody({ t }: { t: SampleTrip }) {
         <RouteMap route={t.route} title={t.title} stops={t.days.flatMap((d) => d.stops)} />
         {t.days.map((d, i) => <Day key={`${d.label}-${i}`} d={d} currency={t.currency} />)}
         <div className="flex flex-wrap gap-3 border-t border-neutral-900 pt-5">
-          <a href={t.demo_url} className={btn}>Open in the demo planner</a>
-          <a href={t.signup_url || "/signup"} className={btnPrimary}>Plan your own</a>
+          {safeDemoUrl(t.demo_url) && <a href={safeDemoUrl(t.demo_url) as string} className={btn}>Open in the demo planner</a>}
+          <a href={safeSignupUrl(t.signup_url)} className={btnPrimary}>Plan your own</a>
         </div>
       </article>
     </Frame>

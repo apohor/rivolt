@@ -79,3 +79,8 @@ export const fmtDuration = (min: number): string => {
   const m = Math.round(min);
   return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
 };
+
+// The two links come from the server, but only these shapes become links: the demo host (or a /demo path) and
+// /signup, so a bad value can never produce an off-site or javascript: link.
+export const safeDemoUrl = (u: string): string | null => (/^(https:\/\/demo\.rivolt\.dev\/|\/demo\/)/.test(u) ? u : null);
+export const safeSignupUrl = (u: string): string => (/^\/signup(\/|\?|$)/.test(u) ? u : "/signup");

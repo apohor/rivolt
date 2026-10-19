@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtDuration, readSampleTrip, readSampleTrips, routePath } from "./sampleTrip";
+import { fmtDuration, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath } from "./sampleTrip";
 
 describe("routePath", () => {
   it("fits the route inside the box and keeps the ends", () => {
@@ -39,5 +39,15 @@ describe("fmtDuration", () => {
   it("formats minutes", () => {
     expect(fmtDuration(36)).toBe("36 min");
     expect(fmtDuration(375)).toBe("6 h 15 min");
+  });
+});
+
+describe("server-supplied links", () => {
+  it("only lets the demo host and /signup through", () => {
+    expect(safeDemoUrl("https://demo.rivolt.dev/trips/plan?preset=x")).not.toBeNull();
+    expect(safeDemoUrl("/demo/trips/plan?preset=x")).not.toBeNull();
+    for (const bad of ["javascript:alert(1)", "https://evil.example/", "https://demo.rivolt.dev.evil.example/", "//evil.example"]) expect(safeDemoUrl(bad)).toBeNull();
+    expect(safeSignupUrl("/signup")).toBe("/signup");
+    expect(safeSignupUrl("https://evil.example/signup")).toBe("/signup");
   });
 });
