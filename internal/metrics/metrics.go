@@ -125,6 +125,11 @@ type Metrics struct {
 	// addresses are recorded.
 	DemoRateLimitedTotal *prometheus.CounterVec
 
+	// Failed live recorder writes by kind (drive_upsert, charge_upsert,
+	// stale_charge). Nonzero means drives or charges are being lost or left
+	// stale, typically a database outage.
+	RecorderWriteFailuresTotal *prometheus.CounterVec
+
 	// Non-transactional messages (internal/engage), by kind and outcome (sent,
 	// failed, already_sent, skipped_*). No user ids in labels.
 	EngagementSendsTotal *prometheus.CounterVec
@@ -236,6 +241,13 @@ func New() *Metrics {
 			},
 			[]string{"route_class", "scope"},
 		),
+		RecorderWriteFailuresTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_recorder_write_failures_total",
+				Help: "Failed live recorder writes, by kind.",
+			},
+			[]string{"kind"},
+		),
 		EngagementSendsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_engagement_sends_total",
@@ -298,6 +310,7 @@ func New() *Metrics {
 		m.DemoClientKeyTotal,
 		m.DemoRateLimitedTotal,
 		m.EngagementSendsTotal,
+		m.RecorderWriteFailuresTotal,
 		m.EngagementStuckSending,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,

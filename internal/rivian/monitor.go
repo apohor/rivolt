@@ -41,6 +41,8 @@ type StateMonitor struct {
 	// already released mu by the time it reaches the recorder, and we
 	// must not re-take a lock the hot path just dropped.
 	sampleMu     sync.Mutex
+	// writeFails rate-limits the Warn line for failed live writes.
+	writeFails writeFailureLog
 	lastSampleAt map[string]time.Time
 	// fallbackAt is when /api/state on this pod last fetched a vehicle
 	// it doesn't stream straight from Rivian (ServeState), so that path
@@ -884,7 +886,7 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 	candidates, err := m.chargesStore.ListStaleOpenLive(listCtx, time.Now().Add(-staleAfter))
 	listCancel()
 	if err != nil {
-		m.logger.Debug("stale charge janitor list failed", "err", err.Error())
+		m.noteWriteFailure("stale_charge", "", "", err)
 		return
 	}
 	if len(candidates) == 0 {
@@ -900,15 +902,13 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 		opCtx, opCancel := context.WithTimeout(ctx, 5*time.Second)
 		if stillCharging {
 			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); err != nil {
-				m.logger.Debug("stale charge keep-alive failed",
-					"vehicle", c.RivianVehicleID, "id", c.ExternalID, "err", err.Error())
+				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				refreshed++
 			}
 		} else {
 			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); err != nil {
-				m.logger.Debug("stale charge abandon failed",
-					"vehicle", c.RivianVehicleID, "id", c.ExternalID, "err", err.Error())
+				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				abandoned++
 			}

@@ -468,6 +468,7 @@ func runServer() {
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
 	db.ServerEventObserver = func(event, outcome string) { appMetrics.ServerEventsTotal.WithLabelValues(event, outcome).Inc() }
+	rivian.RecorderWriteFailureObserver = func(kind string) { appMetrics.RecorderWriteFailuresTotal.WithLabelValues(kind).Inc() }
 	// /metrics is served only on its own listener, never on the public
 	// router: the Ingress routes every path to the main port, so a
 	// /metrics route there is public (counts, route names, rate-limit
