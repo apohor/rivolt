@@ -2,6 +2,7 @@ package leases
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ type fakeStore struct {
 	mu        sync.Mutex
 	owned     map[string]bool
 	stealVeh  string // if non-empty, drop from `owned` next Renew
+	renewErr  error  // if set, Renew fails with it
 	acquireOK func(string) bool
 }
 
@@ -36,6 +38,9 @@ func (f *fakeStore) Acquire(_ context.Context, vid string) (bool, error) {
 func (f *fakeStore) Renew(_ context.Context) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.renewErr != nil {
+		return nil, f.renewErr
+	}
 	if f.stealVeh != "" {
 		delete(f.owned, f.stealVeh)
 		f.stealVeh = ""
@@ -473,4 +478,77 @@ func TestCoordinatorWithoutStreamingCheck(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("onAcquire fired %d times, want 1 (acquisition only)", n)
 	}
+}
+
+// A renew that fails (the database blipped) must not drop the subscriptions: the
+// leases are kept until a whole TTL has passed without a good renew, then the pod
+// gives them up.
+func TestRenewFailureKeepsLeasesUntilTheyCouldHaveExpired(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	var (
+		mu       sync.Mutex
+		released []string
+		acquired int
+	)
+	const interval = 30 * time.Second // TTL 2 min
+	c := newCoordinator(fs, func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(string) { mu.Lock(); acquired++; mu.Unlock() },
+		func(v string) { mu.Lock(); released = append(released, v); mu.Unlock() },
+		nil, interval)
+	clock := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return clock }
+	c.lastRenew = clock
+
+	c.reconcile(context.Background()) // both acquired, a renew has worked
+	if acquired != 2 {
+		t.Fatalf("acquired %d", acquired)
+	}
+	fs.mu.Lock()
+	fs.renewErr = errors.New("connection reset")
+	fs.mu.Unlock()
+	// Two failing ticks (30 s and 60 s after the last good renew): leases are kept.
+	for i := 0; i < 2; i++ {
+		clock = clock.Add(interval)
+		c.reconcile(context.Background())
+		mu.Lock()
+		got := len(released)
+		mu.Unlock()
+		if got != 0 {
+			t.Fatalf("tick %d: a failed renew released %v", i+1, released)
+		}
+		if len(heldBy(c)) != 2 {
+			t.Fatalf("tick %d: owned %v", i+1, heldBy(c))
+		}
+	}
+	// Past TTL minus a tick (90 s) without a good renew: fenced, each released once.
+	clock = clock.Add(interval)
+	c.reconcile(context.Background())
+	mu.Lock()
+	if len(released) != 2 {
+		t.Fatalf("after a whole TTL of failures released %v, want both", released)
+	}
+	mu.Unlock()
+	if len(heldBy(c)) != 0 {
+		t.Errorf("still owned: %v", heldBy(c))
+	}
+	// The database comes back: leases are acquired again.
+	fs.mu.Lock()
+	fs.renewErr = nil
+	fs.mu.Unlock()
+	clock = clock.Add(interval)
+	c.reconcile(context.Background())
+	if len(heldBy(c)) != 2 {
+		t.Errorf("after recovery owned %v", heldBy(c))
+	}
+}
+
+func heldBy(c *Coordinator) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]string, 0, len(c.owned))
+	for v := range c.owned {
+		out = append(out, v)
+	}
+	return out
 }

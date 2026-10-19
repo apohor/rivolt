@@ -239,6 +239,11 @@ type Coordinator struct {
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
 	now        func() time.Time
+
+	// lastRenew is when a renew last succeeded (set at construction, so a fresh
+	// coordinator is not fenced at once). A failed renew keeps the leases until
+	// they could have expired.
+	lastRenew time.Time
 }
 
 // unstreamedRetry bounds how often reconcile re-fires onAcquire for a
@@ -279,6 +284,7 @@ func newCoordinator(
 		logger = slog.Default()
 	}
 	return &Coordinator{
+		lastRenew:         time.Now(),
 		store:             store,
 		log:               logger,
 		vehicles:          vehicles,
@@ -418,6 +424,33 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 }
 
+// leaseTTL is the lease lifetime the loop was built for: it renews every TTL/4.
+func (c *Coordinator) leaseTTL() time.Duration { return c.reconcileInterval * 4 }
+
+// pastFence reports whether the last good renew is so old that the leases may
+// have expired (and been taken by a peer): a TTL since it, less one tick.
+func (c *Coordinator) pastFence() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now().Sub(c.lastRenew) >= c.leaseTTL()-c.reconcileInterval
+}
+
+// fenceAll gives up every lease the coordinator thinks it holds: it can no longer
+// show they are still its own.
+func (c *Coordinator) fenceAll() {
+	c.mu.Lock()
+	lost := make([]string, 0, len(c.owned))
+	for vid := range c.owned {
+		lost = append(lost, vid)
+	}
+	c.owned = make(map[string]struct{})
+	c.mu.Unlock()
+	for _, vid := range lost {
+		c.log.Warn("lease fenced: renewals have failed for a whole TTL", "vehicle", vid)
+		c.onRelease(vid)
+	}
+}
+
 // reconcile is one tick of the loop. It (1) renews everything we
 // already own, (2) tries to acquire any vehicle from the cluster set
 // we don't yet own, (3) fires acquire/release callbacks for the diff.
@@ -434,8 +467,21 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	// was deleted). Fire the release callback for those.
 	stillOwned, err := c.store.Renew(rctx)
 	if err != nil {
+		// A renew that failed says nothing about who owns what: the database blipped
+		// or the call timed out. Dropping every subscription here would stop all the
+		// recording for one bad second. Keep what we hold; only once the leases could
+		// have run out (a TTL since the last renew that worked, less one tick) are
+		// they no longer ours to act on, and then self-fence.
 		c.log.Warn("lease renew failed", "err", err.Error())
+		if c.pastFence() {
+			c.fenceAll()
+		}
+		c.fireCount()
+		return
 	}
+	c.mu.Lock()
+	c.lastRenew = c.now()
+	c.mu.Unlock()
 
 	stillOwnedSet := make(map[string]struct{}, len(stillOwned))
 	for _, vid := range stillOwned {
