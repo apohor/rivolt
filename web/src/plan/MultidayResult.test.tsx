@@ -1,6 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MultidayResult } from "./MultidayResult";
+
+// The day card draws a map, which a unit test cannot: the header text is what is under test.
+vi.mock("./RouteCard", () => ({ RouteCard: () => null }));
 import type { TripPlanMultidayResponse } from "../lib/api";
 
 const day = (index: number, depart_at: string) =>
@@ -46,5 +50,31 @@ describe("MultidayResult", () => {
     render(<MultidayResult response={resp({})} originLabel="A" destLabel="B" />);
     expect(screen.queryByText("Simulated")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("MultidayResult charging stops", () => {
+  const route = (types: string[]) => ({
+    TotalDriveDistanceMeters: 100_000,
+    TotalDriveDurationSec: 3600,
+    TotalChargingDurationSec: 600,
+    BatteryEmptyToDestMeters: 0,
+    Waypoints: types.map((t) => ({ WaypointType: t, Name: t, Latitude: 1, Longitude: 2 })),
+  });
+  const withRoute = (types: string[]) =>
+    ({
+      days: [{ index: 1, plan: { Routes: [route(types)] }, depart_at: "2026-10-20T15:00:00Z", arrive_at: "2026-10-20T20:00:00Z", departure_soc: 90, arrival_soc: 30 }],
+      total: { distance_meters: 1, drive_duration_sec: 1, charging_duration_sec: 1 },
+    }) as unknown as TripPlanMultidayResponse;
+
+  it("counts the planner's own charger type names, and only says none are needed when there are none", () => {
+    const wrap = (ui: React.ReactElement) => <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>;
+    const { container } = render(wrap(<MultidayResult response={withRoute(["ORIGIN", "DC_CHARGE_STATION", "DESTINATION"])} originLabel="A" destLabel="B" />));
+    expect(container.textContent).toContain("1 charging stop ·");
+    expect(container.textContent).not.toContain("No charging stop needed");
+    cleanup();
+    const none = render(wrap(<MultidayResult response={withRoute(["ORIGIN", "DESTINATION"])} originLabel="A" destLabel="B" />));
+    expect(none.container.textContent).toContain("0 charging stops");
+    expect(none.container.textContent).toContain("No charging stop needed on this day");
   });
 });
