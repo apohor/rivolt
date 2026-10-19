@@ -197,6 +197,9 @@ func (m *StateMonitor) touchLiveDrive(ctx context.Context, vehicleID string, d *
 		m.catchup.markDrive(vehicleID, d)
 		return
 	}
+	if d != nil && !d.touch.due(liveTouchNow()) {
+		return
+	}
 	m.upsertLiveDrive(ctx, vehicleID, d)
 }
 
@@ -204,6 +207,9 @@ func (m *StateMonitor) touchLiveDrive(ctx context.Context, vehicleID string, d *
 func (m *StateMonitor) touchLiveCharge(ctx context.Context, vehicleID string, c *liveCharge) {
 	if c != nil && m.deferringWrites() {
 		m.catchup.markCharge(vehicleID, c)
+		return
+	}
+	if c != nil && !c.touch.due(liveTouchNow()) {
 		return
 	}
 	m.upsertLiveCharge(ctx, vehicleID, c)

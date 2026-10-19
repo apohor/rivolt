@@ -154,6 +154,8 @@ type liveDrive struct {
 	rejected   bool
 	rejectedAt time.Time
 	final      bool
+	// touch throttles the periodic in-session re-upsert (touchLiveDrive).
+	touch      touchGate
 	trim       *sessionTrim
 	id         string
 	startedAt  time.Time
@@ -212,6 +214,8 @@ type liveCharge struct {
 	rejected   bool
 	rejectedAt time.Time
 	final      bool
+	// touch throttles the periodic in-session re-upsert (touchLiveCharge).
+	touch      touchGate
 	trim       *sessionTrim
 	id         string
 	startedAt  time.Time
@@ -1548,6 +1552,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 	if d == nil {
 		return
 	}
+	d.touch.mark(liveTouchNow())
 	if m.catchup != nil {
 		// This write supersedes any buffered in-session row.
 		m.catchup.forgetDrive(vehicleID, d.id)
@@ -1589,6 +1594,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	if c == nil {
 		return
 	}
+	c.touch.mark(liveTouchNow())
 	if m.catchup != nil {
 		m.catchup.forgetCharge(vehicleID, c.id)
 	}
