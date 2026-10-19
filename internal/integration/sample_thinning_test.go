@@ -97,9 +97,16 @@ func TestSampleThinning(t *testing.T) {
 	if n, err := th.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || n != 0 || count() != 10801 {
 		t.Fatalf("real run with a row the archive lacks: %d, %v, %d rows", n, err, count())
 	}
+	// The refusal flags the object for re-archiving, so the next archive
+	// run heals the month (DA on #628).
+	var flagged bool
+	if err := pool.QueryRowContext(ctx, `SELECT needs_rearchive FROM archive_months WHERE vehicle_id = $1 AND month = $2::date`, vid, month).Scan(&flagged); err != nil || !flagged {
+		t.Fatalf("a month whose object lacks a row wasn't flagged for re-archiving (%v, %v)", flagged, err)
+	}
 	if _, err := pool.ExecContext(ctx, `DELETE FROM vehicle_state WHERE vehicle_id = $1 AND at = $2`, vid, late); err != nil {
 		t.Fatal(err)
 	}
+	markArchived(ctx, t, pool, uid.String(), vid, month, false) // as the healing archive run would
 	if n, err := th.Run(ctx); err != nil || n != 1 {
 		t.Fatalf("real run after the archive: %d, %v", n, err)
 	}

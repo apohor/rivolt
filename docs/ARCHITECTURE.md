@@ -551,6 +551,14 @@ rows win), written to `<key>.new`, verified, then to the key and verified
 again. A flag the run's snapshot didn't see (a writer uncommitted then, or
 later) survives it: writers bump `rearchive_gen`, and the run clears the flag
 only if the counter is what its snapshot read.
+An admin can put one archived vehicle-month back in full detail
+(`POST /api/admin/archive/restore` on the admin site, or `rivolt archive
+restore`, both audited, a dry run first): the object is read back whole and its
+rows inserted, keeping any already there. A thinned month is then held at full
+detail for a week (`rethin_after`), after which thinning reduces that vehicle
+again, on its own. When thinning finds a month whose rows no longer match an
+object (a write during the month's first archive), it flags that object for
+re-archiving, so the next archive run heals it.
 
 **Option B — TimescaleDB**:
 

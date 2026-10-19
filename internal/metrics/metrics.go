@@ -149,6 +149,9 @@ type Metrics struct {
 	// Archive objects that exist but fail to read back (corrupt, truncated):
 	// for a thinned month, full-resolution data lost. Alert on any.
 	ArchiveReadCorruptTotal prometheus.Counter
+	// Archive objects flagged for re-archiving because their month's rows no
+	// longer matched them (a write during a month's first archive).
+	ArchiveRepairsTotal prometheus.Counter
 	// Telemetry archive objects (one per user, vehicle and month) by outcome
 	// (verified, failed), and the bytes of the verified ones.
 	ArchiveObjectsTotal *prometheus.CounterVec
@@ -292,6 +295,10 @@ func New() *Metrics {
 			Name: "rivolt_sample_partitions_dropped_total",
 			Help: "Monthly vehicle_state partitions dropped by sample retention (RIVOLT_SAMPLE_RETENTION_MONTHS).",
 		}),
+		ArchiveRepairsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_archive_repairs_total",
+			Help: "Archive objects flagged for re-archiving because their month's rows no longer matched them.",
+		}),
 		ArchiveReadCorruptTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_archive_read_corrupt_total",
 			Help: "Telemetry archive objects that exist but failed to read back (corrupt, truncated); for a thinned month, full-resolution data lost.",
@@ -369,6 +376,7 @@ func New() *Metrics {
 		m.EngagementStuckSending,
 		m.SamplePartitionsDropped,
 		m.ArchiveReadCorruptTotal,
+		m.ArchiveRepairsTotal,
 		m.ArchiveObjectsTotal,
 		m.ArchiveBytesTotal,
 		m.ArchiveObjectsDeletedTotal,

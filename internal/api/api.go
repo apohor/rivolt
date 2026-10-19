@@ -70,6 +70,9 @@ type Deps struct {
 	// carries full detail for months thinning has reduced; nil when the
 	// archive is off, and the backup is the database alone.
 	ArchiveRows samples.ArchiveRows
+	// ArchiveRestorer puts one archived vehicle-month back in full detail
+	// (POST /api/admin/archive/restore); nil when the archive is off.
+	ArchiveRestorer ArchiveRestorer
 
 	Rivian rivian.Client
 	// Accounts hands out per-user *rivian.LiveClient instances. The
@@ -889,6 +892,9 @@ func New(d Deps) http.Handler {
 				r.Get("/health-summary", handleAdminHealthSummary(d.AdminHealth))
 				r.With(audit(auditSpec{action: "impersonation.stop", targetType: "user", bodyUser: "target_id"})).
 					Post("/impersonation/stop", handleImpersonationStop())
+				r.With(audit(auditSpec{action: "archive.restore", targetType: "archive_month", bodyUser: "user_id", userTarget: true,
+					keys: []string{"vehicle_id", "month", "dry_run"}})).
+					Post("/archive/restore", handleAdminArchiveRestore(d.ArchiveRestorer))
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.With(audit(auditSpec{action: "flag.kill_switch", targetType: "flag", targetID: "kill_switch", keys: []string{"paused"},
 					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"paused": f.KillSwitch().Paused} })})).
