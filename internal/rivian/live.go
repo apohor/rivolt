@@ -507,6 +507,35 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 	return doGraphQLAt[T](withRetriedCSRF(ctx), c, c.endpoint, req, c.authHeaders())
 }
 
+// doGraphQLDetached is doGraphQL for a long data-plane call made WITHOUT holding
+// c.mu: the caller takes the tokens (authHeaders) under the lock, releases it,
+// and calls this, so a slow upstream call (a 30-second trip plan) no longer
+// blocks that user's WebSocket reconnects, REST seeds, Authenticated() checks
+// and API handlers behind the lock. The csrf heal, which rewrites the shared
+// tokens, takes the lock only for the refresh.
+func doGraphQLDetached[T any](ctx context.Context, c *LiveClient, req graphQLRequest, headers map[string]string) (T, error) {
+	if headers["u-sess"] == "" || retriedCSRF(ctx) {
+		return doGraphQLAt[T](ctx, c, c.endpoint, req, headers)
+	}
+	out, err := doGraphQLAt[T](withDeferReauth(ctx), c, c.endpoint, req, headers)
+	if err == nil {
+		return out, nil
+	}
+	var ue *UpstreamError
+	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !IsAuthFlavoredReason(ue.Reason) {
+		return out, err
+	}
+	c.mu.Lock()
+	rerr := c.forceRefreshCSRFLocked(ctx)
+	fresh := c.authHeaders()
+	c.mu.Unlock()
+	if rerr != nil {
+		c.markNeedsReauth(ctx, ue.Reason)
+		return out, err
+	}
+	return doGraphQLAt[T](withRetriedCSRF(ctx), c, c.endpoint, req, fresh)
+}
+
 // forceRefreshCSRFLocked discards the current a-sess/csrf pair and mints
 // a fresh one via CreateCSRFToken. The userSessionToken is untouched.
 // Caller must hold c.mu (the doGraphQL heal path and RefreshSession

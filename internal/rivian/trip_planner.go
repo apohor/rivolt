@@ -183,9 +183,13 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	if err := c.checkUpstream(ctx); err != nil {
 		return nil, err
 	}
+	// The lock covers only reading the session tokens: the upstream call below
+	// can take 30 seconds and must not hold it (doGraphQLDetached).
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
+	authed := c.userSessionToken != ""
+	headers := c.authHeaders()
+	c.mu.Unlock()
+	if !authed {
 		return nil, ErrNotAuthenticated
 	}
 	if in.VehicleID == "" {
@@ -207,11 +211,11 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	// Inlining literal values bypasses the type-name issue
 	// entirely; v0.17.129's diag confirmed this returns real plans.
 	query, vars := buildPlanTrip2Query(in)
-	data, err := doGraphQL[planTripData](ctx, c, graphQLRequest{
+	data, err := doGraphQLDetached[planTripData](ctx, c, graphQLRequest{
 		OperationName: "planTripWithMultiStopV2",
 		Query:         query,
 		Variables:     vars,
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		slog.WarnContext(ctx, "planTrip2 failed",
 			"err", err.Error(),
