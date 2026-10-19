@@ -194,7 +194,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           authenticator app, depending on how 2FA is set up on your Rivian
           account.
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             type="text"
             inputMode="numeric"
@@ -203,7 +203,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
             placeholder="123456"
             value={otp}
             onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-            className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm tabular-nums text-neutral-200"
+            className="min-w-[8rem] flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm tabular-nums text-neutral-200"
           />
           <button
             type="submit"
