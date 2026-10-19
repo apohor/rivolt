@@ -321,6 +321,11 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 	if err != nil {
 		return err
 	}
+	// An endpoint stored before the check existed (or tampered with) is not sent to.
+	if err := ValidEndpoint(sub.Endpoint); err != nil {
+		s.logger.Warn("push: refusing a stored endpoint", "host", endpointHost(sub.Endpoint))
+		return err
+	}
 
 	wsub := &webpush.Subscription{
 		Endpoint: sub.Endpoint,
@@ -346,6 +351,7 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 		VAPIDPrivateKey: s.vapid.PrivateKey,
 		TTL:             s.ttlSeconds,
 		Urgency:         webpush.UrgencyHigh,
+		HTTPClient:      pushHTTPClient,
 	})
 	if err != nil {
 		return err
@@ -428,10 +434,10 @@ type sendError struct {
 	body   string
 }
 
+// Error never carries the push service's response body: the message reaches the
+// API (the test-notification route) and a body from an unexpected host is not for
+// the caller. The body is logged server-side where it was received.
 func (e *sendError) Error() string {
-	if e.body != "" {
-		return "push " + itoa(e.status) + ": " + e.body
-	}
 	return "push status " + itoa(e.status)
 }
 

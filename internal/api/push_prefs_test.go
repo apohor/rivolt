@@ -2,6 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/apohor/rivolt/internal/push"
@@ -20,5 +23,18 @@ func TestSubscribePreferencesDefaultNewToggleOn(t *testing.T) {
 	}
 	if prefs.OnChargingDone || !prefs.OnSoftwareUpdate {
 		t.Errorf("prefs = %+v", prefs)
+	}
+}
+
+// A subscription for an endpoint that is not a push service is refused before it
+// is stored (the store is nil: reaching it would panic).
+func TestSubscribeRefusesNonPushEndpoints(t *testing.T) {
+	for _, ep := range []string{"http://fcm.googleapis.com/x", "https://169.254.169.254/latest", "https://kubernetes.default.svc/", "https://evil.example/p"} {
+		body := `{"endpoint":"` + ep + `","keys":{"p256dh":"k","auth":"a"}}`
+		rec := httptest.NewRecorder()
+		handlePushSubscribe(nil)(rec, httptest.NewRequest(http.MethodPost, "/api/push/subscribe", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", ep, rec.Code)
+		}
 	}
 }

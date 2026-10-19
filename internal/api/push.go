@@ -59,6 +59,10 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			})
 			return
 		}
+		if err := push.ValidEndpoint(body.Endpoint); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unsupported push service"})
+			return
+		}
 
 		// Charging-done, anomaly and software-update default to on: what a
 		// subscriber almost certainly expected when they tapped "Enable
