@@ -2045,10 +2045,12 @@ func runServer() {
 			del.Report = func(r archive.DeleteReport) {
 				appMetrics.ArchiveObjectsDeletedTotal.Add(float64(r.Objects))
 				appMetrics.ArchiveDeletionsOverdue.Set(float64(r.Overdue))
+				appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
 				if r.Requests > 0 || r.Failed > 0 || r.Overdue > 0 {
 					logger.Info("telemetry archive deletions", "requests", r.Requests, "objects", r.Objects, "failed", r.Failed, "overdue", r.Overdue)
 				}
 			}
+			appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
 			go archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run)
 		}
 		// vehicle_state past the retention period: whole monthly partitions are

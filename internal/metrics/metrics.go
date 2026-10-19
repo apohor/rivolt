@@ -160,6 +160,11 @@ type Metrics struct {
 	// and requests pending longer than archive.DeleteWithin (alert on > 0).
 	ArchiveObjectsDeletedTotal prometheus.Counter
 	ArchiveDeletionsOverdue    prometheus.Gauge
+	// Unix time of the deletion job's last completed run, set to the start
+	// time when the job starts: an alert on its age catches a pod whose runs
+	// never complete (the overdue gauge is only set by a completed run).
+	// 0 while the archive is off.
+	ArchiveDeletionsLastRun prometheus.Gauge
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -319,6 +324,10 @@ func New() *Metrics {
 			Name: "rivolt_archive_deletions_overdue",
 			Help: "Archive deletion requests still pending after 24 hours (the deletion promise).",
 		}),
+		ArchiveDeletionsLastRun: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_archive_deletions_last_run_timestamp_seconds",
+			Help: "Unix time of the archive deletion job's last completed run (the job's start time until its first run); 0 while the archive is off.",
+		}),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -381,6 +390,7 @@ func New() *Metrics {
 		m.ArchiveBytesTotal,
 		m.ArchiveObjectsDeletedTotal,
 		m.ArchiveDeletionsOverdue,
+		m.ArchiveDeletionsLastRun,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
 		m.ServerEventsTotal,
