@@ -1946,6 +1946,15 @@ func runServer() {
 		go purge.Run(ctx)
 	}
 
+	// Sample thinning: RIVOLT_SAMPLE_THIN_AFTER_DAYS (0 or unset: never;
+	// at least 30) reduces old vehicle_state months to a coarser copy;
+	// RIVOLT_SAMPLE_THIN_DRY_RUN=1 only logs what it would keep. A bad value
+	// stops startup rather than guessing.
+	sampleThinAfterDays, err := samples.ParseThinAfterDays(os.Getenv("RIVOLT_SAMPLE_THIN_AFTER_DAYS"))
+	if err != nil {
+		logger.Error("sample thinning", "err", err.Error())
+		os.Exit(1)
+	}
 	// Daily retention sweeps: expired sessions (IP and User-Agent) 30 days
 	// after expiry, and waitlist requests (never approved: 90 days;
 	// approved: until the account exists).
@@ -1993,6 +2002,17 @@ func runServer() {
 				appMetrics.SamplePartitionsDropped.Inc()
 			}
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_partitions", Run: sweep.Run})
+		}
+		// One old vehicle_state month a day thinned ("deleted" counts months);
+		// its full copy is kept detached for 7 days for undo.
+		if thinner := samples.NewThinner(pgPool, sampleThinAfterDays); thinner != nil {
+			thinner.DryRun = os.Getenv("RIVOLT_SAMPLE_THIN_DRY_RUN") == "1"
+			logger.Info("sample thinning on", "after_days", sampleThinAfterDays, "dry_run", thinner.DryRun)
+			thinner.Report = func(r samples.ThinReport) {
+				logger.Info("sample thinning", "partition", r.Partition, "dry_run", r.DryRun,
+					"rows_before", r.RowsBefore, "rows_after", r.RowsAfter, "bytes_before", r.BytesBefore, "bytes_after", r.BytesAfter)
+			}
+			jobs = append(jobs, retention.Job{Name: "vehicle_state_thinning", Run: thinner.Run})
 		}
 		go retention.Run(ctx, logger, jobs)
 	}
