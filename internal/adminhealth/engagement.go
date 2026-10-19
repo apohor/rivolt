@@ -3,6 +3,8 @@ package adminhealth
 import (
 	"context"
 	"database/sql"
+
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // Engagement is the "do people come back?" readout: counts only, read from rows
@@ -29,6 +31,32 @@ type Engagement struct {
 	// days; setup_first and setup_followup over all time (the account's
 	// reminder counter).
 	EmailsSent map[string]int `json:"emails_sent"`
+	// FunnelWeeks is the signup funnel by week of signup, newest last: how many of
+	// each week's signups got to each step. Counts only. See FunnelWeek.
+	FunnelWeeks []FunnelWeek `json:"funnel_weeks"`
+}
+
+// FunnelWeeks is how many weekly cohorts the funnel shows.
+const FunnelWeeks = 8
+
+// FunnelWeek is one signup week's funnel, from rows the product already keeps
+// (users, vehicles, drives, charges, sessions), so it needs no event switch and
+// holds for accounts that signed up before any event existed. Disabled accounts
+// and the public demo account are left out.
+type FunnelWeek struct {
+	// Week is the Monday (UTC) of the signup week, YYYY-MM-DD.
+	Week    string `json:"week"`
+	Signups int    `json:"signups"`
+	// Connected: has a real Rivian vehicle (not an ElectraFi import).
+	Connected int `json:"connected"`
+	// FirstData: has at least one closed drive or charge, ever.
+	FirstData int `json:"first_data"`
+	// Day2Eligible counts the signups at least 24 hours old, the only ones that
+	// can have returned yet; ReturnedDay2 is how many of them were seen again at
+	// least 24 hours after signup (a session's last_seen_at). Both are here so a
+	// rate has an honest denominator for the newest, partial week.
+	Day2Eligible int `json:"day2_eligible"`
+	ReturnedDay2 int `json:"returned_day2"`
 }
 
 func (s *Service) engagement(ctx context.Context) Engagement {
@@ -92,7 +120,46 @@ func (s *Service) engagement(ctx context.Context) Engagement {
 		SELECT count(*) FROM statement_email_sends WHERE status = 'sent' AND sent_at > now() - interval '28 days'`).Scan(&statement); err != nil {
 		return fail("statement mail")
 	}
+	weeks, err := s.funnelWeeks(ctx)
+	if err != nil {
+		return fail("funnel")
+	}
+	e.FunnelWeeks = weeks
 	e.EmailsSent["welcome"], e.EmailsSent["setup_first"], e.EmailsSent["setup_followup"], e.EmailsSent["statement"] = welcome, first, follow, statement
 	e.Section = Section{Status: OK}
 	return e
+}
+
+func (s *Service) funnelWeeks(ctx context.Context) ([]FunnelWeek, error) {
+	rows, err := s.cfg.DB.QueryContext(ctx, `
+		WITH c AS (
+		  SELECT u.id, u.created_at, to_char(date_trunc('week', u.created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS wk
+		    FROM users u
+		   WHERE NOT u.disabled AND u.username <> $1
+		     AND u.created_at >= date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - make_interval(weeks => $2 - 1)
+		)
+		SELECT c.wk,
+		       count(*),
+		       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = c.id
+		                          AND v.rivian_vehicle_id <> '' AND v.rivian_vehicle_id NOT LIKE 'electrafi-%')),
+		       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM drives d WHERE d.user_id = c.id AND d.ended_at IS NOT NULL)
+		                          OR EXISTS (SELECT 1 FROM charges ch WHERE ch.user_id = c.id AND ch.ended_at IS NOT NULL)),
+		       count(*) FILTER (WHERE c.created_at <= now() - interval '1 day'),
+		       count(*) FILTER (WHERE c.created_at <= now() - interval '1 day'
+		                          AND EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = c.id
+		                                       AND s.last_seen_at >= c.created_at + interval '1 day'))
+		  FROM c GROUP BY c.wk ORDER BY c.wk`, db.DemoUsername, FunnelWeeks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FunnelWeek{}
+	for rows.Next() {
+		var w FunnelWeek
+		if err := rows.Scan(&w.Week, &w.Signups, &w.Connected, &w.FirstData, &w.Day2Eligible, &w.ReturnedDay2); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
 }
