@@ -189,3 +189,49 @@ func TestAmbientNoLookupWhileViewingAsTheUser(t *testing.T) {
 		t.Error("the user's own session got nothing")
 	}
 }
+
+// The view-as path end to end: the real impersonation middleware (which is what
+// sets the impersonation context in production) in front of the real /now handler.
+// An admin who views as an opted-in user must not trigger a weather lookup or see
+// the field; the user's own request still gets it.
+func TestAmbientViewAsThroughImpersonationMiddleware(t *testing.T) {
+	admin, target := uuid.New(), uuid.New()
+	roles := roleLookupStub(map[uuid.UUID]string{admin: "admin", target: "user"})
+	tr := &ambientTransport{}
+	var logs bytes.Buffer
+	na := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{State: "parked", lat: 30.2672, lon: -97.7431, hasPos: true}, nil
+		},
+		connection: func(uuid.UUID) string { return "live" },
+		ambient:    ambientFixture(true, tr, &logs),
+		now:        time.Now,
+	}
+	// uid is the identity the handler serves: the target while viewing as, else the caller.
+	h := func(w http.ResponseWriter, r *http.Request) {
+		uid, _ := auth.UserFromContext(r.Context())
+		na.handle(uid, w, r)
+	}
+	r := chi.NewRouter()
+	r.Use(impersonationMW(roles, alwaysEnabled))
+	r.Get("/api/vehicles/{vehicleID}/now", h)
+
+	get := func(viewAs bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/vehicles/rv1/now", nil)
+		req = req.WithContext(auth.WithUser(req.Context(), admin))
+		if viewAs {
+			req.Header.Set(ImpersonateHeader, target.String())
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	w := get(true)
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "ambient") || tr.calls.Load() != 0 {
+		t.Fatalf("view-as: code %d, %d upstream calls, body %s; want 200, none, no ambient", w.Code, tr.calls.Load(), w.Body.String())
+	}
+	// Without the header the same request is the caller's own and does look up.
+	if w := get(false); !strings.Contains(w.Body.String(), "ambient") || tr.calls.Load() != 1 {
+		t.Fatalf("own session: %d upstream calls, body %s; want one lookup and ambient", tr.calls.Load(), w.Body.String())
+	}
+}
