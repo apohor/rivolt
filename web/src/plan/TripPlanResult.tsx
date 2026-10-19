@@ -18,6 +18,7 @@ export function TripPlanResult({
   advice,
   adviceLoading,
   onAnalyze,
+  aiEnabled = false,
   onAddStop,
   onAddOvernight,
   onPreviewStop,
@@ -29,6 +30,8 @@ export function TripPlanResult({
   advice?: TripAdvice;
   adviceLoading?: boolean;
   onAnalyze?: () => void;
+  // Whether the server has an AI provider; without one there is no advice to offer.
+  aiEnabled?: boolean;
   onAddStop?: StopAdder;
   onAddOvernight?: OvernightAdder;
   onPreviewStop?: StopPreviewer;
@@ -52,7 +55,7 @@ export function TripPlanResult({
   return (
     <div className="space-y-4" data-plan-contents={nextUi ? "" : undefined}>
       {/* AI analysis costs money: never offered in the public demo. */}
-      {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
+      {!inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} />}
       <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
       {nextUi ? (
