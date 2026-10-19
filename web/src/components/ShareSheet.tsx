@@ -26,9 +26,30 @@ export function ShareSheet({
   useEffect(() => {
     if (canvas.current) paintShareCard(canvas.current, build(includeCost));
   }, [build, includeCost]);
+  const dialog = useRef<HTMLDivElement | null>(null);
+  // Focus goes into the sheet, Tab stays inside it, and closing hands focus back to what opened it.
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    return () => opener?.focus?.();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return onClose();
+      if (e.key !== "Tab" || !dialog.current) return;
+      const f = Array.from(dialog.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])"));
+      if (f.length === 0) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || !dialog.current.contains(at))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (at === last || !dialog.current.contains(at))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -58,6 +79,7 @@ export function ShareSheet({
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div
+        ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-sheet-title"
