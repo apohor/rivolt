@@ -22,7 +22,20 @@ type View = {
   opts?: StubOptions;
   // Extra text that must be visible.
   text?: (string | RegExp)[];
+  // Render in a zone where it is midday now (see middayZone).
+  midday?: boolean;
 };
+
+// middayZone is a fixed-offset zone where the local time is about noon right
+// now. The stub's drives sit minutes to an hour before now, so in the browser's
+// own zone, just after midnight, they split across two days and a same-day
+// grouping (the Activity errands row) can't form: the test would depend on the
+// time it runs.
+function middayZone(): string {
+  const off = Math.max(-12, Math.min(14, 12 - new Date().getUTCHours()));
+  // Etc/GMT signs are inverted: Etc/GMT-5 is UTC+5.
+  return off === 0 ? "Etc/GMT" : `Etc/GMT${off > 0 ? "-" : "+"}${Math.abs(off)}`;
+}
 
 const nowViews: View[] = (["parked", "charging", "driving", "asleep", "offline"] as NowScenario[]).map((s) => ({
   name: `now-${s}`,
@@ -62,7 +75,7 @@ const views: View[] = [
     ],
   },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
-  { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
+  { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"], midday: true },
   // Degraded-state banner: shown only when something is wrong.
   { name: "banner-mfa", path: "/money", heading: "Money", opts: { rivian: "mfa" }, text: ["Rivian is waiting for your verification code."] },
   { name: "banner-reauth", path: "/money", heading: "Money", opts: { rivian: "reauth" }, text: ["Your Rivian sign-in expired. Reconnect to keep recording."] },
@@ -96,7 +109,7 @@ for (const view of views) {
   for (const [vpName, viewport] of Object.entries(VIEWPORTS)) {
     for (const scheme of SCHEMES) {
       test(`${view.name} · ${vpName} · ${scheme}`, async ({ browser }) => {
-        const ctx = await browser.newContext({ viewport, colorScheme: scheme });
+        const ctx = await browser.newContext({ viewport, colorScheme: scheme, timezoneId: view.midday ? middayZone() : undefined });
         const page = await ctx.newPage();
         const errors = collectErrors(page);
         await stubApi(page, view.opts);
