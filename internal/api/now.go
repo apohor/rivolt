@@ -35,6 +35,9 @@ type nowSnapshot struct {
 	TirePressureMinB *float64
 	FailedSleeps6h   int
 	ChargePeakKW     *float64
+	// lat, lon, hasPos: the newest row's position (never serialised).
+	lat, lon float64
+	hasPos   bool
 }
 
 type nowCharge struct {
@@ -61,6 +64,18 @@ type nowResponse struct {
 	// a tighter limit than the age of `at`.
 	VehicleStateFrameAt *time.Time `json:"vehicle_state_frame_at"`
 	Charge              *nowCharge `json:"charge"`
+	// Ambient is the outside temperature looked up from Open-Meteo for the
+	// truck's location rounded to about 11 km. Rivian reports none. Present only
+	// when the user turned the lookup on (off by default) and the truck has a
+	// position; never in the demo.
+	Ambient *nowAmbient `json:"ambient,omitempty"`
+}
+
+// nowAmbient is the looked-up outside temperature.
+type nowAmbient struct {
+	TempC  float64   `json:"temp_c"`
+	Source string    `json:"source"` // "open-meteo"
+	AsOf   time.Time `json:"as_of"`  // the hour the value is for (UTC)
 }
 
 // nowAPI holds the /now handler's seams so tests run without Postgres.
@@ -70,6 +85,10 @@ type nowAPI struct {
 	// frameAt reads the live feed's last vehicleState frame time
 	// (rivian.StateMonitor.VehicleStateFrameAt); nil leaves it null.
 	frameAt func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time
+	// ambient looks up the outside temperature at (lat, lon) for a user who opted
+	// in; nil (the seam, or the user's choice) leaves the field out. It must not
+	// log or return the coordinates.
+	ambient func(ctx context.Context, uid uuid.UUID, lat, lon float64) *nowAmbient
 	now     func() time.Time
 }
 
@@ -115,6 +134,9 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	if out.State == "charging" && snap.StateSince != nil {
 		out.Charge = &nowCharge{StartedAt: *snap.StateSince, SoCStart: snap.SoCAtStateStart, PeakKW: snap.ChargePeakKW}
 	}
+	if a.ambient != nil && snap.hasPos {
+		out.Ambient = a.ambient(r.Context(), uid, snap.lat, snap.lon)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, out)
 }
@@ -159,7 +181,8 @@ WITH v AS (
 	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
 	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st,
-	       (vs.power_state IS NOT DISTINCT FROM 'sleep') AS asleep
+	       (vs.power_state IS NOT DISTINCT FROM 'sleep') AS asleep,
+	       vs.lat, vs.lon
 	FROM vehicle_state vs
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
 	ORDER BY vs.at DESC LIMIT 1
@@ -171,7 +194,9 @@ SELECT (SELECT at FROM cur),
        (SELECT vs.tire_pressure_min_bar FROM vehicle_state vs
          WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
            AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
-         ORDER BY vs.at DESC LIMIT 1)`, "vs")
+         ORDER BY vs.at DESC LIMIT 1),
+       (SELECT lat FROM cur),
+       (SELECT lon FROM cur)`, "vs")
 
 // nowRunSQL finds where the current run ($4 = its state) began: an
 // early-stopping descending scan on the (vehicle_id, at) key that stops
@@ -283,11 +308,11 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		var out nowSnapshot
 		var at, fix sql.NullTime
 		var st sql.NullString
-		var tire sql.NullFloat64
+		var tire, lat, lon sql.NullFloat64
 		var asleep sql.NullBool
 		sleepFrom := now.Add(-nowSleepWindow).UTC()
 		if err := pool.QueryRowContext(ctx, nowCurSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom).
-			Scan(&at, &st, &fix, &asleep, &tire); err != nil {
+			Scan(&at, &st, &fix, &asleep, &tire, &lat, &lon); err != nil {
 			return out, err
 		}
 		if at.Valid {
@@ -300,6 +325,11 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		}
 		if tire.Valid {
 			out.TirePressureMinB = &tire.Float64
+		}
+		// The position stays inside the server: it is only ever used to look up
+		// the ambient temperature (when the user opted in) and is never returned.
+		if lat.Valid && lon.Valid && (lat.Float64 != 0 || lon.Float64 != 0) {
+			out.lat, out.lon, out.hasPos = lat.Float64, lon.Float64, true
 		}
 		out.State = st.String
 		out.Asleep = asleep.Valid && asleep.Bool

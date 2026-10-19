@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: October 18, 2026
+Last updated: October 19, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
@@ -23,7 +23,7 @@ Last updated: October 18, 2026
 - **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
 - **Your browser's push service**, if you turn on notifications.
-- **Open-Meteo**, for weather (trip coordinates rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
+- **Open-Meteo**, for weather (trip coordinates, or your truck's location if you turn on outside temperature, rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
 - **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Drive analysis sends the drive's date and time, its figures (distance, speed, energy, battery, climb and descent), temperatures, weather, tire pressures and your vehicle details (tires, wheels, accessories, load, towing); never coordinates or place names. Trip advice sends charger names, or locations rounded to about 11 km, and tire pressures; never the text you type.
 
 We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **We do not sell your data, and there is no advertising** and no third-party analytics script.
