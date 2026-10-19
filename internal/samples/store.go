@@ -178,7 +178,14 @@ type vehicleMonth struct {
 // with the object if the month was thinned. A month without an archive row
 // (the current one, for live writes) is a no-op.
 func (s *Store) markRearchive(ctx context.Context, tx *sql.Tx, touched map[vehicleMonth]bool) error {
+	// A month that ended less than ArchiveAfterDays ago can't have an
+	// archive row (the job's own cutoff), so the live recorder's writes skip
+	// the UPDATE altogether (backend on #628).
+	archivable := nowFn().UTC().AddDate(0, 0, -archive.ArchiveAfterDays)
 	for vm := range touched {
+		if vm.month.AddDate(0, 1, 0).After(archivable) {
+			continue
+		}
 		if err := archive.MarkRearchive(ctx, tx, s.userID, vm.vehicle, vm.month); err != nil {
 			return fmt.Errorf("mark %s for re-archiving: %w", vm.month.Format("2006-01"), err)
 		}
