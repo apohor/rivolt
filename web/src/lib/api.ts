@@ -313,6 +313,9 @@ export type VehicleState = {
 };
 
 export type Drive = {
+  // True when this drive's month has been thinned (older than 90 days): its route and charts come from a lighter
+  // recording. Absent on a server that doesn't say, which reads as not thinned.
+  thinned?: boolean;
   ID: string;
   VehicleID: string;
   StartedAt: string;
