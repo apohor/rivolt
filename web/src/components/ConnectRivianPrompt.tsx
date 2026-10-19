@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { useDemoEnabled } from "../lib/config";
-import { AuthorizedDriverNote, RivianAccountPanel } from "./RivianAccountPanel";
+import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
 
 // ConnectRivianPrompt is a top-of-page CTA shown on every page that's
@@ -95,6 +95,11 @@ export default function ConnectRivianPrompt({
               <span className="text-neutral-500">{context}</span>
             )}
           </p>
+          {noVehicles && (
+            <p className="mt-1 text-sm text-neutral-400">
+              {NO_VEHICLE_CAUSE} <strong className="text-neutral-200">Check again</strong> in Settings. {NO_VEHICLE_MAIN_ACCOUNT}
+            </p>
+          )}
         </div>
         {!noVehicles && demoEnabled && <SampleTruckCard compact />}
         <Link
