@@ -186,6 +186,9 @@ jobs:
       CHART: deploy/helm/rivolt
       KUBE_VERSION: "1.35.0"
       KUBECONFORM_VERSION: v0.8.0
+      CT_VERSION: 3.15.0
+      YAMLLINT_VERSION: 1.33.0
+      YAMALE_VERSION: 6.0.0
     steps:
       - uses: actions/checkout@v6
         with:
@@ -195,19 +198,25 @@ jobs:
         with:
           version: v4.2.3
 
-      - uses: helm/chart-testing-action@v2
-        with:
-          version: 3.15.0
-
-      - name: Install kubeconform
+      # chart-testing and kubeconform from their releases, checksums verified
+      # (helm/chart-testing-action failed in its own cosign step), with ct's
+      # Python linters pinned in a venv.
+      - name: Install ct and kubeconform
         run: |
           cd "$RUNNER_TEMP"
-          base="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
-          curl -fsSLO "$base/kubeconform-linux-amd64.tar.gz"
-          curl -fsSLO "$base/CHECKSUMS"
+          ct="https://github.com/helm/chart-testing/releases/download/v${CT_VERSION}"
+          curl -fsSLO "$ct/chart-testing_${CT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "$ct/checksums.txt"
+          grep " chart-testing_${CT_VERSION}_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -
+          mkdir ct && tar xzf "chart-testing_${CT_VERSION}_linux_amd64.tar.gz" -C ct
+          kc="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
+          curl -fsSLO "$kc/kubeconform-linux-amd64.tar.gz"
+          curl -fsSLO "$kc/CHECKSUMS"
           grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum -c -
           tar xzf kubeconform-linux-amd64.tar.gz kubeconform
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          python3 -m venv venv
+          venv/bin/pip install --quiet "yamllint==${YAMLLINT_VERSION}" "yamale==${YAMALE_VERSION}"
+          { echo "$RUNNER_TEMP"; echo "$RUNNER_TEMP/ct"; echo "$RUNNER_TEMP/venv/bin"; } >> "$GITHUB_PATH"
 
       - name: ct lint
         run: |
@@ -215,7 +224,8 @@ jobs:
           # Pushes: nothing differs from main, so lint every chart, no bump check.
           extra=""
           [ "${{ github.event_name }}" = "pull_request" ] || extra="--all --check-version-increment=false"
-          ct lint --config .github/ct.yaml $extra
+          ct lint --config .github/ct.yaml \
+            --lint-conf "$RUNNER_TEMP/ct/etc/lintconf.yaml" --chart-yaml-schema "$RUNNER_TEMP/ct/etc/chart_schema.yaml" $extra
 
       - name: helm lint --strict and kubeconform, per values case
         run: |
