@@ -253,3 +253,41 @@ func TestNoopSealerIsIdentity(t *testing.T) {
 		t.Errorf("KEKID = %q, want noop", s.KEKID())
 	}
 }
+
+func TestNewEnvSealerWithRotationParsesValues(t *testing.T) {
+	enc := func(id string, fill byte) string {
+		return id + ":" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
+	}
+	ctx := context.Background()
+	uid := uuid.New()
+	oldS, err := NewEnvSealerWithRotation(enc("k1", 1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, _ := oldS.Seal(ctx, uid, []byte("secret"))
+	s, err := NewEnvSealerWithRotation(enc("k2", 2), []string{"", enc("k1", 1), enc("k2", 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Open(ctx, uid, blob); err != nil || string(got) != "secret" {
+		t.Fatalf("retired key: %q %v", got, err)
+	}
+	if p, r := s.KEKIDs(); p != "k2" || len(r) != 1 || r[0] != "k1" {
+		t.Errorf("ids %q %v", p, r)
+	}
+	for name, retired := range map[string][]string{
+		"junk":                {"junk"},
+		"a name, not a value": {"SOME_ENV_VAR"},
+		"duplicate id":        {enc("k1", 1), enc("k1", 7)},
+	} {
+		if _, err := NewEnvSealerWithRotation(enc("k2", 2), retired); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := NewEnvSealerWithRotation("  ", nil); err == nil {
+		t.Error("an empty primary was accepted")
+	}
+	if _, err := NewEnvSealerWithRotation("k1:AAAA", nil); err == nil {
+		t.Error("a short primary was accepted")
+	}
+}

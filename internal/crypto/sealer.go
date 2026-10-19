@@ -26,8 +26,9 @@
 //     per call.
 //   - **Multiple KEKs can coexist.** `kek_id` in the header lets
 //     old rows unwrap with the old key while new writes use the
-//     new one; the rotation job walks rows and re-wraps without
-//     downtime.
+//     new one. (There is no job that re-wraps old rows yet: a row stays
+//     under its KEK until it is next written, so retired KEKs must stay
+//     loaded; see NewEnvSealerWithRotation.)
 //   - **Cross-tenant ciphertext swaps fail.** The user ID is
 //     bound into GCM's additional-authenticated-data, so a blob
 //     stolen from user A's row and pasted into user B's row
@@ -55,6 +56,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -200,6 +203,62 @@ func NewEnvSealerFromEnv(primaryVar string, rotationVars ...string) (*EnvSealer,
 		s.rotation[k.id] = prev
 	}
 	return s, nil
+}
+
+// NewEnvSealerWithRotation builds a sealer from the primary KEK and the retired
+// KEKs it must still open, all given as VALUES in the "<id>:<base64>" format
+// (what RIVOLT_KEK and RIVOLT_KEK_ROTATION hold). A malformed primary or retired
+// entry is an error, so a bad rotation list refuses to boot instead of silently
+// leaving rows sealed under the old key unreadable. Blank entries and a retired
+// key repeating the primary's id are skipped; two different retired keys with the
+// same id are an error (one would shadow the other).
+func NewEnvSealerWithRotation(primary string, retired []string) (*EnvSealer, error) {
+	if strings.TrimSpace(primary) == "" {
+		return nil, errors.New("crypto: the primary KEK is not set")
+	}
+	pk, err := parseKEKEnv(strings.TrimSpace(primary))
+	if err != nil {
+		return nil, fmt.Errorf("crypto: primary KEK: %w", err)
+	}
+	s, err := NewEnvSealer(pk.id, pk.key)
+	if err != nil {
+		return nil, fmt.Errorf("crypto: primary KEK: %w", err)
+	}
+	for i, raw := range retired {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		k, err := parseKEKEnv(raw)
+		if err != nil {
+			return nil, fmt.Errorf("crypto: retired KEK #%d: %w", i+1, err)
+		}
+		if k.id == s.kekID {
+			continue // the primary listed again: harmless
+		}
+		if prev, dup := s.rotation[k.id]; dup {
+			if subtle.ConstantTimeCompare(prev.kek, k.key) != 1 {
+				return nil, fmt.Errorf("crypto: retired KEK #%d: id %q is used by two different keys", i+1, k.id)
+			}
+			continue
+		}
+		prev, err := NewEnvSealer(k.id, k.key)
+		if err != nil {
+			return nil, fmt.Errorf("crypto: retired KEK #%d: %w", i+1, err)
+		}
+		s.rotation[k.id] = prev
+	}
+	return s, nil
+}
+
+// KEKIDs returns the id of the KEK new data is sealed under and the ids of the
+// retired ones still loaded (never the keys), sorted, for the boot log.
+func (s *EnvSealer) KEKIDs() (primary string, retired []string) {
+	for id := range s.rotation {
+		retired = append(retired, id)
+	}
+	sort.Strings(retired)
+	return s.kekID, retired
 }
 
 // KEKID implements Sealer. Used by the sealer caller to stamp the

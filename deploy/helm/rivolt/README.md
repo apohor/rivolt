@@ -141,8 +141,11 @@ Whichever mode you pick:
 
 - **Rotation:** set `secrets.kek` to the new value (e.g. `v2:...`)
   and `secrets.kekRotation` to a comma-separated list of retired
-  keys (`v1:...`) so old ciphertexts keep decrypting until the
-  background rewrap migration finishes.
+  keys (`v1:...`, the values, not variable names) so old ciphertexts
+  keep decrypting. There is no background rewrap yet: rows sealed under
+  `v1` stay sealed under `v1` until they are next written, so keep it in
+  `secrets.kekRotation` for as long as the deployment lives (a malformed
+  entry stops the pod from booting; the boot log lists the loaded KEK ids).
 
 - **GitOps / ArgoCD caveat:** `lookup` returns nil under client-
   side rendering, so leaving `secrets.kek` empty under ArgoCD
