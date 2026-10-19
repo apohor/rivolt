@@ -62,6 +62,7 @@ import (
 	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/planleg"
+	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
@@ -1975,6 +1976,41 @@ func runServer() {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
 		}
 		go retention.Run(ctx, logger, jobs)
+	}
+
+	// The plug-in reminder (internal/plugreminder): an opt-in push, once a day,
+	// when the truck is parked at the saved home place, unplugged and below the
+	// user's level. Every replica sweeps; the engage claim makes it once. Never
+	// in admin-only or demo-only mode, and never for the demo account.
+	if pgPool != nil && pushSvc != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+		reminder := &plugreminder.Job{
+			Source: plugreminder.NewSource(pgPool, func(ctx context.Context, uid uuid.UUID) (float64, float64, bool, error) {
+				h, err := settings.GetHomeLocation(ctx, settingsFactory.For(uid))
+				return h.Latitude, h.Longitude, h.Set, err
+			}, demo.UserID()),
+			Engage: &engage.Engage{Store: engage.NewStore(pgPool), Observe: func(kind, outcome string) {
+				appMetrics.EngagementSendsTotal.WithLabelValues(kind, outcome).Inc()
+			}},
+			Logger: logger,
+			On: func(ctx context.Context, uid uuid.UUID) (bool, error) {
+				store := pushFactory.For(uid)
+				if store == nil {
+					return false, nil
+				}
+				subs, err := store.List(ctx)
+				for _, sub := range subs {
+					if sub.OnPlugInReminder {
+						return true, err
+					}
+				}
+				return false, err
+			},
+			Deliver: func(ctx context.Context, uid uuid.UUID, soc, threshold int) error {
+				_, err := pushSvc.DeliverPlugInReminder(ctx, pushFactory.For(uid), soc, threshold)
+				return err
+			},
+		}
+		go reminder.Run(ctx)
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.

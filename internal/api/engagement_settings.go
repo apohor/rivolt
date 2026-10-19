@@ -30,6 +30,7 @@ type engagementSettings struct {
 const (
 	defaultPlugThresholdPct = 40
 	defaultPlugRemindAt     = "20:00"
+	earliestPlugRemindAt    = "07:00"
 	latestPlugRemindAt      = "22:00"
 )
 
@@ -115,9 +116,10 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 	}
 	if body.PlugRemindAt != nil {
 		m, ok := parseClock(*body.PlugRemindAt)
+		earliest, _ := parseClock(earliestPlugRemindAt)
 		latest, _ := parseClock(latestPlugRemindAt)
-		if !ok || m > latest {
-			http.Error(w, "plug_remind_at must be a time of day (HH:MM) no later than 22:00", http.StatusBadRequest)
+		if !ok || m < earliest || m > latest {
+			http.Error(w, "plug_remind_at must be a time of day (HH:MM) between 07:00 and 22:00", http.StatusBadRequest)
 			return
 		}
 		cur.PlugRemindAt = (time.Time{}).Add(time.Duration(m) * time.Minute).Format("15:04")
