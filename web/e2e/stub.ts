@@ -300,6 +300,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         median_sleep_seconds: ok ? 16_000 : null, parked_hours: ok ? days * 20 : 9,
         power_state_observed_hours: ok ? days * 22 : 9, days_in_window: days, days_with_data: ok ? days - 1 : 1,
         days_excluded: { insufficient: ok ? 1 : days - 1 }, sufficient: ok,
+        ...(ok ? { split: { sufficient: true, asleep_hours: days * 18, awake_hours: days * 2, asleep_points_lost: 1, awake_points_lost: Math.round(days / 7) * 4, awake_share_of_loss: (Math.round(days / 7) * 4) / (1 + Math.round(days / 7) * 4), awake_share_of_time: 0.1, min_hours: 48, min_points_lost: 3 } } : {}),
       });
       const daily = Array.from({ length: 30 }, (_, i) => {
         const excluded = !ok ? (i < 28 ? "insufficient" : null) : i % 9 === 4 ? "insufficient" : null;
