@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { DEMO_PLAN, stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Re-plan from here: a saved multi-day trip that is under way, planned again from the truck's position
 // on an explicit tap, never by itself.
@@ -41,7 +42,7 @@ const DAYS = [
   day(3, "2026-10-22T12:30:00Z", "North Platte", "Denver"),
 ];
 const TOTAL = { distance_meters: 1_900_000, drive_duration_sec: 90_000, charging_duration_sec: 6_000 };
-const POSITION = { lat: 41.0, lon: -90.0, soc: 61, at: new Date().toISOString() };
+const POSITION = { lat: 41.0, lon: -90.0, soc: 61, at: new Date(e2eNow()).toISOString() };
 
 type Body = { origin_from_vehicle?: boolean; start_at?: string; starting_soc?: number; vehicle_id?: string; days: { vias?: unknown[] }[] };
 

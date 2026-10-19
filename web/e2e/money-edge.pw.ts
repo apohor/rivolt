@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 import { currentMonth, ledgerMonthFixture, ledgerMonthFromReceipts, ledgerSummaryFixture, type Receipt } from "../src/lib/ledger";
+import { e2eNow } from "./clock";
 
 // Money's edge states for users who open it for the first time: nothing
 // this month, only home AC, only Rivian-billed, an R2 owner (91.5 kWh pack,
@@ -11,7 +12,7 @@ import { currentMonth, ledgerMonthFixture, ledgerMonthFromReceipts, ledgerSummar
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const month = currentMonth();
+const month = currentMonth(new Date(e2eNow()));
 const fx = () => ledgerMonthFixture(month);
 
 type Scenario = {
@@ -112,7 +113,7 @@ async function setup(page: Page, sc: Scenario) {
   const m = ledgerMonthFromReceipts(month, sc.receipts(fx().receipts), sc.opts);
   await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: m }));
   await page.route("**/api/ledger/summary**", (r) =>
-    r.fulfill({ json: sc.summaryMonths === false ? { version: 1, tz: m.tz, currency: "USD", months: [] } : ledgerSummaryFixture(12) }),
+    r.fulfill({ json: sc.summaryMonths === false ? { version: 1, tz: m.tz, currency: "USD", months: [] } : ledgerSummaryFixture(12, new Date(e2eNow())) }),
   );
   if (sc.vehicles) await page.route("**/api/vehicles", (r) => r.fulfill({ json: sc.vehicles }));
   if (sc.charging) await page.route("**/api/settings/charging/", (r) => r.fulfill({ json: sc.charging }));

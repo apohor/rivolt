@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { currentMonth, ledgerMonthFixture, ledgerSummaryFixture } from "../src/lib/ledger";
+import { e2eNow } from "./clock";
 
 // DCFC auto-network pricing: Pricing card (estimate, Confirm / Change,
 // why), Money badge + "Estimated, confirm" rows.
@@ -12,8 +13,8 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const base = (n: number, o: Record<string, unknown>) => ({
   ID: `charge-${n}`, VehicleID: VEHICLE_ID,
-  StartedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-  EndedAt: new Date(Date.now() - 2 * 86_400_000 + 1_800_000).toISOString(),
+  StartedAt: new Date(e2eNow() - 2 * 86_400_000).toISOString(),
+  EndedAt: new Date(e2eNow() - 2 * 86_400_000 + 1_800_000).toISOString(),
   StartSoCPct: 20, EndSoCPct: 80, EnergyAddedKWh: 52.4, MilesAdded: 150, MaxPowerKW: 180, AvgPowerKW: 110,
   FinalState: "charging_complete", Lat: 40.9, Lon: -100.9, Source: "live", Currency: "USD", ...o,
 });
@@ -36,8 +37,8 @@ async function setup(page: Page, state: string | null, extra: Record<string, unk
   const c3 = base(3, { Cost: 0, PricePerKWh: 0, CostSource: "", network_state: "needs_confirmation", network_confidence: 0 });
   // An older month's charge: the To confirm view spans every month.
   const old = base(4, {
-    StartedAt: new Date(Date.now() - 45 * 86_400_000).toISOString(),
-    EndedAt: new Date(Date.now() - 45 * 86_400_000 + 1_800_000).toISOString(),
+    StartedAt: new Date(e2eNow() - 45 * 86_400_000).toISOString(),
+    EndedAt: new Date(e2eNow() - 45 * 86_400_000 + 1_800_000).toISOString(),
     Cost: 18.2, PricePerKWh: 0.35, CostSource: "network_estimate", network_state: "estimated", network_confidence: 0.9,
     network_evidence: { v: 1, source: "archive", candidates: [{ network: "Electrify America", slug: "ea", dist_m: 40 }] },
   });
@@ -120,10 +121,10 @@ for (const [vpName, vp] of [
       await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
       await setup(page, "estimated");
       await page.route("**/api/ledger/summary**", (r) =>
-        r.fulfill({ json: { ...ledgerSummaryFixture(12), to_confirm_count: 3, needs_attention_count: 1 } }),
+        r.fulfill({ json: { ...ledgerSummaryFixture(12, new Date(e2eNow())), to_confirm_count: 3, needs_attention_count: 1 } }),
       );
       await page.route("**/api/ledger/monthly**", (r) => {
-        const m = ledgerMonthFixture(currentMonth());
+        const m = ledgerMonthFixture(currentMonth(new Date(e2eNow())));
         for (const rc of m.receipts) {
           if (rc.cost_source === "network_estimate") {
             rc.network_state = "needs_confirmation";

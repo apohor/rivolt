@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Idle-awake values read as minutes under an hour and hours + minutes above,
 // on the Truck tab and on Now; nothing is capped.
@@ -18,7 +19,7 @@ for (const scheme of ["dark", "light"] as const) {
     await page.route("**/api/sleep-activity**", (r) =>
       r.fulfill({
         json: Array.from({ length: 14 }, (_, i) => ({
-          day: new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
+          day: new Date(e2eNow() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
           asleep_h: 12, idle_awake_h: i === 6 ? 22.28 : 0.75 + (i % 4) * 0.9, sleeps: 3, failed_sleeps: 0,
         })),
       }),

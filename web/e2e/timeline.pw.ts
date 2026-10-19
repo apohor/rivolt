@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // Drive timeline: stacked Speed / Power / Battery panels with a synced
 // scrub readout. Uses a realistic fixture (stops, slowdowns, regen, one
@@ -11,7 +12,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const MIN = 60_000;
-const NOW = Date.now();
+const NOW = e2eNow();
 const LONG = { id: "drive-1", start: NOW - 3 * 3_600_000, mins: 75, mi: 62 };
 const SHORT = { id: "drive-2", start: NOW - 6 * 3_600_000, mins: 9, mi: 3.4 };
 

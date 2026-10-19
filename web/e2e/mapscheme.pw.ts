@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // The drive map's colour scheme follows Settings → Appearance; the D/L
 // buttons are a temporary override that is never persisted.
@@ -10,7 +11,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const MIN = 60_000;
-const START = Date.now() - 3 * 3_600_000;
+const START = e2eNow() - 3 * 3_600_000;
 
 async function setup(page: Page) {
   await stubApi(page);

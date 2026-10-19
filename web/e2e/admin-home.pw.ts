@@ -3,13 +3,14 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Admin Home (new look): "Is everything OK?", from GET /api/admin/health-summary.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const ok = { status: "ok" };
-const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+const iso = (msAgo: number) => new Date(e2eNow() - msAgo).toISOString();
 const healthy = () => ({
   generated_at: iso(5_000), version: "0.36.20",
   alerts: { ...ok, items: [] },

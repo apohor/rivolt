@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // On the admin site (admin_only, a long list): clicking a user opens their page (the whole row or card,
 // not just the name), and Back returns to the list.
 const H = 3_600_000;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const mk = (i: number) => ({ id: `u${i}`, username: `user${i}@example.com`, email: `user${i}@example.com`, display_name: `User ${i}`, role: i === 0 ? "admin" : "user", disabled: false, created_at: ago((40 + i) * 24 * H), vehicle_count: 1, drive_count: 2, import_count: 0, rivian_connected: true, needs_reauth: false, last_seen_at: ago((i + 1) * H) });
 const USERS = Array.from({ length: 16 }, (_, i) => mk(i));
 

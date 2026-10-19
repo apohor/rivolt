@@ -3,12 +3,13 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Plan vs actual for a saved multi-day trip: one comparison per day, each linked on its own.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const iso = (agoMs: number) => new Date(Date.now() - agoMs).toISOString();
+const iso = (agoMs: number) => new Date(e2eNow() - agoMs).toISOString();
 const metric = (m: string, unit: string, planned: number, actual: number) => ({ metric: m, unit, planned, actual, delta: actual - planned, reasons: [] });
 const comparison = {
   currency: "USD",

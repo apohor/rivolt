@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // The "I agree" gate: shown to a signed-in user whose accepted Terms version is not the current one,
 // before the app. Unticked checkbox, Continue disabled until ticked, links open new tabs, sign out
@@ -24,7 +25,7 @@ async function open(page: Page, terms: Terms, opts: { acceptStatus?: number } = 
       t = { current: "2026-11-01", accepted: t.accepted, accepted_at: null, required: true };
       return r.fulfill({ status: 409, json: { error: "version_not_current", current: "2026-11-01" } });
     }
-    t = { ...t, accepted: t.current, accepted_at: new Date().toISOString(), required: false };
+    t = { ...t, accepted: t.current, accepted_at: new Date(e2eNow()).toISOString(), required: false };
     return r.fulfill({ json: { ok: true, terms: t } });
   });
   return posted;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // Lease tracker (new look): the Truck card (progress bar, plan standing, projected return and
 // overage, miles-a-day budget; hidden with no lease) and the Settings form.
@@ -13,7 +14,7 @@ const TERMS = { start_date: "2024-11-03", end_date: "2027-11-03", start_odometer
 const STATUS = {
   used_mi: 21850.4, allowed_to_date_mi: 20130, ahead_behind_mi: -1720.4, days_total: 1095, days_elapsed: 700, days_left: 395,
   projected_total_mi: 39720, projected_return_odometer_mi: 39732, projected_overage_mi: 3720, projected_overage_cost: 930,
-  miles_per_day_budget: 35.7, pace_mi_per_day: 31.2, pace_basis: "last_90_days", odometer_mi: 21862.4, odometer_at: new Date().toISOString(),
+  miles_per_day_budget: 35.7, pace_mi_per_day: 31.2, pace_basis: "last_90_days", odometer_mi: 21862.4, odometer_at: new Date(e2eNow()).toISOString(),
 };
 
 async function mock(page: Page, terms: unknown | null, status: unknown | null) {

@@ -4,6 +4,7 @@
 
 import type { Page, Route } from "@playwright/test";
 import { ledgerMonthFixture, ledgerSummaryFixture, currentMonth } from "../src/lib/ledger";
+import { e2eNow, pinClock } from "./clock";
 
 export const VEHICLE_ID = "veh-sample-1";
 const HOME = { latitude: 40.0, longitude: -100.0 };
@@ -11,7 +12,7 @@ const HOME = { latitude: 40.0, longitude: -100.0 };
 export type NowScenario = "parked" | "charging" | "driving" | "asleep" | "offline" | "stale";
 
 function iso(msAgo: number): string {
-  return new Date(Date.now() - msAgo).toISOString();
+  return new Date(e2eNow() - msAgo).toISOString();
 }
 
 export function vehicleState(s: NowScenario): Record<string, unknown> {
@@ -195,9 +196,11 @@ export type StubOptions = {
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", uiNext = false } = opts;
-  const month = currentMonth();
+  const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  // STUB_NOW pins the page's clock to the fixtures' now (no-op otherwise).
+  await pinClock(page);
 
   // No service worker in the harness: once it controls the page, requests the
   // page makes go through it and WebKit does not hand them to page.route, so
@@ -260,7 +263,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true, ...(uiNext ? { ui_theme_next: true } : {}) });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
-    if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12));
+    if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12, new Date(e2eNow())));
     if (p === "/api/health") {
       return rivian === "backend-down"
         ? json(route, { error: "down" }, 503)
@@ -301,7 +304,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const daily = Array.from({ length: 30 }, (_, i) => {
         const excluded = !ok ? (i < 28 ? "insufficient" : null) : i % 9 === 4 ? "insufficient" : null;
         return {
-          day: new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10),
+          day: new Date(e2eNow() - (29 - i) * 86_400_000).toISOString().slice(0, 10),
           drain_pct: excluded || !ok ? null : 0.6 + ((i * 7) % 10) / 10,
           idle_awake_hours: ok ? 0.9 : null, parked_hours: ok ? 20 : 0.3, sleeps: 3, quick_rewakes: 0, excluded,
         };
@@ -324,7 +327,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/settings/charging/networks") return json(route, []);
     if (p === "/api/sleep-activity") {
       const days = Array.from({ length: 14 }, (_, i) => ({
-        day: new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
+        day: new Date(e2eNow() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
         asleep_h: 20, idle_awake_h: 0.5 + (i % 4) * 0.3, sleeps: 3, failed_sleeps: i === 13 ? 4 : 0,
       }));
       return json(route, days);
@@ -351,7 +354,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/samples") {
       // A believable window of samples (every 30 s) so the drive and
       // charge charts render with real axes.
-      const since = Date.parse(url.searchParams.get("since") || "") || Date.now() - 3_600_000;
+      const since = Date.parse(url.searchParams.get("since") || "") || e2eNow() - 3_600_000;
       const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
       const out: Record<string, unknown>[] = [];
       for (let t = since, i = 0; t <= until && i < 400; t += 30_000, i++) {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // iPhone-width (390 px) layout checks for the drive and charge charts.
 // Screenshots go to e2e/__screenshots__ (git-ignored).
@@ -34,7 +35,7 @@ test("charge detail explains a receipt total that differs from this session's co
   // total ($9.99) is more than this session's own cost ($4.40).
   await page.route("**/api/ledger/monthly**", async (route) => {
     const session = (id: string, cost: number) => ({
-      charge_id: id, started_at: new Date().toISOString(), ended_at: new Date().toISOString(),
+      charge_id: id, started_at: new Date(e2eNow()).toISOString(), ended_at: new Date(e2eNow()).toISOString(),
       soc_start: 30, soc_end: 80, kwh: 20, peak_kw: 11, cost, price_per_kwh: 0.11, cost_source: "home_rate",
       final_state: "charging_complete", source: "live", flags: [],
     });
@@ -47,8 +48,8 @@ test("charge detail explains a receipt total that differs from this session's co
         driving: { drives: 0, miles: 0, miles_with_energy: 0, kwh_used_known: 0, coverage: null, cost_per_mile: null, cost_per_mile_basis: "spend_over_miles" },
         data_quality: {},
         receipts: [{
-          receipt_id: "r1", vehicle_id: "v", kind: "ac", place: "home", km_from_home: 0, started_at: new Date().toISOString(),
-          ended_at: new Date().toISOString(), local_date: "2026-10-15", spans_days: 1, soc_start: 30, soc_end: 80, kwh: 40, peak_kw: 11,
+          receipt_id: "r1", vehicle_id: "v", kind: "ac", place: "home", km_from_home: 0, started_at: new Date(e2eNow()).toISOString(),
+          ended_at: new Date(e2eNow()).toISOString(), local_date: "2026-10-15", spans_days: 1, soc_start: 30, soc_end: 80, kwh: 40, peak_kw: 11,
           cost: 9.99, cost_source: "home_rate", rate: 0.11, session_count: 2, unpriced_sessions: 0, flags: [],
           sessions: [session("charge-1", 4.4), session("charge-top", 5.59)],
         }],
@@ -93,7 +94,7 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   // where the legend sits: top-right start, bottom-left end.
   await page.route("**/api/samples**", async (route) => {
     const url = new URL(route.request().url());
-    const since = Date.parse(url.searchParams.get("since") || "") || Date.now() - 3_600_000;
+    const since = Date.parse(url.searchParams.get("since") || "") || e2eNow() - 3_600_000;
     const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
     const out = [];
     for (let t = since, i = 0; t <= until && i < 60; t += 30_000, i++) {
@@ -107,7 +108,7 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   });
   await page.route("**/api/drives**", async (route) => {
     if (new URL(route.request().url()).pathname !== "/api/drives") return route.fallback();
-    const t0 = Date.now() - 3_600_000;
+    const t0 = e2eNow() - 3_600_000;
     await route.fulfill({
       status: 200,
       contentType: "application/json",

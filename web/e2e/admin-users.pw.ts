@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Admin > Users (new look): status columns, the red "leased, no data" rule, the purge countdown,
 // filters and search, row actions, and a typed confirm before a delete.
@@ -11,7 +12,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const H = 3_600_000;
 const D = 24 * H;
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const base = { disabled: false, vehicle_count: 1, drive_count: 4, import_count: 0, rivian_connected: true, needs_reauth: false };
 const USERS = [
   { ...base, id: "a1", username: "admin@example.com", email: "admin@example.com", display_name: "Owner", role: "admin", created_at: ago(200 * D), last_seen_at: ago(60_000), last_data_at: ago(5 * 60_000), leased: true, receipts_opt_in: true },

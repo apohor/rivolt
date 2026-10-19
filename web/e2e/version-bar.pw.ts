@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // A deploy while a tab is open: the next health check reports a new version, the
 // bar appears (both looks, flag-independent), and Reload reloads the page.
@@ -9,7 +10,7 @@ for (const ui of ["off", "on"] as const) {
     await stubApi(page);
     let version = "v1.0.0";
     await page.route("**/api/health", (r) =>
-      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version, time: new Date().toISOString() }) }),
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version, time: new Date(e2eNow()).toISOString() }) }),
     );
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Now" })).toBeVisible();

@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
+import { e2eNow } from "./clock";
 
 // Truck software card: the installed and the pending update each link to their release
 // notes (an outbound https link: new tab, noopener noreferrer); nothing renders for a
@@ -15,7 +16,7 @@ const OTA = {
   current: { version: "2026.30.0", release_notes_url: "https://rivian.com/support/release-notes/2026-30", locale: "en-US" },
   available: { version: "2026.38.1", release_notes_url: "https://rivian.com/support/release-notes/2026-38", locale: "en-US" },
   status: "ready_to_install",
-  fetched_at: new Date().toISOString(),
+  fetched_at: new Date(e2eNow()).toISOString(),
 };
 
 async function open(page: import("@playwright/test").Page, ota: unknown) {
