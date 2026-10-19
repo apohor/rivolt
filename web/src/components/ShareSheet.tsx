@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { paintShareCard, shareCardBlob, type ShareCardModel } from "../lib/shareCard";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
@@ -52,7 +53,9 @@ export function ShareSheet({
   const canShareFiles = typeof navigator !== "undefined" && typeof navigator.canShare === "function" && typeof navigator.share === "function";
   const canCopy = typeof window !== "undefined" && typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;
 
-  return (
+  // Rendered into the body: inside a page header (or any element with its own stacking context) the bottom nav would
+  // sit on top of the sheet and cover Cancel.
+  return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div
         role="dialog"
@@ -138,6 +141,7 @@ export function ShareSheet({
           </p>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
