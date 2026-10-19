@@ -8,36 +8,56 @@ import (
 	"time"
 )
 
-// Group counts running goroutines.
+// Group counts running goroutines. It is a counter under a mutex rather than a
+// sync.WaitGroup because a hook can start new work while shutdown is already
+// waiting, and WaitGroup panics on an Add that races a Wait at zero.
 type Group struct {
-	wg sync.WaitGroup
+	mu   sync.Mutex
+	n    int
+	idle chan struct{} // closed when n returns to zero, while someone waits
 }
 
 // Default is the process-wide group; main waits on it at shutdown.
 var Default = &Group{}
 
-// Go runs f in a goroutine the group waits for.
+// Go runs f in a goroutine the group waits for. Safe to call while Wait runs: the
+// new goroutine is tracked too.
 func (g *Group) Go(f func()) {
-	g.wg.Add(1)
+	g.mu.Lock()
+	g.n++
+	g.mu.Unlock()
 	go func() {
-		defer g.wg.Done()
+		defer func() {
+			g.mu.Lock()
+			g.n--
+			if g.n == 0 && g.idle != nil {
+				close(g.idle)
+				g.idle = nil
+			}
+			g.mu.Unlock()
+		}()
 		f()
 	}()
 }
 
-// Wait blocks until every goroutine started with Go has returned, or timeout
-// passes. It reports whether they all finished. (A timed-out wait leaves its
-// helper goroutine behind; the process is exiting.)
+// Wait blocks until no goroutine started with Go is running, or timeout passes.
+// It reports whether the group went idle.
 func (g *Group) Wait(timeout time.Duration) bool {
-	done := make(chan struct{})
-	go func() {
-		g.wg.Wait()
-		close(done)
-	}()
+	g.mu.Lock()
+	if g.n == 0 {
+		g.mu.Unlock()
+		return true
+	}
+	if g.idle == nil {
+		g.idle = make(chan struct{})
+	}
+	ch := g.idle
+	g.mu.Unlock()
+
 	t := time.NewTimer(timeout)
 	defer t.Stop()
 	select {
-	case <-done:
+	case <-ch:
 		return true
 	case <-t.C:
 		return false

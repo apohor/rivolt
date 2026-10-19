@@ -40,3 +40,46 @@ func TestWaitWithNothingRunning(t *testing.T) {
 		t.Fatal("empty group did not return at once")
 	}
 }
+
+// Work started while Wait is already running (a close hook firing during the
+// drain) is tracked, not a panic, and Wait returns only when that work is done too.
+func TestGoDuringWaitIsTrackedAndDoesNotPanic(t *testing.T) {
+	var g Group
+	var done atomic.Int32
+	g.Go(func() {
+		time.Sleep(50 * time.Millisecond)
+		g.Go(func() { time.Sleep(50 * time.Millisecond); done.Add(1) }) // starts as the count would hit zero
+	})
+	if !g.Wait(5 * time.Second) {
+		t.Fatal("Wait timed out")
+	}
+	if done.Load() != 1 {
+		t.Errorf("work started during Wait had not finished when Wait returned (%d)", done.Load())
+	}
+}
+
+func TestConcurrentGoAndWait(t *testing.T) {
+	var g Group
+	stop := make(chan struct{})
+	var spawned atomic.Int32
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				g.Go(func() { spawned.Add(1) })
+			}
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		g.Wait(time.Millisecond)
+	}
+	close(stop)
+	if !g.Wait(5 * time.Second) {
+		t.Fatal("never went idle")
+	}
+	if spawned.Load() == 0 {
+		t.Error("no work ran")
+	}
+}
