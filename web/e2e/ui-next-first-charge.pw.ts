@@ -168,3 +168,41 @@ test("where the browser offers to install, there is an Install row that asks the
   await expect(card.locator("[data-first-charge-row='install']")).toHaveCount(0);
   await ctx.close();
 });
+
+test("the first-day card offers Install where the browser does, asks only on a tap, and Not now is for good", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    window.addEventListener("DOMContentLoaded", () => {
+      const e = new Event("beforeinstallprompt") as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+      e.prompt = async () => {
+        (window as unknown as { __prompted: number }).__prompted = ((window as unknown as { __prompted?: number }).__prompted ?? 0) + 1;
+      };
+      e.userChoice = Promise.resolve({ outcome: "accepted" });
+      window.dispatchEvent(e);
+    });
+  });
+  // Connected, with a truck, and nothing recorded yet: the first-day card.
+  await open(page, { charges: [], drives: [] });
+  const day = page.locator("[data-first-day]");
+  await expect(day).toBeVisible();
+  const row = day.locator("[data-install-row]");
+  await expect(row).toContainText("Add Rivolt to your home screen");
+  // Nothing is asked until the tap.
+  expect(await page.evaluate(() => (window as unknown as { __prompted?: number }).__prompted ?? 0)).toBe(0);
+  await row.getByRole("button", { name: "Not now" }).click();
+  await expect(day.locator("[data-install-row]")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("[data-first-day]")).toBeVisible();
+  await expect(page.locator("[data-install-row]")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("without an install offer from the browser, the first-day card has no Install row", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, { charges: [], drives: [] });
+  await expect(page.locator("[data-first-day]")).toBeVisible();
+  await expect(page.locator("[data-install-row]")).toHaveCount(0);
+  await ctx.close();
+});

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { Card } from "./ui";
+import { InstallOfferRow } from "./InstallOfferRow";
 import { formatMoney } from "../lib/ledger";
 import { pushSupported, subscribeThisDevice } from "../lib/push";
 
@@ -69,6 +70,7 @@ export default function FirstDayCard({ vehicleID }: { vehicleID: string }) {
             doneCta="Edit"
           />
           <UpdateAlertsRow />
+          <InstallOfferRow />
         </ul>
       </div>
     </Card>

@@ -1,16 +1,16 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type Charge, type Drive, type PushPreferences } from "../lib/api";
 import { firstChargeView } from "../lib/firstCharge";
 import { formatMoney } from "../lib/ledger";
-import { canInstall, isIOSNotInstalled, onInstallChange, promptInstall } from "../lib/installPrompt";
+import { isIOSNotInstalled } from "../lib/installPrompt";
+import { InstallOfferRow } from "./InstallOfferRow";
 import { pushSupported, subscribeThisDevice } from "../lib/push";
 import { Card } from "./ui";
 
 const DISMISS_KEY = "rivolt.firstCharge.dismissed";
 const NOTIFY_HIDE_KEY = "rivolt.firstCharge.notifyHidden";
-const INSTALL_HIDE_KEY = "rivolt.firstCharge.installHidden";
 
 function flag(key: string): boolean {
   try {
@@ -143,8 +143,6 @@ function NotifyRow() {
   const [subscribed, setSubscribed] = useState(false);
   const [checked, setChecked] = useState(false);
   const [hidden, setHidden] = useState(() => flag(NOTIFY_HIDE_KEY));
-  const [installHidden, setInstallHidden] = useState(() => flag(INSTALL_HIDE_KEY));
-  const installable = useSyncExternalStore(onInstallChange, canInstall, () => false);
   useEffect(() => {
     if (!pushSupported()) {
       setChecked(true);
@@ -176,10 +174,11 @@ function NotifyRow() {
   }
   if (!pushSupported() || !status.data?.enabled) {
     // No push here, but a browser that can install the app still gets that offer.
-    return installable && !installHidden ? <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} /> : null;
+    return <InstallOfferRow />;
   }
   const on = state === "on" || (subscribed && state !== "blocked");
-  if (on || (hidden && !installable)) return installable && !installHidden && !on ? <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} /> : null;
+  if (on) return null;
+  if (hidden) return <InstallOfferRow />;
   async function turnOn() {
     setState("busy");
     try {
@@ -212,23 +211,7 @@ function NotifyRow() {
           )}
         </li>
       )}
-      {installable && !installHidden && <InstallRow row={row} btn={btn} onNotNow={() => { setInstallHidden(true); setFlag(INSTALL_HIDE_KEY); }} />}
+      <InstallOfferRow />
     </>
-  );
-}
-
-function InstallRow({ row, btn, onNotNow }: { row: string; btn: string; onNotNow: () => void }) {
-  return (
-    <li data-first-charge-row="install" className={row}>
-      <div className="min-w-[180px] flex-1 text-sm text-neutral-200">Add Rivolt to your home screen</div>
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={onNotNow} className="text-xs text-neutral-400 hover:text-neutral-200">
-          Not now
-        </button>
-        <button type="button" onClick={() => void promptInstall()} className={btn}>
-          Install
-        </button>
-      </div>
-    </li>
   );
 }
