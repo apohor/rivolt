@@ -11,6 +11,9 @@ for (const w of [390, 1280, 1440] as const) {
       await page.addInitScript(([t]) => {
         localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
+        // All time, not "this month": in a month's first minutes the month has no
+        // drives yet, so the efficiency tile is honestly empty (nightly at 00:15 UTC).
+        localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
       }, [theme]);
       await stubApi(page, { scenario: "parked", drain: "ok" });
       await page.goto("/");
