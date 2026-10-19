@@ -139,18 +139,18 @@ var vehicleImageAttempts = []vehicleImagesVars{
 // every vehicle on the account. Filter on VehicleID client-side.
 // Returns an empty slice (not an error) if Rivian has no images yet.
 func (c *LiveClient) VehicleImages(ctx context.Context) ([]VehicleImage, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
-	}
 	var lastErr error
 	for _, vars := range vehicleImageAttempts {
-		data, err := doGraphQL[vehicleImagesData](ctx, c, graphQLRequest{
+		// Headers per attempt: a heal in the previous one may have replaced them.
+		headers, err := c.sessionHeaders()
+		if err != nil {
+			return nil, err
+		}
+		data, err := doGraphQLDetached[vehicleImagesData](ctx, c, graphQLRequest{
 			OperationName: "getVehicleImages",
 			Query:         qVehicleImages,
 			Variables:     vars,
-		}, c.authHeaders())
+		}, headers)
 		if err != nil {
 			lastErr = fmt.Errorf("getVehicleImages: %w", err)
 			continue

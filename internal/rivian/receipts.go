@@ -85,16 +85,15 @@ type completedSessionsData struct {
 // with what Rivian billed. Rows without a transaction id or a parseable
 // window are dropped.
 func (c *LiveClient) CompletedSessionSummaries(ctx context.Context) ([]SessionSummary, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
 	data, err := doGraphQLAt[completedSessionsData](ctx, c, c.receiptsEndpoint(), graphQLRequest{
 		OperationName: "GetCompletedSessionSummaries",
 		Query:         qCompletedSessionSummaries,
 		Variables:     struct{}{},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("GetCompletedSessionSummaries: %w", err)
 	}
@@ -146,16 +145,15 @@ func (c *LiveClient) SessionCharger(ctx context.Context, transactionID string) (
 	if strings.TrimSpace(transactionID) == "" {
 		return nil, errors.New("rivian: transactionID is required")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
 	data, err := doGraphQLAt[sessionChargerData](ctx, c, c.receiptsEndpoint(), graphQLRequest{
 		OperationName: "GetDetailedSessionInfoByTxnId",
 		Query:         qSessionCharger,
 		Variables:     map[string]any{"transactionId": transactionID},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("GetDetailedSessionInfoByTxnId: %w", err)
 	}

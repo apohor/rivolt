@@ -507,7 +507,18 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 	return doGraphQLAt[T](withRetriedCSRF(ctx), c, c.endpoint, req, c.authHeaders())
 }
 
-// doGraphQLDetached is doGraphQL for a long data-plane call made WITHOUT holding
+// sessionHeaders reads the session headers under the client lock, for a call made
+// without holding it (doGraphQLDetached); ErrNotAuthenticated when signed out.
+func (c *LiveClient) sessionHeaders() (map[string]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, ErrNotAuthenticated
+	}
+	return c.authHeaders(), nil
+}
+
+// doGraphQLDetached is doGraphQL for a data-plane call made WITHOUT holding
 // c.mu: the caller takes the tokens (authHeaders) under the lock, releases it,
 // and calls this, so a slow upstream call (a 30-second trip plan) no longer
 // blocks that user's WebSocket reconnects, REST seeds, Authenticated() checks
@@ -522,7 +533,7 @@ func doGraphQLDetached[T any](ctx context.Context, c *LiveClient, req graphQLReq
 		return out, nil
 	}
 	var ue *UpstreamError
-	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !IsAuthFlavoredReason(ue.Reason) {
+	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !marksReauth(req.OperationName, ue.Reason) {
 		return out, err
 	}
 	c.mu.Lock()
@@ -1129,16 +1140,15 @@ func (c *LiveClient) RefreshSession(ctx context.Context) error {
 
 // Vehicles lists the vehicles on the authenticated account.
 func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
-	data, err := doGraphQL[userData](ctx, c, graphQLRequest{
+	data, err := doGraphQLDetached[userData](ctx, c, graphQLRequest{
 		OperationName: "getUserInfo",
 		Query:         qUser,
 		Variables:     struct{}{},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("getUserInfo: %w", err)
 	}
@@ -1559,19 +1569,18 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 
 // State returns the current vehicle snapshot. Battery %, distances km, temps °C.
 func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
 	if vehicleID == "" {
 		return nil, errors.New("rivian: vehicleID is required")
 	}
-	data, err := doGraphQL[vehicleStateData](ctx, c, graphQLRequest{
+	data, err := doGraphQLDetached[vehicleStateData](ctx, c, graphQLRequest{
 		OperationName: "GetVehicleState",
 		Query:         withPowerStateTS(qVehicleState),
 		Variables:     map[string]any{"vehicleID": vehicleID},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("GetVehicleState: %w", err)
 	}

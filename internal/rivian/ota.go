@@ -67,16 +67,15 @@ func (c *LiveClient) OTAUpdateDetails(ctx context.Context, vehicleID string) (*O
 	if strings.TrimSpace(vehicleID) == "" {
 		return nil, errors.New("rivian: vehicleID is required")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.userSessionToken == "" {
-		return nil, ErrNotAuthenticated
+	headers, err := c.sessionHeaders()
+	if err != nil {
+		return nil, err
 	}
-	data, err := doGraphQL[otaDetailsData](ctx, c, graphQLRequest{
+	data, err := doGraphQLDetached[otaDetailsData](ctx, c, graphQLRequest{
 		OperationName: "getOTAUpdateDetails",
 		Query:         qOTAUpdateDetails,
 		Variables:     map[string]any{"vehicleId": vehicleID},
-	}, c.authHeaders())
+	}, headers)
 	if err != nil {
 		return nil, fmt.Errorf("getOTAUpdateDetails: %w", err)
 	}
