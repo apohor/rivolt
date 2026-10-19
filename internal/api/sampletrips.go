@@ -241,6 +241,9 @@ var tripTemplate = template.Must(template.New("trip").Funcs(tmplFuncs).Parse(`<a
 
 // routeSVG draws the route and its stops as inline SVG: no tiles, no script.
 func routeSVG(t demo.SampleTrip) template.HTML {
+	if len(t.Route) < 2 {
+		return "" // no shape, no map (the demo package refuses such a preset anyway)
+	}
 	const w, h, pad = 640.0, 360.0, 16.0
 	minLat, maxLat, minLon, maxLon := 90.0, -90.0, 180.0, -180.0
 	for _, p := range t.Route {

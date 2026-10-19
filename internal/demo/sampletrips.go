@@ -41,8 +41,9 @@ var SampleTripPages = []SampleTripPage{
 		PresetID: "919ca13a-123f-5423-994d-12d7ccd31319",
 		Title:    "LA to Las Vegas and back in a Rivian: a two-day sample plan",
 		Desc:     "A two-day Rivian R1S trip from Los Angeles to Las Vegas and back: a fast-charge stop at Barstow, a hotel night on Level 2, and the estimated cost per day.",
-		Intro: "Two days, 530 miles, from Pasadena to Las Vegas and home again. Day one stops once, at the Rivian Adventure Network site in Barstow, and ends at a Las Vegas hotel with a Level 2 charger, where an overnight at 6 kW adds about 79 kWh by morning. " +
-			"Day two needs only a short top-up at Primm before the run back. " +
+		Intro: "Two driving days and two nights in Las Vegas, 530 miles in all, from Pasadena and home again. " +
+			"Day one stops once, at the Rivian Adventure Network site in Barstow, and ends at a Las Vegas hotel with a Level 2 charger; over the stay, charging at 6 kW adds about 79 kWh and stops at 90%. " +
+			"The drive home needs only a short top-up at Primm. " +
 			"Times, charge levels and costs are estimates for the sample truck, and the hotel is a sample stop with a Level 2 charger, not a real listing; on a real trip, check a hotel's charger before you rely on it.",
 		Blurb: "Los Angeles to Las Vegas and back in two days: a hotel overnight on Level 2, one fast-charge stop each way.",
 	},

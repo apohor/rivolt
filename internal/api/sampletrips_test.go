@@ -149,3 +149,12 @@ func TestSampleTripPages(t *testing.T) {
 		}
 	})
 }
+
+// A trip without a route shape renders no map rather than panicking (DA).
+func TestRouteSVGEmptyRoute(t *testing.T) {
+	for _, r := range [][][2]float64{nil, {{34, -118}}} {
+		if got := routeSVG(demo.SampleTrip{Title: "x", Route: r}); got != "" {
+			t.Errorf("route of %d points: %q", len(r), got)
+		}
+	}
+}
