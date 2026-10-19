@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/bg"
 	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/changelog"
 	"github.com/apohor/rivolt/internal/chargers"
@@ -712,7 +713,9 @@ func runServer() {
 					return
 				}
 				if transitioned {
-					go sendReauthEmail(context.Background(), mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
+					bg.Go(func() {
+						sendReauthEmail(context.Background(), mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
+					})
 				}
 			})
 			// Prime the in-memory mirror from Postgres so a crash
@@ -947,7 +950,7 @@ func runServer() {
 		if pgPool != nil {
 			monitorRegistry.SetBatteryCapacityHookFactory(func(uid uuid.UUID) func(vehicleID string, kwh float64) {
 				return func(vehicleID string, kwh float64) {
-					go func() {
+					bg.Go(func() {
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						defer cancel()
 						_, err := pgPool.ExecContext(ctx, `
@@ -964,7 +967,7 @@ func runServer() {
 								"kwh", kwh,
 								"err", err.Error())
 						}
-					}()
+					})
 				}
 			})
 			logger.Info("battery capacity persistence hook enabled")
@@ -988,7 +991,7 @@ func runServer() {
 			go otaSyncer.Run(ctx)
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
 				return func(vs []rivian.Vehicle) {
-					go func() {
+					bg.Go(func() {
 						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 						defer cancel()
 						for _, v := range vs {
@@ -1003,7 +1006,7 @@ func runServer() {
 							}
 						}
 						otaSyncer.OnConnect(uid)
-					}()
+					})
 				}
 			})
 		}
@@ -2180,6 +2183,14 @@ func runServer() {
 		}
 	}
 
+	// Hand the signals back, then treat a second one as "now": the first started a
+	// graceful stop, and the NotifyContext above would otherwise swallow every
+	// later SIGTERM until we return.
+	stop()
+	second := make(chan os.Signal, 1)
+	signal.Notify(second, syscall.SIGINT, syscall.SIGTERM)
+	go exitOnSecondSignal(second, os.Exit, logger)
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// Release leases BEFORE the HTTP server shuts down so peers
@@ -2193,6 +2204,12 @@ func runServer() {
 	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("shutdown error", "err", err.Error())
+	}
+	// Let the detached work (re-auth email, close hooks, vehicle-info writes) finish
+	// before the database goes away. Bounded: 3 s leases + 10 s HTTP + 10 s here fits
+	// the 30 s grace period.
+	if !bg.Default.Wait(bgShutdownWait) {
+		logger.Warn("background work still running at shutdown; closing anyway", "waited", bgShutdownWait.String())
 	}
 	if pgPool != nil {
 		_ = pgPool.Close()

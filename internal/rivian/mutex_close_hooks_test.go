@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/bg"
 	"github.com/apohor/rivolt/internal/charges"
 )
 
@@ -162,5 +163,23 @@ func TestZeroEnergyChargeFiresNoCloseHook(t *testing.T) {
 	}
 	if got := run(11, 70, 72); len(got) != 1 {
 		t.Errorf("a charge that added energy fired %d hooks, want 1", len(got))
+	}
+}
+
+// A close hook's push or receipts sync runs in the background but shutdown waits
+// for it (bg.Default.Wait), instead of the process closing the database under it.
+func TestCloseHooksAreTrackedForShutdown(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	release := make(chan struct{})
+	ran := make(chan struct{})
+	m.chargeCloseHook = func(context.Context, charges.Charge) { close(ran); <-release }
+	m.fireChargeCloseHook(charges.Charge{ID: "tracked-1"})
+	<-ran
+	if bg.Default.Wait(50 * time.Millisecond) {
+		t.Fatal("shutdown would not wait for a running close hook")
+	}
+	close(release)
+	if !bg.Default.Wait(5 * time.Second) {
+		t.Fatal("the close hook never finished")
 	}
 }
