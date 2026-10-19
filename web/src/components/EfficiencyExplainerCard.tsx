@@ -146,10 +146,12 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
             Get an AI-driven breakdown of what drove this trip's
             efficiency — weather, terrain, driving style, climate
             control, tire pressure — with a single concrete
-            recommendation for your next drive. Drive stats and
-            elevation profile are sent; no GPS coordinates leave the
-            box. The result is saved per-drive so you only pay the
-            LLM once.
+            recommendation for your next drive. This sends the
+            drive&apos;s date and time, its figures (distance, speed,
+            energy, battery), temperatures, weather, tire pressures and
+            your vehicle details (tires, wheels, accessories, load,
+            towing) to an AI provider; never coordinates or place
+            names. The result is saved per-drive so you only pay once.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>

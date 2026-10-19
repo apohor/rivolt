@@ -54,6 +54,7 @@ for (const v of [
     const toggle = page.getByRole("switch", { name: "AI trip advice and drive analysis" });
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(page.getByText(/Nothing is sent until you tap, and the text you type is never sent\./)).toBeVisible();
+    await expect(page.getByText(/never coordinates or place names/)).toBeVisible();
     await toggle.click();
     await expect.poll(() => puts.at(-1)).toEqual({ enabled: true });
     await expect(toggle).toHaveAttribute("aria-checked", "true");

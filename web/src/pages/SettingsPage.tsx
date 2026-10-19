@@ -1953,10 +1953,11 @@ function AIFeaturesCard() {
             AI trip advice and drive analysis
           </label>
           <p className="mt-1 text-xs text-neutral-500">
-            Off by default. When on, tapping Get AI advice on a trip, or Analyze on a drive, sends data to an AI provider. Trip advice sends charger
-            names, your locations rounded to about 11 km, your tire pressures, your home electricity rate and the weather along the route. Drive
-            analysis sends the drive&apos;s figures and elevation profile, with no GPS coordinates. Nothing is sent until you tap, and the text you type
-            is never sent. Turn this off any time.
+            Off by default. When on, tapping Get AI advice on a trip, or Analyze efficiency on a drive, sends data to an AI provider. Trip advice
+            sends charger names, your locations rounded to about 11 km, your tire pressures, your home electricity rate and the weather along the
+            route. Drive analysis sends the drive&apos;s date and time, its figures (distance, speed, energy, battery), temperatures, weather, tire
+            pressures and your vehicle details (tires, wheels, accessories, load, towing); never coordinates or place names. Nothing is sent until
+            you tap, and the text you type is never sent. Turn this off any time.
           </p>
         </div>
         <Toggle
