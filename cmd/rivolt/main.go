@@ -2116,8 +2116,26 @@ func runServer() {
 		statementSigner = statement.NewSigner(cookieSecret)
 		onboardSigner.Store(statementSigner)
 	}
+	// The backup download reads thinned months back from the telemetry
+	// archive. A typed nil would make a non-nil interface, so set it only
+	// when there is a reader.
+	var archiveRows samples.ArchiveRows
+	if archiveOn && pgPool != nil {
+		rd, err := archive.NewReader(pgPool, archiveCfg, sealer)
+		if err != nil {
+			logger.Error("telemetry archive reader", "err", err.Error())
+			os.Exit(1)
+		}
+		rd.OnCorrupt = func(uid, vid uuid.UUID, month time.Time, err error) {
+			appMetrics.ArchiveReadCorruptTotal.Inc()
+			logger.Error("telemetry archive: object failed to read back", "user_id", uid.String(), "vehicle_id", vid.String(),
+				"month", archive.MonthString(month), "err", err.Error())
+		}
+		archiveRows = rd
+	}
 	handler := api.New(api.Deps{
 		SampleRetentionMonths: sampleRetentionMonths,
+		ArchiveRows:           archiveRows,
 		StatementSigner:       statementSigner,
 		WeeklySigner:          weeklySigner,
 		Rivian:                rivianClient,
