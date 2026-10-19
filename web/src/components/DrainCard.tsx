@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { backend } from "../lib/api";
+import { backend, type DrainSplit } from "../lib/api";
 import { bars, EXCLUDED_LABEL, formatHours, formatPct, view } from "../lib/drain";
 
 // Parked-drain card for the Truck tab (docs: drain-contract.md). The
@@ -93,6 +93,8 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
         </div>
       )}
 
+      {d.windows[win].split && <DrainSplitView split={d.windows[win].split as DrainSplit} win={win} />}
+
       {d.daily.length > 0 && (
         <figure className="mt-4">
           <svg
@@ -129,5 +131,46 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
         Battery lost while parked and not charging. This shows what happened, not why.
       </p>
     </section>
+  );
+}
+
+// When the parked loss happened: a sentence and a two-part bar (awake against the rest). Always an estimate (the battery
+// reports whole percents). It says when, not why. Nothing is shown when the power state can't be trusted (the R2 today).
+function DrainSplitView({ split, win }: { split: DrainSplit; win: "7d" | "30d" }) {
+  const span = win === "7d" ? "this week" : "over 30 days";
+  if (!split.sufficient) {
+    if (split.reason === "not_enough_data") {
+      return (
+        <p data-drain-split="sparse" className="mt-3 text-xs text-neutral-500">
+          Where the loss happened (asleep or awake) needs about two days of parked history with a few points lost.
+        </p>
+      );
+    }
+    if (split.reason === "power_state_gaps") {
+      return <p data-drain-split="gaps" className="mt-3 text-xs text-neutral-500">The power state wasn&apos;t recorded often enough to say when the loss happened.</p>;
+    }
+    return null;
+  }
+  const asleep = split.asleep_points_lost ?? 0;
+  const awake = split.awake_points_lost ?? 0;
+  const total = asleep + awake;
+  const share = split.awake_share_of_loss ?? 0;
+  if (total <= 0) return null;
+  return (
+    <div data-drain-split="ok" className="mt-3 space-y-1.5">
+      <p className="text-sm text-neutral-300">
+        Of the {Math.round(total)}% your truck lost while parked {span}, about {Math.round(awake)}% was while it was awake
+        {split.awake_hours != null ? ` (${formatHours(split.awake_hours)})` : ""}.
+      </p>
+      <div role="img" aria-label={`${Math.round(share * 100)}% of the loss was while awake, ${Math.round((1 - share) * 100)}% while asleep`} className="flex h-2 w-full overflow-hidden rounded-full bg-neutral-800">
+        {awake > 0 && <div className="h-full bg-amber-400" style={{ width: `${share * 100}%` }} />}
+        {asleep > 0 && <div className="h-full bg-emerald-500" style={{ width: `${(1 - share) * 100}%` }} />}
+      </div>
+      <p className="flex flex-wrap gap-x-3 text-[11px] text-neutral-500">
+        {awake > 0 && <span><span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />Awake</span>}
+        {asleep > 0 && <span><span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Asleep</span>}
+        <span>Estimate: the battery reports whole percents.</span>
+      </p>
+    </div>
   );
 }

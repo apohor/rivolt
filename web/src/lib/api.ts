@@ -543,6 +543,23 @@ export type DrainWindow = {
   // Only "insufficient" is reported (v1.1); older shapes may add more.
   days_excluded: { insufficient: number; charging?: number; driving?: number };
   sufficient: boolean;
+  // When the parked loss happened: asleep or awake. Absent on a server that predates it.
+  split?: DrainSplit;
+};
+
+// Where the parked loss happened. When `sufficient` is false, `reason` says why and the figures are null. SoC is whole
+// percents, so every figure is an estimate. It says when the loss happened, never why.
+export type DrainSplit = {
+  sufficient: boolean;
+  reason?: "not_enough_data" | "power_state_gaps" | "power_state_unreliable";
+  asleep_hours: number | null;
+  awake_hours: number | null;
+  asleep_points_lost: number | null;
+  awake_points_lost: number | null;
+  awake_share_of_loss: number | null;
+  awake_share_of_time: number | null;
+  min_hours: number;
+  min_points_lost: number;
 };
 
 export type DrainDay = {

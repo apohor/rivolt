@@ -72,4 +72,46 @@ describe("DrainCard", () => {
     expect(container.querySelector('[data-testid="drain-skeleton"]')).not.toBeNull();
     expect(container.textContent).toContain("Parked drain");
   });
+
+  const split = (o: object = {}) => ({
+    sufficient: true, asleep_hours: 120, awake_hours: 14, asleep_points_lost: 1, awake_points_lost: 5, awake_share_of_loss: 5 / 6, awake_share_of_time: 0.1, min_hours: 48, min_points_lost: 3, ...o,
+  });
+
+  it("says when the loss happened, as an estimate, with a two-part bar and no cause", async () => {
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split() })) } });
+    const { container } = renderCard();
+    expect(await screen.findByText(/Of the 6% your truck lost while parked this week, about 5% was while it was awake/)).toBeInTheDocument();
+    expect(screen.getByText(/whole percents/)).toBeInTheDocument();
+    expect(container.querySelector('[data-drain-split="ok"] [role="img"]')?.getAttribute("aria-label")).toMatch(/83% of the loss was while awake, 17% while asleep/);
+    expect(container.textContent ?? "").not.toMatch(/because|caused|sleep-safe/i);
+  });
+
+  it("hides a part with zero points instead of drawing a sliver", async () => {
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ asleep_points_lost: 0, awake_points_lost: 4, awake_share_of_loss: 1 }) })) } });
+    const { container } = renderCard();
+    await screen.findByText(/Of the 4% your truck lost/);
+    expect(container.querySelectorAll('[data-drain-split="ok"] [role="img"] > div')).toHaveLength(1);
+    expect(screen.queryByText("Asleep")).toBeNull();
+  });
+
+  it("says what it needs when there is too little, and nothing when the power state is unreliable or the split is absent", async () => {
+    const off = { sufficient: false, asleep_hours: null, awake_hours: null, asleep_points_lost: null, awake_points_lost: null, awake_share_of_loss: null, awake_share_of_time: null };
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ ...off, reason: "not_enough_data" }) })) } });
+    renderCard();
+    expect(await screen.findByText(/needs about two days of parked history with a few points lost/)).toBeInTheDocument();
+    cleanup();
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ ...off, reason: "power_state_gaps" }) })) } });
+    renderCard();
+    expect(await screen.findByText(/power state wasn't recorded often enough/)).toBeInTheDocument();
+    cleanup();
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ ...off, reason: "power_state_unreliable" }) })) } });
+    const a = renderCard();
+    await screen.findByText("0.9");
+    expect(a.container.querySelector("[data-drain-split]")).toBeNull();
+    cleanup();
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win()) } });
+    const b = renderCard();
+    await screen.findByText("0.9");
+    expect(b.container.querySelector("[data-drain-split]")).toBeNull();
+  });
 });
