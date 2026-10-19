@@ -271,8 +271,9 @@ jobs:
           - { suite: next, project: webkit, shard: 1, total: 1 }
           # legacy: every other spec (flag off, the pre-redesign pages and the
           # demo), so a regression in the old UI shows up in CI too.
-          - { suite: legacy, project: chromium, shard: 1, total: 2 }
-          - { suite: legacy, project: chromium, shard: 2, total: 2 }
+          - { suite: legacy, project: chromium, shard: 1, total: 3 }
+          - { suite: legacy, project: chromium, shard: 2, total: 3 }
+          - { suite: legacy, project: chromium, shard: 3, total: 3 }
     steps:
       - uses: actions/checkout@v6
 
