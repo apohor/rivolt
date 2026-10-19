@@ -13,7 +13,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const month = currentMonth(new Date(e2eNow()));
-const fx = () => ledgerMonthFixture(month);
+const fx = () => ledgerMonthFixture(month, new Date(e2eNow()));
 
 type Scenario = {
   name: string;
@@ -110,7 +110,7 @@ const SCENARIOS: Scenario[] = [
 
 async function setup(page: Page, sc: Scenario) {
   await stubApi(page);
-  const m = ledgerMonthFromReceipts(month, sc.receipts(fx().receipts), sc.opts);
+  const m = ledgerMonthFromReceipts(month, sc.receipts(fx().receipts), { ...sc.opts, now: new Date(e2eNow()) });
   await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: m }));
   await page.route("**/api/ledger/summary**", (r) =>
     r.fulfill({ json: sc.summaryMonths === false ? { version: 1, tz: m.tz, currency: "USD", months: [] } : ledgerSummaryFixture(12, new Date(e2eNow())) }),

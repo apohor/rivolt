@@ -262,7 +262,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       });
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true, ...(uiNext ? { ui_theme_next: true } : {}) });
-    if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
+    if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month, new Date(e2eNow())));
     if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12, new Date(e2eNow())));
     if (p === "/api/health") {
       return rivian === "backend-down"

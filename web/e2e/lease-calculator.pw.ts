@@ -20,9 +20,11 @@ async function fill(page: Page, v: { start: string; end: string; allowed: string
 
 const VECTOR = { start: "2025-01-01", end: "2028-01-01", allowed: "36000", startOdo: "10", odo: "10010", rate: "0.25" };
 
+// The spec's own fixed date, set after stubApi so a pinned STUB_NOW run
+// doesn't override it (the expected numbers are for 2026-01-01).
 async function open(page: Page) {
-  await page.clock.setFixedTime(new Date("2026-01-01T12:00:00"));
   await stubApi(page, { signedIn: false });
+  await page.clock.setFixedTime(new Date("2026-01-01T12:00:00"));
   await page.goto("/lease-calculator");
 }
 
