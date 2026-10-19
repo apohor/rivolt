@@ -257,3 +257,42 @@ func TestANewMilestoneIsAnnouncedOnce(t *testing.T) {
 		t.Errorf("rows %d", len(st.rows))
 	}
 }
+
+// After a big import or restore one pass can find several milestones at once:
+// all become cards, only one is pushed. And a backfilled row keeps no detail.
+func TestOnePushPerPassAndBackfillKeepsNoDetail(t *testing.T) {
+	var cs []ledger.Charge
+	for i := 0; i < 100; i++ {
+		cs = append(cs, charge(i, 12, t0.Add(-time.Duration(200-i)*24*time.Hour), true))
+	}
+	var ds []ledger.Drive
+	for i := 0; i < 9; i++ {
+		ds = append(ds, drive(i, 120, 48, t0.Add(-time.Duration(30-i)*24*time.Hour)))
+	}
+	in := input(ds, cs) // 1,080 mi, 100 charges, 1.2 MWh at home: three at once
+	c, st, pushed := newChecker(input(nil, nil))
+	st.ready = true
+	c.Input = func(context.Context, uuid.UUID, string) (ledger.Input, error) { return in, nil }
+	c.Check(context.Background(), st.veh.User, "rv", "")
+	if len(st.rows) != 3 || len(*pushed) != 1 {
+		t.Fatalf("rows %d pushed %d, want 3 cards and 1 push", len(st.rows), len(*pushed))
+	}
+	for _, r := range st.rows {
+		if r.Status != StatusAchieved || r.Detail == (Detail{}) {
+			t.Errorf("card %s: %+v", r.Key, r)
+		}
+	}
+
+	b, bs, _ := newChecker(in)
+	if err := b.Backfill(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(bs.rows) != 3 {
+		t.Fatalf("backfilled rows %d", len(bs.rows))
+	}
+	for _, r := range bs.rows {
+		if r.Status != StatusBackfilled || r.Detail != (Detail{}) {
+			t.Errorf("backfilled row %s keeps detail: %+v", r.Key, r)
+		}
+	}
+}

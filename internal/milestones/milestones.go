@@ -308,14 +308,19 @@ func (c *Checker) check(ctx context.Context, v VehicleRef, driveID, status strin
 		lease = c.Lease(ctx, v.User, v.ID)
 	}
 	now := c.now()
+	pushed := false // at most one push per pass: after a big import several totals can be found at once, the rest stay cards
 	for _, f := range Evaluate(in, now, lease, driveID) {
 		row := Row{User: v.User, Vehicle: v.ID, RivianID: v.RivianID, Key: f.Key, Kind: f.Kind, Status: status, AchievedAt: now, Detail: f.Detail}
+		if status == StatusBackfilled {
+			row.Detail = Detail{} // never shown: keep only the key, the status and the time
+		}
 		inserted, err := c.Store.Insert(ctx, row)
 		if err != nil {
 			c.logger().Warn("milestones: insert", "kind", f.Kind, "err", err.Error())
 			continue
 		}
-		if inserted && status == StatusAchieved && c.Push != nil {
+		if inserted && status == StatusAchieved && c.Push != nil && !pushed {
+			pushed = true
 			c.Push(ctx, v.User, v.ID, row)
 		}
 	}
