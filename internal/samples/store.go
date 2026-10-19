@@ -674,8 +674,14 @@ type Downsampled struct {
 	// Reduced is true when the window held more than limit rows and the
 	// series is a bucketed reduction of it.
 	Reduced bool
-	// Total is how many rows the window holds.
+	// Total is how many rows the window holds. Only known for a window that was
+	// counted (bounded, within MaxDownsampleSpan); otherwise it is len(Samples).
 	Total int
+	// Truncated is true when the window was NOT bucketed (unbounded, or wider than
+	// MaxDownsampleSpan) and the result reached the cap: the rows are the OLDEST
+	// `limit` and the tail may be missing. It can be a false alarm when the window
+	// holds exactly `limit` rows.
+	Truncated bool
 }
 
 // MaxDownsampleSpan bounds the window that is bucketed. The count and the
@@ -706,7 +712,7 @@ func (s *Store) ListBetweenDownsampledVehicle(ctx context.Context, vehicleID str
 	}
 	if until.IsZero() || until.Sub(since) > MaxDownsampleSpan {
 		out, err := s.ListBetweenVehicle(ctx, vehicleID, since, until, limit)
-		return Downsampled{Samples: out, Total: len(out)}, err
+		return Downsampled{Samples: out, Total: len(out), Truncated: len(out) >= limit}, err
 	}
 	upper := until.UTC()
 	var total, vehicles int

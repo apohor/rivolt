@@ -215,6 +215,9 @@ func computeBlendedRate(priced []pricedCharge, cfg settings.ChargingConfig) (flo
 
 // handleSamples serves raw vehicle_state rows newer than ?since=<rfc3339>
 // (default: 24h ago), capped at ?limit= (default 1000, max 10000).
+// A window that is bounded and at most 7 days wide is bucketed when it exceeds the
+// cap (X-Rivolt-Downsampled); a wider or unbounded one returns the oldest rows and
+// says so with X-Rivolt-Samples-Truncated.
 // Optional ?until=<rfc3339> bounds the upper end so callers like the
 // drive detail page don't pull every post-drive sample through now.
 // Optional ?vehicle=<rivian vehicle id> scopes to one truck (the one the
@@ -255,6 +258,11 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 		if res.Reduced {
 			w.Header().Set("X-Rivolt-Downsampled", "true")
 			w.Header().Set("X-Rivolt-Samples-Total", strconv.Itoa(res.Total))
+		}
+		if res.Truncated {
+			// An unbounded or over-7-day window is not bucketed: these are the
+			// oldest rows up to the cap, and the newer ones are missing.
+			w.Header().Set("X-Rivolt-Samples-Truncated", "true")
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
