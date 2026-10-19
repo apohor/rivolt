@@ -3321,10 +3321,7 @@ func (m *StateMonitor) ActiveDrive(vehicleID string) *LiveDrive {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	distance := d.endOdoMi - d.startOdoMi
-	if distance < 0 {
-		distance = 0
-	}
+	distance := driveDistanceMi(&d)
 	socUsed := d.startSoC - d.endSoC
 	if socUsed < 0 {
 		socUsed = 0
