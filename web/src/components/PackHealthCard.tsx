@@ -4,6 +4,12 @@ import { backend, type PackHealthSample } from "../lib/api";
 // Inline copy of HomePage's local Stat tile shape. Kept here so
 // PackHealthStat can be rendered inside the existing KPI grid
 // without exporting the Stat helper from HomePage.tsx.
+// Our spec table has one pack (Max) at 180 kWh, which reads as a gross figure next to usable ones. Show the
+// spec only where it is a usable figure, so a truck reporting about 140 is not set against 180. Until the server
+// says which specs are confirmed, anything above this is treated as unverified and hidden.
+const SPEC_MAX_VERIFIED_KWH = 150;
+export const specKwh = (kwh: number): number => (kwh > 0 && kwh <= SPEC_MAX_VERIFIED_KWH ? kwh : 0);
+
 function StatTile({
   label,
   value,
@@ -44,7 +50,7 @@ export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
   // available whenever the car has reported a capacity, without needing a
   // qualifying charge session.
   const reported = headline.reported_kwh ?? 0;
-  const documented = headline.documented_kwh ?? 0;
+  const documented = specKwh(headline.documented_kwh ?? 0);
   // The truck's own number next to the spec, never a ratio: our spec table is not certain to be like-for-like
   // with what the truck reports, so a percentage would read as a diagnosis we can't make.
   if (reported > 0) {
@@ -94,7 +100,7 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
   // capacity) — the car's own degradation signal. Independent of charge
   // sessions, so it renders even before any qualifying session exists.
   const reported = headline.reported_kwh ?? 0;
-  const documented = headline.documented_kwh ?? 0;
+  const documented = specKwh(headline.documented_kwh ?? 0);
   const hasReported = reported > 0;
   const capacityBlock = hasReported ? (
     <div>
@@ -129,7 +135,7 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
     headline.effective_kwh > 0
       ? `${headline.effective_kwh.toFixed(0)} kWh`
       : "—";
-  const pctText = headline.nameplate_kwh > 0 ? `estimate · Rivian's spec: ${headline.nameplate_kwh.toFixed(0)} kWh` : "estimate";
+  const pctText = specKwh(headline.nameplate_kwh) > 0 ? `estimate · Rivian's spec: ${headline.nameplate_kwh.toFixed(0)} kWh` : "estimate";
 
   return (
     <div className="space-y-2">
