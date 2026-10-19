@@ -130,6 +130,40 @@ func TestMilestonesStoreAndCards(t *testing.T) {
 		t.Errorf("after dismiss: alice %d bob %d", len(cards(alice)), len(cards(bob)))
 	}
 
+	// PendingPush: achieved, undismissed, recent, and no 'sent' engagement row.
+	ins(bob, bv, "rv-ms-b", milestones.KindCharges, milestones.StatusAchieved, 80*time.Hour) // too old
+	ins(bob, bv, "rv-ms-b", milestones.KindHomeMWh, milestones.StatusBackfilled, time.Hour)  // backfilled
+	ins(bob, bv, "rv-ms-b", milestones.KindLease, milestones.StatusAchieved, 2*time.Hour)    // will be sent
+	ins(bob, bv, "rv-ms-b", "best_eff:2026-10", milestones.StatusAchieved, 3*time.Hour)      // failed push: still pending (engage never re-sends it, it is not 'sent')
+	for key, status := range map[string]string{
+		"milestone:" + milestones.KindLease + ":" + bv.String(): "sent",
+		"milestone:best_eff:2026-10:" + bv.String():             "failed",
+	} {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO engagement_sends (user_id, kind, key, channel, status, budgeted) VALUES ($1,'milestone',$2,'push',$3,TRUE)`, bob, key, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pend, err := store.PendingPush(ctx, now.Add(-milestones.ReofferWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := map[string]bool{}
+	for _, r := range pend {
+		got2[r.Key] = true
+	}
+	// bob: miles_1000 (dismissed? no, alice's was dismissed above, bob's was not) and best_eff stay; lease is sent, charges too old, home backfilled.
+	if !got2[milestones.KindMiles] || !got2["best_eff:2026-10"] || got2[milestones.KindLease] || got2[milestones.KindCharges] || got2[milestones.KindHomeMWh] {
+		t.Errorf("pending %v", got2)
+	}
+	for _, r := range pend {
+		if r.User == alice {
+			t.Errorf("alice's dismissed card is pending: %+v", r)
+		}
+		if r.RivianID == "" || r.Kind == "" {
+			t.Errorf("pending row without ids: %+v", r)
+		}
+	}
+
 	// The vehicle lookups the checker uses.
 	if id, ok, err := store.Vehicle(ctx, alice, "rv-ms-a"); err != nil || !ok || id != av {
 		t.Errorf("Vehicle: %v %v %v", id, ok, err)

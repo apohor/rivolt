@@ -269,6 +269,10 @@ type Store interface {
 	// Vehicles lists accounts' vehicles; active limits it to those with a drive or
 	// charge since the given time (the zero time: all).
 	Vehicles(ctx context.Context, active time.Time) ([]VehicleRef, error)
+	// PendingPush lists achieved, undismissed milestones achieved since the
+	// cutoff whose push was never sent (no engagement_sends row with status
+	// 'sent' for their claim key), oldest first.
+	PendingPush(ctx context.Context, since time.Time) ([]Row, error)
 }
 
 // VehicleRef names a vehicle row and its owner.
@@ -321,18 +325,19 @@ func (c *Checker) Check(ctx context.Context, uid uuid.UUID, rivianID, driveID st
 	c.check(ctx, VehicleRef{User: uid, ID: vid, RivianID: rivianID}, driveID, StatusAchieved)
 }
 
-func (c *Checker) check(ctx context.Context, v VehicleRef, driveID, status string) {
+func (c *Checker) check(ctx context.Context, v VehicleRef, driveID, status string) (pushed bool) {
 	in, err := c.Input(ctx, v.User, v.RivianID)
 	if err != nil {
 		c.logger().Warn("milestones: ledger unavailable", "err", err.Error())
-		return
+		return false
 	}
 	var lease LeaseTerm
 	if c.Lease != nil {
 		lease = c.Lease(ctx, v.User, v.ID)
 	}
 	now := c.now()
-	pushed := false // at most one push per pass: after a big import several totals can be found at once, the rest stay cards
+	// At most one push per pass: after a big import several totals can be found at
+	// once, the rest stay cards (and are offered on later catch-up passes).
 	for _, f := range Evaluate(in, now, lease, driveID) {
 		row := Row{User: v.User, Vehicle: v.ID, RivianID: v.RivianID, Key: f.Key, Kind: f.Kind, Status: status, AchievedAt: now, Detail: f.Detail}
 		if status == StatusBackfilled {
@@ -348,6 +353,7 @@ func (c *Checker) check(ctx context.Context, v VehicleRef, driveID, status strin
 			c.Push(ctx, v.User, v.ID, row)
 		}
 	}
+	return pushed
 }
 
 // Backfill marks every milestone already passed as backfilled (never announced),
@@ -380,11 +386,46 @@ func (c *Checker) CatchUp(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	pushedBy := map[uuid.UUID]bool{}
 	for _, v := range vs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		c.check(ctx, v, "", StatusAchieved)
+		if c.check(ctx, v, "", StatusAchieved) {
+			pushedBy[v.User] = true
+		}
+	}
+	return c.reoffer(ctx, pushedBy)
+}
+
+// ReofferWindow is how long a milestone whose push was refused stays eligible
+// for another try; older ones stay card-only.
+const ReofferWindow = 72 * time.Hour
+
+// reoffer gives the pushes that engage refused (outside 09:00-20:00 local, no
+// known zone, the budget reserve) another chance: a milestone that was achieved
+// at night had its push dropped, and nothing else would offer it again. Only
+// achieved, undismissed milestones under ReofferWindow old, whose push never went
+// out, and at most one push per account per pass (an account that already got one
+// this pass gets none). engage's claim on (milestone key, vehicle) makes a repeat
+// harmless: a sent one is excluded here, and it cannot send twice.
+func (c *Checker) reoffer(ctx context.Context, pushedBy map[uuid.UUID]bool) error {
+	if c.Push == nil {
+		return nil
+	}
+	pending, err := c.Store.PendingPush(ctx, c.now().Add(-ReofferWindow))
+	if err != nil {
+		return err
+	}
+	for _, r := range pending {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if pushedBy[r.User] {
+			continue
+		}
+		pushedBy[r.User] = true
+		c.Push(ctx, r.User, r.Vehicle, r)
 	}
 	return nil
 }

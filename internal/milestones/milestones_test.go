@@ -2,6 +2,7 @@ package milestones
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -180,10 +181,12 @@ func TestText(t *testing.T) {
 }
 
 type fakeStore struct {
-	mu    sync.Mutex
-	ready bool
-	rows  map[string]Row
-	veh   VehicleRef
+	mu        sync.Mutex
+	ready     bool
+	rows      map[string]Row
+	veh       VehicleRef
+	sent      map[string]bool // key -> its push went out (engagement_sends 'sent')
+	dismissed map[string]bool
 }
 
 func (s *fakeStore) Ready(context.Context) (bool, error) { return s.ready, nil }
@@ -204,14 +207,30 @@ func (s *fakeStore) Vehicle(context.Context, uuid.UUID, string) (uuid.UUID, bool
 func (s *fakeStore) Vehicles(context.Context, time.Time) ([]VehicleRef, error) {
 	return []VehicleRef{s.veh}, nil
 }
+func (s *fakeStore) PendingPush(_ context.Context, since time.Time) ([]Row, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Row
+	for _, r := range s.rows {
+		if r.Status == StatusAchieved && !s.dismissed[r.Key] && !s.sent[r.Key] && r.AchievedAt.After(since) {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].AchievedAt.Before(out[j].AchievedAt) })
+	return out, nil
+}
 
 func newChecker(in ledger.Input) (*Checker, *fakeStore, *[]Row) {
-	st := &fakeStore{rows: map[string]Row{}, veh: VehicleRef{User: uuid.New(), ID: uuid.New(), RivianID: "rv"}}
+	st := &fakeStore{rows: map[string]Row{}, sent: map[string]bool{}, dismissed: map[string]bool{}, veh: VehicleRef{User: uuid.New(), ID: uuid.New(), RivianID: "rv"}}
 	var pushed []Row
 	c := &Checker{
 		Store: st, Now: func() time.Time { return t0 },
 		Input: func(context.Context, uuid.UUID, string) (ledger.Input, error) { return in, nil },
-		Push:  func(_ context.Context, _ uuid.UUID, _ uuid.UUID, r Row) { pushed = append(pushed, r) },
+		// Like engage: a delivered push is recorded as sent.
+		Push: func(_ context.Context, _ uuid.UUID, _ uuid.UUID, r Row) {
+			pushed = append(pushed, r)
+			st.sent[r.Key] = true
+		},
 	}
 	return c, st, &pushed
 }
@@ -302,5 +321,102 @@ func TestOnePushPerPassAndBackfillKeepsNoDetail(t *testing.T) {
 		if r.Status != StatusBackfilled || r.Detail != (Detail{}) {
 			t.Errorf("backfilled row %s keeps detail: %+v", r.Key, r)
 		}
+	}
+}
+
+// A push refused at night (outside 09-20 local) is offered again by a later
+// catch-up pass, inside the window; once sent it is never offered again; a
+// dismissed card, a milestone older than 72 h, and a backfilled one are not.
+func TestRefusedPushIsReofferedOnTheNextPass(t *testing.T) {
+	c, st, _ := newChecker(input(nil, nil))
+	st.ready = true
+	night := time.Date(2026, 10, 19, 2, 0, 0, 0, time.UTC) // the milestone is reached at 02:00
+	morning := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	clock := night
+	c.Now = func() time.Time { return clock }
+	c.Input = func(context.Context, uuid.UUID, string) (ledger.Input, error) { return milesInput(), nil }
+
+	var offered []string
+	inWindow := func() bool { h := clock.Hour(); return h >= 9 && h < 20 }
+	// Push stands in for engage: it refuses outside 09-20 and records a send inside it.
+	c.Push = func(_ context.Context, _ uuid.UUID, _ uuid.UUID, r Row) {
+		offered = append(offered, clock.Format("15:04")+" "+r.Key)
+		if inWindow() {
+			st.sent[r.Key] = true
+		}
+	}
+	c.Check(context.Background(), st.veh.User, "rv", "") // 02:00: achieved, push refused
+	if len(offered) != 1 || len(st.sent) != 0 {
+		t.Fatalf("at night: offered %v sent %v", offered, st.sent)
+	}
+	clock = night.Add(2 * time.Hour) // a catch-up at 04:00 is still outside the window: offered, refused again
+	if err := c.CatchUp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered) != 2 || len(st.sent) != 0 {
+		t.Fatalf("04:00 pass: offered %v sent %v", offered, st.sent)
+	}
+	clock = morning // 10:00: goes out
+	if err := c.CatchUp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered) != 3 || !st.sent[KindMiles] {
+		t.Fatalf("10:00 pass: offered %v sent %v", offered, st.sent)
+	}
+	clock = morning.Add(6 * time.Hour) // never again
+	if err := c.CatchUp(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(offered) != 3 {
+		t.Errorf("a sent milestone was offered again: %v", offered)
+	}
+}
+
+func TestReofferBounds(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	mk := func(key, status string, age time.Duration) Row {
+		return Row{User: uuid.New(), Vehicle: uuid.New(), Key: key, Kind: kindOfKey(key), Status: status, AchievedAt: now.Add(-age)}
+	}
+	c, st, pushed := newChecker(input(nil, nil))
+	st.ready = true
+	c.Now = func() time.Time { return now }
+	rows := []Row{
+		mk("miles_1000", StatusAchieved, 2*time.Hour),   // eligible
+		mk("charges_100", StatusAchieved, 73*time.Hour), // too old: card only
+		mk("home_mwh_1", StatusBackfilled, time.Hour),   // backfilled: never
+		mk("lease_half", StatusAchieved, time.Hour),     // dismissed
+	}
+	for _, r := range rows {
+		st.rows[r.Vehicle.String()+"|"+r.Key] = r
+	}
+	st.dismissed["lease_half"] = true
+	if err := c.reoffer(context.Background(), map[uuid.UUID]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*pushed) != 1 || (*pushed)[0].Key != "miles_1000" {
+		t.Fatalf("offered %+v, want only the 2-hour-old miles milestone", *pushed)
+	}
+
+	// At most one per account per pass: two eligible for one account, one goes.
+	c2, st2, pushed2 := newChecker(input(nil, nil))
+	st2.ready = true
+	c2.Now = func() time.Time { return now }
+	u, v := uuid.New(), uuid.New()
+	for i, k := range []string{"miles_1000", "charges_100"} {
+		st2.rows[v.String()+"|"+k] = Row{User: u, Vehicle: v, Key: k, Kind: k, Status: StatusAchieved, AchievedAt: now.Add(-time.Duration(i+1) * time.Hour)}
+	}
+	if err := c2.reoffer(context.Background(), map[uuid.UUID]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*pushed2) != 1 || (*pushed2)[0].Key != "charges_100" { // the older one first
+		t.Errorf("one per account: %+v", *pushed2)
+	}
+	// An account that already got a push this pass gets none.
+	c2, st2, pushed2 = newChecker(input(nil, nil))
+	st2.ready = true
+	c2.Now = func() time.Time { return now }
+	st2.rows[v.String()+"|miles_1000"] = Row{User: u, Vehicle: v, Key: "miles_1000", Kind: "miles_1000", Status: StatusAchieved, AchievedAt: now.Add(-time.Hour)}
+	if err := c2.reoffer(context.Background(), map[uuid.UUID]bool{u: true}); err != nil || len(*pushed2) != 0 {
+		t.Errorf("pushed again in the same pass: %+v %v", *pushed2, err)
 	}
 }
