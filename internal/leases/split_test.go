@@ -206,3 +206,40 @@ func TestShutdownStillReleasesWhenASubscriptionNeverStops(t *testing.T) {
 		t.Error("ReleaseAll never ran: the wait used the whole budget")
 	}
 }
+
+// A reconcile already in flight when Shutdown begins must not resubscribe, heal or
+// acquire anything: Shutdown keeps the vehicles in c.owned while it waits for the
+// subscriptions to stop, and a vehicle it has just stopped looks owned-but-not-
+// streaming, which healUnstreamed would restart right before the lease is released.
+func TestNothingRestartsAVehicleOnceShutdownBegan(t *testing.T) {
+	events := &eventLog{}
+	st := &releaseAllLogStore{fakeStore: newFakeStore(), events: events}
+	var c *Coordinator
+	c = newCoordinator(st, func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(v string) { events.add("acquire " + v) },
+		func(v string) {
+			events.add("unsubscribe " + v)
+			// The in-flight reconcile (and the heal inside it) runs while Shutdown waits.
+			c.healUnstreamed()
+			c.reconcile(context.Background())
+		}, nil, time.Hour)
+	c.SetStreamingCheck(func(string) bool { return false }) // everything already stopped
+	c.reconcile(context.Background())                       // acquires v1 and v2
+	events.add("--- shutdown")
+
+	c.Shutdown(context.Background())
+
+	var after []string
+	got := events.all()
+	for i, e := range got {
+		if e == "--- shutdown" {
+			after = got[i+1:]
+			break
+		}
+	}
+	for _, e := range after {
+		if len(e) > 7 && e[:7] == "acquire" {
+			t.Errorf("a vehicle was (re)acquired after Shutdown began: %v", after)
+		}
+	}
+}

@@ -337,6 +337,10 @@ type Coordinator struct {
 
 	mu    sync.Mutex
 	owned map[string]struct{}
+	// closing is set when Shutdown begins: a reconcile already in flight must not
+	// acquire, resubscribe or heal anything from then on, or it could start a vehicle
+	// Shutdown just stopped, right before the lease is released. Guarded by mu.
+	closing bool
 
 	// streaming, when set, reports whether this pod is actually
 	// subscribed to a vehicle it holds the lease for. Holding a lease
@@ -467,7 +471,7 @@ func (c *Coordinator) SetUnstreamedObserver(fn func(vehicleID string)) {
 // acquisition, so a vehicle acquired this tick isn't judged before its
 // subscription had a chance to start.
 func (c *Coordinator) healUnstreamed() {
-	if c.streaming == nil {
+	if c.streaming == nil || c.isClosing() {
 		return
 	}
 	c.mu.Lock()
@@ -501,7 +505,7 @@ func (c *Coordinator) healUnstreamed() {
 				c.onUnstreamed(vid)
 			}
 		}
-		if due {
+		if due && !c.isClosing() {
 			c.onAcquire(vid)
 		}
 	}
@@ -583,6 +587,9 @@ func (c *Coordinator) fenceAll() {
 // best-effort coordination layer; a transient Postgres blip should
 // not crash every pod. The next tick will reconcile.
 func (c *Coordinator) reconcile(ctx context.Context) {
+	if c.isClosing() {
+		return
+	}
 	rctx, cancel := context.WithTimeout(ctx, c.reconcileInterval/2)
 	defer cancel()
 
@@ -682,6 +689,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	}
 
 	for _, vid := range vehicles {
+		if c.isClosing() {
+			break
+		}
 		if live != nil {
 			if _, ok := live[vid]; !ok {
 				// Candidate surfaced by the monitor/leases source with no
@@ -704,8 +714,16 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		}
 		if got {
 			c.mu.Lock()
-			c.owned[vid] = struct{}{}
+			closing := c.closing
+			if !closing {
+				c.owned[vid] = struct{}{}
+			}
 			c.mu.Unlock()
+			if closing {
+				// Shutdown began while this acquire ran: give it straight back.
+				_ = c.store.Release(rctx, vid)
+				break
+			}
 			c.log.Info("lease acquired", "vehicle", vid)
 			c.onAcquire(vid)
 		}
@@ -721,6 +739,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 // and only then release the lease. Releasing first would let the other pod dial
 // while this connection is still up, the very collision this removes.
 func (c *Coordinator) healSplitUsers(ctx context.Context) {
+	if c.isClosing() {
+		return
+	}
 	sf, ok := c.store.(splitFinder)
 	if !ok {
 		return
@@ -783,6 +804,7 @@ func (c *Coordinator) fireCount() {
 // unreachable the leases will still age out via the TTL.
 func (c *Coordinator) Shutdown(ctx context.Context) {
 	c.mu.Lock()
+	c.closing = true
 	owned := make([]string, 0, len(c.owned))
 	for vid := range c.owned {
 		owned = append(owned, vid)
@@ -806,6 +828,12 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 		c.log.Info("lease release-all", "count", n)
 	}
 	c.fireCount()
+}
+
+func (c *Coordinator) isClosing() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closing
 }
 
 // waitAllStopped waits until none of vids is streaming, for at most handoffWait
