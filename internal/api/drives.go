@@ -125,7 +125,7 @@ func loadPricedCharges(ctx context.Context, store *charges.Store, cfg settings.C
 	if store == nil {
 		return nil
 	}
-	rows, err := store.ListAll(ctx)
+	rows, err := store.ListAllListed(ctx)
 	if err != nil {
 		return nil
 	}

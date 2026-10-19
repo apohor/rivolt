@@ -595,9 +595,24 @@ func (s *Store) AbandonOpenLive(ctx context.Context, externalID string) (int, er
 // prevents the SQLite-era duplicates the old code had to clean up.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
 
-// ListAll returns every charge for this user, newest first. Used by
-// the Settings → Backup endpoint.
+// EachAll streams EVERY stored charge of this user, newest first, with no
+// display filter: the backup and the data export must hold every row, including
+// the sub-minute ones the lists hide. Callers that price or show charges use
+// EachListed.
 func (s *Store) EachAll(ctx context.Context, fn func(Charge) error) error {
+	return s.each(ctx, false, fn)
+}
+
+// EachListed is EachAll without the charges the lists hide: those under a minute.
+func (s *Store) EachListed(ctx context.Context, fn func(Charge) error) error {
+	return s.each(ctx, true, fn)
+}
+
+func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error) error {
+	minDur := `ended_at - started_at >= interval '1 minute'`
+	if !listedOnly {
+		minDur = `TRUE`
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -616,7 +631,7 @@ func (s *Store) EachAll(ctx context.Context, fn func(Charge) error) error {
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
-		  AND ended_at - started_at >= interval '1 minute'
+		  AND `+minDur+`
 		ORDER BY c.started_at DESC`, s.userID)
 	if err != nil {
 		return err
@@ -653,10 +668,20 @@ func (s *Store) EachAll(ctx context.Context, fn func(Charge) error) error {
 	return rows.Err()
 }
 
-// ListAll returns every row; use EachAll for large result sets.
+// ListAll returns every stored row; use EachAll for large result sets.
 func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 	var out []Charge
 	err := s.EachAll(ctx, func(v Charge) error {
+		out = append(out, v)
+		return nil
+	})
+	return out, err
+}
+
+// ListAllListed returns the charges the lists show (a minute or longer).
+func (s *Store) ListAllListed(ctx context.Context) ([]Charge, error) {
+	var out []Charge
+	err := s.EachListed(ctx, func(v Charge) error {
 		out = append(out, v)
 		return nil
 	})

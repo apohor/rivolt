@@ -267,10 +267,24 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 // written with different ids" condition impossible here.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
 
-// ListAll returns every drive for this user, newest first. Used by
-// the Settings → Backup endpoint; /api/drives keeps the capped
-// ListRecent path for the dashboard.
+// EachAll streams EVERY stored drive of this user, newest first, with no
+// display filter: the backup and the data export must hold every row, including
+// the sub-minute ones the lists hide. Callers that show drives (efficiency,
+// weather backfill) use EachListed.
 func (s *Store) EachAll(ctx context.Context, fn func(Drive) error) error {
+	return s.each(ctx, false, fn)
+}
+
+// EachListed is EachAll without the drives the lists hide: those under a minute.
+func (s *Store) EachListed(ctx context.Context, fn func(Drive) error) error {
+	return s.each(ctx, true, fn)
+}
+
+func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Drive) error) error {
+	minDur := `ended_at - started_at >= interval '1 minute'`
+	if !listedOnly {
+		minDur = `TRUE`
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.external_id, v.rivian_vehicle_id,
 		       d.started_at, d.ended_at,
@@ -284,7 +298,7 @@ func (s *Store) EachAll(ctx context.Context, fn func(Drive) error) error {
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
-		  AND ended_at - started_at >= interval '1 minute'
+		  AND `+minDur+`
 		ORDER BY d.started_at DESC`, s.userID)
 	if err != nil {
 		return err
@@ -311,10 +325,20 @@ func (s *Store) EachAll(ctx context.Context, fn func(Drive) error) error {
 	return rows.Err()
 }
 
-// ListAll returns every row; use EachAll for large result sets.
+// ListAll returns every stored row; use EachAll for large result sets.
 func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 	var out []Drive
 	err := s.EachAll(ctx, func(v Drive) error {
+		out = append(out, v)
+		return nil
+	})
+	return out, err
+}
+
+// ListAllListed returns the drives the lists show (a minute or longer).
+func (s *Store) ListAllListed(ctx context.Context) ([]Drive, error) {
+	var out []Drive
+	err := s.EachListed(ctx, func(v Drive) error {
 		out = append(out, v)
 		return nil
 	})
