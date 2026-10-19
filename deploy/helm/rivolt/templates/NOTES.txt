@@ -37,12 +37,6 @@ losing the KEK bricks every encrypted row.
 
   kubectl -n {{ .Release.Namespace }} get secret {{ include "rivolt.appSecretName" . }} \
     -o jsonpath='{.data.RIVOLT_KEK}' | base64 -d
-{{- else }}
-
-WARNING: secrets.kek is empty AND autoGenerateKek=false.
-Rivolt will refuse to start without a KEK. Either set `secrets.kek`
-or set `secrets.existingSecret` to a Secret you manage out-of-band:
-    echo "v1:$(openssl rand -base64 32)"
 {{- end }}
 {{- end }}
 {{- end }}

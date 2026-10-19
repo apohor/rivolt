@@ -291,11 +291,13 @@ func runServer() {
 	// the helm chart still has the old one in env. See
 	// internal/settings.NewManager + internal/appsettings.
 
+	memLimit := applyMemoryLimit()
 	logger.Info("rivolt starting",
 		"version", version,
 		"addr", *addr,
 		"data_dir", *dataDir,
 		"tz", time.Now().Location().String(),
+		"go_memory_limit", memLimit,
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
