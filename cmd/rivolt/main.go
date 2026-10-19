@@ -1916,13 +1916,15 @@ func runServer() {
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.
-	var statementSigner *statement.Signer
+	var statementSigner, weeklySigner *statement.Signer
 	if len(cookieSecret) > 0 {
+		weeklySigner = statement.NewScopedSigner(cookieSecret, "weekly")
 		statementSigner = statement.NewSigner(cookieSecret)
 		onboardSigner.Store(statementSigner)
 	}
 	handler := api.New(api.Deps{
 		StatementSigner:       statementSigner,
+		WeeklySigner:          weeklySigner,
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
 		PushService:           pushSvc,
