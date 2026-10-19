@@ -375,7 +375,7 @@ export default function NowCard({
             </div>
           ))}
         </dl>
-        {next && <AmbientTempLine ambient={server?.ambient} />}
+        {next && <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
           <p data-testid="now-freshness">{freshnessLine(view)}</p>
