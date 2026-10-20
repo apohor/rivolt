@@ -314,7 +314,7 @@ func stopPrice(sn dcfcrates.StopNetwork, tc Context, cur string, now time.Time) 
 	if o, ok := tc.OwnRates[sn.Slug]; ok && o.PerKWh > 0 && o.Sessions > 0 {
 		return &StopPrice{
 			Basis: BasisYourReceipts, PerKWhLow: o.PerKWh, PerKWhHigh: o.PerKWh, Sessions: o.Sessions,
-			Label: fmt.Sprintf("From your last %d sessions", o.Sessions),
+			Label: fmt.Sprintf("Your average over your last %d sessions", o.Sessions),
 		}
 	}
 	if sn.UserSet && sn.UserPerKWh > 0 {

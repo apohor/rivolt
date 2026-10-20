@@ -67,7 +67,7 @@ func TestEstimateRouteMixedAndPartial(t *testing.T) {
 	if c.PricedStops != 2 || c.UnpricedStops != 1 || c.EstimateBasis != "mixed" {
 		t.Fatalf("cost = %+v, want 2 priced, 1 unpriced, mixed", c)
 	}
-	if b := c.Breakdown[2].Price; b == nil || b.Basis != BasisYourReceipts || b.Sessions != 4 || b.Label != "From your last 4 sessions" {
+	if b := c.Breakdown[2].Price; b == nil || b.Basis != BasisYourReceipts || b.Sessions != 4 || b.Label != "Your average over your last 4 sessions" {
 		t.Errorf("evgo price = %+v, want the user's own receipts to win over the observed figure", b)
 	}
 	if c.Breakdown[1].Price != nil {
