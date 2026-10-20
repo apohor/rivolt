@@ -65,10 +65,16 @@ type ledgerAPI struct {
 // withBilled returns a copy that adds the billed_* fields for users the
 // rivian_receipts flag covers. Only the Money endpoints use it.
 func (a ledgerAPI) withBilled(f *flags.Store, sf *settings.Factory) ledgerAPI {
-	a.billed = func(uid uuid.UUID) bool {
-		return f != nil && f.RivianReceipts().Enabled(uid.String()) && sf.RivianReceiptsOptIn(context.Background(), uid)
-	}
+	a.billed = func(uid uuid.UUID) bool { return receiptsAllowed(context.Background(), f, sf, uid) }
 	return a
+}
+
+// receiptsAllowed is the one check for "may this user's Rivian receipts be used": the
+// operator flag covers them AND they opted in. Every use of receipts (the Money
+// endpoints, the planner's own-price figure) asks it per request, at call time, rather
+// than relying on receipts existing only for opted-in users.
+func receiptsAllowed(ctx context.Context, f *flags.Store, sf *settings.Factory, uid uuid.UUID) bool {
+	return f != nil && sf != nil && f.RivianReceipts().Enabled(uid.String()) && sf.RivianReceiptsOptIn(ctx, uid)
 }
 
 // newLedgerAPI wires the production seams: read-only queries on the

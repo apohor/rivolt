@@ -122,3 +122,45 @@ func TestEstimateRouteWithoutAPackSizeQuotesNothing(t *testing.T) {
 		t.Errorf("cost = %+v, want nothing without a pack size", c)
 	}
 }
+
+// A price's source_url comes only from the dcfcrates table: https on the tracker's
+// host, and only for the observed basis (an own-receipts or saved-rate price has none).
+func TestSourceURLsComeOnlyFromTheObservedTable(t *testing.T) {
+	known := map[string]bool{}
+	for _, slug := range []string{"ran", "tesla_sc", "evgo", "ea"} {
+		if o, ok := dcfcrates.ObservedFor(slug, oct2026); ok {
+			known[o.URL] = true
+		}
+	}
+	if len(known) == 0 {
+		t.Fatal("no observed rows")
+	}
+	var ws []rivian.PlannedWaypoint
+	for _, n := range dcfcrates.Networks {
+		if len(n.MatchPatterns) > 0 {
+			ws = append(ws, stop(n.MatchPatterns[0]+" - Test Stop", 10, 60))
+		}
+	}
+	c := EstimateRoute(route(ws...), Context{PackKWh: 100, Now: oct2026,
+		OwnRates: map[string]OwnRate{"chargepoint": {PerKWh: 0.4, Sessions: 3}}})
+	seen := 0
+	for _, b := range c.Breakdown {
+		if b.Price == nil {
+			continue
+		}
+		switch b.Price.Basis {
+		case BasisObserved:
+			seen++
+			if !known[b.Price.SourceURL] || !strings.HasPrefix(b.Price.SourceURL, "https://dcfctracker.com/") {
+				t.Errorf("%s: source URL %q is not from the table", b.NetworkSlug, b.Price.SourceURL)
+			}
+		default:
+			if b.Price.SourceURL != "" || b.Price.Source != "" {
+				t.Errorf("%s: a %s price carries a source %q", b.NetworkSlug, b.Price.Basis, b.Price.SourceURL)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Error("no observed price was produced, so nothing was checked")
+	}
+}

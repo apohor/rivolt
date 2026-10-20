@@ -5,16 +5,54 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tripadvice"
 	"github.com/apohor/rivolt/internal/tripprofile"
 	"github.com/apohor/rivolt/internal/weather"
 )
+
+// ownRatesFunc returns the signed-in user's own paid $/kWh per network, in a currency,
+// for the planner's cost estimate. It is attached to the request context by the route
+// (planOwnRates), so the enricher needs no new argument and nothing global is set.
+type ownRatesFunc func(ctx context.Context, currency string, now time.Time) map[string]tripadvice.OwnRate
+
+type ownRatesKey struct{}
+
+func withPlanOwnRates(ctx context.Context, f ownRatesFunc) context.Context {
+	return context.WithValue(ctx, ownRatesKey{}, f)
+}
+
+func planOwnRatesFrom(ctx context.Context) ownRatesFunc {
+	f, _ := ctx.Value(ownRatesKey{}).(ownRatesFunc)
+	return f
+}
+
+// ownRatesFor builds the function for one user. The receipts check
+// (receiptsAllowed, the same as the Money endpoints) is made on every call; without it
+// there are no own rates, whatever rows exist.
+func ownRatesFor(d Deps, uid uuid.UUID) ownRatesFunc {
+	return func(ctx context.Context, currency string, now time.Time) map[string]tripadvice.OwnRate {
+		if d.DB == nil || !receiptsAllowed(ctx, d.Flags, d.Settings, uid) {
+			return nil
+		}
+		paid, err := receipts.NewStore(d.DB).PaidRates(ctx, uid, now, currency)
+		if err != nil || len(paid) == 0 {
+			return nil
+		}
+		out := make(map[string]tripadvice.OwnRate, len(paid))
+		for slug, p := range paid {
+			out[slug] = tripadvice.OwnRate{PerKWh: p.PerKWh, Sessions: p.Sessions}
+		}
+		return out
+	}
+}
 
 // resolvedVehicle is what a plan request needs to know about the truck.
 type resolvedVehicle struct {
@@ -160,6 +198,14 @@ func (e *planEnricher) load(ctx context.Context) {
 			if nets, err := settings.GetChargingNetworks(ctx, e.settingsStore); err == nil {
 				e.costs.DCFCNetworks = settings.AsOverrides(nets)
 			}
+		}
+		// The user's own paid price per network, when their receipts may be used.
+		if f := planOwnRatesFrom(ctx); f != nil {
+			cur := e.costs.HomeCurrency
+			if cur == "" {
+				cur = "USD"
+			}
+			e.costs.OwnRates = f(ctx, cur, time.Now())
 		}
 	}
 }

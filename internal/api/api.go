@@ -1125,7 +1125,7 @@ func New(d Deps) http.Handler {
 				r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive))
 			}
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
+				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
 			}))
 			// Multi-day plan is mounted in the AI-bound group below
 			// (5-minute timeout). N sequential planTrip2 calls easily
@@ -1203,7 +1203,7 @@ func New(d Deps) http.Handler {
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
+				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
 			}))
 		})
 
