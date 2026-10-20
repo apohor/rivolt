@@ -52,7 +52,28 @@ func NewProxy(baseURL string) (http.Handler, error) {
 		return nil, ErrInvalidURL
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(u)
+	// Rewrite, not the deprecated Director. NewSingleHostReverseProxy's Director
+	// forwarded the inbound X-Forwarded-For chain and appended the caller's address;
+	// Rewrite starts from an outbound request with the inbound X-Forwarded-* and
+	// Forwarded headers already removed, and pr.SetXForwarded is deliberately NOT
+	// called: neither Valhalla nor the tile nginx uses the client address, so the
+	// in-cluster services get none. clientAddressHeaders drops the other places an
+	// ingress or CDN puts it. (Issue #705.)
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(u) // scheme, host and base path of the target; the query is joined
+			pr.Out.Host = u.Host
+			// Don't leak the rivolt session cookie or any bearer auth header to the
+			// upstream. The router has already authenticated the caller; the
+			// upstream has no use for the credential and treating it as opaque is
+			// the safer default.
+			pr.Out.Header.Del("Cookie")
+			pr.Out.Header.Del("Authorization")
+			for _, h := range clientAddressHeaders {
+				pr.Out.Header.Del(h)
+			}
+		},
+	}
 	// http.DefaultTransport caps MaxIdleConnsPerHost at 2. PMTiles
 	// fetches the chargers archive via many parallel byte-range
 	// requests; serialising them behind 2 keep-alive conns turns
@@ -73,22 +94,14 @@ func NewProxy(baseURL string) (http.Handler, error) {
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
-	// Director is deprecated in favour of Rewrite, which also changes how the inbound
-	// X-Forwarded-* headers are treated on this public proxy: moving to it is its own
-	// change (issue #705, needs DA).
-	defaultDirector := proxy.Director        //nolint:staticcheck // SA1019, see #705
-	proxy.Director = func(r *http.Request) { //nolint:staticcheck // SA1019, see #705
-		defaultDirector(r)
-		// Don't leak the rivolt session cookie or any bearer
-		// auth header to the upstream. The router has already
-		// authenticated the caller; the upstream has no use for
-		// the credential and treating it as opaque is the safer
-		// default.
-		r.Header.Del("Cookie")
-		r.Header.Del("Authorization")
-		r.Host = u.Host
-	}
 	return proxy, nil
+}
+
+// clientAddressHeaders are the request headers a CDN or ingress uses to pass the
+// caller's address, besides X-Forwarded-For and Forwarded (which ReverseProxy.Rewrite
+// removes itself). The map services have no use for them.
+var clientAddressHeaders = []string{
+	"X-Real-Ip", "X-Client-Ip", "True-Client-Ip", "Cf-Connecting-Ip", "Cf-Connecting-Ipv6", "Cf-Ipcountry",
 }
 
 // ErrInvalidURL is returned when a configured base URL parses but
