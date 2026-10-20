@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -162,10 +164,10 @@ func jsonOrDefault(b json.RawMessage, def string) []byte {
 func upsertSavedTrip(ctx context.Context, d *sql.DB, uid uuid.UUID, r savedTripRow) error {
 	plan, adv := []byte(nil), []byte(nil)
 	if len(r.Plan) > 0 && string(r.Plan) != "null" {
-		plan = r.Plan
+		plan = sanitizeRestoredJSON(r.Plan)
 	}
 	if len(r.Advice) > 0 && string(r.Advice) != "null" {
-		adv = r.Advice
+		adv = sanitizeRestoredJSON(r.Advice)
 	}
 	_, err := d.ExecContext(ctx, `
 		INSERT INTO saved_trips (user_id, name, inputs, plan, advice, created_at, updated_at)
@@ -238,3 +240,65 @@ func eachDerivedRow(ctx context.Context, d *sql.DB, uid uuid.UUID, table string,
 // derivedOmittedFromBackup lists what the backup does not carry because it can
 // be regenerated; the backup file names it.
 var derivedOmittedFromBackup = []string{"drive_weather", "drive_weather_series"}
+
+// allowedRestoredURLPrefixes are the only link targets a restored plan or advice may
+// carry: the third-party price source the planner itself emits (dcfcrates.ObservedFor).
+// A plan comes from a file the user uploads, and the UI renders its source_url as a link
+// (also on the admin origin while viewing as the user), so a URL the server did not
+// produce is dropped.
+var allowedRestoredURLPrefixes = []string{"https://dcfctracker.com/"}
+
+// sanitizeRestoredJSON removes every URL-like field (a key that is, or ends in, url,
+// href or link, in any case) from a restored saved-trip plan or advice, at any depth,
+// unless its value is a string starting with an allowed prefix. Other content is kept
+// as it was; a document that is not valid JSON is returned unchanged for the database
+// to reject.
+func sanitizeRestoredJSON(raw json.RawMessage) []byte {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber() // numbers round-trip exactly
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return raw
+	}
+	out, err := json.Marshal(stripURLFields(v))
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func isURLKey(k string) bool {
+	k = strings.ToLower(k)
+	return strings.HasSuffix(k, "url") || strings.HasSuffix(k, "href") || strings.HasSuffix(k, "link")
+}
+
+func stripURLFields(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			if isURLKey(k) {
+				if s, ok := val.(string); !ok || !hasAllowedURLPrefix(s) {
+					delete(t, k)
+				}
+				continue
+			}
+			t[k] = stripURLFields(val)
+		}
+		return t
+	case []any:
+		for i := range t {
+			t[i] = stripURLFields(t[i])
+		}
+		return t
+	}
+	return v
+}
+
+func hasAllowedURLPrefix(s string) bool {
+	for _, p := range allowedRestoredURLPrefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}

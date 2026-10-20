@@ -1,6 +1,7 @@
 package dcfcrates
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,5 +72,15 @@ func TestObservedTeslaIsARange(t *testing.T) {
 	r, _ := ObservedFor("ran", time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC))
 	if r.Low != r.High {
 		t.Errorf("ran: %v..%v; one automatic Rivian-vehicle average", r.Low, r.High)
+	}
+}
+
+// The source link is rendered as a link in the UI and is the only URL the restore
+// accepts inside a saved plan: every row's must be https on the tracker's own host.
+func TestObservedURLsAreHTTPSOnTheTrackersHost(t *testing.T) {
+	for _, o := range observedPrices {
+		if !strings.HasPrefix(o.URL, "https://dcfctracker.com/") || strings.ContainsAny(o.URL, " \t\r\n\"'<>") {
+			t.Errorf("%s: source URL %q", o.Slug, o.URL)
+		}
 	}
 }
