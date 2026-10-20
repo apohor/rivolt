@@ -74,16 +74,15 @@
   "costs": [
     {
       "currency": "USD",
-      "dcfc_spend": 16.977600000000002,
-      "dcfc_spend_user_member": 15.279840000000002,
-      "dcfc_spend_all_member": 15.279840000000002,
+      "dcfc_spend_low": 13.638672000000001,
+      "dcfc_spend_high": 13.638672000000001,
+      "priced_stops": 1,
+      "unpriced_stops": 0,
+      "estimate_basis": "observed",
       "home_equivalent": 17.072,
       "gas_equivalent": 0,
       "gas_price_per_gallon": 0,
       "gas_mpg": 0,
-      "dcfc_rate_used": 0.6,
-      "dcfc_rate_used_user_member": 0.54,
-      "dcfc_rate_used_all_member": 0.54,
       "home_rate_used": 0.16,
       "breakdown": [
         {
@@ -91,10 +90,18 @@
           "network_name": "Rivian Adventure Network",
           "charger_name": "Barstow, CA [Rivian Adventure Network]",
           "energy_kwh": 28.296000000000003,
-          "guest_rate": 0.6,
-          "user_rate": 0.54,
-          "all_member_rate": 0.54,
-          "member_plan": "Rivian owner discount"
+          "member_plan": "Rivian owner discount",
+          "price": {
+            "basis": "observed",
+            "per_kwh_low": 0.482,
+            "per_kwh_high": 0.482,
+            "source": "DCFC Tracker",
+            "source_url": "https://dcfctracker.com/reports/rivian",
+            "observed_month": "2026-10",
+            "label": "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ."
+          },
+          "cost_low": 13.638672000000001,
+          "cost_high": 13.638672000000001
         }
       ]
     }

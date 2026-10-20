@@ -91,7 +91,16 @@ type SampleTripTotal struct {
 	DriveMin    float64 `json:"drive_min"`
 	ChargeMin   float64 `json:"charge_min"`
 	ChargeStops int     `json:"charge_stops"`
-	DCFCCostEst float64 `json:"dcfc_cost_est"`
+	// DCFCCostLow and DCFCCostHigh are the fast-charging cost over the stops that have
+	// a price (an estimate: the third-party typical price, see dcfcrates.ObservedFor),
+	// PricedStops of ChargeStops. The other stops' price is shown at the charger.
+	DCFCCostLow   float64 `json:"dcfc_cost_low"`
+	DCFCCostHigh  float64 `json:"dcfc_cost_high"`
+	PricedStops   int     `json:"priced_stops"`
+	UnpricedStops int     `json:"unpriced_stops"`
+	// PriceMonth is the observation month ("2026-10") of the oldest figure behind
+	// the estimate, so every wording of it can name the month.
+	PriceMonth string `json:"price_month,omitempty"`
 }
 
 // SampleTripDay is one driving day.
@@ -108,18 +117,24 @@ type SampleTripDay struct {
 	Overnight  *SampleTripOvernight `json:"overnight"`
 }
 
-// SampleTripStop is a charging stop. CostEst is the energy at the network's
-// guest rate (no membership), an estimate.
+// SampleTripStop is a charging stop. CostLow and CostHigh are the energy at the
+// network's typical observed price (an estimate, a range where the tracker reports a
+// membership and a non-member price); nil when the network has no figure and the
+// price is shown at the charger. PriceNote says where the figure comes from.
 type SampleTripStop struct {
-	Name      string  `json:"name"`
-	Lat       float64 `json:"lat"`
-	Lon       float64 `json:"lon"`
-	Network   string  `json:"network"`
-	ArriveSoC float64 `json:"arrive_soc"`
-	DepartSoC float64 `json:"depart_soc"`
-	ChargeMin float64 `json:"charge_min"`
-	MaxKW     float64 `json:"max_kw"`
-	CostEst   float64 `json:"cost_est"`
+	Name      string   `json:"name"`
+	Lat       float64  `json:"lat"`
+	Lon       float64  `json:"lon"`
+	Network   string   `json:"network"`
+	ArriveSoC float64  `json:"arrive_soc"`
+	DepartSoC float64  `json:"depart_soc"`
+	ChargeMin float64  `json:"charge_min"`
+	MaxKW     float64  `json:"max_kw"`
+	CostLow   *float64 `json:"cost_low"`
+	CostHigh  *float64 `json:"cost_high"`
+	PriceNote string   `json:"price_note,omitempty"`
+	// PriceMonth is the observation month of the figure behind CostLow/CostHigh.
+	PriceMonth string `json:"price_month,omitempty"`
 }
 
 // SampleTripOvernight is a slow charge where the trip stops for the night.
@@ -201,13 +216,17 @@ type planRoute struct {
 }
 
 type planCost struct {
-	Currency  string  `json:"currency"`
-	DCFCSpend float64 `json:"dcfc_spend"`
+	Currency  string `json:"currency"`
 	Breakdown []struct {
-		NetworkName string  `json:"network_name"`
-		ChargerName string  `json:"charger_name"`
-		EnergyKWh   float64 `json:"energy_kwh"`
-		GuestRate   float64 `json:"guest_rate"`
+		NetworkName string   `json:"network_name"`
+		ChargerName string   `json:"charger_name"`
+		EnergyKWh   float64  `json:"energy_kwh"`
+		CostLow     *float64 `json:"cost_low"`
+		CostHigh    *float64 `json:"cost_high"`
+		Price       *struct {
+			Label         string `json:"label"`
+			ObservedMonth string `json:"observed_month"`
+		} `json:"price"`
 	} `json:"breakdown"`
 }
 
@@ -305,13 +324,23 @@ func buildSampleTrip(page SampleTripPage, indexPolyline string) (SampleTrip, err
 		for _, s := range d.Stops {
 			t.Totals.ChargeMin += s.ChargeMin
 			t.Totals.ChargeStops++
-			t.Totals.DCFCCostEst += s.CostEst
+			if s.CostLow != nil && s.CostHigh != nil {
+				t.Totals.PricedStops++
+				t.Totals.DCFCCostLow += *s.CostLow
+				t.Totals.DCFCCostHigh += *s.CostHigh
+				// The oldest observation month names the estimate (months sort as text).
+				if s.PriceMonth != "" && (t.Totals.PriceMonth == "" || s.PriceMonth < t.Totals.PriceMonth) {
+					t.Totals.PriceMonth = s.PriceMonth
+				}
+			} else {
+				t.Totals.UnpricedStops++
+			}
 		}
 	}
 	t.Totals.DistanceMi = round1(t.Totals.DistanceMi)
 	t.Totals.DriveMin = round1(t.Totals.DriveMin)
 	t.Totals.ChargeMin = round1(t.Totals.ChargeMin)
-	t.Totals.DCFCCostEst = round2(t.Totals.DCFCCostEst)
+	t.Totals.DCFCCostLow, t.Totals.DCFCCostHigh = round2(t.Totals.DCFCCostLow), round2(t.Totals.DCFCCostHigh)
 	return t, nil
 }
 
@@ -339,16 +368,20 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 	}
 	day.DepartAt, _ = time.Parse(time.RFC3339, wps[0].DepartureTimeUTC)
 	day.ArriveAt, _ = time.Parse(time.RFC3339, wps[len(wps)-1].ArrivalTimeUTC)
-	byCharger := map[string]struct {
-		network string
-		cost    float64
-	}{}
+	type stopInfo struct {
+		network   string
+		low, high *float64
+		note      string
+		month     string
+	}
+	byCharger := map[string]stopInfo{}
 	if c := firstCost(costs); c != nil {
 		for _, b := range c.Breakdown {
-			byCharger[b.ChargerName] = struct {
-				network string
-				cost    float64
-			}{b.NetworkName, b.EnergyKWh * b.GuestRate}
+			si := stopInfo{network: b.NetworkName, low: b.CostLow, high: b.CostHigh}
+			if b.Price != nil {
+				si.note, si.month = b.Price.Label, b.Price.ObservedMonth
+			}
+			byCharger[b.ChargerName] = si
 		}
 	}
 	for _, w := range wps[1 : len(wps)-1] {
@@ -360,10 +393,19 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 			Name: w.Name, Lat: w.Latitude, Lon: w.Longitude, Network: info.network,
 			ArriveSoC: round1(w.ArrivalSoC), DepartSoC: round1(w.DepartureSoC),
 			ChargeMin: round1(w.ChargeDurationSec / 60), MaxKW: w.MaxPowerKW,
-			CostEst: round2(info.cost),
+			CostLow: roundPtr(info.low), CostHigh: roundPtr(info.high), PriceNote: info.note, PriceMonth: info.month,
 		})
 	}
 	return day, r, nil
+}
+
+// roundPtr rounds a cost to cents, keeping "no price" as nil.
+func roundPtr(f *float64) *float64 {
+	if f == nil {
+		return nil
+	}
+	v := round2(*f)
+	return &v
 }
 
 func round1(f float64) float64 { return float64(int64(f*10+0.5)) / 10 }

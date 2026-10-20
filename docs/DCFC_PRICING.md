@@ -1,4 +1,32 @@
-# DCFC pricing - rate table reference
+# DCFC pricing - how the planner prices a fast-charging stop
+
+> **Changed (Oct 2026).** No network publishes one national per-kWh price (each site
+> sets its own and shows it in the app or at the charger), so the planner no longer
+> quotes the table's guest and member rates below as dollar figures. Each fast-charging
+> stop is priced from, in order: (1) the user's own paid $/kWh at that network from
+> their Rivian receipts (at least 3 sessions, the last 12 months;
+> `receipts.PaidRates`); (2) a rate the user set themselves in Settings (not the seeded
+> default); (3) the third-party **observed** price in
+> [`internal/dcfcrates/observed.go`](../internal/dcfcrates/observed.go), labelled
+> "Typical price seen by DCFC Tracker, {Mon YYYY}. The price at the charger may
+> differ."; (4) none: "price shown at the charger". A trip total is an estimate over
+> the priced stops (a range), with the count of stops it could not price. The rate
+> table below stays for network matching, plan names and the Settings price book; its
+> numbers are dated (mid-2025) and are not shown as prices.
+>
+> ## Refresh by October 2027
+>
+> The observed figures are copied **by hand** from DCFC Tracker's monthly reports
+> (their terms forbid scraping), each with its source link and month, and are hidden
+> 12 months after that month (`ObservedFor`). The demo's preset plans
+> (`internal/demo/trips`, built "as of" `PresetCostsAt`) and the sample-trip pages are
+> static, so they keep the figure they were built with: when the figures are
+> re-checked, update `observed.go`, move `PresetCostsAt`, and regenerate the presets
+> (`presets_gen_test.go`). If they are not re-checked by Oct 2027, regenerate the
+> presets without observed prices so the demo stops showing a figure the live planner
+> hides.
+
+## The rate table (matching and Settings only)
 
 The trip planner's cost strip ("DCFC spend: $X guest / $Y with
 memberships") is computed from a small per-network rate table in

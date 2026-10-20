@@ -85,13 +85,23 @@ type planJSON struct {
 		}
 	}
 	Costs []struct {
-		Currency            string   `json:"currency"`
+		Currency string `json:"currency"`
+		// Plans saved before the planner stopped quoting the dated table rates carry
+		// dcfc_spend_user_member and a user_rate per stop; newer ones carry the spend as
+		// a low-to-high range and a price per stop (see tripadvice.CostEstimate).
 		DCFCSpendUserMember *float64 `json:"dcfc_spend_user_member"`
+		DCFCSpendLow        *float64 `json:"dcfc_spend_low"`
+		DCFCSpendHigh       *float64 `json:"dcfc_spend_high"`
+		UnpricedStops       int      `json:"unpriced_stops"`
 		Breakdown           []struct {
 			NetworkName string  `json:"network_name"`
 			ChargerName string  `json:"charger_name"`
 			EnergyKWh   float64 `json:"energy_kwh"`
 			UserRate    float64 `json:"user_rate"`
+			Price       *struct {
+				PerKWhLow  float64 `json:"per_kwh_low"`
+				PerKWhHigh float64 `json:"per_kwh_high"`
+			} `json:"price"`
 		} `json:"breakdown"`
 	} `json:"costs"`
 }
@@ -187,6 +197,13 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 			v := *c.DCFCSpendUserMember
 			p.Cost = &v
 		}
+		// A newer plan's spend is a single planned figure only when every stop was
+		// priced and the range has no width; a range or a partial total is not a
+		// number to compare an actual against.
+		if c.DCFCSpendLow != nil && c.DCFCSpendHigh != nil && c.UnpricedStops == 0 && math.Abs(*c.DCFCSpendHigh-*c.DCFCSpendLow) < 0.005 && *c.DCFCSpendLow > 0 {
+			v := *c.DCFCSpendLow
+			p.Cost = &v
+		}
 		// Pair breakdown entries with stops by charger name, in route
 		// order (each entry used once); a stop without one has no
 		// planned rate rather than a neighbour's.
@@ -208,8 +225,12 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 			if b.EnergyKWh > 0 {
 				kwh := b.EnergyKWh
 				p.Stops[i].EstKWh = &kwh
-				if b.UserRate > 0 {
-					rate, cost := b.UserRate, b.UserRate*b.EnergyKWh
+				rate := b.UserRate
+				if b.Price != nil && math.Abs(b.Price.PerKWhHigh-b.Price.PerKWhLow) < 0.0005 {
+					rate = b.Price.PerKWhLow
+				}
+				if rate > 0 {
+					cost := rate * b.EnergyKWh
 					p.Stops[i].EstRate, p.Stops[i].EstCost = &rate, &cost
 				}
 			}

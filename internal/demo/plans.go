@@ -68,7 +68,7 @@ func SamplePlans(now, since time.Time, cfg settings.ChargingConfig, nets []setti
 		if err != nil {
 			return nil, err
 		}
-		pb, err := plannerResponse(p.Plan, p.PackKWh, cfg, nets)
+		pb, err := plannerResponse(p.Plan, p.PackKWh, cfg, nets, now)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +79,7 @@ func SamplePlans(now, since time.Time, cfg settings.ChargingConfig, nets []setti
 		if err != nil {
 			return nil, err
 		}
-		pb, err := twoDaySnapshot(days, cfg, nets, nil)
+		pb, err := twoDaySnapshot(days, cfg, nets, nil, now)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ type twoDayDay struct {
 // trip ({"kind":"multiday","request","days","total"}), each day priced as
 // /api/trips/plan-multiday prices it. shapes, when given, are each day's
 // road shape (polyline6), carried on the day's route for the map.
-func twoDaySnapshot(days []rivian.SampleTripPlan, cfg settings.ChargingConfig, nets []settings.ChargingNetwork, shapes []string) (json.RawMessage, error) {
+func twoDaySnapshot(days []rivian.SampleTripPlan, cfg settings.ChargingConfig, nets []settings.ChargingNetwork, shapes []string, at time.Time) (json.RawMessage, error) {
 	loc, err := time.LoadLocation(planLocation)
 	if err != nil {
 		return nil, fmt.Errorf("demo: plan location: %w", err)
@@ -136,7 +136,7 @@ func twoDaySnapshot(days []rivian.SampleTripPlan, cfg settings.ChargingConfig, n
 		return tripmultiday.Waypoint{Latitude: p.Lat, Longitude: p.Lon, Label: label}
 	}
 	tc := tripadvice.Context{PackKWh: days[0].PackKWh, HomePricePerKWh: cfg.HomePricePerKWh, HomeCurrency: cfg.HomeCurrency,
-		GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets)}
+		GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets), Now: at}
 	var total tripmultiday.Totals
 	out := make([]json.RawMessage, len(days))
 	for i := range days {
@@ -248,9 +248,9 @@ func plannerInputs(from, to rivian.SamplePlace, startSoC, targetSoC float64, dep
 
 // plannerResponse is plan as POST /api/trips/plan returns it: the
 // TripPlan plus its routes' costs, priced as that handler prices them.
-func plannerResponse(plan rivian.TripPlan, packKWh float64, cfg settings.ChargingConfig, nets []settings.ChargingNetwork) (json.RawMessage, error) {
+func plannerResponse(plan rivian.TripPlan, packKWh float64, cfg settings.ChargingConfig, nets []settings.ChargingNetwork, at time.Time) (json.RawMessage, error) {
 	tc := tripadvice.Context{PackKWh: packKWh, HomePricePerKWh: cfg.HomePricePerKWh, HomeCurrency: cfg.HomeCurrency,
-		GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets)}
+		GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets), Now: at}
 	costs := make([]tripadvice.CostEstimate, len(plan.Routes))
 	for i := range plan.Routes {
 		costs[i] = tripadvice.EstimateRoute(&plan.Routes[i], tc)

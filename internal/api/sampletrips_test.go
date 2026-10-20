@@ -158,3 +158,34 @@ func TestRouteSVGEmptyRoute(t *testing.T) {
 		}
 	}
 }
+
+// The estimate always names the month the third-party price was seen (DA): on the
+// page, the markdown and the JSON totals alike.
+func TestTripCostLineNamesTheObservationMonth(t *testing.T) {
+	partial := demo.SampleTripTotal{ChargeStops: 3, PricedStops: 2, UnpricedStops: 1, DCFCCostLow: 40, DCFCCostHigh: 52.5, PriceMonth: "2026-10"}
+	got := tripCostLine(partial)
+	for _, want := range []string{"$40.00 to $52.50", "2 of 3", "typical price seen by DCFC Tracker, Oct 2026", "shown at the charger"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("partial line %q lacks %q", got, want)
+		}
+	}
+	all := demo.SampleTripTotal{ChargeStops: 2, PricedStops: 2, DCFCCostLow: 30, DCFCCostHigh: 30, PriceMonth: "2026-09"}
+	if got := tripCostLine(all); !strings.Contains(got, "About $30.00 fast charging") || !strings.Contains(got, "DCFC Tracker, Sep 2026") {
+		t.Errorf("complete line = %q", got)
+	}
+	if got := tripCostLine(demo.SampleTripTotal{ChargeStops: 2, UnpricedStops: 2}); strings.Contains(got, "$") || !strings.Contains(got, "shown at each charger") {
+		t.Errorf("no-price line = %q, want no dollar figure", got)
+	}
+	for _, slug := range []string{"la-las-vegas", "la-las-vegas-two-days"} {
+		tr, ok := demo.SampleTripBySlug(slug)
+		if !ok {
+			continue
+		}
+		if tr.Totals.PricedStops > 0 && tr.Totals.PriceMonth == "" {
+			t.Errorf("%s: priced stops but no price month in the totals", slug)
+		}
+		if md := tripMarkdown(tr, "/x"); tr.Totals.PricedStops > 0 && !strings.Contains(md, "DCFC Tracker, ") {
+			t.Errorf("%s: markdown does not name the month", slug)
+		}
+	}
+}

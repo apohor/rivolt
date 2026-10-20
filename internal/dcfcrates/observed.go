@@ -37,6 +37,8 @@ type ObservedPrice struct {
 	URL string
 	// Note says what Low and High are, for whoever re-checks the row.
 	Note string
+	// LowNote and HighNote say what each end is, for the UI, when Low and High differ.
+	LowNote, HighNote string
 }
 
 // observedPrices are the rows (checked by hand 2026-10-20; growth's recheck, scratchpad
@@ -46,7 +48,8 @@ var observedPrices = []ObservedPrice{
 	{Slug: "ran", Low: 0.482, High: 0.482, Month: "2026-10", URL: "https://dcfctracker.com/reports/rivian",
 		Note: "average for Rivian vehicles, where the owner discount is applied automatically (standard average 0.550)"},
 	{Slug: "tesla_sc", Low: 0.434, High: 0.624, Month: "2026-10", URL: "https://dcfctracker.com/reports/supercharger",
-		Note: "non-Tesla vehicles: 0.624 without, 0.434 with the Supercharging Membership"},
+		Note:    "non-Tesla vehicles: 0.624 without, 0.434 with the Supercharging Membership",
+		LowNote: "with the Supercharging Membership", HighNote: "without the membership"},
 	{Slug: "evgo", Low: 0.636, High: 0.636, Month: "2026-10", URL: "https://dcfctracker.com/reports/evgo",
 		Note: "network average"},
 	{Slug: "ea", Low: 0.613, High: 0.613, Month: "2026-10", URL: "https://dcfctracker.com/reports/electrify-america",

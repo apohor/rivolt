@@ -27,13 +27,22 @@ func TestSampleTrips(t *testing.T) {
 		if len(tr.Days) != w.days || tr.Totals.ChargeStops != w.stops || (tr.Days[0].Overnight != nil) != w.overnight {
 			t.Errorf("%s: %d days, %d stops, overnight %v", p.Slug, len(tr.Days), tr.Totals.ChargeStops, tr.Days[0].Overnight != nil)
 		}
-		if len(tr.Route) < 50 || tr.Totals.DistanceMi < 100 || tr.Totals.DCFCCostEst <= 0 {
-			t.Errorf("%s: route %d points, %v mi, $%v", p.Slug, len(tr.Route), tr.Totals.DistanceMi, tr.Totals.DCFCCostEst)
+		tot := tr.Totals
+		if len(tr.Route) < 50 || tot.DistanceMi < 100 || tot.PricedStops+tot.UnpricedStops != tot.ChargeStops || tot.DCFCCostHigh < tot.DCFCCostLow {
+			t.Errorf("%s: route %d points, %v mi, totals %+v", p.Slug, len(tr.Route), tot.DistanceMi, tot)
+		}
+		if tot.PricedStops > 0 && tot.DCFCCostLow <= 0 {
+			t.Errorf("%s: %d stops priced but the estimate is $%v", p.Slug, tot.PricedStops, tot.DCFCCostLow)
 		}
 		for _, d := range tr.Days {
 			for _, s := range d.Stops {
-				if s.Network == "" || s.CostEst <= 0 || s.ChargeMin <= 0 {
+				if s.Network == "" || s.ChargeMin <= 0 {
 					t.Errorf("%s: stop %+v", p.Slug, s)
+				}
+				// A price is an estimate with its source, or there is none: never a
+				// bare dollar figure from the dated table, never $0.
+				if (s.CostLow == nil) != (s.CostHigh == nil) || (s.CostLow != nil && (*s.CostLow <= 0 || *s.CostHigh < *s.CostLow || !strings.Contains(s.PriceNote, "DCFC Tracker"))) {
+					t.Errorf("%s: stop price %+v", p.Slug, s)
 				}
 			}
 		}
