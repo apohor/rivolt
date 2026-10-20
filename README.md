@@ -255,10 +255,10 @@ real R2s, so you know what to trust.
 
 - **Checked on real R2s:** drives · charges and plug-in · charge limit
   · battery, range and odometer · location · cabin and battery
-  temperature · tire pressure · reported battery capacity.
+  temperature · tire pressure · sleep and power state · reported
+  battery capacity.
 - **Shown as an estimate:** time to full charge (Rivian's own
-  countdown, labelled "estimate"), and sleep and power state, which
-  are still being confirmed on the R2. Power state can take a minute to
+  countdown, labelled "estimate"). Power state can take a minute to
   appear after Rivolt reconnects.
 - **Not on the R2 yet:** trip charge target · why a charge stopped ·
   camp and pet modes · Rivian's parked-energy breakdown ·
