@@ -188,6 +188,20 @@ func TestChargingScheduleLoopReadsOnConnectAndNudge(t *testing.T) {
 		}
 	}
 	wait(1) // connect
+	// The loop records its read after the call returns; backdating it before that
+	// would hit a nil map or be overwritten (a flake under load). Wait for the record.
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		m.mu.Lock()
+		_, recorded := m.scheduleReads["v"]
+		m.mu.Unlock()
+		if recorded {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the loop never recorded its read")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	m.mu.Lock()
 	m.scheduleReads["v"] = scheduleRead{at: time.Now().Add(-time.Hour), lat: schedHomeLat, lon: schedHomeLon}
 	m.mu.Unlock()
