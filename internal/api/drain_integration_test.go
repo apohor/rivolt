@@ -202,7 +202,9 @@ func TestDrainStore_AsleepAwakeSplit(t *testing.T) {
 	if math.Abs(got.AsleepHours-36) > 0.5 || math.Abs(got.AwakeHours-36) > 0.5 || got.AsleepPointsLost == nil || *got.AsleepPointsLost != 0 || math.Abs(*got.AwakePointsLost-10) > 1 {
 		t.Errorf("split = %+v, want 36 h asleep losing 0, 36 h awake losing about 10", got)
 	}
-	// The same history on an R2 states no split (its power state is best-effort).
+	// The same history on an R2 now states the split too: its power state is
+	// reported (rivian.FieldSupport), since the fill reached 98.5% on Oct 19. The
+	// unreliable path is covered by TestBuildDrainSplit.
 	if _, err := pool.Exec(`UPDATE vehicles SET model = 'R2' WHERE id = $1`, v); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +212,7 @@ func TestDrainStore_AsleepAwakeSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sp := buildDrain(raw, now, time.UTC).Windows["7d"].Split; sp.Sufficient || sp.Reason != "power_state_unreliable" {
-		t.Errorf("R2 split = %+v, want power_state_unreliable", sp)
+	if sp := buildDrain(raw, now, time.UTC).Windows["7d"].Split; !sp.Sufficient || sp.AwakeShareOfLoss == nil || *sp.AwakeShareOfLoss != 1 {
+		t.Errorf("R2 split = %+v, want the same split as an R1", sp)
 	}
 }
