@@ -99,7 +99,7 @@ function CapacityTrend({ t }: { t: TruckTrends }) {
       <section data-trend="capacity" data-trend-state="sparse" aria-labelledby="trend-cap">
         {head}
         <p className={`mt-1 ${note}`}>
-          Needs about {c.min_samples} charges that add at least {need}% of battery, spread over at least {c.min_span_days} days. So far: {c.qualifying_count} of {c.min_samples} charges, over {Math.round(c.span_days)} of {c.min_span_days} days.
+          Needs about {c.min_samples} charges that add at least {need}% of battery, spread over at least {c.min_span_days} days. So far: {c.qualifying_count} of {c.min_samples} charges{c.span_days < c.min_span_days ? `, over ${Math.round(c.span_days)} of ${c.min_span_days} days` : ""}.
         </p>
       </section>
     );
