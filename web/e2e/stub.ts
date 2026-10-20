@@ -162,7 +162,17 @@ export const DEMO_PLAN = {
     },
   ],
   costs: [
-    { currency: "USD", dcfc_spend: 14.4, dcfc_spend_user_member: 11.2, dcfc_spend_all_member: 11.2, home_equivalent: 13, gas_equivalent: 52, gas_price_per_gallon: 4.5, gas_mpg: 25, dcfc_rate_used: 0.5, dcfc_rate_used_user_member: 0.4, dcfc_rate_used_all_member: 0.4, home_rate_used: 0.11 },
+    {
+      currency: "USD", dcfc_spend_low: 14.4, dcfc_spend_high: 14.4, priced_stops: 1, unpriced_stops: 0, estimate_basis: "observed",
+      home_equivalent: 13, gas_equivalent: 52, gas_price_per_gallon: 4.5, gas_mpg: 25, home_rate_used: 0.11,
+      breakdown: [
+        {
+          network_slug: "electrify-america", network_name: "Electrify America", charger_name: "Sample Fast Charge, Barstow", energy_kwh: 24,
+          price: { basis: "observed", per_kwh_low: 0.6, per_kwh_high: 0.6, source: "DCFC Tracker", source_url: "https://dcfctracker.com/reports/electrify-america", observed_month: "2026-10", label: "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ." },
+          cost_low: 14.4, cost_high: 14.4,
+        },
+      ],
+    },
   ],
 };
 

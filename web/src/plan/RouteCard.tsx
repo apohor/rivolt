@@ -11,7 +11,9 @@ import { type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api
 import { Card } from "../components/ui";
 import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
 import { isChargingWaypoint } from "./waypoints";
-import { planForTable, routeDiff, routeLabel } from "./RouteChooser";
+import { routeDiff, routeLabel } from "./RouteChooser";
+import { StopPriceNote, stopCostOrDash } from "./StopPrice";
+import { estimateLabel, fmtRange, spendView } from "../lib/planCost";
 import { Stat } from "./Stat";
 
 // Lazy-load TripRouteMap so the Leaflet + Protomaps + protomaps-leaflet
@@ -116,9 +118,7 @@ export function RouteCard({
   // breakdown is server-computed from the same Waypoints array, so
   // index alignment is safe.
   const stopBreakdown = cost?.breakdown ?? [];
-  const totalGuest = cost?.dcfc_spend ?? 0;
-  const totalUser = cost?.dcfc_spend_user_member ?? 0;
-  const userSavings = totalGuest - totalUser;
+  const spend = spendView(cost);
   const gasEquiv = cost?.gas_equivalent ?? 0;
   // Bidirectional selection between the stops table and the map.
   // Holds the index in route.Waypoints of the highlighted stop, or
@@ -165,21 +165,12 @@ export function RouteCard({
   const title = (
     <span className="flex flex-wrap items-baseline gap-x-2">
       <span>{label}</span>
-      {totalGuest > 0 && (
+      {spend.kind === "range" && (
         <span className="text-neutral-400">
           · <span
             className="text-neutral-200 font-mono cursor-help"
-            title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
-          >{fmtCurrency(totalGuest)}</span>
-          {userSavings > 0.5 && (
-            <>
-              {" / "}
-              <span
-                className="text-emerald-400 font-mono cursor-help"
-                title="With your active memberships (Settings → Charging networks)."
-              >{fmtCurrency(totalUser)}</span>
-            </>
-          )}
+            title="Fast-charging stops on this route, at the price shown on each stop."
+          >{fmtRange(spend.low, spend.high, fmtCurrency)}</span>
           {gasEquiv > 0.5 && (
             <>
               {" / "}
@@ -278,9 +269,17 @@ export function RouteCard({
   }
   return (
     <Card title={title}>
-      {totalGuest > 0 && (
-        <CostEstimateNote className="-mt-1 mb-3 text-[11px] text-neutral-500" />
+      {spend.kind === "range" && (
+        spend.older ? (
+          <CostEstimateNote className="-mt-1 mb-3 text-[11px] text-neutral-500" />
+        ) : (
+          <p data-cost-note className="-mt-1 mb-3 text-[11px] text-neutral-500">
+            {cost ? estimateLabel(cost) : "estimate"}
+            {spend.unpriced > 0 && <> · {spend.priced} of {spend.priced + spend.unpriced} stops priced; the rest show their price at the charger</>}
+          </p>
+        )
       )}
+      {spend.kind === "unpriced" && <p data-cost-note className="-mt-1 mb-3 text-[11px] text-neutral-500">Price shown at the charger.</p>}
       {index > 0 && allRoutes.length > 1 && (() => {
         // Alternative comparison line. Renders below the title so the
         // user can see at a glance how this route diverges from
@@ -446,34 +445,8 @@ export function RouteCard({
                     <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
                     {stopBreakdown.length > 0 && (
                       <td className="px-2 py-2 font-mono text-right">
-                        {stopCost ? (
-                          <>
-                            <div>{fmtCurrency(stopCost.energy_kwh * stopCost.guest_rate)}</div>
-                            {stopCost.user_rate < stopCost.guest_rate ? (
-                              // Membership active: bare green
-                              // dollar; plan name in title for
-                              // hover detail. Color codes the
-                              // meaning so the cell stays compact.
-                              <div
-                                className="text-xs text-emerald-400/80 cursor-help"
-                                title={`With ${planForTable(stopCost.member_plan ?? "Membership")}`}
-                              >
-                                {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)}
-                              </div>
-                            ) : stopCost.all_member_rate < stopCost.guest_rate ? (
-                              // Membership available but not activated:
-                              // muted gray with the upsell on hover.
-                              <div
-                                className="text-xs text-neutral-500 cursor-help"
-                                title={`With ${planForTable(stopCost.member_plan ?? "Membership")} (you'd save here)`}
-                              >
-                                {fmtCurrency(stopCost.energy_kwh * stopCost.all_member_rate)}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          "—"
-                        )}
+                        <div>{stopCostOrDash(stopCost, fmtCurrency)}</div>
+                        <StopPriceNote stop={stopCost} money={fmtCurrency} className="mt-0.5 text-left text-[11px] font-sans text-neutral-500" />
                       </td>
                     )}
                     <td className="px-2 py-2">
@@ -503,25 +476,7 @@ export function RouteCard({
                   <td className="px-2 py-2">—</td>
                   {stopBreakdown.length > 0 && (
                     <td className="px-2 py-2 font-mono text-right text-neutral-200">
-                      {fmtCurrency(totalGuest)}
-                      {userSavings > 0.5 && (
-                        <div
-                          className="text-xs text-emerald-400/80 cursor-help"
-                          title="With your active memberships"
-                        >
-                          {fmtCurrency(totalUser)}
-                        </div>
-                      )}
-                      {userSavings <= 0.5 &&
-                        (cost?.dcfc_spend_all_member ?? 0) > 0 &&
-                        cost!.dcfc_spend_all_member < totalGuest - 0.5 && (
-                          <div
-                            className="text-xs text-neutral-500 cursor-help"
-                            title="If you held every applicable membership"
-                          >
-                            {fmtCurrency(cost!.dcfc_spend_all_member)}
-                          </div>
-                        )}
+                      {spend.kind === "range" ? fmtRange(spend.low, spend.high, fmtCurrency) : "—"}
                     </td>
                   )}
                   <td className="px-2 py-2"></td>

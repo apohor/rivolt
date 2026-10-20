@@ -3,6 +3,8 @@ import type { TripCostStop, TripRoute } from "../lib/api";
 import { formatWaypointTime } from "./format";
 import { revealStop } from "./reveal";
 import { Unit } from "./Unit";
+import { StopPriceNote } from "./StopPrice";
+import { stopCostText } from "../lib/planCost";
 
 // StopCard: one itinerary entry for the ui_theme_next planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
@@ -40,8 +42,7 @@ export function StopCard({
   const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs, true);
   const leg = showLeg && prev ? (w.DistanceFromOriginMeters ?? 0) - (prev.DistanceFromOriginMeters ?? 0) : 0;
   const adapter = w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name);
-  const guest = stopCost ? stopCost.energy_kwh * stopCost.guest_rate : null;
-  const member = stopCost && stopCost.user_rate < stopCost.guest_rate ? stopCost.energy_kwh * stopCost.user_rate : null;
+  const costText = stopCost ? (stopCostText(stopCost, money) ?? "—") : null;
   const inSoc = Math.max(0, Math.min(100, w.ArrivalSoC));
   const outSoc = Math.max(0, Math.min(100, w.DepartureSoC));
   const isStop = kind === "stop";
@@ -82,12 +83,7 @@ export function StopCard({
             <>
               {arr && <span>{arr}</span>}
               <span className="text-neutral-200">{Math.round(w.ChargeDurationSec / 60)}<Unit>min</Unit></span>
-              {guest != null && (
-                <span className="text-neutral-200">
-                  {money(guest)}
-                  {member != null && <span className="ml-1 text-emerald-400">{money(member)}</span>}
-                </span>
-              )}
+              {costText != null && <span className="text-neutral-200">{costText}</span>}
             </>
           )}
           {kind === "end" && (
@@ -142,12 +138,12 @@ export function StopCard({
               <dd className="pt-value text-neutral-100">{w.MaxPowerKW.toFixed(0)}<Unit>kW</Unit></dd>
             </div>
           )}
-          {guest != null && (
-            <div>
+          {stopCost && (
+            <div className="col-span-2">
               <dt className="ui-label">Cost</dt>
               <dd className="pt-value text-neutral-100">
-                {money(guest)}
-                {member != null && <span className="ml-1 text-emerald-400" title={stopCost?.member_plan ?? "With your memberships"}>{money(member)}</span>}
+                {costText}
+                <StopPriceNote stop={stopCost} money={money} className="pt-sub mt-1 font-normal text-neutral-400" />
               </dd>
             </div>
           )}

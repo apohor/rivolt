@@ -2,7 +2,7 @@
 // and puts the plan in the page as JSON (<script type="application/json" id="sample-trip">, or id="sample-trips"
 // for the hub), so the page needs no API call. Fixture data only; no coordinates besides the simplified route.
 
-export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_est: number };
+export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_low?: number | null; cost_high?: number | null; price_note?: string };
 export type SampleOvernight = { name: string; nights?: number; parked_hours: number; l2_kw: number; added_kwh: number; soc_after: number };
 export type SampleDay = {
   label: string;
@@ -16,7 +16,7 @@ export type SampleDay = {
   stops: SampleStop[];
   overnight: SampleOvernight | null;
 };
-export type SampleTotals = { distance_mi: number; drive_min: number; charge_min: number; charge_stops: number; dcfc_cost_est: number };
+export type SampleTotals = { distance_mi: number; drive_min: number; charge_min: number; charge_stops: number; dcfc_cost_low?: number; dcfc_cost_high?: number; priced_stops?: number; unpriced_stops?: number };
 export type SampleTrip = {
   slug: string;
   title: string;

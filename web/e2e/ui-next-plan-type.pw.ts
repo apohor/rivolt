@@ -45,7 +45,7 @@ void SIZES;
 void WEIGHTS;
 
 const alt = { ...DEMO_PLAN.Routes[0], TotalTripDurationSec: 16_800, ArrivalSoC: 31 };
-const plan = { ...DEMO_PLAN, Routes: [DEMO_PLAN.Routes[0], alt], costs: [DEMO_PLAN.costs[0], { ...DEMO_PLAN.costs[0], dcfc_spend: 17.9 }] };
+const plan = { ...DEMO_PLAN, Routes: [DEMO_PLAN.Routes[0], alt], costs: [DEMO_PLAN.costs[0], { ...DEMO_PLAN.costs[0], dcfc_spend_low: 17.9, dcfc_spend_high: 17.9 }] };
 
 for (const theme of ["dark", "light"] as const) {
   for (const v of [

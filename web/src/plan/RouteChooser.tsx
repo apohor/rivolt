@@ -1,5 +1,6 @@
 import { formatDuration } from "./format";
 import { type TripCostEstimate, type TripRoute } from "../lib/api";
+import { comparableSpend, fmtRange, spendView } from "../lib/planCost";
 
 
 // planForTable trims a verbose plan label down to what fits the
@@ -34,6 +35,11 @@ export function RouteChooser({
 }) {
   const money = (v: number, cur?: string) =>
     new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+  // The chip's cost: the range, or nothing when there is no price (the route card says why).
+  const chipSpend = (c: TripCostEstimate | undefined, fmt: (v: number, cur?: string) => string) => {
+    const v = spendView(c);
+    return v.kind === "range" ? `${fmtRange(v.low, v.high, (x) => fmt(x, c?.currency))} · ` : "";
+  };
   return (
     <div role="radiogroup" aria-label="Route options" data-plan-routes className="mb-3 flex gap-2 overflow-x-auto pb-1">
       {routes.map((r, i) => {
@@ -52,7 +58,7 @@ export function RouteChooser({
           >
             <span className="block text-sm font-medium text-neutral-100">{routeLabel(i, routes)}</span>
             <span className="mt-0.5 block tabular-nums text-neutral-400">
-              {c && c.dcfc_spend > 0 ? `${money(c.dcfc_spend, c.currency)} · ` : ""}
+              {chipSpend(c, money)}
               {formatDuration(r.TotalTripDurationSec)} · {countChargingStops(r)} {countChargingStops(r) === 1 ? "stop" : "stops"}
             </span>
             {diff.length > 0 && <span className="mt-0.5 block text-[11px] text-neutral-500">{diff.slice(0, 2).join(" · ")}</span>}
@@ -97,7 +103,10 @@ export function routeDiff(
       maximumFractionDigits: 0,
     }).format(v);
 
-  const dCost = (primaryCost?.dcfc_spend ?? 0) - (cost?.dcfc_spend ?? 0);
+  // Only when both routes' fast-charging cost is a complete estimate: a route with an unpriced stop can't be called cheaper.
+  const spendA = comparableSpend(primaryCost);
+  const spendB = comparableSpend(cost);
+  const dCost = spendA != null && spendB != null ? spendA - spendB : 0;
   if (Math.abs(dCost) >= 0.5) {
     parts.push(dCost > 0 ? `saves ${fmtMoney(dCost)}` : `+${fmtMoney(Math.abs(dCost))}`);
   }

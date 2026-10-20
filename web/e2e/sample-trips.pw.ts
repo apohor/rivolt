@@ -48,6 +48,11 @@ for (const v of [
     await expect(page.getByText(/Barstow, CA/).first()).toBeVisible();
     await expect(page.getByText(/Overnight at Las Vegas hotel.*2 nights, parked about 45 h/)).toBeVisible();
     await expect(page.getByRole("img", { name: /Route of/ })).toBeVisible();
+    // The fast-charging cost is a range over the priced stops; a stop with no price says so (never $0).
+    await expect(page.getByText(/about \$[\d.]+–\$[\d.]+/).first()).toBeVisible();
+    await expect(page.getByText(/1 of 2 stops priced/)).toBeVisible();
+    await expect(page.getByText("· price shown at the charger").first()).toBeVisible();
+    await expect(page.getByText("Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ.").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in the demo planner" })).toHaveAttribute("href", TRIP.demo_url);
     await expect(page.getByRole("link", { name: "Plan your own" })).toHaveAttribute("href", "/signup");
     await expect(page.getByText("Unofficial, not affiliated with Rivian.")).toBeVisible();

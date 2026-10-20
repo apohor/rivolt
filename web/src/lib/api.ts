@@ -2348,16 +2348,19 @@ export type TripPlan = {
 // response (Routes[0] convenience).
 export type TripCostEstimate = {
   currency: string;
-  dcfc_spend: number;
-  dcfc_spend_user_member: number;
-  dcfc_spend_all_member: number;
+  // The fast-charging cost over the stops that have a price, as a range (equal ends when no stop has one). A stop without a
+  // price shows "price shown at the charger" and isn't in the sum. A plan saved before this has none of these: it has only
+  // the old dcfc_spend and no estimate_basis (read that as an older estimate).
+  dcfc_spend_low?: number;
+  dcfc_spend_high?: number;
+  priced_stops?: number;
+  unpriced_stops?: number;
+  estimate_basis?: "your_receipts" | "your_setting" | "observed" | "mixed" | "none";
+  dcfc_spend?: number;
   home_equivalent: number;
   gas_equivalent: number;
   gas_price_per_gallon: number;
   gas_mpg: number;
-  dcfc_rate_used: number;
-  dcfc_rate_used_user_member: number;
-  dcfc_rate_used_all_member: number;
   home_rate_used: number;
   breakdown?: TripCostStop[];
 };
@@ -2602,19 +2605,32 @@ export type TripAdvice = {
   model: string;
 };
 
-// TripCostStop is one DCFC stop's contribution to the spend totals.
-// Surfaces network attribution so the UI can render "1× EA · 1× Tesla
-// SC · 1× RAN" beside the totals, plus the per-stop rates so the
-// "could save $X more" hint can be computed in the SPA.
+// StopPrice: where one stop's price per kWh comes from. `label` is the exact text to show. For a network with a
+// membership price the ends differ, and low_note / high_note say which end is which.
+export type StopPrice = {
+  basis: "your_receipts" | "your_setting" | "observed";
+  per_kwh_low: number;
+  per_kwh_high: number;
+  low_note?: string;
+  high_note?: string;
+  sessions?: number;
+  source?: string;
+  source_url?: string;
+  observed_month?: string;
+  label: string;
+};
+
+// TripCostStop is one DCFC stop's contribution to the spend totals. `price` is null when no price is known: the stop says
+// "price shown at the charger" and its cost is null (never $0).
 export type TripCostStop = {
   network_slug: string;
   network_name: string;
   charger_name: string;
   energy_kwh: number;
-  guest_rate: number;
-  user_rate: number;
-  all_member_rate: number;
   member_plan?: string;
+  price?: StopPrice | null;
+  cost_low?: number | null;
+  cost_high?: number | null;
 };
 
 // SavedTripInputs is the planner form state we persist. Kept loose

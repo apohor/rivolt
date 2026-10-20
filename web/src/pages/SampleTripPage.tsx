@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import Logo from "../components/Logo";
 import { formatMoney } from "../lib/ledger";
+import { fmtRange } from "../lib/planCost";
 import { fmtDuration, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
 import { useSystemTheme } from "../lib/theme";
 
@@ -80,8 +81,9 @@ function Day({ d, currency }: { d: SampleDay; currency: string }) {
               <div className="text-neutral-400">
                 {s.network} · arrive {Math.round(s.arrive_soc)}%, leave {Math.round(s.depart_soc)}% · {Math.round(s.charge_min)} min
                 {s.max_kw > 0 ? ` · up to ${Math.round(s.max_kw)} kW` : ""}
-                {s.cost_est > 0 ? ` · about ${formatMoney(s.cost_est, currency)} (estimate)` : ""}
+                {s.cost_low != null && s.cost_high != null ? ` · about ${fmtRange(s.cost_low, s.cost_high, (v) => formatMoney(v, currency))} (estimate)` : " · price shown at the charger"}
               </div>
+              {s.price_note && <div className="text-xs text-neutral-500">{s.price_note}</div>}
             </li>
           ))}
         </ul>
@@ -110,7 +112,16 @@ function TripBody({ t }: { t: SampleTrip }) {
           <div className={stat}><dt className="text-xs text-neutral-400">Distance</dt><dd className="text-neutral-100">{Math.round(tot.distance_mi)} mi</dd></div>
           <div className={stat}><dt className="text-xs text-neutral-400">Driving</dt><dd className="text-neutral-100">{fmtDuration(tot.drive_min)}</dd></div>
           <div className={stat}><dt className="text-xs text-neutral-400">Charging</dt><dd className="text-neutral-100">{fmtDuration(tot.charge_min)} · {tot.charge_stops} {tot.charge_stops === 1 ? "stop" : "stops"}</dd></div>
-          <div className={stat}><dt className="text-xs text-neutral-400">Fast-charge cost</dt><dd className="text-neutral-100">about {formatMoney(tot.dcfc_cost_est, t.currency)} <span className="text-xs text-neutral-400">(estimate)</span></dd></div>
+          <div className={stat}>
+            <dt className="text-xs text-neutral-400">Fast-charge cost</dt>
+            <dd className="text-neutral-100">
+              {(tot.priced_stops ?? 0) > 0 ? (
+                <>about {fmtRange(tot.dcfc_cost_low ?? 0, tot.dcfc_cost_high ?? 0, (v) => formatMoney(v, t.currency))} <span className="text-xs text-neutral-400">(estimate{(tot.unpriced_stops ?? 0) > 0 ? `, ${tot.priced_stops} of ${(tot.priced_stops ?? 0) + (tot.unpriced_stops ?? 0)} stops priced` : ""})</span></>
+              ) : (
+                <span className="text-sm text-neutral-300">Price shown at the charger</span>
+              )}
+            </dd>
+          </div>
         </dl>
         <RouteMap route={t.route} title={t.title} stops={t.days.flatMap((d) => d.stops)} />
         {t.days.map((d, i) => <Day key={`${d.label}-${i}`} d={d} currency={t.currency} />)}
