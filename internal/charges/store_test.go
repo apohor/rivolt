@@ -159,3 +159,21 @@ func TestIsOpenLiveFinalState(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanEstimate(t *testing.T) {
+	for _, c := range []struct{ month, url, wantMonth, wantURL string }{
+		{"2026-10", "https://dcfctracker.com/reports/evgo", "2026-10", "https://dcfctracker.com/reports/evgo"},
+		{"2026-10", "javascript:alert(1)", "2026-10", ""},
+		{"2026-10", "http://dcfctracker.com/reports/evgo", "2026-10", ""},
+		{"2026-10", "https://dcfctracker.com.evil.example/x", "2026-10", ""},
+		{"2026-10", "https://evil.example/https://dcfctracker.com/", "2026-10", ""},
+		{"October", "", "", ""},
+		{"2026-10-01", "", "", ""},
+		{"", "", "", ""},
+	} {
+		m, u := CleanEstimate(c.month, c.url)
+		if m != c.wantMonth || u != c.wantURL {
+			t.Errorf("CleanEstimate(%q, %q) = %q, %q; want %q, %q", c.month, c.url, m, u, c.wantMonth, c.wantURL)
+		}
+	}
+}
