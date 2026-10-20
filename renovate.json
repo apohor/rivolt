@@ -4,6 +4,7 @@
     "config:recommended",
     ":dependencyDashboard",
     "helpers:pinGitHubActionDigests",
+    "customManagers:githubActionsVersions",
     ":semanticCommits",
     ":timezone(America/Toronto)"
   ],

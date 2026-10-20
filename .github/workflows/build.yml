@@ -457,6 +457,41 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
+  # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
+  # runs beside `go` and adds nothing to the critical path, and so a lint finding
+  # never hides test results. NOT a required check until it has stayed green; main
+  # is at 0 issues. The linter version is pinned here (never `latest`); Renovate
+  # bumps it through the annotation below (preset customManagers:githubActionsVersions)
+  # and the action through its digest.
+  lint:
+    name: lint
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # renovate: datasource=github-releases depName=golangci/golangci-lint
+      GOLANGCI_LINT_VERSION: v2.15.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p internal/web/dist
+          touch internal/web/dist/.keep
+
+      # The action caches the linter's analysis cache and the Go build cache.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout 5m
+
   integration:
     name: integration
     needs: changes
