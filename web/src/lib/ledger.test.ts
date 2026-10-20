@@ -198,3 +198,15 @@ describe("confirmed network estimates", () => {
     expect(grammarFor({ ...base, sessions: [sess("confirmed"), sess("estimated")] })).toBe("estimated");
   });
 });
+
+describe("sourceLabel: a tracker estimate", () => {
+  const r = { cost: 31.4, cost_source: "observed_estimate" as const, rate: null, flags: [] as never[], network: "Electrify America" };
+  it("names the tracker and the month", () => {
+    expect(sourceLabel({ ...r, estimate_month: "2026-10" }, "USD")).toBe("Estimate: typical price seen by DCFC Tracker, Oct 2026 · Electrify America");
+  });
+  it("is never an undated tracker figure", () => {
+    for (const m of ["", undefined, null, "soon"]) {
+      expect(sourceLabel({ ...r, estimate_month: m as string | null | undefined }, "USD")).toBe("Estimate (typical observed price, date unknown) · Electrify America");
+    }
+  });
+});

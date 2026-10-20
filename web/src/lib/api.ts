@@ -451,7 +451,16 @@ export type Charge = {
   // The ledger's classification of this row (contract §16): the same
   // rules the Money tab uses. Absent on builds that predate it, where
   // callers fall back to the stored fields.
-  cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "user" | "home_rate_misapplied" | "unknown";
+  cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "observed_estimate" | "user" | "home_rate_misapplied" | "unknown";
+  // observed_estimate: priced from the tracker's typical price for estimate_month (estimate_url is the report; link it only through
+  // safeTrackerUrl). needs_rate: a fast-charging session waiting on the user's own rate for the network named in `network`/rate_slug.
+  // The recorder's stored source; cost_source_effective (above) is the ledger's classification and is read first.
+  cost_source?: string;
+  estimate_month?: string | null;
+  estimate_url?: string | null;
+  needs_rate?: boolean;
+  rate_slug?: string | null;
+  network?: string | null;
   cost_source_derived?: boolean;
   // DCFC auto-network pricing; null until dcfc_auto_network is on.
   network_state?: import("./autoNetwork").NetworkState | null;
@@ -1588,6 +1597,10 @@ export const backend = {
   // model has to fall back to the home rate, which underestimates.
   // Pass zeros / empty string to clear a field and let the
   // recent-charge or home-rate fallbacks take over again.
+  // Prices this network's tracker-estimated and unpriced fast sessions at the user's own saved rate (never a user price, bill,
+  // receipt or a session still recording). 400 when the user has no priced row for the network; priced: 0 when run again.
+  applyNetworkRate: (networkSlug: string) =>
+    api.post<{ priced: number; network: string }>("/api/charges/apply-rate", { network_slug: networkSlug }),
   updateChargePricing: (
     id: string,
     // free:true marks the session explicitly free (contract §12, cost 0,

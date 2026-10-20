@@ -32,6 +32,7 @@ export type CostSource =
   | "network_estimate"
   | "user"
   | "home_rate_misapplied"
+  | "observed_estimate"
   | "unknown";
 export type ReceiptCostSource = CostSource | "mixed";
 
@@ -74,6 +75,12 @@ export type ReceiptSession = {
   billed_currency?: string | null;
   billed_vendor?: string | null;
   billed_charger?: string | null;
+  // observed_estimate: the price is the tracker's typical one for that month (estimate_url is the report). needs_rate: a
+  // fast-charging session with no price, waiting on the user's own rate for rate_slug's network.
+  estimate_month?: string | null;
+  estimate_url?: string | null;
+  needs_rate?: boolean;
+  rate_slug?: string | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -103,6 +110,10 @@ export type Receipt = {
   billed_currency?: string | null;
   billed_vendor?: string | null;
   billed_charger?: string | null;
+  estimate_month?: string | null;
+  estimate_url?: string | null;
+  needs_rate?: boolean;
+  rate_slug?: string | null;
   // Sessions with and without a matched Rivian receipt; present only with the flag.
   billed_sessions?: number;
   estimated_sessions?: number;
@@ -168,6 +179,10 @@ export type MonthSummary = {
     unpriced_home_rate_estimate: number | null;
     estimate_pending_sessions?: number;
     estimate_pending_kwh?: number;
+    // Priced from the tracker's typical price: inside the totals but reported on their own, never blended.
+    observed_estimate_cost?: number;
+    observed_estimate_sessions?: number;
+    unpriced_fast_sessions?: number;
     // rivian_receipts: the total split into what Rivian billed and what we estimate.
     billed_total?: number | null;
     estimated_total?: number | null;
@@ -429,8 +444,9 @@ export function grammarFor(r: Priceable): CostGrammar {
     return r.flags.includes("estimate_pending") ? "pending" : "unknown";
   }
   if (r.cost_source === "user" && r.cost === 0) return "free";
+  if (r.cost_source === "observed_estimate") return "estimated";
   if (r.cost_source === "network_estimate") return isConfirmedNetwork(r) ? "recorded" : "estimated";
-  if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate")) {
+  if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate" || x.cost_source === "observed_estimate")) {
     return "estimated";
   }
   if (isSuspect(r)) return "suspect";
@@ -446,6 +462,8 @@ export function sourceLabel(
     flags: ReceiptFlag[];
     network_state?: NetworkState | null;
     sessions?: { network_state?: NetworkState | null }[];
+    estimate_month?: string | null;
+    needs_rate?: boolean;
   },
   currency: string,
 ): string {
@@ -459,6 +477,9 @@ export function sourceLabel(
         : `Home rate${rate}`;
     case "network_estimate":
       return `${hasOpenNetworkState(r) ? "Estimated, confirm" : isConfirmedNetwork(r) ? "Confirmed" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
+    case "observed_estimate":
+      // Never an undated tracker figure: without a month it says so.
+      return `${monthLabelShort(r.estimate_month) ? `Estimate: typical price seen by DCFC Tracker, ${monthLabelShort(r.estimate_month)}` : "Estimate (typical observed price, date unknown)"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
@@ -471,8 +492,14 @@ export function sourceLabel(
       return parts.length ? `Mixed prices · ${parts.join(", ")}` : "Mixed prices";
     }
     case "unknown":
-      return "Price unknown";
+      return r.needs_rate ? "Needs a price" : "Price unknown";
   }
+}
+
+// "2026-10" -> "Oct 2026" (empty when the month isn't there).
+export function monthLabelShort(ym: string | null | undefined): string {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "";
+  return new Date(`${ym}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 export function bySource(m: MonthSummary): SpendBySource {

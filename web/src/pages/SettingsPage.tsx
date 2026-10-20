@@ -1,3 +1,4 @@
+import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
 import { useAIEnabled } from "../lib/config";
 import { useAIConsent } from "../lib/aiConsent";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
@@ -720,6 +721,12 @@ function ChargingCostPanel() {
 // currency} rows. The PricingCard on the charge detail page reads
 // this list and offers one-click prefill so manual cost entry is
 // fast and consistent across sessions on the same network.
+// The saved (server) row for a built-in network, only when it has a rate of the user's own.
+const savedRateFor = (saved: ChargingNetwork[] | undefined, slug: string) => {
+  const n = saved?.find((x) => x.slug === slug);
+  return n && networkRateSet(n) ? n : null;
+};
+
 function ChargingNetworksPanel() {
   const qc = useQueryClient();
   const q = useQuery({
@@ -751,6 +758,14 @@ function ChargingNetworksPanel() {
       ...prev,
       { name: "", price_per_kwh: 0, currency: "USD" },
     ]);
+  // After a rate is saved, earlier sessions on that network can be priced at it (Money and the lists refetch).
+  const apply = useMutation({
+    mutationFn: (slug: string) => backend.applyNetworkRate(slug),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ledger"] });
+      void qc.invalidateQueries({ queryKey: ["charges"] });
+    },
+  });
   const reset = useMutation({
     mutationFn: () => backend.resetChargingNetworks(),
     onSuccess: (defaults) => {
@@ -797,10 +812,9 @@ function ChargingNetworksPanel() {
         <div className="grid gap-3 sm:grid-cols-2">
           {displayOrder.map(({ r, originalIndex: i }) => {
             const hasMembership = (r.member_price_per_kwh ?? 0) > 0 || !!r.slug;
-            const savings =
-              r.member_active && (r.member_price_per_kwh ?? 0) > 0 && r.price_per_kwh > 0
-                ? Math.max(0, r.price_per_kwh - (r.member_price_per_kwh ?? 0))
-                : 0;
+            // Only when the user entered both prices.
+            const savings = memberSaving(r);
+            const unset = !networkRateSet(r);
             const isPreferred = !!r.preferred;
             return (
               <div
@@ -883,6 +897,33 @@ function ChargingNetworksPanel() {
                     </span>
                   )}
                 </div>
+
+                {unset && (
+                  <p data-rate-unset className="mt-1.5 text-xs text-neutral-400">
+                    {UNSET_RATE_NOTE}
+                  </p>
+                )}
+                {!unset && r.slug && savedRateFor(q.data, r.slug) && (
+                  <div className="mt-2 text-xs">
+                    <button
+                      type="button"
+                      disabled={apply.isPending}
+                      onClick={() => apply.mutate(r.slug as string)}
+                      className="rounded-md border border-neutral-700 px-2.5 py-1 text-neutral-200 hover:border-neutral-500 disabled:opacity-50"
+                    >
+                      {apply.isPending && apply.variables === r.slug ? "Pricing…" : "Price earlier sessions at this rate"}
+                    </button>
+                    <span className="ml-2 text-neutral-500">Estimated and unpriced fast sessions only; never a price you entered, a bill or a receipt.</span>
+                    {apply.isSuccess && apply.variables === r.slug && (
+                      <p role="status" data-apply-result className="mt-1 text-emerald-300">
+                        {apply.data.priced > 0 ? `Priced ${apply.data.priced} ${apply.data.priced === 1 ? "session" : "sessions"} at your ${apply.data.network} rate.` : `Nothing to update for ${apply.data.network}.`}
+                      </p>
+                    )}
+                    {apply.isError && apply.variables === r.slug && (
+                      <p role="alert" className="mt-1 text-rose-300">Couldn&apos;t price them: {apply.error instanceof Error ? apply.error.message : String(apply.error)}</p>
+                    )}
+                  </div>
+                )}
 
                 {hasMembership && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">

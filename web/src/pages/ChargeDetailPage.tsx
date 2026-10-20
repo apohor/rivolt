@@ -1,6 +1,9 @@
+import { SET_RATE_FIRST, SET_RATE_PATH, networkNameFromSlug, networkRateSet } from "../lib/networkRates";
+import { monthLabelShort } from "../lib/ledger";
+import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
-import { inDemo, listPath } from "../lib/demo";
+import { appPath, inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -738,6 +741,7 @@ function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): strin
   // The price editor is not shown in the read-only demo.
   if (c.cost_source_effective === "unknown") return readOnly ? "price unknown" : "price unknown · add it below";
   if (c.cost_source_effective === "network_estimate") return "estimated from a charging-network rate";
+  if ((c.cost_source_effective ?? c.cost_source) === "observed_estimate") return "estimate · typical price seen by DCFC Tracker";
   if (c.Cost > 0) {
     const ppk =
       c.PricePerKWh > 0
@@ -1230,6 +1234,7 @@ function PricingCard({
   return (
     <div id="pricing" className="scroll-mt-20">
     <Card title="Pricing">
+      <RateNote charge={charge} />
       {auto && (
         <AutoNetworkPanel
           charge={charge}
@@ -1304,6 +1309,13 @@ function PricingCard({
                   : (n.member_price_per_kwh ?? 0) > 0
                     ? " guest"
                     : "";
+                if (!networkRateSet(n)) {
+                  return (
+                    <option key={n.name} value={n.name} disabled>
+                      {n.name} - {SET_RATE_FIRST}
+                    </option>
+                  );
+                }
                 return (
                   <option key={n.name} value={n.name}>
                     {n.name} - {effective.toFixed(3)} {n.currency}/kWh{suffix}
@@ -1311,6 +1323,14 @@ function PricingCard({
                 );
               })}
             </select>
+            {networks.data.some((n) => !networkRateSet(n)) && (
+              <span data-testid="rate-unset-hint" className="mt-1 block text-[11px] text-neutral-500">
+                {SET_RATE_FIRST} for the networks marked above.{" "}
+                <Link to={appPath(SET_RATE_PATH)} className="underline underline-offset-2 hover:text-neutral-300">
+                  Open Settings
+                </Link>
+              </span>
+            )}
           </label>
         ) : null}
         <label className="block">
@@ -1410,6 +1430,8 @@ function AutoNetworkPanel({
   const want = (networkName ?? "").toLowerCase();
   const pick =
     picked || (networks.find((n) => want !== "" && n.name.toLowerCase() === want)?.name ?? "");
+  // A network without a rate the user entered can't price a charge: waiting on their own rate.
+  const pickUnset = !!pick && !!networks.find((n) => n.name === pick) && !networkRateSet(networks.find((n) => n.name === pick)!);
   const why = whyLine(charge.network_evidence);
   const basis = rateBasisLabel(charge.network_evidence?.rate_basis);
   const cur = charge.Currency || "USD";
@@ -1512,13 +1534,21 @@ function AutoNetworkPanel({
                   ))}
                 </select>
               </label>
+              {pickUnset && (
+                <p data-testid="rate-unset" className="text-xs text-amber-300">
+                  {SET_RATE_FIRST}.{" "}
+                  <Link to={appPath(SET_RATE_PATH)} className="underline underline-offset-2 hover:text-amber-200">
+                    Open Settings
+                  </Link>
+                </p>
+              )}
               <p className="text-xs text-neutral-500">
                 Rivolt will remember this for this location, so the next charge here is priced right automatically.
               </p>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  disabled={!pick || mutation.isPending}
+                  disabled={!pick || pickUnset || mutation.isPending}
                   onClick={apply}
                   className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
                 >
@@ -1536,6 +1566,45 @@ function AutoNetworkPanel({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// A session priced from the tracker's typical price, or waiting on the user's own rate: say so, and where to set it.
+function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
+  const observed = (charge.cost_source_effective ?? charge.cost_source) === "observed_estimate";
+  const needs = !!charge.needs_rate;
+  const month = monthLabelShort(charge.estimate_month);
+  const url = safeTrackerUrl(charge.estimate_url);
+  const nets = useQuery({ queryKey: ["charging-networks"], queryFn: () => backend.getChargingNetworks(), staleTime: 60_000, enabled: needs && !charge.network });
+  const netName = charge.network || networkNameFromSlug(nets.data, charge.rate_slug);
+  if (!observed && !needs) return null;
+  return (
+    <div data-rate-note={observed ? "observed" : "needs"} className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-3 text-sm text-neutral-300">
+      {observed ? (
+        month ? (
+          <p>
+            Estimate: typical price seen by{" "}
+            {url ? (
+              <a href={url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-100">
+                DCFC Tracker
+              </a>
+            ) : (
+              "DCFC Tracker"
+            )}
+            , {month}. The price at the charger may differ.
+          </p>
+        ) : (
+          <p>Estimate (typical observed price, date unknown). The price at the charger may differ.</p>
+        )
+      ) : (
+        <p>Needs a price.</p>
+      )}
+      <p className="mt-1 text-xs">
+        <Link to={appPath(SET_RATE_PATH)} className="font-medium text-amber-300 hover:text-amber-200">
+          {needs ? `Set your rate${netName ? ` for ${netName}` : ""}` : "Set your rate"}
+        </Link>
+      </p>
     </div>
   );
 }

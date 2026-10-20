@@ -1,5 +1,8 @@
-import { detailPath } from "../lib/demo";
+import { appPath, detailPath } from "../lib/demo";
 import { hasOpenNetworkState } from "../lib/autoNetwork";
+import { useQuery } from "@tanstack/react-query";
+import { backend } from "../lib/api";
+import { networkNameFromSlug } from "../lib/networkRates";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -228,7 +231,17 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   // wrong one; the link opens the first session with that problem.
   const addPrice = g === "unknown" || g === "pending" || needsPrice(r);
   const confirmPending = hasOpenNetworkState(r);
-  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : confirmPending ? "Confirm →" : null;
+  // A fast-charging session waiting on the user's own rate, or priced from the tracker's typical price: either way the way out is
+  // their own rate in Settings (the seeded table is gone).
+  const rateSession = r.sessions.find((x) => x.needs_rate);
+  const needsRate = !!r.needs_rate || !!rateSession;
+  const rateSlug = r.rate_slug || rateSession?.rate_slug || null;
+  // The detection's network name isn't on an unpriced charge: name it from the user's networks list by its slug.
+  const nets = useQuery({ queryKey: ["charging-networks"], queryFn: () => backend.getChargingNetworks(), staleTime: 60_000, enabled: needsRate && !(r.network || rateSession?.network) });
+  const rateName = r.network || rateSession?.network || networkNameFromSlug(nets.data, rateSlug);
+  const observed = r.cost_source === "observed_estimate" || r.sessions.some((x) => x.cost_source === "observed_estimate");
+  const rateAction = needsRate ? `Set your rate${rateName ? ` for ${rateName}` : ""} →` : observed ? "Set your rate →" : null;
+  const action = needsRate ? null : addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : confirmPending ? "Confirm →" : null;
   const target = addPrice
     ? r.sessions.find((x) => x.cost == null || x.cost_source === "unknown" || x.cost_source === "home_rate_misapplied")
     : r.sessions.find((x) => x.cost_source === "home_rate" && x.flags.includes("home_rate_away"));
@@ -292,6 +305,11 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
                 )}
                 {sourceLabel(r, currency)}
               </span>
+            )}
+            {rateAction && (
+              <Link data-rate-action to={appPath("/settings?tab=charging#networks")} className="font-medium text-amber-300 hover:text-amber-200">
+                {rateAction}
+              </Link>
             )}
             {action && (
               <Link to={`${detailPath("charges", fixID)}${!addPrice && g !== "suspect" ? "#pricing" : ""}`} className="font-medium text-amber-300 hover:text-amber-200">
