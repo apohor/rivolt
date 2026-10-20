@@ -1062,6 +1062,9 @@ func New(d Deps) http.Handler {
 			r.Post("/charges/restamp-place/undo", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleUndoRestamp(restamperFor(d, uid))(w, r)
 			}))
+			r.Post("/charges/apply-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleApplyNetworkRate(d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
 			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePatchChargePricing(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))

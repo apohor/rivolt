@@ -167,3 +167,63 @@ func TestLedgerReceiptCarriesNetworkState(t *testing.T) {
 		t.Errorf("receipt = %+v", r)
 	}
 }
+
+type fakeApplier struct {
+	calls []string
+	n     int64
+}
+
+func (f *fakeApplier) ApplyNetworkRate(_ context.Context, slug, network, currency string, rate float64) (int64, error) {
+	f.calls = append(f.calls, slug+"|"+network+"|"+currency+"|"+strings.TrimRight(strings.TrimRight(strconvF(rate), "0"), "."))
+	return f.n, nil
+}
+
+func strconvF(v float64) string { return strings.TrimSpace(strings.Replace(string(mustJSON(v)), "\"", "", -1)) }
+
+func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+// "Apply my rate to past sessions" applies only a rate of the user's own,
+// never a built-in network's table figure.
+func TestApplyNetworkRate(t *testing.T) {
+	slug := dcfcrates.Networks[0].Slug
+	name := dcfcrates.Networks[0].DisplayName
+	run := func(f *fakeApplier, ov []dcfcrates.NetworkOverride, body string) (int, string) {
+		rec := httptest.NewRecorder()
+		applyNetworkRate(f, func(context.Context) []dcfcrates.NetworkOverride { return ov })(rec, httptest.NewRequest(http.MethodPost, "/charges/apply-rate", strings.NewReader(body)))
+		return rec.Code, rec.Body.String()
+	}
+
+	f := &fakeApplier{n: 3}
+	code, out := run(f, []dcfcrates.NetworkOverride{{Slug: slug, GuestRate: 0.55}}, `{"network_slug":"`+slug+`"}`)
+	if code != http.StatusOK || !strings.Contains(out, `"priced":3`) || !strings.Contains(out, name) {
+		t.Fatalf("apply = %d %s", code, out)
+	}
+	if len(f.calls) != 1 || f.calls[0] != slug+"|"+name+"|USD|0.55" {
+		t.Errorf("calls = %v, want the user's 0.55 for %s", f.calls, name)
+	}
+
+	// Member rate wins when the membership is active, as for one session.
+	f = &fakeApplier{}
+	run(f, []dcfcrates.NetworkOverride{{Slug: slug, GuestRate: 0.60, MemberRate: 0.35, MemberActive: true}}, `{"network_slug":"`+slug+`"}`)
+	if len(f.calls) != 1 || !strings.HasSuffix(f.calls[0], "|0.35") {
+		t.Errorf("member calls = %v", f.calls)
+	}
+
+	// No rate of theirs (no row, or a row left at 0), unknown or empty slug:
+	// 400 and nothing written.
+	for name, tc := range map[string]struct {
+		ov   []dcfcrates.NetworkOverride
+		body string
+	}{
+		"no row":      {nil, `{"network_slug":"` + slug + `"}`},
+		"row at zero": {[]dcfcrates.NetworkOverride{{Slug: slug}}, `{"network_slug":"` + slug + `"}`},
+		"unknown":     {[]dcfcrates.NetworkOverride{{Slug: "nope", GuestRate: 0.5}}, `{"network_slug":"nope"}`},
+		"empty":       {nil, `{"network_slug":""}`},
+		"bad json":    {nil, `{`},
+	} {
+		f = &fakeApplier{}
+		if code, _ := run(f, tc.ov, tc.body); code != http.StatusBadRequest || len(f.calls) != 0 {
+			t.Errorf("%s: code %d calls %v, want 400 and no write", name, code, f.calls)
+		}
+	}
+}

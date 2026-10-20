@@ -194,6 +194,8 @@ func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float
 		    -- A user's price ends auto-detection's verify state (the
 		    -- confidence and evidence stay for audit).
 		    network_state = NULL,
+		    estimate_month = NULL,
+		    estimate_url = NULL,
 		    legacy_cost = NULL,
 		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()
@@ -221,6 +223,8 @@ func (s *Store) MarkFree(ctx context.Context, externalID, currency string) (int6
 		    cost_source = 'user',
 		    network = NULL,
 		    network_state = NULL,
+		    estimate_month = NULL,
+		    estimate_url = NULL,
 		    -- A user price ends any reprice undo window for this row:
 		    -- 0040's undo selects on legacy_cost IS NOT NULL and would
 		    -- otherwise revert the user's edit.
@@ -820,12 +824,62 @@ func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, curren
 		    network = NULLIF($4, ''),
 		    cost_source = 'user',
 		    network_state = 'confirmed',
+		    estimate_month = NULL,
+		    estimate_url = NULL,
 		    legacy_cost = NULL,
 		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND external_id = $2
 		  AND COALESCE(energy_added_kwh, 0) > 0
 	`, s.userID, externalID, pricePerKWh, network, currency)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// ApplyNetworkRate prices the user's past sessions at their own rate for one
+// network, only those that had no rate of theirs: the sessions priced from a
+// typical public price for that network (cost_source observed_estimate), and
+// the unpriced fast charges the detection put at that network (slug is the
+// first network with a slug in network_evidence, as the ledger's rate_slug).
+// Their price becomes the rate times the session's energy, cost_source
+// network_estimate, the estimate's report cleared; network_state is left as
+// the detection set it so the user can still confirm. Sessions with a Rivian
+// receipt, a user price (including free) or a Rivian-billed price are never
+// touched, and neither is a session still being recorded (it ended within
+// the last 30 minutes). Returns the number of sessions priced.
+func (s *Store) ApplyNetworkRate(ctx context.Context, slug, network, currency string, pricePerKWh float64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET price_per_kwh = $4,
+		    cost = round($4::numeric * energy_added_kwh::numeric, 4),
+		    currency = $5,
+		    network = $3,
+		    cost_source = 'network_estimate',
+		    estimate_month = NULL,
+		    estimate_url = NULL,
+		    legacy_cost = NULL,
+		    legacy_price_per_kwh = NULL,
+		    updated_at = NOW()
+		WHERE user_id = $1
+		  AND COALESCE(energy_added_kwh, 0) > 0
+		  AND receipt_txn_id IS NULL
+		  AND ended_at < NOW() - interval '30 minutes'
+		  AND (
+		        (cost_source = 'observed_estimate' AND network = $3)
+		     OR (COALESCE(cost_source, '') NOT IN ('user', 'rivian', 'home_rate', 'network_estimate', 'observed_estimate')
+		         AND COALESCE(cost, 0) = 0
+		         AND COALESCE(max_power_kw, 0) >= 50
+		         AND energy_added_kwh >= 1
+		         AND energy_added_kwh / (GREATEST(COALESCE(NULLIF(active_seconds, 0), EXTRACT(EPOCH FROM ended_at - started_at)), 1) / 3600.0) >= 20
+		         AND (SELECT e->>'slug'
+		                FROM jsonb_array_elements(COALESCE(network_evidence->'candidates', '[]'::jsonb)) WITH ORDINALITY AS t(e, i)
+		               WHERE COALESCE(e->>'slug', '') <> ''
+		               ORDER BY i LIMIT 1) = $2)
+		      )
+	`, s.userID, slug, network, pricePerKWh, currency)
 	if err != nil {
 		return 0, err
 	}
