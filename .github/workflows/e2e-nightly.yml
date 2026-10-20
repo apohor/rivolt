@@ -65,7 +65,7 @@ jobs:
       # Restores main's browser cache (saved by build.yml's playwright-cache job).
       - name: Restore Playwright browsers
         id: pw-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload report and screenshots
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-nightly-${{ matrix.suite }}-${{ matrix.project }}-${{ matrix.shard }}
           path: |
@@ -138,7 +138,7 @@ jobs:
 
       - name: Restore Playwright browsers
         id: pw-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-chromium-${{ hashFiles('web/package-lock.json') }}
@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload report and screenshots
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-boundary-${{ matrix.at.label }}-${{ matrix.shard }}
           path: |
