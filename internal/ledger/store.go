@@ -55,6 +55,13 @@ const receiptColumnsSQL = `SELECT (SELECT count(*) = 2 FROM information_schema.c
 	AND EXISTS (SELECT 1 FROM information_schema.tables
 	WHERE table_schema = current_schema() AND table_name = 'rivian_receipts')`
 
+// estimateColumnsSQL reports whether migration 0075's charges.estimate_month
+// and estimate_url exist, like the other optional pricing columns.
+const estimateColumnsSQL = `SELECT count(*) = 2 FROM information_schema.columns
+	WHERE table_schema = current_schema()
+	  AND table_name = 'charges'
+	  AND column_name IN ('estimate_month', 'estimate_url')`
+
 func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID string, from, to time.Time) ([]Charge, error) {
 	var havePricing bool
 	if err := d.QueryRowContext(ctx, pricingColumnsSQL).Scan(&havePricing); err != nil {
@@ -83,6 +90,14 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		billedCols = `, c.receipt_cost::float8, c.receipt_currency, rr.vendor, rr.charger_name, rr.is_home_charger`
 		billedJoin = ` LEFT JOIN rivian_receipts rr ON rr.user_id = c.user_id AND rr.transaction_id = c.receipt_txn_id`
 	}
+	var haveEstimate bool
+	if err := d.QueryRowContext(ctx, estimateColumnsSQL).Scan(&haveEstimate); err != nil {
+		return nil, err
+	}
+	estimateCols := `, NULL::text, NULL::text`
+	if haveEstimate {
+		estimateCols = `, c.estimate_month, c.estimate_url`
+	}
 	rows, err := d.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -90,7 +105,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+billedCols+`
+		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+billedCols+estimateCols+`
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id`+billedJoin+`
 		WHERE c.user_id = $1
@@ -117,6 +132,7 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 		var billed sql.NullFloat64
 		var billedCur, billedVendor, billedCharger sql.NullString
 		var billedHome sql.NullBool
+		var estMonth, estURL sql.NullString
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&startSoC, &endSoC,
@@ -127,6 +143,7 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 			&costSource, &network,
 			&netState, &netConf, &netEv,
 			&billed, &billedCur, &billedVendor, &billedCharger, &billedHome,
+			&estMonth, &estURL,
 		); err != nil {
 			return nil, err
 		}
@@ -140,6 +157,7 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 		c.Lat, c.Lon = ptr(lat), ptr(lon)
 		c.ActiveSeconds = ptr(active)
 		c.CostSource, c.Network = costSource.String, network.String
+		c.EstimateMonth, c.EstimateURL = estMonth.String, estURL.String
 		out = append(out, c)
 	}
 	return out, rows.Err()

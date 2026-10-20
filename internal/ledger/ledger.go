@@ -64,9 +64,13 @@ const padding = 72 * time.Hour
 // DC fast session, shown as "estimate pending" and kept out of spend
 // until `rivolt reprice` backfills it.
 const (
-	SourceRivian             = "rivian"
-	SourceHomeRate           = "home_rate"
-	SourceNetworkEstimate    = "network_estimate"
+	SourceRivian          = "rivian"
+	SourceHomeRate        = "home_rate"
+	SourceNetworkEstimate = "network_estimate"
+	// SourceObservedEstimate is a fast charge priced from a typical public
+	// price (no rate of the user's): priced and in the total, but always
+	// reported separately and replaced by a receipt or the user's rate.
+	SourceObservedEstimate   = "observed_estimate"
 	SourceUser               = "user"
 	SourceHomeRateMisapplied = "home_rate_misapplied"
 	SourceUnknown            = "unknown"
@@ -142,6 +146,10 @@ type Charge struct {
 	BilledVendor   string
 	BilledCharger  string
 	BilledHome     bool
+	// EstimateMonth and EstimateURL name the report behind an
+	// observed_estimate price (migration 0075); "" otherwise.
+	EstimateMonth string
+	EstimateURL   string
 }
 
 // Drive is the projection of a drives row the ledger needs.
@@ -290,6 +298,16 @@ type Spend struct {
 	UnpricedHomeRateEstimate *float64           `json:"unpriced_home_rate_estimate"`
 	EstimatePendingSessions  int                `json:"estimate_pending_sessions"`
 	EstimatePendingKWh       float64            `json:"estimate_pending_kwh"`
+	// ObservedEstimateCost / -Sessions are the part of Total (and of
+	// PricedSessions) that is fast charging priced from a typical public
+	// price, not from the user's rate or a bill. Never blended into the
+	// user's own figures: shown as "includes $X estimated from typical
+	// prices".
+	ObservedEstimateCost     float64 `json:"observed_estimate_cost"`
+	ObservedEstimateSessions int     `json:"observed_estimate_sessions"`
+	// UnpricedFastSessions is the fast-charging subset of UnpricedSessions:
+	// the sessions "set your rate" would price.
+	UnpricedFastSessions int `json:"unpriced_fast_sessions"`
 	// BilledTotal is what Rivian billed over the month's sessions that have
 	// a receipt in the statement currency; EstimatedTotal is our own cost
 	// over the other sessions counted in Total. With Config.Billed each
@@ -374,6 +392,14 @@ type Receipt struct {
 	BilledCharger     *string  `json:"billed_charger,omitempty"`
 	BilledSessions    *int     `json:"billed_sessions,omitempty"`
 	EstimatedSessions *int     `json:"estimated_sessions,omitempty"`
+
+	// EstimateMonth / EstimateURL: the report behind the receipt's price
+	// when its cost source is observed_estimate. NeedsRate / RateSlug /
+	// Network: an unpriced fast charge the user's own rate would price.
+	EstimateMonth string `json:"estimate_month,omitempty"`
+	EstimateURL   string `json:"estimate_url,omitempty"`
+	NeedsRate     bool   `json:"needs_rate,omitempty"`
+	RateSlug      string `json:"rate_slug,omitempty"`
 }
 
 // ReceiptSession is one charge inside a receipt.
@@ -400,6 +426,10 @@ type ReceiptSession struct {
 	FinalState        string          `json:"final_state"`
 	Source            string          `json:"source"`
 	Flags             []string        `json:"flags"`
+	EstimateMonth     string          `json:"estimate_month,omitempty"`
+	EstimateURL       string          `json:"estimate_url,omitempty"`
+	NeedsRate         bool            `json:"needs_rate,omitempty"`
+	RateSlug          string          `json:"rate_slug,omitempty"`
 
 	// Billed*: Rivian's receipt for this session (Config.Billed and a
 	// match only); vendor and charger are never set for a home charger.
@@ -546,7 +576,7 @@ func driveBeats(a, b Drive) bool {
 // CostSource reports where a session's cost came from and whether the
 // answer was derived at query time rather than read from the row.
 //
-//   - A persisted rivian / network_estimate / user source wins (a row
+//   - A persisted rivian / network_estimate / observed_estimate / user source wins (a row
 //     with no cost is still unknown).
 //   - Legacy rows (NULL source) with no cost are unknown.
 //   - A persisted home_rate wins, except AC away from home → unknown
@@ -559,7 +589,7 @@ func driveBeats(a, b Drive) bool {
 func CostSource(c Charge, cfg Config) (string, bool) {
 	persisted := strings.ToLower(strings.TrimSpace(c.CostSource))
 	switch persisted {
-	case SourceRivian, SourceNetworkEstimate, SourceUser:
+	case SourceRivian, SourceNetworkEstimate, SourceObservedEstimate, SourceUser:
 		if c.Cost == nil {
 			return SourceUnknown, false
 		}
@@ -597,7 +627,7 @@ func homeRateStamped(c Charge, cfg Config) bool {
 	switch strings.ToLower(strings.TrimSpace(c.CostSource)) {
 	case SourceHomeRate:
 		return c.Cost != nil
-	case SourceRivian, SourceNetworkEstimate, SourceUser:
+	case SourceRivian, SourceNetworkEstimate, SourceObservedEstimate, SourceUser:
 		return false
 	}
 	// Legacy (NULL) or unrecognised source: judge by the rate.
@@ -608,7 +638,7 @@ func homeRateStamped(c Charge, cfg Config) bool {
 // isPriced reports whether a cost source counts toward spend.
 func isPriced(source string) bool {
 	switch source {
-	case SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser:
+	case SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceObservedEstimate, SourceUser:
 		return true
 	}
 	return false
@@ -758,6 +788,7 @@ func applyBilled(cs []Charge, cfg Config) []Charge {
 		c.Cost = &cost
 		c.Currency = strings.ToUpper(c.BilledCurrency)
 		c.CostSource = SourceRivian
+		c.EstimateMonth, c.EstimateURL = "", ""
 		c.PricePerKWh = nil
 		if kwh := val(c.EnergyKWh); kwh > 0 {
 			rate := b / kwh
@@ -789,11 +820,20 @@ type sessionView struct {
 	kmHome  *float64
 	flags   []string
 	spendOK bool // counts toward spend (priced, same currency)
+	// needsRate: an unpriced fast charge the user's own rate would price.
+	needsRate bool
 }
 
 func viewOf(c Charge, cfg Config) sessionView {
 	v := sessionView{c: c, kind: kindOf(c)}
 	v.source, v.derived = CostSource(c, cfg)
+	// A bill replaces a typical-price estimate everywhere, including a list
+	// that classifies the stored row (Build applies bills first).
+	if v.source == SourceObservedEstimate && cfg.Billed {
+		if _, ok := billedCost(c, cfg); ok {
+			v.source = SourceRivian
+		}
+	}
 	v.place, v.kmHome = place(c, cfg.Home)
 	if !currencyMatches(c, cfg) {
 		v.flags = append(v.flags, FlagCurrencyMismatch)
@@ -802,6 +842,7 @@ func viewOf(c Charge, cfg Config) sessionView {
 	// has nothing to price: it's counted as null_energy, not unpriced.
 	if v.source == SourceUnknown && hasEnergy(c) {
 		v.flags = append(v.flags, FlagUnpriced)
+		v.needsRate = v.kind == "dcfc"
 	}
 	if !hasEnergy(c) {
 		v.flags = append(v.flags, FlagNullEnergy)
@@ -844,6 +885,14 @@ type Classification struct {
 	// spend.total (priced, same currency).
 	CountsInSpend bool     `json:"counts_in_spend"`
 	Flags         []string `json:"ledger_flags"`
+	// EstimateMonth / EstimateURL name the report behind an
+	// observed_estimate price. NeedsRate marks an unpriced fast charge the
+	// user's own rate would price; RateSlug is the network it most likely
+	// was (from the detection), "" when unknown.
+	EstimateMonth string `json:"estimate_month,omitempty"`
+	EstimateURL   string `json:"estimate_url,omitempty"`
+	NeedsRate     bool   `json:"needs_rate,omitempty"`
+	RateSlug      string `json:"rate_slug,omitempty"`
 }
 
 // Classify returns the ledger's classification of c under cfg.
@@ -857,7 +906,50 @@ func Classify(c Charge, cfg Config) Classification {
 		KMFromHome:        v.kmHome,
 		CountsInSpend:     v.spendOK,
 		Flags:             nonNil(v.flags),
+		EstimateMonth:     estimateMonthOf(c, v.source),
+		EstimateURL:       estimateURLOf(c, v.source),
+		NeedsRate:         v.needsRate,
+		RateSlug:          rateSlugOf(c, v.needsRate),
 	}
+}
+
+// estimateMonthOf / estimateURLOf are the report behind an observed_estimate
+// price, "" for any other source (a receipt that replaced it clears them).
+func estimateMonthOf(c Charge, source string) string {
+	if source != SourceObservedEstimate {
+		return ""
+	}
+	return c.EstimateMonth
+}
+
+func estimateURLOf(c Charge, source string) string {
+	if source != SourceObservedEstimate {
+		return ""
+	}
+	return c.EstimateURL
+}
+
+// rateSlugOf is the slug of the nearest network the detection saw for an
+// unpriced fast charge, so the app can say "Set your rate for EVgo". "" when
+// the session was not detected or nothing was near.
+func rateSlugOf(c Charge, needsRate bool) string {
+	if !needsRate || len(c.NetworkEvidence) == 0 {
+		return ""
+	}
+	var ev struct {
+		Candidates []struct {
+			Slug string `json:"slug"`
+		} `json:"candidates"`
+	}
+	if json.Unmarshal(c.NetworkEvidence, &ev) != nil {
+		return ""
+	}
+	for _, cand := range ev.Candidates {
+		if cand.Slug != "" {
+			return cand.Slug
+		}
+	}
+	return ""
 }
 
 // ClassifyAll is Classify over a list, with the ledger's dedupe
@@ -904,6 +996,7 @@ func FromCharge(c charges.Charge) Charge {
 		Place:         c.Place, CostSource: c.CostSource, Network: c.Network,
 		NetworkState: c.NetworkState, NetworkConfidence: c.NetworkConfidence, NetworkEvidence: c.NetworkEvidence,
 		BilledCost: c.ReceiptCost, BilledCurrency: c.ReceiptCurrency,
+		EstimateMonth: c.EstimateMonth, EstimateURL: c.EstimateURL,
 	}
 	if strings.EqualFold(c.CostSource, SourceUser) {
 		cost := c.Cost
@@ -939,7 +1032,7 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		IsCurrentMonth: !in.Now.Before(p.Start) && in.Now.Before(p.End),
 		Spend: Spend{
 			BySource: map[string]float64{
-				SourceRivian: 0, SourceHomeRate: 0, SourceNetworkEstimate: 0, SourceUser: 0,
+				SourceRivian: 0, SourceHomeRate: 0, SourceNetworkEstimate: 0, SourceObservedEstimate: 0, SourceUser: 0,
 			},
 		},
 		Energy: Energy{
@@ -992,6 +1085,10 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 			out.Spend.Total += cost
 			out.Spend.BySource[v.source] += cost
 			out.Spend.PricedSessions++
+			if v.source == SourceObservedEstimate {
+				out.Spend.ObservedEstimateCost += cost
+				out.Spend.ObservedEstimateSessions++
+			}
 		case v.source == SourceHomeRateMisapplied:
 			out.Spend.EstimatePendingSessions++
 			out.Spend.EstimatePendingKWh += kwh
@@ -1000,6 +1097,9 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		default:
 			out.Spend.UnpricedSessions++
 			out.Spend.UnpricedKWh += kwh
+			if v.kind == "dcfc" {
+				out.Spend.UnpricedFastSessions++
+			}
 			// The "≈ $X at your home rate" hint only makes sense for
 			// charging that could have been at home.
 			if v.kind == "ac" && v.place != "away" {
@@ -1048,9 +1148,10 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		out.Spend.UnpricedHomeRateEstimate = &est
 	}
 	if out.Spend.Total > 0 {
-		share := round4(out.Spend.BySource[SourceNetworkEstimate] / out.Spend.Total)
+		share := round4((out.Spend.BySource[SourceNetworkEstimate] + out.Spend.BySource[SourceObservedEstimate]) / out.Spend.Total)
 		out.Spend.EstimatedShare = &share
 	}
+	out.Spend.ObservedEstimateCost = round4(out.Spend.ObservedEstimateCost)
 	for _, s := range lost {
 		if c, ok := findCharge(in.Charges, s.ChargeID); ok && inMonth(c.StartedAt) {
 			out.DataQuality.SupersededExcluded++
@@ -1255,7 +1356,17 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			FinalState:        c.FinalState,
 			Source:            c.Source,
 			Flags:             nonNil(v.flags),
+			EstimateMonth:     estimateMonthOf(c, v.source),
+			EstimateURL:       estimateURLOf(c, v.source),
+			NeedsRate:         v.needsRate,
+			RateSlug:          rateSlugOf(c, v.needsRate),
 		})
+		if v.source == SourceObservedEstimate && r.EstimateMonth == "" {
+			r.EstimateMonth, r.EstimateURL = c.EstimateMonth, c.EstimateURL
+		}
+		if v.needsRate && !r.NeedsRate {
+			r.NeedsRate, r.RateSlug = true, rateSlugOf(c, true)
+		}
 		if cfg.Billed {
 			sess := &r.Sessions[len(r.Sessions)-1]
 			if b, ok := billedCost(c, cfg); ok {
