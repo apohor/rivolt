@@ -1,3 +1,4 @@
+import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
 import { useAIEnabled } from "../lib/config";
 import { useAIConsent } from "../lib/aiConsent";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
@@ -797,10 +798,9 @@ function ChargingNetworksPanel() {
         <div className="grid gap-3 sm:grid-cols-2">
           {displayOrder.map(({ r, originalIndex: i }) => {
             const hasMembership = (r.member_price_per_kwh ?? 0) > 0 || !!r.slug;
-            const savings =
-              r.member_active && (r.member_price_per_kwh ?? 0) > 0 && r.price_per_kwh > 0
-                ? Math.max(0, r.price_per_kwh - (r.member_price_per_kwh ?? 0))
-                : 0;
+            // Only when the user entered both prices.
+            const savings = memberSaving(r);
+            const unset = !networkRateSet(r);
             const isPreferred = !!r.preferred;
             return (
               <div
@@ -883,6 +883,12 @@ function ChargingNetworksPanel() {
                     </span>
                   )}
                 </div>
+
+                {unset && (
+                  <p data-rate-unset className="mt-1.5 text-xs text-neutral-400">
+                    {UNSET_RATE_NOTE}
+                  </p>
+                )}
 
                 {hasMembership && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">

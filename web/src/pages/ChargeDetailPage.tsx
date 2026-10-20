@@ -1,3 +1,4 @@
+import { SET_RATE_FIRST, SET_RATE_PATH, networkRateSet } from "../lib/networkRates";
 import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
@@ -1304,6 +1305,13 @@ function PricingCard({
                   : (n.member_price_per_kwh ?? 0) > 0
                     ? " guest"
                     : "";
+                if (!networkRateSet(n)) {
+                  return (
+                    <option key={n.name} value={n.name} disabled>
+                      {n.name} - {SET_RATE_FIRST}
+                    </option>
+                  );
+                }
                 return (
                   <option key={n.name} value={n.name}>
                     {n.name} - {effective.toFixed(3)} {n.currency}/kWh{suffix}
@@ -1311,6 +1319,14 @@ function PricingCard({
                 );
               })}
             </select>
+            {networks.data.some((n) => !networkRateSet(n)) && (
+              <span data-testid="rate-unset-hint" className="mt-1 block text-[11px] text-neutral-500">
+                {SET_RATE_FIRST} for the networks marked above.{" "}
+                <Link to={SET_RATE_PATH} className="underline underline-offset-2 hover:text-neutral-300">
+                  Open Settings
+                </Link>
+              </span>
+            )}
           </label>
         ) : null}
         <label className="block">
@@ -1410,6 +1426,8 @@ function AutoNetworkPanel({
   const want = (networkName ?? "").toLowerCase();
   const pick =
     picked || (networks.find((n) => want !== "" && n.name.toLowerCase() === want)?.name ?? "");
+  // A network without a rate the user entered can't price a charge: waiting on their own rate.
+  const pickUnset = !!pick && !!networks.find((n) => n.name === pick) && !networkRateSet(networks.find((n) => n.name === pick)!);
   const why = whyLine(charge.network_evidence);
   const basis = rateBasisLabel(charge.network_evidence?.rate_basis);
   const cur = charge.Currency || "USD";
@@ -1512,13 +1530,21 @@ function AutoNetworkPanel({
                   ))}
                 </select>
               </label>
+              {pickUnset && (
+                <p data-testid="rate-unset" className="text-xs text-amber-300">
+                  {SET_RATE_FIRST}.{" "}
+                  <Link to={SET_RATE_PATH} className="underline underline-offset-2 hover:text-amber-200">
+                    Open Settings
+                  </Link>
+                </p>
+              )}
               <p className="text-xs text-neutral-500">
                 Rivolt will remember this for this location, so the next charge here is priced right automatically.
               </p>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  disabled={!pick || mutation.isPending}
+                  disabled={!pick || pickUnset || mutation.isPending}
                   onClick={apply}
                   className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
                 >
