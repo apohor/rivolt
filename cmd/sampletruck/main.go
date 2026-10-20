@@ -27,13 +27,14 @@ func main() {
 
 	c := rivian.NewSampleCorpus(*seed)
 	var w io.Writer = os.Stdout
+	closeOut := func() error { return nil }
 	if *out != "-" {
 		f, err := os.Create(*out)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "sampletruck:", err)
 			os.Exit(1)
 		}
-		defer f.Close()
+		closeOut = f.Close
 		w = f
 	}
 	bw := bufio.NewWriter(w)
@@ -42,6 +43,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := bw.Flush(); err != nil {
+		fmt.Fprintln(os.Stderr, "sampletruck:", err)
+		os.Exit(1)
+	}
+	if err := closeOut(); err != nil {
 		fmt.Fprintln(os.Stderr, "sampletruck:", err)
 		os.Exit(1)
 	}

@@ -81,7 +81,7 @@ func TestReplay_RealCleanDriveFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	frames, err := FramesFromJSONL(f)
 	if err != nil {
 		t.Fatal(err)

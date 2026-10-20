@@ -98,7 +98,6 @@ type StateMonitor struct {
 	shortSubEnds   map[string][]time.Time
 	lastFlapWarnAt map[string]time.Time
 	parent         context.Context //nolint:containedctx // outer ctx for spawned subscriptions
-	stopOnce       sync.Once
 
 	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for the
 	// Parallax gnss subscriber. It mirrors the app's Firebase

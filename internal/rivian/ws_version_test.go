@@ -22,7 +22,7 @@ func TestWSDial_SendsRivoltVersion(t *testing.T) {
 		if err != nil {
 			return
 		}
-		c.Close(websocket.StatusNormalClosure, "")
+		_ = c.Close(websocket.StatusNormalClosure, "")
 	}))
 	defer srv.Close()
 
@@ -33,7 +33,7 @@ func TestWSDial_SendsRivoltVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(websocket.StatusNormalClosure, "")
 	select {
 	case h := <-got:
 		if v := h.Get("X-Rivolt-Version"); v != "v0.32.1+sha-abc1234" {

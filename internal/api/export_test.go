@@ -151,32 +151,39 @@ func TestExportSettings_AllowlistOnly(t *testing.T) {
 // or deliberately not. A new key fails here until someone decides.
 func TestExportSettingKeysAreClassified(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, "../settings", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir("../settings")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, "../settings/"+e.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
 	keyRe := regexp.MustCompile(`^[a-z_]+(\.[a-z_0-9]+)+$`)
 	seen := 0
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				lit, ok := n.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					return true
-				}
-				v, err := strconv.Unquote(lit.Value)
-				if err != nil || !keyRe.MatchString(v) {
-					return true
-				}
-				seen++
-				if !exportedSettingKeys[v] && !notExportedSettingKeys[v] {
-					t.Errorf("settings key %q is not classified in export.go (exportedSettingKeys / notExportedSettingKeys)", v)
-				}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
 				return true
-			})
-		}
+			}
+			v, err := strconv.Unquote(lit.Value)
+			if err != nil || !keyRe.MatchString(v) {
+				return true
+			}
+			seen++
+			if !exportedSettingKeys[v] && !notExportedSettingKeys[v] {
+				t.Errorf("settings key %q is not classified in export.go (exportedSettingKeys / notExportedSettingKeys)", v)
+			}
+			return true
+		})
 	}
 	if seen < 20 {
 		t.Fatalf("only found %d key literals; the scan is broken", seen)

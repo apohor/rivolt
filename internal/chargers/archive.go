@@ -142,7 +142,7 @@ func (a *Archive) tileBytes(z uint8, x, y uint32) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("tile gunzip: %w", err)
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }() // a gzip READER: nothing to flush
 		return io.ReadAll(gz)
 	}
 	// Copy so callers can safely retain.

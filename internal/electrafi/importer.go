@@ -141,7 +141,7 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	res, err := i.ImportReader(ctx, path, f)
 	res.File = path
 	return res, err

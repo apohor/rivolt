@@ -158,7 +158,7 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 				})
 			}
 			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
-			f.Close()
+			_ = f.Close() // read-only upload
 			if err != nil {
 				if firstErr == "" {
 					firstErr = fh.Filename + ": " + err.Error()

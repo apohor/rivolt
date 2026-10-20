@@ -161,7 +161,7 @@ func TestReminderRules(t *testing.T) {
 	// The lowest charge among the trucks is the one reported.
 	e := newEnv()
 	e.src.snaps = append(e.src.snaps, Snap{Vehicle: "w", At: e.now, SoCPct: 12, Lat: homeLat, Lon: homeLon, Gear: "P"})
-	e.job.Sweep(context.Background())
+	_, _ = e.job.Sweep(context.Background())
 	if len(e.delivered) != 2 || e.delivered[0] != 12 {
 		t.Errorf("delivered %v, want 12%%", e.delivered)
 	}
@@ -170,7 +170,7 @@ func TestReminderRules(t *testing.T) {
 func TestOutsideTheWindowReadsNothing(t *testing.T) {
 	e := newEnv()
 	e.now = e.now.Add(-6 * time.Hour) // 14:00 local
-	e.job.Sweep(context.Background())
+	_, _ = e.job.Sweep(context.Background())
 	if e.src.homeCalls != 0 {
 		t.Error("an account outside its window was read")
 	}
@@ -185,5 +185,5 @@ func TestDeliveryFailureIsRecordedNotRetried(t *testing.T) {
 	e.job.Deliver = func(context.Context, uuid.UUID, int, int) error { t.Error("retried"); return nil }
 	e.now = e.now.Add(10 * time.Minute)
 	e.src.snaps[0].At = e.now
-	e.job.Sweep(context.Background())
+	_, _ = e.job.Sweep(context.Background())
 }

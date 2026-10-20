@@ -40,16 +40,6 @@ func inCloudflare(a netip.Addr) bool {
 	return false
 }
 
-// directPeer is the address of whoever connected to the proxy in front
-// of us (Cloudflare's edge, when the request came through Cloudflare).
-// The rightmost X-Forwarded-For entry is what our nearest proxy
-// appended or set, so a client-supplied header cannot move it. Without
-// the header (direct access, tests) it is the connection address.
-func directPeer(r *http.Request) string {
-	peer, _ := directPeerFrom(r)
-	return peer
-}
-
 // directPeerFrom is directPeer plus whether the address came from the
 // rightmost X-Forwarded-For entry (true) or the connection address (false).
 func directPeerFrom(r *http.Request) (peer string, fromXFF bool) {

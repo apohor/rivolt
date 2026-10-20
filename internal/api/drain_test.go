@@ -91,8 +91,10 @@ func TestDrainHandler_TZValidationAndCache(t *testing.T) {
 	if get("/vehicles/rv-1/drain?tz=Not/AZone") != http.StatusBadRequest {
 		t.Fatal("bad tz must 400")
 	}
-	if get("/vehicles/rv-1/drain?tz=America/Chicago") != 200 || get("/vehicles/rv-1/drain?tz=America/Chicago") != 200 {
-		t.Fatal("200 expected")
+	for i := 0; i < 2; i++ { // the second request is the cached one
+		if get("/vehicles/rv-1/drain?tz=America/Chicago") != 200 {
+			t.Fatal("200 expected")
+		}
 	}
 	if calls != 1 {
 		t.Fatalf("second call within TTL should hit the cache, store calls = %d", calls)

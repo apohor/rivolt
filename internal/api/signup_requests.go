@@ -343,13 +343,6 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 	})
 }
 
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
 // autoApprove is the automatic approval of email signup requests.
 type autoApprove struct {
 	// capOK reports whether a new account fits under the signup cap now.

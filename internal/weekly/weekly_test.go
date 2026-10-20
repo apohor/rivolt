@@ -215,7 +215,7 @@ func TestSweepSkipsEmptyWeeksAndOffTimes(t *testing.T) {
 			computed++
 			return Summary{Miles: 1, Drives: 1}, nil
 		}
-		j.Sweep(context.Background())
+		_, _ = j.Sweep(context.Background())
 		if computed != 0 || len(ml.sent) != 0 {
 			t.Errorf("%v: computed %d sent %d", now, computed, len(ml.sent))
 		}

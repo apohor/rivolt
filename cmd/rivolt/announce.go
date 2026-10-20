@@ -297,7 +297,11 @@ func announceRun(ctx context.Context, d announceDeps) int {
 			fmt.Fprintln(os.Stderr, "announce: sent log:", err)
 			return 1
 		}
-		defer logFile.Close()
+		defer func() {
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "announce: sent log: close:", err)
+			}
+		}()
 	}
 	sum := sha256.Sum256([]byte(d.Subject + "\x00" + d.Body))
 	campaign := hex.EncodeToString(sum[:])[:12]
@@ -348,7 +352,7 @@ func readSentLog(path string) (map[uuid.UUID]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

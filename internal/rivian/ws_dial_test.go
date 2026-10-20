@@ -16,14 +16,14 @@ func TestWSDialToABlackholeTimesOutAndReleasesTheMuxLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			defer c.Close() // held open, never answered
+			defer func() { _ = c.Close() }() // held open, never answered
 		}
 	}()
 

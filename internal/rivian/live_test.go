@@ -18,13 +18,12 @@ import (
 // operationName so a single server handles the whole auth + query
 // flow.
 type stubGateway struct {
-	t               *testing.T
-	srv             *httptest.Server
-	mfaRequired     bool
-	capturedReqs    []gatewayCall
-	failCSRF        bool
-	failLogin       bool
-	badUserTypename bool
+	t            *testing.T
+	srv          *httptest.Server
+	mfaRequired  bool
+	capturedReqs []gatewayCall
+	failCSRF     bool
+	failLogin    bool
 	// userInfoAuthFails counts down: while > 0 a getUserInfo call
 	// returns an auth-flavored error and decrements. Lets a test
 	// arm a transient session failure that the CSRF-refresh retry
