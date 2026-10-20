@@ -8,6 +8,14 @@ on:
     # day (automergeSchedule: at any time), so a green PR reaches preview
     # within about 2h instead of waiting for the next Monday.
     - cron: "17 */2 * * *"
+  # GitHub drops scheduled runs under load (Oct 19: 4–9 h between them, not
+  # 2 h), so also run when CI finishes on a Renovate branch: a PR that just
+  # went green is merged within minutes. The run uses this file and
+  # renovate.json from main, never code from the PR branch.
+  workflow_run:
+    workflows: [build, vuln]
+    types: [completed]
+    branches: ["renovate/**"]
   workflow_dispatch:
     inputs:
       logLevel:
@@ -30,6 +38,12 @@ concurrency:
 
 jobs:
   renovate:
+    # Only a green run on this repo's own branch: a fork PR can name its
+    # branch renovate/x too.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
