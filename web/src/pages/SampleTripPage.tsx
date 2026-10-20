@@ -104,7 +104,7 @@ function Day({ d, currency }: { d: SampleDay; currency: string }) {
               <div className="text-neutral-400">
                 {s.network} · arrive {Math.round(s.arrive_soc)}%, leave {Math.round(s.depart_soc)}% · {Math.round(s.charge_min)} min
                 {s.max_kw > 0 ? ` · up to ${Math.round(s.max_kw)} kW` : ""}
-                {s.cost_low != null && s.cost_high != null ? ` · about ${fmtRange(s.cost_low, s.cost_high, (v) => formatMoney(v, currency))} (estimate)` : " · price shown at the charger"}
+                {s.cost_low != null && s.cost_high != null && priceMonth(s.price_month) ? ` · about ${fmtRange(s.cost_low, s.cost_high, (v) => formatMoney(v, currency))} (estimate)` : " · price shown at the charger"}
               </div>
               {s.price_note && <div className="text-xs text-neutral-500"><PriceNote text={s.price_note} url={s.price_url} /></div>}
             </li>
@@ -138,7 +138,7 @@ function TripBody({ t }: { t: SampleTrip }) {
           <div className={stat}>
             <dt className="text-xs text-neutral-400">Fast-charge cost</dt>
             <dd className="text-neutral-100">
-              {(tot.priced_stops ?? 0) > 0 ? (
+              {(tot.priced_stops ?? 0) > 0 && priceMonth(tot.price_month) ? (
                 <>about {fmtRange(tot.dcfc_cost_low ?? 0, tot.dcfc_cost_high ?? 0, (v) => formatMoney(v, t.currency))} <span className="text-xs text-neutral-400">
                     (estimate, typical price seen by <TrackerLink url={tot.price_url} />
                     {priceMonth(tot.price_month) ? `, ${priceMonth(tot.price_month)}` : ""}

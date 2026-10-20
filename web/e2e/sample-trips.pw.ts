@@ -80,3 +80,16 @@ test("the hub lists the trips with plain links; a page without its JSON says so"
   await expect(b.getByRole("link", { name: "list of sample trips" })).toHaveAttribute("href", "/sample-trips");
   await ctx.close();
 });
+
+test("without a price month, a cost is never shown as a dateless 'typical price'", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  const undated = JSON.parse(JSON.stringify(TRIP));
+  delete undated.totals.price_month;
+  for (const d of undated.days) for (const st of d.stops) delete st.price_month;
+  await open(page, `/sample-trips/${TRIP.slug}`, "sample-trip", undated);
+  await expect(page.getByText("Price shown at the charger").first()).toBeVisible();
+  await expect(page.getByText(/typical price seen by/)).toHaveCount(0);
+  await expect(page.getByText(/about \$[\d.]+/)).toHaveCount(0);
+  await ctx.close();
+});
