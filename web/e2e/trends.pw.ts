@@ -67,6 +67,16 @@ test("enough charges but too short a span still says what is missing", async ({ 
   await ctx.close();
 });
 
+test("a met span isn't shown as a shortfall (no '45 of 30 days')", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, { ...SPARSE, capacity: { ...SPARSE.capacity, qualifying_count: 4, span_days: 45 } });
+  const card = page.locator("[data-trends]");
+  await expect(card).toContainText("So far: 4 of 5 charges.");
+  await expect(card).not.toContainText("45 of 30");
+  await ctx.close();
+});
+
 test("a truck with no capacity signal says so and still shows efficiency", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
