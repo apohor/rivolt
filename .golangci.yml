@@ -1,0 +1,28 @@
+# golangci-lint v2 (CI pins the version). The standard set: errcheck, govet,
+# ineffassign, staticcheck and unused. Style-only staticcheck groups (ST, QF) are
+# off; the rest stays on.
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Close on a handle that was only read, and a write to a formatter or a
+      # response with nowhere to report the failure, are not worth an `_ =` at every
+      # site. Close on a WRITER (a gzip or file you wrote to) is not excluded:
+      # that error is the write's last chance to fail, so it is checked.
+      exclude-functions:
+        - (io.ReadCloser).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Conn).Close
+        - (*database/sql.DB).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    staticcheck:
+      checks: ["all", "-ST*", "-QF*"]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
