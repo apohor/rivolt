@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TripCostEstimate } from "./api";
-import { comparableSpend, estimateLabel, fmtRange, isOlderEstimate, spendView, stopCostText } from "./planCost";
+import { comparableSpend, estimateLabel, fmtRange, isOlderEstimate, safeTrackerUrl, spendView, stopCostText } from "./planCost";
 
 const base = { currency: "USD", home_equivalent: 0, gas_equivalent: 0, gas_price_per_gallon: 0, gas_mpg: 0, home_rate_used: 0 };
 const est = (o: Partial<TripCostEstimate>): TripCostEstimate => ({ ...base, ...o }) as TripCostEstimate;
@@ -37,5 +37,12 @@ describe("planCost", () => {
     expect(comparableSpend(est({ estimate_basis: "observed", priced_stops: 1, unpriced_stops: 1, dcfc_spend_low: 10, dcfc_spend_high: 14 }))).toBeNull();
     expect(comparableSpend(est({ dcfc_spend: 14 }))).toBeNull();
     expect(comparableSpend(est({ estimate_basis: "none", priced_stops: 0, unpriced_stops: 0 }))).toBe(0);
+  });
+
+  it("only the tracker's own https host becomes a link", () => {
+    expect(safeTrackerUrl("https://dcfctracker.com/reports/tesla")).not.toBeNull();
+    for (const bad of ["javascript:alert(1)", "//evil.example/x", "http://dcfctracker.com/x", "https://dcfctracker.com.evil.example/x", "https://evil.example/dcfctracker.com/", "data:text/html,x", "", undefined, null]) {
+      expect(safeTrackerUrl(bad as string | undefined | null)).toBeNull();
+    }
   });
 });

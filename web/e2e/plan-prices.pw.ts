@@ -48,6 +48,17 @@ for (const next of [true, false]) {
     await ctx.close();
   });
 
+  test(`a crafted report link is shown as plain text, not a link · ${look}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: next ? { width: 1280, height: 900 } : { width: 390, height: 844 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await open(page, next, { ...base, breakdown: [stop({ ...OBSERVED, source_url: "javascript:alert(1)" }, 14.4, 14.4)] });
+    if (next) await page.getByRole("button", { name: /Sample Fast Charge/ }).first().click();
+    const note = page.locator("[data-price-note='observed']").first();
+    await expect(note).toContainText("Typical price seen by DCFC Tracker, Oct 2026.");
+    await expect(note.getByRole("link")).toHaveCount(0);
+    await ctx.close();
+  });
+
   test(`no price: a dash and "Price shown at the charger.", never $0 · ${look}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: next ? { width: 1280, height: 900 } : { width: 390, height: 844 }, colorScheme: "dark" });
     const page = await ctx.newPage();

@@ -54,3 +54,7 @@ export function comparableSpend(c: TripCostEstimate | undefined): number | null 
 // "1 of 3 stops priced" under a partial total.
 export const partialText = (priced: number, unpriced: number): string =>
   `${priced} of ${priced + unpriced} ${priced + unpriced === 1 ? "stop" : "stops"} priced; the rest show their price at the charger`;
+
+// The price's report link comes from plan JSON, which a saved trip or a restore can carry: only the tracker's own https host
+// becomes a link; anything else shows the label as plain text.
+export const safeTrackerUrl = (u: string | undefined | null): string | null => (u && /^https:\/\/dcfctracker\.com\//.test(u) ? u : null);
