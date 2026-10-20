@@ -413,7 +413,16 @@ jobs:
       # setup-go's own cache saves only when its key (go.sum) misses, so after
       # the first run the build and test-result cache is never refreshed and
       # every commit recompiles what changed. Restore the newest cache by
-      # prefix and save a fresh one from main pushes only (PRs read main's).
+      # prefix and save a fresh one from main pushes only (PRs read main's),
+      # at most once per UTC day: the key ends in the date, not the commit.
+      # A per-commit key saved ~3.5 GB here plus ~2 GB in integration on
+      # every merge, and a burst of merges pushed the repo past its 10 GB
+      # Actions cache limit, evicting the image layers publish rebuilds
+      # from (publish went from ~30 s to 2-3 min on Oct 20).
+      - name: Cache day
+        id: day
+        run: echo "d=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Go build and module cache
         id: gocache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -421,7 +430,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ steps.day.outputs.d }}
           restore-keys: |
             go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-unit-${{ runner.os }}-
@@ -449,7 +458,7 @@ jobs:
           exit $(( t != 0 || v != 0 ))
 
       - name: Save Go build and module cache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
@@ -508,10 +517,11 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # setup-go's own cache saves only when its key (go.sum) misses, so after
-      # the first run the build and test-result cache is never refreshed and
-      # every commit recompiles what changed. Restore the newest cache by
-      # prefix and save a fresh one from main pushes only (PRs read main's).
+      # Same daily cache as the go job (see the comment there).
+      - name: Cache day
+        id: day
+        run: echo "d=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Go build and module cache
         id: gocache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -519,7 +529,7 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ steps.day.outputs.d }}
           restore-keys: |
             go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-integration-${{ runner.os }}-
@@ -537,7 +547,7 @@ jobs:
         run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/leases/... ./internal/api/... ./internal/ledger/... ./internal/samples/... ./internal/drain/...
 
       - name: Save Go build and module cache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
