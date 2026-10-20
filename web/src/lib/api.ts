@@ -1597,6 +1597,10 @@ export const backend = {
   // model has to fall back to the home rate, which underestimates.
   // Pass zeros / empty string to clear a field and let the
   // recent-charge or home-rate fallbacks take over again.
+  // Prices this network's tracker-estimated and unpriced fast sessions at the user's own saved rate (never a user price, bill,
+  // receipt or a session still recording). 400 when the user has no priced row for the network; priced: 0 when run again.
+  applyNetworkRate: (networkSlug: string) =>
+    api.post<{ priced: number; network: string }>("/api/charges/apply-rate", { network_slug: networkSlug }),
   updateChargePricing: (
     id: string,
     // free:true marks the session explicitly free (contract §12, cost 0,

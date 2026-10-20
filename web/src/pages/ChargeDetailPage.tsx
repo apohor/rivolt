@@ -1,4 +1,4 @@
-import { SET_RATE_FIRST, SET_RATE_PATH, networkRateSet } from "../lib/networkRates";
+import { SET_RATE_FIRST, SET_RATE_PATH, networkNameFromSlug, networkRateSet } from "../lib/networkRates";
 import { monthLabelShort } from "../lib/ledger";
 import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
@@ -1574,9 +1574,11 @@ function AutoNetworkPanel({
 function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
   const observed = (charge.cost_source_effective ?? charge.cost_source) === "observed_estimate";
   const needs = !!charge.needs_rate;
-  if (!observed && !needs) return null;
   const month = monthLabelShort(charge.estimate_month);
   const url = safeTrackerUrl(charge.estimate_url);
+  const nets = useQuery({ queryKey: ["charging-networks"], queryFn: () => backend.getChargingNetworks(), staleTime: 60_000, enabled: needs && !charge.network });
+  const netName = charge.network || networkNameFromSlug(nets.data, charge.rate_slug);
+  if (!observed && !needs) return null;
   return (
     <div data-rate-note={observed ? "observed" : "needs"} className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-3 text-sm text-neutral-300">
       {observed ? (
@@ -1596,7 +1598,7 @@ function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
       )}
       <p className="mt-1 text-xs">
         <Link to={appPath(SET_RATE_PATH)} className="font-medium text-amber-300 hover:text-amber-200">
-          {needs ? `Set your rate${charge.network ? ` for ${charge.network}` : ""}` : "Set your rate"}
+          {needs ? `Set your rate${netName ? ` for ${netName}` : ""}` : "Set your rate"}
         </Link>
       </p>
     </div>

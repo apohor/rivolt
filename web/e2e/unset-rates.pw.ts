@@ -75,6 +75,7 @@ const month = currentMonth(new Date(e2eNow()));
 
 async function moneySetup(page: Page) {
   await stubApi(page);
+  await page.route("**/api/settings/charging/networks", (r) => r.fulfill({ json: NETWORKS }));
   const base = ledgerMonthFixture(month, new Date(e2eNow())).receipts;
   const fast = base.filter((r) => r.kind === "dcfc");
   const receipts = base.map((r) => {
@@ -83,8 +84,8 @@ async function moneySetup(page: Page) {
     }
     if (fast[1] && r.receipt_id === fast[1].receipt_id) {
       return {
-        ...r, cost: null, cost_source: "unknown" as const, rate: null, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger", flags: [...r.flags, "unpriced" as const],
-        sessions: r.sessions.map((x) => ({ ...x, cost: null, price_per_kwh: null, cost_source: "unknown" as const, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger" })),
+        ...r, cost: null, cost_source: "unknown" as const, rate: null, needs_rate: true, rate_slug: "tesla_sc", network: null, flags: [...r.flags, "unpriced" as const],
+        sessions: r.sessions.map((x) => ({ ...x, cost: null, price_per_kwh: null, cost_source: "unknown" as const, needs_rate: true, rate_slug: "tesla_sc", network: null })),
       };
     }
     return r;
@@ -168,5 +169,27 @@ test("a charge priced from the tracker, or waiting on a rate, says so with a way
   await expect(page.getByRole("link", { name: "Set your rate for Tesla Supercharger" })).toBeVisible();
   await page.goto("/charges/charge-3");
   await expect(page.locator("[data-rate-note='observed']").getByRole("link", { name: "DCFC Tracker" })).toHaveCount(0);
+  await ctx.close();
+});
+
+test("Settings: pricing earlier sessions is offered only for a saved rate, and says what it did", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await setup(page);
+  const posts: unknown[] = [];
+  await page.route("**/api/charges/apply-rate", (r) => {
+    const body = r.request().postDataJSON() as { network_slug: string };
+    posts.push(body);
+    return body.network_slug === "ea" ? r.fulfill({ json: { priced: 3, network: "Electrify America" } }) : r.fulfill({ status: 400, json: { error: "unknown network or no rate for it" } });
+  });
+  await page.goto("/settings?tab=charging");
+  const card = page.locator("#networks");
+  // Electrify America has a saved rate; Tesla and EVgo are unset: one button only.
+  const btns = card.getByRole("button", { name: "Price earlier sessions at this rate" });
+  await expect(btns).toHaveCount(1);
+  await expect(card).toContainText("Estimated and unpriced fast sessions only; never a price you entered, a bill or a receipt.");
+  await btns.click();
+  await expect(card.locator("[data-apply-result]")).toHaveText("Priced 3 sessions at your Electrify America rate.");
+  expect(posts).toEqual([{ network_slug: "ea" }]);
   await ctx.close();
 });

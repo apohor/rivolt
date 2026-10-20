@@ -12,3 +12,7 @@ export const UNSET_RATE_NOTE = "Enter the rate you pay. Prices vary by site.";
 // The saving between guest and member prices, only when the user entered both.
 export const memberSaving = (n: Pick<ChargingNetwork, "price_per_kwh" | "member_price_per_kwh">): number =>
   (n.price_per_kwh ?? 0) > 0 && (n.member_price_per_kwh ?? 0) > 0 ? Math.max(0, n.price_per_kwh - (n.member_price_per_kwh ?? 0)) : 0;
+
+// slug -> display name from the user's networks list (an unpriced session carries only the slug).
+export const networkNameFromSlug = (networks: Pick<ChargingNetwork, "slug" | "name">[] | undefined, slug: string | null | undefined): string | null =>
+  (slug && networks?.find((n) => n.slug === slug)?.name) || null;
