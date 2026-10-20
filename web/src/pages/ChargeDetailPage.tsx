@@ -1582,17 +1582,21 @@ function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
   return (
     <div data-rate-note={observed ? "observed" : "needs"} className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-3 text-sm text-neutral-300">
       {observed ? (
-        <p>
-          Estimate: typical price seen by{" "}
-          {url ? (
-            <a href={url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-100">
-              DCFC Tracker
-            </a>
-          ) : (
-            "DCFC Tracker"
-          )}
-          {month ? `, ${month}` : ""}. The price at the charger may differ.
-        </p>
+        month ? (
+          <p>
+            Estimate: typical price seen by{" "}
+            {url ? (
+              <a href={url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-100">
+                DCFC Tracker
+              </a>
+            ) : (
+              "DCFC Tracker"
+            )}
+            , {month}. The price at the charger may differ.
+          </p>
+        ) : (
+          <p>Estimate (typical observed price, date unknown). The price at the charger may differ.</p>
+        )
       ) : (
         <p>Needs a price.</p>
       )}

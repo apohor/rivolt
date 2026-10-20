@@ -155,6 +155,7 @@ test("a charge priced from the tracker, or waiting on a rate, says so with a way
       json: [
         charge(1, { Cost: 31.4, PricePerKWh: 0.6, cost_source_effective: "observed_estimate", estimate_month: "2026-10", estimate_url: "https://dcfctracker.com/reports/electrify-america" }),
         charge(2, { Cost: 0, PricePerKWh: 0, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger", cost_source_effective: "unknown" }),
+        charge(4, { Cost: 31.4, PricePerKWh: 0.6, cost_source_effective: "observed_estimate", estimate_month: "", estimate_url: "" }),
         charge(3, { Cost: 31.4, PricePerKWh: 0.6, cost_source: "observed_estimate", estimate_month: "2026-10", estimate_url: "javascript:alert(1)" }),
       ],
     }),
@@ -167,6 +168,10 @@ test("a charge priced from the tracker, or waiting on a rate, says so with a way
   await page.goto("/charges/charge-2");
   await expect(page.locator("[data-rate-note='needs']")).toContainText("Needs a price.");
   await expect(page.getByRole("link", { name: "Set your rate for Tesla Supercharger" })).toBeVisible();
+  // No month: never an undated tracker figure.
+  await page.goto("/charges/charge-4");
+  await expect(page.locator("[data-rate-note='observed']")).toContainText("Estimate (typical observed price, date unknown).");
+  await expect(page.locator("[data-rate-note='observed']")).not.toContainText("DCFC Tracker");
   await page.goto("/charges/charge-3");
   await expect(page.locator("[data-rate-note='observed']").getByRole("link", { name: "DCFC Tracker" })).toHaveCount(0);
   await ctx.close();

@@ -478,7 +478,8 @@ export function sourceLabel(
     case "network_estimate":
       return `${hasOpenNetworkState(r) ? "Estimated, confirm" : isConfirmedNetwork(r) ? "Confirmed" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "observed_estimate":
-      return `Estimate: typical price seen by DCFC Tracker${monthLabelShort(r.estimate_month) ? `, ${monthLabelShort(r.estimate_month)}` : ""}${r.network ? ` · ${r.network}` : ""}${rate}`;
+      // Never an undated tracker figure: without a month it says so.
+      return `${monthLabelShort(r.estimate_month) ? `Estimate: typical price seen by DCFC Tracker, ${monthLabelShort(r.estimate_month)}` : "Estimate (typical observed price, date unknown)"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
