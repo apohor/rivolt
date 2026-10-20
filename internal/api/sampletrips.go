@@ -220,14 +220,19 @@ func dollarRange(low, high float64) string {
 // third-party typical price, never a listed price, and it says how many stops it
 // could not price.
 func tripCostLine(t demo.SampleTripTotal) string {
+	// "Oct 2026": the month is the honest part of the claim.
+	seen := "typical price seen by DCFC Tracker"
+	if m, err := time.Parse("2006-01", t.PriceMonth); err == nil {
+		seen += ", " + m.Format("Jan 2006")
+	}
 	switch {
 	case t.PricedStops == 0:
 		return "The price at the fast chargers is shown at each charger."
 	case t.UnpricedStops == 0:
-		return fmt.Sprintf("About %s fast charging (estimate, typical price seen by DCFC Tracker; the price at the charger may differ).", dollarRange(t.DCFCCostLow, t.DCFCCostHigh))
+		return fmt.Sprintf("About %s fast charging (estimate, %s; the price at the charger may differ).", dollarRange(t.DCFCCostLow, t.DCFCCostHigh), seen)
 	default:
-		return fmt.Sprintf("About %s for %d of %d fast-charging stops (estimate, typical price seen by DCFC Tracker); the price at the other %d is shown at the charger.",
-			dollarRange(t.DCFCCostLow, t.DCFCCostHigh), t.PricedStops, t.ChargeStops, t.UnpricedStops)
+		return fmt.Sprintf("About %s for %d of %d fast-charging stops (estimate, %s); the price at the other %d is shown at the charger.",
+			dollarRange(t.DCFCCostLow, t.DCFCCostHigh), t.PricedStops, t.ChargeStops, seen, t.UnpricedStops)
 	}
 }
 

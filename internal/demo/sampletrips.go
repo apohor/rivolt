@@ -98,6 +98,9 @@ type SampleTripTotal struct {
 	DCFCCostHigh  float64 `json:"dcfc_cost_high"`
 	PricedStops   int     `json:"priced_stops"`
 	UnpricedStops int     `json:"unpriced_stops"`
+	// PriceMonth is the observation month ("2026-10") of the oldest figure behind
+	// the estimate, so every wording of it can name the month.
+	PriceMonth string `json:"price_month,omitempty"`
 }
 
 // SampleTripDay is one driving day.
@@ -119,17 +122,19 @@ type SampleTripDay struct {
 // membership and a non-member price); nil when the network has no figure and the
 // price is shown at the charger. PriceNote says where the figure comes from.
 type SampleTripStop struct {
-	Name      string  `json:"name"`
-	Lat       float64 `json:"lat"`
-	Lon       float64 `json:"lon"`
-	Network   string  `json:"network"`
-	ArriveSoC float64 `json:"arrive_soc"`
-	DepartSoC float64 `json:"depart_soc"`
-	ChargeMin float64 `json:"charge_min"`
-	MaxKW     float64 `json:"max_kw"`
+	Name      string   `json:"name"`
+	Lat       float64  `json:"lat"`
+	Lon       float64  `json:"lon"`
+	Network   string   `json:"network"`
+	ArriveSoC float64  `json:"arrive_soc"`
+	DepartSoC float64  `json:"depart_soc"`
+	ChargeMin float64  `json:"charge_min"`
+	MaxKW     float64  `json:"max_kw"`
 	CostLow   *float64 `json:"cost_low"`
 	CostHigh  *float64 `json:"cost_high"`
 	PriceNote string   `json:"price_note,omitempty"`
+	// PriceMonth is the observation month of the figure behind CostLow/CostHigh.
+	PriceMonth string `json:"price_month,omitempty"`
 }
 
 // SampleTripOvernight is a slow charge where the trip stops for the night.
@@ -219,7 +224,8 @@ type planCost struct {
 		CostLow     *float64 `json:"cost_low"`
 		CostHigh    *float64 `json:"cost_high"`
 		Price       *struct {
-			Label string `json:"label"`
+			Label         string `json:"label"`
+			ObservedMonth string `json:"observed_month"`
 		} `json:"price"`
 	} `json:"breakdown"`
 }
@@ -322,6 +328,10 @@ func buildSampleTrip(page SampleTripPage, indexPolyline string) (SampleTrip, err
 				t.Totals.PricedStops++
 				t.Totals.DCFCCostLow += *s.CostLow
 				t.Totals.DCFCCostHigh += *s.CostHigh
+				// The oldest observation month names the estimate (months sort as text).
+				if s.PriceMonth != "" && (t.Totals.PriceMonth == "" || s.PriceMonth < t.Totals.PriceMonth) {
+					t.Totals.PriceMonth = s.PriceMonth
+				}
 			} else {
 				t.Totals.UnpricedStops++
 			}
@@ -362,13 +372,14 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 		network   string
 		low, high *float64
 		note      string
+		month     string
 	}
 	byCharger := map[string]stopInfo{}
 	if c := firstCost(costs); c != nil {
 		for _, b := range c.Breakdown {
 			si := stopInfo{network: b.NetworkName, low: b.CostLow, high: b.CostHigh}
 			if b.Price != nil {
-				si.note = b.Price.Label
+				si.note, si.month = b.Price.Label, b.Price.ObservedMonth
 			}
 			byCharger[b.ChargerName] = si
 		}
@@ -382,7 +393,7 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 			Name: w.Name, Lat: w.Latitude, Lon: w.Longitude, Network: info.network,
 			ArriveSoC: round1(w.ArrivalSoC), DepartSoC: round1(w.DepartureSoC),
 			ChargeMin: round1(w.ChargeDurationSec / 60), MaxKW: w.MaxPowerKW,
-			CostLow: roundPtr(info.low), CostHigh: roundPtr(info.high), PriceNote: info.note,
+			CostLow: roundPtr(info.low), CostHigh: roundPtr(info.high), PriceNote: info.note, PriceMonth: info.month,
 		})
 	}
 	return day, r, nil
