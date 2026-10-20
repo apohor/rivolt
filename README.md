@@ -41,6 +41,10 @@ charging stops.
 
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
+- Three public, simulated trip plans need no sign-in at all:
+  [rivolt.dev/sample-trips](https://rivolt.dev/sample-trips). Each lists every
+  charging stop, the battery on arrival and departure, charge time and the
+  estimated cost for a sample R1S, and opens in the demo planner.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
   with Google or GitHub (the beta has an account cap); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
@@ -106,6 +110,15 @@ guessed (with a one-tap way to add the price). "About these numbers"
 spells out what is and is not included in the total.
 
 ![Money](docs/screenshots/money.png)
+
+#### Share a month, a trip or a milestone
+
+Any month, drive or milestone can become a square image you share from
+your phone or save. It is made on your device and shows figures only:
+no places, no map, no VIN and no dollars unless you switch on
+"Include cost" for that card. Rivolt never uploads or posts the image.
+
+<img src="docs/screenshots/share-sheet.png" width="390" alt="The share sheet on the demo: a month card for the sample truck with distance, energy and efficiency, and Include cost switched off">
 
 ### Plan — a map-first trip planner
 
@@ -180,6 +193,33 @@ day (the car awake while parked and not charging), with a warning when
 it keeps waking up again within a minute.
 
 ![Truck](docs/screenshots/truck.png)
+
+#### Trends
+
+With enough history, Truck shows two trends for your own truck:
+monthly efficiency (pack-side mi/kWh) and the usable pack capacity
+estimated from your charges (not tracked on the R2 yet). Both come
+from your recorded data only and are labelled estimates; they appear
+once there is enough history to say anything, and never compare you
+with other owners.
+
+<img src="docs/screenshots/trends.png" width="390" alt="Trends for the demo's sample truck: efficiency by month and an estimated usable capacity of about 131 kWh">
+
+#### Range near a temperature
+
+From your own drives and the weather data recorded with them, Rivolt
+shows the range band your truck has actually delivered near a given
+outside temperature, so a cold morning is not a surprise. It is a
+summary of your history, not a forecast, and it needs at least 5
+drives and 50 miles near that temperature before it shows.
+
+#### Parked drain, asleep or awake
+
+The parked-drain card splits each loss by when it happened: while the
+truck was asleep or while it was awake. Both figures are estimates
+from the readings the truck sent while parked.
+
+<img src="docs/screenshots/drain-split.png" width="390" alt="The parked-drain card on the demo: percent per day, and a bar showing how much of the loss was while awake or asleep">
 
 ### On a phone, and in light
 
