@@ -71,3 +71,58 @@ func TestProxy_forwardsAndStripsCreds(t *testing.T) {
 		t.Fatalf("auth leaked to upstream: %q", gotAuth)
 	}
 }
+
+// The upstream gets no caller address: not X-Forwarded-For (the old Director
+// forwarded the inbound chain and appended the caller), not Forwarded, and none of
+// the headers a CDN or ingress uses for it. Query, base path, Range and the upstream
+// Host still come through.
+func TestProxy_sendsNoClientAddress(t *testing.T) {
+	t.Parallel()
+	var got http.Header
+	var gotURI, gotHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, gotURI, gotHost = r.Header.Clone(), r.URL.RequestURI(), r.Host
+		w.WriteHeader(http.StatusPartialContent)
+	}))
+	defer upstream.Close()
+
+	h, err := NewProxy(upstream.URL + "/base") // a base path on the target is joined
+	if err != nil {
+		t.Fatalf("NewProxy: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/us.pmtiles?v=2", nil)
+	req.RemoteAddr = "203.0.113.9:4444"
+	for k, v := range map[string]string{
+		"X-Forwarded-For": "198.51.100.7, 10.0.0.1", "X-Forwarded-Host": "rivolt.dev", "X-Forwarded-Proto": "https",
+		"Forwarded": "for=198.51.100.7", "X-Real-Ip": "198.51.100.7", "X-Client-Ip": "198.51.100.7",
+		"True-Client-Ip": "198.51.100.7", "Cf-Connecting-Ip": "198.51.100.7", "Cf-Ipcountry": "US",
+		"Cookie": "rivolt_session=x", "Authorization": "Bearer x", "Range": "bytes=0-16383",
+	} {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	for _, k := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "X-Real-Ip", "X-Client-Ip",
+		"True-Client-Ip", "Cf-Connecting-Ip", "Cf-Ipcountry", "Cookie", "Authorization"} {
+		if v := got.Get(k); v != "" {
+			t.Errorf("upstream received %s: %q", k, v)
+		}
+	}
+	for _, v := range got.Values("X-Forwarded-For") {
+		if strings.Contains(v, "203.0.113.9") {
+			t.Errorf("the caller's address reached the upstream: %q", v)
+		}
+	}
+	if got.Get("Range") != "bytes=0-16383" {
+		t.Errorf("Range = %q, want it passed through", got.Get("Range"))
+	}
+	if gotURI != "/base/us.pmtiles?v=2" {
+		t.Errorf("upstream URI = %q, want /base/us.pmtiles?v=2", gotURI)
+	}
+	if want := strings.TrimPrefix(upstream.URL, "http://"); gotHost != want {
+		t.Errorf("upstream Host = %q, want %q", gotHost, want)
+	}
+}
