@@ -65,7 +65,7 @@ type Network struct {
 	// freshly-seeded ChargingNetwork row. True for networks every
 	// Rivolt user qualifies for by definition (RAN — every user
 	// owns a Rivian). False for opt-in subscriptions (EA Pass+,
-	// Tesla SC Membership, EVgo Rewards+).
+	// Tesla SC Membership, EVgo Plus).
 	DefaultMemberActive bool
 }
 
@@ -108,10 +108,12 @@ var Networks = []Network{
 		// "Rivian owner" rate by definition, so MemberRate should
 		// apply automatically (settings.AsOverrides defaults
 		// MemberActive=true for RAN). Guest = walk-up sticker; the
-		// 10% off Rivian-owner discount is the member tier.
+		// Rivian-owner discount is the member tier. Rivian states no
+		// percentage (pricing is shown in the app and at the charger), so
+		// the plan name carries none; the member rate stays an estimate.
 		GuestRate:           0.60,
 		MemberRate:          f64(0.54),
-		MemberPlan:          "Rivian owner (10% off)",
+		MemberPlan:          "Rivian owner discount",
 		RivianIDs:           []string{"10001", "10002"},
 		DefaultMemberActive: true,
 	},
@@ -121,7 +123,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"evgo"},
 		GuestRate:     0.42,
 		MemberRate:    f64(0.34),
-		MemberPlan:    "Rewards+ - $6.99/mo",
+		MemberPlan:    "EVgo Plus - $6.99/mo",
 		RivianIDs:     []string{"10031"},
 	},
 	{
@@ -130,7 +132,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"shell recharge", "shell ev", "greenlots"},
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
-		MemberPlan:    "GO+ - free",
+		MemberPlan:    "Recharge Rewards - free tier",
 		RivianIDs:     []string{"10045"},
 	},
 	{
