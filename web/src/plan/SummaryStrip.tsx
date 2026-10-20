@@ -1,6 +1,7 @@
 import { ArcGauge } from "../components/ArcGauge";
 import type { TripCostEstimate, TripPlan, TripRoute } from "../lib/api";
 import { formatDuration, formatWaypointTime } from "./format";
+import { CostEstimateNote } from "./CostEstimateNote";
 import { Unit } from "./Unit";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
@@ -68,6 +69,9 @@ export function SummaryStrip({
         >
           {totalGuest > 0 ? fmtCurrency(totalGuest) : "No fast charging"}
         </p>
+        {totalGuest > 0 && (
+          <CostEstimateNote className="mt-1 text-[11px] text-neutral-500" />
+        )}
         {(userSavings > 0.5 || gasEquiv > 0.5) && (
           <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs">
             {userSavings > 0.5 && (

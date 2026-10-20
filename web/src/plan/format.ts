@@ -21,3 +21,5 @@ export function formatDuration(seconds: number): string {
   return `${h}h ${rem}m`;
 }
 
+// Interim wording for the planner's network-rate costs (the figures stay): shown once on the cost strip, not per network.
+export const COST_ESTIMATE_NOTE = "Estimate, price varies by site (rates as of mid-2025)";
