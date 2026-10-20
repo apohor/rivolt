@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -242,6 +243,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 	if err != nil {
 		return err
 	}
+	month, url := CleanEstimate(c.EstimateMonth, c.EstimateURL)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO charges (
 			user_id, vehicle_id, external_id,
@@ -316,8 +318,25 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
 		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
 		nullableBool(c.RivianCharger),
-		nullIfEmpty(c.EstimateMonth), nullIfEmpty(c.EstimateURL))
+		nullIfEmpty(month), nullIfEmpty(url))
 	return err
+}
+
+// EstimateURLPrefix is the only place an estimate's report link may point.
+const EstimateURLPrefix = "https://dcfctracker.com/"
+
+// CleanEstimate returns the estimate report month and URL as they may be
+// stored: the month only as YYYY-MM, the URL only on dcfctracker.com over
+// https. Anything else becomes "" so no writer (the recorder, a restored
+// backup) can store a link the app would render.
+func CleanEstimate(month, url string) (string, string) {
+	if _, err := time.Parse("2006-01", month); err != nil || len(month) != 7 {
+		month = ""
+	}
+	if !strings.HasPrefix(url, EstimateURLPrefix) || len(url) > 300 {
+		url = ""
+	}
+	return month, url
 }
 
 // nullableBool maps nil to SQL NULL.

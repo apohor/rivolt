@@ -560,6 +560,14 @@ func TestEstimateReportRoundTrip(t *testing.T) {
 	if got == nil || got.EstimateMonth != "2026-10" || got.EstimateURL != "https://dcfctracker.com/networks/evgo" {
 		t.Fatalf("read back = %+v", got)
 	}
+	// A link off dcfctracker.com (a crafted backup) is never stored.
+	c.EstimateURL = "javascript:alert(1)"
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, m, u := read("est-1"); m != "2026-10" || u != "" {
+		t.Fatalf("hostile url stored as %q %q, want NULL url", m, u)
+	}
 	// Rivian's bill ends the estimate and its report.
 	c.CostSource, c.EstimateMonth, c.EstimateURL = "rivian", "", ""
 	if err := store.Upsert(ctx, c); err != nil {
