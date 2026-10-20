@@ -76,7 +76,7 @@ func NewProxy(baseURL string) (http.Handler, error) {
 	// Director is deprecated in favour of Rewrite, which also changes how the inbound
 	// X-Forwarded-* headers are treated on this public proxy: moving to it is its own
 	// change (issue #705, needs DA).
-	defaultDirector := proxy.Director //nolint:staticcheck // SA1019, see #705
+	defaultDirector := proxy.Director        //nolint:staticcheck // SA1019, see #705
 	proxy.Director = func(r *http.Request) { //nolint:staticcheck // SA1019, see #705
 		defaultDirector(r)
 		// Don't leak the rivolt session cookie or any bearer
