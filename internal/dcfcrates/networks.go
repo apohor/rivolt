@@ -132,7 +132,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"shell recharge", "shell ev", "greenlots"},
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
-		MemberPlan:    "Shell Recharge Rewards - free tier",
+		MemberPlan:    "Recharge Rewards - free tier",
 		RivianIDs:     []string{"10045"},
 	},
 	{

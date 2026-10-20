@@ -48,7 +48,7 @@ update them when the operator changes their pricing page.
 | EVgo | 0.42 | 0.34 | Plus, $6.99/mo (was "Rewards+") | [evgo.com/charging-plans](https://www.evgo.com/charging-plans/) |
 | Blink | 0.49 | 0.39 | Member, annual fee | [blinkcharging.com](https://www.blinkcharging.com/) |
 | bp pulse | 0.45 | 0.39 | Plus, $4/mo | [bppulse.com](https://www.bppulse.com/) |
-| Shell Recharge | 0.43 | 0.40 | Shell Recharge Rewards, free tier (was "GO+", a UK programme) | [shellrecharge.com](https://shellrecharge.com/) |
+| Shell Recharge | 0.43 | 0.40 | Recharge Rewards, free tier (was "GO+", a UK programme) | [shellrecharge.com](https://shellrecharge.com/) |
 | ChargePoint | 0.45 | n/a | Host-set, no central plan | [chargepoint.com](https://www.chargepoint.com/) |
 | Francis Energy | 0.40 | n/a | No public plan | [francisenergy.com](https://francisenergy.com/) |
 | Ionna | 0.40 | n/a | Limited deployment; pricing TBD | [ionna.com](https://www.ionna.com/) |

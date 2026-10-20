@@ -196,12 +196,11 @@ func AsOverrides(networks []ChargingNetwork) []dcfcrates.NetworkOverride {
 // percentage for the owner discount. A user who saved their price book while the old
 // text was the default holds a stored copy of it, which a change to the table does not
 // reach. Reading and saving the book swaps exactly these strings for the current ones;
-// any other text a user wrote is left alone.
+// any other text a user wrote is left alone (an overlay by slug would overwrite it).
 var retiredPlanNames = map[string]string{
 	"Rivian owner (10% off)":       "Rivian owner discount",
 	"Rewards+ - $6.99/mo":          "EVgo Plus - $6.99/mo",
-	"GO+ - free":                   "Shell Recharge Rewards - free tier",
-	"Recharge Rewards - free tier": "Shell Recharge Rewards - free tier", // the wording of #713, before "Shell" was added
+	"GO+ - free":                   "Recharge Rewards - free tier",
 }
 
 func currentPlanName(plan string) string {

@@ -9,7 +9,6 @@ func TestNormalizeNetworksRenamesRetiredPlanNames(t *testing.T) {
 		{Name: "Rivian Adventure Network", PricePerKWh: 0.6, MemberPrice: 0.54, MemberActive: true, MemberPlan: "Rivian owner (10% off)", Slug: "ran"},
 		{Name: "EVgo", PricePerKWh: 0.42, MemberPrice: 0.34, MemberPlan: " Rewards+ - $6.99/mo ", Slug: "evgo"},
 		{Name: "Shell Recharge", PricePerKWh: 0.43, MemberPrice: 0.40, MemberPlan: "GO+ - free", Slug: "shell_recharge"},
-		{Name: "Shell Again", PricePerKWh: 0.43, MemberPlan: "Recharge Rewards - free tier"},
 		{Name: "My Local Network", PricePerKWh: 0.30, MemberPlan: "Rewards+ at my gym, $5/mo"}, // a user's own text, kept
 		{Name: "Electrify America", PricePerKWh: 0.48, MemberPrice: 0.36, MemberPlan: "Pass+ - $7/mo", Slug: "ea"},
 	}
@@ -20,8 +19,7 @@ func TestNormalizeNetworksRenamesRetiredPlanNames(t *testing.T) {
 	want := map[string]string{
 		"Rivian Adventure Network": "Rivian owner discount",
 		"EVgo":                     "EVgo Plus - $6.99/mo",
-		"Shell Recharge":           "Shell Recharge Rewards - free tier",
-		"Shell Again":              "Shell Recharge Rewards - free tier",
+		"Shell Recharge":           "Recharge Rewards - free tier",
 		"My Local Network":         "Rewards+ at my gym, $5/mo",
 		"Electrify America":        "Pass+ - $7/mo",
 	}
