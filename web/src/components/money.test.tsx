@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReceiptRow } from "./money";
 import { grammarFor, needsPrice, sourceLabel, type Receipt, type ReceiptSession } from "../lib/ledger";
 
@@ -50,11 +51,11 @@ const mixed: Receipt = {
 
 function renderRow(r: Receipt) {
   return render(
-    <MemoryRouter>
+    <QueryClientProvider client={new QueryClient()}><MemoryRouter>
       <ul>
         <ReceiptRow r={r} currency="USD" />
       </ul>
-    </MemoryRouter>,
+    </MemoryRouter></QueryClientProvider>,
   );
 }
 
