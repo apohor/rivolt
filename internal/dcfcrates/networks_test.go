@@ -138,3 +138,26 @@ func TestStationQueryResolvesNRELCodes(t *testing.T) {
 		}
 	}
 }
+
+// The table's dated rates are never a price: with no user rate, ResolveRate names the
+// network and returns zero rates, so a caller that prices only on a positive rate
+// (the recorder's pricer, the detector, "apply rate") leaves the session unpriced.
+func TestResolveRateNeverReturnsTheTableRate(t *testing.T) {
+	for _, n := range Networks {
+		if len(n.MatchPatterns) == 0 {
+			continue
+		}
+		rr := ResolveRate(n.MatchPatterns[0]+" - Test Stop", nil)
+		if rr.Slug != n.Slug {
+			t.Errorf("%s: matched %q", n.Slug, rr.Slug)
+		}
+		if rr.GuestRate != 0 || rr.UserRate != 0 || rr.AllMemberRate != 0 {
+			t.Errorf("%s: no override but rates %+v", n.Slug, rr)
+		}
+	}
+	// A user's own rate still prices.
+	ov := []NetworkOverride{{Slug: "ea", GuestRate: 0.5}}
+	if rr := ResolveRate("Electrify America - Primm", ov); rr.UserRate != 0.5 {
+		t.Errorf("user rate = %+v", rr)
+	}
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -176,6 +177,29 @@ func TestSeedHistoryFeedsTheTrends(t *testing.T) {
 			if c.CostSource != "user" || c.Cost <= 0 {
 				t.Errorf("%s is not user-priced: %+v", c.ID, c)
 			}
+		}
+	}
+}
+
+// The demo owner's rates must read as the owner's own: none may equal the built-in
+// table's number (that row would be treated as never edited and priced nothing), and every
+// row must survive the book's normalization.
+func TestDemoNetworksAreTheOwnersOwnRates(t *testing.T) {
+	rows := DemoNetworks()
+	if len(rows) < 5 {
+		t.Fatalf("only %d demo networks", len(rows))
+	}
+	for _, r := range rows {
+		if r.PricePerKWh <= 0 {
+			t.Errorf("%s: no rate", r.Name)
+		}
+		for _, n := range dcfcrates.Networks {
+			if n.Slug == r.Slug && r.PricePerKWh == n.GuestRate {
+				t.Errorf("%s: demo rate equals the table's %v and would read as unset", r.Name, n.GuestRate)
+			}
+		}
+		if r.MemberPrice != 0 && r.MemberPrice >= r.PricePerKWh {
+			t.Errorf("%s: member %v not below guest %v", r.Name, r.MemberPrice, r.PricePerKWh)
 		}
 	}
 }

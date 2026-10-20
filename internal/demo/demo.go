@@ -115,6 +115,10 @@ func Seed(ctx context.Context, d Deps) error {
 	}); err != nil {
 		return fmt.Errorf("demo: session: %w", err)
 	}
+	// The sample owner's own fast-charging rates (see DemoNetworks).
+	if err := settings.SetChargingNetworks(ctx, st, DemoNetworks()); err != nil {
+		return fmt.Errorf("demo: charging networks: %w", err)
+	}
 	cs := d.Charges.For(uid)
 	// Earlier versions seeded a hand-written billed and user-priced
 	// session; the corpus now provides both (the user price lands on the

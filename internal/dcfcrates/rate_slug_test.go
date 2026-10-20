@@ -5,7 +5,9 @@ import "testing"
 func TestResolveRateBySlug(t *testing.T) {
 	n := Networks[0]
 	rr, ok := ResolveRateBySlug(n.Slug, nil)
-	if !ok || rr.Slug != n.Slug || rr.UserRate != n.GuestRate || rr.DisplayName != n.DisplayName {
+	// A known network with no user rate is identified but NOT priced: the table's
+	// dated guest rate is never returned as a price.
+	if !ok || rr.Slug != n.Slug || rr.UserRate != 0 || rr.GuestRate != 0 || rr.AllMemberRate != 0 || rr.DisplayName != n.DisplayName {
 		t.Fatalf("builtin: %+v ok=%v", rr, ok)
 	}
 	ov := []NetworkOverride{{Slug: n.Slug, GuestRate: 0.55, MemberRate: 0.40, MemberActive: true}}

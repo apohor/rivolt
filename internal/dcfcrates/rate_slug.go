@@ -20,12 +20,7 @@ func ResolveRateBySlug(slug string, overrides []NetworkOverride) (ResolvedRate, 
 	if !known {
 		return ResolvedRate{}, false
 	}
-	return ResolvedRate{
-		Slug:          base.Slug,
-		DisplayName:   base.DisplayName,
-		GuestRate:     base.GuestRate,
-		UserRate:      base.GuestRate, // no override, so no membership
-		AllMemberRate: base.MemberRateOrGuest(),
-		MemberPlan:    base.MemberPlan,
-	}, true
+	// A known network the user has no rate for: identified, with no price (see
+	// ResolveRate: the table's dated rate is never returned as one).
+	return ResolvedRate{Slug: base.Slug, DisplayName: base.DisplayName, MemberPlan: base.MemberPlan}, true
 }

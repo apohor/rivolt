@@ -21,7 +21,7 @@ import (
 func TestPatchChargePricing_NetworkSlug(t *testing.T) {
 	slug := dcfcrates.Networks[0].Slug
 	name := dcfcrates.Networks[0].DisplayName
-	rate := dcfcrates.Networks[0].GuestRate
+	rate := 0.52 // the user's own rate for the network
 
 	run := func(f *fakePricer, ov []dcfcrates.NetworkOverride, body string) int {
 		r := chi.NewRouter()
@@ -31,12 +31,20 @@ func TestPatchChargePricing_NetworkSlug(t *testing.T) {
 		return rec.Code
 	}
 
+	// The user's own saved rate prices the session.
 	f := &fakePricer{found: true}
-	if code := run(f, nil, `{"network_slug":"`+slug+`"}`); code != http.StatusNoContent {
+	own := []dcfcrates.NetworkOverride{{Slug: slug, GuestRate: rate}}
+	if code := run(f, own, `{"network_slug":"`+slug+`"}`); code != http.StatusNoContent {
 		t.Fatalf("slug = %d", code)
 	}
-	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0], "network:c-1:"+name+":USD:") {
-		t.Errorf("calls = %v, want SetNetworkPrice at built-in guest rate %.2f", f.calls, rate)
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0], "network:c-1:"+name+":USD:") || !strings.HasSuffix(f.calls[0], ":0.52") {
+		t.Errorf("calls = %v, want SetNetworkPrice at the user's rate %.2f", f.calls, rate)
+	}
+
+	// No rate of the user's: the table's dated rate is NOT applied; the answer says so.
+	f = &fakePricer{found: true}
+	if code := run(f, nil, `{"network_slug":"`+slug+`"}`); code != http.StatusBadRequest || len(f.calls) != 0 {
+		t.Errorf("no user rate = %d, calls %v, want 400 and nothing written", code, f.calls)
 	}
 
 	// Member rate wins when the user's membership is active.

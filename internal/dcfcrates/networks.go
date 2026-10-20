@@ -276,17 +276,13 @@ func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
 	if ov, name, ok := matchOverride(stopName, overrides); ok {
 		return resolvedFromOverride(ov, name)
 	}
-	// Fall back to the built-in defaults.
+	// No override: the network is identified, but the built-in table's rate is NOT
+	// returned. It is a dated estimate (mid-2025) that no network publishes as a
+	// price, so it must not be stamped onto a recorded session or offered as "your
+	// rate". Callers price only when the rates are positive, so an unset network
+	// stays unpriced until the user enters what they pay.
 	n := MatchNetwork(stopName)
-	rr := ResolvedRate{
-		Slug:          n.Slug,
-		DisplayName:   n.DisplayName,
-		GuestRate:     n.GuestRate,
-		UserRate:      n.GuestRate, // user has no override, so no membership
-		AllMemberRate: n.MemberRateOrGuest(),
-		MemberPlan:    n.MemberPlan,
-	}
-	return rr
+	return ResolvedRate{Slug: n.Slug, DisplayName: n.DisplayName, MemberPlan: n.MemberPlan}
 }
 
 // matchOverride finds the user's override row for a stop: the first row with a
