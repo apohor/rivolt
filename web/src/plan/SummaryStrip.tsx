@@ -2,6 +2,7 @@ import { ArcGauge } from "../components/ArcGauge";
 import type { TripCostEstimate, TripPlan, TripRoute } from "../lib/api";
 import { formatDuration, formatWaypointTime } from "./format";
 import { CostEstimateNote } from "./CostEstimateNote";
+import { estimateLabel, fmtRange, NO_PRICE_TEXT, partialText, spendView } from "../lib/planCost";
 import { Unit } from "./Unit";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
@@ -31,9 +32,7 @@ export function SummaryStrip({
 }) {
   const fmtCurrency = (v: number) =>
     new Intl.NumberFormat(undefined, { style: "currency", currency: cost?.currency || "USD" }).format(v);
-  const totalGuest = cost?.dcfc_spend ?? 0;
-  const totalUser = cost?.dcfc_spend_user_member ?? 0;
-  const userSavings = totalGuest - totalUser;
+  const spend = spendView(cost);
   const gasEquiv = cost?.gas_equivalent ?? 0;
   const totalChargeMin = chargeMinutes;
   const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
@@ -65,20 +64,30 @@ export function SummaryStrip({
         <p className="ui-label">Trip cost</p>
         <p
           className="pt-hero tabular-nums text-neutral-100"
-          title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
+          title="Fast-charging stops on this route, at the price shown on each stop."
         >
-          {totalGuest > 0 ? fmtCurrency(totalGuest) : "No fast charging"}
+          {spend.kind === "range" ? (
+            // A range is longer than one number: a little smaller, so it stays on one line.
+            <span className={fmtRange(spend.low, spend.high, fmtCurrency).includes("–") ? "text-[0.72em]" : undefined}>{fmtRange(spend.low, spend.high, fmtCurrency)}</span>
+          ) : spend.kind === "unpriced" ? (
+            "—"
+          ) : (
+            "No fast charging"
+          )}
         </p>
-        {totalGuest > 0 && (
-          <CostEstimateNote className="mt-1 text-[11px] text-neutral-500" />
+        {spend.kind === "unpriced" && <p data-cost-note className="mt-1 text-[11px] text-neutral-500">{NO_PRICE_TEXT}</p>}
+        {spend.kind === "range" && (
+          spend.older ? (
+            <CostEstimateNote className="mt-1 text-[11px] text-neutral-500" />
+          ) : (
+            <p data-cost-note className="mt-1 text-[11px] text-neutral-500">
+              {cost ? estimateLabel(cost) : "estimate"}
+              {spend.unpriced > 0 && <> · {partialText(spend.priced, spend.unpriced)}</>}
+            </p>
+          )
         )}
-        {(userSavings > 0.5 || gasEquiv > 0.5) && (
+        {gasEquiv > 0.5 && (
           <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs">
-            {userSavings > 0.5 && (
-              <span className="text-emerald-400" title="With your active memberships (Settings → Charging networks).">
-                <span className="tabular-nums">{fmtCurrency(totalUser)}</span> with memberships
-              </span>
-            )}
             {gasEquiv > 0.5 && (
               <span className="text-neutral-400" title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal.`}>
                 <span className="tabular-nums">{fmtCurrency(gasEquiv)}</span> in gas

@@ -90,7 +90,6 @@ export function TripAdviceCard({
           </button>
           {expanded && (
             <div className="space-y-4 mt-3">
-              <AdviceCostStrip cost={advice.cost_estimate} />
               <AdviceSection label="Cost" items={advice.cost} accent="emerald" />
               <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
               <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
@@ -105,33 +104,6 @@ export function TripAdviceCard({
         </>
       )}
     </Card>
-  );
-}
-
-// AdviceCostStrip renders the deterministic cost numbers the server
-// computed (not the LLM). Always shown when there's any signal —
-// purely-DCFC trips show only the DCFC line, home-energy trips show
-// only the home equivalent.
-export function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
-  // Totals + per-network breakdown moved into each RouteCard. This
-  // strip survives only as the trip-wide "you could save $X more by
-  // joining every applicable plan" hint, which is a membership
-  // upsell and naturally belongs in the analysis card. Render
-  // nothing when nothing is actionable.
-  const maxExtra = cost.dcfc_spend_user_member - cost.dcfc_spend_all_member;
-  if (cost.dcfc_spend <= 0 || maxExtra < 0.5) return null;
-  const fmt = (v: number) =>
-    new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: cost.currency || "USD",
-    }).format(v);
-  return (
-    <div className="rounded-md border border-amber-700/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-300/80">
-      You could save another{" "}
-      <span className="font-semibold text-amber-100">{fmt(maxExtra)}</span> on
-      this trip by joining the charging-network memberships you don't have yet
-      (lowest possible cost: {fmt(cost.dcfc_spend_all_member)}).
-    </div>
   );
 }
 

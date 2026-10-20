@@ -1,3 +1,4 @@
+import { comparableSpend } from "../lib/planCost";
 import { OVERNIGHT_CHARGERS, type OvernightOptions } from "../plan/days";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -605,7 +606,7 @@ export default function TripPlanPage() {
                     delta_total_time_sec: r1.TotalTripDurationSec - r0.TotalTripDurationSec,
                     delta_arrival_soc_pct: r1.ArrivalSoC - r0.ArrivalSoC,
                     delta_stop_count: newStops.length - origStops.length,
-                    delta_cost: (c1?.dcfc_spend ?? 0) - (c0?.dcfc_spend ?? 0),
+                    delta_cost: (comparableSpend(c1) ?? 0) - (comparableSpend(c0) ?? 0),
                     currency: c1?.currency || c0?.currency || "USD",
                     stops_kept: kept,
                     stops_dropped: droppedNames.length,
