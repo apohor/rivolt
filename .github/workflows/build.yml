@@ -489,6 +489,22 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # The Go module cache (and build cache) the `go` job saves from main, by the same
+      # prefix. RESTORE ONLY: this job never saves, so a PR cannot write the cache, and
+      # setup-go's own cache stays off so two caches do not fight over ~/go/pkg/mod.
+      # Without it every run downloaded all modules cold, and a dropped connection to
+      # proxy.golang.org failed the job. A miss (a go.sum change before main has saved)
+      # still falls back to downloading.
+      - name: Restore Go build and module cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-restore-only
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+
       # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
       - name: Stub web assets for embed
         run: |
