@@ -7,7 +7,7 @@ func TestFieldSupport(t *testing.T) {
 	r2 := FieldSupport("r2 ")
 	for field, want := range map[string][2]string{
 		"charge_time_remaining": {FieldReported, FieldEstimate},
-		"power_state":           {FieldReported, FieldBestEffort},
+		"power_state":           {FieldReported, FieldReported},
 		"trip_target":           {FieldReported, FieldUnavailable},
 		"outside_temp":          {FieldUnavailable, FieldUnavailable},
 		"charge_stop_reason":    {FieldUnavailable, FieldUnavailable},
