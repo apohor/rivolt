@@ -160,6 +160,7 @@ var exportChargeHeader = []string{
 	"effective_cost_source", "effective_cost_source_derived", "kind", "effective_place", "km_from_home",
 	"counts_in_spend", "flags",
 	"receipt_cost", "receipt_currency", "receipt_txn_id",
+	"estimate_month", "estimate_url",
 }
 
 var exportReceiptHeader = []string{
@@ -197,6 +198,7 @@ func writeChargesCSV(w io.Writer, e exportData) error {
 			csvText(cl.CostSource), strconv.FormatBool(cl.CostSourceDerived), csvText(cl.Kind), csvText(cl.Place), fptr(cl.KMFromHome),
 			strconv.FormatBool(cl.CountsInSpend), csvText(strings.Join(cl.Flags, ";")),
 			fptr(c.ReceiptCost), csvText(c.ReceiptCurrency), csvText(c.ReceiptTxnID),
+			csvText(c.EstimateMonth), csvText(c.EstimateURL),
 		}
 		if err := cw.Write(row); err != nil {
 			return err

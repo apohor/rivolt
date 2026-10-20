@@ -42,6 +42,7 @@ func sampleExport() exportData {
 			EnergyAddedKWh: 30.5, Cost: 4.88, Currency: "USD", PricePerKWh: 0.16, CostSource: "home_rate",
 			Network: "=HYPERLINK(\"http://x\")", Place: "home", ThermalKWh: &th, Source: "live",
 			ReceiptCost: &billed, ReceiptCurrency: "USD", ReceiptTxnID: "txn-1",
+			EstimateMonth: "2026-10", EstimateURL: "https://dcfctracker.com/networks/evgo",
 		}},
 		Classes: []ledger.Classification{{CostSource: "home_rate", Kind: "ac", Place: "home", KMFromHome: &km, CountsInSpend: true, Flags: []string{"a", "b"}}},
 		Drives: []drives.Drive{{ID: "d1", VehicleID: "rv-1", StartedAt: now.Add(-5 * time.Hour), EndedAt: now.Add(-4 * time.Hour),
@@ -101,6 +102,9 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 	}
 	if col["receipt_cost"] != "5.12" || col["receipt_currency"] != "USD" || col["receipt_txn_id"] != "txn-1" || col["cost"] != "4.88" {
 		t.Fatalf("receipt columns must sit beside the untouched estimate: %v", col)
+	}
+	if col["estimate_month"] != "2026-10" || col["estimate_url"] != "https://dcfctracker.com/networks/evgo" {
+		t.Fatalf("estimate columns: %v", col)
 	}
 	rrows, err := csv.NewReader(strings.NewReader(files["rivian_receipts.csv"])).ReadAll()
 	if err != nil || len(rrows) != 3 {

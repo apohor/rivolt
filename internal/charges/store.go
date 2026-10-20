@@ -87,7 +87,8 @@ type Charge struct {
 	ActiveSeconds float64
 	// CostSource says where Cost came from: "rivian" (billed),
 	// "home_rate", "network_estimate" (DCFC priced from the matched
-	// network's rate) or "user". Empty on legacy rows.
+	// network's rate), "observed_estimate" (DCFC priced from a typical
+	// public price, no rate of the user's) or "user". Empty on legacy rows.
 	CostSource string
 	// Network is the matched DCFC network's display name for
 	// network_estimate rows; empty otherwise.
@@ -119,6 +120,11 @@ type Charge struct {
 	ReceiptCost     *float64
 	ReceiptCurrency string
 	ReceiptTxnID    string
+	// EstimateMonth and EstimateURL say which public report priced a
+	// CostSource "observed_estimate" session ("2026-10", the dcfctracker.com
+	// page). Empty on every other row. Migration 0075.
+	EstimateMonth string
+	EstimateURL   string
 }
 
 // Store wraps the charges table.
@@ -249,8 +255,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			active_seconds,
 			cost_source, network, place,
 			network_state, network_confidence, network_evidence,
-			rivian_charger
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean)
+			rivian_charger,
+			estimate_month, estimate_url
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -287,6 +294,11 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			                          ELSE COALESCE(EXCLUDED.network_state, charges.network_state) END,
 			network_confidence = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_confidence ELSE COALESCE(EXCLUDED.network_confidence, charges.network_confidence) END,
 			network_evidence   = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_evidence ELSE COALESCE(EXCLUDED.network_evidence, charges.network_evidence) END,
+			-- The report an estimate came from goes with the price: kept
+			-- while the price is kept, replaced with it, cleared when the new
+			-- source is not an estimate.
+			estimate_month   = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.estimate_month ELSE EXCLUDED.estimate_month END,
+			estimate_url     = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.estimate_url ELSE EXCLUDED.estimate_url END,
 			place            = COALESCE(EXCLUDED.place, charges.place),
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			updated_at       = NOW()`,
@@ -303,7 +315,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfZero(c.ActiveSeconds),
 		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
 		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
-		nullableBool(c.RivianCharger))
+		nullableBool(c.RivianCharger),
+		nullIfEmpty(c.EstimateMonth), nullIfEmpty(c.EstimateURL))
 	return err
 }
 
@@ -344,7 +357,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
-		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -370,7 +384,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 		); err != nil {
 			return nil, err
 		}
@@ -407,7 +421,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
-		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -437,7 +452,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 	); err != nil {
 		return nil, err
 	}
@@ -627,7 +642,8 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
-		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -651,7 +667,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 		); err != nil {
 			return err
 		}
@@ -814,7 +830,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
-		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -837,7 +854,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 	); err != nil {
 		return nil, err
 	}

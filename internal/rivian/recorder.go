@@ -1993,10 +1993,11 @@ func PlaceOf(lat, lon float64, home HomeLookup) string {
 
 // Values of charges.Charge.CostSource (migration 0040).
 const (
-	CostSourceRivian          = "rivian"
-	CostSourceHomeRate        = "home_rate"
-	CostSourceNetworkEstimate = "network_estimate"
-	CostSourceUser            = "user"
+	CostSourceRivian           = "rivian"
+	CostSourceHomeRate         = "home_rate"
+	CostSourceNetworkEstimate  = "network_estimate"
+	CostSourceObservedEstimate = "observed_estimate"
+	CostSourceUser             = "user"
 )
 
 func isDrivingGear(g string) bool {

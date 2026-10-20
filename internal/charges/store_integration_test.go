@@ -515,6 +515,61 @@ func TestRivianChargerRoundTrip(t *testing.T) {
 	}
 }
 
+// An estimate's report month and URL travel with its price: stored with
+// it, read back, kept across a re-save of the same estimate, and cleared
+// when Rivian's bill replaces the estimate.
+func TestEstimateReportRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "estimate-report-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	read := func(id string) (src, month, url string) {
+		if err := pool.QueryRowContext(ctx, `SELECT COALESCE(cost_source,''), COALESCE(estimate_month,''), COALESCE(estimate_url,'') FROM charges WHERE user_id = $1::uuid AND external_id = $2::text`, uid, id).Scan(&src, &month, &url); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	c := sampleCharge("est-1", "rv-A", time.Now().UTC().Add(-2*time.Hour).Truncate(time.Second), "charging_active")
+	c.Cost, c.Currency, c.PricePerKWh = 12.5, "USD", 0.5
+	c.CostSource, c.Network = "observed_estimate", "EVgo"
+	c.EstimateMonth, c.EstimateURL = "2026-10", "https://dcfctracker.com/networks/evgo"
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if src, m, u := read("est-1"); src != "observed_estimate" || m != "2026-10" || u != "https://dcfctracker.com/networks/evgo" {
+		t.Fatalf("stored = %q %q %q", src, m, u)
+	}
+	list, err := store.ListRecent(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *charges.Charge
+	for i := range list {
+		if list[i].ID == "est-1" {
+			got = &list[i]
+		}
+	}
+	if got == nil || got.EstimateMonth != "2026-10" || got.EstimateURL != "https://dcfctracker.com/networks/evgo" {
+		t.Fatalf("read back = %+v", got)
+	}
+	// Rivian's bill ends the estimate and its report.
+	c.CostSource, c.EstimateMonth, c.EstimateURL = "rivian", "", ""
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if src, m, u := read("est-1"); src != "rivian" || m != "" || u != "" {
+		t.Fatalf("after bill = %q %q %q", src, m, u)
+	}
+}
+
 // User prices end the reprice undo window (0040's undo selects on
 // legacy_cost IS NOT NULL), and a Free row written through Upsert, as a
 // backup restore does, keeps cost 0 instead of becoming "no price".
