@@ -89,9 +89,67 @@ func newDCFCDetector(archive *chargers.Archive, ss *settings.Store, store *charg
 			}
 		}
 		rr := dcfcrates.ResolveRate(d.Query, overrides)
+		v.Slug = rr.Slug
 		if rr.UserRate > 0 {
 			v.Priced, v.Rate, v.Currency, v.Network = true, rr.UserRate, "USD", rr.DisplayName
 		}
 		return v, true
+	}
+}
+
+// newDCFCEstimator is the live recorder's fallback for a fast charge the
+// user has no rate for: a typical public price the tracker has seen at the
+// network (dcfcrates.ObservedRateAt), when the session started inside the
+// report's 12 months and the user's currency is USD. The Tesla range takes
+// the without-membership end unless the saved Tesla row says the user is a
+// member. Never used by `rivolt reprice`: only the live monitor registry
+// installs it, so a past session is never priced from a table. slug is the
+// detected network's; "" finds it from the position like newDCFCPricer.
+func newDCFCEstimator(archive *chargers.Archive, ss *settings.Store) rivian.DCFCEstimator {
+	return func(slug string, lat, lon float64, start time.Time) (rivian.DCFCEstimate, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if ss != nil {
+			if cfg, err := settings.GetChargingConfig(ctx, ss); err == nil && cfg.HomeCurrency != "" && cfg.HomeCurrency != "USD" {
+				return rivian.DCFCEstimate{}, false
+			}
+		}
+		var overrides []dcfcrates.NetworkOverride
+		if ss != nil {
+			if nets, err := settings.GetChargingNetworks(ctx, ss); err == nil {
+				overrides = settings.AsOverrides(nets)
+			}
+		}
+		name := ""
+		if slug == "" {
+			if archive == nil || (lat == 0 && lon == 0) {
+				return rivian.DCFCEstimate{}, false
+			}
+			poi, ok, err := archive.Nearest(lat, lon, dcfcMatchRadiusM, chargers.FilterDCFC)
+			if err != nil || !ok {
+				return rivian.DCFCEstimate{}, false
+			}
+			sn := dcfcrates.ResolveStop(dcfcrates.StationQuery(poi.EVNetwork, poi.Name), overrides)
+			if sn.UserSet && sn.UserPerKWh > 0 {
+				return rivian.DCFCEstimate{}, false // their own rate, which the pricer handles
+			}
+			slug, name = sn.Slug, sn.DisplayName
+		}
+		member := false
+		for _, ov := range overrides {
+			if ov.Slug == slug && ov.MemberActive {
+				member = true
+			}
+		}
+		rate, o, ok := dcfcrates.ObservedRateAt(slug, start, member)
+		if !ok {
+			return rivian.DCFCEstimate{}, false
+		}
+		if name == "" {
+			if rr, ok := dcfcrates.ResolveRateBySlug(slug, nil); ok {
+				name = rr.DisplayName
+			}
+		}
+		return rivian.DCFCEstimate{Rate: rate, Currency: "USD", Network: name, Month: o.Month, URL: o.URL}, true
 	}
 }

@@ -1349,3 +1349,63 @@ func TestHandleDriveLifecycle_MissingStartOdometerDoesNotMeasureWholeOdometer(t 
 		t.Fatalf("distance = %v mi, want %.2f", row.DistanceMi, want)
 	}
 }
+
+// A fast charge the user has no rate for is priced at the typical public
+// price, marked observed_estimate with the report it came from; the user's
+// own rate still wins, and with no estimator (reprice, tests) it stays
+// unpriced.
+func TestLiveChargeRow_DCFCObservedEstimate(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	var verdict DCFCVerdict
+	m.SetDCFCDetector(func(lat, lon float64, rivianCharger bool, peakKW float64) (DCFCVerdict, bool) {
+		return verdict, true
+	})
+	start := time.Date(2026, 10, 21, 14, 0, 0, 0, time.UTC)
+	charge := func(id string) *liveCharge {
+		return &liveCharge{id: id, startedAt: start, endAt: start.Add(40 * time.Minute),
+			startSoC: 20, endSoC: 60, maxPower: 150, energyIntKWh: 50,
+			lat: 30.9, lon: -102.9, finalState: "charging_complete"}
+	}
+	verdict = DCFCVerdict{Slug: "evgo", Network: "EVgo", State: "estimated", Confidence: 0.9, Evidence: []byte(`{"v":1}`)}
+
+	row := m.liveChargeRow("veh-1", charge("no-estimator"))
+	if row.Cost != 0 || row.CostSource != "" {
+		t.Errorf("no estimator: cost %.2f source %q, want unpriced", row.Cost, row.CostSource)
+	}
+
+	var gotSlug string
+	var gotStart time.Time
+	m.SetDCFCEstimator(func(slug string, lat, lon float64, at time.Time) (DCFCEstimate, bool) {
+		gotSlug, gotStart = slug, at
+		return DCFCEstimate{Rate: 0.636, Currency: "USD", Network: "EVgo", Month: "2026-10", URL: "https://dcfctracker.com/reports/evgo"}, true
+	})
+	row = m.liveChargeRow("veh-1", charge("est"))
+	if row.CostSource != CostSourceObservedEstimate || row.Network != "EVgo" || row.PricePerKWh != 0.636 ||
+		row.Cost != 0.636*row.EnergyAddedKWh || row.Currency != "USD" ||
+		row.EstimateMonth != "2026-10" || row.EstimateURL != "https://dcfctracker.com/reports/evgo" {
+		t.Errorf("estimate: %+v", row)
+	}
+	if gotSlug != "evgo" || !gotStart.Equal(start) {
+		t.Errorf("estimator got slug %q at %v, want evgo at the session start %v", gotSlug, gotStart, start)
+	}
+	if row.NetworkState != "estimated" {
+		t.Errorf("network_state %q, want the detection state kept", row.NetworkState)
+	}
+
+	// The user's own rate wins: the estimator is not asked.
+	gotSlug = ""
+	verdict.Priced, verdict.Rate, verdict.Currency = true, 0.40, "USD"
+	row = m.liveChargeRow("veh-1", charge("own"))
+	if row.CostSource != CostSourceNetworkEstimate || row.PricePerKWh != 0.40 || row.EstimateMonth != "" || gotSlug != "" {
+		t.Errorf("own rate: %+v (estimator asked for %q)", row, gotSlug)
+	}
+
+	// No station figure for the date: stays unpriced.
+	verdict.Priced, verdict.Rate = false, 0
+	m.SetDCFCEstimator(func(string, float64, float64, time.Time) (DCFCEstimate, bool) { return DCFCEstimate{}, false })
+	row = m.liveChargeRow("veh-1", charge("none"))
+	if row.Cost != 0 || row.CostSource != "" || row.EstimateMonth != "" {
+		t.Errorf("no figure: %+v, want unpriced", row)
+	}
+}

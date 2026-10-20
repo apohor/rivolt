@@ -77,6 +77,30 @@ func ObservedFor(slug string, now time.Time) (ObservedPrice, bool) {
 	return ObservedPrice{}, false
 }
 
+// ObservedRateAt is the figure a past or live session may be priced at: the observed
+// price for slug when the session started on or after the observation month's first day
+// and before 12 months later (a session before the report is not covered by it; a
+// session after the 12 months is not either). The rate is the higher end of the range
+// (what a non-member pays, where the tracker reports both) unless member is true, then
+// the lower end.
+func ObservedRateAt(slug string, sessionStart time.Time, member bool) (rate float64, o ObservedPrice, ok bool) {
+	for _, c := range observedPrices {
+		if c.Slug != slug {
+			continue
+		}
+		m, err := time.Parse("2006-01", c.Month)
+		if err != nil || sessionStart.Before(m) || !sessionStart.Before(m.AddDate(0, observedMaxAge, 0)) {
+			return 0, ObservedPrice{}, false
+		}
+		rate = c.High
+		if member {
+			rate = c.Low
+		}
+		return rate, c, true
+	}
+	return 0, ObservedPrice{}, false
+}
+
 // Label is the exact wording for the figure.
 func (o ObservedPrice) Label() string {
 	m, err := time.Parse("2006-01", o.Month)

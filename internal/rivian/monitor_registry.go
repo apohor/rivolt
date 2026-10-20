@@ -57,6 +57,7 @@ type MonitorRegistry struct {
 	vehicleInfoFor     func(uid uuid.UUID) func([]Vehicle)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
+	dcfcEstimateFor    func(uid uuid.UUID) DCFCEstimator
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	sleepSafe          func(vehicleID string) bool
 	sleepObserver      SleepObserver
@@ -184,6 +185,15 @@ func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) D
 func (r *MonitorRegistry) SetDCFCDetectorFactory(factory func(uid uuid.UUID) DCFCDetector) {
 	r.mu.Lock()
 	r.dcfcDetectFor = factory
+	r.mu.Unlock()
+}
+
+// SetDCFCEstimatorFactory wires the per-user typical-price fallback for
+// fast charges the user has no rate for. Live recorder only. Safe to call
+// at boot before any Start.
+func (r *MonitorRegistry) SetDCFCEstimatorFactory(factory func(uid uuid.UUID) DCFCEstimator) {
+	r.mu.Lock()
+	r.dcfcEstimateFor = factory
 	r.mu.Unlock()
 }
 
@@ -378,6 +388,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.dcfcDetectFor != nil {
 		if fn := r.dcfcDetectFor(uid); fn != nil {
 			mon.SetDCFCDetector(fn)
+		}
+	}
+	if r.dcfcEstimateFor != nil {
+		if fn := r.dcfcEstimateFor(uid); fn != nil {
+			mon.SetDCFCEstimator(fn)
 		}
 	}
 	mon.SetSleepSafe(r.sleepSafe)
