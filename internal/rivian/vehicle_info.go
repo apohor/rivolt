@@ -227,8 +227,9 @@ func FieldSupport(model string) map[string]string {
 	out := map[string]string{
 		// vehicleState carries a time to full on R1; an R2 gets Parallax's countdown.
 		"charge_time_remaining": FieldReported,
-		// R1 reports it on every frame; an R2's comes from Parallax and can lag
-		// for a minute after a reconnect.
+		// R1 reports it on every frame. An R2's comes from Parallax and is held
+		// across a resubscribe (v0.37.6); confirmed on prod: 98.5% of the R2s' rows
+		// on the full UTC day of Oct 19 carried one (60.7% the day before the fix).
 		"power_state": FieldReported,
 		// vehicle_state.outside_temp_c is 0 on every row of every truck: never sourced.
 		"outside_temp": FieldUnavailable,
@@ -244,7 +245,6 @@ func FieldSupport(model string) map[string]string {
 	}
 	if r2 {
 		out["charge_time_remaining"] = FieldEstimate
-		out["power_state"] = FieldBestEffort
 		out["trip_target"] = FieldUnavailable
 		// No R2 charge session has produced a usable sample yet (0 of the fleet's R2s).
 		out["pack_capacity_estimate"] = FieldUnavailable
