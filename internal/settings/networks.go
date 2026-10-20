@@ -198,9 +198,9 @@ func AsOverrides(networks []ChargingNetwork) []dcfcrates.NetworkOverride {
 // reach. Reading and saving the book swaps exactly these strings for the current ones;
 // any other text a user wrote is left alone (an overlay by slug would overwrite it).
 var retiredPlanNames = map[string]string{
-	"Rivian owner (10% off)":       "Rivian owner discount",
-	"Rewards+ - $6.99/mo":          "EVgo Plus - $6.99/mo",
-	"GO+ - free":                   "Recharge Rewards - free tier",
+	"Rivian owner (10% off)": "Rivian owner discount",
+	"Rewards+ - $6.99/mo":    "EVgo Plus - $6.99/mo",
+	"GO+ - free":             "Recharge Rewards - free tier",
 }
 
 func currentPlanName(plan string) string {
