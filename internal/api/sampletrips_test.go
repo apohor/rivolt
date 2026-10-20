@@ -189,3 +189,32 @@ func TestTripCostLineNamesTheObservationMonth(t *testing.T) {
 		}
 	}
 }
+
+// Every priced stop names the tracker report its figure came from, on
+// dcfctracker.com over https; an unpriced stop has none.
+func TestSampleTripStopsLinkTheirReport(t *testing.T) {
+	seen := 0
+	for _, p := range demo.SampleTripPages {
+		tr, ok := demo.SampleTripBySlug(p.Slug)
+		if !ok {
+			continue
+		}
+		for _, d := range tr.Days {
+			for _, s := range d.Stops {
+				if s.CostLow == nil {
+					if s.PriceURL != "" {
+						t.Errorf("%s/%s: unpriced stop has a report link %q", p.Slug, s.Name, s.PriceURL)
+					}
+					continue
+				}
+				seen++
+				if !strings.HasPrefix(s.PriceURL, "https://dcfctracker.com/") {
+					t.Errorf("%s/%s: priced stop's price_url = %q", p.Slug, s.Name, s.PriceURL)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Skip("no priced stop in the sample trips")
+	}
+}
