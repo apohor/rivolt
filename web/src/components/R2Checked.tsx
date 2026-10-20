@@ -29,14 +29,14 @@ export function R2CheckedContent() {
         <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Checked on real R2s</h4>
         <p className="mt-1">
           drives · charges and plug-in · charge limit · battery, range and odometer · location · cabin and battery
-          temperature · tire pressure · reported battery capacity
+          temperature · tire pressure · sleep and power state · reported battery capacity
         </p>
       </div>
       <div>
         <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Shown as an estimate</h4>
         <p className="mt-1">
-          time to full charge (Rivian&apos;s own countdown; labelled &quot;estimate&quot;), and sleep and power state, which are
-          still being confirmed on the R2. Power state can take a minute to appear after Rivolt reconnects.
+          time to full charge (Rivian&apos;s own countdown; labelled &quot;estimate&quot;). Power state can take a minute to appear
+          after Rivolt reconnects.
         </p>
       </div>
       <div>
