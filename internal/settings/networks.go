@@ -190,6 +190,27 @@ func AsOverrides(networks []ChargingNetwork) []dcfcrates.NetworkOverride {
 // normalizeNetworks trims whitespace, drops invalid rows, defaults
 // the currency to USD where missing, and sorts alphabetically so
 // the UI surfaces a stable list across reloads.
+// retiredPlanNames are plan names the built-in table used to carry and no longer does,
+// because they were wrong or unsourced (Oct 2026): EVgo's plan is "EVgo Plus", Shell's US
+// programme is "Shell Recharge Rewards" (GO+ is a UK one), and Rivian states no
+// percentage for the owner discount. A user who saved their price book while the old
+// text was the default holds a stored copy of it, which a change to the table does not
+// reach. Reading and saving the book swaps exactly these strings for the current ones;
+// any other text a user wrote is left alone.
+var retiredPlanNames = map[string]string{
+	"Rivian owner (10% off)":       "Rivian owner discount",
+	"Rewards+ - $6.99/mo":          "EVgo Plus - $6.99/mo",
+	"GO+ - free":                   "Shell Recharge Rewards - free tier",
+	"Recharge Rewards - free tier": "Shell Recharge Rewards - free tier", // the wording of #713, before "Shell" was added
+}
+
+func currentPlanName(plan string) string {
+	if cur, ok := retiredPlanNames[plan]; ok {
+		return cur
+	}
+	return plan
+}
+
 func normalizeNetworks(in []ChargingNetwork) []ChargingNetwork {
 	out := make([]ChargingNetwork, 0, len(in))
 	seen := make(map[string]bool, len(in))
@@ -211,7 +232,7 @@ func normalizeNetworks(in []ChargingNetwork) []ChargingNetwork {
 			Name:        name,
 			PricePerKWh: n.PricePerKWh,
 			Currency:    cur,
-			MemberPlan:  strings.TrimSpace(n.MemberPlan),
+			MemberPlan:  currentPlanName(strings.TrimSpace(n.MemberPlan)),
 			Slug:        strings.TrimSpace(n.Slug),
 			Preferred:   n.Preferred,
 		}
