@@ -89,7 +89,7 @@ jobs:
       go: ${{ steps.f.outputs.go }}
       chart: ${{ steps.f.outputs.chart }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: f
@@ -137,9 +137,9 @@ jobs:
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -192,7 +192,7 @@ jobs:
       CT_VERSION: 3.15.0
       CT_SHA256: 467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # ct compares with origin/main
 
@@ -275,9 +275,9 @@ jobs:
           - { suite: legacy, project: chromium, shard: 2, total: 3 }
           - { suite: legacy, project: chromium, shard: 3, total: 3 }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -348,9 +348,9 @@ jobs:
       matrix:
         project: [chromium, webkit]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           cache: npm
@@ -398,9 +398,9 @@ jobs:
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: false
@@ -461,9 +461,9 @@ jobs:
     # talks to over the default unix socket — no extra service: block
     # needed.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: false
@@ -523,7 +523,7 @@ jobs:
       devtag: ${{ steps.ver.outputs.devtag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # fetch-tags so the version stamp below can read the prior
           # release with `git describe`.
@@ -612,7 +612,7 @@ jobs:
     steps:
       # Shallow: the version stamp comes from the image job.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -676,7 +676,7 @@ jobs:
       actions: read   # poll this run's go/integration jobs when a migration ships
     steps:
       - name: Checkout rivolt-infra
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: apohor/rivolt-infra
           # Fine-scoped PAT with contents:write on apohor/rivolt-infra.
@@ -863,7 +863,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout rivolt-infra
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: apohor/rivolt-infra
           token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
