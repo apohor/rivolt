@@ -9,8 +9,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // Older history for the demo truck, so the newer cards draw their charts. The
@@ -131,4 +133,28 @@ func RunWeather(ctx context.Context, d *sql.DB, every time.Duration, log func(ms
 			tick()
 		}
 	}
+}
+
+// DemoNetworks is the demo user's price book: sample rates the "sample owner" has
+// entered, so the demo's fast-charging sessions (priced from the user's own rate) keep
+// their network estimates. The planner and the ledger no longer price anything from the
+// dated built-in table, which shows no rate until a user enters one; these are fixtures
+// like the rest of the demo, 2 cents off the table so that they read as the user's own
+// (a row equal to the table's number is treated as never edited).
+func DemoNetworks() []settings.ChargingNetwork {
+	var out []settings.ChargingNetwork
+	for _, n := range dcfcrates.Networks {
+		if len(n.MatchPatterns) == 0 {
+			continue
+		}
+		row := settings.ChargingNetwork{
+			Name: n.DisplayName, Slug: n.Slug, Currency: "USD", PricePerKWh: round2(n.GuestRate + 0.02),
+			MemberPlan: n.MemberPlan, MemberActive: n.DefaultMemberActive,
+		}
+		if n.MemberRate != nil {
+			row.MemberPrice = round2(*n.MemberRate + 0.02)
+		}
+		out = append(out, row)
+	}
+	return out
 }

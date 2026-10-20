@@ -164,3 +164,27 @@ func TestSourceURLsComeOnlyFromTheObservedTable(t *testing.T) {
 		t.Error("no observed price was produced, so nothing was checked")
 	}
 }
+
+// The route spend is exactly the sum of the priced stops' costs: nothing else (not the
+// unpriced stops, not the home charge) is added to it.
+func TestRouteSpendIsTheSumOfPricedStops(t *testing.T) {
+	c := EstimateRoute(route(
+		stop("Tesla Supercharger - Kettleman", 10, 60),
+		stop("IONNA Rechargery - Barstow", 10, 60), // no price
+	), Context{PackKWh: 100, Now: oct2026, HomePricePerKWh: 0.16, HomeCurrency: "USD"})
+	if c.PricedStops != 1 || c.UnpricedStops != 1 {
+		t.Fatalf("cost = %+v", c)
+	}
+	tesla := c.Breakdown[0]
+	if tesla.CostLow == nil || c.DCFCSpendLow != *tesla.CostLow || c.DCFCSpendHigh != *tesla.CostHigh {
+		t.Errorf("spend %v..%v, want exactly the priced stop's %v..%v", c.DCFCSpendLow, c.DCFCSpendHigh, *tesla.CostLow, *tesla.CostHigh)
+	}
+	// Two runs of the same plan differing only in the user's own price give different
+	// totals: a stop's cost depends on which source priced it, so totals from different
+	// sources (own receipts vs the tracker's range) are not comparable figures.
+	own := EstimateRoute(route(stop("Tesla Supercharger - Kettleman", 10, 60)), Context{PackKWh: 100, Now: oct2026,
+		OwnRates: map[string]OwnRate{"tesla_sc": {PerKWh: 0.50, Sessions: 3}}})
+	if own.DCFCSpendLow != own.DCFCSpendHigh || own.DCFCSpendLow < 24.9 || own.DCFCSpendLow > 25.1 {
+		t.Errorf("own-rate spend = %v..%v, want 50 kWh x 0.50", own.DCFCSpendLow, own.DCFCSpendHigh)
+	}
+}

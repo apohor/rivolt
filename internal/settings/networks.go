@@ -43,6 +43,12 @@ type ChargingNetwork struct {
 	// Forwarded as networkPreferences[].preference=1 on plan
 	// requests. Unset / false sends nothing for that network.
 	Preferred bool `json:"preferred,omitempty"`
+	// Seeded is computed on read, never stored: the row's rates are still the built-in
+	// table's (or blank), so the user has not entered a rate for this network. Its
+	// price fields are returned as 0 ("unset"): the table's mid-2025 figures are dated
+	// estimates that no network publishes as a price and are not shown or applied as
+	// one. A row the user edited has Seeded false.
+	Seeded bool `json:"seeded,omitempty"`
 }
 
 // GetChargingNetworks returns the configured price book. When the
@@ -66,7 +72,37 @@ func GetChargingNetworks(ctx context.Context, s *Store) ([]ChargingNetwork, erro
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return DefaultChargingNetworks(), nil
 	}
-	return normalizeNetworks(out), nil
+	return markSeeded(normalizeNetworks(out)), nil
+}
+
+// markSeeded treats a built-in network row whose rates are still the table's (an
+// account that saved the book while the table's numbers were the seed) as unset: its
+// prices are returned as 0 and Seeded is set. Nothing is rewritten in the store. A row
+// with any other rate, and every custom row, is the user's own.
+func markSeeded(rows []ChargingNetwork) []ChargingNetwork {
+	for i, r := range rows {
+		base, ok := builtinBySlug(r.Slug)
+		if !ok {
+			continue
+		}
+		defMember := 0.0
+		if base.MemberRate != nil {
+			defMember = *base.MemberRate
+		}
+		if r.PricePerKWh == 0 || (r.PricePerKWh == base.GuestRate && (r.MemberPrice == 0 || r.MemberPrice == defMember)) {
+			rows[i].PricePerKWh, rows[i].MemberPrice, rows[i].Seeded = 0, 0, true
+		}
+	}
+	return rows
+}
+
+func builtinBySlug(slug string) (dcfcrates.Network, bool) {
+	for _, n := range dcfcrates.Networks {
+		if n.Slug == slug && slug != "" {
+			return n, true
+		}
+	}
+	return dcfcrates.Network{}, false
 }
 
 // SetChargingNetworks persists the provided price book, overwriting
@@ -102,15 +138,13 @@ func ResetChargingNetworks(ctx context.Context, s *Store) error {
 func DefaultChargingNetworks() []ChargingNetwork {
 	out := make([]ChargingNetwork, 0, len(dcfcrates.Networks))
 	for _, n := range dcfcrates.Networks {
+		// Blank rates: the table's figures are dated estimates, not the user's price.
 		row := ChargingNetwork{
 			Name:         n.DisplayName,
-			PricePerKWh:  n.GuestRate,
 			Currency:     DefaultHomeCurrency,
 			Slug:         n.Slug,
 			MemberActive: n.DefaultMemberActive,
-		}
-		if n.MemberRate != nil {
-			row.MemberPrice = *n.MemberRate
+			Seeded:       true,
 		}
 		row.MemberPlan = n.MemberPlan
 		out = append(out, row)
@@ -215,7 +249,9 @@ func normalizeNetworks(in []ChargingNetwork) []ChargingNetwork {
 	seen := make(map[string]bool, len(in))
 	for _, n := range in {
 		name := strings.TrimSpace(n.Name)
-		if name == "" || n.PricePerKWh <= 0 {
+		// A custom row needs a positive price (a half-filled form is dropped); a built-in
+		// network's row may be blank: that is "no rate entered yet".
+		if _, builtin := builtinBySlug(strings.TrimSpace(n.Slug)); name == "" || n.PricePerKWh <= 0 && !builtin {
 			continue
 		}
 		key := strings.ToLower(name)
