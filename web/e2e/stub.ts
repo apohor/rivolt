@@ -431,6 +431,13 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         link: { trip_id: "trip_1", confidence: 0.91, band: "high", linked_at: iso(86_400_000) },
       });
     }
+    if (demo && p === `/api/vehicles/${VEHICLE_ID}/cold-range`) {
+      const t = Number(new URL(route.request().url()).searchParams.get("temp_c") ?? 4.4);
+      return json(route, {
+        units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", temp_c: t, efficiency_low: 2.3, efficiency_high: 2.7, range_low: 270, range_high: 310,
+        based_on: { drives: 9, miles: 240, temp_lo_c: t - 4, temp_hi_c: t + 4 }, available: [4.4, 15.6, 26.7], min_drives: 5, min_miles: 50,
+      });
+    }
     if (p === `/api/vehicles/${VEHICLE_ID}/trends`) {
       // The demo's generated history is short: one qualifying month, so the card shows its sparse sentences.
       return json(route, {

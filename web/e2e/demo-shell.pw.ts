@@ -11,7 +11,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const ALLOW: RegExp[] = [
   /^\/api\/demo$/, /^\/api\/config$/, /^\/api\/health$/,
-  /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|trends)$`),
+  /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|trends|cold-range)$`),
   new RegExp(`^/api/state/${VEHICLE_ID}$`),
   /^\/api\/ledger\/(enabled|monthly|summary|trips)$/,
   /^\/api\/charges(\/clusters)?$/, /^\/api\/drives$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
@@ -224,4 +224,15 @@ test("demo planner: ?preset= opens that sample trip", async ({ page }) => {
   await page.goto("/demo/trips/plan?preset=la-vegas");
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   await expect(page.getByText(/Sample plan/).first()).toBeVisible();
+});
+
+// The demo's Truck tab shows the cold-range card with sample figures and calls only the allowlisted endpoint.
+test("demo Truck: the range-at-temperatures card shows sample figures", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { demo: true, signedIn: false });
+  const bad = watch(page);
+  await page.goto("/demo/truck");
+  await expect(page.locator("[data-cold-range]")).toContainText("from your own drives (estimate)");
+  await page.waitForTimeout(800);
+  expect(bad, bad.join("\n")).toEqual([]);
 });

@@ -93,7 +93,14 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
         </div>
       )}
 
-      {d.windows[win].split && <DrainSplitView split={d.windows[win].split as DrainSplit} win={win} />}
+      {(() => {
+        // The selected window's split, unless it is too thin and the other window has enough: then that one, said as such.
+        const mine = d.windows[win].split;
+        const theirs = d.windows[other].split;
+        const useOther = mine && !mine.sufficient && theirs?.sufficient;
+        const split = useOther ? theirs : mine;
+        return split ? <DrainSplitView split={split as DrainSplit} win={useOther ? other : win} /> : null;
+      })()}
 
       {d.daily.length > 0 && (
         <figure className="mt-4">
