@@ -107,7 +107,8 @@ export default function TruckPage() {
 
       <DrainCard vehicleID={selectedID} />
 
-      {next && <LeaseCard vehicleID={selectedID} />}
+      {/* The demo has no lease (and its API has no such call): no card, no 404 in the console. */}
+      {next && !inDemo() && <LeaseCard vehicleID={selectedID} />}
 
       <Card title="Pack capacity">
         <PackHealthCard vehicleID={selectedID} />

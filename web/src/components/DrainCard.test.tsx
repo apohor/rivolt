@@ -114,4 +114,12 @@ describe("DrainCard", () => {
     await screen.findByText("0.9");
     expect(b.container.querySelector("[data-drain-split]")).toBeNull();
   });
+
+  it("falls back to the other window's split when the selected one is too thin", async () => {
+    const off = { sufficient: false, reason: "not_enough_data", asleep_hours: 10, awake_hours: 1, asleep_points_lost: null, awake_points_lost: null, awake_share_of_loss: null, awake_share_of_time: null, min_hours: 48, min_points_lost: 3 };
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: off }), win({ drain_pct_per_day: 1.1, split: split({ asleep_points_lost: 10, awake_points_lost: 2, awake_share_of_loss: 2 / 12 }) })) } });
+    renderCard();
+    expect(await screen.findByText(/Of the 12% your truck lost while parked over 30 days, about 2% was while it was awake/)).toBeInTheDocument();
+    expect(screen.queryByText(/needs about two days of parked history/)).toBeNull();
+  });
 });

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type ColdRange } from "../lib/api";
-import { inDemo } from "../lib/demo";
 import { formatTemperature, usePreferences, type TemperatureUnit } from "../lib/preferences";
 import { Card } from "./ui";
 
@@ -15,7 +14,7 @@ const note = "text-sm text-neutral-400";
 
 // "Range at different temperatures" (Truck tab): the user's own efficiency and range near a temperature, as a band and
 // labelled an estimate. The temperature is only the question: chips pick it, and a chip with too little history of your own
-// is greyed out. Nothing is drawn for a temperature the truck has no history for, and never a comparison with anyone else.
+// is greyed out (the demo shows it with sample figures). Nothing is drawn for a temperature the truck has no history for, and never a comparison with anyone else.
 export function ColdRangeCard({ vehicleID }: { vehicleID: string }) {
   const { distanceUnit, temperatureUnit } = usePreferences();
   const units = distanceUnit === "km" ? "metric" : "imperial";
@@ -31,11 +30,11 @@ export function ColdRangeCard({ vehicleID }: { vehicleID: string }) {
       if (r && picked === null && auto === null && r.available.length > 0) setAuto(Math.min(...r.available));
       return r;
     },
-    enabled: !!vehicleID && !inDemo(),
+    enabled: !!vehicleID,
     staleTime: 5 * 60_000,
     retry: 1,
   });
-  if (inDemo() || q.data === null) return null;
+  if (q.data === null) return null;
   const d = q.data;
   return (
     <Card title="Range at different temperatures" span="full">
