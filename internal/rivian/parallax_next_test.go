@@ -54,9 +54,20 @@ func TestPbTree(t *testing.T) {
 	}
 }
 
+// captureOpen holds the time-boxed capture open for one test, so a test that
+// decode-logs frames doesn't depend on the calendar (the capture window ended at
+// 2026-10-20 00:00 UTC, which broke these two on that day).
+func captureOpen(t *testing.T) {
+	t.Helper()
+	old := pxNextCaptureUntil
+	pxNextCaptureUntil = time.Now().Add(time.Hour)
+	t.Cleanup(func() { pxNextCaptureUntil = old })
+}
+
 // vehicle.network.state carries the Wi-Fi SSID (field 4 → 3): no string of
 // that topic may reach the log, nor its raw payload.
 func TestPxNextNetworkNeverLogsStrings(t *testing.T) {
+	captureOpen(t)
 	var buf syncBuffer
 	m := NewStateMonitor(nil, nil)
 	m.logger = slog.New(slog.NewJSONHandler(&buf, nil))
@@ -149,6 +160,7 @@ func TestPxNextTopicSet(t *testing.T) {
 // DA: no topic logs strings (opt-in only after a decode proves no free
 // text), and the topics that may hold a position round floats to 2 decimals.
 func TestPxNextGuardrails(t *testing.T) {
+	captureOpen(t)
 	for rvm, spec := range pxNextTopics {
 		if spec.strings {
 			t.Errorf("%s logs strings; every topic is numbers-only until a decode proves otherwise", rvm)
