@@ -3,6 +3,7 @@ import { useUiNext } from "../lib/uiNext";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
+import { CostEstimateNote } from "./CostEstimateNote";
 import { BottomSheet } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
@@ -277,6 +278,9 @@ export function RouteCard({
   }
   return (
     <Card title={title}>
+      {totalGuest > 0 && (
+        <CostEstimateNote className="-mt-1 mb-3 text-[11px] text-neutral-500" />
+      )}
       {index > 0 && allRoutes.length > 1 && (() => {
         // Alternative comparison line. Renders below the title so the
         // user can see at a glance how this route diverges from
