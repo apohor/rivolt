@@ -17,10 +17,10 @@ update them when the operator changes their pricing page.
 | Electrify America | 0.48 | 0.36 | Pass+, $7/mo | [electrifyamerica.com/pricing](https://www.electrifyamerica.com/pricing/) |
 | Tesla Supercharger (non-Tesla) | 0.55 | 0.40 | Supercharging Membership, $12.99/mo | [tesla.com/support/non-tesla-supercharging](https://www.tesla.com/support/non-tesla-supercharging) |
 | Rivian Adventure Network | 0.45 | n/a | Rivian owner only (no separate tier) | [rivian.com/support/article/rivian-adventure-network](https://rivian.com/support/article/rivian-adventure-network) |
-| EVgo | 0.42 | 0.34 | Rewards+, $6.99/mo | [evgo.com/charging-plans](https://www.evgo.com/charging-plans/) |
+| EVgo | 0.42 | 0.34 | Plus, $6.99/mo (was "Rewards+") | [evgo.com/charging-plans](https://www.evgo.com/charging-plans/) |
 | Blink | 0.49 | 0.39 | Member, annual fee | [blinkcharging.com](https://www.blinkcharging.com/) |
 | bp pulse | 0.45 | 0.39 | Plus, $4/mo | [bppulse.com](https://www.bppulse.com/) |
-| Shell Recharge | 0.43 | 0.40 | GO+, free | [shellrecharge.com](https://shellrecharge.com/) |
+| Shell Recharge | 0.43 | 0.40 | Recharge Rewards, free tier (was "GO+", a UK programme) | [shellrecharge.com](https://shellrecharge.com/) |
 | ChargePoint | 0.45 | n/a | Host-set, no central plan | [chargepoint.com](https://www.chargepoint.com/) |
 | Francis Energy | 0.40 | n/a | No public plan | [francisenergy.com](https://francisenergy.com/) |
 | Ionna | 0.40 | n/a | Limited deployment; pricing TBD | [ionna.com](https://www.ionna.com/) |
