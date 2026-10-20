@@ -16,6 +16,7 @@
   "rebaseWhen": "conflicted",
   "automergeSchedule": ["at any time"],
   "statusCheckNames": { "minimumReleaseAge": null },
+  "internalChecksFilter": "strict",
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": "1 day" },
   "transitiveRemediation": true,
