@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -121,5 +124,58 @@ func TestPriceCandidatesPricesOnlyTheHotel(t *testing.T) {
 	}
 	if _, ok := f.got["other"]; ok {
 		t.Fatal("a non-hand-priced session was priced")
+	}
+}
+
+// The older history sits before the 45-day corpus, is stable within a day, and is
+// enough for the trends: at least two calendar months of seeded drives with 50+
+// mi each (the corpus supplies the rest), and three charges that qualify for the
+// pack-capacity estimate.
+func TestSeedHistoryFeedsTheTrends(t *testing.T) {
+	for _, now := range []time.Time{
+		time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 30, 23, 0, 0, 0, time.UTC),
+		time.Date(2027, 1, 1, 0, 30, 0, 0, time.UTC),
+		time.Date(2027, 3, 15, 12, 0, 0, 0, time.UTC),
+	} {
+		ds, same := SeedDrives(UserID(), now), SeedDrives(UserID(), now.Add(20*time.Minute))
+		months := map[string]float64{}
+		for i, d := range ds {
+			if age := now.Sub(d.StartedAt); age < 46*24*time.Hour || age > 121*24*time.Hour {
+				t.Errorf("%s drive %s is %v old; must sit before the 45-day corpus and within 120 days", now.Format("2006-01-02"), d.ID, age)
+			}
+			if d.DistanceMi < 5 || d.EnergyUsedKWh < 1 || d.Source != "seed" || d.VehicleID != VehicleID() {
+				t.Errorf("drive %+v would not count in the trend or is mis-keyed", d)
+			}
+			if !d.StartedAt.Equal(same[i].StartedAt) || d.ID != same[i].ID {
+				t.Errorf("%s is not stable within a day", d.ID)
+			}
+			months[d.StartedAt.Format("2006-01")] += d.DistanceMi
+		}
+		enough := 0
+		for _, mi := range months {
+			if mi >= 50 {
+				enough++
+			}
+		}
+		if enough < 2 {
+			t.Errorf("%s: only %d seeded months reach 50 mi (%v); the trend needs three with the corpus's", now.Format("2006-01-02"), enough, months)
+		}
+		cs := SeedDCFCharges(UserID(), now)
+		if len(cs) != 3 {
+			t.Fatalf("len = %d", len(cs))
+		}
+		for _, c := range cs {
+			if age := now.Sub(c.StartedAt); age < 49*24*time.Hour {
+				t.Errorf("%s is %v old; must sit before the corpus", c.ID, age)
+			}
+			s, ok := packhealth.Derive(packhealth.ChargeInput{ChargeID: uuid.New(), EndedAt: c.EndedAt, StartSoCPct: c.StartSoCPct, EndSoCPct: c.EndSoCPct, EnergyAddedKWh: c.EnergyAddedKWh})
+			if !ok || s.PackKWhEffective < 125 || s.PackKWhEffective > 135 || c.MaxPowerKW <= packhealth.MinPeakKWForMeasured {
+				t.Errorf("%s does not give a clean capacity sample: %+v %v peak %v", c.ID, s, ok, c.MaxPowerKW)
+			}
+			if c.CostSource != "user" || c.Cost <= 0 {
+				t.Errorf("%s is not user-priced: %+v", c.ID, c)
+			}
+		}
 	}
 }

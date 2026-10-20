@@ -1138,7 +1138,7 @@ func runServer() {
 	// before the hydrate sweep below connects it. Idempotent.
 	if demo.Enabled() && pgPool != nil && secretsStore != nil {
 		if err := demo.Seed(ctx, demo.Deps{
-			DB: pgPool, Settings: settingsFactory, Charges: chargesFactory, Secrets: secretsStore,
+			DB: pgPool, Settings: settingsFactory, Charges: chargesFactory, Drives: drivesFactory, Secrets: secretsStore,
 		}); err != nil {
 			logger.Error("demo seed failed", "err", err.Error())
 		} else {
@@ -1147,6 +1147,8 @@ func runServer() {
 		// The replay backfill records sessions after boot, so the
 		// hand-priced hotel L2 gets its user price on a timer.
 		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		// Sample weather for the demo drives, so cold-range has stored temperatures.
+		go demo.RunWeather(ctx, pgPool, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
 		// The sample owner's saved Las Vegas plans follow the replay onto
 		// each loop's trip, for the demo's Plan vs Actual.
 		go demo.RunPlans(ctx, pgPool, settingsFactory, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })

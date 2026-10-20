@@ -17,6 +17,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
@@ -67,6 +68,7 @@ type Deps struct {
 	DB       *sql.DB
 	Settings *settings.Factory
 	Charges  *charges.Factory
+	Drives   *drives.Factory // optional: without it the older history is not seeded
 	Secrets  *secrets.Store
 	Now      func() time.Time
 }
@@ -125,6 +127,20 @@ func Seed(ctx context.Context, d Deps) error {
 	for _, c := range SeedCharges(uid, now()) {
 		if err := cs.Upsert(ctx, c); err != nil {
 			return fmt.Errorf("demo: seed charge %s: %w", c.ID, err)
+		}
+	}
+	// Older history so the trends and cold-range cards draw (see history.go).
+	if d.Drives != nil {
+		for _, c := range SeedDCFCharges(uid, now()) {
+			if err := cs.Upsert(ctx, c); err != nil {
+				return fmt.Errorf("demo: seed charge %s: %w", c.ID, err)
+			}
+		}
+		ds := d.Drives.For(uid)
+		for _, dr := range SeedDrives(uid, now()) {
+			if err := ds.Upsert(ctx, dr); err != nil {
+				return fmt.Errorf("demo: seed drive %s: %w", dr.ID, err)
+			}
 		}
 	}
 	return nil
