@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/dcfcrates"
@@ -64,6 +65,19 @@ type Context struct {
 	// estimate's user-totals match what the user has actually
 	// signed up for.
 	DCFCNetworks []dcfcrates.NetworkOverride
+	// OwnRates is what the user actually paid per kWh at each network (slug), from
+	// their own receipts, with how many sessions it rests on. The caller supplies
+	// only figures that meet the minimum (receipts.PaidMinSessions) in this
+	// context's currency. nil when the user has no receipts.
+	OwnRates map[string]OwnRate
+	// Now is the clock for the observed-price expiry; zero means time.Now().
+	Now time.Time
+}
+
+// OwnRate is the user's own paid price at a network.
+type OwnRate struct {
+	PerKWh   float64
+	Sessions int
 }
 
 // Result is what Generate returns to the handler.
@@ -80,54 +94,88 @@ type Result struct {
 	Cost CostEstimate
 }
 
-// CostEstimate is a deterministic, code-computed projection of trip
-// cost. Four views the user cares about:
-//   - DCFCSpend (guest): what a walk-up driver pays.
-//   - DCFCSpendUserMember: cost given the user's active memberships
-//     (toggled in Settings). Equal to DCFCSpend when the user has
-//     no memberships on.
-//   - DCFCSpendAllMember: hypothetical "you have every plan" floor,
-//     so the strip can hint "you could save $X more by joining
-//     Tesla Supercharging Membership".
-//   - HomeEquivalent: every kWh at the home meter rate.
+// CostEstimate is a deterministic, code-computed projection of trip cost. It is an
+// ESTIMATE and says so: the dollar figures for the DC fast stops are a range
+// (DCFCSpendLow to DCFCSpendHigh) over the stops that have a price, and a stop with
+// none is counted in UnpricedStops, not given a made-up number. Where each stop's
+// price comes from is on the stop (CostStop.Price.Basis), in order:
 //
-// Breakdown is the per-stop attribution that drives the totals, so
-// the SPA can show "1× EA · 1× Tesla SC · 1× RAN".
+//  1. the user's own receipts at that network (their paid $/kWh, at least 3 sessions);
+//  2. a rate the user set themselves in Settings (not the seeded default);
+//  3. the third-party observed price (dcfcrates.ObservedFor: its own table, source and
+//     month, hidden after 12 months);
+//  4. none: "price shown at the charger".
+//
+// The built-in table's dated guest and member rates are never used for a dollar
+// figure. HomeEquivalent and GasEquivalent are unchanged.
 type CostEstimate struct {
-	Currency            string  `json:"currency"`
-	DCFCSpend           float64 `json:"dcfc_spend"`
-	DCFCSpendUserMember float64 `json:"dcfc_spend_user_member"`
-	DCFCSpendAllMember  float64 `json:"dcfc_spend_all_member"`
-	HomeEquivalent      float64 `json:"home_equivalent"`
+	Currency string `json:"currency"`
+	// DCFCSpendLow and DCFCSpendHigh sum the priced stops' cost range. Equal when no
+	// priced stop has a range; both 0 when no stop has a price (see PricedStops).
+	DCFCSpendLow  float64 `json:"dcfc_spend_low"`
+	DCFCSpendHigh float64 `json:"dcfc_spend_high"`
+	// PricedStops and UnpricedStops count the DC fast stops with and without a price,
+	// so the UI can say "partial: 2 of 3 stops priced".
+	PricedStops   int `json:"priced_stops"`
+	UnpricedStops int `json:"unpriced_stops"`
+	// EstimateBasis is which sources fed the figure: "your_receipts", "your_setting",
+	// "observed", "mixed" (more than one of them) or "none" (no stop priced). The UI
+	// words the estimate from it ("estimate (typical observed price)" when observed or
+	// mixed).
+	EstimateBasis  string  `json:"estimate_basis"`
+	HomeEquivalent float64 `json:"home_equivalent"`
 	// GasEquivalent is what the same distance would cost in an ICE
 	// vehicle at the user's configured gas price + MPG. Zero when
 	// either input is unset.
 	GasEquivalent     float64 `json:"gas_equivalent"`
 	GasPricePerGallon float64 `json:"gas_price_per_gallon"`
 	GasMPG            float64 `json:"gas_mpg"`
-	// DCFCRateUsed is the avg per-kWh guest rate weighted by energy.
-	// Falls back to DefaultDCFCRateUSD when no waypoints priced.
-	DCFCRateUsed           float64 `json:"dcfc_rate_used"`
-	DCFCRateUsedUserMember float64 `json:"dcfc_rate_used_user_member"`
-	DCFCRateUsedAllMember  float64 `json:"dcfc_rate_used_all_member"`
 	// HomeRateUsed is the user's configured at-home rate, 0 when
 	// unconfigured.
 	HomeRateUsed float64 `json:"home_rate_used"`
-	// Breakdown lists each priced stop. Empty when no DCFC stops
+	// Breakdown lists each DC fast stop. Empty when no DCFC stops
 	// were on the route (all-from-home trip).
 	Breakdown []CostStop `json:"breakdown,omitempty"`
 }
 
-// CostStop is one waypoint's contribution to the DCFC total.
+// Price bases for StopPrice.Basis.
+const (
+	BasisYourReceipts = "your_receipts"
+	BasisYourSetting  = "your_setting"
+	BasisObserved     = "observed"
+)
+
+// StopPrice is the price used for one stop and where it came from.
+type StopPrice struct {
+	Basis      string  `json:"basis"`
+	PerKWhLow  float64 `json:"per_kwh_low"`
+	PerKWhHigh float64 `json:"per_kwh_high"`
+	// LowNote and HighNote say what each end of a range is (observed Tesla: with and
+	// without the membership); empty when the ends are equal.
+	LowNote  string `json:"low_note,omitempty"`
+	HighNote string `json:"high_note,omitempty"`
+	// Sessions is how many of the user's receipts a your_receipts figure rests on.
+	Sessions int `json:"sessions,omitempty"`
+	// Source, SourceURL and ObservedMonth name the third party behind an observed figure.
+	Source        string `json:"source,omitempty"`
+	SourceURL     string `json:"source_url,omitempty"`
+	ObservedMonth string `json:"observed_month,omitempty"`
+	// Label is the exact wording to show with the figure.
+	Label string `json:"label"`
+}
+
+// CostStop is one waypoint's contribution to the DC fast total.
 type CostStop struct {
-	NetworkSlug   string  `json:"network_slug"`
-	NetworkName   string  `json:"network_name"`
-	ChargerName   string  `json:"charger_name"`
-	EnergyKWh     float64 `json:"energy_kwh"`
-	GuestRate     float64 `json:"guest_rate"`
-	UserRate      float64 `json:"user_rate"`
-	AllMemberRate float64 `json:"all_member_rate"`
-	MemberPlan    string  `json:"member_plan,omitempty"`
+	NetworkSlug string  `json:"network_slug"`
+	NetworkName string  `json:"network_name"`
+	ChargerName string  `json:"charger_name"`
+	EnergyKWh   float64 `json:"energy_kwh"`
+	MemberPlan  string  `json:"member_plan,omitempty"`
+	// Price is nil when there is none for this stop: "price shown at the charger".
+	Price *StopPrice `json:"price"`
+	// CostLow and CostHigh are EnergyKWh times the price range, nil with no price.
+	CostLow  *float64 `json:"cost_low"`
+	CostHigh *float64 `json:"cost_high"`
 }
 
 // Parsed is the structured JSON shape the model emits. Each list
@@ -203,7 +251,11 @@ func EstimateRoute(r *rivian.TripRoute, tc Context) CostEstimate {
 	// Falls back to 0 when pack capacity is unknown - we don't want
 	// to bake in a guess pack size and quote a dollar figure off it.
 	if tc.PackKWh > 0 {
-		var totalKWh float64
+		now := tc.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		bases := map[string]bool{}
 		for _, w := range r.Waypoints {
 			t := strings.ToUpper(w.WaypointType)
 			if t == "ORIGIN" || t == "DESTINATION" || t == "WAYPOINT" || t == "OTHER" {
@@ -214,31 +266,33 @@ func EstimateRoute(r *rivian.TripRoute, tc Context) CostEstimate {
 				continue
 			}
 			energy := (delta / 100) * tc.PackKWh
-			rr := dcfcrates.ResolveRate(w.Name, tc.DCFCNetworks)
-			est.DCFCSpend += energy * rr.GuestRate
-			est.DCFCSpendUserMember += energy * rr.UserRate
-			est.DCFCSpendAllMember += energy * rr.AllMemberRate
-			est.Breakdown = append(est.Breakdown, CostStop{
-				NetworkSlug:   rr.Slug,
-				NetworkName:   rr.DisplayName,
-				ChargerName:   w.Name,
-				EnergyKWh:     energy,
-				GuestRate:     rr.GuestRate,
-				UserRate:      rr.UserRate,
-				AllMemberRate: rr.AllMemberRate,
-				MemberPlan:    rr.MemberPlan,
-			})
-			totalKWh += energy
+			sn := dcfcrates.ResolveStop(w.Name, tc.DCFCNetworks)
+			stop := CostStop{
+				NetworkSlug: sn.Slug, NetworkName: sn.DisplayName, ChargerName: w.Name,
+				EnergyKWh: energy, MemberPlan: sn.MemberPlan,
+				Price: stopPrice(sn, tc, cur, now),
+			}
+			if p := stop.Price; p != nil {
+				lo, hi := energy*p.PerKWhLow, energy*p.PerKWhHigh
+				stop.CostLow, stop.CostHigh = &lo, &hi
+				est.DCFCSpendLow += lo
+				est.DCFCSpendHigh += hi
+				est.PricedStops++
+				bases[p.Basis] = true
+			} else {
+				est.UnpricedStops++
+			}
+			est.Breakdown = append(est.Breakdown, stop)
 		}
-		// Energy-weighted averages for the strip's "@ $X / $Y / $Z per kWh" line.
-		if totalKWh > 0 {
-			est.DCFCRateUsed = est.DCFCSpend / totalKWh
-			est.DCFCRateUsedUserMember = est.DCFCSpendUserMember / totalKWh
-			est.DCFCRateUsedAllMember = est.DCFCSpendAllMember / totalKWh
-		} else {
-			est.DCFCRateUsed = DefaultDCFCRateUSD
-			est.DCFCRateUsedUserMember = DefaultDCFCRateUSD
-			est.DCFCRateUsedAllMember = DefaultDCFCRateUSD
+		switch len(bases) {
+		case 0:
+			est.EstimateBasis = "none"
+		case 1:
+			for b := range bases {
+				est.EstimateBasis = b
+			}
+		default:
+			est.EstimateBasis = "mixed"
 		}
 	}
 	if tc.HomePricePerKWh > 0 && r.EnergyConsumptionKWh > 0 {
@@ -251,6 +305,37 @@ func EstimateRoute(r *rivian.TripRoute, tc Context) CostEstimate {
 		est.GasMPG = tc.ComparisonMPG
 	}
 	return est
+}
+
+// stopPrice picks the price for a stop, in order: the user's own receipts, a rate the
+// user set, the observed third-party figure, none. Observed figures are USD, so they
+// are skipped when the trip is in another currency.
+func stopPrice(sn dcfcrates.StopNetwork, tc Context, cur string, now time.Time) *StopPrice {
+	if o, ok := tc.OwnRates[sn.Slug]; ok && o.PerKWh > 0 && o.Sessions > 0 {
+		return &StopPrice{
+			Basis: BasisYourReceipts, PerKWhLow: o.PerKWh, PerKWhHigh: o.PerKWh, Sessions: o.Sessions,
+			Label: fmt.Sprintf("From your last %d sessions", o.Sessions),
+		}
+	}
+	if sn.UserSet && sn.UserPerKWh > 0 {
+		return &StopPrice{
+			Basis: BasisYourSetting, PerKWhLow: sn.UserPerKWh, PerKWhHigh: sn.UserPerKWh,
+			Label: "Your saved rate",
+		}
+	}
+	if cur == "USD" {
+		if o, ok := dcfcrates.ObservedFor(sn.Slug, now); ok {
+			p := &StopPrice{
+				Basis: BasisObserved, PerKWhLow: o.Low, PerKWhHigh: o.High,
+				Source: dcfcrates.ObservedSource, SourceURL: o.URL, ObservedMonth: o.Month, Label: o.Label(),
+			}
+			if o.Low != o.High {
+				p.LowNote, p.HighNote = o.LowNote, o.HighNote
+			}
+			return p
+		}
+	}
+	return nil
 }
 
 func parse(s string) *Parsed {
@@ -346,9 +431,17 @@ func buildPrompt(plan *rivian.TripPlan, tc Context, cost CostEstimate) (system, 
 
 	// Cost summary — code-computed, given to the model so the "cost"
 	// commentary references real numbers instead of inventing them.
-	if cost.DCFCSpend > 0 || cost.HomeEquivalent > 0 {
-		fmt.Fprintf(&sb, "DCFC spend estimate: %.2f %s (assuming %.2f %s/kWh)\n",
-			cost.DCFCSpend, cost.Currency, cost.DCFCRateUsed, cost.Currency)
+	if cost.PricedStops > 0 || cost.HomeEquivalent > 0 {
+		if cost.PricedStops > 0 {
+			spend := fmt.Sprintf("%.2f", cost.DCFCSpendLow)
+			if cost.DCFCSpendHigh-cost.DCFCSpendLow >= 0.005 {
+				spend = fmt.Sprintf("%.2f to %.2f", cost.DCFCSpendLow, cost.DCFCSpendHigh)
+			}
+			fmt.Fprintf(&sb, "DCFC spend estimate: %s %s for %d of %d fast-charging stops (basis: %s); the other stops have no known price, so say the price is shown at the charger\n",
+				spend, cost.Currency, cost.PricedStops, cost.PricedStops+cost.UnpricedStops, cost.EstimateBasis)
+		} else if cost.UnpricedStops > 0 {
+			fmt.Fprintln(&sb, "DCFC spend: unknown, the price is shown at the charger. Do not quote a dollar figure for the fast-charging stops.")
+		}
 		if cost.HomeEquivalent > 0 {
 			fmt.Fprintf(&sb, "Home-rate equivalent for total energy used: %.2f %s (at %.3f %s/kWh)\n",
 				cost.HomeEquivalent, cost.Currency, cost.HomeRateUsed, cost.Currency)

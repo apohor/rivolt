@@ -70,6 +70,19 @@ type presetFile struct {
 	Plan json.RawMessage
 }
 
+// PresetCostsAt is the date the preset plans' costs were priced: the observed
+// third-party prices in them (dcfcrates, hand-copied from DCFC Tracker) were checked
+// on this day, and the presets are static files, so they are built "as of" it and
+// the test that compares them with the corpus stays deterministic.
+//
+// REFRESH BY OCTOBER 2027: an observed price is hidden from live plans 12 months
+// after its month, but a preset file keeps showing the figure it was built with (with
+// its month in the label). When the figures in dcfcrates/observed.go are re-checked,
+// move this date, regenerate the preset plans (see presets_gen_test.go) and the
+// sample-trip pages built from them; if they are not re-checked, regenerate with no
+// observed prices, so the demo stops showing a figure the live planner would hide.
+var PresetCostsAt = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+
 // newPreset builds a preset from a plan.
 func newPreset(id, name string, from, to rivian.SamplePlace, startSoC, targetSoC, packKWh float64, plan rivian.TripPlan) (presetFile, error) {
 	if len(plan.Routes) == 0 {
@@ -79,7 +92,7 @@ func newPreset(id, name string, from, to rivian.SamplePlace, startSoC, targetSoC
 	if err != nil {
 		return presetFile{}, err
 	}
-	pb, err := plannerResponse(plan, packKWh, presetConfig(), settings.DefaultChargingNetworks())
+	pb, err := plannerResponse(plan, packKWh, presetConfig(), settings.DefaultChargingNetworks(), PresetCostsAt)
 	if err != nil {
 		return presetFile{}, err
 	}
@@ -145,7 +158,7 @@ func twoDayPreset(shapes []string) (presetFile, error) {
 	if err != nil {
 		return presetFile{}, err
 	}
-	pb, err := twoDaySnapshot(days, presetConfig(), settings.DefaultChargingNetworks(), shapes)
+	pb, err := twoDaySnapshot(days, presetConfig(), settings.DefaultChargingNetworks(), shapes, PresetCostsAt)
 	if err != nil {
 		return presetFile{}, err
 	}

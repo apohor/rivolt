@@ -183,17 +183,52 @@ type tripView struct {
 }
 
 var tmplFuncs = template.FuncMap{
-	"mi":    func(f float64) string { return fmt.Sprintf("%.0f mi", f) },
-	"pct":   func(f float64) string { return fmt.Sprintf("%.0f%%", f) },
-	"usd":   func(f float64) string { return fmt.Sprintf("$%.2f", f) },
-	"kw":    func(f float64) string { return fmt.Sprintf("%.0f kW", f) },
-	"kwh":   func(f float64) string { return fmt.Sprintf("%.1f kWh", f) },
-	"hm":    durationHM,
+	"mi":  func(f float64) string { return fmt.Sprintf("%.0f mi", f) },
+	"pct": func(f float64) string { return fmt.Sprintf("%.0f%%", f) },
+	"usd": func(f float64) string { return fmt.Sprintf("$%.2f", f) },
+	// stopCost is one stop's estimate, or where its price is found.
+	"stopCost": stopCostText,
+	"costLine": tripCostLine,
+	"kw":       func(f float64) string { return fmt.Sprintf("%.0f kW", f) },
+	"kwh":      func(f float64) string { return fmt.Sprintf("%.1f kWh", f) },
+	"hm":       durationHM,
 	// Times of day only: the presets have fixed dates, which would read as
 	// stale on an evergreen page.
 	"clock": func(t time.Time) string { return t.In(demo.TripZone()).Format("3:04 PM") },
 	"h1":    func(title string) string { return strings.TrimSuffix(title, " | Rivolt") },
 	"path":  func(slug string) string { return pathSampleTrips + "/" + slug },
+}
+
+// stopCostText words a stop's cost: a typical observed price as a dollar figure
+// (a range where the tracker reports a membership and a non-member price) with its
+// source, or "price shown at the charger" when the network has no figure.
+func stopCostText(s demo.SampleTripStop) string {
+	if s.CostLow == nil || s.CostHigh == nil {
+		return "price shown at the charger"
+	}
+	return dollarRange(*s.CostLow, *s.CostHigh)
+}
+
+func dollarRange(low, high float64) string {
+	if high-low < 0.005 {
+		return fmt.Sprintf("$%.2f", low)
+	}
+	return fmt.Sprintf("$%.2f to $%.2f", low, high)
+}
+
+// tripCostLine is the sentence about fast-charging cost. It is an estimate from the
+// third-party typical price, never a listed price, and it says how many stops it
+// could not price.
+func tripCostLine(t demo.SampleTripTotal) string {
+	switch {
+	case t.PricedStops == 0:
+		return "The price at the fast chargers is shown at each charger."
+	case t.UnpricedStops == 0:
+		return fmt.Sprintf("About %s fast charging (estimate, typical price seen by DCFC Tracker; the price at the charger may differ).", dollarRange(t.DCFCCostLow, t.DCFCCostHigh))
+	default:
+		return fmt.Sprintf("About %s for %d of %d fast-charging stops (estimate, typical price seen by DCFC Tracker); the price at the other %d is shown at the charger.",
+			dollarRange(t.DCFCCostLow, t.DCFCCostHigh), t.PricedStops, t.ChargeStops, t.UnpricedStops)
+	}
 }
 
 func durationHM(min float64) string {
@@ -219,7 +254,7 @@ var tripTemplate = template.Must(template.New("trip").Funcs(tmplFuncs).Parse(`<a
 <h1>{{h1 .Trip.Title}}</h1>
 <p>{{.Trip.Intro}}</p>
 {{.Map}}
-<p>{{mi .Trip.Totals.DistanceMi}}, {{hm .Trip.Totals.DriveMin}} driving, {{.Trip.Totals.ChargeStops}} charging stop{{if ne .Trip.Totals.ChargeStops 1}}s{{end}} ({{hm .Trip.Totals.ChargeMin}}), about {{usd .Trip.Totals.DCFCCostEst}} fast charging (estimate at each network's guest rate).</p>
+<p>{{mi .Trip.Totals.DistanceMi}}, {{hm .Trip.Totals.DriveMin}} driving, {{.Trip.Totals.ChargeStops}} charging stop{{if ne .Trip.Totals.ChargeStops 1}}s{{end}} ({{hm .Trip.Totals.ChargeMin}}). {{costLine .Trip.Totals}}</p>
 {{range .Trip.Days}}
 <section>
 {{if .Label}}<h2>{{.Label}}: {{.From}} to {{.To}}</h2>{{else}}<h2>{{.From}} to {{.To}}</h2>{{end}}
@@ -227,7 +262,7 @@ var tripTemplate = template.Must(template.New("trip").Funcs(tmplFuncs).Parse(`<a
 <thead><tr><th>Stop</th><th>Network</th><th>Arrive</th><th>Leave</th><th>Charging</th><th>Est. cost</th></tr></thead>
 <tbody>
 <tr><td>Depart {{.From}}</td><td></td><td></td><td>{{clock .DepartAt}}</td><td></td><td></td></tr>
-{{range .Stops}}<tr><td>{{.Name}}</td><td>{{.Network}}</td><td>{{pct .ArriveSoC}}</td><td>{{pct .DepartSoC}}</td><td>{{hm .ChargeMin}}{{if .MaxKW}} (up to {{kw .MaxKW}}){{end}}</td><td>{{usd .CostEst}}</td></tr>
+{{range .Stops}}<tr><td>{{.Name}}</td><td>{{.Network}}</td><td>{{pct .ArriveSoC}}</td><td>{{pct .DepartSoC}}</td><td>{{hm .ChargeMin}}{{if .MaxKW}} (up to {{kw .MaxKW}}){{end}}</td><td>{{stopCost .}}</td></tr>
 {{end}}<tr><td>Arrive {{.To}}</td><td></td><td>{{pct .ArrivalSoC}}</td><td>{{clock .ArriveAt}}</td><td></td><td></td></tr>
 {{with .Overnight}}<tr><td>Hotel stay at {{.Name}}, {{.Nights}} night{{if ne .Nights 1}}s{{end}}</td><td>Level 2</td><td></td><td>{{pct .SoCAfter}}</td><td>{{printf "%.0f h" .ParkedHours}} parked, {{kw .L2KW}}</td><td>adds {{kwh .AddedKWh}}</td></tr>
 {{end}}</tbody>
@@ -289,9 +324,9 @@ func routeSVG(t demo.SampleTrip) template.HTML {
 func tripMarkdown(t demo.SampleTrip, canon string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntitle: %q\nurl: https://%s%s\n---\n\n# %s\n\n%s\n\n", t.Title, hostApp, canon, strings.TrimSuffix(t.Title, " | Rivolt"), t.Intro)
-	fmt.Fprintf(&b, "%s, %s driving, %d charging stop(s) (%s), about %s fast charging (estimate at each network's guest rate).\n\n",
+	fmt.Fprintf(&b, "%s, %s driving, %d charging stop(s) (%s). %s\n\n",
 		tmplFuncs["mi"].(func(float64) string)(t.Totals.DistanceMi), durationHM(t.Totals.DriveMin), t.Totals.ChargeStops,
-		durationHM(t.Totals.ChargeMin), fmt.Sprintf("$%.2f", t.Totals.DCFCCostEst))
+		durationHM(t.Totals.ChargeMin), tripCostLine(t.Totals))
 	for _, d := range t.Days {
 		title := d.From + " to " + d.To
 		if d.Label != "" {
@@ -299,7 +334,7 @@ func tripMarkdown(t demo.SampleTrip, canon string) string {
 		}
 		fmt.Fprintf(&b, "## %s\n\n| Stop | Network | Arrive | Leave | Charging | Est. cost |\n|---|---|---|---|---|---|\n", title)
 		for _, s := range d.Stops {
-			fmt.Fprintf(&b, "| %s | %s | %.0f%% | %.0f%% | %s | $%.2f |\n", s.Name, s.Network, s.ArriveSoC, s.DepartSoC, durationHM(s.ChargeMin), s.CostEst)
+			fmt.Fprintf(&b, "| %s | %s | %.0f%% | %.0f%% | %s | %s |\n", s.Name, s.Network, s.ArriveSoC, s.DepartSoC, durationHM(s.ChargeMin), stopCostText(s))
 		}
 		if o := d.Overnight; o != nil {
 			fmt.Fprintf(&b, "| Hotel stay at %s, %d night(s) | Level 2 | | %.0f%% | %.0f h parked, %.0f kW | adds %.1f kWh |\n", o.Name, o.Nights, o.SoCAfter, o.ParkedHours, o.L2KW, o.AddedKWh)
@@ -314,8 +349,8 @@ func hubMarkdown(trips []demo.SampleTrip) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntitle: %q\nurl: https://%s%s\n---\n\n# %s\n\n%s\n\n", demo.SampleTripHub.Title, hostApp, pathSampleTrips, strings.TrimSuffix(demo.SampleTripHub.Title, " | Rivolt"), demo.SampleTripHub.Intro)
 	for _, t := range trips {
-		fmt.Fprintf(&b, "- [%s](https://%s%s/%s): %.0f mi, %d charging stop(s), about $%.2f fast charging (estimate)\n",
-			t.Title, hostApp, pathSampleTrips, t.Slug, t.Totals.DistanceMi, t.Totals.ChargeStops, t.Totals.DCFCCostEst)
+		fmt.Fprintf(&b, "- [%s](https://%s%s/%s): %.0f mi, %d charging stop(s)\n",
+			t.Title, hostApp, pathSampleTrips, t.Slug, t.Totals.DistanceMi, t.Totals.ChargeStops)
 	}
 	fmt.Fprintf(&b, "\n%s\n", notAffiliated)
 	return b.String()

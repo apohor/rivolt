@@ -273,6 +273,27 @@ type ResolvedRate struct {
 // falling back to substring against Name for custom rows), then the
 // built-in Networks defaults, then UnmatchedNetwork.
 func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
+	if ov, name, ok := matchOverride(stopName, overrides); ok {
+		return resolvedFromOverride(ov, name)
+	}
+	// Fall back to the built-in defaults.
+	n := MatchNetwork(stopName)
+	rr := ResolvedRate{
+		Slug:          n.Slug,
+		DisplayName:   n.DisplayName,
+		GuestRate:     n.GuestRate,
+		UserRate:      n.GuestRate, // user has no override, so no membership
+		AllMemberRate: n.MemberRateOrGuest(),
+		MemberPlan:    n.MemberPlan,
+	}
+	return rr
+}
+
+// matchOverride finds the user's override row for a stop: the first row with a
+// positive rate whose slug's match patterns hit the stop name, or (for a slugless or
+// unknown-slug custom row) whose Name is a substring of it. The display name is the
+// built-in network's for a slugged row, the row's own for a custom one.
+func matchOverride(stopName string, overrides []NetworkOverride) (NetworkOverride, string, bool) {
 	hay := " " + strings.ToLower(strings.TrimSpace(stopName)) + " "
 	// User overrides win. The lookup walks the override list, checks
 	// each row's slug against the built-in match patterns, and
@@ -286,7 +307,7 @@ func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
 			if base, ok := networkBySlug(ov.Slug); ok {
 				for _, p := range base.MatchPatterns {
 					if strings.Contains(hay, p) {
-						return resolvedFromOverride(ov, base.DisplayName)
+						return ov, base.DisplayName, true
 					}
 				}
 				continue
@@ -297,20 +318,51 @@ func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
 		// word name like "EA" doesn't accidentally match "TESLA".
 		needle := " " + strings.ToLower(strings.TrimSpace(ov.Name)) + " "
 		if needle != "  " && strings.Contains(hay, strings.TrimSpace(needle)) {
-			return resolvedFromOverride(ov, ov.Name)
+			return ov, ov.Name, true
 		}
 	}
-	// Fall back to the built-in defaults.
-	n := MatchNetwork(stopName)
-	rr := ResolvedRate{
-		Slug:        n.Slug,
-		DisplayName: n.DisplayName,
-		GuestRate:   n.GuestRate,
-		UserRate:    n.GuestRate, // user has no override, so no membership
-		AllMemberRate: n.MemberRateOrGuest(),
-		MemberPlan:  n.MemberPlan,
+	return NetworkOverride{}, "", false
+}
+
+// StopNetwork is the network a planned stop belongs to, and the price the USER set
+// for it, if they did. The built-in table's rates are deliberately not here: they are
+// dated estimates (mid-2025) and the planner no longer shows them as dollar figures.
+type StopNetwork struct {
+	Slug        string
+	DisplayName string
+	MemberPlan  string
+	// UserPerKWh is what the user's saved price book says they pay (their active
+	// membership applied), and ok only when it is THEIR number: a custom row, or a
+	// built-in row whose rate differs from the built-in default. A row still holding
+	// the default (the seed the Settings page offers) is the table figure, not theirs.
+	UserPerKWh float64
+	UserSet    bool
+}
+
+// ResolveStop identifies a stop's network and the user's own price for it.
+func ResolveStop(stopName string, overrides []NetworkOverride) StopNetwork {
+	if ov, name, ok := matchOverride(stopName, overrides); ok {
+		sn := StopNetwork{Slug: ov.Slug, DisplayName: name, MemberPlan: ov.MemberPlan}
+		rate := ov.GuestRate
+		if ov.MemberActive && ov.MemberRate > 0 && ov.MemberRate < ov.GuestRate {
+			rate = ov.MemberRate
+		}
+		sn.UserPerKWh = rate
+		base, known := networkBySlug(ov.Slug)
+		switch {
+		case ov.Slug == "" || !known:
+			sn.UserSet = true // a custom row: every number in it is the user's
+		default:
+			defMember := 0.0
+			if base.MemberRate != nil {
+				defMember = *base.MemberRate
+			}
+			sn.UserSet = ov.GuestRate != base.GuestRate || ov.MemberRate != defMember
+		}
+		return sn
 	}
-	return rr
+	n := MatchNetwork(stopName)
+	return StopNetwork{Slug: n.Slug, DisplayName: n.DisplayName, MemberPlan: n.MemberPlan}
 }
 
 func networkBySlug(slug string) (Network, bool) {
