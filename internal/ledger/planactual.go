@@ -880,7 +880,7 @@ func pairStops(p Plan, fast []sessionView, currency string, start *startDiff) ([
 			net = stopLabel(s)
 		}
 		if pr > 0 && math.Abs(ar-pr)/pr > 0.05 {
-			est := v.source == SourceNetworkEstimate
+			est := v.source == SourceNetworkEstimate || v.source == SourceObservedEstimate
 			r := PlanReason{Code: "rate_differed", Amount: ptrRound2((ar - pr) * akwh), Network: net, PlanNetwork: s.Network,
 				Stop: stopLabel(s), Rate: ptrRound2(ar), PlanRate: ptrRound2(pr), Estimated: est}
 			if est {
@@ -985,7 +985,7 @@ func costMetric(p Plan, cfg Config, fast []sessionView, reasons []PlanReason) Pl
 	}
 	m.Planned = roundPtr(p.Cost, 2)
 	known, unpriced := 0.0, 0
-	sources := map[string]float64{SourceRivian: 0, SourceNetworkEstimate: 0, SourceHomeRate: 0, SourceUser: 0}
+	sources := map[string]float64{SourceRivian: 0, SourceNetworkEstimate: 0, SourceObservedEstimate: 0, SourceHomeRate: 0, SourceUser: 0}
 	for _, v := range fast {
 		switch {
 		case v.spendOK:
@@ -1006,7 +1006,7 @@ func costMetric(p Plan, cfg Config, fast []sessionView, reasons []PlanReason) Pl
 		m.Delta = diff(m.Actual, m.Planned)
 	}
 	m.Reasons = append(m.Reasons, reasons...)
-	if est := sources[SourceNetworkEstimate]; est > 0 {
+	if est := sources[SourceNetworkEstimate] + sources[SourceObservedEstimate]; est > 0 {
 		m.Reasons = append(m.Reasons, PlanReason{Code: "estimated", Estimated: true,
 			Detail: "Part of this total is estimated from the network's price, not billed."})
 	}

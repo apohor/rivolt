@@ -200,7 +200,7 @@ func tripFrom(evs []tripEvent, cfg Config) (Trip, bool) {
 	t := Trip{
 		DriveIDs:      []string{},
 		ChargeIDs:     []string{},
-		CostSourceMix: map[string]float64{SourceRivian: 0, SourceHomeRate: 0, SourceNetworkEstimate: 0, SourceUser: 0},
+		CostSourceMix: map[string]float64{SourceRivian: 0, SourceHomeRate: 0, SourceNetworkEstimate: 0, SourceObservedEstimate: 0, SourceUser: 0},
 	}
 	var maxKM float64
 	knownKM := false
@@ -269,7 +269,7 @@ func tripFrom(evs []tripEvent, cfg Config) (Trip, bool) {
 		t.CostSourceMix[k] = round4(v)
 	}
 	if t.Cost > 0 {
-		share := round4(t.CostSourceMix[SourceNetworkEstimate] / t.Cost)
+		share := round4((t.CostSourceMix[SourceNetworkEstimate] + t.CostSourceMix[SourceObservedEstimate]) / t.Cost)
 		t.EstimatedShare = &share
 	}
 	if t.KWhUsed > 0 && milesWithEnergy > 0 {

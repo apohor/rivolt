@@ -259,3 +259,34 @@ func TestLoad_BilledFromReceipts(t *testing.T) {
 		t.Errorf("estimated_total %v, spend.total %v; want 12.5 and 32.25", m.Spend.EstimatedTotal, m.Spend.Total)
 	}
 }
+
+// The loader reads an observed_estimate row's report month and URL, and a
+// row without them loads with none.
+func TestLoad_EstimateReport(t *testing.T) {
+	pool := openPG(t)
+	ctx := context.Background()
+	alice, err := db.EnsureUser(ctx, pool, "estimate-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := vehicle(t, pool, alice, "rv-1")
+	in := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	mustExec(t, pool, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, max_power_kw, source, cost, currency, price_per_kwh, cost_source, network, estimate_month, estimate_url)
+		VALUES ($1,$2,'c-est',$3,$4,50,150,'live',31.8,'USD',0.636,'observed_estimate','EVgo','2026-10','https://dcfctracker.com/reports/evgo')`, alice, v, in, in.Add(time.Hour))
+	mustExec(t, pool, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source, cost, currency, cost_source)
+		VALUES ($1,$2,'c-plain',$3,$4,30,'live',3.3,'USD','home_rate')`, alice, v, in.Add(48*time.Hour), in.Add(49*time.Hour))
+	cs, _, err := ledger.Load(ctx, pool, alice, "", in.Add(-time.Hour), in.Add(72*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]ledger.Charge{}
+	for _, c := range cs {
+		got[c.ID] = c
+	}
+	if e := got["c-est"]; e.CostSource != "observed_estimate" || e.EstimateMonth != "2026-10" || e.EstimateURL != "https://dcfctracker.com/reports/evgo" {
+		t.Errorf("estimate row: %+v", e)
+	}
+	if p := got["c-plain"]; p.EstimateMonth != "" || p.EstimateURL != "" {
+		t.Errorf("plain row: %+v", p)
+	}
+}

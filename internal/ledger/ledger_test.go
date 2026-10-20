@@ -430,7 +430,7 @@ func TestBuild_EmptyMonthShape(t *testing.T) {
 	s := string(raw)
 	for _, want := range []string{
 		`"version":1`, `"receipts":[]`,
-		`"by_source":{"home_rate":0,"network_estimate":0,"rivian":0,"user":0}`,
+		`"by_source":{"home_rate":0,"network_estimate":0,"observed_estimate":0,"rivian":0,"user":0}`,
 		`"by_place":{"away":`, `"by_place_kind":{"away":{"ac":`, `"estimated_share":null`, `"estimate_pending_sessions":0`,
 		`"coverage":null`, `"cost_per_mile":null`, `"unpriced_home_rate_estimate":null`,
 		`"first_activity_at":null`, `"is_current_month":false`, `"cost_source_inferred":false`,
