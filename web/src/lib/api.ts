@@ -451,7 +451,14 @@ export type Charge = {
   // The ledger's classification of this row (contract §16): the same
   // rules the Money tab uses. Absent on builds that predate it, where
   // callers fall back to the stored fields.
-  cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "user" | "home_rate_misapplied" | "unknown";
+  cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "observed_estimate" | "user" | "home_rate_misapplied" | "unknown";
+  // observed_estimate: priced from the tracker's typical price for estimate_month (estimate_url is the report; link it only through
+  // safeTrackerUrl). needs_rate: a fast-charging session waiting on the user's own rate for the network named in `network`/rate_slug.
+  estimate_month?: string | null;
+  estimate_url?: string | null;
+  needs_rate?: boolean;
+  rate_slug?: string | null;
+  network?: string | null;
   cost_source_derived?: boolean;
   // DCFC auto-network pricing; null until dcfc_auto_network is on.
   network_state?: import("./autoNetwork").NetworkState | null;

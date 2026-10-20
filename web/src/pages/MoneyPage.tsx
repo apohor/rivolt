@@ -267,6 +267,7 @@ function Statement({
 
   return (
     <>
+      {((m.spend.observed_estimate_sessions ?? 0) > 0 || (m.spend.unpriced_fast_sessions ?? 0) > 0) && <ObservedEstimateNotice />}
       <section data-ui-area="m-hero" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {m.is_current_month && (
@@ -336,6 +337,18 @@ function Statement({
               {formatMoney(m.spend.estimated_total, cur)} estimated
               {m.estimated_sessions != null && <span className="text-neutral-500"> · {m.estimated_sessions} {m.estimated_sessions === 1 ? "session" : "sessions"}</span>}
             </span>
+          </p>
+        )}
+
+        {(m.spend.observed_estimate_sessions ?? 0) > 0 && (
+          <p data-observed-estimate className="mt-0.5 text-xs text-neutral-400">
+            Includes {formatMoney(m.spend.observed_estimate_cost ?? 0, cur)} estimated from typical prices ({m.spend.observed_estimate_sessions}{" "}
+            {m.spend.observed_estimate_sessions === 1 ? "session" : "sessions"})
+          </p>
+        )}
+        {(m.spend.unpriced_fast_sessions ?? 0) > 0 && (
+          <p data-unpriced-fast className="mt-0.5 text-xs text-amber-300/90">
+            {m.spend.unpriced_fast_sessions} fast-charging {m.spend.unpriced_fast_sessions === 1 ? "session" : "sessions"} not priced yet
           </p>
         )}
 
@@ -607,6 +620,41 @@ function ToConfirmList({ charges }: { charges: Charge[] }) {
           </ul>
         </section>
       ))}
+    </div>
+  );
+}
+
+// One-time notice (per device): fast-charging sessions without the user's own rate are now estimated from a typical price,
+// not an old table. Hidden for good once dismissed.
+const OBSERVED_NOTICE_KEY = "rivolt.money.observedNotice.v1";
+function ObservedEstimateNotice() {
+  const [gone, setGone] = useState(() => {
+    try {
+      return window.localStorage.getItem(OBSERVED_NOTICE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (gone) return null;
+  const hide = () => {
+    setGone(true);
+    try {
+      window.localStorage.setItem(OBSERVED_NOTICE_KEY, "1");
+    } catch {
+      /* hides for this visit only */
+    }
+  };
+  return (
+    <div data-observed-notice role="note" className="mb-4 rounded-xl border border-neutral-700 bg-neutral-900/60 p-4 text-sm text-neutral-300">
+      <p>Fast-charging sessions without your own rate are now estimated from a typical price (DCFC Tracker), not an old table. Add the rate you pay for exact costs.</p>
+      <div className="mt-2 flex items-center gap-4 text-xs">
+        <Link to={appPath("/settings?tab=charging#networks")} className="font-medium text-amber-300 hover:text-amber-200">
+          Set your rate
+        </Link>
+        <button type="button" onClick={hide} className="text-neutral-400 hover:text-neutral-200">
+          Got it
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import { SET_RATE_FIRST, SET_RATE_PATH, networkRateSet } from "../lib/networkRates";
+import { monthLabelShort } from "../lib/ledger";
+import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
-import { inDemo, listPath } from "../lib/demo";
+import { appPath, inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1231,6 +1233,7 @@ function PricingCard({
   return (
     <div id="pricing" className="scroll-mt-20">
     <Card title="Pricing">
+      <RateNote charge={charge} />
       {auto && (
         <AutoNetworkPanel
           charge={charge}
@@ -1322,7 +1325,7 @@ function PricingCard({
             {networks.data.some((n) => !networkRateSet(n)) && (
               <span data-testid="rate-unset-hint" className="mt-1 block text-[11px] text-neutral-500">
                 {SET_RATE_FIRST} for the networks marked above.{" "}
-                <Link to={SET_RATE_PATH} className="underline underline-offset-2 hover:text-neutral-300">
+                <Link to={appPath(SET_RATE_PATH)} className="underline underline-offset-2 hover:text-neutral-300">
                   Open Settings
                 </Link>
               </span>
@@ -1533,7 +1536,7 @@ function AutoNetworkPanel({
               {pickUnset && (
                 <p data-testid="rate-unset" className="text-xs text-amber-300">
                   {SET_RATE_FIRST}.{" "}
-                  <Link to={SET_RATE_PATH} className="underline underline-offset-2 hover:text-amber-200">
+                  <Link to={appPath(SET_RATE_PATH)} className="underline underline-offset-2 hover:text-amber-200">
                     Open Settings
                   </Link>
                 </p>
@@ -1562,6 +1565,39 @@ function AutoNetworkPanel({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// A session priced from the tracker's typical price, or waiting on the user's own rate: say so, and where to set it.
+function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
+  const observed = charge.cost_source_effective === "observed_estimate" || charge.CostSource === "observed_estimate";
+  const needs = !!charge.needs_rate;
+  if (!observed && !needs) return null;
+  const month = monthLabelShort(charge.estimate_month);
+  const url = safeTrackerUrl(charge.estimate_url);
+  return (
+    <div data-rate-note={observed ? "observed" : "needs"} className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-3 text-sm text-neutral-300">
+      {observed ? (
+        <p>
+          Estimate: typical price seen by{" "}
+          {url ? (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-100">
+              DCFC Tracker
+            </a>
+          ) : (
+            "DCFC Tracker"
+          )}
+          {month ? `, ${month}` : ""}. The price at the charger may differ.
+        </p>
+      ) : (
+        <p>Needs a price.</p>
+      )}
+      <p className="mt-1 text-xs">
+        <Link to={appPath(SET_RATE_PATH)} className="font-medium text-amber-300 hover:text-amber-200">
+          {needs ? `Set your rate${charge.network ? ` for ${charge.network}` : ""}` : "Set your rate"}
+        </Link>
+      </p>
     </div>
   );
 }

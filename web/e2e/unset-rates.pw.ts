@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
+import { currentMonth, ledgerMonthFixture, ledgerMonthFromReceipts, ledgerSummaryFixture } from "../src/lib/ledger";
 
 // The seeded network rates count as unset: Settings shows them blank with a note, "Save X/kWh" only when the user entered
 // both prices, and the one-click apply on a charge waits for the user's own rate.
@@ -65,5 +66,107 @@ test("a charge: unset networks can't be applied until a rate is set, with a way 
   await panel.getByLabel("Network").selectOption("Electrify America");
   await expect(panel.getByRole("button", { name: "Use this network" })).toBeEnabled();
   await expect(panel.getByTestId("rate-unset")).toHaveCount(0);
+  await ctx.close();
+});
+
+// ---- Money: estimates from the tracker's typical price, never blended silently ----
+
+const month = currentMonth(new Date(e2eNow()));
+
+async function moneySetup(page: Page) {
+  await stubApi(page);
+  const base = ledgerMonthFixture(month, new Date(e2eNow())).receipts;
+  const fast = base.filter((r) => r.kind === "dcfc");
+  const receipts = base.map((r) => {
+    if (fast[0] && r.receipt_id === fast[0].receipt_id) {
+      return { ...r, cost_source: "observed_estimate" as const, estimate_month: "2026-10", network: "Electrify America", sessions: r.sessions.map((x) => ({ ...x, cost_source: "observed_estimate" as const, estimate_month: "2026-10" })) };
+    }
+    if (fast[1] && r.receipt_id === fast[1].receipt_id) {
+      return {
+        ...r, cost: null, cost_source: "unknown" as const, rate: null, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger", flags: [...r.flags, "unpriced" as const],
+        sessions: r.sessions.map((x) => ({ ...x, cost: null, price_per_kwh: null, cost_source: "unknown" as const, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger" })),
+      };
+    }
+    return r;
+  });
+  const m = ledgerMonthFromReceipts(month, receipts, { now: new Date(e2eNow()) });
+  m.spend.observed_estimate_cost = 31.4;
+  m.spend.observed_estimate_sessions = 2;
+  m.spend.unpriced_fast_sessions = 1;
+  await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: m }));
+  await page.route("**/api/ledger/summary**", (r) => r.fulfill({ json: ledgerSummaryFixture(12, new Date(e2eNow())) }));
+}
+
+test("Money: estimates and unpriced fast sessions are reported on their own, with a way to set a rate", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await moneySetup(page);
+  await page.goto("/money");
+  const hero = page.getByRole("region", { name: "Statement" });
+  await expect(hero.locator("[data-observed-estimate]")).toHaveText("Includes $31.40 estimated from typical prices (2 sessions)");
+  await expect(hero.locator("[data-unpriced-fast]")).toHaveText("1 fast-charging session not priced yet");
+  // The receipts say where the price came from, and each has the rate action.
+  await expect(page.getByText("Estimate: typical price seen by DCFC Tracker, Oct 2026").first()).toBeVisible();
+  await expect(page.getByText("Needs a price").first()).toBeVisible();
+  await expect(page.locator("[data-rate-action]", { hasText: "Set your rate for Tesla Supercharger" }).first()).toHaveAttribute("href", "/settings?tab=charging#networks");
+  await expect(page.locator("[data-rate-action]", { hasText: /^Set your rate →$/ }).first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await ctx.close();
+});
+
+test("Money: the notice shows once, then stays gone on this device", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await moneySetup(page);
+  await page.goto("/money");
+  const notice = page.locator("[data-observed-notice]");
+  await expect(notice).toContainText("Fast-charging sessions without your own rate are now estimated from a typical price (DCFC Tracker), not an old table. Add the rate you pay for exact costs.");
+  await expect(notice.getByRole("link", { name: "Set your rate" })).toHaveAttribute("href", "/settings?tab=charging#networks");
+  expect((await new AxeBuilder({ page }).include("[data-observed-notice]").analyze()).violations.filter((x) => x.impact === "serious" || x.impact === "critical")).toEqual([]);
+  await notice.getByRole("button", { name: "Got it" }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await page.waitForTimeout(600);
+  await expect(page.locator("[data-observed-notice]")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("Money: no estimates, no notice, no extra lines", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.goto("/money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.locator("[data-observed-notice], [data-observed-estimate], [data-unpriced-fast]")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("a charge priced from the tracker, or waiting on a rate, says so with a way to set it", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  const charge = (n: number, o: Record<string, unknown>) => ({
+    ID: `charge-${n}`, VehicleID: VEHICLE_ID, StartedAt: new Date(e2eNow() - 2 * 86_400_000).toISOString(), EndedAt: new Date(e2eNow() - 2 * 86_400_000 + 1_800_000).toISOString(),
+    StartSoCPct: 20, EndSoCPct: 80, EnergyAddedKWh: 52.4, MilesAdded: 150, MaxPowerKW: 180, AvgPowerKW: 110, FinalState: "charging_complete", Lat: 40.9, Lon: -100.9, Source: "live", Currency: "USD", ...o,
+  });
+  await page.route("**/api/charges?**", (r) =>
+    r.fulfill({
+      json: [
+        charge(1, { Cost: 31.4, PricePerKWh: 0.6, cost_source_effective: "observed_estimate", estimate_month: "2026-10", estimate_url: "https://dcfctracker.com/reports/electrify-america" }),
+        charge(2, { Cost: 0, PricePerKWh: 0, needs_rate: true, rate_slug: "tesla_sc", network: "Tesla Supercharger", cost_source_effective: "unknown" }),
+        charge(3, { Cost: 31.4, PricePerKWh: 0.6, cost_source_effective: "observed_estimate", estimate_month: "2026-10", estimate_url: "javascript:alert(1)" }),
+      ],
+    }),
+  );
+  await page.goto("/charges/charge-1");
+  const note = page.locator("[data-rate-note='observed']");
+  await expect(note).toContainText("Estimate: typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ.");
+  await expect(note.getByRole("link", { name: "DCFC Tracker" })).toHaveAttribute("href", "https://dcfctracker.com/reports/electrify-america");
+  await expect(note.getByRole("link", { name: "Set your rate" })).toHaveAttribute("href", "/settings?tab=charging#networks");
+  await page.goto("/charges/charge-2");
+  await expect(page.locator("[data-rate-note='needs']")).toContainText("Needs a price.");
+  await expect(page.getByRole("link", { name: "Set your rate for Tesla Supercharger" })).toBeVisible();
+  await page.goto("/charges/charge-3");
+  await expect(page.locator("[data-rate-note='observed']").getByRole("link", { name: "DCFC Tracker" })).toHaveCount(0);
   await ctx.close();
 });
