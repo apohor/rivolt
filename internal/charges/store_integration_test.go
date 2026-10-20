@@ -1172,3 +1172,144 @@ func TestSetNetworkPriceAndGet(t *testing.T) {
 		t.Fatalf("after set: %+v", got)
 	}
 }
+
+// "Apply my rate to past sessions" prices only what had no rate of the
+// user's, at that network: its tracker-estimated sessions and its unpriced
+// fast charges. A user price, free, a Rivian bill, a receipt, another
+// network, AC and a session still being recorded stay as they are.
+func TestApplyNetworkRate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "apply-rate-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.EnsureUser(ctx, pool, "apply-rate-other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid, ovid uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, 'rv-ar') RETURNING id`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, 'rv-ar2') RETURNING id`, other).Scan(&ovid); err != nil {
+		t.Fatal(err)
+	}
+	evgo := `{"v":1,"candidates":[{"network":"EVgo","slug":"evgo","dist_m":40},{"network":"Tesla","slug":"tesla_sc","dist_m":90}]}`
+	tesla := `{"v":1,"candidates":[{"network":"Tesla","slug":"tesla_sc","dist_m":40}]}`
+	type row struct {
+		ext, source, network, evidence string
+		cost                           any
+		peak                           float64
+		receipt                        bool
+		endedAgo                       time.Duration
+		user                           uuid.UUID
+		vehicle                        uuid.UUID
+	}
+	rows := []row{
+		{ext: "est-evgo", source: "observed_estimate", network: "EVgo", cost: 31.8, peak: 150, endedAgo: 47 * time.Hour},
+		{ext: "est-tesla", source: "observed_estimate", network: "Tesla Supercharger", cost: 31.2, peak: 150, endedAgo: 47 * time.Hour},
+		{ext: "unpriced-evgo", evidence: evgo, cost: nil, peak: 150, endedAgo: 47 * time.Hour},
+		{ext: "unpriced-tesla", evidence: tesla, cost: nil, peak: 150, endedAgo: 47 * time.Hour},
+		{ext: "unpriced-none", cost: nil, peak: 150, endedAgo: 47 * time.Hour},
+		{ext: "unpriced-ac", evidence: evgo, cost: nil, peak: 11, endedAgo: 47 * time.Hour},
+		{ext: "user", source: "user", network: "EVgo", cost: 20.0, peak: 150, evidence: evgo, endedAgo: 47 * time.Hour},
+		{ext: "free", source: "user", network: "EVgo", cost: 0.0, peak: 150, evidence: evgo, endedAgo: 47 * time.Hour},
+		{ext: "billed", source: "rivian", network: "EVgo", cost: 29.0, peak: 150, evidence: evgo, endedAgo: 47 * time.Hour},
+		{ext: "est-receipt", source: "observed_estimate", network: "EVgo", cost: 31.8, peak: 150, receipt: true, endedAgo: 47 * time.Hour},
+		{ext: "est-recent", source: "observed_estimate", network: "EVgo", cost: 31.8, peak: 150, endedAgo: 5 * time.Minute},
+	}
+	for i, r := range rows {
+		ended := time.Now().UTC().Add(-r.endedAgo)
+		if r.endedAgo > time.Hour {
+			ended = ended.Add(-time.Duration(i) * 3 * time.Hour) // distinct windows
+		}
+		started := ended.Add(-40 * time.Minute)
+		var ev any
+		if r.evidence != "" {
+			ev = r.evidence
+		}
+		var src any
+		if r.source != "" {
+			src = r.source
+		}
+		var estMonth, estURL any
+		if r.source == "observed_estimate" {
+			estMonth, estURL = "2026-10", "https://dcfctracker.com/reports/evgo"
+		}
+		var txn any
+		if r.receipt {
+			txn = "txn-ar"
+		}
+		if _, err := pool.ExecContext(ctx, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, max_power_kw, source, cost, currency, price_per_kwh, cost_source, network, network_evidence, estimate_month, estimate_url, receipt_txn_id)
+			VALUES ($1,$2,$3,$4,$5,50,$6,'live',$7,'USD',NULL,$8,NULLIF($9,''),$10::jsonb,$11,$12,$13)`,
+			uid, vid, r.ext, started, ended, r.peak, r.cost, src, r.network, ev, estMonth, estURL, txn); err != nil {
+			t.Fatalf("insert %s: %v", r.ext, err)
+		}
+	}
+
+	// Another user's estimate for the same network is never touched.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, max_power_kw, source, cost, currency, cost_source, network, estimate_month, estimate_url)
+		VALUES ($1,$2,'theirs',$3,$4,50,150,'live',31.8,'USD','observed_estimate','EVgo','2026-10','https://dcfctracker.com/reports/evgo')`,
+		other, ovid, time.Now().UTC().Add(-48*time.Hour), time.Now().UTC().Add(-47*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	n, err := store.ApplyNetworkRate(ctx, "evgo", "EVgo", "USD", 0.5)
+	if err != nil {
+		t.Fatalf("ApplyNetworkRate: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("priced %d sessions, want 2 (est-evgo, unpriced-evgo)", n)
+	}
+	type got struct {
+		src, month, url string
+		cost            sql.NullFloat64
+	}
+	read := func(owner uuid.UUID, ext string) got {
+		var g got
+		if err := pool.QueryRowContext(ctx, `SELECT COALESCE(cost_source,''), COALESCE(estimate_month,''), COALESCE(estimate_url,''), cost::float8 FROM charges WHERE user_id = $1 AND external_id = $2`, owner, ext).Scan(&g.src, &g.month, &g.url, &g.cost); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	for _, ext := range []string{"est-evgo", "unpriced-evgo"} {
+		if g := read(uid, ext); g.src != "network_estimate" || g.month != "" || g.url != "" || !g.cost.Valid || g.cost.Float64 != 25 {
+			t.Errorf("%s = %+v, want network_estimate at 0.5 × 50 kWh = 25 and no estimate report", ext, g)
+		}
+	}
+	for ext, want := range map[string]string{
+		"est-tesla": "observed_estimate", "unpriced-tesla": "", "unpriced-none": "", "unpriced-ac": "",
+		"user": "user", "free": "user", "billed": "rivian", "est-receipt": "observed_estimate", "est-recent": "observed_estimate",
+	} {
+		if g := read(uid, ext); g.src != want {
+			t.Errorf("%s source = %q, want %q (untouched)", ext, g.src, want)
+		}
+	}
+	if g := read(uid, "free"); !g.cost.Valid || g.cost.Float64 != 0 {
+		t.Errorf("free session cost = %+v, want still 0", g.cost)
+	}
+	if g := read(other, "theirs"); g.src != "observed_estimate" {
+		t.Errorf("another user's session = %+v, want untouched", g)
+	}
+	if n, err := store.ApplyNetworkRate(ctx, "evgo", "EVgo", "USD", 0.5); err != nil || n != 0 {
+		t.Errorf("second apply = %d, %v, want 0 (nothing left to price)", n, err)
+	}
+
+	// A user's own price on an estimated session ends the estimate and its report.
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET cost_source='observed_estimate', estimate_month='2026-10', estimate_url='https://dcfctracker.com/reports/evgo' WHERE user_id=$1 AND external_id='est-tesla'`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := store.UpdatePricing(ctx, "est-tesla", 10, "USD", 0.2); err != nil || n != 1 {
+		t.Fatalf("UpdatePricing = %d, %v", n, err)
+	}
+	if g := read(uid, "est-tesla"); g.src != "user" || g.month != "" || g.url != "" {
+		t.Errorf("after the user's price: %+v, want user and no estimate report", g)
+	}
+}

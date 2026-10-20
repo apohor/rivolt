@@ -129,6 +129,73 @@ func handlePatchChargePricing(store *charges.Store, settingsStore *settings.Stor
 	})
 }
 
+// handleApplyNetworkRate serves POST /api/charges/apply-rate {network_slug}:
+// the user's explicit "apply my rate to past sessions". Prices, at their own
+// rate for that network, only the past sessions that were estimated from a
+// typical public price or are still unpriced at that network (see
+// charges.Store.ApplyNetworkRate). 400 with no rate of theirs for the network
+// (a table rate is never applied); 200 {"priced": n, "network": "..."}.
+func handleApplyNetworkRate(store *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
+	if store == nil {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+		}
+	}
+	return applyNetworkRate(store, func(ctx context.Context) []dcfcrates.NetworkOverride {
+		if settingsStore == nil {
+			return nil
+		}
+		nets, err := settings.GetChargingNetworks(ctx, settingsStore)
+		if err != nil {
+			return nil
+		}
+		return settings.AsOverrides(nets)
+	})
+}
+
+// networkRateApplier is the slice of *charges.Store the handler uses.
+type networkRateApplier interface {
+	ApplyNetworkRate(ctx context.Context, slug, network, currency string, pricePerKWh float64) (int64, error)
+}
+
+func applyNetworkRate(store networkRateApplier, overrides func(context.Context) []dcfcrates.NetworkOverride) http.HandlerFunc {
+	type body struct {
+		NetworkSlug string `json:"network_slug"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var b body
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		slug := strings.TrimSpace(b.NetworkSlug)
+		var ov []dcfcrates.NetworkOverride
+		if overrides != nil {
+			ov = overrides(r.Context())
+		}
+		// Only a row of the user's own with a price: a built-in network's
+		// table figure is never a price to apply to their past sessions.
+		hasRow := false
+		for _, o := range ov {
+			if o.Slug == slug && o.GuestRate > 0 {
+				hasRow = true
+			}
+		}
+		_, builtin := dcfcrates.ResolveRateBySlug(slug, nil)
+		rr, ok := dcfcrates.ResolveRateBySlug(slug, ov)
+		if slug == "" || !builtin || !hasRow || !ok || rr.UserRate <= 0 {
+			http.Error(w, "unknown network or no rate for it", http.StatusBadRequest)
+			return
+		}
+		n, err := store.ApplyNetworkRate(r.Context(), slug, rr.DisplayName, networkCurrency, rr.UserRate)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"priced": n, "network": rr.DisplayName})
+	}
+}
+
 // networkCurrency is the currency network rates are quoted in (the
 // DCFC rate table is USD; same as the close-time pricer).
 const networkCurrency = "USD"
