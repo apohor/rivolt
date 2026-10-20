@@ -25,7 +25,7 @@ func parseIDFile(path string) ([]uuid.UUID, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	seen := map[uuid.UUID]bool{}
 	var out []uuid.UUID
 	sc := bufio.NewScanner(f)
@@ -92,7 +92,7 @@ func readPhantomCSV(path string) ([]phantom.BackupRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only
 	recs, err := csv.NewReader(f).ReadAll()
 	if err != nil {
 		return nil, err
@@ -306,7 +306,7 @@ func runRepairPhantoms(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: backup:", err)
 		return 1
 	}
-	defer bk.Close()
+	defer func() { _ = bk.Close() }() // error paths; the end checks the close below
 	fmt.Printf("backup file: %s (batch %s)\n", *backup, batch)
 
 	byVehicle := map[uuid.UUID][]phantom.Row{}
@@ -331,6 +331,10 @@ func runRepairPhantoms(args []string) int {
 			continue
 		}
 		fmt.Printf("vehicle %s: deleted %d row(s)\n", rs[0].RivianID, n)
+	}
+	if err := bk.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, "repair-phantom-charges: backup: close (check the backup file):", err)
+		failed++
 	}
 	fmt.Printf("undo: rivolt repair-phantom-charges --restore-csv %s --apply\n", *backup)
 	if failed > 0 {

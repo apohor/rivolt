@@ -427,7 +427,7 @@ func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "user has no active rivian session"})
 			return
 		}
-		primeUserVehicles(r.Context(), lc, d, target, log)
+		_, _ = primeUserVehicles(r.Context(), lc, d, target, log) // best effort; it logs its own failures
 		var n int
 		if err := d.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) FROM vehicles WHERE user_id = $1`, target,

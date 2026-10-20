@@ -446,26 +446,6 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 	return system, b.String()
 }
 
-// summarizeDriveModes returns a comma-separated list of unique drive
-// modes observed in samples (lowercased, deduped). Empty when no
-// samples carry a mode.
-func summarizeDriveModes(ss []samples.Sample) string {
-	seen := make(map[string]struct{})
-	out := []string{}
-	for _, s := range ss {
-		m := humanizeDriveMode(s.DriveMode)
-		if m == "" {
-			continue
-		}
-		if _, ok := seen[m]; ok {
-			continue
-		}
-		seen[m] = struct{}{}
-		out = append(out, m)
-	}
-	return strings.Join(out, ", ")
-}
-
 // medianTirePressurePSI returns the median of TirePressureMinBar
 // across non-nil samples, converted to psi (1 bar ~= 14.5038 psi).
 // Returns 0 when no samples carry a reading.

@@ -138,7 +138,7 @@ func TestSendChecksInOrder(t *testing.T) {
 	// A quiet skip leaves no claim: the same key can go out in the window.
 	f = newFake("UTC", false)
 	e, _ = engine(f, at(7))
-	send(e, push("w"), &n)
+	_, _ = send(e, push("w"), &n)
 	e.Now = func() time.Time { return at(10) }
 	if out, _ := send(e, push("w"), &n); out != Sent {
 		t.Errorf("after quiet hours the same key: %s", out)

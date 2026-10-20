@@ -15,12 +15,6 @@ import (
 // choice, off by default. The rivian_receipts flag stays the operator's kill
 // switch: both must allow it. Turning it off deletes what was stored.
 
-// receiptsOn reports whether the receipts sync and the billed figures apply
-// to the user: the operator flag covers them and they opted in.
-func receiptsOn(f *flags.Store, sf *settings.Factory, r *http.Request, uid uuid.UUID) bool {
-	return f != nil && f.RivianReceipts().Enabled(uid.String()) && sf.RivianReceiptsOptIn(r.Context(), uid)
-}
-
 func handleRivianReceiptsGet(f *flags.Store, sf *settings.Factory) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{

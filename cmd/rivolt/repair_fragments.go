@@ -146,11 +146,11 @@ func writeFragmentsBackup(path string, groups []repair.Group) error {
 		return err
 	}
 	if err := writeFragmentsCSV(f, groups); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	return f.Close()

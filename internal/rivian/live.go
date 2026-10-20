@@ -1714,17 +1714,6 @@ func normalizeGear(v string) string {
 	}
 }
 
-func parseTimeOrNow(s string) time.Time {
-	if s == "" {
-		return time.Now().UTC()
-	}
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Now().UTC()
-	}
-	return t.UTC()
-}
-
 // parseGNSSFixTime parses Rivian's GNSSLocation.TimeStamp into the
 // timestamp of the last GPS fix. Returns the zero time on empty or
 // malformed input \u2014 callers should check IsZero() before using it.

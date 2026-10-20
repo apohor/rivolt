@@ -382,11 +382,15 @@ func writeRepriceBackup(ctx context.Context, pool *sql.DB, path string, changes 
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	if err := writeRepriceCSV(f, backup); err != nil {
+		_ = f.Close()
 		return err
 	}
-	return f.Sync()
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // writeRepriceCSV writes the backup rows under a header.

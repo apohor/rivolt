@@ -30,16 +30,16 @@ func TestTTLCacheHitExpiryAndErrors(t *testing.T) {
 	// Errors are not cached.
 	fails := 0
 	boom := func() (int, error) { fails++; return 0, errors.New("db down") }
-	c.get("e", boom)
-	c.get("e", boom)
+	_, _ = c.get("e", boom)
+	_, _ = c.get("e", boom)
 	if fails != 2 {
 		t.Errorf("error cached: %d loads", fails)
 	}
 	// Bounded: a full cache of live entries still answers new keys, uncached.
-	c.get("b", load) // entries: a, b (max 2)
+	_, _ = c.get("b", load) // entries: a, b (max 2)
 	before := calls
-	c.get("c", load)
-	c.get("c", load)
+	_, _ = c.get("c", load)
+	_, _ = c.get("c", load)
 	if calls != before+2 {
 		t.Errorf("overflow key was cached (calls %d -> %d)", before, calls)
 	}
@@ -48,9 +48,9 @@ func TestTTLCacheHitExpiryAndErrors(t *testing.T) {
 	}
 	// Expired entries are dropped to make room.
 	now = now.Add(time.Hour)
-	c.get("d", load)
+	_, _ = c.get("d", load)
 	before = calls
-	c.get("d", load)
+	_, _ = c.get("d", load)
 	if calls != before {
 		t.Error("new key not stored after expired entries were reaped")
 	}
@@ -116,7 +116,7 @@ func TestTTLCacheLoadPanicDoesNotWedgeTheKey(t *testing.T) {
 	leaderDone := make(chan any, 1)
 	go func() {
 		defer func() { leaderDone <- recover() }()
-		c.get("k", func() (int, error) {
+		_, _ = c.get("k", func() (int, error) {
 			close(started)
 			<-release
 			panic("boom")

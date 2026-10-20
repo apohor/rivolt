@@ -145,7 +145,7 @@ func runRepairR2History(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-r2-history: backup:", err)
 		return 1
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // error paths; the success path checks the close below
 	w := csv.NewWriter(f)
 	_ = w.Write([]string{"kind", "row_json"})
 	sink := func(rs []r2.BackupRow) error {
@@ -162,6 +162,10 @@ func runRepairR2History(args []string) int {
 	}
 	if err := r2.Apply(ctx, pool, plan, rivian.EncodePolyline, sink); err != nil {
 		fmt.Fprintln(os.Stderr, "repair-r2-history: apply (rolled back):", err)
+		return 1
+	}
+	if err := f.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, "repair-r2-history: backup: close (the change is applied; check the backup file):", err)
 		return 1
 	}
 	fmt.Printf("applied: %d drive(s) replaced by %d, %d charge(s) added; backup %s (undo: --restore-csv)\n",

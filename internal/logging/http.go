@@ -7,13 +7,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// statusRecorder wraps a ResponseWriter to capture the status code
-// and bytes written for the access log line. We use chi's
-// middleware.WrapResponseWriter rather than rolling our own because
-// it correctly proxies http.Flusher / http.Hijacker — both used by
-// the live websocket subscription endpoints.
-type statusRecorder = middleware.WrapResponseWriter
-
 // HTTPMiddleware extracts chi's RequestID into the context (so
 // ContextHandler can stamp it on every log line emitted while the
 // handler runs), then emits a single structured access-log entry

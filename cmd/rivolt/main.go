@@ -2345,18 +2345,6 @@ func parseLogLevel(s string) slog.Level {
 	}
 }
 
-// envFloat reads a float from an env var, or returns fallback if unset
-// or unparseable. Used for numeric tunables we want to expose via env
-// alongside a CLI flag.
-func envFloat(name string, fallback float64) float64 {
-	if v := os.Getenv(name); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			return f
-		}
-	}
-	return fallback
-}
-
 func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
 		if v != "" {

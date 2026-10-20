@@ -309,43 +309,6 @@ WHERE user_id = $1 AND drive_id = $2
 	return out, nil
 }
 
-// snapshotToResponseWeather converts the metric-base snapshot to the
-// imperial DTO the SPA expects. The cache always stores metric so the
-// conversion lives at the API boundary.
-func snapshotToResponseWeather(s *weather.Snapshot) *driveWeatherResponse {
-	if s == nil {
-		return nil
-	}
-	out := &driveWeatherResponse{Conditions: s.Conditions}
-	if s.HasTemp {
-		v := s.TempC*1.8 + 32
-		out.TempF = &v
-	}
-	if s.HasApparent {
-		v := s.ApparentTempC*1.8 + 32
-		out.ApparentF = &v
-	}
-	if s.HasWind {
-		v := s.WindKPH * 0.621371
-		out.WindMPH = &v
-		dir := s.WindDirDeg
-		out.WindFromDeg = &dir
-	}
-	if s.HasHeadwind {
-		v := s.HeadwindKPH * 0.621371
-		out.HeadwindMPH = &v
-	}
-	if s.HasPrecip {
-		v := s.PrecipMM * 0.0393701
-		out.PrecipIn = &v
-	}
-	if s.HasHumidity {
-		v := s.HumidityPct
-		out.HumidityPct = &v
-	}
-	return out
-}
-
 // snapshotToRecapWeather lifts an internal/weather.Snapshot into the
 // recap.Weather DTO the prompt builder consumes. Both shapes have the
 // same field names; the conversion is mechanical.

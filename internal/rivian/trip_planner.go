@@ -315,44 +315,6 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 
 // --- wire types ----------------------------------------------------
 
-type planTripVars struct {
-	Waypoints               []planTripWaypointVar    `json:"waypoints"`
-	Vehicle                 string                   `json:"vehicle"`
-	StartingSoc             *float64                 `json:"startingSoc,omitempty"`
-	StartingRangeMeters     *float64                 `json:"startingRangeMeters,omitempty"`
-	TargetArrivalSocPercent *float64                 `json:"targetArrivalSocPercent,omitempty"`
-	DriveMode               *string                  `json:"driveMode,omitempty"`
-	NetworkPreferences      []planTripNetworkPrefVar `json:"networkPreferences,omitempty"`
-	TrailerProfile          *string                  `json:"trailerProfile,omitempty"`
-	HasAdapter              *bool                    `json:"hasAdapter,omitempty"`
-}
-
-// planTripWaypointVar is the wire shape of one CoordinatesInput.
-// Confirmed by /api/admin/trips/plan/diag (v0.17.118): the input
-// is *just* {latitude, longitude}. The waypointType + entityId
-// fields the rivian-api.kaedenb.org docs listed as inputs are
-// actually response-only — the docs page conflated them. Sending
-// either field triggers BAD_USER_INPUT (one per waypoint), while a
-// bare {lat, lon} payload passes input validation and progresses to
-// the planner's runtime stage. Origin vs destination is positional
-// (index 0 = origin, last = destination, intermediate = stops).
-type planTripWaypointVar struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-}
-
-// planTripNetworkPrefVar is the wire shape of one networkPreferences
-// entry. The Android app's NetworkPreferencesInput adapter (j30/c
-// pswitch case for Li30/d8, app 3.12.0-4572) writes only `networkId`
-// — `preference` is intentionally omitted. Matching that exactly so
-// we look indistinguishable from the official app: include in the
-// preferred list = include this network in plan picks; omit from the
-// list = no opinion. Setting preference=0 was misinterpreted by the
-// gateway as "exclude this network from picks."
-type planTripNetworkPrefVar struct {
-	NetworkID string `json:"networkId"`
-}
-
 type planTripData struct {
 	PlanTrip2 struct {
 		Status string            `json:"status"`
