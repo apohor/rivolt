@@ -454,6 +454,8 @@ export type Charge = {
   cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "observed_estimate" | "user" | "home_rate_misapplied" | "unknown";
   // observed_estimate: priced from the tracker's typical price for estimate_month (estimate_url is the report; link it only through
   // safeTrackerUrl). needs_rate: a fast-charging session waiting on the user's own rate for the network named in `network`/rate_slug.
+  // The recorder's stored source; cost_source_effective (above) is the ledger's classification and is read first.
+  cost_source?: string;
   estimate_month?: string | null;
   estimate_url?: string | null;
   needs_rate?: boolean;

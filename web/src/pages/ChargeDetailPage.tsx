@@ -741,6 +741,7 @@ function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): strin
   // The price editor is not shown in the read-only demo.
   if (c.cost_source_effective === "unknown") return readOnly ? "price unknown" : "price unknown · add it below";
   if (c.cost_source_effective === "network_estimate") return "estimated from a charging-network rate";
+  if ((c.cost_source_effective ?? c.cost_source) === "observed_estimate") return "estimate · typical price seen by DCFC Tracker";
   if (c.Cost > 0) {
     const ppk =
       c.PricePerKWh > 0
@@ -1571,7 +1572,7 @@ function AutoNetworkPanel({
 
 // A session priced from the tracker's typical price, or waiting on the user's own rate: say so, and where to set it.
 function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
-  const observed = charge.cost_source_effective === "observed_estimate" || charge.CostSource === "observed_estimate";
+  const observed = (charge.cost_source_effective ?? charge.cost_source) === "observed_estimate";
   const needs = !!charge.needs_rate;
   if (!observed && !needs) return null;
   const month = monthLabelShort(charge.estimate_month);
