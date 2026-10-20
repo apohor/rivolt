@@ -1845,7 +1845,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup, dcfc, home, detect := m.priceLookup, m.dcfcPrice, m.homeLookup, m.dcfcDetect
+		lookup, dcfc, home, detect, estimate := m.priceLookup, m.dcfcPrice, m.homeLookup, m.dcfcDetect, m.dcfcEstimate
 		m.mu.RUnlock()
 		fast := (dcfc != nil || detect != nil) && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
 		// Network detection with a verify state, where it's on for the
@@ -1872,8 +1872,13 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 				row.CostSource = CostSourceNetworkEstimate
 				row.Network = v.Network
 			}
-			// Unpriced (nothing matched): the row waits for the user,
-			// network_state says so.
+			// No rate of the user's: a typical public price for the
+			// detected network, when there is one for the session date.
+			if row.CostSource != CostSourceNetworkEstimate && v.Slug != "" && estimate != nil {
+				applyDCFCEstimate(&row, energy, estimate, v.Slug)
+			}
+			// Still unpriced (nothing matched, no typical price): the row
+			// waits for the user, network_state says so.
 		} else if fast && dcfc != nil {
 			if !c.dcfcPriced {
 				if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
@@ -1886,6 +1891,9 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 				row.Cost = c.dcfcRate * energy
 				row.CostSource = CostSourceNetworkEstimate
 				row.Network = c.dcfcNetwork
+			}
+			if !c.dcfcPriced && estimate != nil {
+				applyDCFCEstimate(&row, energy, estimate, "")
 			}
 			// No station matched (or the archive isn't loaded): leave
 			// it unpriced rather than at the home rate or a guessed
@@ -1989,6 +1997,23 @@ func PlaceOf(lat, lon float64, home HomeLookup) string {
 		return PlaceAway
 	}
 	return PlaceHome
+}
+
+// applyDCFCEstimate prices row at a typical public price (cost_source
+// observed_estimate) when est has one for the session's date. The charge
+// keeps no rate of the user's: the estimate is replaced by their rate, by
+// a receipt, or by their own price.
+func applyDCFCEstimate(row *charges.Charge, energy float64, est DCFCEstimator, slug string) {
+	e, ok := est(slug, row.Lat, row.Lon, row.StartedAt)
+	if !ok || e.Rate <= 0 {
+		return
+	}
+	row.PricePerKWh = e.Rate
+	row.Currency = e.Currency
+	row.Cost = e.Rate * energy
+	row.CostSource = CostSourceObservedEstimate
+	row.Network = e.Network
+	row.EstimateMonth, row.EstimateURL = e.Month, e.URL
 }
 
 // Values of charges.Charge.CostSource (migration 0040).

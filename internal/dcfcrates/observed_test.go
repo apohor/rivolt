@@ -84,3 +84,33 @@ func TestObservedURLsAreHTTPSOnTheTrackersHost(t *testing.T) {
 		}
 	}
 }
+
+func TestObservedRateAtUsesTheSessionDate(t *testing.T) {
+	d := func(y int, mo time.Month, day int) time.Time { return time.Date(y, mo, day, 12, 0, 0, 0, time.UTC) }
+	if _, _, ok := ObservedRateAt("evgo", d(2026, 9, 30), false); ok {
+		t.Error("a session before the report month must not get the figure")
+	}
+	rate, o, ok := ObservedRateAt("evgo", d(2026, 10, 1), false)
+	if !ok || rate != 0.636 || o.Month != "2026-10" {
+		t.Errorf("first day of the month: %v %+v %v", rate, o, ok)
+	}
+	if _, _, ok := ObservedRateAt("evgo", d(2027, 9, 30), false); !ok {
+		t.Error("last day of the 12 months must still get the figure")
+	}
+	if _, _, ok := ObservedRateAt("evgo", d(2027, 10, 1), false); ok {
+		t.Error("12 months after the first of the report month must not get the figure")
+	}
+	if _, _, ok := ObservedRateAt("ionna", d(2026, 10, 25), false); ok {
+		t.Error("a network with no figure must not get one")
+	}
+	// Tesla: the without-membership end, the lower one only for a member.
+	if r, _, _ := ObservedRateAt("tesla_sc", d(2026, 10, 25), false); r != 0.624 {
+		t.Errorf("tesla non-member = %v, want 0.624", r)
+	}
+	if r, _, _ := ObservedRateAt("tesla_sc", d(2026, 10, 25), true); r != 0.434 {
+		t.Errorf("tesla member = %v, want 0.434", r)
+	}
+	if r, _, _ := ObservedRateAt("ran", d(2026, 10, 25), true); r != 0.482 {
+		t.Errorf("ran = %v, want its single figure", r)
+	}
+}

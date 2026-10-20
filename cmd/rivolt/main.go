@@ -844,6 +844,12 @@ func runServer() {
 				return flagsStore != nil && flagsStore.DCFCAutoNetwork().Enabled(uid.String())
 			})
 		})
+		// A fast charge the user has no rate for is priced at a typical
+		// public price while it is recorded (cost_source observed_estimate);
+		// `rivolt reprice` never installs this.
+		monitorRegistry.SetDCFCEstimatorFactory(func(uid uuid.UUID) rivian.DCFCEstimator {
+			return newDCFCEstimator(chargersArchive, settingsFactory.For(uid))
+		})
 		// Live-session persistence: when Redis is wired, install a
 		// per-user LiveStateStore factory so each StateMonitor can
 		// rehydrate its in-flight drive/charge accumulators across

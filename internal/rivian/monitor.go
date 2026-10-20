@@ -317,6 +317,9 @@ type StateMonitor struct {
 	// dcfcDetect, when set and on for the user, replaces dcfcPrice with
 	// network detection plus a verify state (dcfc_auto_network flag).
 	dcfcDetect DCFCDetector
+	// dcfcEstimate prices a DC fast charge the user has no rate for at
+	// a typical public price, live sessions only (see DCFCEstimator).
+	dcfcEstimate DCFCEstimator
 	// homeLookup returns the user's saved home location. The recorder
 	// uses it to leave AC charging away from home unpriced instead of
 	// stamping the home rate on it. nil (or ok=false) = home unknown,
@@ -381,7 +384,29 @@ type DCFCVerdict struct {
 	State      string
 	Confidence float64
 	Evidence   json.RawMessage
+	// Slug is the matched network's slug ("" when nothing matched); the
+	// recorder hands it to the DCFCEstimator when the user has no rate.
+	Slug string
 }
+
+// DCFCEstimate is a fast-charging session's price taken from a typical
+// public price (cost_source "observed_estimate"): never the user's own
+// rate, which always wins, and replaced by Rivian's bill when it arrives.
+type DCFCEstimate struct {
+	Rate     float64
+	Currency string
+	Network  string
+	// Month and URL name the report the figure came from ("2026-10",
+	// the dcfctracker.com page).
+	Month, URL string
+}
+
+// DCFCEstimator returns a typical-price estimate for a fast charge that
+// started at start, when the user has no rate for it. slug is the
+// detected network's, or "" to find the network at (lat, lon). ok=false
+// leaves the session unpriced. Wired for the live recorder only; `rivolt
+// reprice` never sets one.
+type DCFCEstimator func(slug string, lat, lon float64, start time.Time) (DCFCEstimate, bool)
 
 // DCFCDetector detects and prices the network of a DC fast charge Rivian
 // didn't bill, at the charge's position (where it opened). on=false
@@ -807,6 +832,13 @@ func (m *StateMonitor) SetDCFCDetector(fn DCFCDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.dcfcDetect = fn
+}
+
+// SetDCFCEstimator wires the live typical-price fallback (see dcfcEstimate).
+func (m *StateMonitor) SetDCFCEstimator(fn DCFCEstimator) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dcfcEstimate = fn
 }
 
 // SetDCFCPriceLookup wires the fast-charge pricer (see dcfcPrice).
