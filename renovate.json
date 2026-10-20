@@ -15,6 +15,7 @@
   "platformAutomerge": false,
   "rebaseWhen": "conflicted",
   "automergeSchedule": ["at any time"],
+  "statusCheckNames": { "minimumReleaseAge": null },
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": "1 day" },
   "transitiveRemediation": true,
