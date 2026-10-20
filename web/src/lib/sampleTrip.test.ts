@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtDuration, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath } from "./sampleTrip";
+import { fmtDuration, priceMonth, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath } from "./sampleTrip";
 
 describe("routePath", () => {
   it("fits the route inside the box and keeps the ends", () => {
@@ -49,5 +49,14 @@ describe("server-supplied links", () => {
     for (const bad of ["javascript:alert(1)", "https://evil.example/", "https://demo.rivolt.dev.evil.example/", "//evil.example"]) expect(safeDemoUrl(bad)).toBeNull();
     expect(safeSignupUrl("/signup")).toBe("/signup");
     expect(safeSignupUrl("https://evil.example/signup")).toBe("/signup");
+  });
+});
+
+describe("priceMonth", () => {
+  it("formats a YYYY-MM month and ignores anything else", () => {
+    expect(priceMonth("2026-10")).toBe("Oct 2026");
+    expect(priceMonth("")).toBe("");
+    expect(priceMonth("soon")).toBe("");
+    expect(priceMonth(undefined)).toBe("");
   });
 });

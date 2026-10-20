@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import Logo from "../components/Logo";
 import { formatMoney } from "../lib/ledger";
-import { fmtRange } from "../lib/planCost";
-import { fmtDuration, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
+import { fmtRange, safeTrackerUrl } from "../lib/planCost";
+import { fmtDuration, priceMonth, readSampleTrip, safeDemoUrl, safeSignupUrl, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
 import { useSystemTheme } from "../lib/theme";
 
 // /sample-trips and /sample-trips/<slug>: public pages that show the trip planner on three sample trips. The
@@ -48,6 +48,29 @@ function Missing() {
   );
 }
 
+// The tracker is the source of the prices: its name links to the report when the page gives one, else to the tracker's own site
+// (only ever its own https host), and says the month the prices were seen.
+const TRACKER = "DCFC Tracker";
+function TrackerLink({ url }: { url?: string }) {
+  return (
+    <a href={safeTrackerUrl(url) ?? "https://dcfctracker.com/"} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-200">
+      {TRACKER}
+    </a>
+  );
+}
+// "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ." with the name as a link.
+function PriceNote({ text, url }: { text: string; url?: string }) {
+  const i = text.indexOf(TRACKER);
+  if (i < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <TrackerLink url={url} />
+      {text.slice(i + TRACKER.length)}
+    </>
+  );
+}
+
 const stat = "rounded-lg border border-neutral-800 bg-neutral-900/50 px-3 py-2";
 
 function RouteMap({ route, title, stops }: { route: [number, number][]; title: string; stops: SampleStop[] }) {
@@ -83,7 +106,7 @@ function Day({ d, currency }: { d: SampleDay; currency: string }) {
                 {s.max_kw > 0 ? ` · up to ${Math.round(s.max_kw)} kW` : ""}
                 {s.cost_low != null && s.cost_high != null ? ` · about ${fmtRange(s.cost_low, s.cost_high, (v) => formatMoney(v, currency))} (estimate)` : " · price shown at the charger"}
               </div>
-              {s.price_note && <div className="text-xs text-neutral-500">{s.price_note}</div>}
+              {s.price_note && <div className="text-xs text-neutral-500"><PriceNote text={s.price_note} url={s.price_url} /></div>}
             </li>
           ))}
         </ul>
@@ -116,7 +139,11 @@ function TripBody({ t }: { t: SampleTrip }) {
             <dt className="text-xs text-neutral-400">Fast-charge cost</dt>
             <dd className="text-neutral-100">
               {(tot.priced_stops ?? 0) > 0 ? (
-                <>about {fmtRange(tot.dcfc_cost_low ?? 0, tot.dcfc_cost_high ?? 0, (v) => formatMoney(v, t.currency))} <span className="text-xs text-neutral-400">(estimate{(tot.unpriced_stops ?? 0) > 0 ? `, ${tot.priced_stops} of ${(tot.priced_stops ?? 0) + (tot.unpriced_stops ?? 0)} stops priced` : ""})</span></>
+                <>about {fmtRange(tot.dcfc_cost_low ?? 0, tot.dcfc_cost_high ?? 0, (v) => formatMoney(v, t.currency))} <span className="text-xs text-neutral-400">
+                    (estimate, typical price seen by <TrackerLink url={tot.price_url} />
+                    {priceMonth(tot.price_month) ? `, ${priceMonth(tot.price_month)}` : ""}
+                    {(tot.unpriced_stops ?? 0) > 0 ? `; ${tot.priced_stops} of ${(tot.priced_stops ?? 0) + (tot.unpriced_stops ?? 0)} stops priced` : ""})
+                  </span></>
               ) : (
                 <span className="text-sm text-neutral-300">Price shown at the charger</span>
               )}
