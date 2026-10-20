@@ -2,7 +2,7 @@
 // and puts the plan in the page as JSON (<script type="application/json" id="sample-trip">, or id="sample-trips"
 // for the hub), so the page needs no API call. Fixture data only; no coordinates besides the simplified route.
 
-export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_low?: number | null; cost_high?: number | null; price_note?: string; price_month?: string };
+export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_low?: number | null; cost_high?: number | null; price_note?: string; price_month?: string; price_url?: string };
 export type SampleOvernight = { name: string; nights?: number; parked_hours: number; l2_kw: number; added_kwh: number; soc_after: number };
 export type SampleDay = {
   label: string;
@@ -16,7 +16,7 @@ export type SampleDay = {
   stops: SampleStop[];
   overnight: SampleOvernight | null;
 };
-export type SampleTotals = { distance_mi: number; drive_min: number; charge_min: number; charge_stops: number; dcfc_cost_low?: number; dcfc_cost_high?: number; priced_stops?: number; unpriced_stops?: number; price_month?: string };
+export type SampleTotals = { distance_mi: number; drive_min: number; charge_min: number; charge_stops: number; dcfc_cost_low?: number; dcfc_cost_high?: number; priced_stops?: number; unpriced_stops?: number; price_month?: string; price_url?: string };
 export type SampleTrip = {
   slug: string;
   title: string;
@@ -84,3 +84,9 @@ export const fmtDuration = (min: number): string => {
 // /signup, so a bad value can never produce an off-site or javascript: link.
 export const safeDemoUrl = (u: string): string | null => (/^(https:\/\/demo\.rivolt\.dev\/|\/demo\/)/.test(u) ? u : null);
 export const safeSignupUrl = (u: string): string => (/^\/signup(\/|\?|$)/.test(u) ? u : "/signup");
+
+// "2026-10" -> "Oct 2026"; empty when the month isn't there.
+export function priceMonth(ym: string | undefined): string {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "";
+  return new Date(`${ym}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+}

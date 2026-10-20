@@ -51,6 +51,11 @@ for (const v of [
     // The fast-charging cost is a range over the priced stops; a stop with no price says so (never $0).
     await expect(page.getByText(/about \$[\d.]+–\$[\d.]+/).first()).toBeVisible();
     await expect(page.getByText(/1 of 2 stops priced/)).toBeVisible();
+    // The total names its source and month, and "DCFC Tracker" is a link to the tracker's own site (never anywhere else).
+    await expect(page.getByText(/estimate, typical price seen by DCFC Tracker, Oct 2026/).first()).toBeVisible();
+    const links = page.getByRole("link", { name: "DCFC Tracker" });
+    expect(await links.count()).toBeGreaterThanOrEqual(2);
+    for (const h of await links.evaluateAll((els) => els.map((e) => (e as HTMLAnchorElement).href))) expect(h).toMatch(/^https:\/\/dcfctracker\.com\//);
     await expect(page.getByText("· price shown at the charger").first()).toBeVisible();
     await expect(page.getByText("Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ.").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in the demo planner" })).toHaveAttribute("href", TRIP.demo_url);
@@ -73,5 +78,18 @@ test("the hub lists the trips with plain links; a page without its JSON says so"
   await open(b, `/sample-trips/${TRIP.slug}`, "sample-trip", null);
   await expect(b.getByRole("heading", { name: /didn't load/ })).toBeVisible();
   await expect(b.getByRole("link", { name: "list of sample trips" })).toHaveAttribute("href", "/sample-trips");
+  await ctx.close();
+});
+
+test("without a price month, a cost is never shown as a dateless 'typical price'", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  const undated = JSON.parse(JSON.stringify(TRIP));
+  delete undated.totals.price_month;
+  for (const d of undated.days) for (const st of d.stops) delete st.price_month;
+  await open(page, `/sample-trips/${TRIP.slug}`, "sample-trip", undated);
+  await expect(page.getByText("Price shown at the charger").first()).toBeVisible();
+  await expect(page.getByText(/typical price seen by/)).toHaveCount(0);
+  await expect(page.getByText(/about \$[\d.]+/)).toHaveCount(0);
   await ctx.close();
 });
