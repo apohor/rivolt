@@ -34,6 +34,11 @@ struct RivoltApp: App {
             // token is still valid, the user lands directly on HomeView
             // instead of the login screen.
             .task { await state.bootstrap() }
+            // Sign-in callbacks reach the app only through the in-flight
+            // browser session (SignInFlow). A rivolt.dev/app/callback link
+            // opened any other way holds no verifier to use: dropped, and
+            // never logged (it carries a one-time code).
+            .onOpenURL { _ in }
     }
 }
 

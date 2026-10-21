@@ -5,6 +5,14 @@
 	<!-- Push notifications. "development" is rewritten to production when the build is exported for TestFlight. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Sign-in callback on rivolt.dev (https://rivolt.dev/app/callback; the server publishes the AASA).
+	     webcredentials is what ASWebAuthenticationSession's https callback requires. No preview domains:
+	     preview signs in through rivolt://auth like a self-hosted server. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:rivolt.dev</string>
+		<string>applinks:rivolt.dev</string>
+	</array>
 	<!-- One shared Keychain group, first in the list so it is the default: the app and the notification extension
 	     then read and write the same session token. -->
 	<key>keychain-access-groups</key>

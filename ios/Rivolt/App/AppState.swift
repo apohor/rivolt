@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import WidgetKit
 
 /// Global app state. Owns the `APIClient` (so every view talks to the same
@@ -90,10 +91,11 @@ final class AppState {
         return verdict
     }
 
-    /// Starts sign-in against `serverURL`. The browser-based flow (PKCE and a
-    /// one-time code, design §2) lands with the server's app sign-in
-    /// endpoints; until then this reports what the server supports.
-    func signIn() async throws {
+    /// Signs in to `serverURL` through the server's web sign-in (design §2):
+    /// checks the server, then runs the browser step with `authenticator`. A
+    /// cancel in the browser returns quietly; everything else that stops
+    /// sign-in throws a `SignInError` for the sign-in screen.
+    func signIn(with authenticator: WebAuthenticator) async throws {
         let config: AppConfig
         do {
             config = try await client.appConfig()
@@ -104,8 +106,29 @@ final class AppState {
         case .notRivolt: throw SignInError.notRivolt
         case .appTooOld: throw SignInError.updateApp
         case .noAppSignIn: throw SignInError.notOnThisServer
-        case .ready: throw SignInError.comingSoon
+        case .ready: break
         }
+        let server = serverURL
+        let flow = SignInFlow(
+            server: server,
+            client: APIClient(baseURL: server, tokens: tokens),
+            tokens: tokens,
+            authenticator: authenticator,
+            deviceName: UIDevice.current.name
+        )
+        let username: String
+        do {
+            username = try await flow.run()
+        } catch SignInError.cancelled {
+            return
+        }
+        // The token is stored for the server the sign-in started on; if the
+        // setting changed meanwhile, stay signed out of the new one.
+        guard serverURL == server else { return }
+        phase = .loggedIn(username: username)
+        // The widgets were showing "sign in"; they can fetch now.
+        WidgetCenter.shared.reloadAllTimelines()
+        await notifications.signedIn(server: client)
     }
 
     func logout() async {
@@ -123,14 +146,25 @@ final class AppState {
 }
 
 enum SignInError: LocalizedError, Equatable {
-    case notRivolt, notOnThisServer, updateApp, comingSoon
+    case notRivolt, notOnThisServer, updateApp
+    /// Closed in the browser: not an error, nothing is shown.
+    case cancelled
+    /// Cancel on the server's "Sign in to the Rivolt iPhone app?" page.
+    case denied
+    /// The one-time code expired or was already used.
+    case expired
+    /// The sign-in didn't come back as expected.
+    case failed
 
     var errorDescription: String? {
         switch self {
         case .notRivolt: return "That address isn't a Rivolt server."
         case .notOnThisServer: return "This server doesn't support signing in from the app yet."
         case .updateApp: return "This server needs a newer version of the app."
-        case .comingSoon: return "Signing in from the app arrives with the next server update."
+        case .cancelled: return nil
+        case .denied: return "Sign-in was cancelled."
+        case .expired: return "That sign-in expired. Try again."
+        case .failed: return "Sign-in didn't finish. Try again."
         }
     }
 }
