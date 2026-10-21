@@ -57,8 +57,8 @@ describe("readFastPrice", () => {
 describe("fastPriceShown", () => {
   it("shows the tracker price for twelve months, then hides it", () => {
     expect(fastPriceShown(new Date("2026-10-20T12:00:00Z"), "2026-10")).toBe(true);
-    expect(fastPriceShown(new Date("2027-10-14T12:00:00Z"), "2026-10")).toBe(true);
-    expect(fastPriceShown(new Date("2027-10-16T12:00:00Z"), "2026-10")).toBe(false);
+    expect(fastPriceShown(new Date("2027-09-30T23:59:59Z"), "2026-10")).toBe(true);
+    expect(fastPriceShown(new Date("2027-10-01T00:00:00Z"), "2026-10")).toBe(false);
     expect(fastPriceShown(new Date("2026-10-20T12:00:00Z"), "bogus")).toBe(false);
   });
 });

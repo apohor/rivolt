@@ -18,7 +18,7 @@ export const EXAMPLE = {
 const usd = (v: number) => Math.round(v + 1e-9);
 
 // The fast-charge price is not in this file or the bundle: the server puts today's typical price seen by DCFC Tracker in the page
-// (<script type="application/json" id="charging-cost">) while it is under twelve months old, and leaves it out after.
+// (<script type="application/json" id="charging-cost">) until the first of the month a year after its month, and leaves it out from then on.
 export type FastPrice = { price: number; month: string };
 
 export function readFastPrice(doc: Document = document, now: Date = new Date()): FastPrice | null {
@@ -57,12 +57,11 @@ export function workedExample(fast: FastPrice | null = null) {
   };
 }
 
-// The tracker's price is only shown for twelve months after the month it was seen.
+// The server's rule: the price is shown while now is before the first of its month plus twelve months (2026-10 is gone on 2027-10-01).
 export function fastPriceShown(now: Date, month: string): boolean {
-  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
   if (!m) return false;
-  const until = Date.UTC(Number(m[1]) + 1, Number(m[2]) - 1, 15);
-  return now.getTime() <= until;
+  return now.getTime() < Date.UTC(Number(m[1]) + 1, Number(m[2]) - 1, 1);
 }
 
 export type CostInput = {
