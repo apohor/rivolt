@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-21T18:30:00Z",
+  "vehicle_id": "veh-fixture",
+  "active": true,
+  "vehicle_charger_state": "charging_active",
+  "start_time": "2026-10-21T18:02:00Z",
+  "time_elapsed_seconds": 1680,
+  "time_remaining_seconds": 1500,
+  "power_kw": 148.6,
+  "kilometers_charged_per_hour": 640,
+  "range_added_km": 215.4,
+  "total_charged_energy_kwh": 52.7,
+  "pack_kwh": 0,
+  "thermal_kwh": 0,
+  "outlets_kwh": 0,
+  "system_kwh": 0,
+  "soc_pct": 63,
+  "current_price": "18.97",
+  "current_currency": "USD",
+  "is_free_session": false,
+  "is_rivian_charger": true,
+  "rivian_charger_known": true
+}
