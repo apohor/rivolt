@@ -69,8 +69,16 @@ const (
 	ConnNEMA520  = "nema_5_20"
 )
 
-// Attribution is the credit the Recreation.gov data needs (CC BY 4.0).
-const Attribution = "Data: Recreation.gov (RIDB), CC BY 4.0"
+// The credit CC BY 4.0 needs for the Recreation.gov data: the name, a link to the
+// licence and to the source, and a note that we changed it (we keep a few facts
+// per campground and plan the power ourselves). A page shows Attribution with
+// "Recreation.gov (RIDB)" linked to AttributionSourceURL and "CC BY 4.0" linked
+// to AttributionLicenseURL.
+const (
+	Attribution           = "Data: Recreation.gov (RIDB), CC BY 4.0; filtered by Rivolt"
+	AttributionSourceURL  = "https://catalog.data.gov/dataset/recreation-information-database-ridb"
+	AttributionLicenseURL = "https://creativecommons.org/licenses/by/4.0/"
+)
 
 // recreationCampgroundURL is the only place a candidate links out to.
 const recreationCampgroundURL = "https://www.recreation.gov/camping/campgrounds/"

@@ -302,7 +302,7 @@ type POI struct {
 	// RIDBID is the Recreation.gov FacilityID of the campground, set on a
 	// station that came from, or was merged with, a RIDB record.
 	RIDBID string `json:"ridbID,omitempty"`
-	AsOf          string `json:"asof,omitempty"`
+	AsOf   string `json:"asof,omitempty"`
 }
 
 // Filter matches the SPA's ChargerFilter strings.
@@ -717,6 +717,12 @@ func (a *Archive) tilePOIs(z uint8, x, y uint32) ([]POI, error) {
 				poi.IsL2 = true
 			} else if !poi.IsDCFC {
 				poi.IsL2 = true
+			}
+			// A campground hookup (a RIDB record with amps, no EVSE counts, no J1772)
+			// is an outlet, not a Level 2 stall: it must not show up under the
+			// "l2" filter or count as a hotel-style L2.
+			if poi.HookupAmps > 0 && poi.L2Count == 0 && !poi.SocketJ1772 {
+				poi.IsL2 = false
 			}
 			pois = append(pois, poi)
 		}

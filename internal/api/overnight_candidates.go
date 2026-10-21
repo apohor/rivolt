@@ -36,6 +36,10 @@ type overnightResponse struct {
 	// Attribution is the credit line the page must show when any candidate
 	// is a Recreation.gov campground (CC BY 4.0); empty otherwise.
 	Attribution string `json:"attribution,omitempty"`
+	// AttributionSourceURL and AttributionLicenseURL are the links CC BY 4.0
+	// needs: the dataset and the licence.
+	AttributionSourceURL  string `json:"attribution_source_url,omitempty"`
+	AttributionLicenseURL string `json:"attribution_license_url,omitempty"`
 }
 
 // handleOvernightCandidates serves POST /api/trips/overnight-candidates: up to
@@ -89,6 +93,8 @@ func overnightHandler(arch overnight.Archive, ensure func(context.Context) error
 			if c.Attribution != "" {
 				out.Source = "NREL charging-station listing and Recreation.gov campgrounds (a snapshot; availability is not checked)"
 				out.Attribution = overnight.Attribution
+				out.AttributionSourceURL = overnight.AttributionSourceURL
+				out.AttributionLicenseURL = overnight.AttributionLicenseURL
 				break
 			}
 		}

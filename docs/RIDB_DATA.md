@@ -26,15 +26,21 @@ whenever the source changes, and date the check.
 
 ## Licence (checked 2026-10-20)
 
-- data.gov's record for the RIDB dataset states
-  `"license": "https://creativecommons.org/licenses/by/4.0/"` (CC BY 4.0). The
-  record itself was last modified 2022-08-25 and gives no attribution wording.
+- data.gov's record for the RIDB dataset
+  (`https://catalog.data.gov/dataset/recreation-information-database-ridb`,
+  fetched 2026-10-20) states `"license": "https://creativecommons.org/licenses/by/4.0/"`
+  (CC BY 4.0). The record itself was last modified 2022-08-25 and gives no
+  attribution wording. DA accepted this record as the licence evidence.
 - RIDB's own documentation page is a JavaScript page; no terms text could be
   read from it without a browser. **Open item:** someone should read the
   Recreation.gov / RIDB terms in a browser and add the result here.
-- Attribution we show: **"Data: Recreation.gov (RIDB), CC BY 4.0"**, in the
-  overnight response (`attribution`) and on every campground card. The only
-  outbound link is `https://www.recreation.gov/camping/campgrounds/<numeric FacilityID>`.
+- CC BY 4.0 needs the name, a link to the licence, a link to the source and a
+  note that changes were made. We show **"Data: Recreation.gov (RIDB), CC BY 4.0;
+  filtered by Rivolt"** with "Recreation.gov (RIDB)" linked to the dataset record
+  above and "CC BY 4.0" linked to the licence. The overnight response carries the
+  text (`attribution`) and the two links (`attribution_source_url`,
+  `attribution_license_url`); a page with a campground shows all three. The only
+  other outbound link is `https://www.recreation.gov/camping/campgrounds/<numeric FacilityID>`.
 
 ## Rules
 

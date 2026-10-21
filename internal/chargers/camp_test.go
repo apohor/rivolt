@@ -37,6 +37,12 @@ func TestCampgroundTagsAndFilter(t *testing.T) {
 		tule.Source != "ridb" || tule.RIDBID != "232709" || tule.AsOf != "2026-10-20" || tule.EVPricing != "$30 per night" {
 		t.Errorf("tags not read: %+v", tule)
 	}
+	if tule.IsL2 || tule.IsDCFC || tule.matches(FilterL2) || tule.matches(FilterDCFC) || tule.matches(FilterHotels) {
+		t.Errorf("an RV hookup is not an EVSE: isL2=%v isDCFC=%v", tule.IsL2, tule.IsDCFC)
+	}
+	if !byName["Pine RV"].IsL2 || !byName["Pine RV"].matches(FilterL2) {
+		t.Error("a listed Level 2 stall at a campground stays Level 2")
+	}
 	for name, want := range map[string]bool{
 		"Tule": true, "Pine RV": true, "Outlet only": true,
 		"Tent camp, no power": true, // no tags: the archive infers L2 for a station with no DC; the overnight rules drop it

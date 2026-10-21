@@ -148,7 +148,9 @@ func TestOvernightCandidatesCampgrounds(t *testing.T) {
 		c.ReservationRequired == nil || !*c.ReservationRequired {
 		t.Errorf("candidate = %+v", c)
 	}
-	if out.Attribution != "Data: Recreation.gov (RIDB), CC BY 4.0" || !strings.Contains(out.Source, "Recreation.gov") {
+	if out.Attribution != "Data: Recreation.gov (RIDB), CC BY 4.0; filtered by Rivolt" ||
+		!strings.Contains(rec.Body.String(), `"attribution_source_url":"https://catalog.data.gov/dataset/recreation-information-database-ridb"`) ||
+		!strings.Contains(rec.Body.String(), `"attribution_license_url":"https://creativecommons.org/licenses/by/4.0/"`) || !strings.Contains(out.Source, "Recreation.gov") {
 		t.Errorf("credit line missing: %q / %q", out.Attribution, out.Source)
 	}
 	body["kinds"] = []string{"castle"}
