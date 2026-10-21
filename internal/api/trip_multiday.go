@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -85,7 +88,64 @@ type tripPlanOvernight struct {
 	Until     string   `json:"until"`
 	MaxSoCPct float64  `json:"max_soc_pct"`
 	Name      string   `json:"name"`
+	// Hookup marks an own stop: the user chose the connector they will plug into
+	// (see hookupRules). It sets the default power and the bounds l2_kw must
+	// stay within; without it the stop is a listed charger and l2_kw keeps the
+	// older, looser check (the plan caps the charge at the truck's AC maximum).
+	Hookup string `json:"hookup,omitempty"`
 }
+
+// hookupRule is what an own stop's hookup allows. Power through Rivian's
+// Portable Charger is 32 A at most, 7.6 kW (Rivian's Portable Charger page,
+// read 2026-10-20), so a NEMA 14-50 stop is planned at 7.2 kW (a little under
+// for campground voltage). A 30 A TT-30 or any 120 V outlet is limited by the
+// charger's 120 V mode and an adapter, planned at 1.4 kW. A J1772 stop is bounded
+// by the R1/R2 on-board AC charger (11.5 kW at most; the plan also limits the
+// charge to the truck's own AC maximum).
+type hookupRule struct {
+	defaultKW, minKW, maxKW float64
+}
+
+var hookupRules = map[string]hookupRule{
+	"j1772":      {defaultKW: 7.0, minKW: 1.0, maxKW: 11.5},
+	"nema_14_50": {defaultKW: 7.2, minKW: 1.0, maxKW: 7.6},
+	"tt_30":      {defaultKW: 1.4, minKW: 1.0, maxKW: 1.4},
+	"outlet_120": {defaultKW: 1.4, minKW: 1.0, maxKW: 1.4},
+	"none":       {defaultKW: 0, minKW: 0, maxKW: 0},
+}
+
+// maxOwnStopName is the longest name of an own stop.
+const maxOwnStopName = 80
+
+// ownStopErr checks an own stop (an overnight with a hookup): a known hookup,
+// a power inside what that hookup allows (rejected, never clamped), and a short
+// plain name. Nothing here calls out to a geocoder or the weather service.
+func ownStopErr(o *tripPlanOvernight) string {
+	if o.Hookup == "" {
+		return ""
+	}
+	r, ok := hookupRules[o.Hookup]
+	if !ok {
+		return "overnight hookup must be one of j1772, nema_14_50, tt_30, outlet_120, none"
+	}
+	if o.L2KW != nil {
+		kw := *o.L2KW
+		if math.IsNaN(kw) || (o.Hookup == "none" && kw != 0) || (o.Hookup != "none" && (kw < r.minKW || kw > r.maxKW)) {
+			return "overnight l2_kw for " + o.Hookup + " must be between " + fmtKW(r.minKW) + " and " + fmtKW(r.maxKW) + " kW"
+		}
+	}
+	if utf8.RuneCountInString(o.Name) > maxOwnStopName {
+		return "overnight name is longer than 80 characters"
+	}
+	for _, c := range o.Name {
+		if unicode.IsControl(c) || c == '<' || c == '>' {
+			return "overnight name has characters that are not allowed"
+		}
+	}
+	return ""
+}
+
+func fmtKW(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 type tripPlanMultidayOvernight struct {
 	Latitude    float64 `json:"latitude"`
@@ -353,7 +413,12 @@ func (req *tripPlanMultidayRequest) dayInputs() ([]tripmultiday.DayInput, error)
 				di.DepartAt = &t
 			}
 			if o := d.Overnight; o != nil {
-				di.Overnight = &tripmultiday.Overnight{L2KW: o.L2KW, Until: o.Until, MaxSoCPct: o.MaxSoCPct, Name: o.Name}
+				kw := o.L2KW
+				if r, ok := hookupRules[o.Hookup]; ok && kw == nil {
+					d := r.defaultKW
+					kw = &d
+				}
+				di.Overnight = &tripmultiday.Overnight{L2KW: kw, Until: o.Until, MaxSoCPct: o.MaxSoCPct, Name: o.Name, Hookup: o.Hookup, L2KWGiven: o.L2KW != nil}
 			}
 			out[i] = di
 		}
@@ -472,6 +537,9 @@ func (req *tripPlanMultidayRequest) validate(now time.Time) string {
 		if o := d.Overnight; o != nil {
 			if o.L2KW != nil && (*o.L2KW < 0 || *o.L2KW > 350 || math.IsNaN(*o.L2KW)) {
 				return n + ": overnight l2_kw is out of range"
+			}
+			if m := ownStopErr(o); m != "" {
+				return n + ": " + m
 			}
 			if o.MaxSoCPct < 0 || o.MaxSoCPct > 100 || math.IsNaN(o.MaxSoCPct) {
 				return n + ": overnight max_soc_pct must be between 0 and 100"

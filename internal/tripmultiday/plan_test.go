@@ -454,3 +454,20 @@ func TestDayThatCannotBeFixedHasAProblem(t *testing.T) {
 		t.Errorf("day = %+v, want a plain Problem for a day that does not reach its end", d)
 	}
 }
+
+// An own stop's hookup is echoed, and the result says when its power is the
+// hookup's default rather than something the user typed.
+func TestOvernightEchoesHookup(t *testing.T) {
+	kw := 7.2
+	r := overnight(40, 10, &Overnight{L2KW: &kw, Hookup: "nema_14_50"}, 100, 11.5, 80)
+	if r.Hookup != "nema_14_50" || !r.L2KWAssumed || r.L2KW != 7.2 {
+		t.Errorf("default: %+v", r)
+	}
+	r = overnight(40, 10, &Overnight{L2KW: &kw, Hookup: "nema_14_50", L2KWGiven: true}, 100, 11.5, 80)
+	if r.Hookup != "nema_14_50" || r.L2KWAssumed {
+		t.Errorf("typed: %+v", r)
+	}
+	if r = overnight(40, 10, &Overnight{L2KW: &kw}, 100, 11.5, 80); r.Hookup != "" || r.L2KWAssumed {
+		t.Errorf("a listed charger carries no hookup: %+v", r)
+	}
+}
