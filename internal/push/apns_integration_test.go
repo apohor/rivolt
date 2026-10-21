@@ -193,7 +193,7 @@ func TestFanAPNs(t *testing.T) {
 		}
 	})
 	var logs bytes.Buffer
-	svc := &Service{apns: a, logger: slog.New(slog.NewTextHandler(&logs, nil))}
+	svc := &Service{apns: a, logger: untimedLogger(&logs)}
 
 	p := Payload{Title: "Charging complete", Body: "Added 31 kWh at Pasadena", URL: "/charges/abc", Kind: "charging_done"}
 	if n := svc.fanAPNs(ctx, st, p); n != 2 {
@@ -332,4 +332,16 @@ func TestSendAPNsTest(t *testing.T) {
 	if n := svc.SendAPNsTest(ctx, stNone); n != 0 {
 		t.Errorf("test reached %d devices of a user with no iPhone", n)
 	}
+}
+
+// untimedLogger logs without the time attribute. The no-leak log checks look for
+// figures and tokens as substrings, and a timestamp's digits (22:50:11.4xx) can
+// contain one by chance, which made them flaky.
+func untimedLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		if len(groups) == 0 && a.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return a
+	}}))
 }

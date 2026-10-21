@@ -192,7 +192,7 @@ func TestSendLive(t *testing.T) {
 		}
 	})
 	var logs bytes.Buffer
-	svc := &Service{apns: a, logger: slog.New(slog.NewTextHandler(&logs, nil))}
+	svc := &Service{apns: a, logger: untimedLogger(&logs)}
 	state := NewLiveState(63, 11.4, 37)
 
 	// Flag off: nothing, and the rows are untouched.
