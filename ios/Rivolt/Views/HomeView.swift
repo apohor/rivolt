@@ -80,6 +80,8 @@ struct HomeView: View {
             .refreshable { await load() }
             .task { await load() }
             .onChange(of: selectedID) { Task { await loadSelected() } }
+            // The Live Activity follows the switch: on while charging starts it, off ends it.
+            .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
             .safeAreaInset(edge: .top) {
                 if state.notifications.shouldAskInApp {
                     NotificationPromptCard(manager: state.notifications)
@@ -88,7 +90,7 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showNotifications) {
-                NotificationSettingsView(manager: state.notifications)
+                NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings)
             }
         }
     }
@@ -126,5 +128,14 @@ struct HomeView: View {
         if s == nil && now == nil {
             loadError = "Couldn't load this truck's status."
         }
+        await syncLiveActivity()
+    }
+
+    /// Starts, updates or ends the charging Live Activity from what was just loaded. Only with the
+    /// per-iPhone switch on (and notifications on for this phone).
+    private func syncLiveActivity() async {
+        let switchOn = state.notifications.isOn && state.notifications.liveOffered && state.notifications.preferences?.onChargingLive == true
+        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+        await state.liveActivity.sync(summary: summary, switchOn: switchOn, vehicleID: selected?.id, deviceToken: state.notifications.deviceToken)
     }
 }

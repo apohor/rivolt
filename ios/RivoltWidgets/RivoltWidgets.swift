@@ -5,6 +5,36 @@ import WidgetKit
 struct RivoltWidgets: WidgetBundle {
     var body: some Widget {
         NowWidget()
+        ChargingLiveActivityWidget()
+    }
+}
+
+/// The charging Live Activity on the Lock Screen and in the Dynamic Island. Read-only; a tap opens the app.
+struct ChargingLiveActivityWidget: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: ChargingActivityAttributes.self) { context in
+            ChargingLockScreenView(state: context.state, targetPct: context.attributes.targetPct, isStale: context.isStale)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Text("\(context.state.socPct)%").font(.title.weight(.semibold)).monospacedDigit()
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(String(format: "%.1f kW", context.state.powerKw)).font(.headline).monospacedDigit()
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text(ChargingActivityText.untilTarget(context.state.minutesToTarget, targetPct: context.attributes.targetPct) ?? "Charging")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } compactLeading: {
+                Image(systemName: context.isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+            } compactTrailing: {
+                Text("\(context.state.socPct)%").monospacedDigit()
+            } minimal: {
+                Image(systemName: context.isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+            }
+        }
     }
 }
 

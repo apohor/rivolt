@@ -13,10 +13,15 @@ struct AppConfig: Decodable, Equatable {
 
     struct Push: Decodable, Equatable {
         let apns: Bool
+        /// True only when the server sends Live Activity updates. Absent on a server that predates them.
+        var live: Bool? = nil
     }
 
     /// Whether this server sends notifications to the app (APNs is configured).
     var apnsAvailable: Bool { push?.apns == true }
+
+    /// Whether this server sends charging Live Activity updates (needs APNs too).
+    var liveAvailable: Bool { apnsAvailable && push?.live == true }
 
     /// What the sign-in screen does with a server's answer.
     enum Verdict: Equatable {

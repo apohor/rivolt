@@ -47,6 +47,8 @@ struct VehicleState: Decodable, Equatable {
     let chargerState: String?
     let chargerPowerKw: Double?
     let chargeTargetPct: Double?
+    /// The pack size, to work out the time to the charge limit.
+    let batteryCapacityKwh: Double?
     let latitude: Double?
     let longitude: Double?
 }

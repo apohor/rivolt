@@ -3,6 +3,7 @@ import XCTest
 
 private final class FakeServer: PushServer, @unchecked Sendable {
     var apns = true
+    var live = false
     var registered: [(token: String, env: String)] = []
     var changed: [(token: String, key: String, on: Bool)] = []
     var unregistered: [String] = []
@@ -13,7 +14,7 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     var prefs = PushPreferences()
 
     func appConfig() async throws -> AppConfig {
-        AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: apns))
+        AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: apns, live: live))
     }
 
     func registerApns(token: String, environment: String) async throws -> PushPreferences {
@@ -34,6 +35,17 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     func testApns() async throws -> Int {
         tests += 1
         return try testResult.get()
+    }
+
+    var activityTokens: [String] = []
+    var endedActivityTokens: [String] = []
+
+    func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws {
+        activityTokens.append(activityToken)
+    }
+
+    func endActivity(activityToken: String) async throws {
+        endedActivityTokens.append(activityToken)
     }
 }
 
@@ -216,6 +228,19 @@ final class NotificationManagerTests: XCTestCase {
         if case .failed = m.registration {} else { XCTFail("expected a failed state, got \(m.registration)") }
     }
 
+    func testTheLiveActivitySwitchIsOfferedOnlyWhenTheServerSendsLiveUpdates() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        let m = make(system)
+        await m.signedIn(server: server)
+        XCTAssertFalse(m.liveOffered)
+        server.live = true
+        await m.signedIn(server: server)
+        XCTAssertTrue(m.liveOffered)
+        await m.signedOut()
+        XCTAssertFalse(m.liveOffered)
+    }
+
     func testTheTokenIsHexAndTheEnvironmentIsKnown() {
         XCTAssertEqual(NotificationManager.hex(Data([0x00, 0x0f, 0xa0])), "000fa0")
         XCTAssertTrue(["sandbox", "production"].contains(NotificationManager.defaultEnvironment))
@@ -247,7 +272,7 @@ final class PushPreferencesTests: XCTestCase {
     }
 
     func testEveryKindHasItsWebWordingAndWireKey() {
-        XCTAssertEqual(PushKind.allCases.count, 5)
+        XCTAssertEqual(PushKind.allCases.count, 6)
         XCTAssertEqual(PushKind.chargingDone.title, "Charging session completes")
         XCTAssertEqual(PushKind.plugInReminder.wireKey, "on_plug_in_reminder")
         var p = PushPreferences()

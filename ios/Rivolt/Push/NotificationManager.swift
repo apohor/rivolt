@@ -17,6 +17,8 @@ protocol PushServer: Sendable {
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws
     func unregisterApns(token: String) async throws
     func testApns() async throws -> Int
+    func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws
+    func endActivity(activityToken: String) async throws
 }
 
 extension APIClient: PushServer {}
@@ -92,6 +94,8 @@ final class NotificationManager {
     }
 
     private(set) var offered = false
+    /// The server sends charging Live Activity updates (`push.live`): the switch is only shown then.
+    private(set) var liveOffered = false
     private(set) var authorization: PushAuthorization = .notDetermined
     private(set) var registration: Registration = .idle
     private(set) var deviceToken: String?
@@ -146,7 +150,9 @@ final class NotificationManager {
     /// notifications, registers again, as Apple advises on every launch.
     func signedIn(server: PushServer) async {
         self.server = server
-        offered = (try? await server.appConfig())?.apnsAvailable ?? false
+        let config = try? await server.appConfig()
+        offered = config?.apnsAvailable ?? false
+        liveOffered = config?.liveAvailable ?? false
         authorization = await system.authorizationStatus()
         guard offered else { return }
         if authorization == .authorized {
@@ -165,6 +171,7 @@ final class NotificationManager {
         system.unregisterForRemoteNotifications()
         server = nil
         offered = false
+        liveOffered = false
         registration = .idle
         deviceToken = nil
         preferences = nil
