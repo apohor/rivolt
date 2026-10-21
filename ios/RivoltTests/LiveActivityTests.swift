@@ -77,6 +77,7 @@ final class ChargingActivityContentTests: XCTestCase {
         XCTAssertEqual(ChargingActivityText.untilTarget(122, targetPct: 80), "about 2 h 2 min to 80%")
         XCTAssertEqual(ChargingActivityText.untilTarget(30, targetPct: nil), "about 30 min")
         XCTAssertNil(ChargingActivityText.untilTarget(nil, targetPct: 80))
+        XCTAssertNil(ChargingActivityText.untilTarget(0, targetPct: 80), "the server's 0 means unknown")
     }
 
     func testTheSwitchIsOffByDefaultAndHiddenWhenTheServerDoesNotKnowIt() throws {

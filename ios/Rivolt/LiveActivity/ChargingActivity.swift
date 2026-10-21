@@ -10,7 +10,7 @@ struct ChargingActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var socPct: Int
         var powerKw: Double
-        /// Nil when it can't be worked out (no power, or already at the limit).
+        /// Nil when it can't be worked out (no power, or already at the limit). The server sends 0 for the same thing.
         var minutesToTarget: Int?
 
         /// ActivityKit decodes a push's `content-state` with a plain JSONDecoder (no key conversion), so

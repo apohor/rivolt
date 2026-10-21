@@ -43,7 +43,8 @@ struct ChargingLockScreenView: View {
 enum ChargingActivityText {
     /// "about 42 min to 80%", or "42 min" without a limit; nil when unknown.
     static func untilTarget(_ minutes: Int?, targetPct: Int?) -> String? {
-        guard let m = minutes else { return nil }
+        // The server sends 0 when it can't tell (never a missing key): that is "unknown", not "0 min".
+        guard let m = minutes, m > 0 else { return nil }
         let t = m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(m) min"
         if let target = targetPct { return "about \(t) to \(target)%" }
         return "about \(t)"
