@@ -83,7 +83,7 @@ for (const v of [
     const reqs = await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" }, async () => {
       // One via and two nights: each night has its own fields; change only the second.
       await expect(page.locator("[data-overnight-stop]")).toHaveCount(2);
-      await night2().getByLabel("Charger at the stop").selectOption("0");
+      await night2().getByLabel("Hookup at the stop").selectOption("none");
       await night2().getByLabel("Leave next morning at").fill("06:15");
     });
     expect(reqs).toHaveLength(1);
@@ -220,8 +220,8 @@ test("a long day suggests hotels with a listed charger; Use makes one the night 
   await expect(nights).toHaveCount(3);
   await expect(nights.nth(2)).toContainText("Sample Inn, Ogallala");
   // The hotel's listed charger is on that night only.
-  await expect(nights.nth(2).getByLabel("Charger at the stop")).toHaveValue("19");
-  await expect(nights.nth(0).getByLabel("Charger at the stop")).toHaveValue("7");
+  await expect(nights.nth(2).getByLabel("Planned power in kW")).toHaveValue("19");
+  await expect(nights.nth(0).getByLabel("Planned power in kW")).toHaveValue("7");
   await ctx.close();
 });
 

@@ -1,3 +1,4 @@
+import { DEFAULT_OVERNIGHT_KW, hookupById } from "./hookups";
 import { noRoutePrefs, routePrefsFromInputs, routePrefsWire, type RoutePrefs } from "./routePrefs";
 import { buildDays, stopKey, type OvernightOptions } from "./days";
 import { useEffect, useRef, useState } from "react";
@@ -25,7 +26,7 @@ export function usePlanner() {
   // overnightOpts, keyed by its stop.
   const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
   const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
-  const [overnightL2Kw, setOvernightL2Kw] = useState<number>(7);
+  const [overnightL2Kw, setOvernightL2Kw] = useState<number>(DEFAULT_OVERNIGHT_KW);
   const [overnightOpts, setOvernightOpts] = useState<Record<string, OvernightOptions>>({});
   const optsFor = (s: { lat: number; lon: number }): OvernightOptions =>
     overnightOpts[stopKey(s)] ?? { l2Kw: overnightL2Kw, until: overnightDepartureLocal, maxSocPct: maxOvernightSoCPct };
@@ -403,7 +404,7 @@ export function usePlanner() {
           .filter((_, i) => overnightFlags[i])
           .map((st) => {
             const o = optsFor(st);
-            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct };
+            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct, ...(o.hookup ? { hookup: o.hookup } : {}) };
           }),
         targetSoc,
         startingSoc,
@@ -473,7 +474,7 @@ export function usePlanner() {
     if (typeof i.overnight_l2_kw === "number") setOvernightL2Kw(i.overnight_l2_kw);
     setOvernightOpts(
       Object.fromEntries(
-        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, until: o.until, maxSocPct: o.max_soc_pct }]),
+        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, hookup: hookupById(o.hookup)?.id, until: o.until, maxSocPct: o.max_soc_pct }]),
       ),
     );
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);

@@ -1,3 +1,4 @@
+import { hookupById, hookupNote, stayLine, type HookupId } from "./hookups";
 import { Suspense } from "react";
 import { type FromPosition, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
@@ -18,20 +19,26 @@ export const LONG_DAY_THRESHOLD_HR = 9;
 const SIMULATED_NOTE =
   "This plan was built from preview data, not from Rivian's planner. Distances and times are realistic; stops and charge times are estimates for testing.";
 
+export type StayChoice = { hookup?: HookupId; kw: number };
+
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 // OvernightRow is the night between two days: where, when you get in, and what
 // the charger adds. The next day's card starts from it.
-export function OvernightRow({ day }: { day: TripPlanMultidayDay }) {
+export function OvernightRow({ day, stay }: { day: TripPlanMultidayDay; stay?: StayChoice }) {
   const o = day.overnight;
   if (!o) return null;
+  const hk = stay && stay.hookup !== "none" ? hookupById(stay.hookup) : undefined;
   return (
     <div data-overnight-row className="flex gap-3 rounded-lg border border-dashed border-neutral-700 px-3 py-2.5 text-sm">
       <span aria-hidden className="mt-0.5 text-base leading-none">☾</span>
       <div className="min-w-0 space-y-0.5">
-        <div className="font-medium text-neutral-100">Overnight at {o.name || "your stop"}</div>
+        <div data-stay-line className="font-medium text-neutral-100">
+          {hk ? stayLine(o.name || "your stop", hk.id, o.l2_kw) : `Overnight at ${o.name || "your stop"}`}
+        </div>
+        {hk && <div data-stay-note className="text-xs text-neutral-500">{hookupNote(hk.id, o.l2_kw)}</div>}
         <div className="text-neutral-400">
           Arrive about {fmtTime(day.arrive_at)} at {day.arrival_soc.toFixed(0)}%. Parked about {o.parked_hours.toFixed(0)} h.
         </div>
@@ -61,6 +68,7 @@ export function MultidayResult({
   destLabel,
   departureAt,
   onAddOvernight,
+  stays,
   replan,
 }: {
   response: TripPlanMultidayResponse;
@@ -68,6 +76,8 @@ export function MultidayResult({
   destLabel: string;
   departureAt?: string;
   onAddOvernight?: OvernightAdder;
+  // What each night's stop has (by the stop's name), from the planner: the hookup the user chose.
+  stays?: Record<string, StayChoice>;
   // Set when the days from `fromDay` on were planned from the truck's position.
   replan?: { fromDay: number; position: FromPosition; mid: boolean };
 }) {
@@ -208,7 +218,7 @@ export function MultidayResult({
                 )}
               </div>
               {r && !d.overnight && <OvernightSuggestions route={r} day={d.index} onUse={onAddOvernight} />}
-              <OvernightRow day={d} />
+              <OvernightRow day={d} stay={d.overnight?.name ? stays?.[d.overnight.name] : undefined} />
             </div>
           );
         })}

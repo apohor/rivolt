@@ -46,6 +46,18 @@ describe("MultidayResult", () => {
     expect(row.textContent).toContain("(capped)");
   });
 
+  it("names the hookup the user chose for the night, with the Portable Charger note", () => {
+    render(<MultidayResult response={resp({})} originLabel="A" destLabel="B" stays={{ "Des Moines": { hookup: "nema_14_50", kw: 7.2 } }} />);
+    expect(document.querySelector("[data-stay-line]")!.textContent).toBe("Overnight at Des Moines, NEMA 14-50 with the Rivian Portable Charger, about 7 kW (estimate)");
+    expect(document.querySelector("[data-stay-note]")!.textContent).toContain("You need to carry the Portable Charger.");
+  });
+
+  it("shows no hookup line without a choice, or with no charger", () => {
+    render(<MultidayResult response={resp({})} originLabel="A" destLabel="B" stays={{ "Des Moines": { hookup: "none", kw: 0 } }} />);
+    expect(document.querySelector("[data-stay-note]")).toBeNull();
+    expect(document.querySelector("[data-stay-line]")!.textContent).toBe("Overnight at Des Moines");
+  });
+
   it("shows no banner or badge for a clean plan", () => {
     render(<MultidayResult response={resp({})} originLabel="A" destLabel="B" />);
     expect(screen.queryByText("Simulated")).toBeNull();
