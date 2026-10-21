@@ -30,7 +30,7 @@ struct ChargingDetailCard: View {
                 }
                 if !typeSize.isAccessibilitySize { Spacer() }
                 if let to = detail.toTargetPct, let target = detail.targetPct {
-                    Text("\(Int(to.rounded()))% to \(Int(target.rounded()))%").font(.subheadline).foregroundStyle(NowInk.secondary)
+                    Text("\(Int(to.rounded())) \(Int(to.rounded()) == 1 ? "point" : "points") to \(Int(target.rounded()))% limit").font(.subheadline).foregroundStyle(NowInk.secondary)
                 }
             }
             if detail.haveLiveData {
@@ -67,13 +67,12 @@ struct DriveDetailCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: "steeringwheel").font(.subheadline.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-            Text(distanceText).font(.system(size: bigNumber, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(NowFormat.distance(mi: detail.distanceMi)).font(.system(size: bigNumber, weight: .semibold, design: .rounded)).monospacedDigit()
             FieldGrid {
                 if let e = detail.elapsed { Field(label: "Time", value: NowFormat.duration(e)) }
-                if let v = detail.avgSpeedMph { Field(label: "Average speed", value: speed(mph: v)) }
+                if let v = detail.avgSpeedMph { Field(label: "Average speed", value: NowFormat.speed(mph: v)) }
                 if let kwh = detail.energyKwh { Field(label: "Energy used", value: "\(NowFormat.oneDecimal(kwh)) kWh") }
-                if let eff = detail.miPerKwh { Field(label: "Efficiency", value: efficiency(eff)) }
+                if let eff = detail.miPerKwh { Field(label: "Efficiency", value: NowFormat.efficiency(miPerKwh: eff)) }
                 if let c = detail.estimatedCost, let m = NowFormat.moneyIfKnown(c, currency: detail.currency) {
                     Field(label: "Cost", value: "~\(m) (estimate)")
                 }
@@ -97,20 +96,6 @@ struct DriveDetailCard: View {
         }
     }
 
-    private var distanceText: String {
-        Measurement(value: detail.distanceMi, unit: UnitLength.miles)
-            .formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1))))
-    }
-
-    private func speed(mph: Double) -> String {
-        Measurement(value: mph, unit: UnitSpeed.milesPerHour).formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))))
-    }
-
-    /// mi/kWh, or km/kWh on a metric phone.
-    private func efficiency(_ miPerKwh: Double) -> String {
-        let usesMetric = Locale.current.measurementSystem != .us && Locale.current.measurementSystem != .uk
-        return usesMetric ? "\(NowFormat.twoDecimals(miPerKwh * 1.609344)) km/kWh" : "\(NowFormat.twoDecimals(miPerKwh)) mi/kWh"
-    }
 }
 
 /// Two columns, or one at accessibility text sizes where half a card is too narrow for "about 1 h 12 min".

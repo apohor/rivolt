@@ -136,4 +136,21 @@ final class NowDetailTests: XCTestCase {
         XCTAssertNil(NowFormat.moneyIfKnown(3.1, currency: ""))
         XCTAssertEqual(NowFormat.moneyIfKnown(3.1, currency: "USD"), "$3.10")
     }
+
+    func testSpokenUnitsMatchTheScreenAndPlacesReadAsWords() {
+        func charge(_ place: String?) -> ChargingDetail {
+            ChargingDetail(powerKw: 7, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil,
+                           elapsed: nil, remaining: nil, cost: nil, place: place, haveLiveData: false)
+        }
+        XCTAssertTrue(charge("Home").spoken.hasPrefix("Charging session at home."))
+        XCTAssertTrue(charge("Away").spoken.hasPrefix("Charging session away from home."))
+        XCTAssertTrue(charge("Fast").spoken.hasPrefix("Charging session, fast charger."))
+        XCTAssertFalse(charge("Fast").spoken.contains("at fast"))
+        let drive = DriveDetail(kind: .now, distanceMi: 8.2, elapsed: 600, avgSpeedMph: 40, maxSpeedMph: nil, energyKwh: 3, miPerKwh: 2.73, estimatedCost: nil, currency: nil)
+        let said = drive.spoken(title: "Driving now")
+        // The same measurement the screen shows, spelled out: miles or kilometres, never the other.
+        XCTAssertEqual(said.contains("miles per kilowatt hour"), !NowFormat.usesMetric, said)
+        XCTAssertEqual(said.contains("kilometres per kilowatt hour"), NowFormat.usesMetric, said)
+        XCTAssertFalse(said.contains("mi/kWh"))
+    }
 }
