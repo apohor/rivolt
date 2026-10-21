@@ -556,7 +556,7 @@ function ShareStatementButton({
   const sample = inDemo();
   // The off-peak share for this month, from the same sessions as the savings card; no share (no schedule, too few sessions) means no toggle.
   // Read with the page, not when the sheet opens: the sheet itself makes no request.
-  const share = useQuery({ queryKey: ["savings", m.period], queryFn: ({ signal }) => fetchSavings(m.period, signal), staleTime: 5 * 60_000, retry: 0 });
+  const share = useQuery({ queryKey: ["savings", m.period], queryFn: ({ signal }) => fetchSavings(m.period, signal), staleTime: 5 * 60_000, retry: 0, enabled: !sample });
   const offpeakShare = typeof share.data?.offpeak_share_pct === "number" ? share.data.offpeak_share_pct : null;
   const build = useCallback(
     (includeCost: boolean, includeOffpeak: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom, offpeakSharePct: includeOffpeak ? offpeakShare : null }),

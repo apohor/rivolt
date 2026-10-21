@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { appPath } from "../lib/demo";
+import { appPath, inDemo } from "../lib/demo";
 import { backend } from "../lib/api";
 import { currentMonth, formatMoney, monthLabel, shiftMonth } from "../lib/ledger";
 import { fetchSavings, leftOutLine, savedHeadline, savingsView } from "../lib/savings";
@@ -12,9 +12,11 @@ import { Card } from "./ui";
 export function SavingsCard({ area }: { area?: string }) {
   const [which, setWhich] = useState<"last" | "now">("last");
   const month = which === "last" ? shiftMonth(currentMonth(), -1) : currentMonth();
-  const q = useQuery({ queryKey: ["savings", month], queryFn: ({ signal }) => fetchSavings(month, signal), staleTime: 5 * 60_000, retry: 0 });
+  // The demo has no schedule and its access gate does not allow the endpoint: no card there.
+  const demo = inDemo();
+  const q = useQuery({ queryKey: ["savings", month], queryFn: ({ signal }) => fetchSavings(month, signal), staleTime: 5 * 60_000, retry: 0, enabled: !demo });
   const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
-  if (q.isError) return null;
+  if (demo || q.isError) return null;
   const currency = q.data?.currency || settings.data?.home_currency || "USD";
   const view = q.data ? savingsView(q.data) : null;
 
