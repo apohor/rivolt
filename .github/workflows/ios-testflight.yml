@@ -90,9 +90,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
 
-      # Archive straight with the distribution identity: automatic signing
-      # otherwise archives with a development profile, which Apple only issues
-      # when the team has a registered device (it has none: TestFlight only).
+      # Automatic signing archives with a development profile (the export then
+      # re-signs for the App Store), and Apple issues one only when the team
+      # has at least one registered device: keep one registered in the
+      # developer portal. Xcode refuses "Apple Distribution" with Automatic.
       - name: Archive (Release, cloud signing)
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -112,7 +113,6 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             MARKETING_VERSION="${{ steps.ver.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.ver.outputs.build }}" \
             -quiet
