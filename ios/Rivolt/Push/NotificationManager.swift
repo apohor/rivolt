@@ -94,6 +94,8 @@ final class NotificationManager {
     }
 
     private(set) var offered = false
+    /// The server sends charging Live Activity updates (`push.live`): the switch is only shown then.
+    private(set) var liveOffered = false
     private(set) var authorization: PushAuthorization = .notDetermined
     private(set) var registration: Registration = .idle
     private(set) var deviceToken: String?
@@ -148,7 +150,9 @@ final class NotificationManager {
     /// notifications, registers again, as Apple advises on every launch.
     func signedIn(server: PushServer) async {
         self.server = server
-        offered = (try? await server.appConfig())?.apnsAvailable ?? false
+        let config = try? await server.appConfig()
+        offered = config?.apnsAvailable ?? false
+        liveOffered = config?.liveAvailable ?? false
         authorization = await system.authorizationStatus()
         guard offered else { return }
         if authorization == .authorized {
@@ -167,6 +171,7 @@ final class NotificationManager {
         system.unregisterForRemoteNotifications()
         server = nil
         offered = false
+        liveOffered = false
         registration = .idle
         deviceToken = nil
         preferences = nil

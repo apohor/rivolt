@@ -3,6 +3,7 @@ import XCTest
 
 private final class FakeServer: PushServer, @unchecked Sendable {
     var apns = true
+    var live = false
     var registered: [(token: String, env: String)] = []
     var changed: [(token: String, key: String, on: Bool)] = []
     var unregistered: [String] = []
@@ -13,7 +14,7 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     var prefs = PushPreferences()
 
     func appConfig() async throws -> AppConfig {
-        AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: apns))
+        AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: apns, live: live))
     }
 
     func registerApns(token: String, environment: String) async throws -> PushPreferences {
@@ -225,6 +226,19 @@ final class NotificationManagerTests: XCTestCase {
         await m.register(deviceToken: Data([0x06]))
         XCTAssertFalse(m.isOn)
         if case .failed = m.registration {} else { XCTFail("expected a failed state, got \(m.registration)") }
+    }
+
+    func testTheLiveActivitySwitchIsOfferedOnlyWhenTheServerSendsLiveUpdates() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        let m = make(system)
+        await m.signedIn(server: server)
+        XCTAssertFalse(m.liveOffered)
+        server.live = true
+        await m.signedIn(server: server)
+        XCTAssertTrue(m.liveOffered)
+        await m.signedOut()
+        XCTAssertFalse(m.liveOffered)
     }
 
     func testTheTokenIsHexAndTheEnvironmentIsKnown() {

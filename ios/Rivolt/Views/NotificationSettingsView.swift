@@ -50,7 +50,7 @@ struct NotificationSettingsView: View {
 
                 if let prefs = manager.preferences {
                     Section {
-                        ForEach(PushKind.allCases.filter { $0 != .chargingLive || prefs.chargingLiveKnown }) { kind in
+                        ForEach(PushKind.allCases.filter { $0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown) }) { kind in
                             Toggle(isOn: binding(for: kind, in: prefs)) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(kind.title)
@@ -66,7 +66,7 @@ struct NotificationSettingsView: View {
                         Text("Notify me when…")
                     } footer: {
                         VStack(alignment: .leading, spacing: 4) {
-                            if prefs.chargingLiveKnown {
+                            if manager.liveOffered && prefs.chargingLiveKnown {
                                 Text("Starts when you open Rivolt while the truck is charging, and ends when the charge does.")
                                 if !liveActivitiesAllowed {
                                     Text("Live Activities are turned off for Rivolt in iOS Settings.").foregroundStyle(.orange)

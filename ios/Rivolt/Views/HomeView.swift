@@ -134,7 +134,7 @@ struct HomeView: View {
     /// Starts, updates or ends the charging Live Activity from what was just loaded. Only with the
     /// per-iPhone switch on (and notifications on for this phone).
     private func syncLiveActivity() async {
-        let switchOn = state.notifications.isOn && state.notifications.preferences?.onChargingLive == true
+        let switchOn = state.notifications.isOn && state.notifications.liveOffered && state.notifications.preferences?.onChargingLive == true
         let summary = NowSummary(state: vehicleState, now: now, clock: .now)
         await state.liveActivity.sync(summary: summary, switchOn: switchOn, vehicleID: selected?.id, deviceToken: state.notifications.deviceToken)
     }

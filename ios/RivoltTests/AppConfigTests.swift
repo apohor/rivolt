@@ -21,6 +21,13 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(AppConfig(server: "nextcloud", apiVersion: 1, appLogin: true, minIosBuild: nil).verdict(appBuild: 1), .notRivolt)
     }
 
+    func testLiveActivitiesNeedApnsAndTheLiveFlag() throws {
+        XCTAssertTrue(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":true,"live":true}}"#).liveAvailable)
+        XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":true,"live":false}}"#).liveAvailable)
+        XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":true}}"#).liveAvailable, "a server that predates the flag")
+        XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":false,"live":true}}"#).liveAvailable)
+    }
+
     func testApnsAvailabilityFollowsTheServer() throws {
         XCTAssertTrue(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":true}}"#).apnsAvailable)
         XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":false}}"#).apnsAvailable)
