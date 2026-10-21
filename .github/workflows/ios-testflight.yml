@@ -125,6 +125,8 @@ jobs:
       # A dry run never reaches App Store validation, so check here what
       # rejected ios-v0.1.0: icon name, iPhone-only family, a compiled icon.
       - name: Check the archived app for App Store basics
+        env:
+          REQUIRE_SIGNED_ENTITLEMENTS: "1"
         run: ios/check-app-store-basics.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
 
       - name: Export and upload

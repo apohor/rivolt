@@ -1,3 +1,4 @@
+import AuthenticationServices
 import XCTest
 @testable import Rivolt
 
@@ -236,6 +237,24 @@ final class SignInFlowTests: XCTestCase {
         await assertThrows(SignInError.cancelled) { try await self.flow(server: self.rivoltDev, tokens: tokens, browser: browser).run() }
         XCTAssertTrue(StubServer.requests.isEmpty)
         XCTAssertNil(SignInError.cancelled.errorDescription, "a cancel shows no message")
+    }
+
+    // MARK: Errors from the system's sign-in window
+
+    func testInstantCancelIsReportedNotSwallowed() {
+        let cancel = ASWebAuthenticationSessionError(.canceledLogin)
+        XCTAssertEqual(SystemWebAuthenticator.signInError(for: cancel, after: 0.05) as? SignInError, .couldNotOpen)
+        XCTAssertNotNil(SignInError.couldNotOpen.errorDescription)
+        XCTAssertEqual(SystemWebAuthenticator.signInError(for: cancel, after: 4) as? SignInError, .cancelled)
+    }
+
+    func testOtherSessionErrorsShowTheirCode() {
+        let err = ASWebAuthenticationSessionError(.presentationContextInvalid)
+        let mapped = SystemWebAuthenticator.signInError(for: err, after: 0.1) as? SignInError
+        XCTAssertEqual(mapped, .browser(code: ASWebAuthenticationSessionError.Code.presentationContextInvalid.rawValue))
+        XCTAssertTrue(mapped?.errorDescription?.contains("error \(ASWebAuthenticationSessionError.Code.presentationContextInvalid.rawValue)") == true)
+        let other = URLError(.notConnectedToInternet)
+        XCTAssertEqual((SystemWebAuthenticator.signInError(for: other, after: 0.1) as? URLError)?.code, .notConnectedToInternet)
     }
 
     func testTokenFixtureDecodes() throws {

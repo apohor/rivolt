@@ -214,6 +214,11 @@ enum SignInError: LocalizedError, Equatable {
     case expired
     /// The sign-in didn't come back as expected.
     case failed
+    /// iOS closed the sign-in window before anyone could (see
+    /// SystemWebAuthenticator.fastestHumanCancel).
+    case couldNotOpen
+    /// Any other ASWebAuthenticationSession error, with its code for support.
+    case browser(code: Int)
 
     var errorDescription: String? {
         switch self {
@@ -224,6 +229,8 @@ enum SignInError: LocalizedError, Equatable {
         case .denied: return "Sign-in was cancelled."
         case .expired: return "That sign-in expired. Try again."
         case .failed: return "Sign-in didn't finish. Try again."
+        case .couldNotOpen: return "Sign-in couldn't open on this phone. Delete and reinstall Rivolt, then try again."
+        case .browser(let code): return "Sign-in couldn't start (error \(code)). Try again."
         }
     }
 }
