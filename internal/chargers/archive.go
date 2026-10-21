@@ -23,6 +23,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,11 @@ type Archive struct {
 	loadedAt time.Time
 	// etag is the validator of the loaded file, sent as If-None-Match by Refresh.
 	etag string
+	// stations is the loaded copy's feature count (the shrink guard's baseline);
+	// rejectedETag is the last file the guard refused, so Refresh does not
+	// download it again every time.
+	stations     int
+	rejectedETag string
 }
 
 // New returns an empty archive; the caller drives Reload to populate
@@ -92,10 +98,16 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	}
 	if conditional {
 		a.mu.RLock()
-		etag := a.etag
+		etag, rejected := a.etag, a.rejectedETag
 		a.mu.RUnlock()
-		if etag != "" {
-			req.Header.Set("If-None-Match", etag)
+		var have []string
+		for _, e := range []string{etag, rejected} {
+			if e != "" {
+				have = append(have, e)
+			}
+		}
+		if len(have) > 0 {
+			req.Header.Set("If-None-Match", strings.Join(have, ", "))
 		}
 	}
 	cl := &http.Client{Timeout: 60 * time.Second}
@@ -124,6 +136,20 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	rootBytes := raw[header.RootOffset : header.RootOffset+header.RootLength]
 	rootDir := pm.DeserializeEntries(bytes.NewBuffer(rootBytes), header.InternalCompression)
 
+	// Shrink guard: a half-written or wrong file at the URL must not replace a
+	// good archive. The candidate is counted before anything is swapped.
+	cand := &Archive{raw: raw, header: header, rootDir: rootDir}
+	n := cand.featureCount()
+	a.mu.RLock()
+	had := a.stations
+	a.mu.RUnlock()
+	if had > 0 && float64(n) < shrinkGuardRatio*float64(had) {
+		a.mu.Lock()
+		a.rejectedETag = resp.Header.Get("ETag")
+		a.mu.Unlock()
+		return false, fmt.Errorf("chargers archive shrank from %d to %d stations (under %.0f%%); keeping the loaded copy", had, n, shrinkGuardRatio*100)
+	}
+
 	a.mu.Lock()
 	a.raw = raw
 	a.header = header
@@ -131,8 +157,38 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	a.leafDirs = sync.Map{}
 	a.loadedAt = time.Now()
 	a.etag = resp.Header.Get("ETag")
+	a.stations = n
+	a.rejectedETag = ""
 	a.mu.Unlock()
 	return true, nil
+}
+
+// shrinkGuardRatio is the least a newly fetched archive may hold, as a share of
+// the loaded one's stations, before it is refused.
+const shrinkGuardRatio = 0.8
+
+// featureCount is the number of charger features in the archive (a station on a
+// tile edge counts per tile; only the ratio between two archives matters).
+func (a *Archive) featureCount() int {
+	n := 0
+	var walk func(es []pm.EntryV3)
+	walk = func(es []pm.EntryV3) {
+		for _, e := range es {
+			if e.RunLength == 0 {
+				walk(a.lookupLeaf(a.header.LeafDirectoryOffset+e.Offset, e.Length))
+				continue
+			}
+			for i := uint32(0); i < e.RunLength; i++ {
+				z, x, y := pm.IDToZxy(e.TileID + uint64(i))
+				pois, err := a.tilePOIs(z, x, y)
+				if err == nil {
+					n += len(pois)
+				}
+			}
+		}
+	}
+	walk(a.rootDir)
+	return n
 }
 
 // tileBytes returns the decompressed MVT bytes for (z,x,y) or nil
