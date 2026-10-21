@@ -41,6 +41,9 @@ export default defineConfig({
     },
   },
   build: {
+    // Everything under assets/ must be Vite's content-hashed output: the
+    // server caches assets/<name>-<8-char hash>.<ext> for a year (spa.go,
+    // #797). Never put unhashed files there; use web/public instead.
     outDir: "../internal/web/dist",
     emptyOutDir: true,
     sourcemap: false,

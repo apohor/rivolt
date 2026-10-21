@@ -214,6 +214,9 @@ func consentHeaders(w http.ResponseWriter) {
 }
 
 type appConsent struct {
+	// Username is trusted HTML (emailOff: escaped, then wrapped in markers),
+	// safe only as element text. In an attribute, URL or script it needs its
+	// own escaping.
 	Username template.HTML
 	Action   string
 	Token    string
