@@ -396,6 +396,10 @@ type chargeResponse struct {
 }
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {
+	// The embedded row goes out as stored; an estimate month or link the store
+	// would not have accepted (a row written around it) is dropped, as in the
+	// ledger's classification.
+	c.EstimateMonth, c.EstimateURL = charges.CleanEstimate(c.EstimateMonth, c.EstimateURL)
 	resp := chargeResponse{Charge: c, NetworkEvidenceOut: json.RawMessage("null")}
 	if c.NetworkState != "" {
 		st := c.NetworkState
