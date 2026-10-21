@@ -167,9 +167,52 @@ func TestActivityThroughTheRouter(t *testing.T) {
 		"bad radius":  "?round_trip_radius_m=0",
 		"huge radius": "?round_trip_radius_m=99999",
 		"bad gap":     "?round_trip_gap_min=abc",
+		"nan radius":  "?round_trip_radius_m=NaN",
+		"inf radius":  "?round_trip_radius_m=Inf",
+		"nan gap":     "?round_trip_gap_min=nan",
 	} {
 		if w := get("https://rivolt.dev/api/activity"+u, true); w.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", name, w.Code)
+		}
+	}
+}
+
+// activity, charge-split and chart-points share one per-user ceiling (each reads the
+// user's rows, two of them cluster the last 5000 charges): past it the answer is 429
+// with a Retry-After, for that user only, and counted across the three routes.
+func TestAggregateEndpointsAreRateLimitedPerUser(t *testing.T) {
+	r := New(Deps{})
+	call := func(uid uuid.UUID, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev"+path, nil)
+		req = req.WithContext(auth.WithUser(req.Context(), uid))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	a, b := uuid.New(), uuid.New()
+	paths := []string{"/api/charge-split", "/api/activity", "/api/chart-points"}
+	limited := 0
+	for i := 0; i < 45; i++ {
+		w := call(a, paths[i%3])
+		if w.Code == http.StatusTooManyRequests {
+			limited++
+			if ra := w.Header().Get("Retry-After"); ra == "" || ra == "0" {
+				t.Fatalf("429 without a usable Retry-After: %q", ra)
+			}
+		}
+	}
+	if limited == 0 {
+		t.Error("45 calls across the three routes were never limited")
+	}
+	// The bucket is shared: the route that was never the one to run dry is limited too.
+	for _, p := range paths {
+		if w := call(a, p); w.Code != http.StatusTooManyRequests {
+			t.Errorf("%s after the shared ceiling: %d, want 429", p, w.Code)
+		}
+	}
+	for _, p := range paths {
+		if w := call(b, p); w.Code != http.StatusOK {
+			t.Errorf("another user's %s: %d, want 200", p, w.Code)
 		}
 	}
 }
