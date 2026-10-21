@@ -1409,3 +1409,15 @@ func TestLiveChargeRow_DCFCObservedEstimate(t *testing.T) {
 		t.Errorf("no figure: %+v, want unpriced", row)
 	}
 }
+
+// IsChargingState is the recorder's own test, exported for the Live Activity worker.
+func TestIsChargingState(t *testing.T) {
+	for cs, want := range map[string]bool{
+		"charging_active": true, "waiting_on_charger": true, "Charging_Active": true,
+		"charger_disconnected": false, "charging_complete": false, "charging_scheduled": false, "": false,
+	} {
+		if IsChargingState(cs) != want {
+			t.Errorf("IsChargingState(%q) = %v, want %v", cs, !want, want)
+		}
+	}
+}

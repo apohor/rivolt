@@ -1019,6 +1019,36 @@ func runServer() {
 			})
 			logger.Info("charge close hook: charging-done notifications enabled")
 		}
+		// The charging Live Activity (RIVOLT_APNS_LIVE): while a truck with a running
+		// activity charges, send its figures every few minutes; when the charge
+		// closes, send the end. Does nothing until an iPhone has turned the switch
+		// on and started an activity.
+		if pushSvc != nil && pushSvc.LiveEnabled() && pushFactory != nil && pgPool != nil {
+			liveSrc := push.LiveSourceFunc(func(uid uuid.UUID, rivianVehicleID string) (float64, float64, float64, bool) {
+				m := monitorRegistry.For(uid)
+				if m == nil {
+					return 0, 0, 0, false
+				}
+				st, at := m.Latest(rivianVehicleID)
+				if st == nil || time.Since(at) > 10*time.Minute || !rivian.IsChargingState(st.ChargerState) {
+					return 0, 0, 0, false
+				}
+				mins := st.TimeToEndMins
+				if strings.EqualFold(st.ChargingTimeEstimationValidity, "invalid") {
+					mins = 0
+				}
+				return st.BatteryLevelPct, st.ChargerPowerKW, mins, true
+			})
+			go pushSvc.RunLive(ctx, pgPool, pushFactory, liveSrc, push.LiveInterval)
+			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				return func(hctx context.Context, c charges.Charge) {
+					ectx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 30*time.Second)
+					defer cancel()
+					pushSvc.EndLiveForCharge(ectx, pushFactory, uid, c.VehicleID, c.EndSoCPct)
+				}
+			})
+			logger.Info("live activities: charging updates enabled")
+		}
 		// Write-through: whenever Rivian's vehicleState.batteryCapacity
 		// changes for a vehicle, mirror the new kWh into vehicles.pack_kwh
 		// so the percentage-of-nameplate display and the SoC × pack

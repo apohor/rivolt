@@ -2057,6 +2057,10 @@ func isChargingCS(s string) bool {
 	return strings.HasPrefix(v, "charging_") || v == "waiting_on_charger"
 }
 
+// IsChargingState reports whether a charger_state means energy is flowing (or the
+// truck is waiting on the charger), the same test the recorder opens a charge on.
+func IsChargingState(chargerState string) bool { return isChargingCS(chargerState) }
+
 // plugged reports whether the cable is connected for the lifecycle.
 // Rivian's chargerStatus says so when the vehicle reports it. An R2
 // never does (charger_status is empty on every R2 row), so there a
