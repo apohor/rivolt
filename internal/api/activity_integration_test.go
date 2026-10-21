@@ -57,7 +57,7 @@ func TestActivity(t *testing.T) {
 		t.Helper()
 		if err := cf.For(uid).Upsert(ctx, charges.Charge{ID: id, VehicleID: vid, StartedAt: at, EndedAt: at.Add(40 * time.Minute),
 			StartSoCPct: 30, EndSoCPct: 60, EnergyAddedKWh: kwh, MaxPowerKW: peak, Lat: lat, Lon: lon,
-			Cost: kwh * 0.4, Currency: "USD", PricePerKWh: 0.4, FinalState: "charging_complete", Source: "live", Place: "Secret Garage"}); err != nil {
+			Cost: kwh * 0.4, Currency: "USD", PricePerKWh: 0.4, FinalState: "charging_complete", Source: "live"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -122,7 +122,7 @@ func TestActivity(t *testing.T) {
 		t.Errorf("fast charge = %+v", c)
 	}
 	// Nothing that locates the user, and no other user's data.
-	for _, banned := range []string{"lat", "lon", "polyline", "route", "centroid", "member", "radius", "home_location", "secret garage", "37.77", "30.2", "-97.7", "_p~if", "act-b", "act-rv-b"} {
+	for _, banned := range []string{"lat", "lon", "polyline", "route", "centroid", "member", "radius", "home_location", "37.77", "30.2", "-97.7", "_p~if", "act-b", "act-rv-b"} {
 		if strings.Contains(strings.ToLower(raw), banned) {
 			t.Errorf("the payload carries %q: %s", banned, raw)
 		}
