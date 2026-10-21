@@ -47,3 +47,18 @@ CREATE TABLE IF NOT EXISTS push_notifications (
 );
 
 CREATE INDEX IF NOT EXISTS push_notifications_created_idx ON push_notifications (created_at);
+
+-- Tenant isolation, like every table with a user_id (TestEveryUserTableHasTenantRLS).
+DO $$
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['push_apns_devices', 'push_notifications'] LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);
+        EXECUTE format($f$
+            CREATE POLICY %I ON %I
+                USING (user_id = rivolt_current_user_id())
+                WITH CHECK (user_id = rivolt_current_user_id())
+        $f$, t || '_tenant_isolation', t);
+    END LOOP;
+END $$;
