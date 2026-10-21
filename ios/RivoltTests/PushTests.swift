@@ -39,12 +39,12 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     var activityTokens: [String] = []
     var endedActivityTokens: [String] = []
 
-    func registerActivity(token: String) async throws {
-        activityTokens.append(token)
+    func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws {
+        activityTokens.append(activityToken)
     }
 
-    func endActivity(token: String) async throws {
-        endedActivityTokens.append(token)
+    func endActivity(activityToken: String) async throws {
+        endedActivityTokens.append(activityToken)
     }
 }
 
