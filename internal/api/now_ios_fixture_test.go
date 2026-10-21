@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 )
@@ -25,6 +27,12 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"app_token.json":      &appTokenResponse{},
 		// Slice B (the Home charts): the idle-awake bars, as the web's tile reads them.
 		"sleep_activity.json": &[]samples.DayActivity{},
+		// The miles-per-day and charge-level charts. The handler's response is an
+		// anonymous struct; its two keys and row types are pinned here.
+		"chart_points.json": &struct {
+			Drives  []drives.ChartDrive   `json:"drives"`
+			Charges []charges.ChartCharge `json:"charges"`
+		}{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
