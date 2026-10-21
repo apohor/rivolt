@@ -95,6 +95,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app.notifications
+        # iPhone only, as the app (see the Rivolt target).
+        TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_NAME: RivoltNotificationService
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt notifications
         # The extension point goes in through the Info.plist XcodeGen writes below.
