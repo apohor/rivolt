@@ -90,7 +90,7 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showNotifications) {
-                NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings)
+                NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
             }
         }
     }

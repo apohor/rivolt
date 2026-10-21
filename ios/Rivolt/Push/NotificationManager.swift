@@ -19,6 +19,7 @@ protocol PushServer: Sendable {
     func testApns() async throws -> Int
     func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws
     func endActivity(activityToken: String) async throws
+    func testLiveActivity() async throws
 }
 
 extension APIClient: PushServer {}

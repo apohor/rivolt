@@ -10,6 +10,9 @@ struct NotificationSettingsView: View {
     let manager: NotificationManager
     /// Whether iOS lets Rivolt show Live Activities (iOS Settings); for the hint under that switch.
     var liveActivitiesAllowed = true
+    /// For "Send test Live Activity" (nil in previews and where there is none).
+    var live: LiveActivityManager? = nil
+    var vehicleID: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -44,6 +47,29 @@ struct NotificationSettingsView: View {
                             Text(message).foregroundStyle(.red)
                         default:
                             Text("Sends one test to your iPhones signed in to Rivolt.")
+                        }
+                    }
+                }
+
+                if let live, manager.liveOffered, manager.isOn, manager.preferences?.onChargingLive == true {
+                    Section {
+                        Button {
+                            Task { await live.sendTest(vehicleID: vehicleID, deviceToken: manager.deviceToken) }
+                        } label: {
+                            HStack {
+                                Text("Send test Live Activity")
+                                if live.test == .working { Spacer(); ProgressView() }
+                            }
+                        }
+                        .disabled(live.test == .working || !liveActivitiesAllowed)
+                    } footer: {
+                        switch live.test {
+                        case .sent:
+                            Text("Test sent. The Lock Screen card should show 50%, 7.2 kW and 60 min (test numbers), then end in about 20 seconds.")
+                        case .failed(let message):
+                            Text(message).foregroundStyle(.red)
+                        default:
+                            Text("Starts a Live Activity with test numbers and asks the server to update and end it. Lock the phone to see it.")
                         }
                     }
                 }

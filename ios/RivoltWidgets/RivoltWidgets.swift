@@ -13,7 +13,7 @@ struct RivoltWidgets: WidgetBundle {
 struct ChargingLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ChargingActivityAttributes.self) { context in
-            ChargingLockScreenView(state: context.state, targetPct: context.attributes.targetPct, isStale: context.isStale)
+            ChargingLockScreenView(state: context.state, targetPct: context.attributes.targetPct, isStale: context.isStale, isTest: context.attributes.isTest)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {

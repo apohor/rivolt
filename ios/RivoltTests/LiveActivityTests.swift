@@ -17,19 +17,25 @@ private final class LiveFakeServer: PushServer, @unchecked Sendable {
         registeredWith.append((deviceToken, vehicleID))
     }
     func endActivity(activityToken: String) async throws { ended.append(activityToken) }
+    var liveTests = 0
+    var liveTestResult: Error?
+    func testLiveActivity() async throws {
+        liveTests += 1
+        if let e = liveTestResult { throw e }
+    }
 }
 
 @MainActor
 private final class FakeBackend: LiveActivityBackend {
     var allowedInSettings = true
     var isRunning = false
-    var started: [(target: Int?, state: ChargingActivityAttributes.ContentState)] = []
+    var started: [(target: Int?, isTest: Bool, state: ChargingActivityAttributes.ContentState)] = []
     var updates: [ChargingActivityAttributes.ContentState] = []
     var endCalls = 0
     var onToken: (@MainActor (String) -> Void)?
 
-    func start(targetPct: Int?, state: ChargingActivityAttributes.ContentState, onToken: @escaping @MainActor (String) -> Void) throws {
-        started.append((targetPct, state))
+    func start(targetPct: Int?, isTest: Bool, state: ChargingActivityAttributes.ContentState, onToken: @escaping @MainActor (String) -> Void) throws {
+        started.append((targetPct, isTest, state))
         isRunning = true
         self.onToken = onToken
     }
@@ -177,6 +183,58 @@ final class LiveActivityManagerTests: XCTestCase {
         await m.sync(summary: try charging(), switchOn: false, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertFalse(backend.isRunning)
         XCTAssertEqual(backend.endCalls, 1)
+    }
+}
+
+@MainActor
+final class LiveActivityTestButtonTests: XCTestCase {
+    private func ready() -> (LiveActivityManager, FakeBackend, LiveFakeServer) {
+        let backend = FakeBackend()
+        let server = LiveFakeServer()
+        let m = LiveActivityManager(backend: backend)
+        m.attach(server: server)
+        return (m, backend, server)
+    }
+
+    func testTheTestStartsALocalActivityRegistersItAndAsksTheServer() async throws {
+        let (m, backend, server) = ready()
+        let run = Task { await m.sendTest(vehicleID: "veh-1", deviceToken: "dev") }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(backend.started.count, 1)
+        XCTAssertEqual(backend.started[0].isTest, true)
+        XCTAssertEqual(backend.started[0].state, LiveActivityManager.testState)
+        XCTAssertEqual(server.liveTests, 0, "not before the activity is registered")
+        backend.onToken?("tok1")
+        await run.value
+        XCTAssertEqual(server.registered, ["tok1"])
+        XCTAssertEqual(server.liveTests, 1)
+        XCTAssertEqual(m.test, .sent)
+        await m.stop()
+    }
+
+    func testItSaysWhyWhenTheServerRefuses() async throws {
+        let (m, backend, server) = ready()
+        server.liveTestResult = APIError.server(status: 404, message: "x")
+        let run = Task { await m.sendTest(vehicleID: "veh-1", deviceToken: "dev") }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        backend.onToken?("tok2")
+        await run.value
+        XCTAssertEqual(m.test, .failed(LiveActivityManager.testMessage(for: APIError.server(status: 404, message: "x"))))
+        XCTAssertFalse(backend.isRunning, "a failed test does not leave its activity on screen")
+    }
+
+    func testNotAllowedOrMissingTruckFailsWithoutStartingAnything() async {
+        let (m, backend, _) = ready()
+        backend.allowedInSettings = false
+        await m.sendTest(vehicleID: "veh-1", deviceToken: "dev")
+        XCTAssertTrue(backend.started.isEmpty)
+        if case .failed = m.test {} else { XCTFail("expected a failure") }
+    }
+
+    func testTheMessages() {
+        XCTAssertTrue(LiveActivityManager.testMessage(for: APIError.server(status: 409, message: "x")).contains("switch is off"))
+        XCTAssertTrue(LiveActivityManager.testMessage(for: APIError.server(status: 429, message: "x")).contains("Wait a minute"))
+        XCTAssertTrue(LiveActivityManager.testMessage(for: URLError(.notConnectedToInternet)).contains("Couldn't send"))
     }
 }
 

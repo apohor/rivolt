@@ -8,6 +8,8 @@ struct ChargingLockScreenView: View {
     let targetPct: Int?
     /// No update has arrived for a while (the system marks the activity stale).
     let isStale: Bool
+    /// A test with fixed numbers: the card says so.
+    var isTest = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -15,7 +17,7 @@ struct ChargingLockScreenView: View {
                 .font(.title2)
                 .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
             VStack(alignment: .leading, spacing: 2) {
-                Text(isStale ? "May be out of date" : "Charging")
+                Text(isStale ? "May be out of date" : (isTest ? "Charging (test numbers)" : "Charging"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
                 Text("\(state.socPct)%")
