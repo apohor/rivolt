@@ -26,8 +26,10 @@ settings:
   base:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # Swift 5 language mode. Xcode 26 accepts only 4.0/4.2/5.0/6.0 here;
-    # moving to 6 (strict concurrency) is its own change.
+    # The language mode, not the compiler: Xcode 26's toolchain is Swift 6,
+    # compiling this code in Swift 5 mode. The setting only accepts 4.0, 4.2,
+    # 5.0 or 6.0 (the scaffold's "5.10" is rejected). Moving to 6.0 (strict
+    # concurrency checking) is its own change.
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.4"
     # Required Info.plist keys that xcodegen will emit for every
