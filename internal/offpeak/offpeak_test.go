@@ -46,18 +46,18 @@ func TestNormalizeRefuses(t *testing.T) {
 		field string
 		msg   string
 	}{
-		{"no zone", Schedule{Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "IANA"},
-		{"Local", Schedule{TZ: "Local", Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "IANA"},
-		{"bad zone", Schedule{TZ: "Mars/Olympus", Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "IANA"},
-		{"long zone", Schedule{TZ: strings.Repeat("a", 65), Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "IANA"},
-		{"nine windows", Schedule{TZ: tz, Windows: nine}, "windows", "at most 8"},
-		{"empty days", Schedule{TZ: tz, Windows: []Window{win("", "21:00", "06:00", 0.1)}}, "windows[0].days", "weekdays"},
-		{"odd days", Schedule{TZ: tz, Windows: []Window{win("monday", "21:00", "06:00", 0.1)}}, "windows[0].days", "weekdays"},
-		{"bad start", Schedule{TZ: tz, Windows: []Window{win(All, "9pm", "06:00", 0.1)}}, "windows[0].start", "21:00"},
-		{"start 24:00", Schedule{TZ: tz, Windows: []Window{win(All, "24:00", "06:00", 0.1)}}, "windows[0].start", "21:00"},
-		{"start 7:00", Schedule{TZ: tz, Windows: []Window{win(All, "7:00", "06:00", 0.1)}}, "windows[0].start", "21:00"},
-		{"bad end", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "06:60", 0.1)}}, "windows[0].end", "06:00"},
-		{"same start end", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "21:00", 0.1)}}, "windows[0].end", "differ"},
+		{"no zone", Schedule{Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "time zone"},
+		{"Local", Schedule{TZ: "Local", Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "time zone"},
+		{"bad zone", Schedule{TZ: "Mars/Olympus", Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "time zone"},
+		{"long zone", Schedule{TZ: strings.Repeat("a", 65), Windows: []Window{win(All, "21:00", "06:00", 0.1)}}, "tz", "time zone"},
+		{"nine windows", Schedule{TZ: tz, Windows: nine}, "windows", "at most 8 windows"},
+		{"empty days", Schedule{TZ: tz, Windows: []Window{win("", "21:00", "06:00", 0.1)}}, "windows[0].days", "choose weekdays"},
+		{"odd days", Schedule{TZ: tz, Windows: []Window{win("monday", "21:00", "06:00", 0.1)}}, "windows[0].days", "choose weekdays"},
+		{"bad start", Schedule{TZ: tz, Windows: []Window{win(All, "9pm", "06:00", 0.1)}}, "windows[0].start", "start must be a time like 21:00"},
+		{"start 24:00", Schedule{TZ: tz, Windows: []Window{win(All, "24:00", "06:00", 0.1)}}, "windows[0].start", "start must be a time like 21:00"},
+		{"start 7:00", Schedule{TZ: tz, Windows: []Window{win(All, "7:00", "06:00", 0.1)}}, "windows[0].start", "start must be a time like 21:00"},
+		{"bad end", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "06:60", 0.1)}}, "windows[0].end", "end must be a time like 06:00"},
+		{"same start end", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "21:00", 0.1)}}, "windows[0].end", "must differ"},
 		{"negative rate", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "06:00", -0.01)}}, "windows[0].rate", "between 0 and 5"},
 		{"rate over 5", Schedule{TZ: tz, Windows: []Window{win(All, "21:00", "06:00", 5.01)}}, "windows[0].rate", "between 0 and 5"},
 		{"label markup", Schedule{TZ: tz, Windows: []Window{{Days: All, Start: "21:00", End: "06:00", Rate: 0.1, Label: "<b>x</b>"}}}, "windows[0].label", "not allowed"},
@@ -104,5 +104,21 @@ func TestParseClock(t *testing.T) {
 		if _, ok := ParseClock(in); ok {
 			t.Errorf("%q accepted", in)
 		}
+	}
+}
+
+// The messages are shown to the user as they are, so each names its window.
+func TestMessagesArePlainWords(t *testing.T) {
+	_, e := Normalize(Schedule{TZ: "America/Chicago", Windows: []Window{win(Weekdays, "06:00", "12:00", 0.2), win(All, "10:00", "11:00", 0.1)}})
+	if e == nil || e.Msg != "Window 2 overlaps window 1." || e.Field != "windows[1].start" {
+		t.Errorf("overlap = %+v", e)
+	}
+	_, e = Normalize(Schedule{TZ: "America/Chicago", Windows: []Window{win(All, "21:00", "06:00", 9)}})
+	if e == nil || e.Msg != "Window 1: the rate must be between 0 and 5 per kWh." {
+		t.Errorf("rate = %+v", e)
+	}
+	// An end before the start, and 00:00 as an end, are fine: past midnight.
+	if _, e = Normalize(Schedule{TZ: "America/Chicago", Windows: []Window{win(All, "21:00", "00:00", 0.1)}}); e != nil {
+		t.Errorf("a window ending at 00:00 was refused: %v", e)
 	}
 }
