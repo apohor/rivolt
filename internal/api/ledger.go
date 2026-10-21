@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/offpeak"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -60,6 +61,8 @@ type ledgerAPI struct {
 	// billed reports the rivian_receipts flag for a user: when on, the
 	// statement carries Rivian's billed amounts (billed_* fields). nil = off.
 	billed func(uid uuid.UUID) bool
+	// schedule is the user's off-peak electricity schedule (none: no windows).
+	schedule func(ctx context.Context, uid uuid.UUID) offpeak.Schedule
 }
 
 // withBilled returns a copy that adds the billed_* fields for users the
@@ -102,6 +105,16 @@ func newLedgerAPI(pool *sql.DB, settingsF *settings.Factory) ledgerAPI {
 			return ledgerConfig(ctx, store)
 		},
 		now: time.Now,
+		schedule: func(ctx context.Context, uid uuid.UUID) offpeak.Schedule {
+			if settingsF == nil {
+				return offpeak.Schedule{}
+			}
+			sch, _, err := settings.GetOffpeak(ctx, settingsF.For(uid))
+			if err != nil {
+				return offpeak.Schedule{}
+			}
+			return sch
+		},
 		toConfirmCount: func(ctx context.Context, uid uuid.UUID) (int, int, error) {
 			return ledger.CountToConfirm(ctx, pool, uid)
 		},

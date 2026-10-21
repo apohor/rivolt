@@ -1103,6 +1103,7 @@ func New(d Deps) http.Handler {
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))
 				r.Get("/trips", withUser(la.trips))
+				r.Get("/savings", withUser(la.savings))
 			})
 			r.With(gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)

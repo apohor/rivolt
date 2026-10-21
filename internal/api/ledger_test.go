@@ -15,6 +15,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/offpeak"
 )
 
 func ledgerFloat(v float64) *float64 { return &v }
@@ -303,5 +304,101 @@ func TestLedger_BilledFieldsFollowTheReceiptsFlag(t *testing.T) {
 	}
 	if off := body(without, "/api/ledger/monthly?month=2026-10"); strings.Contains(off, "billed_") || strings.Contains(off, "estimated_total") {
 		t.Errorf("monthly with the flag off carries billed fields:\n%s", off)
+	}
+}
+
+// GET /api/ledger/savings: the card's figure, the counts under it, the months it
+// covers, and "needs" instead of a number until the inputs are there.
+func TestLedgerSavings(t *testing.T) {
+	uid := uuid.New()
+	chi, _ := time.LoadLocation("America/Chicago")
+	home := &ledger.LatLon{Lat: 30.2701, Lon: -97.7401}
+	// Three Wednesday-evening plug-ins in September 2026: 30 kWh over 4 h each,
+	// paid at the flat 0.11 = 3.30, plug-in 18:00 to 08:00 so the night window fits.
+	mk := func(id string, day int) ledger.Charge {
+		st := time.Date(2026, 9, day, 18, 0, 0, 0, chi).UTC()
+		kwh, peak, cost, rate, act := 30.0, 7.4, 3.30, 0.11, 4*3600.0
+		lat, lon := home.Lat, home.Lon
+		return ledger.Charge{ID: id, VehicleID: "veh-1", StartedAt: st, EndedAt: st.Add(14 * time.Hour), CreatedAt: st,
+			EnergyKWh: &kwh, PeakKW: &peak, Cost: &cost, PricePerKWh: &rate, Currency: "USD", CostSource: "home_rate",
+			ActiveSeconds: &act, FinalState: "charging_complete", Source: "live", Lat: &lat, Lon: &lon}
+	}
+	f := &fakeLedgerData{charges: []ledger.Charge{mk("a", 2), mk("b", 9), mk("c", 16)}}
+	a := f.api(time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC))
+	cfg := ledger.Config{Currency: "USD", HomeRate: 0.21, Home: home}
+	a.config = func(context.Context, uuid.UUID) (ledger.Config, error) { return cfg, nil }
+	sch, e := offpeak.Normalize(offpeak.Schedule{TZ: "America/Chicago", Windows: []offpeak.Window{{Days: "weekdays", Start: "21:00", End: "06:00", Rate: 0.09}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return sch }
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.savings(uid, w, r) })
+
+	type body struct {
+		Months         []string       `json:"months"`
+		TZ             string         `json:"tz"`
+		Considered     int            `json:"sessions_considered"`
+		Moved          int            `json:"sessions_moved"`
+		LeftOut        int            `json:"sessions_left_out"`
+		Reasons        map[string]int `json:"left_out_reasons"`
+		AsCharged      float64        `json:"as_charged_total"`
+		IfMoved        float64        `json:"if_moved_total"`
+		CouldHaveSaved *float64       `json:"could_have_saved"`
+		Needs          string         `json:"needs"`
+		Basis          string         `json:"basis"`
+	}
+	get := func(url string) (int, body) {
+		rec := ledgerGET(t, h, uid, url)
+		var b body
+		_ = json.Unmarshal(rec.Body.Bytes(), &b)
+		return rec.Code, b
+	}
+
+	// Default: the last complete month (September, now being October 21), cut in
+	// the schedule's zone.
+	code, b := get("/api/ledger/savings")
+	if code != 200 || len(b.Months) != 1 || b.Months[0] != "2026-09" || b.TZ != "America/Chicago" {
+		t.Fatalf("default month: %d %+v", code, b)
+	}
+	if b.Considered != 3 || b.Moved != 3 || b.AsCharged != 9.90 || b.IfMoved != 8.10 || b.CouldHaveSaved == nil || *b.CouldHaveSaved != 1.80 || b.Needs != "" || b.Basis == "" {
+		t.Errorf("figures: %+v", b)
+	}
+	// And it ties to the Money statement's home AC line for the same month.
+	rec := ledgerGET(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.monthly(uid, w, r) }), uid, "/api/ledger/monthly?month=2026-09&tz=America/Chicago")
+	var m struct {
+		Energy struct {
+			ByPlaceKind map[string]map[string]struct {
+				Cost float64 `json:"cost"`
+			} `json:"by_place_kind"`
+		} `json:"energy"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &m)
+	if got := m.Energy.ByPlaceKind["home"]["ac"].Cost; got != b.AsCharged {
+		t.Errorf("as charged %v, Money's home AC cost %v", b.AsCharged, got)
+	}
+	// Several months, an explicit month.
+	if code, b = get("/api/ledger/savings?month=2026-09&months=3"); code != 200 || len(b.Months) != 3 || b.Months[0] != "2026-07" || b.Months[2] != "2026-09" {
+		t.Errorf("months: %d %v", code, b.Months)
+	}
+	// Missing inputs: counts but no figure.
+	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return offpeak.Schedule{} }
+	if _, b = get("/api/ledger/savings?tz=America/Chicago"); b.Needs != "offpeak_schedule" || b.CouldHaveSaved != nil || b.Considered != 3 {
+		t.Errorf("no schedule: %+v", b)
+	}
+	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return sch }
+	cfg.HomeRate = 0
+	if _, b = get("/api/ledger/savings"); b.Needs != "home_rate" || b.CouldHaveSaved != nil {
+		t.Errorf("no home rate: %+v", b)
+	}
+	cfg.HomeRate = 0.21
+	f.charges = f.charges[:2]
+	if _, b = get("/api/ledger/savings"); b.Needs != "more_home_sessions" || b.CouldHaveSaved != nil || b.Considered != 2 {
+		t.Errorf("two sessions: %+v", b)
+	}
+	// Bad input.
+	for _, u := range []string{"?months=0", "?months=13", "?months=x", "?month=2026-13", "?tz=Mars/Base"} {
+		if code, _ := get("/api/ledger/savings" + u); code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", u, code)
+		}
 	}
 }
