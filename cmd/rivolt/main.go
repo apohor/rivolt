@@ -1784,13 +1784,15 @@ func runServer() {
 	}
 
 	// The iPhone app's sign-in (iOS design §2): only with OIDC and the
-	// sessions store, and never on the admin or demo-only deployment.
-	// RIVOLT_APP_CALLBACK_URL is the app's fixed callback: rivolt://auth by
-	// default; on rivolt.dev the Universal Link once the app's associated
-	// domain is published.
+	// sessions store, never on the admin or demo-only deployment, and only
+	// when RIVOLT_APP_CALLBACK_URL names the app's fixed callback. There is
+	// no default: rivolt.dev must use its https Universal Link (with the
+	// published apple-app-site-association), never the rivolt:// scheme,
+	// which any app on the phone can claim (DA on #769); a self-hosted
+	// server opts in with rivolt://auth.
 	var appAuth *api.AppAuth
-	if oidcSvc != nil && sessionStore != nil && !adminOnlyMode && !demo.OnlyEnabled() {
-		callback := firstNonEmpty(strings.TrimSpace(os.Getenv("RIVOLT_APP_CALLBACK_URL")), "rivolt://auth")
+	callback := strings.TrimSpace(os.Getenv("RIVOLT_APP_CALLBACK_URL"))
+	if callback != "" && oidcSvc != nil && sessionStore != nil && !adminOnlyMode && !demo.OnlyEnabled() {
 		if u, err := url.Parse(callback); err != nil || (u.Scheme != "rivolt" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
 			logger.Error("bad RIVOLT_APP_CALLBACK_URL: want rivolt://… or https://… with no query", "value", callback)
 			os.Exit(1)
@@ -2066,6 +2068,10 @@ func runServer() {
 				}
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
+		}
+		// Expired iPhone-app sign-in attempts (minutes-long; kept a day).
+		if appAuth != nil {
+			jobs = append(jobs, retention.Job{Name: "app_auth_requests", Run: appAuth.Store.Purge})
 		}
 		// Backstop for the receipts opt-out: delete the receipts of any user
 		// who is not opted in, in case a sync pass saved rows after they

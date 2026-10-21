@@ -86,6 +86,11 @@ func (a *AppAuth) handleAppStart(d Deps) http.HandlerFunc {
 			return
 		}
 		state, err := a.Store.Begin(r.Context(), q.Get("code_challenge"))
+		if errors.Is(err, appauth.ErrBusy) {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, "too many sign-ins in progress, try again in a minute", http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil {
 			http.Error(w, "couldn't start sign-in", http.StatusInternalServerError)
 			return
@@ -120,23 +125,55 @@ func (a *AppAuth) handleAppStart(d Deps) http.HandlerFunc {
 	}
 }
 
-// handleAppFinish runs after the web sign-in, in the browser that started:
-// it mints the one-time code for the signed-in user and sends the browser to
-// the app's fixed callback.
-func (a *AppAuth) handleAppFinish() http.HandlerFunc {
+// handleAppFinishPage runs after the web sign-in, in the browser that
+// started. It never mints a code: it asks the signed-in user to confirm
+// signing the iPhone app in, so a start link someone else sent can't hand
+// them a code (DA on #769). Continue posts the form below to
+// handleAppFinish.
+func (a *AppAuth) handleAppFinishPage(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, cookieErr := r.Cookie(appAuthCookie)
-		http.SetCookie(w, &http.Cookie{
-			Name: appAuthCookie, Value: "", Path: appAuthPath, MaxAge: -1,
-			HttpOnly: true, Secure: a.SecureCookie, SameSite: http.SameSiteLaxMode,
-		})
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil || auth.IsImpersonating(r.Context()) {
+			a.clearState(w)
 			a.toCallback(w, r, "error", "access_denied")
 			return
 		}
 		if cookieErr != nil {
 			a.toCallback(w, r, "error", "invalid_request")
+			return
+		}
+		name := ""
+		if d.DB != nil {
+			_ = d.DB.QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&name)
+		}
+		consentHeaders(w)
+		_ = appConsentPage.Execute(w, appConsent{
+			Username: name,
+			Action:   appFinishPath,
+			Token:    a.Store.ConsentToken(c.Value),
+		})
+	}
+}
+
+// handleAppFinish is the consent form's POST: with the state cookie, the
+// signed-in user and the form's token, Continue mints the one-time code and
+// sends the browser to the app's fixed callback; Cancel tells the app no.
+// A cross-site POST carries neither SameSite=Lax cookie, so it's refused.
+func (a *AppAuth) handleAppFinish() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		_ = r.ParseForm()
+		c, cookieErr := r.Cookie(appAuthCookie)
+		if cookieErr != nil || !a.Store.CheckConsent(c.Value, r.PostFormValue("consent")) {
+			consentHeaders(w)
+			http.Error(w, "This sign-in link has expired or wasn't started on this device. Start again from the Rivolt app.", http.StatusForbidden)
+			return
+		}
+		a.clearState(w)
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil || auth.IsImpersonating(r.Context()) || r.PostFormValue("decision") != "allow" {
+			a.toCallback(w, r, "error", "access_denied")
 			return
 		}
 		code, err := a.Store.Finish(r.Context(), c.Value, uid)
@@ -147,6 +184,46 @@ func (a *AppAuth) handleAppFinish() http.HandlerFunc {
 		a.toCallback(w, r, "code", code)
 	}
 }
+
+func (a *AppAuth) clearState(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name: appAuthCookie, Value: "", Path: appAuthPath, MaxAge: -1,
+		HttpOnly: true, Secure: a.SecureCookie, SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// consentHeaders: never cached, never framed (no clickjacking the Continue
+// button), no scripts.
+func consentHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
+}
+
+type appConsent struct {
+	Username string
+	Action   string
+	Token    string
+}
+
+// appConsentPage asks before handing the app a session. html/template
+// escapes the username and token.
+var appConsentPage = template.Must(template.New("consent").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in to the Rivolt app</title>
+<style>body{font:17px -apple-system,system-ui,sans-serif;max-width:28rem;margin:3rem auto;padding:0 1rem}
+button{display:block;width:100%;font:inherit;padding:.9rem;margin:.6rem 0;border-radius:.6rem;border:1px solid #ccc;background:none}
+button[value=allow]{background:#0a7d32;color:#fff;border-color:#0a7d32}.note{color:#666;font-size:15px}</style>
+</head><body>
+<h1>Sign in to the Rivolt iPhone app?</h1>
+<p>The app on this phone will be signed in as <strong>{{.Username}}</strong> and can see your trucks and their history.</p>
+<p class="note">Only continue if you just tapped Sign in in the Rivolt app. If a link or message sent you here, cancel.</p>
+<form method="post" action="{{.Action}}">
+<input type="hidden" name="consent" value="{{.Token}}">
+<button type="submit" name="decision" value="allow">Continue</button>
+<button type="submit" name="decision" value="deny">Cancel</button>
+</form>
+</body></html>`))
 
 func (a *AppAuth) toCallback(w http.ResponseWriter, r *http.Request, key, value string) {
 	u, err := url.Parse(a.CallbackURL)

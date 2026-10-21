@@ -109,6 +109,36 @@ func TestAppSignIn(t *testing.T) {
 		}
 	})
 
+	t.Run("a cap on sign-ins in flight", func(t *testing.T) {
+		capped, _ := appauth.New(pool, []byte("0123456789abcdef0123456789abcdef"))
+		if _, err := pool.ExecContext(ctx, `DELETE FROM app_auth_requests`); err != nil {
+			t.Fatal(err)
+		}
+		appauth.SetMaxOutstanding(capped, 2)
+		for i := 0; i < 2; i++ {
+			if _, err := capped.Begin(ctx, challenge); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := capped.Begin(ctx, challenge); !errors.Is(err, appauth.ErrBusy) {
+			t.Fatalf("third start over the cap: %v", err)
+		}
+	})
+
+	t.Run("purge", func(t *testing.T) {
+		old, _ := appauth.New(pool, []byte("0123456789abcdef0123456789abcdef"))
+		clock := time.Now().Add(-48 * time.Hour)
+		appauth.SetNow(old, func() time.Time { return clock })
+		if _, err := old.Begin(ctx, challenge); err != nil {
+			t.Fatal(err)
+		}
+		clock = time.Now()
+		n, err := old.Purge(ctx)
+		if err != nil || n < 1 {
+			t.Fatalf("purge: %d %v", n, err)
+		}
+	})
+
 	t.Run("nothing raw is stored", func(t *testing.T) {
 		state, _ := store.Begin(ctx, challenge)
 		code, _ := store.Finish(ctx, state, uid)

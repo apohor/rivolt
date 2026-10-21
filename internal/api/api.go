@@ -440,10 +440,15 @@ func New(d Deps) http.Handler {
 				// The iPhone app's sign-in: start → the usual OIDC sign-in →
 				// finish (one-time code to the app's fixed callback) → token.
 				if d.AppAuth != nil && d.OIDC != nil && !d.AdminOnly {
+					// Per IP, per pod (DA on #769): start writes a row for an
+					// anonymous caller; token redeems codes.
+					startLimiter := newIPLimiter(10, time.Minute, time.Hour)
+					tokenLimiter := newIPLimiter(10, time.Minute, time.Hour)
 					r.Route("/app", func(r chi.Router) {
-						r.Get("/start", d.AppAuth.handleAppStart(d))
-						r.Get("/finish", d.AppAuth.handleAppFinish())
-						r.Post("/token", d.AppAuth.handleAppToken(d))
+						r.With(startLimiter.Middleware).Get("/start", d.AppAuth.handleAppStart(d))
+						r.Get("/finish", d.AppAuth.handleAppFinishPage(d))
+						r.Post("/finish", d.AppAuth.handleAppFinish())
+						r.With(tokenLimiter.Middleware).Post("/token", d.AppAuth.handleAppToken(d))
 					})
 				}
 				// Hydra OIDC bridge: Rivolt is the login + consent UI

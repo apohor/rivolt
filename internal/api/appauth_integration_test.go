@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -63,18 +64,48 @@ func TestAppSignInFlow(t *testing.T) {
 		a.handleAppStart(d)(w, signedIn(httptest.NewRequest(http.MethodGet, "/api/auth/app/start?"+q, nil)))
 		return w
 	}
-	finish := func(r *http.Request) *url.URL {
+	// toCallback reads a redirect to the app's fixed callback.
+	toCallback := func(w *httptest.ResponseRecorder) *url.URL {
 		t.Helper()
-		w := httptest.NewRecorder()
-		a.handleAppFinish()(w, r)
 		if w.Code != http.StatusFound {
-			t.Fatalf("finish: %d", w.Code)
+			t.Fatalf("expected a redirect to the app, got %d: %s", w.Code, w.Body)
 		}
 		u, err := url.Parse(w.Header().Get("Location"))
 		if err != nil || u.Scheme != "rivolt" || u.Host != "auth" {
-			t.Fatalf("finish went to %q, not the fixed callback", w.Header().Get("Location"))
+			t.Fatalf("redirect went to %q, not the fixed callback", w.Header().Get("Location"))
 		}
 		return u
+	}
+	// page is GET finish: the consent page, never a code.
+	page := func(r *http.Request) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		a.handleAppFinishPage(d)(w, r)
+		return w
+	}
+	consentRE := regexp.MustCompile(`name="consent" value="([^"]+)"`)
+	// post is the consent form's POST.
+	post := func(form url.Values, user bool, cookie *http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, appFinishPath, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if user {
+			r = signedIn(r)
+		}
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		a.handleAppFinish()(w, r)
+		return w
+	}
+	stateCookie := func(w *httptest.ResponseRecorder) *http.Cookie {
+		t.Helper()
+		for _, c := range w.Result().Cookies() {
+			if c.Name == appAuthCookie {
+				return c
+			}
+		}
+		t.Fatal("no state cookie")
+		return nil
 	}
 	token := func(body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
@@ -82,25 +113,40 @@ func TestAppSignInFlow(t *testing.T) {
 		return w
 	}
 
-	t.Run("start, finish, token", func(t *testing.T) {
+	t.Run("start, consent, token", func(t *testing.T) {
 		w := start("code_challenge_method=S256&code_challenge=" + challenge)
 		if w.Code != http.StatusFound || w.Header().Get("Location") != appFinishPath {
 			t.Fatalf("signed-in start: %d %q", w.Code, w.Header().Get("Location"))
 		}
-		var state *http.Cookie
-		for _, c := range w.Result().Cookies() {
-			if c.Name == appAuthCookie {
-				state = c
-			}
-		}
-		if state == nil || !state.HttpOnly || state.Path != appAuthPath || state.SameSite != http.SameSiteLaxMode {
+		state := stateCookie(w)
+		if !state.HttpOnly || state.Path != appAuthPath || state.SameSite != http.SameSiteLaxMode {
 			t.Fatalf("state cookie: %+v", state)
 		}
+
 		r := signedIn(httptest.NewRequest(http.MethodGet, appFinishPath, nil))
 		r.AddCookie(state)
-		code := finish(r).Query().Get("code")
+		w = page(r)
+		if w.Code != http.StatusOK || w.Header().Get("Location") != "" {
+			t.Fatalf("GET finish must show the consent page, got %d to %q", w.Code, w.Header().Get("Location"))
+		}
+		if !strings.Contains(w.Body.String(), "app-flow") || w.Header().Get("X-Frame-Options") != "DENY" {
+			t.Fatalf("consent page: %s", w.Body)
+		}
+		m := consentRE.FindStringSubmatch(w.Body.String())
+		if m == nil {
+			t.Fatal("no consent token on the page")
+		}
+		consent := m[1]
+
+		if w := post(url.Values{"decision": {"allow"}}, true, state); w.Code != http.StatusForbidden {
+			t.Fatalf("POST without the consent token: %d", w.Code)
+		}
+		if w := post(url.Values{"decision": {"allow"}, "consent": {consent}}, true, nil); w.Code != http.StatusForbidden {
+			t.Fatalf("POST without the state cookie (cross-site): %d", w.Code)
+		}
+		code := toCallback(post(url.Values{"decision": {"allow"}, "consent": {consent}}, true, state)).Query().Get("code")
 		if code == "" {
-			t.Fatal("no code")
+			t.Fatal("no code after consent")
 		}
 
 		w = token(`{"code":"` + code + `","code_verifier":"` + verifier + `","device_name":"Test iPhone\n"}`)
@@ -130,22 +176,30 @@ func TestAppSignInFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("finish refuses without the browser that started, or without a user", func(t *testing.T) {
-		if got := finish(signedIn(httptest.NewRequest(http.MethodGet, appFinishPath, nil))).Query().Get("error"); got != "invalid_request" {
-			t.Fatalf("no state cookie: %q", got)
+	t.Run("cancel, and refusals", func(t *testing.T) {
+		state := stateCookie(start("code_challenge_method=S256&code_challenge=" + challenge))
+		consent := a.Store.ConsentToken(state.Value)
+		if got := toCallback(post(url.Values{"decision": {"deny"}, "consent": {consent}}, true, state)).Query().Get("error"); got != "access_denied" {
+			t.Fatalf("cancel: %q", got)
 		}
-		w := start("code_challenge_method=S256&code_challenge=" + challenge)
-		state := w.Result().Cookies()[0]
+
+		if got := toCallback(page(signedIn(httptest.NewRequest(http.MethodGet, appFinishPath, nil)))).Query().Get("error"); got != "invalid_request" {
+			t.Fatalf("GET finish without the state cookie: %q", got)
+		}
+		state = stateCookie(start("code_challenge_method=S256&code_challenge=" + challenge))
 		anon := httptest.NewRequest(http.MethodGet, appFinishPath, nil)
 		anon.AddCookie(state)
-		if got := finish(anon).Query().Get("error"); got != "access_denied" {
+		if got := toCallback(page(anon)).Query().Get("error"); got != "access_denied" {
 			t.Fatalf("not signed in: %q", got)
 		}
 		viewAs := httptest.NewRequest(http.MethodGet, appFinishPath, nil)
 		viewAs = viewAs.WithContext(auth.WithImpersonation(viewAs.Context(), uuid.New(), uid))
 		viewAs.AddCookie(state)
-		if got := finish(viewAs).Query().Get("error"); got != "access_denied" {
+		if got := toCallback(page(viewAs)).Query().Get("error"); got != "access_denied" {
 			t.Fatalf("impersonating: %q", got)
+		}
+		if got := toCallback(post(url.Values{"decision": {"allow"}, "consent": {a.Store.ConsentToken(state.Value)}}, false, state)).Query().Get("error"); got != "access_denied" {
+			t.Fatalf("POST not signed in: %q", got)
 		}
 	})
 

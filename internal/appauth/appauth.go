@@ -7,14 +7,21 @@
 //	browser: GET /api/auth/app/start?code_challenge=…   → Begin (state cookie)
 //	         … the usual OIDC sign-in …
 //	         GET /api/auth/app/finish (signed in, state cookie)
+//	                                     → consent page ("Sign in the app as …?")
+//	         POST /api/auth/app/finish (state cookie + consent token)
 //	                                                     → Finish → 302 callback?code=…
 //	app:     POST /api/auth/app/token {code, code_verifier}
 //	                                                     → Redeem → user id
 //
 // What makes it safe (DA's conditions on the design):
 //   - the callback is fixed by the server, never taken from the request;
-//   - the state cookie binds finish to the browser that started, so a start
-//     link sent to someone else can't complete into the sender's challenge;
+//   - the state cookie binds finish to the browser that started, and finish
+//     mints a code only after the signed-in user confirms on a same-origin
+//     page (a POST with a token derived from that cookie): a start link sent
+//     to someone else, opened in their already-signed-in browser, can't hand
+//     the sender a code without them pressing Continue;
+//   - the callback is fixed per server, and rivolt.dev uses its https
+//     Universal Link, never the claimable rivolt:// scheme;
 //   - the code lives 60 s, works once, and is only good with the verifier
 //     whose S256 is the challenge (a wrong verifier burns it);
 //   - only HMACs of the state value and the code are stored.
@@ -48,6 +55,14 @@ const (
 	purgeAfter = time.Hour
 )
 
+// MaxOutstanding caps the sign-ins started and not yet finished or expired,
+// across all users: start is unauthenticated, so this bounds what a flood of
+// starts can put in the table (DA on #769).
+const MaxOutstanding = 1000
+
+// ErrBusy is Begin refusing because MaxOutstanding sign-ins are in flight.
+var ErrBusy = errors.New("appauth: too many sign-ins in progress")
+
 // ErrInvalid covers every way a start value, code or verifier can be wrong:
 // unknown, expired, already used, or not matching. Callers can't tell which,
 // so neither can an attacker.
@@ -64,9 +79,10 @@ func ValidChallenge(c string) bool { return challengeRE.MatchString(c) }
 
 // Store keeps sign-in attempts in app_auth_requests.
 type Store struct {
-	db     *sql.DB
-	pepper []byte
-	now    func() time.Time
+	db             *sql.DB
+	pepper         []byte
+	now            func() time.Time
+	maxOutstanding int
 }
 
 // New returns a Store. pepper is the session-token HMAC key (the cookie
@@ -78,7 +94,7 @@ func New(db *sql.DB, pepper []byte) (*Store, error) {
 	if len(pepper) < 32 {
 		return nil, errors.New("appauth: pepper must be at least 32 bytes")
 	}
-	return &Store{db: db, pepper: pepper, now: time.Now}, nil
+	return &Store{db: db, pepper: pepper, now: time.Now, maxOutstanding: MaxOutstanding}, nil
 }
 
 // Begin records a sign-in attempt for challenge and returns the raw state
@@ -97,6 +113,14 @@ func (s *Store) Begin(ctx context.Context, challenge string) (string, error) {
 	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM app_auth_requests WHERE expires_at < $1`, now.Add(-purgeAfter)); err != nil {
 		return "", fmt.Errorf("appauth: purge: %w", err)
+	}
+	var outstanding int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM app_auth_requests WHERE expires_at > $1 AND code_hash IS NULL`, now).Scan(&outstanding); err != nil {
+		return "", fmt.Errorf("appauth: count: %w", err)
+	}
+	if outstanding >= s.maxOutstanding {
+		return "", ErrBusy
 	}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO app_auth_requests (state_hash, challenge, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
@@ -160,6 +184,33 @@ func (s *Store) Redeem(ctx context.Context, code, verifier string) (uuid.UUID, e
 		return uuid.Nil, ErrInvalid
 	}
 	return uid.UUID, nil
+}
+
+// ConsentToken is the CSRF token for the consent form shown at finish: an
+// HMAC of the browser's state value, so only a page that saw this browser's
+// state cookie can produce it. The code is minted only on a POST carrying it
+// (DA on #769: finish never redirects with a code on a GET).
+func (s *Store) ConsentToken(state string) string {
+	return base64.RawURLEncoding.EncodeToString(s.hash("consent\x00" + state))
+}
+
+// CheckConsent reports whether token is ConsentToken(state).
+func (s *Store) CheckConsent(state, token string) bool {
+	if state == "" || token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(s.ConsentToken(state)), []byte(token)) == 1
+}
+
+// Purge deletes sign-in attempts that expired more than a day ago (the
+// retention job; Begin also trims as it goes). It returns the rows deleted.
+func (s *Store) Purge(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM app_auth_requests WHERE expires_at < $1`, s.now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		return 0, fmt.Errorf("appauth: purge: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // Challenge is S256: base64url(SHA-256(verifier)), no padding (RFC 7636).

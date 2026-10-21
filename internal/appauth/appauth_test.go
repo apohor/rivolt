@@ -22,3 +22,14 @@ func TestValidChallenge(t *testing.T) {
 		}
 	}
 }
+
+func TestConsentTokenIsBoundToTheState(t *testing.T) {
+	s := &Store{pepper: []byte("0123456789abcdef0123456789abcdef")}
+	tok := s.ConsentToken("state-a")
+	if !s.CheckConsent("state-a", tok) {
+		t.Fatal("own token rejected")
+	}
+	if s.CheckConsent("state-b", tok) || s.CheckConsent("state-a", "") || s.CheckConsent("", tok) {
+		t.Fatal("a token for another state, or an empty one, was accepted")
+	}
+}
