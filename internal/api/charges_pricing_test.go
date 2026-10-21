@@ -212,3 +212,16 @@ func TestPatchChargePricing_OpenSessionIs409(t *testing.T) {
 		t.Errorf("missing = %d %v", code, f.calls)
 	}
 }
+
+// A charge's own estimate month and link leave the API only if the store
+// would have accepted them, on the list and the detail alike.
+func TestDecorateChargeCleansEstimateFields(t *testing.T) {
+	bad := charges.Charge{ID: "x", CostSource: "observed_estimate", EstimateMonth: "2026-13", EstimateURL: "javascript:alert(1)"}
+	if got := decorateCharge(bad, settings.ChargingConfig{}, nil); got.Charge.EstimateMonth != "" || got.Charge.EstimateURL != "" {
+		t.Errorf("bad values leaked: %q %q", got.Charge.EstimateMonth, got.Charge.EstimateURL)
+	}
+	good := charges.Charge{ID: "y", CostSource: "observed_estimate", EstimateMonth: "2026-10", EstimateURL: "https://dcfctracker.com/reports/evgo"}
+	if got := decorateCharge(good, settings.ChargingConfig{}, nil); got.Charge.EstimateMonth != "2026-10" || got.Charge.EstimateURL == "" {
+		t.Errorf("valid values dropped: %+v", got.Charge)
+	}
+}
