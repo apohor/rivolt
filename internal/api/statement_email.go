@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/offpeak"
 	"github.com/apohor/rivolt/internal/statement"
 )
 
@@ -30,6 +31,7 @@ type statementAPI struct {
 	store   statement.Store
 	flag    func(userID string) bool
 	monthly statement.MonthlyFunc
+	savings statement.SavingsFunc
 	job     *statement.Job // Build only: preview and send share one renderer
 	signer  *statement.Signer
 	now     func() time.Time
@@ -52,6 +54,27 @@ func newStatementMonthly(la ledgerAPI) statement.MonthlyFunc {
 	}
 }
 
+// newStatementSavings is the off-peak saving estimate for the statement email: the
+// same code as GET /api/ledger/savings for that month and the user's own schedule.
+func newStatementSavings(la ledgerAPI) statement.SavingsFunc {
+	return func(ctx context.Context, uid uuid.UUID, period string, loc *time.Location) (*ledger.Savings, error) {
+		p, err := ledger.ParsePeriod(period, loc)
+		if err != nil {
+			return nil, err
+		}
+		in, err := la.input(ctx, uid, ledgerParams{loc: loc, tzSource: "statement_email"}, p)
+		if err != nil {
+			return nil, err
+		}
+		var sch offpeak.Schedule
+		if la.schedule != nil {
+			sch = la.schedule(ctx, uid)
+		}
+		s := ledger.EstimateSavings(ledger.HomeACSessions(in, p), sch, in.Config.HomeRate)
+		return &s, nil
+	}
+}
+
 func newStatementAPI(pool *sql.DB, d Deps, signer *statement.Signer) *statementAPI {
 	store := statement.NewStore(pool)
 	la := newLedgerAPI(pool, d.Settings)
@@ -62,6 +85,7 @@ func newStatementAPI(pool *sql.DB, d Deps, signer *statement.Signer) *statementA
 	return &statementAPI{
 		store: store, flag: flag, signer: signer, now: time.Now,
 		monthly: newStatementMonthly(la),
+		savings: newStatementSavings(la),
 		job:     &statement.Job{Store: store, Signer: signer, BaseURL: d.BaseURL, Now: time.Now},
 	}
 }
@@ -193,7 +217,13 @@ func (a *statementAPI) preview(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 		return
 	}
 	cand := statement.Candidate{UserID: uid, Timezone: prefs.Timezone, Email: addr}
-	msg, ok := a.job.Build(cand, period, cur, prev)
+	var sv *ledger.Savings
+	if a.savings != nil {
+		if s, serr := a.savings(r.Context(), uid, period, loc); serr == nil {
+			sv = s
+		}
+	}
+	msg, ok := a.job.BuildWith(cand, period, cur, prev, sv)
 	out := map[string]any{"will_send": false}
 	switch {
 	case !ok:
@@ -278,6 +308,7 @@ func startStatementJob(d Deps, signer *statement.Signer) {
 		Store:   statement.NewStore(d.DB),
 		Mailer:  d.Email,
 		Monthly: newStatementMonthly(la),
+		Savings: newStatementSavings(la),
 		Signer:  signer,
 		BaseURL: d.BaseURL,
 		Logger:  d.Logger,

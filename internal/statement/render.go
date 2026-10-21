@@ -37,6 +37,9 @@ type Input struct {
 	// be read.
 	Prev  *ledger.Monthly
 	Links Links
+	// Savings is the month's off-peak saving estimate, or nil. It is only ever
+	// built for a user who is already getting this email.
+	Savings *ledger.Savings
 }
 
 // Rendered is a ready-to-send message.
@@ -130,7 +133,7 @@ func sourceLabel(src string) string {
 	switch src {
 	case ledger.SourceRivian:
 		return "billed"
-	case ledger.SourceNetworkEstimate:
+	case ledger.SourceNetworkEstimate, ledger.SourceObservedEstimate:
 		return "estimated"
 	case ledger.SourceUser:
 		return "entered"
@@ -167,6 +170,18 @@ func biggest(m ledger.Monthly) []bigCharge {
 		cs = cs[:3]
 	}
 	return cs
+}
+
+// savingsLine is the one cost-only sentence about moving home charging into the
+// user's off-peak window, or "" when there is nothing worth saying (no figure,
+// under a dollar, or under a kWh). No tips and no links.
+func savingsLine(s *ledger.Savings, currency string) string {
+	if s == nil || s.Needs != "" || s.CouldHaveSaved == nil || *s.CouldHaveSaved < 1 || s.MovedKWh < 1 {
+		return ""
+	}
+	whole := Money(math.Round(*s.CouldHaveSaved), currency)
+	whole = strings.TrimSuffix(whole, ".00")
+	return fmt.Sprintf("Moving %.0f kWh into your off-peak window would have saved about %s (estimate).", s.MovedKWh, whole)
 }
 
 func comparable(a, b *ledger.Monthly) bool {
@@ -228,6 +243,7 @@ func Render(in Input) Rendered {
 		facts += fmt.Sprintf(" · %s/mi", Money(*m.Driving.CostPerMile, cur))
 	}
 	delta := deltaLine(m, in.Prev, cur)
+	saving := savingsLine(in.Savings, cur)
 
 	sp := splits(m)
 	big := biggest(m)
@@ -269,6 +285,9 @@ func Render(in Input) Rendered {
 			fmt.Fprintf(&t, "  %-14s %10s  %s\n", s.Label, Money(s.Cost, cur), kwh(s.KWh))
 		}
 	}
+	if saving != "" {
+		t.WriteString("\n" + saving + "\n")
+	}
 	if len(big) > 0 {
 		t.WriteString("\nBiggest charges\n")
 		for _, b := range big {
@@ -309,6 +328,9 @@ func Render(in Input) Rendered {
 			fmt.Fprintf(&h, `<tr><td style="padding:3px 0">%s</td><td style="padding:3px 0;text-align:right">%s</td><td style="padding:3px 0 3px 12px;text-align:right;color:#555">%s</td></tr>`, e(s.Label), e(Money(s.Cost, cur)), e(kwh(s.KWh)))
 		}
 		h.WriteString(`</table>`)
+	}
+	if saving != "" {
+		fmt.Fprintf(&h, `<p style="margin:16px 0 0;color:#555">%s</p>`, e(saving))
 	}
 	if len(big) > 0 {
 		h.WriteString(`<h2 style="font-size:16px;margin:20px 0 6px">Biggest charges</h2><table role="presentation" style="width:100%;border-collapse:collapse">`)

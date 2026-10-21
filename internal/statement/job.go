@@ -25,12 +25,18 @@ type Mailer interface {
 // as GET /api/ledger/monthly.
 type MonthlyFunc func(ctx context.Context, uid uuid.UUID, period string, loc *time.Location) (ledger.Monthly, error)
 
+// SavingsFunc returns the user's off-peak saving estimate for the period (nil
+// when it cannot be made). It is only called for a user who is being sent the
+// statement; an error just leaves the line out.
+type SavingsFunc func(ctx context.Context, uid uuid.UUID, period string, loc *time.Location) (*ledger.Savings, error)
+
 // Job sends the monthly statement emails. It is safe to run on every
 // replica: the (user, period) claim row is the idempotency key.
 type Job struct {
 	Store   Store
 	Mailer  Mailer
 	Monthly MonthlyFunc
+	Savings SavingsFunc // optional
 	Signer  *Signer
 	// Enabled reports whether the operator flag covers the user.
 	Enabled func(userID string) bool
@@ -169,7 +175,13 @@ func (j *Job) sendOne(ctx context.Context, c Candidate, period string, loc *time
 			prev = &p
 		}
 	}
-	msg, ok := j.Build(c, period, cur, prev)
+	var sv *ledger.Savings
+	if j.Savings != nil {
+		if s, serr := j.Savings(ctx, c.UserID, period, loc); serr == nil {
+			sv = s
+		}
+	}
+	msg, ok := j.BuildWith(c, period, cur, prev, sv)
 	if !ok {
 		_ = j.Store.Mark(ctx, c.UserID, period, "skipped", "silent_month", j.now())
 		return "skipped"
@@ -185,9 +197,14 @@ func (j *Job) sendOne(ctx context.Context, c Candidate, period string, loc *time
 // endpoint so preview and send can never differ). ok is false for a
 // silent month.
 func (j *Job) Build(c Candidate, period string, cur ledger.Monthly, prev *ledger.Monthly) (email.Message, bool) {
+	return j.BuildWith(c, period, cur, prev, nil)
+}
+
+// BuildWith is Build with the month's off-peak saving estimate (nil: no line).
+func (j *Job) BuildWith(c Candidate, period string, cur ledger.Monthly, prev *ledger.Monthly, sv *ledger.Savings) (email.Message, bool) {
 	r := Render(Input{
 		Period: period, FirstName: firstName(c.FirstName), Currency: cur.Currency,
-		Month: cur, Prev: prev, Links: j.links(c.UserID, period),
+		Month: cur, Prev: prev, Links: j.links(c.UserID, period), Savings: sv,
 	})
 	if r.Silent {
 		return email.Message{}, false

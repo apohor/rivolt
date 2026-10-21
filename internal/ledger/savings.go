@@ -25,6 +25,8 @@ type Savings struct {
 	Reasons    map[string]int `json:"left_out_reasons"`
 	// AsChargedTotal is what Money counts for all considered sessions;
 	// IfMovedTotal is the same sessions with the moved ones at their cheaper rate.
+	// MovedKWh is the energy of the moved sessions (the kWh the saving is about).
+	MovedKWh       float64 `json:"moved_kwh"`
 	AsChargedTotal float64 `json:"as_charged_total"`
 	IfMovedTotal   float64 `json:"if_moved_total"`
 	// CouldHaveSaved is AsChargedTotal - IfMovedTotal, never negative. Absent
@@ -122,9 +124,11 @@ func EstimateSavings(sessions []HomeSession, sch offpeak.Schedule, baseRate floa
 			out.IfMovedTotal += s.Cost
 		default:
 			out.Moved++
+			out.MovedKWh += s.KWh
 			out.IfMovedTotal += moved
 		}
 	}
+	out.MovedKWh = round2(out.MovedKWh)
 	out.AsChargedTotal = round2(out.AsChargedTotal)
 	out.IfMovedTotal = round2(out.IfMovedTotal)
 	switch {
