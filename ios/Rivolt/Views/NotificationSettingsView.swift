@@ -16,7 +16,7 @@ struct NotificationSettingsView: View {
                 Section {
                     statusRow
                 } footer: {
-                    Text("Apple's push service only learns that a notification was sent. The words are fetched from Rivolt over an encrypted connection when it arrives.")
+                    Text("Apple's push service sees only this phone's push address and a generic “Rivolt update”. The words are fetched from Rivolt over an encrypted connection when it arrives.")
                 }
 
                 // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
@@ -149,7 +149,7 @@ struct NotificationPromptCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Get a notification when charging finishes", systemImage: "bell.badge")
                 .font(.subheadline.weight(.semibold))
-            Text("Rivolt can tell you when a charge completes. The words are fetched from Rivolt when the notification arrives, so Apple never sees them.")
+            Text("Rivolt can tell you when a charge completes. Apple only gets a generic “Rivolt update”; the words are fetched from Rivolt when the notification arrives.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
