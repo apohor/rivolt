@@ -64,6 +64,20 @@ final class ChartMathTests: XCTestCase {
         XCTAssertNil(ChartMath.averageIdle([], now: .now, calendar: cal))
     }
 
+    func testTheSpokenSummaryNamesTheAverageAndTheBiggestDay() throws {
+        let p = try Fixture.decode(ChartPoints.self, "chart_points")
+        let cal = calendar("America/Chicago")
+        let bars = ChartMath.milesPerDay(p.drives, days: 3, now: date("2026-10-20T12:00:00Z"), calendar: cal)
+        let said = ChartMath.spokenDaily(title: "Miles per day", days: 3, bars: bars, calendar: cal) { "\(Int($0.rounded())) miles" }
+        XCTAssertEqual(said.label, "Miles per day, last 3 days")
+        XCTAssertTrue(said.value.hasPrefix("average 1"), said.value)
+        XCTAssertTrue(said.value.hasSuffix("most 46 miles on Sunday"), said.value)
+        XCTAssertEqual(ChartMath.spokenMinutes(72), "1 hour 12 minutes")
+        let level = ChartMath.spokenLevel(days: 3, trend: ChartMath.socTrend(drives: p.drives, charges: p.charges))
+        XCTAssertEqual(level.value, "from 88 percent to 58 percent, lowest 58 percent, highest 88 percent")
+        XCTAssertEqual(ChartMath.spokenDaily(title: "x", days: 7, bars: [], calendar: cal) { "\($0)" }.value, "")
+    }
+
     func testTheWindowIsWholeLocalDaysWithAnExclusiveEnd() {
         let cal = calendar("America/Chicago")
         let r = ChartWindow.week.range(now: date("2026-10-21T15:00:00Z"), calendar: cal)

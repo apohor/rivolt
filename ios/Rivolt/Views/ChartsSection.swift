@@ -11,6 +11,8 @@ struct ChartsSection: View {
 
     private var useKm: Bool { Locale.current.measurementSystem == .metric }
     private var distanceUnit: String { useKm ? "km" : "mi" }
+    @ScaledMetric(relativeTo: .body) private var milesHeight: CGFloat = 160
+    @ScaledMetric(relativeTo: .body) private var idleHeight: CGFloat = 140
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -37,6 +39,12 @@ struct ChartsSection: View {
         useKm ? Measurement(value: mi, unit: UnitLength.miles).converted(to: .kilometers).value : mi
     }
 
+    private var milesSpoken: (label: String, value: String) {
+        ChartMath.spokenDaily(title: "\(useKm ? "Kilometres" : "Miles") per day", days: window.days, bars: miles, calendar: calendar) {
+            "\(Int($0.rounded())) \(useKm ? "kilometres" : "miles")"
+        }
+    }
+
     private var milesCard: some View {
         ChartCard(title: "\(useKm ? "Kilometres" : "Miles") per day") {
             if model.points == nil {
@@ -49,10 +57,10 @@ struct ChartsSection: View {
                         .foregroundStyle(Color.accentColor)
                 }
                 .chartYAxisLabel(distanceUnit)
-                .frame(height: 160)
+                .frame(height: milesHeight)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(useKm ? "Kilometres" : "Miles") per day, last \(window.days) days")
-                .accessibilityValue("\(Int(miles.reduce(0) { $0 + $1.value }.rounded())) \(distanceUnit) in total")
+                .accessibilityLabel(milesSpoken.label)
+                .accessibilityValue(milesSpoken.value)
             }
         }
     }
@@ -83,17 +91,16 @@ struct ChartsSection: View {
                         AxisValueLabel { if let n = v.as(Int.self) { Text("\(n)%") } }
                     }
                 }
-                .frame(height: 160)
+                .frame(height: milesHeight)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Charge level over the last \(window.days) days")
-                .accessibilityValue(levelSummary)
+                .accessibilityLabel(levelSpoken.label)
+                .accessibilityValue(levelSpoken.value)
             }
         }
     }
 
-    private var levelSummary: String {
-        guard let first = trend.first, let last = trend.last else { return "" }
-        return "From \(Int(first.pct.rounded())) percent to \(Int(last.pct.rounded())) percent"
+    private var levelSpoken: (label: String, value: String) {
+        ChartMath.spokenLevel(days: window.days, trend: trend)
     }
 
     // MARK: Idle awake
@@ -114,19 +121,20 @@ struct ChartsSection: View {
                         .foregroundStyle(.indigo)
                 }
                 .chartYAxisLabel("min")
-                .frame(height: 140)
+                .frame(height: idleHeight)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Idle-awake time per day, last \(window.days) days")
-                .accessibilityValue(idleSummary)
+                .accessibilityLabel(idleSpoken.label)
+                .accessibilityValue(idleSpoken.value)
                 Text("Time per day the truck was awake while parked and not charging. Driving and charging are left out.")
                     .font(.caption).foregroundStyle(NowInk.secondary)
             }
         }
     }
 
-    private var idleSummary: String {
-        guard let avg = ChartMath.averageIdle(idle, now: now, calendar: calendar) else { return "" }
-        return "Average \(NowFormat.duration(avg * 60)) per full day"
+    private var idleSpoken: (label: String, value: String) {
+        ChartMath.spokenDaily(title: "Idle-awake time per day", days: window.days, bars: idle, calendar: calendar) {
+            ChartMath.spokenMinutes($0)
+        }
     }
 }
 
@@ -136,7 +144,7 @@ private struct ChartCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.subheadline.weight(.semibold))
+            Text(title).font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)

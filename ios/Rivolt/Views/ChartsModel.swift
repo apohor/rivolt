@@ -47,7 +47,7 @@ final class ChartsModel {
         let (pp, ss) = await (p, s)
         points = pp
         sleep = ss
-        // Only a read that worked is worth keeping; a failure is retried on the next load.
-        if pp != nil || ss != nil { cache[key] = Entry(points: pp, sleep: ss, fetchedAt: now) }
+        // Only a complete answer is worth keeping; a failed half is retried on the next load.
+        if pp != nil && ss != nil { cache[key] = Entry(points: pp, sleep: ss, fetchedAt: now) }
     }
 }
