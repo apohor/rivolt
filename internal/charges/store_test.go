@@ -167,6 +167,8 @@ func TestCleanEstimate(t *testing.T) {
 		{"2026-10", "http://dcfctracker.com/reports/evgo", "2026-10", ""},
 		{"2026-10", "https://dcfctracker.com.evil.example/x", "2026-10", ""},
 		{"2026-10", "https://evil.example/https://dcfctracker.com/", "2026-10", ""},
+		{"2026-13", "", "", ""},
+		{"2026-00", "", "", ""},
 		{"October", "", "", ""},
 		{"2026-10-01", "", "", ""},
 		{"", "", "", ""},
