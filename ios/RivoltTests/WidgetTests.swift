@@ -201,6 +201,14 @@ final class WidgetFetchTests: XCTestCase {
         XCTAssertTrue(StubProtocol.seen.isEmpty)
     }
 
+    func testNoServerSetMeansSignedOutEvenWithATokenForTheDefaultServer() async throws {
+        try answer()
+        let empty = WidgetStore(defaults: UserDefaults(suiteName: "rivolt.tests.widgetfetch.empty.\(UUID().uuidString)")!)
+        let outcome = await WidgetFetch.load(store: empty, tokens: FixedToken(value: "tok"), session: session())
+        XCTAssertEqual(outcome, .signedOut)
+        XCTAssertTrue(StubProtocol.seen.isEmpty, "nothing is requested without a server")
+    }
+
     func testReadsTheTwoEndpointsOnTheServerOnlyAndBuildsASnapshot() async throws {
         try answer()
         let outcome = await WidgetFetch.load(store: store(), tokens: FixedToken(value: "tok"), session: session(), clock: .now)
