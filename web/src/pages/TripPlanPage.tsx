@@ -1,5 +1,6 @@
 import { comparableSpend } from "../lib/planCost";
-import { OVERNIGHT_CHARGERS, type OvernightOptions } from "../plan/days";
+import { type OvernightOptions } from "../plan/days";
+import { HOOKUPS, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw } from "../plan/hookups";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useUiNext } from "../lib/uiNext";
@@ -217,7 +218,7 @@ export default function TripPlanPage() {
       setExtraStops((prev) => [...prev, labeled]);
       setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
     }
-    if (stop.l2Kw !== undefined) updateOvernight(at >= 0 ? extraStops[at] : labeled, { l2Kw: stop.l2Kw }, false);
+    if (stop.l2Kw !== undefined) updateOvernight(at >= 0 ? extraStops[at] : labeled, { l2Kw: stop.l2Kw, hookup: hookupForKw(stop.l2Kw) }, false);
   };
   const overnightsEl = (
     <OvernightList
@@ -430,6 +431,7 @@ export default function TripPlanPage() {
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
             onAddOvernight={addOvernightStop}
+            stays={Object.fromEntries(extraStops.filter((_, i) => overnightFlags[i]).map((st) => [st.label, { hookup: optsFor(st).hookup, kw: optsFor(st).l2Kw }]))}
             replan={multidaySnapshot?.replan}
           />
         </div>
@@ -1668,18 +1670,37 @@ function OvernightList({
                   className={fieldCls}
                 />
               </label>
-              <label className="flex items-center gap-1.5">
-                <span className="text-neutral-400">Charger at the stop</span>
+              <label className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
+                <span className="text-neutral-400">Hookup at the stop</span>
                 <select
-                  value={o.l2Kw}
-                  onChange={(e) => onChange(stop, { l2Kw: Number(e.target.value) })}
-                  className={fieldCls}
+                  value={o.hookup ?? hookupForKw(o.l2Kw)}
+                  onChange={(e) => {
+                    const h = hookupById(e.target.value);
+                    if (h) onChange(stop, { hookup: h.id, l2Kw: h.kw });
+                  }}
+                  className={`${fieldCls} w-full min-w-0 sm:w-auto sm:max-w-xs`}
                 >
-                  {[...OVERNIGHT_CHARGERS, ...(OVERNIGHT_CHARGERS.some((c) => c.kw === o.l2Kw) ? [] : [{ kw: o.l2Kw, label: `Listed charger (${o.l2Kw} kW)` }])].map((c) => (
-                    <option key={c.kw} value={c.kw}>{c.label}</option>
+                  {HOOKUPS.map((h) => (
+                    <option key={h.id} value={h.id}>{h.label}</option>
                   ))}
                 </select>
               </label>
+              {o.l2Kw > 0 && (
+                <label className="flex items-center gap-1.5">
+                  <span className="text-neutral-400">Planned power</span>
+                  <input
+                    type="number"
+                    min={KW_MIN}
+                    max={KW_MAX}
+                    step={0.1}
+                    value={o.l2Kw}
+                    onChange={(e) => onChange(stop, { l2Kw: clampKw(Number(e.target.value)) })}
+                    aria-label="Planned power in kW"
+                    className={`w-16 ${fieldCls}`}
+                  />
+                  <span className="text-neutral-400">kW</span>
+                </label>
+              )}
               <label className="flex items-center gap-1.5">
                 <span className="text-neutral-400">Charge up to</span>
                 <input
@@ -1694,11 +1715,9 @@ function OvernightList({
                 <span className="text-neutral-400">%</span>
               </label>
             </div>
-            <p className="text-xs text-neutral-500">
-              Pick from the map to use a hotel's listed charger.{" "}
-              {o.l2Kw > 0
-                ? `Overnight charging is an estimate: ${o.l2Kw} kW for the hours you're parked, capped at ${o.maxSocPct}%.`
-                : "With no charger, you leave with the charge you arrive with."}
+            <p data-hookup-note className="text-xs text-neutral-500">
+              {hookupById(o.hookup ?? hookupForKw(o.l2Kw))?.note}{" "}
+              {o.l2Kw > 0 ? `Charging is capped at ${o.maxSocPct}% for the hours you're parked.` : ""} Pick from the map to use a stay's listed charger.
             </p>
           </div>
         );

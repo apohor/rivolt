@@ -1,4 +1,5 @@
 import type { TripPlanDayRequest, TripPoint } from "../lib/api";
+import type { HookupId } from "./hookups";
 
 // Turns the planner form into the day model of POST /api/trips/plan-multiday. The form is an origin, an
 // ordered list of stops (each either a via or an overnight) and a destination; an overnight ends one day
@@ -11,6 +12,7 @@ export const stopKey = (s: { lat: number; lon: number }) => `${s.lat.toFixed(4)}
 
 export type OvernightOptions = {
   l2Kw: number; // 0: no charger
+  hookup?: HookupId; // what the stop has; absent on a save from before hookups (read from the kW)
   until: string; // "HH:MM", local time the truck is wanted the next morning
   maxSocPct: number;
 };
@@ -42,11 +44,3 @@ export function buildDays(stops: StopSel[], overnightFlags: boolean[], destinati
   });
   return days;
 }
-
-// The overnight stops' chargers the form offers (growth's copy), in kW.
-export const OVERNIGHT_CHARGERS: { kw: number; label: string }[] = [
-  { kw: 7, label: "Level 2 (7 kW)" },
-  { kw: 11, label: "Level 2, fast (11 kW)" },
-  { kw: 1.4, label: "Slow outlet (1.4 kW)" },
-  { kw: 0, label: "No charger" },
-];

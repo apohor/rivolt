@@ -2672,7 +2672,7 @@ export type SavedTripInputs = {
   // Charger at the overnight stops, in kW (0: none). Older saves omit it (7 kW).
   overnight_l2_kw?: number;
   // Each overnight's own settings, matched to its stop by position.
-  overnight_settings?: { lat: number; lon: number; until: string; l2_kw: number; max_soc_pct: number }[];
+  overnight_settings?: { lat: number; lon: number; until: string; l2_kw: number; max_soc_pct: number; hookup?: string }[];
 };
 
 // PlanVsActual is GET /api/trips/saved/{id}/actual
