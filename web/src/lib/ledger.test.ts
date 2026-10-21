@@ -4,6 +4,7 @@ import {
   dataQualityNotes,
   estimatedShare,
   fetchLedgerMonth,
+  statementCsvUrl,
   grammarFor,
   isValidMonth,
   ledgerMonthFixture,
@@ -208,5 +209,12 @@ describe("sourceLabel: a tracker estimate", () => {
     for (const m of ["", undefined, null, "soon", "2026-13", "2026-00", "2026-99"]) {
       expect(sourceLabel({ ...r, estimate_month: m as string | null | undefined }, "USD")).toBe("Estimate (typical observed price, date unknown) · Electrify America");
     }
+  });
+});
+
+describe("statementCsvUrl", () => {
+  it("is the month's CSV in the page's zone, with the truck when there is one", () => {
+    expect(statementCsvUrl("2026-09", { tz: "America/Chicago" })).toBe("/api/ledger/monthly.csv?month=2026-09&tz=America%2FChicago");
+    expect(statementCsvUrl("2026-09", { tz: "UTC", vehicleID: "veh 1" })).toBe("/api/ledger/monthly.csv?month=2026-09&tz=UTC&vehicle_id=veh+1");
   });
 });

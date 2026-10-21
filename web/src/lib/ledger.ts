@@ -333,6 +333,12 @@ export async function fetchLedgerMonth(
   }
 }
 
+// The month's CSV statement: a plain same-origin download (the session cookie authenticates it), cut in the same zone and for the same
+// truck as the page shows. Cells are escaped by the server.
+export function statementCsvUrl(month: string, opts: { vehicleID?: string; tz?: string } = {}): string {
+  return `/api/ledger/monthly.csv?${query({ month, tz: opts.tz ?? browserTimeZone(), vehicle_id: opts.vehicleID })}`;
+}
+
 export async function fetchLedgerSummary(
   opts: { months?: number; vehicleID?: string; tz?: string; fixture?: boolean; signal?: AbortSignal } = {},
 ): Promise<Sourced<LedgerSummary>> {
