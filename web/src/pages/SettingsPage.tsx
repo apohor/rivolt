@@ -36,6 +36,7 @@ import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
 import { OffpeakPanel } from "../components/OffpeakCard";
+import { MembershipTerms } from "../components/MembershipTerms";
 import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
@@ -217,6 +218,7 @@ function SettingsPageInner() {
           </Card>
           <Card title="Charging networks" id="networks">
             <ChargingNetworksPanel />
+            <MembershipTerms />
           </Card>
           <Card title="Trip planner defaults" id="planner">
             <PlannerPrefsPanel />
