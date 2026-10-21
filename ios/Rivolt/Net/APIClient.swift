@@ -140,6 +140,45 @@ actor APIClient {
         let _: Empty = try await request("POST", "/api/push/apns/unregister", body: ApnsTokenBody(token: token))
     }
 
+    // MARK: Now detail reads (the same ones the web's Now page makes)
+
+    private func pathID(_ id: String) -> String {
+        id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    }
+
+    /// A query value: unlike a path component, `&`, `=`, `+` and `#` must be escaped too.
+    private func queryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    /// The charge in progress; nil when the server has none (404) or doesn't know the endpoint.
+    func liveSession(id: String) async throws -> LiveSession? {
+        do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _) { return nil }
+    }
+
+    /// The drive in progress; 204 (or 404 from an older server) means none is open yet.
+    func liveDrive(id: String) async throws -> LiveDrive? {
+        do {
+            let (data, http) = try await send("GET", "/api/live-drive/\(pathID(id))")
+            if http.statusCode == 204 || data.isEmpty { return nil }
+            do { return try decoder.decode(LiveDrive.self, from: data) } catch { throw APIError.decoding(error) }
+        } catch APIError.server(404, _) { return nil }
+    }
+
+    /// The newest charge (for its place and cost).
+    func latestCharge(vehicleID: String) async throws -> ChargeBrief? {
+        let rows: [ChargeBrief] = try await request("GET", "/api/charges?limit=1&vehicle_id=\(queryValue(vehicleID))")
+        return rows.first
+    }
+
+    /// Asks for a few: the server drops a gear-bounce row after picking it, so a one-row page can come back empty.
+    func latestDrive(vehicleID: String) async throws -> DriveBrief? {
+        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=5&vehicle_id=\(queryValue(vehicleID))")
+        return rows.first
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }
@@ -174,6 +213,25 @@ actor APIClient {
         body: (any Encodable)? = nil,
         authenticated: Bool = true
     ) async throws -> Response {
+        let (data, _) = try await send(method, path, body: body, authenticated: authenticated)
+        if Response.self == Empty.self {
+            // swiftlint:disable:next force_cast
+            return Empty() as! Response
+        }
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    /// One round trip: the body and response of a 2xx answer, or the error for anything else.
+    private func send(
+        _ method: String,
+        _ path: String,
+        body: (any Encodable)? = nil,
+        authenticated: Bool = true
+    ) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.badURL
         }
@@ -204,15 +262,7 @@ actor APIClient {
             }
             throw APIError.server(status: http.statusCode, message: message)
         }
-        if Response.self == Empty.self {
-            // swiftlint:disable:next force_cast
-            return Empty() as! Response
-        }
-        do {
-            return try decoder.decode(Response.self, from: data)
-        } catch {
-            throw APIError.decoding(error)
-        }
+        return (data, http)
     }
 }
 
@@ -260,3 +310,4 @@ enum AnyJSON: Encodable {
         }
     }
 }
+
