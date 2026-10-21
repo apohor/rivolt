@@ -208,3 +208,15 @@ func (s *Store) deleteActivityByID(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM push_apns_activities WHERE user_id = $1 AND id = $2`, s.userID, id)
 	return err
 }
+
+// vehicleUUID maps Rivian's vehicle id to the user's vehicles.id (uuid.Nil when
+// the user has no such vehicle).
+func (s *Store) vehicleUUID(ctx context.Context, rivianVehicleID string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`, s.userID, rivianVehicleID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	return id, err
+}

@@ -5,6 +5,7 @@ package push
 import (
 	"bytes"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -259,5 +260,100 @@ func TestSendLive(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "Unregistered") {
 		t.Errorf("the dead activity was not logged by reason:\n%s", logs.String())
+	}
+}
+
+// The worker: a truck with a running activity that is charging gets its figures; one
+// that is not charging gets nothing; the interval holds back a second tick; the
+// charge-close hook sends the end with the final charge percent and forgets the
+// activity. Trucks without an activity cost nothing.
+func TestLiveWorkerAndChargeEnd(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	uid, _ := db.EnsureUser(ctx, pool, "live-worker-a")
+	st, _ := OpenStore(pool, uid)
+	f := NewFactory(pool)
+	sess := session(t, ctx, pool, uid)
+	var charging, idle, noActivity uuid.UUID
+	for rid, dst := range map[string]*uuid.UUID{"lw-charging": &charging, "lw-idle": &idle, "lw-none": &noActivity} {
+		if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2) RETURNING id`, uid, rid).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const dev = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: dev, Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.SetAPNsLive(ctx, dev, true); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	actC, actI := act(4), act(5)
+	if err := st.RegisterActivity(ctx, dev, actC, charging); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterActivity(ctx, dev, actI, idle); err != nil {
+		t.Fatal(err)
+	}
+
+	key, pemKey := testKey(t)
+	var mu sync.Mutex
+	got := map[string][]string{} // path -> bodies
+	a := apnsServer(t, key, pemKey, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got[r.URL.Path] = append(got[r.URL.Path], string(b))
+		mu.Unlock()
+	})
+	svc := (&Service{apns: a, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}).WithLive(true)
+	asked := map[string]int{}
+	src := LiveSourceFunc(func(u uuid.UUID, rid string) (float64, float64, float64, bool) {
+		asked[rid]++
+		if rid == "lw-charging" {
+			return 63.6, 11.46, 41.7, true
+		}
+		return 0, 0, 0, false
+	})
+
+	if n := svc.TickLive(ctx, pool, f, src); n != 1 {
+		t.Fatalf("tick reached %d, want 1 (only the charging truck)", n)
+	}
+	if asked["lw-none"] != 0 {
+		t.Error("the worker looked at a truck with no activity")
+	}
+	mu.Lock()
+	bodies := got["/3/device/"+actC]
+	if len(bodies) != 1 || !strings.Contains(bodies[0], `"soc_pct":64`) || !strings.Contains(bodies[0], `"power_kw":11.5`) || !strings.Contains(bodies[0], `"minutes_to_target":42`) || !strings.Contains(bodies[0], `"event":"update"`) {
+		t.Errorf("update body = %v", bodies)
+	}
+	if len(got["/3/device/"+actI]) != 0 {
+		t.Error("an idle truck was sent figures")
+	}
+	mu.Unlock()
+	if n := svc.TickLive(ctx, pool, f, src); n != 0 {
+		t.Errorf("a second tick inside the interval reached %d", n)
+	}
+
+	// The charge closes: the end carries the final percent and the activity is forgotten.
+	if n := svc.EndLiveForCharge(ctx, f, uid, "lw-charging", 80.2); n != 1 {
+		t.Fatalf("end reached %d, want 1", n)
+	}
+	mu.Lock()
+	bodies = got["/3/device/"+actC]
+	if len(bodies) != 2 || !strings.Contains(bodies[1], `"event":"end"`) || !strings.Contains(bodies[1], `"soc_pct":80`) || !strings.Contains(bodies[1], `"power_kw":0`) {
+		t.Errorf("end body = %v", bodies)
+	}
+	mu.Unlock()
+	if n, _ := st.ActivityCount(ctx); n != 1 {
+		t.Errorf("rows after the end = %d, want 1 (the idle truck's)", n)
+	}
+	// A charge on a truck with no activity, or with the flag off, sends nothing.
+	if n := svc.EndLiveForCharge(ctx, f, uid, "lw-none", 80); n != 0 {
+		t.Errorf("end for a truck with no activity reached %d", n)
+	}
+	off := &Service{apns: a, logger: svc.logger}
+	if n := off.TickLive(ctx, pool, f, src); n != 0 {
+		t.Errorf("flag off: tick reached %d", n)
+	}
+	if n := off.EndLiveForCharge(ctx, f, uid, "lw-idle", 80); n != 0 {
+		t.Errorf("flag off: end reached %d", n)
 	}
 }
