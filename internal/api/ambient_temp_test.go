@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -98,6 +99,8 @@ func TestAmbientRoundsBeforeTheRequestAndCaches(t *testing.T) {
 	}
 }
 
+var logTimeAttr = regexp.MustCompile(`time=\S+`)
+
 // A failing upstream gives no value and nothing about where the truck is in the
 // logs (an HTTP client's error text carries the request URL).
 func TestAmbientFailureLogsNoCoordinates(t *testing.T) {
@@ -111,6 +114,9 @@ func TestAmbientFailureLogsNoCoordinates(t *testing.T) {
 	if !strings.Contains(out, "ambient temperature unavailable") {
 		t.Errorf("no log line: %q", out)
 	}
+	// The record's own timestamp can contain "30.2" (e.g. 05:29:30.287Z), so
+	// drop the time= attribute before looking for coordinates.
+	out = logTimeAttr.ReplaceAllString(out, "")
 	for _, leak := range []string{"30.2", "97.7", "latitude", "longitude", "open-meteo.com"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("the log leaks %q: %s", leak, out)
