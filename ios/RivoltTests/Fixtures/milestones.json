@@ -1,7 +1,7 @@
 {
   "milestones": [
     {
-      "vehicle_id": "01-242521064",
+      "vehicle_id": "veh-fixture",
       "key": "best_eff:2026-10-20",
       "kind": "best_eff",
       "achieved_at": "2026-10-20T17:05:00Z",
@@ -13,7 +13,7 @@
       }
     },
     {
-      "vehicle_id": "01-242521064",
+      "vehicle_id": "veh-fixture",
       "key": "miles_1000",
       "kind": "miles_1000",
       "achieved_at": "2026-10-12T09:40:00Z",
