@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// Home: the Now card for one truck, with a switcher when the account has
 /// more than one. Read-only: the app never sends anything to the truck.
@@ -119,6 +120,9 @@ struct HomeView: View {
         let (s, n) = await (st, nw)
         vehicleState = s
         now = n ?? nil
+        // The widgets read this truck from this server (never the token: that stays in the Keychain).
+        WidgetStore().setSession(vehicleID: id, server: state.serverURL)
+        WidgetCenter.shared.reloadAllTimelines()
         if s == nil && now == nil {
             loadError = "Couldn't load this truck's status."
         }
