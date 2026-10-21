@@ -142,7 +142,7 @@ func TestNotificationsAreUserScopedAndShortLived(t *testing.T) {
 	if _, err := sa.GetNotification(ctx, uuid.New()); err != ErrNotFound {
 		t.Errorf("unknown id = %v", err)
 	}
-	if _, err := sa.CreateNotification(ctx, "test", "t", "b", "/"); err == nil {
+	if _, err := sa.CreateNotification(ctx, "bogus", "t", "b", "/"); err == nil {
 		t.Error("an unknown kind was stored")
 	}
 	// Older than 24 h: not served, and the sweep removes it (and only it).
@@ -287,17 +287,18 @@ func TestAPNsTokenBelongsToTheLastAccountThatRegisteredIt(t *testing.T) {
 // switches say, sends Apple only an id, stores the fixed words (not anything a
 // caller supplied), and does nothing for a user with no iPhone.
 func TestSendAPNsTest(t *testing.T) {
+	const testTok = "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
 	ctx, pool := apnsDB(t)
 	uid, _ := db.EnsureUser(ctx, pool, "apns-test-a")
 	nobody, _ := db.EnsureUser(ctx, pool, "apns-test-none")
 	st, _ := OpenStore(pool, uid)
 	stNone, _ := OpenStore(pool, nobody)
 	sess := session(t, ctx, pool, uid)
-	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: tok(20), Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
+	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: testTok, Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
 		t.Fatal(err)
 	}
 	off := false
-	if ok, err := st.SetAPNsPrefs(ctx, tok(20), &off, &off, &off); err != nil || !ok {
+	if ok, err := st.SetAPNsPrefs(ctx, testTok, &off, &off, &off); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	key, pemKey := testKey(t)
