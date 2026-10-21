@@ -49,3 +49,6 @@ CLAUDE.md
 # XcodeGen writes the extension Info.plist from project.yml
 ios/RivoltNotificationService/Info.plist
 ios/RivoltWidgets/Info.plist
+
+# Python bytecode (CI helper scripts run with python3 -I)
+__pycache__/

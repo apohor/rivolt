@@ -83,13 +83,26 @@ def tail(serial: str) -> str:
     return "…" + serial[-6:]
 
 
+class KeychainError(Exception):
+    pass
+
+
 def keychain_serials() -> dict:
     """Normalized serial -> serial as openssl prints it, for every 'Apple Development:'
-    certificate in the runner's default keychain."""
-    keychain = subprocess.run(["security", "default-keychain"], capture_output=True, text=True).stdout.strip().strip('"')
-    pems = subprocess.run(["security", "find-certificate", "-a", "-c", "Apple Development:", "-p", keychain],
-                          capture_output=True, text=True).stdout
-    return serials_of(pems)
+    certificate in the runner's default keychain. Fails closed: a keychain that
+    can't be read raises, it never reads as empty (an empty snapshot would make
+    every certificate look new)."""
+    kc = subprocess.run(["security", "default-keychain"], capture_output=True, text=True)
+    keychain = kc.stdout.strip().strip('"')
+    if kc.returncode != 0 or not keychain:
+        raise KeychainError(f"security default-keychain: exit {kc.returncode}")
+    found = subprocess.run(["security", "find-certificate", "-a", "-c", "Apple Development:", "-p", keychain],
+                           capture_output=True, text=True)
+    if found.returncode == 44:  # errSecItemNotFound: none in the keychain
+        return {}
+    if found.returncode != 0:
+        raise KeychainError(f"security find-certificate: exit {found.returncode}")
+    return serials_of(found.stdout)
 
 
 def serials_of(pems: str) -> dict:
@@ -122,7 +135,11 @@ def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
     except FileNotFoundError:
         print("no snapshot from before the archive: nothing to compare, nothing revoked")
         return 0
-    now = keychain_serials()
+    try:
+        now = keychain_serials()
+    except KeychainError as e:
+        print(f"::error::can't read the keychain after the archive ({e}): nothing revoked")
+        return 1
     new = {s: raw for s, raw in now.items() if s not in before}
     print(f"development certificates in the keychain: {len(before)} before, {len(now)} after, {len(new)} new")
     jwt = token(key_path, key_id, issuer)
@@ -152,8 +169,14 @@ def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
 
 def main() -> int:
     if sys.argv[1:2] == ["snapshot"]:
+        try:
+            serials = keychain_serials()
+        except KeychainError as e:
+            # No snapshot file: the revoke step then revokes nothing.
+            print(f"::error::can't read the keychain before the archive ({e})")
+            return 1
         with open(sys.argv[2], "w") as f:
-            json.dump(sorted(keychain_serials()), f)
+            json.dump(sorted(serials), f)
         return 0
     if sys.argv[1:2] == ["revoke"]:
         return revoke(*sys.argv[2:6])
