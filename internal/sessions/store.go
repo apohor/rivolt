@@ -124,6 +124,10 @@ const (
 	KindApp = "app"
 )
 
+// AppTTL is an iPhone app session's lifetime, sliding from its last use
+// (iOS design §2, DA's condition 5).
+const AppTTL = 90 * 24 * time.Hour
+
 // Create mints a fresh session for userID and returns:
 //
 //   - Session: the DB row projection.
@@ -191,18 +195,24 @@ func (s *Store) Create(ctx context.Context, userID uuid.UUID, ttl time.Duration,
 	}, encodeToken(raw), nil
 }
 
-// Lookup resolves a cookie-borne token to a live Session. Returns
+// Lookup resolves a token to a live Session of the given kind. Returns
 // ErrInvalidToken for every failure mode — bad format, not
-// found, revoked, expired — so the middleware can't accidentally
-// tell an attacker which is which.
+// found, revoked, expired, other kind — so the middleware can't
+// accidentally tell an attacker which is which. The kind keeps the two
+// credentials apart in both directions (DA on #769): the cookie path asks
+// for KindWeb, so an iPhone app token is no cookie; the bearer path asks for
+// KindApp, so a browser cookie value is no bearer token.
 //
 // As a side effect, Lookup bumps last_seen_at if more than
 // touchInterval has passed since the last bump. The update is
 // best-effort: a failure is logged by the caller but the
 // session still resolves, because refusing authentication due
 // to a stat-tracking failure would be absurd.
-func (s *Store) Lookup(ctx context.Context, rawTokenCookie string) (Session, error) {
-	raw, err := decodeToken(rawTokenCookie)
+func (s *Store) Lookup(ctx context.Context, rawToken, kind string) (Session, error) {
+	if kind != KindWeb && kind != KindApp {
+		return Session{}, ErrInvalidToken
+	}
+	raw, err := decodeToken(rawToken)
 	if err != nil {
 		return Session{}, ErrInvalidToken
 	}
@@ -212,12 +222,12 @@ func (s *Store) Lookup(ctx context.Context, rawTokenCookie string) (Session, err
 		COALESCE(user_agent, ''), COALESCE(host(ip_address), ''), COALESCE(device_label, ''),
 		revoked_at
 		FROM sessions
-		WHERE token_hash = $1`
+		WHERE token_hash = $1 AND kind = $2`
 	var (
 		sess      Session
 		revokedAt sql.NullTime
 	)
-	err = s.db.QueryRowContext(ctx, q, hash).Scan(
+	err = s.db.QueryRowContext(ctx, q, hash, kind).Scan(
 		&sess.ID, &sess.UserID, &sess.CreatedAt, &sess.LastSeenAt, &sess.ExpiresAt,
 		&sess.UserAgent, &sess.IPAddress, &sess.DeviceLabel, &revokedAt,
 	)
@@ -236,9 +246,22 @@ func (s *Store) Lookup(ctx context.Context, rawTokenCookie string) (Session, err
 	// racers write roughly "now", so the read-back is still
 	// monotonic.
 	if now.Sub(sess.LastSeenAt) > touchInterval {
-		_, _ = s.db.ExecContext(ctx,
-			`UPDATE sessions SET last_seen_at = $2 WHERE id = $1`,
-			sess.ID, now)
+		if kind == KindApp {
+			// App sessions slide: AppTTL from the last use, so a phone that
+			// opens the app now and then stays signed in, and one left
+			// unused for AppTTL is signed out.
+			expires := now.Add(AppTTL)
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE sessions SET last_seen_at = $2, expires_at = GREATEST(expires_at, $3) WHERE id = $1`,
+				sess.ID, now, expires)
+			if expires.After(sess.ExpiresAt) {
+				sess.ExpiresAt = expires
+			}
+		} else {
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE sessions SET last_seen_at = $2 WHERE id = $1`,
+				sess.ID, now)
+		}
 		sess.LastSeenAt = now
 	}
 	return sess, nil

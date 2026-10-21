@@ -65,6 +65,12 @@ func requireAdminMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string,
 				http.Error(w, "forbidden while impersonating", http.StatusForbidden)
 				return
 			}
+			// The iPhone app's bearer token never reaches the admin surface,
+			// whoever owns it: admin is a browser session behind Access.
+			if auth.ViaBearer(r.Context()) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			if roleLookup == nil {
 				http.Error(w, "admin gate not configured", http.StatusServiceUnavailable)
 				return
@@ -134,7 +140,9 @@ func impersonationMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string
 				return
 			}
 			callerID, ok := auth.UserFromContext(r.Context())
-			if !ok || roleLookup == nil {
+			// A bearer-authenticated caller (the iPhone app) can't view as
+			// anyone: the header is ignored, as for a non-admin.
+			if !ok || roleLookup == nil || auth.ViaBearer(r.Context()) {
 				next.ServeHTTP(w, r)
 				return
 			}

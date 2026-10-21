@@ -1756,6 +1756,9 @@ func runServer() {
 		}
 		sessionStore = sStore
 		authSvc.WithSessionStore(sessions.NewAuthAdapter(sStore))
+		// The iPhone app's bearer tokens, everywhere but the admin
+		// deployment (admin is a browser session behind Access).
+		authSvc.AcceptBearer(!adminOnlyMode)
 		logger.Info("sessions store ready — cookies are opaque, revocable")
 	}
 
