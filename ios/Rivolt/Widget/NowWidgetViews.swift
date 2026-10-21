@@ -62,6 +62,8 @@ private struct HomeFamilyView: View {
 
     var body: some View {
         let status = snapshot.status(at: at)
+        // A charge limit belongs to a charge that is still going on, not to data that has gone stale.
+        let target = (snapshot.isCharging && snapshot.attention == .none && !snapshot.isStale(at: at)) ? snapshot.chargeTargetPct : nil
         VStack(alignment: .leading, spacing: 6) {
             Label(status.text, systemImage: status.icon)
                 .font(.caption.weight(.semibold))
@@ -82,10 +84,10 @@ private struct HomeFamilyView: View {
                     }
                 }
             }
-            SoCBar(socPct: snapshot.socPct, targetPct: snapshot.isCharging ? snapshot.chargeTargetPct : nil, dimmed: snapshot.isStale(at: at))
+            SoCBar(socPct: snapshot.socPct, targetPct: target, dimmed: snapshot.isStale(at: at))
             if !wide {
                 Text("\(rangeText(snapshot.rangeKm)) range").font(.caption).foregroundStyle(NowInk.secondary)
-            } else if let target = snapshot.chargeTargetPct, snapshot.isCharging {
+            } else if let target {
                 Text("to \(Int(target.rounded()))%").font(.caption).foregroundStyle(NowInk.secondary)
             }
         }
