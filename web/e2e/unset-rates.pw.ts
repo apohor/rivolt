@@ -163,6 +163,7 @@ test("a charge priced from the tracker, or waiting on a rate, says so with a way
   await page.goto("/charges/charge-1");
   const note = page.locator("[data-rate-note='observed']");
   await expect(note).toContainText("Estimate: typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ.");
+  await expect(page.getByText("estimate · typical price seen by DCFC Tracker, Oct 2026")).toBeVisible();
   await expect(note.getByRole("link", { name: "DCFC Tracker" })).toHaveAttribute("href", "https://dcfctracker.com/reports/electrify-america");
   await expect(note.getByRole("link", { name: "Set your rate" })).toHaveAttribute("href", "/settings?tab=charging#networks");
   await page.goto("/charges/charge-2");
@@ -173,6 +174,8 @@ test("a charge priced from the tracker, or waiting on a rate, says so with a way
   await expect(page.locator("[data-rate-note='observed']")).toContainText("Estimate (typical observed price, date unknown).");
   await expect(page.locator("[data-rate-note='observed']")).not.toContainText("DCFC Tracker");
   await expect(page.locator("[data-rate-note='observed']")).not.toContainText("Invalid Date");
+  // The cost card's caption follows the same rule.
+  await expect(page.getByText("estimate · typical observed price (date unknown)")).toBeVisible();
   await page.goto("/charges/charge-3");
   await expect(page.locator("[data-rate-note='observed']").getByRole("link", { name: "DCFC Tracker" })).toHaveCount(0);
   await ctx.close();
