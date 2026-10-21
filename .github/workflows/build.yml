@@ -18,6 +18,9 @@
 name: build
 
 on:
+  # Manual run on main: recovers a missed push event (GitHub dropped the
+  # #811 merge push on 2026-10-21, so main never built or reached preview).
+  workflow_dispatch:
   push:
     branches: [main, "release/**"]
     tags: ["v*.*.*"]
@@ -738,9 +741,9 @@ jobs:
     # main still blocks the next tag via tag-validate. The one exception is a
     # migration in the range being deployed: see the step below.
     needs: [publish, changes]
-    # Only after a successful main-push image publish — tag pushes go to
-    # prod manually, not via this auto-bump.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only after a successful main image publish (a push, or a manual run on
+    # main) — tag pushes go to prod manually, not via this auto-bump.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # No job-level concurrency: a pending job superseded in a concurrency
     # group is cancelled, which would mark that commit's run cancelled and
