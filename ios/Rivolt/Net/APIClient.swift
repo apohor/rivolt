@@ -99,6 +99,17 @@ actor APIClient {
         let _: Empty = try await request("POST", "/api/push/apns/preferences", body: body)
     }
 
+    private struct ApnsTestSent: Decodable {
+        let sent: Int
+    }
+
+    /// Asks the server to send a fixed test notification to this person's own iPhones; the answer is
+    /// how many it sent to. 404 when APNs is off or no iPhone is registered; the server rate-limits it.
+    func testApns() async throws -> Int {
+        let r: ApnsTestSent = try await request("POST", "/api/push/apns/test")
+        return r.sent
+    }
+
     func unregisterApns(token: String) async throws {
         let _: Empty = try await request("POST", "/api/push/apns/unregister", body: ApnsTokenBody(token: token))
     }
