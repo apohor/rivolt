@@ -319,7 +319,8 @@ html[data-ui='next'] [data-plan-sheet-inline] > * {
 /* Phone: keep the map clear of the fixed sheet's peek. */
 @media (max-width: 1023.98px) {
   html[data-ui='next'] [data-plan-next]:has([data-plan-sheet]) {
-    padding-bottom: calc(240px + 1rem);
+    /* The sheet's current height (BottomSheet sets --plan-sheet-h), so the last card scrolls clear of it at any snap. */
+    padding-bottom: calc(var(--plan-sheet-h, 240px) + 1rem);
   }
 }
 
