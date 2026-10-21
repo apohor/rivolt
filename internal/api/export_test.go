@@ -132,6 +132,12 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 	if err := json.Unmarshal([]byte(files["export.json"]), &meta); err != nil || meta.Counts["charges"] != 1 || meta.Counts["trips"] != 1 {
 		t.Fatalf("export.json: %v %s", err, files["export.json"])
 	}
+	if _, ok := meta.Counts["iphone_devices"]; !ok {
+		t.Fatalf("export.json counts has no iphone_devices: %s", files["export.json"])
+	}
+	if !strings.Contains(files["README.txt"], "iphone_devices.json") {
+		t.Fatal("README.txt does not name iphone_devices.json")
+	}
 	if !strings.Contains(files["trips.csv"], "home_rate=5;network_estimate=30") {
 		t.Fatalf("trips.csv mix: %s", files["trips.csv"])
 	}

@@ -95,9 +95,10 @@ func TestAPNsDevicesFollowTheirSession(t *testing.T) {
 	if devs[0].Env != EnvProduction || !devs[0].Prefs.OnPlugInReminder || devs[0].Prefs.OnMilestones {
 		t.Errorf("after re-register and opt-in: %+v", devs[0])
 	}
-	// The export lists devices without the token.
+	// The export lists devices without the token. (The revoked session's device is
+	// already gone: revoking deletes it.)
 	rows, err := st.ExportAPNsDevices(ctx)
-	if err != nil || len(rows) != 3 {
+	if err != nil || len(rows) != 2 {
 		t.Fatalf("export = %+v, %v", rows, err)
 	}
 	// Deleting the session deletes its device; deleting the account deletes the rest.
@@ -106,8 +107,8 @@ func TestAPNsDevicesFollowTheirSession(t *testing.T) {
 	}
 	var n int
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM push_apns_devices WHERE user_id = $1`, uid).Scan(&n)
-	if n != 2 {
-		t.Errorf("after deleting a session: %d devices, want 2", n)
+	if n != 1 {
+		t.Errorf("after deleting a session: %d devices, want 1 (the expired session's)", n)
 	}
 	if _, err := st.CreateNotification(ctx, "charging_done", "t", "b", "/"); err != nil {
 		t.Fatal(err)
@@ -250,5 +251,34 @@ func TestFanAPNs(t *testing.T) {
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM push_notifications WHERE user_id = $1`, nobody).Scan(&any)
 	if any != 0 {
 		t.Errorf("text stored for a user with no app: %d rows", any)
+	}
+}
+
+// An Apple token is one install: registering it under a new account forgets the
+// previous account's registration (a sign-out that never reached the server).
+func TestAPNsTokenBelongsToTheLastAccountThatRegisteredIt(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	a, _ := db.EnsureUser(ctx, pool, "apns-same-a")
+	b, _ := db.EnsureUser(ctx, pool, "apns-same-b")
+	sa, sb := session(t, ctx, pool, a), session(t, ctx, pool, b)
+	stA, _ := OpenStore(pool, a)
+	stB, _ := OpenStore(pool, b)
+	reg := func(st *Store, sid uuid.UUID, token string) {
+		t.Helper()
+		if err := st.UpsertAPNsDevice(ctx, sid, APNsDevice{Token: token, Env: EnvSandbox, BundleID: "me.apoh.rivolt"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg(stA, sa, tok(10))
+	reg(stA, sa, tok(11)) // A's other phone stays
+	reg(stB, sb, tok(10)) // B signs in on A's phone
+	if _, ok, _ := stA.APNsPrefs(ctx, tok(10)); ok {
+		t.Error("A is still registered on a phone B signed in to")
+	}
+	if _, ok, _ := stB.APNsPrefs(ctx, tok(10)); !ok {
+		t.Error("B's registration is missing")
+	}
+	if _, ok, _ := stA.APNsPrefs(ctx, tok(11)); !ok {
+		t.Error("A's other phone was removed")
 	}
 }
