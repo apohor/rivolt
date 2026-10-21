@@ -10,22 +10,26 @@ export function ShareSheet({
   build,
   fileName,
   withCostToggle,
+  withOffpeakToggle = false,
   onClose,
 }: {
-  build: (includeCost: boolean) => ShareCardModel;
+  build: (includeCost: boolean, includeOffpeak: boolean) => ShareCardModel;
   fileName: string;
   withCostToggle: boolean;
+  // The off-peak share line has its own toggle, shown only when there is a share to show.
+  withOffpeakToggle?: boolean;
   onClose: () => void;
 }) {
   const [includeCost, setIncludeCost] = useState(false);
+  const [includeOffpeak, setIncludeOffpeak] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (canvas.current) paintShareCard(canvas.current, build(includeCost));
-  }, [build, includeCost]);
+    if (canvas.current) paintShareCard(canvas.current, build(includeCost, includeOffpeak));
+  }, [build, includeCost, includeOffpeak]);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Focus goes into the sheet, Tab stays inside it, and closing hands focus back to what opened it.
   useEffect(() => {
@@ -55,7 +59,7 @@ export function ShareSheet({
   }, [onClose]);
 
   async function blob(): Promise<Blob> {
-    const b = await shareCardBlob(build(includeCost));
+    const b = await shareCardBlob(build(includeCost, includeOffpeak));
     if (!b) throw new Error("Image export isn't available in this browser.");
     return b;
   }
@@ -97,6 +101,15 @@ export function ShareSheet({
             <span>
               Include cost
               <span className="block text-xs text-neutral-400">Adds charging cost and cost per mile.</span>
+            </span>
+          </label>
+        )}
+        {withOffpeakToggle && (
+          <label className="flex items-start gap-2 text-sm text-neutral-200">
+            <input type="checkbox" className="mt-1 accent-emerald-500" checked={includeOffpeak} onChange={(e) => setIncludeOffpeak(e.target.checked)} />
+            <span>
+              Include off-peak share
+              <span className="block text-xs text-neutral-400">Adds the percentage of home charging that ran in your off-peak hours. No rates, no dollars, no times.</span>
             </span>
           </label>
         )}

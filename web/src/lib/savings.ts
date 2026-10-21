@@ -19,6 +19,9 @@ export type SavingsResponse = {
   needs?: string | null;
   // A sentence on how the figure was made, to show under it as text.
   basis?: string;
+  // Share of home charging by energy that ran in off-peak hours (0 to 100); absent without a schedule, a home rate or enough sessions.
+  offpeak_share_pct?: number | null;
+  offpeak_share_sessions?: number;
 };
 
 export const fetchSavings = (month: string, signal?: AbortSignal) =>

@@ -24,7 +24,9 @@ const SAMPLE_LINE = "Sample truck · generated data";
 const n0 = (x: number) => Math.round(x).toLocaleString();
 const hm = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} min` : `${Math.round(min)} min`);
 
-export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; sample: boolean; partialFrom?: string | null }): ShareCardModel {
+// offpeakSharePct: the share of home charging (by energy) that ran in off-peak hours, only when the user turns that line on. A
+// percentage alone: no rate, no dollars, no window times.
+export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; sample: boolean; partialFrom?: string | null; offpeakSharePct?: number | null }): ShareCardModel {
   const miles = m.driving.miles;
   const kwhUsed = m.driving.kwh_used_known;
   const stats: ShareStat[] = [
@@ -45,6 +47,9 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
     const est = estimatedShare(m);
     if (est > 0) notes.push(`Includes ${Math.round(est * 100)}% estimated from network rates`);
     if (s.notIncluded) notes.push(s.notIncluded);
+  }
+  if (o.offpeakSharePct != null && Number.isFinite(o.offpeakSharePct)) {
+    stats.push({ label: "Home charging off-peak", value: `${Math.round(Math.min(100, Math.max(0, o.offpeakSharePct)))}%` });
   }
   return { kind: "month", eyebrow: `${monthLabel(m.period)}${m.is_current_month ? " so far" : ""}`, title, subtitle, stats, notes, sample: o.sample };
 }

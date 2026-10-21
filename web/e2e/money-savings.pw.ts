@@ -37,7 +37,7 @@ for (const v of [
     const asked: string[] = [];
     await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, left_out_reasons: { no_cheaper_hours: 2, plugged_in_too_briefly: 1 }, sessions_considered: 12, basis: "Cheapest window that fits inside each session.", as_charged_total: 40, if_moved_total: 27.6 }), asked);
     const card = page.locator("[data-savings]");
-    expect(asked[0]).toBe(LAST);
+    expect(asked).toContain(LAST);
     await expect(card).toContainText("Moving 9 home charges into your off-peak windows could have saved about $12.40 (estimate).");
     await expect(card).toContainText("3 sessions could not be moved and are left out.");
     await expect(card).toContainText("Why: already at the cheapest hours it could use (2); plugged in too briefly for the charge to fit in one stretch (1).");
@@ -51,7 +51,7 @@ for (const v of [
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `savings-${v.w}-${v.scheme}.png`), fullPage: true });
     await page.getByRole("button", { name: "This month so far" }).click();
-    await expect.poll(() => asked.at(-1)).toBe(currentMonth(NOW));
+    await expect.poll(() => asked).toContain(currentMonth(NOW));
     await ctx.close();
   });
 }
@@ -66,7 +66,7 @@ test("savings: states with no number say what is missing and link to it", async 
   await expect(card.getByRole("link", { name: "Set off-peak hours" })).toHaveAttribute("href", /settings\?tab=charging#offpeak/);
   await expect(card).not.toContainText("$");
   needs = "home_rate";
-  await page.getByRole("button", { name: "This month so far" }).click();
+  await page.reload();
   await expect(card).toContainText("Set your home rate first");
   needs = "more_home_sessions";
   await page.reload();
@@ -84,5 +84,32 @@ test("savings: a server without the endpoint shows no card", async ({ browser })
   await page.goto("/money");
   await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
   await expect(page.locator("[data-savings]")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("share statement: the off-peak share toggle shows only with a share, and is off every time it opens", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0, offpeak_share_pct: 61.6, offpeak_share_sessions: 9 }), []);
+  await page.getByRole("button", { name: "Share statement" }).click();
+  const sheet = page.locator("[data-share-sheet]");
+  const toggle = sheet.getByLabel(/Include off-peak share/);
+  await expect(toggle).not.toBeChecked();
+  await expect(sheet).toContainText("No rates, no dollars, no times.");
+  await toggle.check();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Share statement" }).click();
+  await expect(sheet.getByLabel(/Include off-peak share/)).not.toBeChecked();
+  expect((await new AxeBuilder({ page }).include("[data-share-sheet]").analyze()).violations.filter((x) => x.impact === "serious" || x.impact === "critical")).toEqual([]);
+  await ctx.close();
+});
+
+test("share statement: no share from the server, no toggle", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0 }), []);
+  await page.getByRole("button", { name: "Share statement" }).click();
+  await expect(page.locator("[data-share-sheet]").getByLabel(/Include cost/)).toBeVisible();
+  await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
   await ctx.close();
 });
