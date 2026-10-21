@@ -3,6 +3,7 @@ package demo
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -135,6 +136,9 @@ type SampleTripStop struct {
 	PriceNote string   `json:"price_note,omitempty"`
 	// PriceMonth is the observation month of the figure behind CostLow/CostHigh.
 	PriceMonth string `json:"price_month,omitempty"`
+	// PriceURL is the tracker report the figure was copied from (https on
+	// dcfctracker.com only); empty when there is no figure.
+	PriceURL string `json:"price_url,omitempty"`
 }
 
 // SampleTripOvernight is a slow charge where the trip stops for the night.
@@ -226,6 +230,7 @@ type planCost struct {
 		Price       *struct {
 			Label         string `json:"label"`
 			ObservedMonth string `json:"observed_month"`
+			SourceURL     string `json:"source_url"`
 		} `json:"price"`
 	} `json:"breakdown"`
 }
@@ -373,6 +378,7 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 		low, high *float64
 		note      string
 		month     string
+		url       string
 	}
 	byCharger := map[string]stopInfo{}
 	if c := firstCost(costs); c != nil {
@@ -380,6 +386,9 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 			si := stopInfo{network: b.NetworkName, low: b.CostLow, high: b.CostHigh}
 			if b.Price != nil {
 				si.note, si.month = b.Price.Label, b.Price.ObservedMonth
+				if strings.HasPrefix(b.Price.SourceURL, "https://dcfctracker.com/") {
+					si.url = b.Price.SourceURL
+				}
 			}
 			byCharger[b.ChargerName] = si
 		}
@@ -393,7 +402,7 @@ func buildDay(p singlePlan, costs []planCost, label string) (SampleTripDay, plan
 			Name: w.Name, Lat: w.Latitude, Lon: w.Longitude, Network: info.network,
 			ArriveSoC: round1(w.ArrivalSoC), DepartSoC: round1(w.DepartureSoC),
 			ChargeMin: round1(w.ChargeDurationSec / 60), MaxKW: w.MaxPowerKW,
-			CostLow: roundPtr(info.low), CostHigh: roundPtr(info.high), PriceNote: info.note, PriceMonth: info.month,
+			CostLow: roundPtr(info.low), CostHigh: roundPtr(info.high), PriceNote: info.note, PriceMonth: info.month, PriceURL: info.url,
 		})
 	}
 	return day, r, nil
