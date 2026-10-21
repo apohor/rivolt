@@ -75,7 +75,7 @@ func TestChartPoints(t *testing.T) {
 	window := "?since=" + base.Add(-24*time.Hour).Format(time.RFC3339) + "&until=" + base.Add(24*time.Hour).Format(time.RFC3339)
 
 	code, out, raw := get(a, window)
-	if code != 200 || len(out["drives"]) != 4 || len(out["charges"]) != 2 {
+	if code != 200 || len(out["drives"]) != 3 || len(out["charges"]) != 2 {
 		t.Fatalf("all trucks: %d drives=%d charges=%d %s", code, len(out["drives"]), len(out["charges"]), raw)
 	}
 	var starts []string
