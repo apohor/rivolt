@@ -476,6 +476,11 @@ func runServer() {
 						} else if n > 0 {
 							logger.Info("push notifications sweep", "deleted", n)
 						}
+						if n, perr := push.PurgeActivities(pctx, pgPool); perr != nil {
+							logger.Warn("push activities sweep failed", "err", perr.Error())
+						} else if n > 0 {
+							logger.Info("push activities sweep", "deleted", n)
+						}
 						pcancel()
 					}
 				}

@@ -73,7 +73,13 @@ func handleAPNsRegister(svc *push.Service, store *push.Store) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "preferences": prefs})
+		live, _, err := store.APNsLive(r.Context(), body.Token)
+		if err != nil {
+			slog.ErrorContext(r.Context(), "apns register live", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "preferences": apnsPrefsJSON{Preferences: prefs, OnChargingLive: live}})
 	}
 }
 
@@ -89,13 +95,14 @@ func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFun
 			OnSoftwareUpdate *bool  `json:"on_software_update"`
 			OnPlugInReminder *bool  `json:"on_plug_in_reminder"`
 			OnMilestones     *bool  `json:"on_milestones"`
+			OnChargingLive   *bool  `json:"on_charging_live"`
 		}
 		if !decodeAPNsBody(w, r, &body) {
 			return
 		}
 		if !push.ValidDeviceToken(body.Token) ||
 			(body.OnChargingDone == nil && body.OnAnomaly == nil && body.OnSoftwareUpdate == nil &&
-				body.OnPlugInReminder == nil && body.OnMilestones == nil) {
+				body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnChargingLive == nil) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "token and at least one switch required"})
 			return
 		}
@@ -104,6 +111,11 @@ func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFun
 			var f2 bool
 			f2, err = store.SetAPNsOptIns(r.Context(), body.Token, body.OnPlugInReminder, body.OnMilestones)
 			found = found || f2
+		}
+		if err == nil && body.OnChargingLive != nil {
+			var f3 bool
+			f3, err = store.SetAPNsLive(r.Context(), body.Token, *body.OnChargingLive)
+			found = found || f3
 		}
 		if err != nil {
 			slog.ErrorContext(r.Context(), "apns preferences", "err", err.Error())
@@ -188,5 +200,74 @@ func handleAPNsTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": n})
+	}
+}
+
+// apnsPrefsJSON is a device's switches as the app reads them: the five the web has,
+// plus the iPhone-only Live Activity switch.
+type apnsPrefsJSON struct {
+	push.Preferences
+	OnChargingLive bool `json:"on_charging_live"`
+}
+
+// handleAPNsActivity: POST /api/push/apns/activity {token, activity_token,
+// vehicle_id} records a running Live Activity's push token. 409 while the
+// device's Live Activity switch is off; 404 when the device or vehicle is not the
+// caller's. The app starts the activity itself; the server never starts one.
+func handleAPNsActivity(svc *push.Service, store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := apnsGuard(svc, w, r); !ok {
+			return
+		}
+		var body struct {
+			Token         string `json:"token"`
+			ActivityToken string `json:"activity_token"`
+			VehicleID     string `json:"vehicle_id"`
+		}
+		if !decodeAPNsBody(w, r, &body) {
+			return
+		}
+		vid, verr := uuid.Parse(body.VehicleID)
+		if !push.ValidDeviceToken(body.Token) || !push.ValidActivityToken(body.ActivityToken) || verr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+			return
+		}
+		switch err := store.RegisterActivity(r.Context(), body.Token, body.ActivityToken, vid); {
+		case errors.Is(err, push.ErrLiveOff):
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "live charging is off for this device"})
+		case errors.Is(err, push.ErrNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		case err != nil:
+			slog.ErrorContext(r.Context(), "apns activity", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		}
+	}
+}
+
+// handleAPNsActivityEnd: POST /api/push/apns/activity/end {activity_token} forgets
+// an activity token. 200 whether or not it was known.
+func handleAPNsActivityEnd(svc *push.Service, store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := apnsGuard(svc, w, r); !ok {
+			return
+		}
+		var body struct {
+			ActivityToken string `json:"activity_token"`
+		}
+		if !decodeAPNsBody(w, r, &body) {
+			return
+		}
+		if !push.ValidActivityToken(body.ActivityToken) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+			return
+		}
+		if err := store.EndActivity(r.Context(), body.ActivityToken); err != nil {
+			slog.ErrorContext(r.Context(), "apns activity end", "err", err.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
