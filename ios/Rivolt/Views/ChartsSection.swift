@@ -84,6 +84,13 @@ struct ChartsSection: View {
                         .interpolationMethod(.monotone)
                         .foregroundStyle(Color.accentColor)
                 }
+                .chartXAxis {
+                    // Date only: the default "Oct 19 at 2 PM" labels get cut off on a phone.
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    }
+                }
                 .chartYScale(domain: 0...100)
                 .chartYAxis {
                     AxisMarks(values: [0, 25, 50, 75, 100]) { v in
