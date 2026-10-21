@@ -18,9 +18,6 @@
 name: build
 
 on:
-  # Manual run on main: recovers a missed push event (GitHub dropped the
-  # #811 merge push on 2026-10-21, so main never built or reached preview).
-  workflow_dispatch:
   push:
     branches: [main, "release/**"]
     tags: ["v*.*.*"]
