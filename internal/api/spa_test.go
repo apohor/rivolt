@@ -73,3 +73,33 @@ func TestMissingAssetNotCached(t *testing.T) {
 		t.Fatalf("an existing asset: %d %q", w.Code, w.Header().Get("Cache-Control"))
 	}
 }
+
+// Unhashed root files get a short explicit TTL, the service worker no-cache,
+// index.html stays uncached (DA on #786).
+func TestRootStaticFilesShortCache(t *testing.T) {
+	h := spaHandler(fstest.MapFS{
+		"index.html":        {Data: []byte("<html>shell</html>")},
+		"asset-guard.js":    {Data: []byte("//guard")},
+		"theme-init.js":     {Data: []byte("//theme")},
+		"sw.js":             {Data: []byte("//sw")},
+		"favicon.svg":       {Data: []byte("<svg/>")},
+		"assets/app-abc.js": {Data: []byte("//js")},
+	})
+	for p, want := range map[string]string{
+		"/asset-guard.js?v=1": "public, max-age=300",
+		"/theme-init.js":      "public, max-age=300",
+		"/favicon.svg":        "public, max-age=300",
+		"/sw.js":              "no-cache",
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != want {
+			t.Errorf("%s: %d Cache-Control=%q, want %q", p, w.Code, w.Header().Get("Cache-Control"), want)
+		}
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil))
+	if got := w.Header().Get("Cache-Control"); got == "public, max-age=300" || got == "no-store" {
+		t.Errorf("a hashed asset got %q", got)
+	}
+}
