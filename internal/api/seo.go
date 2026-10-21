@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/apohor/rivolt/internal/dcfcrates"
 )
 
 // Public-page metadata for crawlers and link unfurlers. The app is a
@@ -275,6 +278,32 @@ func jsonLD(host string) string {
 	return `<script type="application/ld+json">` + string(b) + `</script>`
 }
 
+// seoNow is the clock the served pages read; tests set it.
+var seoNow = time.Now
+
+// chargingCostPrice is the data element the /charging-cost page reads for its
+// fast-charge example: the typical price DCFC Tracker reports for the Rivian
+// Adventure Network (USD per kWh) and the month it was seen, built at request time
+// from the dated table so it is gone once that is 12 months old (dcfcrates.ObservedFor).
+// It is empty when there is no figure, and never part of the summary, the JSON-LD,
+// llms.txt or the markdown view: only this element, only on the app host, so a cached
+// copy of those can never outlive the figure. A non-executed data block, so the
+// script-src CSP does not apply; json.Marshal escapes <, > and &.
+func chargingCostPrice(host string, now time.Time) string {
+	if host != hostApp {
+		return ""
+	}
+	o, ok := dcfcrates.ObservedFor("ran", now)
+	if !ok {
+		return ""
+	}
+	b, err := json.Marshal(map[string]any{"fast_price": o.Low, "price_month": o.Month})
+	if err != nil {
+		return ""
+	}
+	return `<script type="application/json" id="charging-cost">` + string(b) + `</script>`
+}
+
 // articleLD is schema.org Article data for a public guide page: headline,
 // description and publisher only. Nothing price- or date-bound.
 func articleLD(host string, page seoPage, canon string) string {
@@ -339,6 +368,9 @@ func injectSEO(shell []byte, host string, page seoPage, canon string) []byte {
 		extra = "    " + jsonLD(host) + "\n"
 	case pathChargeCost:
 		extra = "    " + articleLD(host, page, canon) + "\n"
+		if el := chargingCostPrice(host, seoNow()); el != "" {
+			extra += "    " + el + "\n"
+		}
 	}
 	rep(reHeadClose, `<link rel="canonical" href="`+e(url)+`" />`+"\n"+
 		`    <meta property="og:url" content="`+e(url)+`" />`+"\n"+extra+"  </head>")
