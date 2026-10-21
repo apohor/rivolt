@@ -36,6 +36,7 @@ var demoExactPaths = map[string]bool{
 	"/api/vehicles":               true,
 	"/api/ledger/enabled":         true,
 	"/api/ledger/monthly":         true,
+	"/api/ledger/savings":         true, // computed from the demo account's own sessions and example schedule
 	"/api/ledger/summary":         true,
 	"/api/charges":                true,
 	"/api/drives":                 true,
@@ -236,9 +237,10 @@ func demoPerDrivePath(p string) bool {
 }
 
 // demoHeavyPath reports whether p is one of the anonymous reads that
-// join or window-scan a lot of rows: parked drain and plan-vs-actual.
+// join or window-scan a lot of rows: parked drain, plan-vs-actual and the
+// savings estimate (a month of home sessions against the example schedule).
 func demoHeavyPath(p, vehicleID string) bool {
-	return p == "/api/vehicles/"+vehicleID+"/drain" || demoSavedTripActualPath(p)
+	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
 }
 
 // demoSavedTripActualPath reports whether p is

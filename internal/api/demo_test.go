@@ -27,6 +27,12 @@ func TestDemoAllowed(t *testing.T) {
 		{"HEAD", "/api/charges", true},
 		{"GET", "/api/charges/", true},
 		{"GET", "/api/ledger/monthly", true},
+		{"GET", "/api/ledger/savings", true},
+		{"POST", "/api/ledger/savings", false},
+		{"GET", "/api/ledger/savings/x", false},
+		{"GET", "/api/ledger/monthly.csv", false},
+		{"GET", "/api/settings/charging/offpeak", false},
+		{"PUT", "/api/settings/charging/offpeak", false},
 		{"GET", "/api/ledger/trips", true},
 		{"GET", "/api/trips", false},
 		{"GET", "/api/trips/saved", true},
@@ -910,5 +916,26 @@ func TestDemoClientKeyObserverClassifiesTunnelVisitorsAsXFF(t *testing.T) {
 			t.Errorf("sources = %v, want %v", got, want)
 			break
 		}
+	}
+}
+
+// The savings estimate is a heavy anonymous read: any month, months or noise in
+// the query collapses to one cached answer (the last complete month), and an
+// allowed zone is its own key.
+func TestDemoSavingsIgnoresQueryNoise(t *testing.T) {
+	var seen []string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.RawQuery)
+		_, _ = w.Write([]byte("{}"))
+	})
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	for _, q := range []string{"", "?months=12", "?month=2020-01&months=12", "?vehicle_id=other", "?tz=Mars/Base"} {
+		if rec := demoReq(h, "GET", "/api/ledger/savings"+q); rec.Code != 200 {
+			t.Fatalf("%q = %d", q, rec.Code)
+		}
+	}
+	if len(seen) != 1 || seen[0] != "" {
+		t.Fatalf("handler saw %q, want one call with no query", seen)
 	}
 }
