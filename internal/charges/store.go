@@ -361,6 +361,16 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 // ListRecent returns the most recent N charges, newest first.
 func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
+	return s.listRecent(ctx, limit, "")
+}
+
+// ListRecentForVehicle is ListRecent for one of the user's trucks, by its
+// Rivian vehicle id. An id the user doesn't have returns no rows.
+func (s *Store) ListRecentForVehicle(ctx context.Context, rivianVehicleID string, limit int) ([]Charge, error) {
+	return s.listRecent(ctx, limit, rivianVehicleID)
+}
+
+func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID string) ([]Charge, error) {
 	if limit <= 0 {
 		limit = 50
 	} else if limit > 10000 {
@@ -386,8 +396,9 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
 		  AND ended_at - started_at >= interval '1 minute'
+		  AND ($3::text = '' OR v.rivian_vehicle_id = $3::text)
 		ORDER BY c.started_at DESC
-		LIMIT $2`, s.userID, limit)
+		LIMIT $2`, s.userID, limit, rivianVehicleID)
 	if err != nil {
 		return nil, err
 	}

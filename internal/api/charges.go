@@ -25,7 +25,17 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store, billed f
 			return
 		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		out, err := store.ListRecent(r.Context(), limit)
+		vehicleID, ok := vehicleFilter(w, r)
+		if !ok {
+			return
+		}
+		var out []charges.Charge
+		var err error
+		if vehicleID != "" {
+			out, err = store.ListRecentForVehicle(r.Context(), vehicleID, limit)
+		} else {
+			out, err = store.ListRecent(r.Context(), limit)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
