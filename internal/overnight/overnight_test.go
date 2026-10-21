@@ -294,9 +294,9 @@ func TestNoCampgroundInReachLeavesHotels(t *testing.T) {
 		hs = append(hs, hotel("Hotel "+n, 800, 0.3, 11.5))
 	}
 	for name, camps := range map[string][]chargers.POI{
-		"none":        nil,
-		"too early":   {campAt("Far back", 300, 0, 50)},
-		"120 V slow":  {campAt("Slow", 800, 0, 20)},
+		"none":       nil,
+		"too early":  {campAt("Far back", 300, 0, 50)},
+		"120 V slow": {campAt("Slow", 800, 0, 20)},
 	} {
 		res, err := Suggest(&fakeArchive{hotels: hs, camps: camps}, Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8, Kinds: []string{KindHotel, KindCampground}})
 		if err != nil {
