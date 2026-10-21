@@ -38,6 +38,7 @@ const TermsPage = lazy(() => import("./pages/TermsPage"));
 const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPage"));
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
 const LeaseCalculatorPage = lazy(() => import("./pages/LeaseCalculatorPage"));
+const ChargingCostPage = lazy(() => import("./pages/ChargingCostPage"));
 const HydraLoginPage = lazy(pageLoaders.hydraLogin);
 const SignupPage = lazy(pageLoaders.signup);
 const OnboardingPage = lazy(pageLoaders.onboarding);
@@ -140,6 +141,7 @@ export default function App() {
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="lease-calculator" element={<LeaseCalculatorPage />} />
+      <Route path="charging-cost" element={<ChargingCostPage />} />
       {/*
         /auth/hydra/login is the URL Hydra redirects the browser to
         after a third-party app initiates an OIDC code flow. It sits

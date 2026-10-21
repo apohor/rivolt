@@ -46,6 +46,10 @@ export function Footer() {
               Lease calculator
             </Link>
             <span className="text-neutral-700">·</span>
+            <Link to="/charging-cost" className="hover:text-neutral-200">
+              Cost to charge
+            </Link>
+            <span className="text-neutral-700">·</span>
             <Link to="/changelog" className="hover:text-neutral-200">
               What's new
             </Link>
