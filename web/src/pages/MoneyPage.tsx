@@ -23,6 +23,7 @@ import {
   isValidMonth,
   monthLabel,
   shiftMonth,
+  statementCsvUrl,
   suspectSessionCount,
   type LedgerMonth,
   type MonthSummary,
@@ -140,7 +141,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement toConfirm={summaryQ.data?.data.to_confirm_count ?? null} confirmCharges={confirmCharges} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement vehicleID={vehicleID} toConfirm={summaryQ.data?.data.to_confirm_count ?? null} confirmCharges={confirmCharges} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -182,7 +183,9 @@ function Statement({
   onFilter,
   toConfirm,
   confirmCharges,
+  vehicleID,
 }: {
+  vehicleID?: string;
   askShare: boolean;
   sample: boolean;
   m: LedgerMonth;
@@ -291,8 +294,9 @@ function Statement({
             </div>
           )}
         </div>
-        <div className="mt-1">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
           <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
+          <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
@@ -569,6 +573,24 @@ function ShareStatementButton({
       )}
       {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle onClose={() => setOpen(false)} />}
     </div>
+  );
+}
+
+// A link that downloads the month as a CSV: totals by cost type, home versus away, and one line per session. Own data only; nothing is
+// requested until it is clicked, and no event is sent.
+function CsvDownloadLink({ month, vehicleID, disabled }: { month: string; vehicleID?: string; disabled: boolean }) {
+  const cls = "rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300";
+  if (disabled) {
+    return (
+      <span aria-disabled="true" className={`${cls} cursor-not-allowed opacity-40`} title="No sessions to download for this month">
+        Download CSV
+      </span>
+    );
+  }
+  return (
+    <a href={statementCsvUrl(month, { vehicleID })} download={`rivolt-statement-${month}.csv`} data-csv-download className={`${cls} hover:bg-neutral-800`} title="This month's totals and sessions as a spreadsheet file">
+      Download CSV
+    </a>
   );
 }
 
