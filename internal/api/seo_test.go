@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -135,6 +136,51 @@ func TestSEOInjection(t *testing.T) {
 		}
 		if seoGet(t, h, "demo.rivolt.dev", "/lease-calculator").Header().Get("X-Robots-Tag") != "noindex" {
 			t.Error("demo host must not index it")
+		}
+	})
+	t.Run("charging cost page is public on the app host only and carries no figure", func(t *testing.T) {
+		const title = "How much does it cost to charge a Rivian at home? (worked example)"
+		rec := seoGet(t, h, "rivolt.dev", "/charging-cost")
+		b := rec.Body.String()
+		for _, want := range []string{
+			"<title>" + title + "</title>",
+			`href="https://rivolt.dev/charging-cost"`,
+			`"@type":"Article"`,
+			"A worked example for a Rivian R1S: home charging at your own rate, what off-peak hours change, and what one fast-charge stop adds. Free calculator, no sign-in.",
+		} {
+			if !strings.Contains(b, want) {
+				t.Errorf("missing %q", want)
+			}
+		}
+		if rec.Header().Get("X-Robots-Tag") != "" {
+			t.Error("a public page must not be noindex")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "https://rivolt.dev/charging-cost") ||
+			!strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/charging-cost") {
+			t.Error("not in sitemap and llms.txt")
+		}
+		if seoGet(t, h, "demo.rivolt.dev", "/charging-cost").Header().Get("X-Robots-Tag") != "noindex" ||
+			strings.Contains(seoGet(t, h, "demo.rivolt.dev", "/sitemap.xml").Body.String(), "charging-cost") {
+			t.Error("demo host must not index it")
+		}
+		// DA: no price or date-bound figure in anything the server writes for the
+		// page (the client shows the typical price from the dated table).
+		page := seoPages[hostApp][pathChargeCost]
+		surfaces := []string{page.title, page.desc, page.summary, articleLD(hostApp, page, pathChargeCost)}
+		llms, _ := llmsTxt(hostApp)
+		for _, line := range strings.Split(llms, "\n") {
+			if strings.Contains(line, pathChargeCost) {
+				surfaces = append(surfaces, line)
+			}
+		}
+		for _, sfc := range surfaces {
+			if strings.Contains(sfc, "$") || regexp.MustCompile(`\d+\.\d{2}|20\d\d`).MatchString(sfc) {
+				t.Errorf("a figure or date in server-rendered text: %q", sfc)
+			}
+		}
+		md := markdownPage(hostApp, page, pathChargeCost)
+		if strings.Contains(md, "$") {
+			t.Errorf("a dollar figure in the markdown: %s", md)
 		}
 	})
 	t.Run("app routes are noindex and keep the generic shell", func(t *testing.T) {
