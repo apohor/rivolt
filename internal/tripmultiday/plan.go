@@ -176,6 +176,10 @@ type OvernightResult struct {
 	// is the default for it rather than a value the user gave.
 	Hookup      string `json:"hookup,omitempty"`
 	L2KWAssumed bool   `json:"l2_kw_assumed,omitempty"`
+	// PlannedKW is the power the plan charged at when the truck cannot draw all of
+	// L2KW (it is limited to the truck's AC maximum); omitted when L2KW is what
+	// was used. Show PlannedKW when present, else L2KW, as "planned at X kW".
+	PlannedKW float64 `json:"planned_kw,omitempty"`
 	// AddedKWh is the energy that went into the battery.
 	AddedKWh         float64 `json:"added_kwh"`
 	PostChargeSoCPct float64 `json:"post_charge_soc_pct"`
@@ -472,6 +476,9 @@ func overnight(arrSoC, hours float64, ov *Overnight, packKWh, acMaxKW, capPct fl
 	}
 	res := &OvernightResult{Name: ov.Name, ParkedHours: round2(hours), L2KW: kw, PostChargeSoCPct: arrSoC,
 		Hookup: ov.Hookup, L2KWAssumed: ov.Hookup != "" && !ov.L2KWGiven}
+	if kw > acMaxKW && acMaxKW > 0 {
+		res.PlannedKW = round2(acMaxKW)
+	}
 	if kw <= 0 || hours <= 0 {
 		return res
 	}

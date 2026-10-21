@@ -535,7 +535,9 @@ func (req *tripPlanMultidayRequest) validate(now time.Time) string {
 			}
 		}
 		if o := d.Overnight; o != nil {
-			if o.L2KW != nil && (*o.L2KW < 0 || *o.L2KW > 350 || math.IsNaN(*o.L2KW)) {
+			// 19.2 kW is the highest station rating the listing carries; the plan
+			// limits the charge to the truck's AC maximum whatever is sent.
+			if o.L2KW != nil && (*o.L2KW < 0 || *o.L2KW > 19.2 || math.IsNaN(*o.L2KW)) {
 				return n + ": overnight l2_kw is out of range"
 			}
 			if m := ownStopErr(o); m != "" {

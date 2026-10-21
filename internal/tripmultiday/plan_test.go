@@ -470,4 +470,12 @@ func TestOvernightEchoesHookup(t *testing.T) {
 	if r = overnight(40, 10, &Overnight{L2KW: &kw}, 100, 11.5, 80); r.Hookup != "" || r.L2KWAssumed {
 		t.Errorf("a listed charger carries no hookup: %+v", r)
 	}
+	// planned_kw is what the truck can draw: a 19.2 kW station plans at 11.5.
+	big := 19.2
+	if r = overnight(40, 10, &Overnight{L2KW: &big}, 100, 11.5, 80); r.L2KW != 19.2 || r.PlannedKW != 11.5 {
+		t.Errorf("planned_kw = %v (l2_kw %v), want 11.5 for a 19.2 kW station", r.PlannedKW, r.L2KW)
+	}
+	if r = overnight(40, 10, &Overnight{L2KW: &kw}, 100, 11.5, 80); r.PlannedKW != 0 {
+		t.Errorf("planned_kw = %v, want it omitted when l2_kw is what was used", r.PlannedKW)
+	}
 }
