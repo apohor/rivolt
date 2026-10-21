@@ -19,18 +19,22 @@ struct NotificationSettingsView: View {
                     Text("Apple's push service only learns that a notification was sent. The words are fetched from Rivolt over an encrypted connection when it arrives.")
                 }
 
-                if manager.isOn {
-                    Section {
-                        Button {
-                            Task { await manager.sendTest() }
-                        } label: {
-                            HStack {
-                                Text("Send test notification")
-                                if manager.test == .sending { Spacer(); ProgressView() }
-                            }
+                // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
+                // what is missing until then.
+                Section {
+                    Button {
+                        Task { await manager.sendTest() }
+                    } label: {
+                        HStack {
+                            Text("Send test notification")
+                            if manager.test == .sending { Spacer(); ProgressView() }
                         }
-                        .disabled(manager.test == .sending)
-                    } footer: {
+                    }
+                    .disabled(!manager.isOn || manager.test == .sending)
+                } footer: {
+                    if !manager.isOn {
+                        Text("Turn on notifications for this iPhone first.")
+                    } else {
                         switch manager.test {
                         case .sent(let n):
                             Text("Sent to \(n) iPhone\(n == 1 ? "" : "s"). It should arrive in a moment.")
