@@ -123,8 +123,8 @@ func archiveWith(t *testing.T, n int) []byte {
 }
 
 // A new file with under 80% of the loaded stations is refused and the loaded
-// copy stays; it is not downloaded again while it is the same file, and a
-// healthy file after it is taken.
+// copy stays; while it is the same file Refresh keeps reporting it (an error each
+// time, no download), and a healthy file after it is taken.
 func TestArchiveRefreshShrinkGuard(t *testing.T) {
 	files := map[string][]byte{"v1": archiveWith(t, 20), "v2": archiveWith(t, 12), "v3": archiveWith(t, 17)}
 	var cur atomic.Value
@@ -133,6 +133,10 @@ func TestArchiveRefreshShrinkGuard(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := cur.Load().(string)
 		etag := `"` + v + `"`
+		if r.Method == http.MethodHead {
+			w.Header().Set("ETag", etag)
+			return
+		}
 		if inm := r.Header.Get("If-None-Match"); inm != "" && bytes.Contains([]byte(inm), []byte(etag)) {
 			w.WriteHeader(http.StatusNotModified)
 			return
@@ -161,8 +165,10 @@ func TestArchiveRefreshShrinkGuard(t *testing.T) {
 		t.Error("the refused file replaced the loaded copy")
 	}
 	n := full.Load()
-	if changed, err := a.Refresh(ctx); err != nil || changed || full.Load() != n {
-		t.Errorf("same refused file again: changed=%v err=%v downloads +%d, want a 304", changed, err, full.Load()-n)
+	for i := 0; i < 2; i++ {
+		if changed, err := a.Refresh(ctx); err == nil || changed || full.Load() != n {
+			t.Errorf("same refused file again (#%d): changed=%v err=%v downloads +%d, want an error each time and no download", i+1, changed, err, full.Load()-n)
+		}
 	}
 
 	cur.Store("v3") // 17 of 20 = 85%
