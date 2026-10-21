@@ -14,13 +14,16 @@ plist="$app/Info.plist"
 pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist" 2>/dev/null; }
 
 fail=0
-[ "$(pb CFBundleIconName)" = AppIcon ] || { echo "FAIL: CFBundleIconName is not AppIcon"; fail=1; }
+# actool writes the icon name under CFBundleIcons, which is where App Store
+# validation looks for it.
+[ "$(pb CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName)" = AppIcon ] \
+  || { echo "FAIL: CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName is not AppIcon"; fail=1; }
 { [ "$(pb UIDeviceFamily:0)" = 1 ] && ! pb UIDeviceFamily:1 >/dev/null; } \
   || { echo "FAIL: UIDeviceFamily is not iPhone-only"; fail=1; }
 ls "$app"/AppIcon60x60@2x.png >/dev/null 2>&1 || { echo "FAIL: no compiled 120x120 icon (AppIcon60x60@2x.png)"; fail=1; }
 
 if [ "$fail" = 0 ]; then
-  echo "App Store basics OK: CFBundleIconName=AppIcon, iPhone only, 120x120 icon present"
+  echo "App Store basics OK: icon name AppIcon, iPhone only, 120x120 icon present"
   exit 0
 fi
 echo "--- $plist"
