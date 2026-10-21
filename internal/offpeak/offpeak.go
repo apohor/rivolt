@@ -1,0 +1,163 @@
+// Package offpeak is the user's electricity schedule: the times of day (in
+// their own time zone) at which their plan charges a different rate, and the
+// checks that keep a schedule well formed. Rivolt only uses it for estimates; it
+// never contacts a utility and cannot check the numbers.
+package offpeak
+
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+)
+
+// Limits of a schedule.
+const (
+	MaxWindows   = 8
+	MaxRate      = 5.0
+	MaxLabelLen  = 40
+	MaxTZLen     = 64
+	minutesInDay = 24 * 60
+)
+
+// Days of a window: Mon-Fri, Sat-Sun, or every day.
+const (
+	Weekdays = "weekdays"
+	Weekends = "weekends"
+	All      = "all"
+)
+
+// Window is one stretch of the day at one rate. Start and End are local
+// wall-clock times ("21:00"); End at or before Start crosses midnight into the
+// next day. Rate is in the user's home currency per kWh.
+type Window struct {
+	Days  string  `json:"days"`
+	Start string  `json:"start"`
+	End   string  `json:"end"`
+	Rate  float64 `json:"rate"`
+	Label string  `json:"label,omitempty"`
+}
+
+// Schedule is the user's windows and the IANA zone their times are read in.
+// Hours outside every window are priced at the user's flat home rate.
+type Schedule struct {
+	TZ      string   `json:"tz"`
+	Windows []Window `json:"windows"`
+}
+
+// FieldError is a validation failure with the path of the field at fault
+// ("windows[2].end"), so a form can show it beside the right row.
+type FieldError struct {
+	Field string `json:"field"`
+	Msg   string `json:"error"`
+}
+
+func (e *FieldError) Error() string { return e.Field + ": " + e.Msg }
+
+func bad(field, format string, a ...any) *FieldError {
+	return &FieldError{Field: field, Msg: fmt.Sprintf(format, a...)}
+}
+
+// Normalize checks s and returns it with rates rounded to 4 decimals. An empty
+// schedule (no windows) is valid and clears the schedule.
+func Normalize(s Schedule) (Schedule, *FieldError) {
+	if len(s.Windows) == 0 {
+		return Schedule{TZ: strings.TrimSpace(s.TZ), Windows: []Window{}}, nil
+	}
+	tz := strings.TrimSpace(s.TZ)
+	if tz == "" || len(tz) > MaxTZLen || strings.EqualFold(tz, "local") {
+		return s, bad("tz", "tz must be an IANA time zone, e.g. America/Chicago")
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return s, bad("tz", "tz must be an IANA time zone, e.g. America/Chicago")
+	}
+	if len(s.Windows) > MaxWindows {
+		return s, bad("windows", "at most %d windows", MaxWindows)
+	}
+	out := Schedule{TZ: tz, Windows: make([]Window, len(s.Windows))}
+	// owner[day][minute] is 1+the window that holds the minute.
+	var owner [7][minutesInDay]int8
+	for i, w := range s.Windows {
+		f := func(name string) string { return fmt.Sprintf("windows[%d].%s", i, name) }
+		switch w.Days {
+		case Weekdays, Weekends, All:
+		default:
+			return s, bad(f("days"), "days must be weekdays, weekends or all")
+		}
+		start, ok := ParseClock(w.Start)
+		if !ok {
+			return s, bad(f("start"), "start must be a time like 21:00")
+		}
+		end, ok := ParseClock(w.End)
+		if !ok {
+			return s, bad(f("end"), "end must be a time like 06:00")
+		}
+		if start == end {
+			return s, bad(f("end"), "end must differ from start")
+		}
+		if math.IsNaN(w.Rate) || math.IsInf(w.Rate, 0) || w.Rate < 0 || w.Rate > MaxRate {
+			return s, bad(f("rate"), "rate must be between 0 and %g per kWh", MaxRate)
+		}
+		label := strings.TrimSpace(w.Label)
+		if utf8.RuneCountInString(label) > MaxLabelLen {
+			return s, bad(f("label"), "label is longer than %d characters", MaxLabelLen)
+		}
+		for _, c := range label {
+			if unicode.IsControl(c) || c == '<' || c == '>' {
+				return s, bad(f("label"), "label has characters that are not allowed")
+			}
+		}
+		for _, day := range daysOf(w.Days) {
+			mark := func(d, from, to int) *FieldError {
+				for m := from; m < to; m++ {
+					if o := owner[d][m]; o != 0 {
+						return bad(f("start"), "overlaps window %d", int(o))
+					}
+					owner[d][m] = int8(i + 1)
+				}
+				return nil
+			}
+			if end > start {
+				if e := mark(day, start, end); e != nil {
+					return s, e
+				}
+			} else { // crosses midnight: the rest of this day, the start of the next
+				if e := mark(day, start, minutesInDay); e != nil {
+					return s, e
+				}
+				if e := mark((day+1)%7, 0, end); e != nil {
+					return s, e
+				}
+			}
+		}
+		out.Windows[i] = Window{Days: w.Days, Start: w.Start, End: w.End, Rate: math.Round(w.Rate*1e4) / 1e4, Label: label}
+	}
+	return out, nil
+}
+
+// daysOf lists the weekdays (time.Weekday numbering, Sunday 0) of a window.
+func daysOf(d string) []int {
+	switch d {
+	case Weekdays:
+		return []int{1, 2, 3, 4, 5}
+	case Weekends:
+		return []int{6, 0}
+	}
+	return []int{0, 1, 2, 3, 4, 5, 6}
+}
+
+// ParseClock reads "HH:MM" (00:00 to 23:59) as minutes since midnight.
+func ParseClock(s string) (int, bool) {
+	if len(s) != 5 || s[2] != ':' {
+		return 0, false
+	}
+	h, err1 := strconv.Atoi(s[:2])
+	m, err2 := strconv.Atoi(s[3:])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 || s[0] == '+' || s[0] == '-' || s[3] == '+' || s[3] == '-' {
+		return 0, false
+	}
+	return h*60 + m, true
+}
