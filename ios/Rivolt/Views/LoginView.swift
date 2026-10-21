@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 /// Sign-in screen. Rivolt signs in through the server's own web sign-in (the
@@ -5,6 +6,7 @@ import SwiftUI
 /// chooses another under "Other server", which is checked before it's used.
 struct LoginView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     @State private var showOtherServer = false
     @State private var otherServer = ""
@@ -66,7 +68,7 @@ struct LoginView: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            try await state.signIn()
+            try await state.signIn(with: SystemWebAuthenticator(session: webAuthenticationSession))
         } catch {
             message = error.localizedDescription
         }

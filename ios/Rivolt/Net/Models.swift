@@ -8,6 +8,16 @@ struct AuthUser: Decodable, Equatable {
     let userId: String?
 }
 
+/// `POST /api/auth/app/token`: the app session token (a bearer token, kept in
+/// the Keychain) and who it signs in. Fixture: Fixtures/app_token.json, also
+/// checked against the server's type in Go.
+struct AppToken: Decodable, Equatable {
+    let token: String
+    let tokenType: String
+    let expiresAt: Date
+    let user: AuthUser
+}
+
 /// Vehicle metadata returned by `GET /api/vehicles`. We mirror only
 /// the fields the home screen needs; the full struct (trim, images,
 /// pack_kwh, ...) can be added as views start consuming it.

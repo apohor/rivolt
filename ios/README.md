@@ -4,10 +4,13 @@ Native iOS client for Rivolt. It signs in to **https://rivolt.dev** by default;
 "Other server" on the sign-in screen points it at a self-hosted Rivolt (https
 only, checked against the server's `/api/app/config`).
 
-Status (Sprint 6): the sign-in skeleton. Server address handling, PKCE and the
-per-server Keychain token store are in place and tested; signing in itself
-waits for the server's app sign-in endpoints (design: the team's
-`ios-app-design.md`). The home screen is the v0.9 placeholder.
+Sign-in goes through the server's own web sign-in in an
+ASWebAuthenticationSession (PKCE, a one-time code, then a bearer token in the
+Keychain, per server). rivolt.dev comes back on its Universal Link
+(https://rivolt.dev/app/callback); any other server on `rivolt://auth`, so a
+self-hosted server sets `RIVOLT_APP_CALLBACK_URL=rivolt://auth`. The server
+offers app sign-in only when that variable is set (`/api/app/config`
+`app_login`). Design: the team's `ios-app-design.md` §2.
 
 ## Building
 
