@@ -91,6 +91,8 @@ struct ChartsSection: View {
                         AxisValueLabel(format: .dateTime.month(.abbreviated).day())
                     }
                 }
+                // The whole period, so the line sits where its days are and the ticks span the same days as the bars.
+                .chartXScale(domain: windowRange.since...windowRange.until)
                 .chartYScale(domain: 0...100)
                 .chartYAxis {
                     AxisMarks(values: [0, 25, 50, 75, 100]) { v in
@@ -105,6 +107,8 @@ struct ChartsSection: View {
             }
         }
     }
+
+    private var windowRange: (since: Date, until: Date) { window.range(now: now, calendar: calendar) }
 
     private var levelSpoken: (label: String, value: String) {
         ChartMath.spokenLevel(days: window.days, trend: trend)
