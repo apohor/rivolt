@@ -74,6 +74,8 @@ type Session struct {
 	UserAgent   string
 	IPAddress   string
 	DeviceLabel string
+	// Kind is KindWeb (a browser cookie) or KindApp (the iPhone app's token).
+	Kind string
 }
 
 // Store is the sessions persistence layer. Pepper is an HMAC key
@@ -318,11 +320,11 @@ func (s *Store) RevokeAllExcept(ctx context.Context, userID, keepID uuid.UUID) e
 	return nil
 }
 
-// List returns every live session for a user, newest first.
-// Backs the future device-list UI.
+// List returns every live session for a user, most recently used first.
+// Backs the device list.
 func (s *Store) List(ctx context.Context, userID uuid.UUID) ([]Session, error) {
 	const q = `SELECT id, user_id, created_at, last_seen_at, expires_at,
-		COALESCE(user_agent, ''), COALESCE(host(ip_address), ''), COALESCE(device_label, '')
+		COALESCE(user_agent, ''), COALESCE(host(ip_address), ''), COALESCE(device_label, ''), kind
 		FROM sessions
 		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
 		ORDER BY last_seen_at DESC`
@@ -335,12 +337,44 @@ func (s *Store) List(ctx context.Context, userID uuid.UUID) ([]Session, error) {
 	for rows.Next() {
 		var sess Session
 		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.CreatedAt, &sess.LastSeenAt, &sess.ExpiresAt,
-			&sess.UserAgent, &sess.IPAddress, &sess.DeviceLabel); err != nil {
+			&sess.UserAgent, &sess.IPAddress, &sess.DeviceLabel, &sess.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, sess)
 	}
 	return out, rows.Err()
+}
+
+// RevokeOwned revokes one live session if it belongs to userID and reports whether
+// it did. Another user's id, an unknown id and an already revoked or expired session
+// all read as false, so a caller cannot tell them apart.
+func (s *Store) RevokeOwned(ctx context.Context, userID, id uuid.UUID) (bool, error) {
+	if userID == uuid.Nil || id == uuid.Nil {
+		return false, nil
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET revoked_at = now()
+		 WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()`, id, userID)
+	if err != nil {
+		return false, fmt.Errorf("sessions: revoke owned: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// RevokeOthers revokes every live session of userID except keepID and returns how
+// many it revoked ("sign out everywhere else").
+func (s *Store) RevokeOthers(ctx context.Context, userID, keepID uuid.UUID) (int64, error) {
+	if userID == uuid.Nil || keepID == uuid.Nil {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET revoked_at = now()
+		 WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL AND expires_at > now()`, userID, keepID)
+	if err != nil {
+		return 0, fmt.Errorf("sessions: revoke others: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // PurgeExpired deletes revoked / expired rows older than a
