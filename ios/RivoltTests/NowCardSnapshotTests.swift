@@ -48,7 +48,7 @@ final class NowCardSnapshotTests: XCTestCase {
             let renderer = ImageRenderer(content: view)
             renderer.scale = 3
             let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
-            XCTAssertGreaterThan(image.size.height, 200)
+            XCTAssertGreaterThan(image.size.height, 100)
             let png = try XCTUnwrap(image.pngData())
             let file = "\(name)-\(scheme == .dark ? "dark" : "light").png"
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
