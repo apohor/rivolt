@@ -116,6 +116,9 @@ type Deps struct {
 	// request context but the API stays open (legacy single-tenant
 	// UX so docker-compose upgrades don't lock anyone out).
 	Auth *auth.Service
+	// Sessions, when set, mounts the signed-in user's device list under
+	// /api/auth/sessions (list, revoke one, sign out everywhere else).
+	Sessions *SessionsAPI
 	// AuthEnforced flips on the requireUser middleware for /api/*.
 	// True when at least one real issuer is configured (OIDC,
 	// trusted-proxy, or the debug bypass).
@@ -151,6 +154,10 @@ type Deps struct {
 	// header. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
+	// IOSAppIDs ("TEAMID.bundle.id", RIVOLT_IOS_APP_IDS) publishes the
+	// iPhone app's associated domain: the AASA file and /app/callback. Empty:
+	// neither is served.
+	IOSAppIDs []string
 	// AppAuth, when non-nil (with OIDC), mounts the iPhone app's sign-in
 	// under /api/auth/app. nil: /api/app/config reports app_login=false.
 	AppAuth *AppAuth
@@ -434,6 +441,11 @@ func New(d Deps) http.Handler {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
 				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
+				if d.Sessions != nil && !d.AdminOnly {
+					r.Get("/sessions", d.Sessions.List)
+					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
+					r.Delete("/sessions/{id}", d.Sessions.Revoke)
+				}
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
@@ -642,6 +654,19 @@ func New(d Deps) http.Handler {
 				}))
 				r.Post("/off", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushOff(d.Push.For(uid))(w, r)
+				}))
+				// The iPhone app (bearer only; see push_apns.go).
+				r.Post("/apns/register", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsRegister(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Post("/apns/preferences", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Post("/apns/unregister", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsUnregister(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Get("/notifications/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushNotification(d.Push.For(uid))(w, r)
 				}))
 			})
 
@@ -1287,6 +1312,12 @@ func New(d Deps) http.Handler {
 		feed := handleChangelogAtom(d.Changelog)
 		r.With(clLimiter.Middleware).Get("/changelog.atom", feed)
 		r.With(clLimiter.Middleware).Head("/changelog.atom", feed)
+	}
+	// The iPhone app's associated domain (RIVOLT_IOS_APP_IDS): the AASA file
+	// and the sign-in callback's browser fallback. Public site only.
+	if len(d.IOSAppIDs) > 0 && !d.AdminOnly && !demo.OnlyEnabled() {
+		r.Get("/.well-known/apple-app-site-association", handleAASA(d.IOSAppIDs))
+		r.Get(appCallbackPath, handleAppCallbackPage())
 	}
 	r.Handle("/*", spaHandler(d.WebFS))
 

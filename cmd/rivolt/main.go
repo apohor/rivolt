@@ -1827,6 +1827,24 @@ func runServer() {
 	// published apple-app-site-association), never the rivolt:// scheme,
 	// which any app on the phone can claim (DA on #769); a self-hosted
 	// server opts in with rivolt://auth.
+	// The iPhone app's associated domain: RIVOLT_IOS_APP_IDS, comma-separated
+	// "TEAMID.bundle.id" (rivolt.dev: CK383X39S5.dev.rivolt.app), publishes
+	// /.well-known/apple-app-site-association and the /app/callback fallback.
+	// Unset: neither is served. Set it together with the https
+	// RIVOLT_APP_CALLBACK_URL once the app-login enable gate is met.
+	var iosAppIDs []string
+	for _, id := range strings.Split(os.Getenv("RIVOLT_IOS_APP_IDS"), ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !api.ValidAppID(id) {
+			logger.Error("bad RIVOLT_IOS_APP_IDS entry: want TEAMID.bundle.id", "value", id)
+			os.Exit(1)
+		}
+		iosAppIDs = append(iosAppIDs, id)
+	}
+
 	var appAuth *api.AppAuth
 	callback := strings.TrimSpace(os.Getenv("RIVOLT_APP_CALLBACK_URL"))
 	if callback != "" && oidcSvc != nil && sessionStore != nil && !adminOnlyMode && !demo.OnlyEnabled() {
@@ -2268,7 +2286,18 @@ func runServer() {
 		}
 		archiveRestorer = rs
 	}
+	var sessionsAPI *api.SessionsAPI
+	if sessionStore != nil {
+		sessionsAPI = &api.SessionsAPI{
+			Store: sessionStore,
+			Current: func(r *http.Request) (uuid.UUID, bool) {
+				ref, ok := auth.SessionFromContext(r.Context())
+				return ref.ID, ok
+			},
+		}
+	}
 	handler := api.New(api.Deps{
+		Sessions:              sessionsAPI,
 		SampleRetentionMonths: sampleRetentionMonths,
 		ArchiveRows:           archiveRows,
 		ArchiveRestorer:       archiveRestorer,
@@ -2302,6 +2331,7 @@ func runServer() {
 		AdminDebugProbes: adminDebugProbes,
 		OIDC:             oidcSvc,
 		AppAuth:          appAuth,
+		IOSAppIDs:        iosAppIDs,
 		WebFS:            webFS,
 		Version:          version,
 		DB:               pgPool,

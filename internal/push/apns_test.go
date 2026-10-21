@@ -264,3 +264,29 @@ func TestSafeNotificationURLAndSelector(t *testing.T) {
 		}
 	}
 }
+
+// A token that is not hex (a bad value in the database) never reaches the
+// request path: Send refuses it before any request, and says it is dead.
+func TestAPNsSendRefusesMalformedTokenBeforeRequest(t *testing.T) {
+	key, pemKey := testKey(t)
+	var mu sync.Mutex
+	hits := 0
+	a := apnsServer(t, key, pemKey, func(http.ResponseWriter, *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+	})
+	for _, tok := range []string{"", "abc", strings.Repeat("a", 63), strings.Repeat("a", 201),
+		strings.Repeat("a", 64) + "/../x", strings.Repeat("g", 64), strings.Repeat("a", 64) + "?x=1"} {
+		err := a.Send(t.Context(), EnvProduction, tok, "id-1")
+		ae, ok := err.(*APNsError)
+		if !ok || !ae.Dead() {
+			t.Errorf("token %q: err = %v, want a dead-token error", tok, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Errorf("%d requests reached Apple for malformed tokens", hits)
+	}
+}

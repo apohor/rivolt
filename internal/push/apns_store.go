@@ -235,3 +235,17 @@ func PurgeNotifications(ctx context.Context, db *sql.DB) (int64, error) {
 	}
 	return res.RowsAffected()
 }
+
+// APNsPrefs returns the five switches of one of the user's devices; ok is false
+// when the token is not the user's.
+func (s *Store) APNsPrefs(ctx context.Context, token string) (Preferences, bool, error) {
+	var p Preferences
+	err := s.db.QueryRowContext(ctx, `
+		SELECT on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones
+		FROM push_apns_devices WHERE user_id = $1 AND token = $2`, s.userID, token).
+		Scan(&p.OnChargingDone, &p.OnPlugInReminder, &p.OnAnomaly, &p.OnSoftwareUpdate, &p.OnMilestones)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Preferences{}, false, nil
+	}
+	return p, err == nil, err
+}

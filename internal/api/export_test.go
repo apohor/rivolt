@@ -83,7 +83,7 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := readZip(t, buf.Bytes())
-	for _, name := range []string{"README.txt", "charges.csv", "drives.csv", "trips.csv", "rivian_receipts.csv", "saved_trips.json", "drive_recaps.json", "drive_analyses.json", "milestones.json", "drive_weather.json", "drive_weather_series.json", "settings.json", "vehicles.json", "export.json"} {
+	for _, name := range []string{"README.txt", "charges.csv", "drives.csv", "trips.csv", "rivian_receipts.csv", "saved_trips.json", "drive_recaps.json", "drive_analyses.json", "milestones.json", "iphone_devices.json", "drive_weather.json", "drive_weather_series.json", "settings.json", "vehicles.json", "export.json"} {
 		if _, ok := files[name]; !ok {
 			t.Errorf("missing %s", name)
 		}

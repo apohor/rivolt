@@ -46,6 +46,10 @@ settings:
     # Rivolt only runs portrait on phone; landscape comes later
     # when the drive-detail maps need it.
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+    # iPhone only. Without this the target defaults to iPhone+iPad and App
+    # Store validation demands iPad icons and iPad multitasking orientations
+    # (ios-v0.1.0 upload was rejected for both).
+    TARGETED_DEVICE_FAMILY: "1"
 
 targets:
   Rivolt:
@@ -61,14 +65,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app
         PRODUCT_NAME: Rivolt
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt
+        # Names the AppIcon set so actool emits CFBundleIconName and the
+        # sized icons; App Store validation rejects the build without them.
+        # The 1024 PNG is a placeholder from web/public/icon-maskable-512.png
+        # (upscaled, alpha removed: App Store icons must be opaque).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The server defaults to https://rivolt.dev in code (ServerURL);
+        # "Other server" on the sign-in screen changes it.
       configs:
         # Push and the shared Keychain group need a signed build (TestFlight):
         # the entitlements apply to Release only, so the unsigned simulator
         # build CI runs keeps working with the Keychain as before.
         Release:
           CODE_SIGN_ENTITLEMENTS: Rivolt/Rivolt.entitlements
-        # The server defaults to https://rivolt.dev in code (ServerURL);
-        # "Other server" on the sign-in screen changes it.
 
   # The Notification Service Extension: swaps the generic APNs alert for the real
   # text, fetched from Rivolt (design §3, DA condition 6). It shares the Keychain

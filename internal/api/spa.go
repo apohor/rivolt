@@ -116,6 +116,12 @@ func spaHandler(fsys fs.FS) http.Handler {
 			// Discovery documents (api-catalog, OAuth metadata, MCP cards...)
 			// must not be answered with the app shell.
 			if hasFileExtension(p) || strings.HasPrefix(p, ".well-known/") {
+				// Never cacheable: during a rolling update a browser can ask
+				// an old pod for the new build's /assets/index-<hash>.js, and
+				// Cloudflare caches a bare 404 for a static extension for
+				// minutes, which would break that file for everyone after the
+				// rollout. no-store makes the miss one-off.
+				w.Header().Set("Cache-Control", "no-store")
 				http.NotFound(w, r)
 				return
 			}
@@ -128,8 +134,19 @@ func spaHandler(fsys fs.FS) http.Handler {
 			shell(w, r)
 			return
 		}
-		if p == "index.html" {
+		switch {
+		case p == "index.html":
 			noCacheIndex(w)
+		case p == "sw.js":
+			// The service worker: browsers should see a new one promptly.
+			w.Header().Set("Cache-Control", "no-cache")
+		case !strings.HasPrefix(p, "assets/"):
+			// Unhashed root files (asset-guard.js, theme-init.js, the
+			// manifest, icons, og.png): a short, explicit TTL, so a fix ships
+			// within minutes even if a ?v= bump is forgotten, and Cloudflare's
+			// default edge TTL doesn't decide for us. Hashed /assets/* keep
+			// whatever they had.
+			w.Header().Set("Cache-Control", "public, max-age=300")
 		}
 		fileServer.ServeHTTP(w, r)
 	})

@@ -245,6 +245,8 @@ test("demo money: the savings card is labelled as a sample truck with an example
   await expect(card).toBeVisible();
   await expect(card.locator("[data-savings-sample]")).toHaveText("Sample truck · example schedule");
   await expect(card).toContainText("could have saved about $9.60 (estimate)");
+  await expect(card).toContainText("Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data.");
+  await expect(card).not.toContainText("your own home charges");
   // The demo answers for one month, so there is no month switch.
   await expect(page.getByRole("button", { name: "This month so far" })).toHaveCount(0);
   await page.waitForTimeout(800);

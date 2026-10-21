@@ -71,6 +71,7 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 			resp.AppLogin = d.OIDC != nil && len(d.OIDC.Providers()) > 0
 			resp.MinIOSBuild = d.AppAuth.MinIOSBuild
 		}
+		resp.Push.APNs = d.PushService.APNsEnabled()
 		w.Header().Set("Cache-Control", "no-cache")
 		writeJSON(w, http.StatusOK, resp)
 	}

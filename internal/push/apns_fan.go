@@ -95,3 +95,11 @@ func (s *Service) fanAPNs(ctx context.Context, store *Store, p Payload) int {
 	wg.Wait()
 	return ok
 }
+
+// APNsTopic is the app bundle id notifications are sent for ("" when off).
+func (s *Service) APNsTopic() string {
+	if s == nil || s.apns == nil {
+		return ""
+	}
+	return s.apns.Topic()
+}
