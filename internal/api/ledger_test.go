@@ -520,3 +520,46 @@ func TestLedgerStatementCSV(t *testing.T) {
 		}
 	}
 }
+
+// The statement email's saving is the same estimate as /api/ledger/savings.
+func TestStatementSavingsMatchesTheEndpoint(t *testing.T) {
+	uid := uuid.New()
+	chi, _ := time.LoadLocation("America/Chicago")
+	home := &ledger.LatLon{Lat: 30.2701, Lon: -97.7401}
+	mk := func(id string, day int) ledger.Charge {
+		st := time.Date(2026, 9, day, 18, 0, 0, 0, chi).UTC()
+		kwh, peak, cost, rate, act := 30.0, 7.4, 6.30, 0.21, 4*3600.0
+		lat, lon := home.Lat, home.Lon
+		return ledger.Charge{ID: id, VehicleID: "veh-1", StartedAt: st, EndedAt: st.Add(14 * time.Hour), CreatedAt: st,
+			EnergyKWh: &kwh, PeakKW: &peak, Cost: &cost, PricePerKWh: &rate, Currency: "USD", CostSource: "home_rate",
+			ActiveSeconds: &act, FinalState: "charging_complete", Source: "live", Lat: &lat, Lon: &lon}
+	}
+	f := &fakeLedgerData{charges: []ledger.Charge{mk("a", 2), mk("b", 9), mk("c", 16)}}
+	a := f.api(time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC))
+	a.config = func(context.Context, uuid.UUID) (ledger.Config, error) {
+		return ledger.Config{Currency: "USD", HomeRate: 0.21, Home: home}, nil
+	}
+	sch, e := offpeak.Normalize(offpeak.Schedule{TZ: "America/Chicago", Windows: []offpeak.Window{{Days: "weekdays", Start: "21:00", End: "06:00", Rate: 0.09}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return sch }
+
+	got, err := newStatementSavings(a)(context.Background(), uid, "2026-09", chi)
+	if err != nil || got == nil {
+		t.Fatalf("%v %v", got, err)
+	}
+	rec := ledgerGET(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.savings(uid, w, r) }), uid, "/api/ledger/savings?month=2026-09")
+	var want struct {
+		CouldHaveSaved *float64 `json:"could_have_saved"`
+		MovedKWh       float64  `json:"moved_kwh"`
+		Considered     int      `json:"sessions_considered"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &want)
+	if got.CouldHaveSaved == nil || want.CouldHaveSaved == nil || *got.CouldHaveSaved != *want.CouldHaveSaved || got.MovedKWh != want.MovedKWh || got.Considered != want.Considered {
+		t.Errorf("email estimate %+v, endpoint %+v", got, want)
+	}
+	if got.MovedKWh != 90 || *got.CouldHaveSaved != 10.8 {
+		t.Errorf("figures: moved %v kWh, saved %v; want 90 and 10.80", got.MovedKWh, *got.CouldHaveSaved)
+	}
+}

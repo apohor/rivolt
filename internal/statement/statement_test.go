@@ -544,3 +544,54 @@ func TestBuild_CarriesAStableOpaqueIdempotencyKey(t *testing.T) {
 		t.Fatal("the key exposes the user id")
 	}
 }
+
+// The off-peak saving is one cost-only sentence, in the text and the HTML, with
+// no link of its own; it is left out when there is no figure or it is small.
+func TestRender_SavingsLine(t *testing.T) {
+	in := baseInput()
+	sav := ledger.Savings{Considered: 9, Moved: 6, MovedKWh: 183.4, CouldHaveSaved: fp(14.62)}
+	in.Savings = &sav
+	r := Render(in)
+	const want = "Moving 183 kWh into your off-peak window would have saved about $15 (estimate)."
+	if !strings.Contains(r.Text, want) || !strings.Contains(r.HTML, want) {
+		t.Fatalf("savings line missing\n%s", r.Text)
+	}
+	for _, bad := range []string{"overpaid", "wasted", "tip", "Tip"} {
+		if strings.Contains(r.Text, bad) {
+			t.Errorf("savings wording has %q", bad)
+		}
+	}
+	// It adds no link: the same links as without it.
+	without := Render(baseInput())
+	if strings.Count(r.Text, "https://") != strings.Count(without.Text, "https://") || strings.Count(r.HTML, "href=") != strings.Count(without.HTML, "href=") {
+		t.Error("the savings line added a link")
+	}
+	for name, s := range map[string]ledger.Savings{
+		"needs something": {MovedKWh: 183, CouldHaveSaved: fp(14), Needs: "more_home_sessions"},
+		"no figure":       {MovedKWh: 183},
+		"under a dollar":  {MovedKWh: 20, CouldHaveSaved: fp(0.8)},
+		"under a kWh":     {MovedKWh: 0.4, CouldHaveSaved: fp(3)},
+		"nothing to move": {MovedKWh: 0, CouldHaveSaved: fp(0)},
+		"empty":           {},
+	} {
+		s := s
+		in.Savings = &s
+		if strings.Contains(Render(in).Text, "off-peak window") {
+			t.Errorf("%s: a savings line was written", name)
+		}
+	}
+	in.Savings = nil
+	if strings.Contains(Render(in).Text, "off-peak window") {
+		t.Error("a savings line without an estimate")
+	}
+}
+
+// Fast charges priced from a typical public price read as estimated in the list.
+func TestRender_ObservedEstimateIsLabelledEstimated(t *testing.T) {
+	in := baseInput()
+	in.Month.Receipts = append(in.Month.Receipts, ledger.Receipt{LocalDate: "2026-09-28", Kind: "dcfc", Place: "away", KWh: 50, Cost: fp(31.8),
+		CostSource: ledger.SourceObservedEstimate, Network: sp("EVgo")})
+	if r := Render(in); !strings.Contains(r.Text, "2026-09-28") || !strings.Contains(r.Text, "$31.80  (estimated)") && !strings.Contains(r.Text, "$31.80 (estimated)") {
+		t.Errorf("observed estimate not labelled estimated:\n%s", r.Text)
+	}
+}
