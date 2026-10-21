@@ -115,7 +115,7 @@ func TestLiveActivityRegistrations(t *testing.T) {
 	if err := stA.EndActivity(ctx, act(maxActivitiesPerUser+2)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `UPDATE push_apns_activities SET started_at = now() - interval '13 hours' WHERE user_id = $1 AND token = $2`, a, act(1)); err != nil {
+	if _, err := pool.ExecContext(ctx, `UPDATE push_apns_activities SET started_at = now() - interval '13 hours' WHERE user_id = $1 AND token = $2`, a, act(3)); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := PurgeActivities(ctx, pool); err != nil || n < 1 {
