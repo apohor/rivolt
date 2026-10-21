@@ -45,6 +45,10 @@ charging stops.
   [rivolt.dev/sample-trips](https://rivolt.dev/sample-trips). Each lists every
   charging stop, the battery on arrival and departure, charge time and the
   estimated cost for a sample R1S, and opens in the demo planner.
+- A public worked example and a calculator for what it costs to charge a
+  Rivian at home, with no sign-in and nothing leaving your browser:
+  [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
+  figure on it is an example.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
   with Google or GitHub (the beta has an account cap); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
@@ -110,6 +114,25 @@ guessed (with a one-tap way to add the price). "About these numbers"
 spells out what is and is not included in the total.
 
 ![Money](docs/screenshots/money.png)
+
+#### Off-peak hours and what moving charging would save
+
+In Settings → Charging you can enter your off-peak hours yourself: several
+windows, weekday and weekend splits, windows that run past midnight, a rate
+for each, in your time zone. Rivolt uses them only for estimates; it does not
+contact your utility and cannot check them. With a schedule and a home rate
+set, Money shows an "Off-peak savings" card: what moving your home charging
+into your cheapest window **could have saved, about $Y (estimate)**, from your
+own home charges. Sessions that could not move are left out and the card says
+how many. It is advice only: Rivolt never changes charging on the truck. A
+share card can carry one extra line, the percentage of your home charging that
+ran off-peak, behind its own switch that is off every time.
+
+#### Month statement as a CSV
+
+"Download CSV" on Money saves the month as a spreadsheet file: totals by cost
+type, home versus away, and one line per session, in your time zone. It is
+your own data, downloaded straight from your Rivolt; nothing is sent anywhere.
 
 #### Share a month, a trip or a milestone
 
@@ -248,8 +271,10 @@ A five-tab layout for the per-user controls:
   [`docs/SIGNUP.md`](docs/SIGNUP.md)).
 - **Vehicle** — vehicle profile (pack capacity), display units,
   home location.
-- **Charging** — home $/kWh rate + currency, preferred public
-  networks, trip planner defaults.
+- **Charging** — home $/kWh rate + currency, your off-peak
+  schedule, preferred public networks (with each network's
+  membership plans as it lists them, its source and the date it was
+  last checked), trip planner defaults.
 - **Notifications** — per-device push subscription with per-event
   toggles (see below).
 - **Data** — ElectraFi CSV import + danger zone (full JSON
