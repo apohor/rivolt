@@ -50,3 +50,26 @@ func TestSPAHandler(t *testing.T) {
 		}
 	}
 }
+
+// A missing asset is a 404 nothing keeps: during a rolling update a browser
+// can ask an old pod for the new build's bundle, and a cached 404 (Cloudflare
+// keeps one for a static extension for minutes) would outlive the rollout.
+// Existing assets stay cacheable.
+func TestMissingAssetNotCached(t *testing.T) {
+	h := spaHandler(fstest.MapFS{
+		"index.html":        {Data: []byte("<html>shell</html>")},
+		"assets/app-abc.js": {Data: []byte("//js")},
+	})
+	for _, p := range []string{"/assets/index-NEW123.js", "/assets/index-NEW123.css", "/.well-known/nothing"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if w.Code != http.StatusNotFound || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: %d Cache-Control=%q", p, w.Code, w.Header().Get("Cache-Control"))
+		}
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil))
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") == "no-store" {
+		t.Fatalf("an existing asset: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
