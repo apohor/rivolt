@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -200,7 +201,7 @@ func roundTripParams(w http.ResponseWriter, r *http.Request) (on bool, radiusM f
 	on, radiusM, maxGap = q.Get("round_trips") != "0", defaultRoundTripRadius, time.Duration(defaultRoundTripGapMin)*time.Minute
 	if s := q.Get("round_trip_radius_m"); s != "" {
 		v, err := strconv.ParseFloat(s, 64)
-		if err != nil || v < 1 || v > 5000 {
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 1 || v > 5000 {
 			http.Error(w, "round_trip_radius_m must be 1 to 5000", http.StatusBadRequest)
 			return false, 0, 0, false
 		}
@@ -208,7 +209,7 @@ func roundTripParams(w http.ResponseWriter, r *http.Request) (on bool, radiusM f
 	}
 	if s := q.Get("round_trip_gap_min"); s != "" {
 		v, err := strconv.ParseFloat(s, 64)
-		if err != nil || v < 1 || v > 1440 {
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 1 || v > 1440 {
 			http.Error(w, "round_trip_gap_min must be 1 to 1440", http.StatusBadRequest)
 			return false, 0, 0, false
 		}

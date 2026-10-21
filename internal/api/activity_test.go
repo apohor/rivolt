@@ -167,9 +167,43 @@ func TestActivityThroughTheRouter(t *testing.T) {
 		"bad radius":  "?round_trip_radius_m=0",
 		"huge radius": "?round_trip_radius_m=99999",
 		"bad gap":     "?round_trip_gap_min=abc",
+		"nan radius":  "?round_trip_radius_m=NaN",
+		"inf radius":  "?round_trip_radius_m=Inf",
+		"nan gap":     "?round_trip_gap_min=nan",
 	} {
 		if w := get("https://rivolt.dev/api/activity"+u, true); w.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", name, w.Code)
 		}
+	}
+}
+
+// charge-split and activity share one per-user ceiling (each call reads and clusters
+// the user's last 5000 charges): past it the answer is 429, for that user only, and
+// counted across the two routes.
+func TestAggregateEndpointsAreRateLimitedPerUser(t *testing.T) {
+	r := New(Deps{})
+	call := func(uid uuid.UUID, path string) int {
+		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev"+path, nil)
+		req = req.WithContext(auth.WithUser(req.Context(), uid))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	a, b := uuid.New(), uuid.New()
+	limited := 0
+	for i := 0; i < 40; i++ {
+		path := "/api/charge-split"
+		if i%2 == 1 {
+			path = "/api/activity"
+		}
+		if call(a, path) == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited == 0 {
+		t.Error("40 calls across charge-split and activity were never limited")
+	}
+	if code := call(b, "/api/activity"); code != http.StatusOK {
+		t.Errorf("another user's first call: %d, want 200", code)
 	}
 }
