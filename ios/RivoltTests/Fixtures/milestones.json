@@ -1,0 +1,30 @@
+{
+  "milestones": [
+    {
+      "vehicle_id": "veh-fixture",
+      "key": "best_eff:2026-10-20",
+      "kind": "best_eff",
+      "achieved_at": "2026-10-20T17:05:00Z",
+      "title": "Your most efficient drive yet",
+      "body": "2.85 mi/kWh over 120 mi, your best on a drive this long.",
+      "detail": {
+        "drive_miles": 120,
+        "drive_mi_per_kwh": 2.85
+      }
+    },
+    {
+      "vehicle_id": "veh-fixture",
+      "key": "miles_1000",
+      "kind": "miles_1000",
+      "achieved_at": "2026-10-12T09:40:00Z",
+      "title": "1,000 miles recorded",
+      "body": "Your first 1,000 miles in Rivolt: 2.31 mi/kWh, $0.07/mi.",
+      "detail": {
+        "miles": 1000,
+        "mi_per_kwh": 2.31,
+        "cost_per_mile": 0.07,
+        "currency": "USD"
+      }
+    }
+  ]
+}

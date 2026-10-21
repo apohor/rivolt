@@ -1,0 +1,8 @@
+{
+  "start_date": "2025-06-01",
+  "end_date": "2028-06-01",
+  "start_odometer_mi": 12,
+  "allowed_miles_total": 36000,
+  "overage_per_mile": 0.25,
+  "currency": "USD"
+}
