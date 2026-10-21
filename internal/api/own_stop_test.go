@@ -82,3 +82,17 @@ func TestOwnStopDefaultPower(t *testing.T) {
 		t.Errorf("validate = %q", m)
 	}
 }
+
+// The legacy path (no hookup) accepts what a listing can show and nothing above.
+func TestLegacyOvernightPowerBound(t *testing.T) {
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	for kw, ok := range map[float64]bool{0: true, 7: true, 19.2: true, 19.3: false, 350: false} {
+		req := tripPlanMultidayRequest{
+			Origin: tripPoint{Lat: 34, Lon: -118},
+			Days:   []tripPlanDayRequest{{End: tripPoint{Lat: 35, Lon: -118}, Overnight: &tripPlanOvernight{L2KW: fp(kw)}}, {End: tripPoint{Lat: 36, Lon: -118}}},
+		}
+		if m := req.validate(now); (m == "") != ok {
+			t.Errorf("l2_kw %v: %q, accepted=%v want %v", kw, m, m == "", ok)
+		}
+	}
+}
