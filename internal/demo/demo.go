@@ -115,6 +115,10 @@ func Seed(ctx context.Context, d Deps) error {
 	}); err != nil {
 		return fmt.Errorf("demo: session: %w", err)
 	}
+	// The example off-peak schedule the public demo's savings card is built on.
+	if err := settings.SetOffpeak(ctx, st, DemoSchedule()); err != nil {
+		return fmt.Errorf("demo: off-peak schedule: %w", err)
+	}
 	// The sample owner's own fast-charging rates (see DemoNetworks).
 	if err := settings.SetChargingNetworks(ctx, st, DemoNetworks()); err != nil {
 		return fmt.Errorf("demo: charging networks: %w", err)
