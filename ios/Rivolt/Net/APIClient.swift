@@ -146,6 +146,13 @@ actor APIClient {
         id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
     }
 
+    /// A query value: unlike a path component, `&`, `=`, `+` and `#` must be escaped too.
+    private func queryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
     /// The charge in progress; nil when the server has none (404) or doesn't know the endpoint.
     func liveSession(id: String) async throws -> LiveSession? {
         do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _) { return nil }
@@ -161,14 +168,14 @@ actor APIClient {
     }
 
     /// The newest charge (for its place and cost).
-    func latestCharge() async throws -> ChargeBrief? {
-        let rows: [ChargeBrief] = try await request("GET", "/api/charges?limit=1")
+    func latestCharge(vehicleID: String) async throws -> ChargeBrief? {
+        let rows: [ChargeBrief] = try await request("GET", "/api/charges?limit=1&vehicle_id=\(queryValue(vehicleID))")
         return rows.first
     }
 
     /// Asks for a few: the server drops a gear-bounce row after picking it, so a one-row page can come back empty.
-    func latestDrive() async throws -> DriveBrief? {
-        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=5")
+    func latestDrive(vehicleID: String) async throws -> DriveBrief? {
+        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=5&vehicle_id=\(queryValue(vehicleID))")
         return rows.first
     }
 

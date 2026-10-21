@@ -140,8 +140,8 @@ struct HomeView: View {
         let client = state.client
         async let st = try? client.vehicleState(id: id)
         async let nw = try? client.vehicleNow(id: id)
-        async let ch = try? client.latestCharge()
-        async let dr = try? client.latestDrive()
+        async let ch = try? client.latestCharge(vehicleID: id)
+        async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
         vehicleState = s
         now = n ?? nil
