@@ -60,6 +60,8 @@ targets:
     dependencies:
       - target: RivoltNotificationService
         embed: true
+      - target: RivoltWidgets
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app
@@ -108,6 +110,40 @@ targets:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
 
+  # Home-screen and lock-screen widgets (charge and range). Read-only: they fetch the
+  # same two reads the app's Home does, with the token from the shared Keychain
+  # group, and keep the last snapshot in the App Group. The views, the model and the
+  # fetch are shared with the app (so CI can render and test them).
+  RivoltWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RivoltWidgets
+      - path: Rivolt/Widget
+      - path: Rivolt/Views/NowModel.swift
+      - path: Rivolt/Views/NowInk.swift
+      - path: Rivolt/Net/Models.swift
+      - path: Rivolt/Net/JSON.swift
+      - path: Rivolt/Net/ServerURL.swift
+      - path: Rivolt/Auth/TokenStore.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app.widgets
+        PRODUCT_NAME: RivoltWidgets
+        INFOPLIST_KEY_CFBundleDisplayName: Rivolt widgets
+        SKIP_INSTALL: YES
+        # XcodeGen's iOS preset sets "1,2" on every target and overrides the project value.
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: RivoltWidgets/RivoltWidgets.entitlements
+    info:
+      path: RivoltWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Rivolt widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
   # Unit tests, run by CI (.github/workflows/ios.yml) on a simulator. No
   # host-app UI is exercised; tests import the app module with @testable.
   RivoltTests:
@@ -128,6 +164,7 @@ schemes:
       targets:
         Rivolt: all
         RivoltNotificationService: all
+        RivoltWidgets: all
         RivoltTests: [test]
     test:
       targets:

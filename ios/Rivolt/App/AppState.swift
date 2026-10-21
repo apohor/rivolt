@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import WidgetKit
 
 /// Global app state. Owns the `APIClient` (so every view talks to the same
 /// server with the same token store) and the current authenticated user.
@@ -79,6 +80,9 @@ final class AppState {
             verdict = .notRivolt
         }
         if verdict == .ready || verdict == .noAppSignIn {
+            // Another server: the widgets must not keep the old one's truck or numbers.
+            WidgetStore().clear()
+            WidgetCenter.shared.reloadAllTimelines()
             serverURL = url
             UserDefaults.standard.set(url.absoluteString, forKey: Self.serverDefaultsKey)
             await client.updateBaseURL(url)
@@ -111,6 +115,9 @@ final class AppState {
         await notifications.signedOut()
         try? await client.logout()
         try? tokens.deleteToken(for: serverURL)
+        // The widgets forget the truck and its last numbers with the session.
+        WidgetStore().clear()
+        WidgetCenter.shared.reloadAllTimelines()
         phase = .loggedOut
     }
 }

@@ -30,23 +30,59 @@ struct NowSummary: Equatable {
     let freshness: Freshness
     let outsideTempC: Double?
 
-    init(state: VehicleState?, now: NowSnapshot?, clock: Date) {
-        socPct = state?.batteryLevelPct
-        rangeKm = state?.distanceToEmpty
-        chargeTargetPct = state.flatMap { $0.chargeTargetPct.flatMap { $0 > 0 ? $0 : nil } }
+    /// The few fields the card works from. The widget builds this directly from
+    /// the fields it decodes (it never decodes a location), the app from a full
+    /// `VehicleState`.
+    struct Input: Equatable {
+        var socPct: Double?
+        var rangeKm: Double?
+        var chargeTargetPct: Double?
+        var gear: String?
+        var powerState: String?
+        var chargerState: String?
+        var chargerPowerKw: Double?
+        var at: Date?
 
-        let kind = now?.state ?? NowSummary.inferState(from: state)
+        init(socPct: Double?, rangeKm: Double?, chargeTargetPct: Double?, gear: String?, powerState: String?,
+             chargerState: String?, chargerPowerKw: Double?, at: Date?) {
+            self.socPct = socPct
+            self.rangeKm = rangeKm
+            self.chargeTargetPct = chargeTargetPct
+            self.gear = gear
+            self.powerState = powerState
+            self.chargerState = chargerState
+            self.chargerPowerKw = chargerPowerKw
+            self.at = at
+        }
+
+        init(_ s: VehicleState) {
+            self.init(socPct: s.batteryLevelPct, rangeKm: s.distanceToEmpty, chargeTargetPct: s.chargeTargetPct,
+                      gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
+                      chargerPowerKw: s.chargerPowerKw, at: s.at)
+        }
+    }
+
+    init(state: VehicleState?, now: NowSnapshot?, clock: Date) {
+        self.init(input: state.map(Input.init), now: now, clock: clock)
+    }
+
+    init(input: Input?, now: NowSnapshot?, clock: Date) {
+        socPct = input?.socPct
+        rangeKm = input?.rangeKm
+        chargeTargetPct = input.flatMap { $0.chargeTargetPct.flatMap { $0 > 0 ? $0 : nil } }
+
+        let kind = now?.state ?? NowSummary.inferState(from: input)
         stateLabel = NowSummary.label(kind, asleep: now?.asleep ?? false)
         since = now?.stateSince
-        chargePowerKw = (kind == .charging) ? state?.chargerPowerKw.flatMap { $0 > 0 ? $0 : nil } : nil
-        if let charge = now?.charge, let start = charge.socStart, let soc = state?.batteryLevelPct {
+        chargePowerKw = (kind == .charging) ? input?.chargerPowerKw.flatMap { $0 > 0 ? $0 : nil } : nil
+        if let charge = now?.charge, let start = charge.socStart, let soc = input?.socPct {
             chargeAddedPct = max(0, soc - start)
         } else {
             chargeAddedPct = nil
         }
         chargePeakKw = now?.charge?.peakKw
 
-        lastSeen = [now?.at, state?.at].compactMap { $0 }.max()
+        lastSeen = [now?.at, input?.at].compactMap { $0 }.max()
         switch now?.connection {
         case .reauth?: freshness = .needsReconnect
         case .paused?: freshness = .paused
@@ -85,6 +121,10 @@ struct NowSummary: Equatable {
 
     /// Without `/now` (an older server), a rough state from `/state` alone.
     static func inferState(from state: VehicleState?) -> NowSnapshot.State {
+        inferState(from: state.map(Input.init))
+    }
+
+    static func inferState(from state: Input?) -> NowSnapshot.State {
         guard let state else { return .unknown }
         if state.chargerState == "charging_active" { return .charging }
         if let gear = state.gear, ["D", "R"].contains(gear) { return .driving }
