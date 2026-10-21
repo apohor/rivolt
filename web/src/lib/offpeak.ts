@@ -3,7 +3,14 @@
 
 export type OffpeakDays = "all" | "weekdays" | "weekends";
 export type OffpeakWindow = { days: OffpeakDays; start: string; end: string; rate: number; label?: string };
-export type OffpeakSchedule = { tz: string; windows: OffpeakWindow[] };
+export type OffpeakSchedule = {
+  tz: string;
+  windows: OffpeakWindow[];
+  // GET only: whether a schedule is saved, the flat home rate outside the windows (0 = not set) and the currency both are in.
+  configured?: boolean;
+  base_rate?: number;
+  currency?: string;
+};
 
 // A window as edited: the rate is text until it's valid.
 export type DraftWindow = { days: OffpeakDays; start: string; end: string; rate: string; label: string };
@@ -101,3 +108,12 @@ export const toDraft = (s: OffpeakSchedule): DraftWindow[] => s.windows.map((w) 
 
 export const toWindows = (ws: DraftWindow[]): OffpeakWindow[] =>
   ws.map((w) => ({ days: w.days, start: w.start, end: w.end, rate: Math.round(Number(w.rate) * 10000) / 10000, ...(w.label.trim() ? { label: w.label.trim() } : {}) }));
+
+// A server refusal (400 {"error", "field": "windows[1].start"}) as the row and field it belongs to; row is null for the tz or the count.
+export function serverFieldError(body: unknown): { row: number | null; field: string; message: string } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as { error?: unknown; field?: unknown };
+  if (typeof b.error !== "string" || typeof b.field !== "string") return null;
+  const m = /^windows\[(\d+)\]\.?(\w*)$/.exec(b.field);
+  return { row: m ? Number(m[1]) : null, field: m ? m[2] : b.field, message: b.error };
+}

@@ -10,14 +10,14 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 type Put = { tz: string; windows: { days: string; start: string; end: string; rate: number; label?: string }[] };
 
-async function open(page: Page, initial: Put, puts: Put[], fail?: string) {
+async function open(page: Page, initial: Put, puts: Put[], fail?: string, field?: string) {
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/settings/charging/offpeak", (r) => {
     if (r.request().method() === "PUT") {
       const body = r.request().postDataJSON() as Put;
       puts.push(body);
-      if (fail) return r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: fail }) });
+      if (fail) return r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: fail, ...(field ? { field } : {}) }) });
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
     }
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(initial) });
@@ -85,16 +85,30 @@ for (const v of [
   });
 }
 
-test("removing every window clears the schedule; a server refusal shows its words", async ({ browser }) => {
+test("removing every window clears the schedule", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   const puts: Put[] = [];
-  await open(page, { tz: TZ, windows: [{ days: "all", start: "22:00", end: "05:00", rate: 0.1 }] }, puts, "window 1 overlaps another window");
+  await open(page, { tz: TZ, windows: [{ days: "all", start: "22:00", end: "05:00", rate: 0.1 }] }, puts);
   const form = page.locator("[data-offpeak]");
   await form.getByRole("button", { name: "Remove window 1" }).click();
-  await expect(form).toContainText("No off-peak windows. Every home charge is priced at your home rate.");
+  await expect(form).toContainText("No off-peak windows yet.");
   await form.getByRole("button", { name: "Save schedule" }).click();
+  await expect(form.getByRole("status")).toHaveText("Saved.");
   expect(puts[0].windows).toEqual([]);
-  await expect(form).toContainText("window 1 overlaps another window");
+  await ctx.close();
+});
+
+test("a server refusal is shown on the row it names, in its own words, and nothing is marked saved", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  const puts: Put[] = [];
+  await open(page, { tz: TZ, windows: [{ days: "all", start: "22:00", end: "05:00", rate: 0.1 }] }, puts, "That rate is not allowed", "windows[0].rate");
+  const form = page.locator("[data-offpeak]");
+  await form.getByLabel(/Rate per kWh/).fill("0.11");
+  await form.getByRole("button", { name: "Save schedule" }).click();
+  await expect(form.locator("[data-offpeak-window]").first().getByRole("alert")).toHaveText("That rate is not allowed");
+  await expect(form.getByRole("status")).toHaveCount(0);
+  await expect(form).toContainText("Rivolt uses them only for estimates in Settings and Money; it does not contact your utility and cannot check them.");
   await ctx.close();
 });

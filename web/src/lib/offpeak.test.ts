@@ -51,3 +51,13 @@ describe("helpers", () => {
     expect(toWindows([w({ rate: "0.09", label: "  Night " })])).toEqual([{ days: "all", start: "21:00", end: "06:00", rate: 0.09, label: "Night" }]);
   });
 });
+
+import { serverFieldError } from "./offpeak";
+describe("serverFieldError", () => {
+  it("puts a refusal on its row and field", () => {
+    expect(serverFieldError({ error: "overlaps window 1", field: "windows[1].start" })).toEqual({ row: 1, field: "start", message: "overlaps window 1" });
+    expect(serverFieldError({ error: "bad zone", field: "tz" })).toEqual({ row: null, field: "tz", message: "bad zone" });
+    expect(serverFieldError({ error: "too many", field: "windows" })).toEqual({ row: null, field: "windows", message: "too many" });
+    expect(serverFieldError({ error: "x" })).toBeNull();
+  });
+});

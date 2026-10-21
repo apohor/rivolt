@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend } from "../lib/api";
+import { ApiError, backend } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
 import {
   DAYS_LABEL,
@@ -10,6 +10,7 @@ import {
   coverage,
   describeWindow,
   hasErrors,
+  serverFieldError,
   toDraft,
   toWindows,
   validateWindows,
@@ -56,8 +57,8 @@ export function OffpeakPanel() {
     }
   }, [q.data, loaded]);
   const errs = useMemo(() => validateWindows(rows), [rows]);
-  const currency = settings.data?.home_currency || "USD";
-  const homeRate = settings.data?.home_price_per_kwh ?? 0;
+  const currency = q.data?.currency || settings.data?.home_currency || "USD";
+  const homeRate = q.data?.base_rate ?? settings.data?.home_price_per_kwh ?? 0;
 
   const save = useMutation({
     mutationFn: (windows: DraftWindow[]) => backend.setOffpeak({ tz, windows: toWindows(windows) }),
@@ -71,6 +72,8 @@ export function OffpeakPanel() {
       setSaved(true);
     },
   });
+  // A refusal from the server, placed on the row it names (the client checks should catch these first).
+  const refusal = save.error instanceof ApiError ? serverFieldError(save.error.body) : null;
   const edit = (i: number, patch: Partial<DraftWindow>) => {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
     setDirty(true);
@@ -101,8 +104,9 @@ export function OffpeakPanel() {
       }}
     >
       <p className="text-xs text-neutral-400">
-        If your utility charges less at certain hours, add those hours here with their rate. A home charge is priced at the rate for the hour it ran in. Hours
-        outside every window use your home rate{homeRate > 0 ? ` (${homeRate} ${currency}/kWh)` : ""}.
+        If your utility charges less at certain hours, add those hours and their rate. You enter them yourself. Rivolt uses them only for estimates in Settings
+        and Money; it does not contact your utility and cannot check them. Hours outside every window use your home rate
+        {homeRate > 0 ? ` (${homeRate} ${currency}/kWh)` : ""}.
       </p>
       {homeRate <= 0 && rows.length > 0 && (
         <p role="note" className="text-xs text-amber-400">
@@ -118,7 +122,7 @@ export function OffpeakPanel() {
         </select>
       </div>
 
-      {rows.length === 0 && <p className="text-xs text-neutral-500">No off-peak windows. Every home charge is priced at your home rate.</p>}
+      {rows.length === 0 && <p className="text-xs text-neutral-500">No off-peak windows yet. Hours outside any window use your home rate.</p>}
       <ol className="space-y-3">
         {rows.map((r, i) => {
           const e = errs[i];
@@ -175,6 +179,7 @@ export function OffpeakPanel() {
               {e.time && <p role="alert" className="mt-1.5 text-xs text-rose-400">{e.time}</p>}
               {e.label && <p role="alert" className="mt-1.5 text-xs text-rose-400">{e.label}</p>}
               {e.overlap && <p role="alert" className="mt-1.5 text-xs text-rose-400">{e.overlap}</p>}
+              {refusal?.row === i && <p role="alert" className="mt-1.5 text-xs text-rose-400">{refusal.message}</p>}
             </li>
           );
         })}
@@ -224,7 +229,8 @@ export function OffpeakPanel() {
         {saved && !dirty && <span role="status" className="text-xs text-emerald-400">Saved.</span>}
       </div>
       {bad && <p className="text-xs text-rose-400">Fix the marked fields to save.</p>}
-      {save.isError && <ErrorBox title="Save failed" detail={save.error instanceof Error ? save.error.message : String(save.error)} />}
+      {refusal && (refusal.row === null || refusal.row >= rows.length) && <p role="alert" className="text-xs text-rose-400">{refusal.message}</p>}
+      {save.isError && !refusal && <ErrorBox title="Save failed" detail={save.error instanceof Error ? save.error.message : String(save.error)} />}
       {rows.length > 0 && !bad && (
         <p className="text-xs text-neutral-500">
           {rows.map((r) => `${describeWindow(r)} at ${r.rate || "0"} ${currency}/kWh`).join(" · ")}
