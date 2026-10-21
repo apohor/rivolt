@@ -313,7 +313,7 @@ func (e exportData) meta() map[string]any {
 		"version": e.Version, "created_at": e.CreatedAt.UTC().Format(time.RFC3339),
 		"tz": e.TZ, "currency": e.Currency,
 		"counts": map[string]int{"charges": len(e.Charges), "drives": len(e.Drives), "trips": len(e.Trips),
-			"saved_trips": len(e.SavedTrips), "drive_recaps": len(e.Recaps), "drive_analyses": len(e.Analyses), "milestones": len(e.Milestones),
+			"saved_trips": len(e.SavedTrips), "drive_recaps": len(e.Recaps), "drive_analyses": len(e.Analyses), "milestones": len(e.Milestones), "iphone_devices": len(e.IPhoneDevices),
 			"drive_weather": len(e.Weather), "drive_weather_series": len(e.WeatherSeries)},
 	}
 	ts := func(t *time.Time) any {

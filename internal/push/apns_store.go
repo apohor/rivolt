@@ -37,15 +37,28 @@ const NotificationTTL = 24 * time.Hour
 // what is stored for every switch (only SetAPNsOptIns/SetAPNsPrefs change them), so a
 // stale app posting its local defaults cannot opt anyone in.
 func (s *Store) UpsertAPNsDevice(ctx context.Context, sessionID uuid.UUID, d APNsDevice) error {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// An Apple token is one install: it belongs to whoever signed in on it last, so
+	// another account's registration of it (a sign-out that never reached the
+	// server) is forgotten.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM push_apns_devices WHERE token = $1 AND user_id <> $2`, d.Token, s.userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id, token) DO UPDATE SET
 			session_id = EXCLUDED.session_id,
 			env        = EXCLUDED.env,
 			bundle_id  = EXCLUDED.bundle_id`,
-		uuid.New(), s.userID, sessionID, d.Token, d.Env, d.BundleID)
-	return err
+		uuid.New(), s.userID, sessionID, d.Token, d.Env, d.BundleID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetAPNsPrefs sets the three always-available switches on one of the user's
