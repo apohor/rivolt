@@ -7,6 +7,7 @@ import SwiftUI
 struct PreviewHost: View {
     enum Screen: String {
         case prompt, notifications, notificationsDenied = "notifications-denied"
+        case signin, signinUnavailable = "signin-unavailable"
     }
 
     let screen: Screen
@@ -31,7 +32,20 @@ struct PreviewHost: View {
             NotificationSettingsView(manager: .preview(authorization: .authorized, registered: true))
         case .notificationsDenied:
             NotificationSettingsView(manager: .preview(authorization: .denied, registered: false))
+        case .signin:
+            LoginView().environment(AppState.preview(signIn: .available))
+        case .signinUnavailable:
+            LoginView().environment(AppState.preview(signIn: .unavailable(.notOnThisServer)))
         }
+    }
+}
+
+extension AppState {
+    /// A fixed sign-in state for simulator screenshots (no network is asked).
+    static func preview(signIn: SignInStatus) -> AppState {
+        let s = AppState()
+        s.setPreviewSignIn(signIn)
+        return s
     }
 }
 #endif

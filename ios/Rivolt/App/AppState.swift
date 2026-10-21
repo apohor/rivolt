@@ -21,7 +21,41 @@ final class AppState {
         case loggedIn(username: String)
     }
 
+    /// What the server said about signing in from the app, so the sign-in button
+    /// can say it can't work before it is tapped. `unknown` (not asked yet, or no
+    /// answer) leaves the button enabled: tapping it checks again and says why.
+    enum SignInStatus: Equatable {
+        case unknown
+        case available
+        case unavailable(SignInError)
+
+        var unavailableReason: SignInError? {
+            if case .unavailable(let e) = self { return e }
+            return nil
+        }
+
+        /// From the server's `/api/app/config` answer (or the lack of one).
+        static func from(_ result: Result<AppConfig, Error>, appBuild: Int) -> SignInStatus {
+            switch result {
+            case .success(let config):
+                switch config.verdict(appBuild: appBuild) {
+                case .ready: return .available
+                case .noAppSignIn: return .unavailable(.notOnThisServer)
+                case .notRivolt: return .unavailable(.notRivolt)
+                case .appTooOld: return .unavailable(.updateApp)
+                }
+            case .failure(let error):
+                switch error {
+                case APIError.server(404, _): return .unavailable(.notOnThisServer)
+                case APIError.decoding: return .unavailable(.notRivolt)
+                default: return .unknown
+                }
+            }
+        }
+    }
+
     private(set) var phase: Phase = .bootstrapping
+    private(set) var signInStatus: SignInStatus = .unknown
     /// The server this app signs in to: rivolt.dev unless the user chose
     /// another under "Other server". Persisted across launches.
     private(set) var serverURL: URL
@@ -67,6 +101,29 @@ final class AppState {
         }
     }
 
+    #if DEBUG
+    /// Screenshot previews keep their fixed sign-in state: nothing is asked of a server.
+    private var previewLocked = false
+    func setPreviewSignIn(_ status: SignInStatus) {
+        signInStatus = status
+        phase = .loggedOut
+        previewLocked = true
+    }
+    #endif
+
+    /// Asks the current server whether the app can sign in to it (the sign-in
+    /// screen calls this when it appears and after switching server).
+    func refreshSignInStatus() async {
+        #if DEBUG
+        if previewLocked { return }
+        #endif
+        let server = serverURL
+        let result: Result<AppConfig, Error>
+        do { result = .success(try await client.appConfig()) } catch { result = .failure(error) }
+        guard server == serverURL else { return }
+        signInStatus = SignInStatus.from(result, appBuild: Self.appBuild)
+    }
+
     /// Checks an address typed under "Other server" and, if it's a Rivolt
     /// server this app can sign in to, switches to it.
     func useServer(_ raw: String) async throws -> AppConfig.Verdict {
@@ -87,6 +144,8 @@ final class AppState {
             serverURL = url
             UserDefaults.standard.set(url.absoluteString, forKey: Self.serverDefaultsKey)
             await client.updateBaseURL(url)
+            signInStatus = .unknown
+            await refreshSignInStatus()
         }
         return verdict
     }

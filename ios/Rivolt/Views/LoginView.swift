@@ -30,11 +30,15 @@ struct LoginView: View {
                             Spacer()
                         }
                     }
-                    .disabled(isWorking)
-                    .listRowBackground(Color.accentColor)
-                    .foregroundStyle(.white)
+                    .disabled(isWorking || unavailable != nil)
+                    // Dimmed when the server can't do app sign-in: no invitation to a tap that can't work.
+                    .listRowBackground(unavailable == nil ? Color.accentColor : Color(.systemGray5))
+                    .foregroundStyle(unavailable == nil ? Color.white : Color.secondary)
                 } footer: {
-                    Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let reason = unavailable?.errorDescription { Text(reason).foregroundStyle(.primary) }
+                        Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                    }
                 }
 
                 if let message {
@@ -60,8 +64,11 @@ struct LoginView: View {
                 }
             }
             .navigationTitle("Rivolt")
+            .task { await state.refreshSignInStatus() }
         }
     }
+
+    private var unavailable: SignInError? { state.signInStatus.unavailableReason }
 
     private func signIn() async {
         message = nil
