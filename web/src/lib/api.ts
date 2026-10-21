@@ -1,3 +1,4 @@
+import type { OffpeakSchedule } from "./offpeak";
 // Minimal API client for the Rivolt Go backend.
 //
 // Routes mounted in internal/api/api.go:
@@ -1286,6 +1287,9 @@ export const backend = {
       if (!res.ok) throw new ApiError(res.status, parsed);
       return parsed as ChargingSettings;
     }),
+  // The off-peak schedule: windows of the week with their own rate. PUT replaces it; an empty list clears it.
+  getOffpeak: () => api.get<OffpeakSchedule>("/api/settings/charging/offpeak"),
+  setOffpeak: (cfg: OffpeakSchedule) => api.put<OffpeakSchedule>("/api/settings/charging/offpeak", cfg),
   // Price book for fast/public charging networks. GET returns the
   // current list (possibly empty); PUT replaces it wholesale.
   getChargingNetworks: () =>
