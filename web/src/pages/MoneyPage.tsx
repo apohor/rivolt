@@ -9,6 +9,8 @@ import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
+import { SavingsCard } from "../components/SavingsCard";
+import { fetchSavings } from "../lib/savings";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -482,6 +484,8 @@ function Statement({
             </div>
           </Card>
 
+          <SavingsCard area="m-save" />
+
           <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
               {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
@@ -550,7 +554,14 @@ function ShareStatementButton({
 }) {
   const [open, setOpen] = useState(false);
   const sample = inDemo();
-  const build = useCallback((includeCost: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom }), [m, sample, partialFrom]);
+  // The off-peak share for this month, from the same sessions as the savings card; no share (no schedule, too few sessions) means no toggle.
+  // Read with the page, not when the sheet opens: the sheet itself makes no request.
+  const share = useQuery({ queryKey: ["savings", m.period], queryFn: ({ signal }) => fetchSavings(m.period, signal), staleTime: 5 * 60_000, retry: 0, enabled: !sample });
+  const offpeakShare = typeof share.data?.offpeak_share_pct === "number" ? share.data.offpeak_share_pct : null;
+  const build = useCallback(
+    (includeCost: boolean, includeOffpeak: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom, offpeakSharePct: includeOffpeak ? offpeakShare : null }),
+    [m, sample, partialFrom, offpeakShare],
+  );
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button
@@ -567,7 +578,7 @@ function ShareStatementButton({
           Your statement is ready to share. Tap Share statement.
         </span>
       )}
-      {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle onClose={() => setOpen(false)} />}
+      {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle withOffpeakToggle={offpeakShare != null} onClose={() => setOpen(false)} />}
     </div>
   );
 }

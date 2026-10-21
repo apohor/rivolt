@@ -54,3 +54,22 @@ describe("share card models", () => {
     expect(SHARE_FOOTER).toEqual(["Made with Rivolt · rivolt.dev", "Unofficial. Not affiliated with Rivian."]);
   });
 });
+
+describe("off-peak share line", () => {
+  it("is absent unless asked for", () => {
+    expect(all(buildMonthShareModel(month, { includeCost: false, sample: false }))).not.toMatch(/off-peak/i);
+    expect(all(buildMonthShareModel(month, { includeCost: false, sample: false, offpeakSharePct: null }))).not.toMatch(/off-peak/i);
+  });
+  it("is a rounded percentage only: no dollars, rate or times, with or without cost", () => {
+    for (const includeCost of [false, true]) {
+      const m = buildMonthShareModel(month, { includeCost, sample: false, offpeakSharePct: 61.6 });
+      expect(m.stats).toContainEqual({ label: "Home charging off-peak", value: "62%" });
+      const line = m.stats.find((s) => /off-peak/i.test(s.label))!;
+      expect(`${line.label} ${line.value}`).not.toMatch(/\$|rate|kWh|AM|PM|:/);
+    }
+  });
+  it("keeps the percentage inside 0 to 100", () => {
+    expect(buildMonthShareModel(month, { includeCost: false, sample: false, offpeakSharePct: 130 }).stats.at(-1)?.value).toBe("100%");
+    expect(buildMonthShareModel(month, { includeCost: false, sample: false, offpeakSharePct: -3 }).stats.at(-1)?.value).toBe("0%");
+  });
+});
