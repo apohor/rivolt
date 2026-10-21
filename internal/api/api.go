@@ -151,6 +151,10 @@ type Deps struct {
 	// header. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
+	// IOSAppIDs ("TEAMID.bundle.id", RIVOLT_IOS_APP_IDS) publishes the
+	// iPhone app's associated domain: the AASA file and /app/callback. Empty:
+	// neither is served.
+	IOSAppIDs []string
 	// AppAuth, when non-nil (with OIDC), mounts the iPhone app's sign-in
 	// under /api/auth/app. nil: /api/app/config reports app_login=false.
 	AppAuth *AppAuth
@@ -1287,6 +1291,12 @@ func New(d Deps) http.Handler {
 		feed := handleChangelogAtom(d.Changelog)
 		r.With(clLimiter.Middleware).Get("/changelog.atom", feed)
 		r.With(clLimiter.Middleware).Head("/changelog.atom", feed)
+	}
+	// The iPhone app's associated domain (RIVOLT_IOS_APP_IDS): the AASA file
+	// and the sign-in callback's browser fallback. Public site only.
+	if len(d.IOSAppIDs) > 0 && !d.AdminOnly && !demo.OnlyEnabled() {
+		r.Get("/.well-known/apple-app-site-association", handleAASA(d.IOSAppIDs))
+		r.Get(appCallbackPath, handleAppCallbackPage())
 	}
 	r.Handle("/*", spaHandler(d.WebFS))
 
