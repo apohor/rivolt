@@ -204,6 +204,7 @@ export function BottomSheet({
   const height = dragH ?? heights[snap];
   const expanded = snap !== "peek";
   return (
+    <SheetClearance height={height}>
     <section
       aria-label={label}
       data-plan-sheet
@@ -236,5 +237,22 @@ export function BottomSheet({
         {children}
       </div>
     </section>
+    </SheetClearance>
   );
+}
+
+// SheetClearance tells the page how tall the fixed sheet is right now (--plan-sheet-h on the root), so the
+// page can leave that much room under its content: at a raised sheet, the last card must still be
+// scrollable above it. Removed again when the sheet goes away.
+function SheetClearance({ height, children }: { height: number; children: ReactNode }) {
+  useEffect(() => {
+    document.documentElement.style.setProperty("--plan-sheet-h", `${height}px`);
+  }, [height]);
+  useEffect(
+    () => () => {
+      document.documentElement.style.removeProperty("--plan-sheet-h");
+    },
+    [],
+  );
+  return <>{children}</>;
 }
