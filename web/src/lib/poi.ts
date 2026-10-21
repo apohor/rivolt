@@ -49,6 +49,13 @@ export type POI = {
   capacity?: number;
   socketTypes?: string[];
   maxPowerKW?: number;
+  // Recreation.gov (RIDB) campground fields.
+  hookupAmps?: number;
+  electricSites?: number;
+  sites?: number;
+  reservable?: boolean;
+  ridbID?: string;
+  asof?: string;
   fee?: string;
   openingHours?: string;
   // OSM canonical id (`node/12345`) when known. Lets the popup
@@ -228,6 +235,18 @@ function extractOSMId(props: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+// isCampgroundOnly: a feature in the chargers archive that is a Recreation.gov campground (or RV park) with a hookup but no
+// charger of its own (no EVSE count, no EV connector). "Nearest charger" must not pick one. A campground that is also a
+// real charger (a Level 2 or DC count, or a car connector) stays a charger.
+export function isCampgroundOnly(props: Record<string, unknown>): boolean {
+  const ft = (strProp(props, "facility_type") ?? "").toUpperCase();
+  const campish = ft === "CAMPGROUND" || ft === "RV_PARK" || (intProp(props, "hookup_amps") ?? 0) > 0 || !!strProp(props, "ridb_id");
+  if (!campish) return false;
+  if ((intProp(props, "l2_count") ?? 0) > 0 || (intProp(props, "dcfc_count") ?? 0) > 0) return false;
+  const sockets = extractSocketTypes(props) ?? [];
+  return !sockets.some((t) => !t.startsWith("nema"));
+}
+
 type LookupConfig = {
   // PMTiles archive zoom to query. The chargers archive is built at
   // z14; the basemap archive at z15. A 3x3 block at the archive's
@@ -317,6 +336,7 @@ async function findInArchive(
           if (dist > radiusM) continue;
           if (best && dist >= best.distanceM) continue;
           const props = f.properties as Record<string, unknown>;
+          if (cfg.layer === "chargers" && isCampgroundOnly(props)) continue;
           best = cfg.toPOI(props, {
             lat: flat,
             lon: flon,
@@ -341,7 +361,7 @@ async function findInArchive(
 // which holds the chargers.pmtiles archive in memory and runs the
 // corridor scan in Go. Replaces a per-tile PMTiles fan-out that
 // could fire hundreds of HTTPS range requests per planner render.
-export type ChargerFilter = "dcfc" | "l2" | "hotels" | "all";
+export type ChargerFilter = "dcfc" | "l2" | "hotels" | "camp" | "all";
 
 export async function findChargersAlongPath(
   path: [number, number][],
@@ -379,6 +399,12 @@ export async function findChargersAlongPath(
     network: c.evNetwork,
     fee: c.evPricing,
     osmId: c.entityID,
+    hookupAmps: c.hookupAmps,
+    electricSites: c.electricSites,
+    sites: c.sites,
+    reservable: c.reservable,
+    ridbID: c.ridbID,
+    asof: c.asof,
     socketTypes: [
       c.socketTeslaSupercharger ? "tesla_supercharger" : "",
       c.socketType1Combo ? "type1_combo" : "",

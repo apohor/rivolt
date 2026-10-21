@@ -1,4 +1,6 @@
 import { hookupById, hookupNote, stayLine, type HookupId } from "./hookups";
+import { RidbCredit } from "./StayCard";
+import { CAMP_WARNING, campPowerLine, outletLabel } from "./stays";
 import { Suspense } from "react";
 import { type FromPosition, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
@@ -19,7 +21,7 @@ export const LONG_DAY_THRESHOLD_HR = 9;
 const SIMULATED_NOTE =
   "This plan was built from preview data, not from Rivian's planner. Distances and times are realistic; stops and charge times are estimates for testing.";
 
-export type StayChoice = { hookup?: HookupId; kw: number };
+export type StayChoice = { hookup?: HookupId; kw: number; campground?: boolean };
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
@@ -31,21 +33,25 @@ export function OvernightRow({ day, stay }: { day: TripPlanMultidayDay; stay?: S
   const o = day.overnight;
   if (!o) return null;
   const hk = stay && stay.hookup !== "none" ? hookupById(stay.hookup) : undefined;
+  const kw = o.planned_kw ?? o.l2_kw;
+  const camp = !!stay?.campground && !!hk;
   return (
     <div data-overnight-row className="flex gap-3 rounded-lg border border-dashed border-neutral-700 px-3 py-2.5 text-sm">
       <span aria-hidden className="mt-0.5 text-base leading-none">☾</span>
       <div className="min-w-0 space-y-0.5">
         <div data-stay-line className="font-medium text-neutral-100">
-          {hk ? stayLine(o.name || "your stop", hk.id, o.l2_kw) : `Overnight at ${o.name || "your stop"}`}
+          {hk && !camp ? stayLine(o.name || "your stop", hk.id, kw) : `Overnight at ${o.name || "your stop"}`}
         </div>
-        {hk && <div data-stay-note className="text-xs text-neutral-500">{hookupNote(hk.id, o.l2_kw)}</div>}
+        {camp && hk && <div data-stay-line-camp className="text-sm text-neutral-200">{`Campground overnight, ${outletLabel(hk.id)}, about ${kw} kW (estimate)`}</div>}
+        {hk && <div data-stay-note className="text-xs text-neutral-500">{camp ? campPowerLine(hk.id, kw) : hookupNote(hk.id, kw)}</div>}
+        {camp && <div data-stay-warning className="text-xs text-amber-400">{CAMP_WARNING}</div>}
         <div className="text-neutral-400">
           Arrive about {fmtTime(day.arrive_at)} at {day.arrival_soc.toFixed(0)}%. Parked about {o.parked_hours.toFixed(0)} h.
         </div>
         <div className="text-neutral-400">
-          {o.l2_kw > 0 ? (
+          {kw > 0 ? (
             <>
-              Charging at {o.l2_kw} kW adds about {o.added_kwh.toFixed(0)} kWh → leave at{" "}
+              Charging at {kw} kW adds about {o.added_kwh.toFixed(0)} kWh → leave at{" "}
               <span className="font-mono text-emerald-400">{o.post_charge_soc_pct.toFixed(0)}%</span>
               {o.capped ? " (capped)" : ""}
             </>
@@ -223,6 +229,7 @@ export function MultidayResult({
           );
         })}
       </div>
+      {Object.values(stays ?? {}).some((s) => s.campground) && <RidbCredit className="mt-3 text-xs text-neutral-500" />}
     </Card>
   );
 }

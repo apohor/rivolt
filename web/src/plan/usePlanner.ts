@@ -404,7 +404,7 @@ export function usePlanner() {
           .filter((_, i) => overnightFlags[i])
           .map((st) => {
             const o = optsFor(st);
-            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct, ...(o.hookup ? { hookup: o.hookup } : {}) };
+            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct, ...(o.hookup ? { hookup: o.hookup } : {}), ...(o.campground ? { campground: true } : {}) };
           }),
         targetSoc,
         startingSoc,
@@ -474,7 +474,7 @@ export function usePlanner() {
     if (typeof i.overnight_l2_kw === "number") setOvernightL2Kw(i.overnight_l2_kw);
     setOvernightOpts(
       Object.fromEntries(
-        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, hookup: hookupById(o.hookup)?.id, until: o.until, maxSocPct: o.max_soc_pct }]),
+        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, hookup: hookupById(o.hookup)?.id, ...(o.campground ? { campground: true } : {}), until: o.until, maxSocPct: o.max_soc_pct }]),
       ),
     );
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);

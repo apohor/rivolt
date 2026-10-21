@@ -1,6 +1,6 @@
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
-import { DEFAULT_OVERNIGHT_KW, HOOKUPS, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
+import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useUiNext } from "../lib/uiNext";
@@ -206,7 +206,7 @@ export default function TripPlanPage() {
   );
   // Makes a place the night of a day: a new stop flagged as an overnight, or the existing stop at
   // that place. A listed charger's power (from a hotel pick) belongs to that night alone.
-  const addOvernightStop = (stop: { lat: number; lon: number; label: string; l2Kw?: number }) => {
+  const addOvernightStop = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean }) => {
     const labeled = { ...relabelIfHome(stop, home) };
     const at = extraStops.findIndex(
       (s) => Math.abs(s.lat - labeled.lat) < 0.0005 && Math.abs(s.lon - labeled.lon) < 0.0005,
@@ -220,7 +220,8 @@ export default function TripPlanPage() {
     }
     // A place of your own starts as a J1772 station at 7.0 kW (you pick the hookup); a listed charger keeps its own power.
     const target = at >= 0 ? extraStops[at] : labeled;
-    if (stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw }, false);
+    if (stop.hookup && stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw, hookup: stop.hookup, campground: !!stop.campground }, false);
+    else if (stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw }, false);
     else updateOvernight(target, { l2Kw: DEFAULT_OVERNIGHT_KW, hookup: "j1772" }, false);
   };
   const overnightsEl = (
@@ -434,7 +435,7 @@ export default function TripPlanPage() {
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
             onAddOvernight={addOvernightStop}
-            stays={Object.fromEntries(extraStops.filter((_, i) => overnightFlags[i]).map((st) => [st.label, { hookup: optsFor(st).hookup, kw: optsFor(st).l2Kw }]))}
+            stays={Object.fromEntries(extraStops.filter((_, i) => overnightFlags[i]).map((st) => [st.label, { hookup: optsFor(st).hookup, kw: optsFor(st).l2Kw, campground: optsFor(st).campground }]))}
             replan={multidaySnapshot?.replan}
           />
         </div>
