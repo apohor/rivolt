@@ -667,14 +667,25 @@ html[data-ui='next'] .ui-bignum {
   }
 }
 
+/* Money: the off-peak savings card sits under the statement and receipts, full width. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-save'] {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-save'] {
+    grid-row: 5;
+  }
+}
+
 /* Money: equal-height columns. The receipts card takes the height of the left
    column (statement + energy split) and scrolls inside. */
 @media (min-width: 1024px) {
   html[data-ui='next'] [data-ui-grid='money'] {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto auto auto;
   }
   html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
-    grid-template-rows: auto auto auto auto;
+    grid-template-rows: auto auto auto auto auto;
   }
   html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] {
     align-self: stretch;

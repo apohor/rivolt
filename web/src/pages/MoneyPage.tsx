@@ -9,6 +9,7 @@ import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
+import { SavingsCard } from "../components/SavingsCard";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -481,6 +482,8 @@ function Statement({
               {how && <SplitBar label="How" segments={how} currency={cur} metric={metric} />}
             </div>
           </Card>
+
+          <SavingsCard area="m-save" />
 
           <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
