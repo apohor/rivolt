@@ -556,11 +556,16 @@ jobs:
         run: docker pull postgres:16-alpine
 
       - name: go test (integration)
-        # Includes the per-store packages so the Postgres-driver bug
-        # class (NULL scan, RawBytes, cross-tenant scoping) gets caught
-        # in PR. internal/api/... covers the end-to-end isolation
-        # contract over the real handlers.
-        run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/leases/... ./internal/api/... ./internal/ledger/... ./internal/samples/... ./internal/drain/...
+        # Every package with an integration-tagged test runs, found from
+        # the build tag rather than a hand-kept list: the list missed
+        # appauth, push, sessions, demo and rivian, so their Postgres
+        # tests never ran in CI (found on #789, 2026-10-21). The listing
+        # is printed so the log shows what ran.
+        run: |
+          pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' internal cmd 2>/dev/null | xargs -n1 dirname | sort -u | sed 's#^#./#')
+          [ -n "$pkgs" ] || { echo "no integration packages found" >&2; exit 1; }
+          echo "integration packages:"; echo "$pkgs"
+          go test -tags=integration -count=1 -timeout=10m $pkgs
 
       - name: Save Go build and module cache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
