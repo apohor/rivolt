@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,6 +33,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
+	"github.com/apohor/rivolt/internal/appauth"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/auth"
@@ -1781,6 +1783,53 @@ func runServer() {
 		logger.Info("oidc enabled", "providers", names)
 	}
 
+	// The iPhone app's sign-in (iOS design §2): only with OIDC and the
+	// sessions store, never on the admin or demo-only deployment, and only
+	// when RIVOLT_APP_CALLBACK_URL names the app's fixed callback. There is
+	// no default: rivolt.dev must use its https Universal Link (with the
+	// published apple-app-site-association), never the rivolt:// scheme,
+	// which any app on the phone can claim (DA on #769); a self-hosted
+	// server opts in with rivolt://auth.
+	var appAuth *api.AppAuth
+	callback := strings.TrimSpace(os.Getenv("RIVOLT_APP_CALLBACK_URL"))
+	if callback != "" && oidcSvc != nil && sessionStore != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+		if u, err := url.Parse(callback); err != nil || (u.Scheme != "rivolt" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+			logger.Error("bad RIVOLT_APP_CALLBACK_URL: want rivolt://… or https://… with no query", "value", callback)
+			os.Exit(1)
+		}
+		minBuild := 0
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_IOS_MIN_BUILD")); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				logger.Error("bad RIVOLT_IOS_MIN_BUILD", "value", v)
+				os.Exit(1)
+			}
+			minBuild = n
+		}
+		aStore, err := appauth.New(pgPool, cookieSecret)
+		if err != nil {
+			logger.Error("app sign-in init", "err", err.Error())
+			os.Exit(1)
+		}
+		ss := sessionStore
+		appAuth = &api.AppAuth{
+			Store:        aStore,
+			CallbackURL:  callback,
+			SecureCookie: secureCookie,
+			MinIOSBuild:  minBuild,
+			NewSession: func(ctx context.Context, uid uuid.UUID, r *http.Request, label string) (string, time.Time, error) {
+				sess, raw, err := ss.Create(ctx, uid, api.AppSessionTTL, sessions.CreateOpts{
+					UserAgent:   r.UserAgent(),
+					IPAddress:   hostOnly(r.RemoteAddr), // the real client (clientip.Middleware)
+					DeviceLabel: label,
+					Kind:        sessions.KindApp,
+				})
+				return raw, sess.ExpiresAt, err
+			},
+		}
+		logger.Info("app sign-in enabled", "callback", callback, "min_ios_build", minBuild)
+	}
+
 	if signupgate.Disabled() {
 		logger.Info("signups disabled (RIVOLT_SIGNUP_DISABLED): /signup, access requests and first sign-in of unknown identities are closed; existing and admin-created users are unaffected")
 	}
@@ -2020,6 +2069,10 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Expired iPhone-app sign-in attempts (minutes-long; kept a day).
+		if appAuth != nil {
+			jobs = append(jobs, retention.Job{Name: "app_auth_requests", Run: appAuth.Store.Purge})
+		}
 		// Backstop for the receipts opt-out: delete the receipts of any user
 		// who is not opted in, in case a sync pass saved rows after they
 		// opted out.
@@ -2211,6 +2264,7 @@ func runServer() {
 		Access:           accessVerifier,
 		AdminDebugProbes: adminDebugProbes,
 		OIDC:             oidcSvc,
+		AppAuth:          appAuth,
 		WebFS:            webFS,
 		Version:          version,
 		DB:               pgPool,
@@ -2656,4 +2710,13 @@ func changelogSource(adminOnly bool) *changelog.Source {
 		return nil
 	}
 	return changelog.New("")
+}
+
+// hostOnly strips the port from an "ip:port" address (the sessions store
+// records the bare IP).
+func hostOnly(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
 }
