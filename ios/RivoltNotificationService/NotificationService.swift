@@ -45,6 +45,12 @@ final class NotificationService: UNNotificationServiceExtension {
         let content = content
         contentHandler = nil
         lock.unlock()
-        if let handler, let content { handler(content) }
+        guard let handler, let content else { return }
+        // Never deliver an empty notification: if neither the payload nor the fetch gave words, say the generic one.
+        if content.title.isEmpty && content.body.isEmpty {
+            content.title = "Rivolt"
+            content.body = "Rivolt update"
+        }
+        handler(content)
     }
 }
