@@ -116,6 +116,12 @@ func spaHandler(fsys fs.FS) http.Handler {
 			// Discovery documents (api-catalog, OAuth metadata, MCP cards...)
 			// must not be answered with the app shell.
 			if hasFileExtension(p) || strings.HasPrefix(p, ".well-known/") {
+				// Never cacheable: during a rolling update a browser can ask
+				// an old pod for the new build's /assets/index-<hash>.js, and
+				// Cloudflare caches a bare 404 for a static extension for
+				// minutes, which would break that file for everyone after the
+				// rollout. no-store makes the miss one-off.
+				w.Header().Set("Cache-Control", "no-store")
 				http.NotFound(w, r)
 				return
 			}
