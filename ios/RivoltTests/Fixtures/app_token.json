@@ -1,0 +1,9 @@
+{
+  "token": "rvt_app_fixture_not_a_real_token_0000000000000",
+  "token_type": "Bearer",
+  "expires_at": "2027-01-19T05:00:00.123456789Z",
+  "user": {
+    "user_id": "6f1c2a9e-3b7d-4c55-9a1e-2d8f0b4c7e11",
+    "username": "sam"
+  }
+}

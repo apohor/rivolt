@@ -16,7 +16,8 @@ actor APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL, tokens: TokenStore) {
+    /// `session` is for tests (a stubbed URLProtocol); the app uses the default.
+    init(baseURL: URL, tokens: TokenStore, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.tokens = tokens
         let config = URLSessionConfiguration.ephemeral
@@ -28,7 +29,7 @@ actor APIClient {
         // unreachable. 15s is plenty for the JSON surface.
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
-        self.session = URLSession(configuration: config)
+        self.session = session ?? URLSession(configuration: config)
 
         self.decoder = JSON.decoder()
 
@@ -46,6 +47,20 @@ actor APIClient {
     /// Whether this server is Rivolt and accepts app sign-in. Unauthenticated.
     func appConfig() async throws -> AppConfig {
         try await request("GET", "/api/app/config", authenticated: false)
+    }
+
+    private struct AppTokenBody: Encodable {
+        let code: String
+        let codeVerifier: String
+        let deviceName: String
+    }
+
+    /// Exchanges the one-time code from the browser and the PKCE verifier for
+    /// an app session token. Unauthenticated: no stored token is sent.
+    func appToken(code: String, verifier: String, deviceName: String) async throws -> AppToken {
+        try await request("POST", "/api/auth/app/token",
+                          body: AppTokenBody(code: code, codeVerifier: verifier, deviceName: deviceName),
+                          authenticated: false)
     }
 
     func logout() async throws {
@@ -82,6 +97,17 @@ actor APIClient {
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws {
         let body: [String: AnyJSON] = ["token": .string(token), wireKey: .bool(on)]
         let _: Empty = try await request("POST", "/api/push/apns/preferences", body: body)
+    }
+
+    private struct ApnsTestSent: Decodable {
+        let sent: Int
+    }
+
+    /// Asks the server to send a fixed test notification to this person's own iPhones; the answer is
+    /// how many it sent to. 404 when APNs is off or no iPhone is registered; the server rate-limits it.
+    func testApns() async throws -> Int {
+        let r: ApnsTestSent = try await request("POST", "/api/push/apns/test")
+        return r.sent
     }
 
     func unregisterApns(token: String) async throws {

@@ -21,6 +21,7 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"now_v1_minimal.json": &nowResponse{},
 		"state.json":          &rivian.State{},
 		"vehicles.json":       &[]rivian.Vehicle{},
+		"app_token.json":      &appTokenResponse{},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b, err := os.ReadFile(filepath.Join("..", "..", "ios", "RivoltTests", "Fixtures", name))

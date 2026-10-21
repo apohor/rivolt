@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 /// Sign-in screen. Rivolt signs in through the server's own web sign-in (the
@@ -5,6 +6,7 @@ import SwiftUI
 /// chooses another under "Other server", which is checked before it's used.
 struct LoginView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     @State private var showOtherServer = false
     @State private var otherServer = ""
@@ -28,11 +30,15 @@ struct LoginView: View {
                             Spacer()
                         }
                     }
-                    .disabled(isWorking)
-                    .listRowBackground(Color.accentColor)
-                    .foregroundStyle(.white)
+                    .disabled(isWorking || unavailable != nil)
+                    // Dimmed when the server can't do app sign-in: no invitation to a tap that can't work.
+                    .listRowBackground(unavailable == nil ? Color.accentColor : Color(.systemGray5))
+                    .foregroundStyle(unavailable == nil ? Color.white : Color.secondary)
                 } footer: {
-                    Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let reason = unavailable?.errorDescription { Text(reason).foregroundStyle(.primary) }
+                        Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                    }
                 }
 
                 if let message {
@@ -58,15 +64,18 @@ struct LoginView: View {
                 }
             }
             .navigationTitle("Rivolt")
+            .task { await state.refreshSignInStatus() }
         }
     }
+
+    private var unavailable: SignInError? { state.signInStatus.unavailableReason }
 
     private func signIn() async {
         message = nil
         isWorking = true
         defer { isWorking = false }
         do {
-            try await state.signIn()
+            try await state.signIn(with: SystemWebAuthenticator(session: webAuthenticationSession))
         } catch {
             message = error.localizedDescription
         }

@@ -19,6 +19,29 @@ struct NotificationSettingsView: View {
                     Text("Apple's push service only learns that a notification was sent. The words are fetched from Rivolt over an encrypted connection when it arrives.")
                 }
 
+                if manager.isOn {
+                    Section {
+                        Button {
+                            Task { await manager.sendTest() }
+                        } label: {
+                            HStack {
+                                Text("Send test notification")
+                                if manager.test == .sending { Spacer(); ProgressView() }
+                            }
+                        }
+                        .disabled(manager.test == .sending)
+                    } footer: {
+                        switch manager.test {
+                        case .sent(let n):
+                            Text("Sent to \(n) iPhone\(n == 1 ? "" : "s"). It should arrive in a moment.")
+                        case .failed(let message):
+                            Text(message).foregroundStyle(.red)
+                        default:
+                            Text("Sends one test to your iPhones signed in to Rivolt.")
+                        }
+                    }
+                }
+
                 if let prefs = manager.preferences {
                     Section {
                         ForEach(PushKind.allCases) { kind in

@@ -7,6 +7,8 @@ import { stubApi } from "./stub";
 // /privacy: the short policy, public and signed out, from one markdown source. Placeholders the
 // owner fills in stay visible; the draft markers, the banner and the Mail line are gone.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
+// The date the page shows is the markdown's own line, so a release-day bump needs no test edit.
+const LAST_UPDATED = /^Last updated: .+$/m.exec(fs.readFileSync(path.join(process.cwd(), "src", "content", "privacy.md"), "utf8"))![0];
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 for (const theme of ["dark", "light"] as const) {
@@ -25,7 +27,7 @@ for (const theme of ["dark", "light"] as const) {
       // and the Terms reference links to section 2.
       await expect(doc).toContainText("Anton Pohorilyi");
       await expect(doc).toContainText("Texas");
-      await expect(doc).toContainText("Last updated: October 19, 2026");
+      await expect(doc).toContainText(LAST_UPDATED);
       const text = await doc.innerText();
       expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
       for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]"]) expect(text, gone).not.toContain(gone);

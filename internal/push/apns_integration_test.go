@@ -142,7 +142,7 @@ func TestNotificationsAreUserScopedAndShortLived(t *testing.T) {
 	if _, err := sa.GetNotification(ctx, uuid.New()); err != ErrNotFound {
 		t.Errorf("unknown id = %v", err)
 	}
-	if _, err := sa.CreateNotification(ctx, "test", "t", "b", "/"); err == nil {
+	if _, err := sa.CreateNotification(ctx, "bogus", "t", "b", "/"); err == nil {
 		t.Error("an unknown kind was stored")
 	}
 	// Older than 24 h: not served, and the sweep removes it (and only it).
@@ -280,5 +280,56 @@ func TestAPNsTokenBelongsToTheLastAccountThatRegisteredIt(t *testing.T) {
 	}
 	if _, ok, _ := stA.APNsPrefs(ctx, tok(11)); !ok {
 		t.Error("A's other phone was removed")
+	}
+}
+
+// The user's own test notification reaches each signed-in iPhone whatever its
+// switches say, sends Apple only an id, stores the fixed words (not anything a
+// caller supplied), and does nothing for a user with no iPhone.
+func TestSendAPNsTest(t *testing.T) {
+	const testTok = "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+	ctx, pool := apnsDB(t)
+	uid, _ := db.EnsureUser(ctx, pool, "apns-test-a")
+	nobody, _ := db.EnsureUser(ctx, pool, "apns-test-none")
+	st, _ := OpenStore(pool, uid)
+	stNone, _ := OpenStore(pool, nobody)
+	sess := session(t, ctx, pool, uid)
+	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: testTok, Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	if ok, err := st.SetAPNsPrefs(ctx, testTok, &off, &off, &off); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	key, pemKey := testKey(t)
+	var mu sync.Mutex
+	var bodies []string
+	a := apnsServer(t, key, pemKey, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+	})
+	svc := &Service{apns: a, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	if n := svc.SendAPNsTest(ctx, st); n != 1 {
+		t.Fatalf("test reached %d devices, want 1 (switches are off, the test ignores them)", n)
+	}
+	mu.Lock()
+	if len(bodies) != 1 || strings.Contains(bodies[0], "Notifications work") || strings.Contains(bodies[0], "Rivolt test") {
+		t.Errorf("Apple was sent %v", bodies)
+	}
+	mu.Unlock()
+	var texts int
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM push_notifications WHERE user_id = $1 AND kind = 'test' AND title = 'Rivolt test'`, uid).Scan(&texts)
+	if texts != 1 {
+		t.Errorf("stored test notifications = %d, want 1", texts)
+	}
+	// The ordinary kinds still honour the switches.
+	if n := svc.fanAPNs(ctx, st, Payload{Kind: "charging_done", Title: "t", Body: "b", URL: "/"}); n != 0 {
+		t.Errorf("a charging-done push reached %d devices with it off", n)
+	}
+	if n := svc.SendAPNsTest(ctx, stNone); n != 0 {
+		t.Errorf("test reached %d devices of a user with no iPhone", n)
 	}
 }

@@ -162,7 +162,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/shots"
           for mode in light dark; do
             bounded 300 xcrun simctl ui "$udid" appearance "$mode" || true
-            for screen in prompt notifications notifications-denied; do
+            for screen in prompt notifications notifications-denied notifications-test signin signin-unavailable; do
               if ! bounded 420 xcrun simctl launch --terminate-running-process "$udid" "$bid" -rivolt-preview "$screen"; then
                 echo "launch failed for $screen ($mode)"; failed=1
                 # What the app said, so a crash in preview mode is readable.

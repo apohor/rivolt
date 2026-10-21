@@ -90,6 +90,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
 
+      # The development certificates already in the keychain, so the revoke
+      # step at the end only touches one this run created.
+      - name: Snapshot development certificates
+        run: python3 -I ios/revoke-runner-dev-certs.py snapshot "$RUNNER_TEMP/dev-certs-before.json"
+
       # Automatic signing archives with a development profile (the export then
       # re-signs for the App Store), and Apple issues one only when the team
       # has at least one registered device: keep one registered in the
@@ -120,6 +125,8 @@ jobs:
       # A dry run never reaches App Store validation, so check here what
       # rejected ios-v0.1.0: icon name, iPhone-only family, a compiled icon.
       - name: Check the archived app for App Store basics
+        env:
+          REQUIRE_SIGNED_ENTITLEMENTS: "1"
         run: ios/check-app-store-basics.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
 
       - name: Export and upload
@@ -158,6 +165,30 @@ jobs:
           else
             echo "Dry run: signed and exported, not uploaded." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # Archiving signs with an Apple Development identity; a runner without one
+      # gets a new certificate from Xcode every run, and Apple caps how many a
+      # team holds (ios-v0.1.4 hit it). This revokes only the certificates that
+      # appeared in the keychain during this run (snapshot before the archive),
+      # each looked up by serial and only if it is exactly one development
+      # certificate. Distribution signing is Apple's cloud certificate,
+      # unaffected. Runs after the upload; a failure shows as this step's error
+      # and doesn't fail the release.
+      - name: Revoke the development certificate this run minted
+        if: always()
+        continue-on-error: true
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key=$(mktemp "$RUNNER_TEMP/revoke-key.XXXXXX")
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          python3 -I ios/revoke-runner-dev-certs.py revoke "$RUNNER_TEMP/dev-certs-before.json" \
+            "$key" "$ASC_KEY_ID" "$ASC_ISSUER_ID"
 
       - name: Remove the API key
         if: always()

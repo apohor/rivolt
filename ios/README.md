@@ -14,16 +14,27 @@ Builds are uploaded from tagged releases (`ios-v*`).
 
 ## Signing in
 
-The app opens a browser sheet on **rivolt.dev** and signs in the way the web
-app does (Rivolt's own sign-in; the app never asks for or sees a password),
-then keeps a session token in the iPhone Keychain. Sign out removes it. The
-token is tied to the server that issued it and is only ever sent there.
+Tap **Sign in** and a browser sheet opens on **rivolt.dev**, signing in the way
+the web app does (Rivolt's own sign-in; the app never asks for or sees a
+password). Rivolt then asks one more thing on a confirmation page, "Sign in to
+the Rivolt iPhone app as you?": tap **Continue** and the sheet closes and you are
+in. (Cancel, or close the sheet, and nothing happens.) The app keeps a session
+token in the iPhone Keychain; sign out removes it, and you can revoke it from
+the web. The token is tied to the server that issued it and is only ever sent
+there.
+
+Under the hood: PKCE plus a one-time code, then a bearer token per server.
+rivolt.dev comes back to the app on its Universal Link
+(`https://rivolt.dev/app/callback`); any other server on `rivolt://auth`.
+Design: the team's `ios-app-design.md` §2.
 
 **Self-hosters:** "Other server" on the sign-in screen accepts an https address
-and checks it against the server's `/api/app/config`. The server enables app
-sign-in with `RIVOLT_APP_CALLBACK_URL=rivolt://auth`. Notifications in the App
-Store build come only from rivolt.dev (they need Rivolt's Apple key); a
-self-hosted server can sign in and read data, but not push to that build.
+and checks it against the server's `/api/app/config`. The server offers app
+sign-in only when `RIVOLT_APP_CALLBACK_URL=rivolt://auth` is set (that is the
+`app_login` flag); until then the Sign in button is greyed out with the reason.
+Notifications in the App Store build come only from rivolt.dev (they need
+Rivolt's Apple key); a self-hosted server can sign in and read data, but not
+push to that build.
 
 ## Building (contributors)
 
@@ -59,7 +70,9 @@ After signing in, and only when the server's `/api/app/config` says
 finishes" card; "Turn on" raises the iOS prompt, "Not now" is remembered.
 Settings → Notifications (Home menu) has the same five switches as the web
 (charging complete, software updates, anomalies, plug-in reminder and
-milestones, the last two off until turned on).
+milestones, the last two off until turned on), and a **Send test notification**
+button that sends one to your own iPhones (it works once notifications are on
+for the phone).
 
 An APNs payload carries only `{id}` and a generic alert: Apple's push
 servers see that a notification was sent, never its words. The Notification

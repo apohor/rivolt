@@ -5,12 +5,18 @@ import UserNotifications
 import UIKit
 #endif
 
+/// How a notification is shown while the app is open.
+enum NotificationPresentation {
+    static let foreground: UNNotificationPresentationOptions = [.banner, .list, .sound]
+}
+
 /// The server calls push needs. `APIClient` is the real one; tests use a fake.
 protocol PushServer: Sendable {
     func appConfig() async throws -> AppConfig
     func registerApns(token: String, environment: String) async throws -> PushPreferences
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws
     func unregisterApns(token: String) async throws
+    func testApns() async throws -> Int
 }
 
 extension APIClient: PushServer {}
@@ -71,6 +77,13 @@ struct SystemNotifications: NotificationSystem {
 final class NotificationManager {
     static let shared = NotificationManager()
 
+    enum TestState: Equatable {
+        case idle
+        case sending
+        case sent(Int)
+        case failed(String)
+    }
+
     enum Registration: Equatable {
         case idle
         case registering
@@ -83,6 +96,8 @@ final class NotificationManager {
     private(set) var registration: Registration = .idle
     private(set) var deviceToken: String?
     private(set) var preferences: PushPreferences?
+    /// The last "Send test notification", shown under the button.
+    private(set) var test: TestState = .idle
     private(set) var promptDismissed: Bool
     /// The last failed switch, shown once under the list.
     private(set) var switchError: String?
@@ -153,6 +168,7 @@ final class NotificationManager {
         deviceToken = nil
         preferences = nil
         switchError = nil
+        test = .idle
     }
 
     // MARK: - From the person
@@ -185,6 +201,28 @@ final class NotificationManager {
         registration = .idle
         deviceToken = nil
         preferences = nil
+        test = .idle
+    }
+
+    /// "Send test notification": the server sends one to this person's own iPhones. Only while
+    /// notifications are on for this phone.
+    func sendTest() async {
+        guard isOn, let server else { return }
+        test = .sending
+        do {
+            test = .sent(try await server.testApns())
+        } catch {
+            test = .failed(Self.testMessage(for: error))
+        }
+    }
+
+    /// What to say when the test didn't go out.
+    static func testMessage(for error: Error) -> String {
+        if case APIError.server(let status, _) = error {
+            if status == 404 { return "No iPhone to send to, or this server doesn't send notifications to the app." }
+            if status == 429 { return "Too many tests. Wait a minute and try again." }
+        }
+        return "Couldn't send the test. Try again."
     }
 
     /// One switch. Shown at once, put back if the server says no.
@@ -240,7 +278,7 @@ final class NotificationManager {
 #if DEBUG
 extension NotificationManager {
     /// A fixed state for simulator screenshots and previews: no network, no iOS prompts.
-    static func preview(authorization: PushAuthorization, registered: Bool, preferences: PushPreferences? = nil, offered: Bool = true) -> NotificationManager {
+    static func preview(authorization: PushAuthorization, registered: Bool, preferences: PushPreferences? = nil, offered: Bool = true, test: TestState = .idle) -> NotificationManager {
         let m = NotificationManager(system: PreviewNotificationSystem(), defaults: UserDefaults(suiteName: "rivolt.preview") ?? .standard, environment: "sandbox")
         m.offered = offered
         m.authorization = authorization
@@ -248,6 +286,7 @@ extension NotificationManager {
         m.deviceToken = registered ? "preview" : nil
         m.preferences = registered ? (preferences ?? PushPreferences()) : nil
         m.promptDismissed = false
+        m.test = test
         return m
     }
 }

@@ -79,7 +79,9 @@ enum WidgetFetch {
 
     static func load(store: WidgetStore, tokens: TokenStore = KeychainTokenStore(), session: URLSession = WidgetFetch.makeSession(),
                      clock: Date = .now) async -> Outcome {
-        let server = store.server ?? ServerURL.default
+        // The app writes the server it is signed in to. Without one (not opened since signing in, or cleared on a
+        // switch or sign-out) the widget asks nothing: a token for another server must not show that account's truck.
+        guard let server = store.server else { return .signedOut }
         guard let token = (try? tokens.token(for: server)) ?? nil else { return .signedOut }
 
         var vehicleID = store.vehicleID

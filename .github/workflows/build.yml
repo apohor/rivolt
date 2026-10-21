@@ -423,6 +423,10 @@ jobs:
         id: day
         run: echo "d=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
+      # go.mod is in the key so a Go toolchain bump starts a fresh cache: with
+      # only go.sum, the day's key still hit after #802 (go1.27.3), the save
+      # was skipped, and every run rebuilt from objects for the old toolchain
+      # (go 195 s -> 347 s).
       - name: Restore Go build and module cache
         id: gocache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -430,9 +434,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ steps.day.outputs.d }}
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.day.outputs.d }}
           restore-keys: |
-            go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
             go-unit-${{ runner.os }}-
 
       # Satisfy `//go:embed all:dist` without running the vite build.
@@ -501,9 +505,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-restore-only
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-restore-only
           restore-keys: |
-            go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
 
       # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
       - name: Stub web assets for embed
@@ -545,9 +549,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ steps.day.outputs.d }}
+          key: go-integration-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.day.outputs.d }}
           restore-keys: |
-            go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-integration-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
             go-integration-${{ runner.os }}-
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
@@ -734,9 +738,9 @@ jobs:
     # main still blocks the next tag via tag-validate. The one exception is a
     # migration in the range being deployed: see the step below.
     needs: [publish, changes]
-    # Only after a successful main-push image publish — tag pushes go to
-    # prod manually, not via this auto-bump.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only after a successful main image publish (a push, or a manual run on
+    # main) — tag pushes go to prod manually, not via this auto-bump.
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # No job-level concurrency: a pending job superseded in a concurrency
     # group is cancelled, which would mark that commit's run cancelled and
