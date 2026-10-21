@@ -86,7 +86,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     // Date only: the default "Oct 19 at 2 PM" labels get cut off on a phone.
-                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                    AxisMarks(values: .stride(by: .day, count: window.days <= 7 ? 2 : 7)) { _ in
                         AxisGridLine()
                         AxisValueLabel(format: .dateTime.month(.abbreviated).day())
                     }
