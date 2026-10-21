@@ -18,21 +18,25 @@ struct NotificationSettingsView: View {
                 Section {
                     statusRow
                 } footer: {
-                    Text("Apple's push service only learns that a notification was sent. The words are fetched from Rivolt over an encrypted connection when it arrives.")
+                    Text("Apple's push service sees only this phone's push address and a generic “Rivolt update”. The words are fetched from Rivolt over an encrypted connection when it arrives.")
                 }
 
-                if manager.isOn {
-                    Section {
-                        Button {
-                            Task { await manager.sendTest() }
-                        } label: {
-                            HStack {
-                                Text("Send test notification")
-                                if manager.test == .sending { Spacer(); ProgressView() }
-                            }
+                // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
+                // what is missing until then.
+                Section {
+                    Button {
+                        Task { await manager.sendTest() }
+                    } label: {
+                        HStack {
+                            Text("Send test notification")
+                            if manager.test == .sending { Spacer(); ProgressView() }
                         }
-                        .disabled(manager.test == .sending)
-                    } footer: {
+                    }
+                    .disabled(!manager.isOn || manager.test == .sending)
+                } footer: {
+                    if !manager.isOn {
+                        Text("Turn on notifications for this iPhone first.")
+                    } else {
                         switch manager.test {
                         case .sent(let n):
                             Text("Sent to \(n) iPhone\(n == 1 ? "" : "s"). It should arrive in a moment.")
@@ -155,7 +159,7 @@ struct NotificationPromptCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Get a notification when charging finishes", systemImage: "bell.badge")
                 .font(.subheadline.weight(.semibold))
-            Text("Rivolt can tell you when a charge completes. The words are fetched from Rivolt when the notification arrives, so Apple never sees them.")
+            Text("Rivolt can tell you when a charge completes. Apple only gets a generic “Rivolt update”; the words are fetched from Rivolt when the notification arrives.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {

@@ -7,6 +7,7 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     var changed: [(token: String, key: String, on: Bool)] = []
     var unregistered: [String] = []
     var failSwitch = false
+    var registerFails = false
     var testResult: Result<Int, Error> = .success(1)
     var tests = 0
     var prefs = PushPreferences()
@@ -16,6 +17,7 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     }
 
     func registerApns(token: String, environment: String) async throws -> PushPreferences {
+        if registerFails { throw APIError.server(status: 500, message: "no") }
         registered.append((token, environment))
         return prefs
     }
@@ -194,6 +196,35 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertTrue(NotificationManager.testMessage(for: URLError(.notConnectedToInternet)).contains("Couldn't send"))
         await m.turnOff()
         XCTAssertEqual(m.test, .idle)
+    }
+
+    func testARepeatedTokenCallbackKeepsAnAlreadyRegisteredPhoneRegistered() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        let m = make(system)
+        await m.signedIn(server: server)
+        await m.turnOn()
+        await m.register(deviceToken: Data([0x05]))
+        XCTAssertTrue(m.isOn)
+        // iOS repeats the callback and the server then fails: the phone stays on, it is not flipped to "failed".
+        server.registerFails = true
+        await m.register(deviceToken: Data([0x05]))
+        XCTAssertTrue(m.isOn)
+        // A later sign-in pass does not mark it as registering again either.
+        await m.signedIn(server: server)
+        XCTAssertEqual(m.registration, .registered)
+    }
+
+    func testAFirstRegistrationThatFailsSaysSo() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        server.registerFails = true
+        let m = make(system)
+        await m.signedIn(server: server)
+        await m.turnOn()
+        await m.register(deviceToken: Data([0x06]))
+        XCTAssertFalse(m.isOn)
+        if case .failed = m.registration {} else { XCTFail("expected a failed state, got \(m.registration)") }
     }
 
     func testTheTokenIsHexAndTheEnvironmentIsKnown() {

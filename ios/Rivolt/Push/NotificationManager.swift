@@ -108,6 +108,7 @@ final class NotificationManager {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let environment: String
     @ObservationIgnored private var server: PushServer?
+    @ObservationIgnored private var tokenWatchdog: Task<Void, Never>?
 
     private static let dismissedKey = "rivolt.push_prompt_dismissed"
 
@@ -151,8 +152,8 @@ final class NotificationManager {
         authorization = await system.authorizationStatus()
         guard offered else { return }
         if authorization == .authorized {
-            registration = .registering
-            system.registerForRemoteNotifications()
+            if registration != .registered { registration = .registering }
+            requestToken()
             if deviceToken != nil { await sync() }
         }
     }
@@ -183,7 +184,7 @@ final class NotificationManager {
         }
         guard authorization == .authorized else { return }
         registration = .registering
-        system.registerForRemoteNotifications()
+        requestToken()
         if deviceToken != nil { await sync() }
     }
 
@@ -253,22 +254,41 @@ final class NotificationManager {
 
     /// Keeps the token and tells the server (awaitable, for tests).
     func register(deviceToken data: Data) async {
+        tokenWatchdog?.cancel()
         deviceToken = Self.hex(data)
         await sync()
     }
 
     func didFailToRegister(_ error: Error) {
+        tokenWatchdog?.cancel()
         registration = .failed("iOS couldn't register this iPhone for notifications.")
     }
 
     private func sync() async {
         guard offered, authorization == .authorized, let server, let token = deviceToken else { return }
-        registration = .registering
+        // Registering again (iOS repeats the token callback) must not make an already-registered phone look
+        // unregistered while it happens, or fail it when the server already has it.
+        let wasRegistered = registration == .registered
+        if !wasRegistered { registration = .registering }
         do {
             preferences = try await server.registerApns(token: token, environment: environment)
             registration = .registered
         } catch {
-            registration = .failed("Rivolt couldn't register this iPhone. Try again.")
+            if !wasRegistered { registration = .failed("Rivolt couldn't register this iPhone. Try again.") }
+        }
+    }
+
+    /// Asks iOS for the Apple token, and says so if it never comes (no network, or the phone can't reach Apple),
+    /// instead of leaving "Setting up…" on screen for good.
+    private func requestToken() {
+        system.registerForRemoteNotifications()
+        tokenWatchdog?.cancel()
+        tokenWatchdog = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if self.deviceToken == nil, self.registration == .registering {
+                self.registration = .failed("This iPhone didn't get a notification token from Apple. Check the connection and try again.")
+            }
         }
     }
 
