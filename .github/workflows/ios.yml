@@ -129,6 +129,8 @@ jobs:
           udid="${{ steps.sim.outputs.udid }}"
           app="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/Rivolt.app"
           test -d "$app"
+          # The bundle id comes from the build (the owner may still change it, N28).
+          bid=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
           xcrun simctl boot "$udid" || true
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$app"
@@ -136,10 +138,16 @@ jobs:
           for mode in light dark; do
             xcrun simctl ui "$udid" appearance "$mode"
             for screen in prompt notifications notifications-denied; do
-              xcrun simctl terminate "$udid" me.apoh.rivolt || true
-              xcrun simctl launch "$udid" me.apoh.rivolt -rivolt-preview "$screen"
-              sleep 4
-              xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/shots/$screen-$mode.png"
+              xcrun simctl terminate "$udid" "$bid" || true
+              xcrun simctl launch "$udid" "$bid" -rivolt-preview "$screen"
+              # Give the first frame time, then shoot; a blank or tiny file is retried.
+              sleep 6
+              out="$RUNNER_TEMP/shots/$screen-$mode.png"
+              for try in 1 2 3; do
+                xcrun simctl io "$udid" screenshot "$out"
+                [ "$(stat -f%z "$out")" -gt 20000 ] && break
+                sleep 3
+              done
             done
           done
           ls -l "$RUNNER_TEMP/shots"
