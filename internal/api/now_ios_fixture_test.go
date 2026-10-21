@@ -41,6 +41,8 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		}{},
 		"lease_terms.json":     &vehiclelease.Terms{},
 		"statement_email.json": &statementSettings{},
+		// Slice D: where you charged, Home / Away / Fast, without coordinates.
+		"charge_split.json": &chargeSplit{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
