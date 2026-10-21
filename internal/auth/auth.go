@@ -200,6 +200,10 @@ type Service struct {
 	// still works — so stepping back to the old behaviour is a
 	// matter of wiring, not code churn.
 	sessionStore SessionStore
+
+	// acceptBearer turns on `Authorization: Bearer` (the iPhone app's
+	// session token). Off on the admin deployment.
+	acceptBearer bool
 }
 
 // SessionStore is the slice of sessions.Store that auth actually
@@ -207,7 +211,10 @@ type Service struct {
 // DB. The concrete implementation lives in internal/sessions.
 type SessionStore interface {
 	Create(ctx context.Context, userID uuid.UUID, ttl time.Duration, opts SessionCreateOpts) (SessionInfo, string, error)
+	// Lookup resolves a browser session cookie (kind web only).
 	Lookup(ctx context.Context, rawTokenCookie string) (SessionInfo, error)
+	// LookupBearer resolves an iPhone app token (kind app only).
+	LookupBearer(ctx context.Context, rawToken string) (SessionInfo, error)
 	RevokeByToken(ctx context.Context, rawTokenCookie string) error
 }
 
@@ -227,6 +234,37 @@ type SessionCreateOpts struct {
 type SessionInfo struct {
 	ID     uuid.UUID
 	UserID uuid.UUID
+}
+
+// AcceptBearer turns the iPhone app's bearer tokens on or off (off by
+// default; main turns it on except on the admin deployment). Chainable.
+func (s *Service) AcceptBearer(on bool) *Service {
+	s.acceptBearer = on
+	return s
+}
+
+// ViaBearer reports whether the request's user came from an iPhone app
+// bearer token. The admin gate, impersonation and the app sign-in pages
+// refuse such a caller.
+func ViaBearer(ctx context.Context) bool {
+	return logging.AuthMethodFromContext(ctx) == logging.AuthBearer
+}
+
+// bearerToken returns the token of an `Authorization: Bearer` header, and
+// whether the header names the Bearer scheme at all.
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, rest, _ := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+	if !strings.EqualFold(scheme, "bearer") {
+		return "", false
+	}
+	return strings.TrimSpace(rest), true
+}
+
+// unauthorizedBearer is the answer to a bearer token that isn't a live app
+// session (or isn't accepted here): 401, so the app knows to sign in again.
+func unauthorizedBearer(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
 // WithSessionStore installs the opaque-session backend. Chainable
@@ -593,6 +631,22 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// iPhone app token. A request carrying one is decided here and
+		// nowhere else: never a cookie, Kratos, header or bypass fallback,
+		// so a bad or revoked token is a 401 rather than some other identity.
+		if tok, ok := bearerToken(r); ok {
+			if !s.acceptBearer || s.sessionStore == nil || tok == "" {
+				unauthorizedBearer(w)
+				return
+			}
+			info, err := s.sessionStore.LookupBearer(r.Context(), tok)
+			if err != nil {
+				unauthorizedBearer(w)
+				return
+			}
+			s.serveAsUser(next, w, r, info.UserID, false, logging.AuthBearer)
+			return
+		}
 		if uid, ok := s.identityFromHeader(r); ok {
 			s.serveAsUser(next, w, r, uid, false, logging.AuthHeader)
 			return
@@ -669,6 +723,10 @@ func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.
 		// Fail closed on lookup errors so a transient DB blip
 		// can't honour a session for a freshly-disabled user.
 		if err != nil || disabled {
+			if method == logging.AuthBearer {
+				unauthorizedBearer(w)
+				return
+			}
 			if cookieAuth {
 				s.clearCookie(w)
 			}
@@ -849,6 +907,12 @@ func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
 	// permanently dead, even if some stale tab replays it.
 	// Best-effort — a DB error doesn't block cookie-clear.
 	if s.sessionStore != nil {
+		// The iPhone app signs out with its bearer token: revoke that one.
+		if tok, ok := bearerToken(r); ok && ViaBearer(r.Context()) {
+			_ = s.sessionStore.RevokeByToken(r.Context(), tok)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if c, err := r.Cookie(s.cookieName); err == nil {
 			_ = s.sessionStore.RevokeByToken(r.Context(), c.Value)
 		}

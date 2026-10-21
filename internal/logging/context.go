@@ -65,6 +65,7 @@ func WithUserID(ctx context.Context, uid uuid.UUID) context.Context {
 // vocabulary, never anything about the user.
 const (
 	AuthCookie        = "cookie"        // Rivolt session cookie (opaque or signed)
+	AuthBearer        = "bearer"        // iPhone app session token (Authorization: Bearer)
 	AuthKratos        = "kratos"        // Ory Kratos session cookie
 	AuthHeader        = "header"        // trusted-proxy SSO header
 	AuthImpersonation = "impersonation" // an admin viewing as a user

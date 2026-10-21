@@ -38,7 +38,18 @@ func (a *AuthAdapter) Create(ctx context.Context, userID uuid.UUID, ttl time.Dur
 
 // Lookup implements auth.SessionStore.
 func (a *AuthAdapter) Lookup(ctx context.Context, rawTokenCookie string) (auth.SessionInfo, error) {
-	sess, err := a.Store.Lookup(ctx, rawTokenCookie)
+	// The cookie path: browser sessions only, never an app token.
+	sess, err := a.Store.Lookup(ctx, rawTokenCookie, KindWeb)
+	if err != nil {
+		return auth.SessionInfo{}, err
+	}
+	return auth.SessionInfo{ID: sess.ID, UserID: sess.UserID}, nil
+}
+
+// LookupBearer implements auth.SessionStore for the iPhone app's token:
+// app sessions only, never a browser cookie value.
+func (a *AuthAdapter) LookupBearer(ctx context.Context, rawToken string) (auth.SessionInfo, error) {
+	sess, err := a.Store.Lookup(ctx, rawToken, KindApp)
 	if err != nil {
 		return auth.SessionInfo{}, err
 	}

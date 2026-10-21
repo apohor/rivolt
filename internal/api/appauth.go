@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/appauth"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/sessions"
 )
 
 // AppAuth is the server side of the iPhone app's sign-in (internal/appauth,
@@ -44,8 +45,8 @@ const (
 	appAuthCookie = "rivolt_app_auth"
 	appAuthPath   = "/api/auth/app"
 	appFinishPath = appAuthPath + "/finish"
-	// AppSessionTTL is an app session's lifetime.
-	AppSessionTTL = 90 * 24 * time.Hour
+	// AppSessionTTL is an app session's lifetime (sliding; sessions.AppTTL).
+	AppSessionTTL = sessions.AppTTL
 )
 
 // appConfigResponse is GET /api/app/config. The app's AppConfig decodes it.
@@ -80,6 +81,7 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 // to finish. A browser that's already signed in goes straight to finish.
 func (a *AppAuth) handleAppStart(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		q := r.URL.Query()
 		if q.Get("code_challenge_method") != "S256" || !appauth.ValidChallenge(q.Get("code_challenge")) {
 			http.Error(w, "code_challenge (S256) required", http.StatusBadRequest)
@@ -106,7 +108,7 @@ func (a *AppAuth) handleAppStart(d Deps) http.HandlerFunc {
 			// identity provider's redirect.
 			SameSite: http.SameSiteLaxMode,
 		})
-		if uid, ok := auth.UserFromContext(r.Context()); ok && uid != uuid.Nil && !auth.IsImpersonating(r.Context()) {
+		if uid, ok := browserUser(r); ok && uid != uuid.Nil {
 			http.Redirect(w, r, appFinishPath, http.StatusFound)
 			return
 		}
@@ -133,8 +135,8 @@ func (a *AppAuth) handleAppStart(d Deps) http.HandlerFunc {
 func (a *AppAuth) handleAppFinishPage(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, cookieErr := r.Cookie(appAuthCookie)
-		uid, ok := auth.UserFromContext(r.Context())
-		if !ok || uid == uuid.Nil || auth.IsImpersonating(r.Context()) {
+		uid, ok := browserUser(r)
+		if !ok || uid == uuid.Nil {
 			a.clearState(w)
 			a.toCallback(w, r, "error", "access_denied")
 			return
@@ -171,8 +173,8 @@ func (a *AppAuth) handleAppFinish() http.HandlerFunc {
 			return
 		}
 		a.clearState(w)
-		uid, ok := auth.UserFromContext(r.Context())
-		if !ok || uid == uuid.Nil || auth.IsImpersonating(r.Context()) || r.PostFormValue("decision") != "allow" {
+		uid, ok := browserUser(r)
+		if !ok || uid == uuid.Nil || r.PostFormValue("decision") != "allow" {
 			a.toCallback(w, r, "error", "access_denied")
 			return
 		}
@@ -183,6 +185,16 @@ func (a *AppAuth) handleAppFinish() http.HandlerFunc {
 		}
 		a.toCallback(w, r, "code", code)
 	}
+}
+
+// browserUser is the signed-in browser user, for the sign-in pages: never an
+// impersonated identity and never an app bearer token (DA on #769: the app's
+// own token can't be used to mint another one).
+func browserUser(r *http.Request) (uuid.UUID, bool) {
+	if auth.IsImpersonating(r.Context()) || auth.ViaBearer(r.Context()) {
+		return uuid.Nil, false
+	}
+	return auth.UserFromContext(r.Context())
 }
 
 func (a *AppAuth) clearState(w http.ResponseWriter) {

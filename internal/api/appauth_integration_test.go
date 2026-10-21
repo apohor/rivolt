@@ -203,6 +203,32 @@ func TestAppSignInFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("cookie and bearer kinds stay apart", func(t *testing.T) {
+		_, webTok, err := ss.Create(ctx, uid, time.Hour, sessions.CreateOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, appTok, err := ss.Create(ctx, uid, time.Hour, sessions.CreateOpts{Kind: sessions.KindApp})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ss.Lookup(ctx, webTok, sessions.KindWeb); err != nil {
+			t.Fatalf("web token as web: %v", err)
+		}
+		if _, err := ss.Lookup(ctx, appTok, sessions.KindApp); err != nil {
+			t.Fatalf("app token as app: %v", err)
+		}
+		if _, err := ss.Lookup(ctx, appTok, sessions.KindWeb); err == nil {
+			t.Fatal("an app token worked as a browser cookie")
+		}
+		if _, err := ss.Lookup(ctx, webTok, sessions.KindApp); err == nil {
+			t.Fatal("a browser cookie worked as an app token")
+		}
+		if _, err := sessions.NewAuthAdapter(ss).Lookup(ctx, appTok); err == nil {
+			t.Fatal("the cookie adapter accepted an app token")
+		}
+	})
+
 	t.Run("start wants an S256 challenge", func(t *testing.T) {
 		for _, q := range []string{"", "code_challenge=" + challenge, "code_challenge_method=plain&code_challenge=" + challenge, "code_challenge_method=S256&code_challenge=short"} {
 			if w := start(q); w.Code != http.StatusBadRequest {
