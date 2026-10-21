@@ -136,3 +136,43 @@ func TestHomeACSessionsTieToTheMoneyLine(t *testing.T) {
 		t.Errorf("%d sessions summing %v, Money's home AC line is %v over %d sessions", len(sessions), sum, line.Cost, line.Sessions)
 	}
 }
+
+func TestOffpeakShare(t *testing.T) {
+	// nightSched: Mon-Fri 21:00-06:00 at 0.09; flat 0.21. Wed 2026-10-21 is a weekday.
+	in := func(d int, kwh float64) HomeSession { // wholly inside the night window
+		return HomeSession{ID: "in", Start: local(d, 22, 0), End: local(d+1, 5, 0), KWh: kwh, ActiveSec: 3 * 3600, Cost: kwh * 0.21}
+	}
+	out := func(d int, kwh float64) HomeSession { // wholly outside, mid-afternoon
+		return HomeSession{ID: "out", Start: local(d, 12, 0), End: local(d, 16, 0), KWh: kwh, ActiveSec: 3 * 3600, Cost: kwh * 0.21}
+	}
+	straddle := HomeSession{ID: "x", Start: local(22, 18, 0), End: local(23, 8, 0), KWh: 50, ActiveSec: 4 * 3600, Cost: 10.5}
+	ss := []HomeSession{in(21, 30), out(21, 10), in(22, 20), straddle, out(23, 10)}
+	got := EstimateSavings(ss, nightSched(t), 0.21)
+	// Decidable: 30 + 20 inside, 10 + 10 outside -> 50 / 70 kWh = 71.4%; the straddling one is left out.
+	if got.OffpeakSharePct == nil || *got.OffpeakSharePct != 71.4 || got.OffpeakShareSessions != 4 {
+		t.Fatalf("share = %v over %d sessions", got.OffpeakSharePct, got.OffpeakShareSessions)
+	}
+	// Fewer than three decidable sessions: no number.
+	if g := EstimateSavings([]HomeSession{in(21, 30), out(21, 10), straddle}, nightSched(t), 0.21); g.OffpeakSharePct != nil || g.OffpeakShareSessions != 2 {
+		t.Errorf("two decidable sessions: %v / %d", g.OffpeakSharePct, g.OffpeakShareSessions)
+	}
+	// No schedule or no home rate: no number, and no sessions counted.
+	if g := EstimateSavings(ss, offpeak.Schedule{}, 0.21); g.OffpeakSharePct != nil || g.OffpeakShareSessions != 0 {
+		t.Errorf("no schedule: %v / %d", g.OffpeakSharePct, g.OffpeakShareSessions)
+	}
+	if g := EstimateSavings(ss, nightSched(t), 0); g.OffpeakSharePct != nil {
+		t.Errorf("no home rate: %v", g.OffpeakSharePct)
+	}
+	// A window dearer than the flat rate is not off-peak: every session is outside.
+	dear := sched(t, offpeak.Window{Days: offpeak.All, Start: "21:00", End: "06:00", Rate: 0.40})
+	if g := EstimateSavings(ss, dear, 0.21); g.OffpeakSharePct == nil || *g.OffpeakSharePct != 0 {
+		t.Errorf("dear window: %v, want 0%%", g.OffpeakSharePct)
+	}
+	// Two adjoining cheap windows with the same night cover a session that spans them.
+	two := sched(t,
+		offpeak.Window{Days: offpeak.Weekdays, Start: "21:00", End: "00:00", Rate: 0.09},
+		offpeak.Window{Days: offpeak.Weekdays, Start: "00:00", End: "06:00", Rate: 0.10})
+	if p := offpeakPlacement(in(21, 30), two, 0.21); p != placedInside {
+		t.Errorf("a plug-in spanning two cheap windows = %v, want inside", p)
+	}
+}
