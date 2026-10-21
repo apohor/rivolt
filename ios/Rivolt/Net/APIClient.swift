@@ -6,31 +6,26 @@ import Foundation
 /// avoid a dependency that would need to be resolved via SPM before
 /// the project can even open in Xcode.
 ///
-/// Cookie persistence is delegated to `HTTPCookieStorage.shared`,
-/// which by default stores to disk and survives app restarts. That's
-/// exactly the behaviour the backend's cookie-session auth expects —
-/// we don't roll our own token store for v0.9.
+/// Requests carry the server's app session token as `Authorization:
+/// Bearer`, read from the per-server `TokenStore` (the Keychain), never
+/// from a cookie jar: a token is only ever sent to the server that issued it.
 actor APIClient {
     private var baseURL: URL
+    private let tokens: TokenStore
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURLString: String) {
-        // Force-unwrap in init is defensible here: the string comes
-        // either from Info.plist (controlled at build time) or from
-        // UserDefaults after the login screen validated it. A bad
-        // URL survives neither path.
-        self.baseURL = URL(string: baseURLString) ?? URL(string: "https://rivolt.apoh.synology.me")!
-        let config = URLSessionConfiguration.default
-        config.httpCookieStorage = .shared
-        config.httpCookieAcceptPolicy = .always
-        config.httpShouldSetCookies = true
-        // Timeouts matter on cellular — the default (60s) leaves a
-        // frozen-looking UI for a full minute when the operator's
-        // self-hosted server is unreachable. 15s is plenty for the
-        // JSON surface; long-lived websocket subscriptions will
-        // need their own config when we add them.
+    init(baseURL: URL, tokens: TokenStore) {
+        self.baseURL = baseURL
+        self.tokens = tokens
+        let config = URLSessionConfiguration.ephemeral
+        // No cookies: the app authenticates with its bearer token only.
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        // Timeouts matter on cellular: the default (60s) leaves a
+        // frozen-looking UI for a full minute when a self-hosted server is
+        // unreachable. 15s is plenty for the JSON surface.
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
@@ -45,17 +40,15 @@ actor APIClient {
         self.encoder = encoder
     }
 
-    func updateBaseURL(_ raw: String) {
-        if let u = URL(string: raw) { self.baseURL = u }
+    func updateBaseURL(_ url: URL) {
+        baseURL = url
     }
 
     // MARK: - Endpoints
 
-    func login(username: String, password: String) async throws -> AuthUser {
-        try await request(
-            "POST", "/api/auth/login",
-            body: ["username": username, "password": password]
-        )
+    /// Whether this server is Rivolt and accepts app sign-in. Unauthenticated.
+    func appConfig() async throws -> AppConfig {
+        try await request("GET", "/api/app/config", authenticated: false)
     }
 
     func logout() async throws {
@@ -85,7 +78,8 @@ actor APIClient {
     private func request<Response: Decodable>(
         _ method: String,
         _ path: String,
-        body: (any Encodable)? = nil
+        body: (any Encodable)? = nil,
+        authenticated: Bool = true
     ) async throws -> Response {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.badURL
@@ -93,6 +87,9 @@ actor APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if authenticated, let token = try tokens.token(for: baseURL) {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try encoder.encode(AnyEncodable(body))
