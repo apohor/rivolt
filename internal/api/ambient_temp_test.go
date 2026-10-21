@@ -99,7 +99,7 @@ func TestAmbientRoundsBeforeTheRequestAndCaches(t *testing.T) {
 	}
 }
 
-var logTimeAttr = regexp.MustCompile(`time=\S+`)
+var logTimeAttr = regexp.MustCompile(`(?m)^time=\S+`)
 
 // A failing upstream gives no value and nothing about where the truck is in the
 // logs (an HTTP client's error text carries the request URL).
