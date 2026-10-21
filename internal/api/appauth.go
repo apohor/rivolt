@@ -151,11 +151,11 @@ func (a *AppAuth) handleAppFinishPage(d Deps) http.HandlerFunc {
 			_ = d.DB.QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&name)
 		}
 		consentHeaders(w)
-		_ = appConsentPage.Execute(w, appConsent{
+		_ = appConsentPage.Execute(w, appConsentView{appConsent: appConsent{
 			Username: name,
 			Action:   appFinishPath,
 			Token:    a.Store.ConsentToken(c.Value),
-		})
+		}, Off: cfEmailOff, On: cfEmailOn})
 	}
 }
 
@@ -219,6 +219,21 @@ type appConsent struct {
 	Token    string
 }
 
+// Cloudflare's Email Address Obfuscation rewrites an address in a page into a
+// "[email protected]" link that a script decodes, and this page's CSP blocks the
+// script, so the user could not see which account the app is signed in as.
+// Its markers around the name keep it out of the rewrite. They are injected as
+// values because html/template drops comments from the template's own text.
+const (
+	cfEmailOff = template.HTML("<!--email_off-->")
+	cfEmailOn  = template.HTML("<!--/email_off-->")
+)
+
+type appConsentView struct {
+	appConsent
+	Off, On template.HTML
+}
+
 // appConsentPage asks before handing the app a session. html/template
 // escapes the username and token.
 var appConsentPage = template.Must(template.New("consent").Parse(`<!doctype html>
@@ -229,7 +244,7 @@ button{display:block;width:100%;font:inherit;padding:.9rem;margin:.6rem 0;border
 button[value=allow]{background:#0a7d32;color:#fff;border-color:#0a7d32}.note{color:#666;font-size:15px}</style>
 </head><body>
 <h1>Sign in to the Rivolt iPhone app?</h1>
-<p>The app on this phone will be signed in as <strong>{{.Username}}</strong> and can see your trucks and their history.</p>
+<p>The app on this phone will be signed in as <strong>{{.Off}}{{.Username}}{{.On}}</strong> and can see your trucks and their history.</p>
 <p class="note">Only continue if you just tapped Sign in in the Rivolt app. If a link or message sent you here, cancel.</p>
 <form method="post" action="{{.Action}}">
 <input type="hidden" name="consent" value="{{.Token}}">

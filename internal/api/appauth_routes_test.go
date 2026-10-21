@@ -44,3 +44,21 @@ func TestAppSignInNotMountedUnlessConfigured(t *testing.T) {
 		})
 	}
 }
+
+// The consent page keeps the account name out of Cloudflare's email
+// obfuscation (which would show "[email protected]" under this page's CSP) and
+// still escapes it.
+func TestConsentPageShieldsTheNameFromEmailObfuscation(t *testing.T) {
+	var b strings.Builder
+	err := appConsentPage.Execute(&b, appConsentView{
+		appConsent: appConsent{Username: `sam<script>@example.com`, Action: appFinishPath, Token: "tok"},
+		Off:        cfEmailOff, On: cfEmailOn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	if !strings.Contains(got, "<strong><!--email_off-->sam&lt;script&gt;@example.com<!--/email_off--></strong>") {
+		t.Errorf("name is not wrapped and escaped: %s", got)
+	}
+}
