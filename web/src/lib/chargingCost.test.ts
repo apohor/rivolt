@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { costCalc, fastPriceShown, workedExample } from "./chargingCost";
+import { costCalc, fastPriceShown, readFastPrice, workedExample } from "./chargingCost";
 
 describe("worked example", () => {
-  const w = workedExample();
+  const w = workedExample({ price: 0.48, month: "2026-10" });
   it("matches the page copy", () => {
     expect(w.kwh).toBe(435);
     expect(w.monthly).toBe(65);
@@ -18,11 +18,47 @@ describe("worked example", () => {
   });
 });
 
+describe("without a fast-charge price from the server", () => {
+  it("has no fast figures at all", () => {
+    const w = workedExample(null);
+    expect(w.fastStop).toBeNull();
+    expect(w.fastYear).toBeNull();
+    expect(w.monthly).toBe(65);
+  });
+});
+
+describe("readFastPrice", () => {
+  const docWith = (text: string | null) => {
+    const d = document.implementation.createHTMLDocument("t");
+    if (text !== null) {
+      const el = d.createElement("script");
+      el.type = "application/json";
+      el.id = "charging-cost";
+      el.textContent = text;
+      d.body.appendChild(el);
+    }
+    return d;
+  };
+  const now = new Date("2026-11-01T12:00:00Z");
+  it("reads the price the server put in the page", () => {
+    expect(readFastPrice(docWith('{"fast_price":0.48,"price_month":"2026-10"}'), now)).toEqual({ price: 0.48, month: "2026-10" });
+  });
+  it("is null when absent, null, malformed, out of range or older than a year", () => {
+    expect(readFastPrice(docWith(null), now)).toBeNull();
+    expect(readFastPrice(docWith("null"), now)).toBeNull();
+    expect(readFastPrice(docWith("{nope"), now)).toBeNull();
+    expect(readFastPrice(docWith('{"fast_price":0,"price_month":"2026-10"}'), now)).toBeNull();
+    expect(readFastPrice(docWith('{"fast_price":9,"price_month":"2026-10"}'), now)).toBeNull();
+    expect(readFastPrice(docWith('{"fast_price":"0.48","price_month":"2026-10"}'), now)).toBeNull();
+    expect(readFastPrice(docWith('{"fast_price":0.48,"price_month":"2026-10"}'), new Date("2027-11-01T12:00:00Z"))).toBeNull();
+  });
+});
+
 describe("fastPriceShown", () => {
   it("shows the tracker price for twelve months, then hides it", () => {
-    expect(fastPriceShown(new Date("2026-10-20T12:00:00Z"))).toBe(true);
-    expect(fastPriceShown(new Date("2027-10-14T12:00:00Z"))).toBe(true);
-    expect(fastPriceShown(new Date("2027-10-16T12:00:00Z"))).toBe(false);
+    expect(fastPriceShown(new Date("2026-10-20T12:00:00Z"), "2026-10")).toBe(true);
+    expect(fastPriceShown(new Date("2027-10-14T12:00:00Z"), "2026-10")).toBe(true);
+    expect(fastPriceShown(new Date("2027-10-16T12:00:00Z"), "2026-10")).toBe(false);
     expect(fastPriceShown(new Date("2026-10-20T12:00:00Z"), "bogus")).toBe(false);
   });
 });

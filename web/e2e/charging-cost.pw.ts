@@ -9,7 +9,22 @@ import { stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-async function open(page: Page, now = "2026-11-01T12:00:00") {
+// The server puts the tracker's price in the page at serve time; this stands in for it (or leaves it out).
+async function open(page: Page, now = "2026-11-01T12:00:00", fast: object | null = { fast_price: 0.48, price_month: "2026-10" }) {
+  if (fast) {
+    await page.addInitScript((data) => {
+      const obs = new MutationObserver(() => {
+        if (!document.body) return;
+        const el = document.createElement("script");
+        el.type = "application/json";
+        el.id = "charging-cost";
+        el.textContent = JSON.stringify(data);
+        document.body.appendChild(el);
+        obs.disconnect();
+      });
+      obs.observe(document, { childList: true, subtree: true });
+    }, fast);
+  }
   await stubApi(page, { signedIn: false });
   await page.clock.setFixedTime(new Date(now));
   await page.goto("/charging-cost");
@@ -64,12 +79,17 @@ for (const v of [
   });
 }
 
-test("charging cost: a year after the tracker's month, its price is gone from the page", async ({ browser }) => {
+test("charging cost: a year after the tracker's month, or with no price from the server, there is no fast-charge price on the page", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await open(page, "2027-11-01T12:00:00");
   await expect(page.locator("[data-cc-example]")).toBeVisible();
   await expect(page.locator("[data-cc-fast]")).toHaveCount(0);
   await expect(page.locator("main")).not.toContainText(/DCFC Tracker|\$0\.48/);
+  const page2 = await ctx.newPage();
+  await open(page2, "2026-11-01T12:00:00", null);
+  await expect(page2.locator("[data-cc-fast]")).toHaveCount(0);
+  await expect(page2.locator("main")).not.toContainText(/DCFC Tracker|\$0\.48/);
+  await page2.close();
   await ctx.close();
 });

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Logo from "../components/Logo";
 import { getConfig } from "../lib/config";
-import { EXAMPLE, costCalc, fastPriceShown, workedExample, type CostField, type CostInput } from "../lib/chargingCost";
+import { EXAMPLE, costCalc, readFastPrice, workedExample, type CostField, type CostInput } from "../lib/chargingCost";
 import { formatMoney } from "../lib/ledger";
 import { priceMonth } from "../lib/sampleTrip";
 import { useSystemTheme } from "../lib/theme";
@@ -28,10 +28,11 @@ export default function ChargingCostPage() {
   const [submitted, setSubmitted] = useState(false);
   const { demoEnabled, signupEnabled } = getConfig().features;
   const hostedDemo = !demoEnabled && /(^|\.)rivolt\.dev$/.test(window.location.hostname);
-  const w = workedExample();
-  const showFast = fastPriceShown(new Date());
+  const fast = useMemo(() => readFastPrice(), []);
+  const w = workedExample(fast);
+  const showFast = fast !== null;
   const $ = (v: number) => formatMoney(v, "USD", 0);
-  const month = priceMonth(EXAMPLE.fastPriceMonth);
+  const month = fast ? priceMonth(fast.month) : "";
 
   const input: CostInput = {
     ratePerKwh: num(d.rate),
@@ -134,8 +135,8 @@ export default function ChargingCostPage() {
               Fast charging on a road trip costs more per kWh than home charging. On the sample two-day Los Angeles to Las Vegas trip, the planner&apos;s one stop at Barstow
               charges from 58% to 80%, about {EXAMPLE.fastStopKwh} kWh. At a typical price seen by{" "}
               <a href="https://dcfctracker.com/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-100">DCFC Tracker</a>{" "}
-              for Rivian vehicles on the Rivian Adventure Network in {month}, about ${EXAMPLE.fastPrice.toFixed(2)} per kWh, that stop is roughly{" "}
-              <strong className="text-neutral-100">{$(w.fastStop)}</strong> (example; the price at the charger may differ). The same energy at the example home rate would be about{" "}
+              for Rivian vehicles on the Rivian Adventure Network in {month}, about ${fast?.price.toFixed(2)} per kWh, that stop is roughly{" "}
+              <strong className="text-neutral-100">{$(w.fastStop ?? 0)}</strong> (example; the price at the charger may differ). The same energy at the example home rate would be about{" "}
               {$(w.fastStopAtHome)}. Over a year, the share of your kWh that comes from fast charging is usually what moves the total most.
             </p>
           </section>
@@ -153,7 +154,7 @@ export default function ChargingCostPage() {
                 <tr><th scope="row" className={`${td} text-left font-normal`}>Home, standard rate, {EXAMPLE.homeMonths} months × {w.kwh} kWh</th><td className={`${td} text-right`}>{w.yearKwh.toLocaleString()}</td><td className={`${td} text-right`}>{$(w.yearHome)}</td></tr>
                 <tr><th scope="row" className={`${td} text-left font-normal`}>Home, same months if all off-peak at ${EXAMPLE.offpeakRate.toFixed(2)}</th><td className={`${td} text-right`}>{w.yearKwh.toLocaleString()}</td><td className={`${td} text-right`}>{$(w.yearOffpeak)}</td></tr>
                 {showFast && (
-                  <tr><th scope="row" className={`${td} text-left font-normal`}>Fast charging, {EXAMPLE.roadTripStops} road-trip stops × {EXAMPLE.fastStopKwh} kWh at ${EXAMPLE.fastPrice.toFixed(2)}</th><td className={`${td} text-right`}>{w.fastYearKwh}</td><td className={`${td} text-right`}>{$(w.fastYear)}</td></tr>
+                  <tr><th scope="row" className={`${td} text-left font-normal`}>Fast charging, {EXAMPLE.roadTripStops} road-trip stops × {EXAMPLE.fastStopKwh} kWh at ${fast?.price.toFixed(2)}</th><td className={`${td} text-right`}>{w.fastYearKwh}</td><td className={`${td} text-right`}>{$(w.fastYear ?? 0)}</td></tr>
                 )}
               </tbody>
             </table>

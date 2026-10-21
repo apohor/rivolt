@@ -10,9 +10,6 @@ export const EXAMPLE = {
   offpeakRate: 0.1,
   // One fast-charge stop on the sample two-day Los Angeles to Las Vegas trip: Barstow, 58% to 80% of a 131 kWh pack.
   fastStopKwh: 29,
-  fastPrice: 0.48,
-  // "Typical price seen by DCFC Tracker, Oct 2026": shown for twelve months from the middle of that month, then hidden.
-  fastPriceMonth: "2026-10",
   homeMonths: 10,
   roadTripStops: 6,
 } as const;
@@ -20,7 +17,22 @@ export const EXAMPLE = {
 // Whole dollars, halves up (a cost of 43.5 is $44).
 const usd = (v: number) => Math.round(v + 1e-9);
 
-export function workedExample() {
+// The fast-charge price is not in this file or the bundle: the server puts today's typical price seen by DCFC Tracker in the page
+// (<script type="application/json" id="charging-cost">) while it is under twelve months old, and leaves it out after.
+export type FastPrice = { price: number; month: string };
+
+export function readFastPrice(doc: Document = document, now: Date = new Date()): FastPrice | null {
+  try {
+    const el = doc.getElementById("charging-cost");
+    const j = el?.textContent ? (JSON.parse(el.textContent) as { fast_price?: unknown; price_month?: unknown } | null) : null;
+    if (!j || typeof j.fast_price !== "number" || !(j.fast_price > 0) || j.fast_price > 5 || typeof j.price_month !== "string") return null;
+    return fastPriceShown(now, j.price_month) ? { price: j.fast_price, month: j.price_month } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function workedExample(fast: FastPrice | null = null) {
   const e = EXAMPLE;
   const kwh = Math.round(e.milesPerMonth / e.milesPerKwh);
   const coldKwh = Math.round(e.milesPerMonth / e.coldMilesPerKwh);
@@ -35,18 +47,18 @@ export function workedExample() {
     coldMonthly: usd(coldKwh * e.homeRate),
     offpeakMonthly: usd(kwh * e.offpeakRate),
     halfOffpeakMonthly: usd(half * e.offpeakRate + half * e.homeRate),
-    fastStop: usd(e.fastStopKwh * e.fastPrice),
+    fastStop: fast ? usd(e.fastStopKwh * fast.price) : null,
     fastStopAtHome: usd(e.fastStopKwh * e.homeRate),
     yearKwh,
     yearHome: usd(yearKwh * e.homeRate),
     yearOffpeak: usd(yearKwh * e.offpeakRate),
     fastYearKwh,
-    fastYear: usd(fastYearKwh * e.fastPrice),
+    fastYear: fast ? usd(fastYearKwh * fast.price) : null,
   };
 }
 
 // The tracker's price is only shown for twelve months after the month it was seen.
-export function fastPriceShown(now: Date, month: string = EXAMPLE.fastPriceMonth): boolean {
+export function fastPriceShown(now: Date, month: string): boolean {
   const m = /^(\d{4})-(\d{2})$/.exec(month);
   if (!m) return false;
   const until = Date.UTC(Number(m[1]) + 1, Number(m[2]) - 1, 15);
