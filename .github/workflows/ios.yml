@@ -84,6 +84,9 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
       - name: Build and test
+        env:
+          # Seen by the tests as SNAPSHOT_DIR: the Now card renders land here.
+          TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/snapshots
         run: |
           set -euo pipefail
           xcodebuild test \
@@ -117,6 +120,15 @@ jobs:
             echo "### iOS unit tests"
             jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the UI snapshots
+        if: always() && steps.sim.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-snapshots
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload the result bundle
         if: failure()
