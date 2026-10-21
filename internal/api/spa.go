@@ -3,6 +3,7 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ import (
 // Cache policy: index.html (and SPA route fallthroughs) get
 // "Cache-Control: no-cache" so the browser revalidates each load and
 // picks up new bundle hashes after a deploy. The hashed asset files
-// under /assets/* keep their long max-age — their filenames change
+// under /assets/* are immutable for a year: their filenames change
 // every build, so caching them aggressively is correct. Without the
 // no-cache on the index, browsers were holding stale HTML for
 // minutes/hours after a deploy, leaving users on the previous bundle.
@@ -140,17 +141,24 @@ func spaHandler(fsys fs.FS) http.Handler {
 		case p == "sw.js":
 			// The service worker: browsers should see a new one promptly.
 			w.Header().Set("Cache-Control", "no-cache")
-		case !strings.HasPrefix(p, "assets/"):
-			// Unhashed root files (asset-guard.js, theme-init.js, the
-			// manifest, icons, og.png): a short, explicit TTL, so a fix ships
-			// within minutes even if a ?v= bump is forgotten, and Cloudflare's
-			// default edge TTL doesn't decide for us. Hashed /assets/* keep
-			// whatever they had.
+		case hashedAsset.MatchString(p):
+			// Vite's content-hashed build output: a new build gets a new
+			// name, so a year and immutable is safe. Without an explicit
+			// header Cloudflare applied its 4-hour default.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		default:
+			// Unhashed files (asset-guard.js, theme-init.js, the manifest,
+			// icons, og.png): a short, explicit TTL, so a fix ships within
+			// minutes even if a ?v= bump is forgotten, and Cloudflare's
+			// default edge TTL doesn't decide for us.
 			w.Header().Set("Cache-Control", "public, max-age=300")
 		}
 		fileServer.ServeHTTP(w, r)
 	})
 }
+
+// hashedAsset matches Vite's build output, assets/<name>-<8-char hash>.<ext>.
+var hashedAsset = regexp.MustCompile(`^assets/[^/]+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$`)
 
 // hasFileExtension reports whether the last path segment contains a dot,
 // i.e. the request names a file rather than a client-side route.
