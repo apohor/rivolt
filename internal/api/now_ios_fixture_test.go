@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/samples"
 )
 
 // The iOS app decodes these server responses from fixtures in
@@ -22,6 +23,8 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"state.json":          &rivian.State{},
 		"vehicles.json":       &[]rivian.Vehicle{},
 		"app_token.json":      &appTokenResponse{},
+		// Slice B (the Home charts): the idle-awake bars, as the web's tile reads them.
+		"sleep_activity.json": &[]samples.DayActivity{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
