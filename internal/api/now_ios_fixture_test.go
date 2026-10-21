@@ -22,6 +22,13 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"state.json":          &rivian.State{},
 		"vehicles.json":       &[]rivian.Vehicle{},
 		"app_token.json":      &appTokenResponse{},
+		// The Now card's detail (Sprint 7 slice A): the same calls as the web
+		// Home page's LivePanel.
+		"live_session.json":      &liveSessionResponse{},
+		"live_session_home.json": &liveSessionResponse{},
+		"live_drive.json":        &rivian.LiveDrive{},
+		"drives_last.json":       &[]driveResponse{},
+		"charges_last.json":      &[]chargeResponse{},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b, err := os.ReadFile(filepath.Join("..", "..", "ios", "RivoltTests", "Fixtures", name))

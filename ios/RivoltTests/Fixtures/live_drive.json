@@ -1,0 +1,18 @@
+{
+  "vehicle_id": "veh-fixture",
+  "number": 412,
+  "started_at": "2026-10-21T18:07:00Z",
+  "ended_at": "2026-10-21T18:30:00Z",
+  "elapsed_sec": 1380,
+  "start_soc_pct": 81,
+  "end_soc_pct": 76,
+  "soc_used_pct": 5,
+  "start_odometer_mi": 18240.2,
+  "end_odometer_mi": 18257.9,
+  "distance_mi": 17.7,
+  "max_speed_mph": 71,
+  "avg_speed_mph": 46.2,
+  "energy_used_kwh": 6.5,
+  "mi_per_kwh": 2.72,
+  "pack_kwh": 130
+}
