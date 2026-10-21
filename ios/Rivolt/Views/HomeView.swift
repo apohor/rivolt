@@ -159,17 +159,17 @@ struct HomeView: View {
 
     /// The session or drive reads that only make sense while charging or in gear.
     private func loadLive(id: String) async {
-        let label = NowSummary(state: vehicleState, now: now, clock: .now).stateLabel
-        session = label == "Charging" ? (try? await state.client.liveSession(id: id)) ?? nil : nil
-        liveDrive = label == "Driving" ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
+        let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
+        session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
+        liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
     }
 
     private func pollLive() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled, let id = selected?.id else { continue }
-            let label = NowSummary(state: vehicleState, now: now, clock: .now).stateLabel
-            if label == "Charging" || label == "Driving" {
+            let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
+            if kind == .charging || kind == .driving {
                 async let st = try? state.client.vehicleState(id: id)
                 async let nw = try? state.client.vehicleNow(id: id)
                 let (s, n) = await (st, nw)

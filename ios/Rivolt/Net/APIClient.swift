@@ -151,8 +151,13 @@ actor APIClient {
         do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _) { return nil }
     }
 
+    /// The drive in progress; 204 (or 404 from an older server) means none is open yet.
     func liveDrive(id: String) async throws -> LiveDrive? {
-        do { return try await request("GET", "/api/live-drive/\(pathID(id))") } catch APIError.server(404, _) { return nil }
+        do {
+            let (data, http) = try await send("GET", "/api/live-drive/\(pathID(id))")
+            if http.statusCode == 204 || data.isEmpty { return nil }
+            do { return try decoder.decode(LiveDrive.self, from: data) } catch { throw APIError.decoding(error) }
+        } catch APIError.server(404, _) { return nil }
     }
 
     /// The newest charge (for its place and cost).
@@ -200,6 +205,25 @@ actor APIClient {
         body: (any Encodable)? = nil,
         authenticated: Bool = true
     ) async throws -> Response {
+        let (data, _) = try await send(method, path, body: body, authenticated: authenticated)
+        if Response.self == Empty.self {
+            // swiftlint:disable:next force_cast
+            return Empty() as! Response
+        }
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    /// One round trip: the body and response of a 2xx answer, or the error for anything else.
+    private func send(
+        _ method: String,
+        _ path: String,
+        body: (any Encodable)? = nil,
+        authenticated: Bool = true
+    ) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.badURL
         }
@@ -230,15 +254,7 @@ actor APIClient {
             }
             throw APIError.server(status: http.statusCode, message: message)
         }
-        if Response.self == Empty.self {
-            // swiftlint:disable:next force_cast
-            return Empty() as! Response
-        }
-        do {
-            return try decoder.decode(Response.self, from: data)
-        } catch {
-            throw APIError.decoding(error)
-        }
+        return (data, http)
     }
 }
 

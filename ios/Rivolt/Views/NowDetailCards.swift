@@ -67,9 +67,6 @@ struct DriveDetailCard: View {
             Label(title, systemImage: "steeringwheel").font(.subheadline.weight(.semibold))
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(distanceText).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit()
-                if let legs = detail.roundTripLegs {
-                    Text("round trip, \(legs) legs").font(.caption).foregroundStyle(NowInk.secondary)
-                }
             }
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 10) {
                 if let e = detail.elapsed { field("Time", NowFormat.duration(e)) }
