@@ -67,14 +67,19 @@ func newBearerService(t *testing.T, disabled bool) (*Service, *kindStore) {
 	return svc, store
 }
 
+// lastRef is the session row the last seen() request carried, if any.
+var lastRef SessionRef
+
 // seen runs the middleware and reports who the handler saw and how.
 func seen(svc *Service, r *http.Request) (*httptest.ResponseRecorder, uuid.UUID, string) {
 	var uid uuid.UUID
 	var method string
+	lastRef = SessionRef{}
 	w := httptest.NewRecorder()
 	svc.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		uid, _ = UserFromContext(r.Context())
 		method = logging.AuthMethodFromContext(r.Context())
+		lastRef, _ = SessionFromContext(r.Context())
 	})).ServeHTTP(w, r)
 	return w, uid, method
 }
@@ -93,6 +98,14 @@ func TestBearerAuthenticatesAppSessionsOnly(t *testing.T) {
 	}
 	if !ViaBearer(logging.WithAuthMethod(context.Background(), logging.AuthBearer)) {
 		t.Fatal("ViaBearer")
+	}
+	if lastRef.Kind != "app" || lastRef.ID == uuid.Nil {
+		t.Fatalf("bearer session ref %+v", lastRef)
+	}
+	web := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	web.AddCookie(&http.Cookie{Name: "rivolt_session", Value: "web-token"})
+	if _, uid, _ := seen(svc, web); uid != store.user || lastRef.Kind != "web" || lastRef.ID == uuid.Nil {
+		t.Fatalf("cookie session ref %+v", lastRef)
 	}
 	// A browser cookie value is no bearer token, and an app token is no cookie.
 	if w, uid, _ := seen(svc, bearerReq("web-token")); w.Code != http.StatusUnauthorized || uid != uuid.Nil {

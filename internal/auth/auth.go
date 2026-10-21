@@ -236,6 +236,29 @@ type SessionInfo struct {
 	UserID uuid.UUID
 }
 
+// SessionRef names the sessions row behind a request: set for the opaque
+// cookie (Kind "web") and the iPhone app's bearer token (Kind "app"); absent
+// for header, Kratos, bypass and legacy signed-cookie auth, which have no row.
+// The sessions list uses it to mark "current" and to keep the caller's own
+// session on "sign out other devices".
+type SessionRef struct {
+	ID   uuid.UUID
+	Kind string // "web" | "app" (sessions.KindWeb / KindApp)
+}
+
+type sessionCtxKey struct{}
+
+// WithSession records the request's session row.
+func WithSession(ctx context.Context, ref SessionRef) context.Context {
+	return context.WithValue(ctx, sessionCtxKey{}, ref)
+}
+
+// SessionFromContext returns the request's session row, if it has one.
+func SessionFromContext(ctx context.Context) (SessionRef, bool) {
+	ref, ok := ctx.Value(sessionCtxKey{}).(SessionRef)
+	return ref, ok && ref.ID != uuid.Nil
+}
+
 // AcceptBearer turns the iPhone app's bearer tokens on or off (off by
 // default; main turns it on except on the admin deployment). Chainable.
 func (s *Service) AcceptBearer(on bool) *Service {
@@ -644,6 +667,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				unauthorizedBearer(w)
 				return
 			}
+			r = r.WithContext(WithSession(r.Context(), SessionRef{ID: info.ID, Kind: "app"}))
 			s.serveAsUser(next, w, r, info.UserID, false, logging.AuthBearer)
 			return
 		}
@@ -694,6 +718,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				s.maybeBypass(next, w, r)
 				return
 			}
+			r = r.WithContext(WithSession(r.Context(), SessionRef{ID: info.ID, Kind: "web"}))
 			s.serveAsUser(next, w, r, info.UserID, true, logging.AuthCookie)
 			return
 		}
