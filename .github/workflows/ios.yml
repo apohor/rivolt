@@ -91,6 +91,22 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -quiet
 
+      - name: Test summary (fail if no tests ran)
+        run: |
+          set -euo pipefail
+          # -quiet hides the per-test lines; the result bundle has the counts.
+          xcrun xcresulttool get test-results summary \
+            --path "$RUNNER_TEMP/ios.xcresult" --compact > "$RUNNER_TEMP/summary.json"
+          jq '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/summary.json"
+          total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
+          if [ "${total:-0}" -lt 1 ]; then
+            echo "no tests ran"; exit 1
+          fi
+          {
+            echo "### iOS unit tests"
+            jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the result bundle
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
