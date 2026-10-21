@@ -19,7 +19,7 @@ func TestMembershipTermsEndpoint(t *testing.T) {
 		_ = json.Unmarshal(rec.Body.Bytes(), &out)
 		return rec.Code, out.Terms, rec.Body.String()
 	}
-	code, rows, body := get(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+	code, rows, _ := get(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
 	if code != 200 || len(rows) < 8 {
 		t.Fatalf("%d, %d rows", code, len(rows))
 	}
@@ -30,7 +30,7 @@ func TestMembershipTermsEndpoint(t *testing.T) {
 		}
 	}
 	// Reference data: nothing user-specific, and `terms` is [] not null once expired.
-	if code, rows, body = get(time.Date(2027, 10, 21, 0, 0, 0, 0, time.UTC)); code != 200 || len(rows) != 0 || !strings.Contains(body, `"terms":[]`) {
+	if code, rows, body := get(time.Date(2027, 10, 21, 0, 0, 0, 0, time.UTC)); code != 200 || len(rows) != 0 || !strings.Contains(body, `"terms":[]`) {
 		t.Errorf("after 12 months: %d %d rows %s", code, len(rows), body)
 	}
 }
