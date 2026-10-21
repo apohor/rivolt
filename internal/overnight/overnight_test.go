@@ -22,6 +22,7 @@ func route(km float64) [][2]float64 {
 // the real one would for the corridor asked about.
 type fakeArchive struct {
 	hotels []chargers.POI
+	camps  []chargers.POI
 	dcfc   []chargers.POI
 	err    error
 	calls  int
@@ -36,6 +37,9 @@ func (f *fakeArchive) QueryCorridor(path [][2]float64, filter chargers.Filter, _
 	if filter == chargers.FilterHotels {
 		f.last = path
 		return f.hotels, nil
+	}
+	if filter == chargers.FilterCamp {
+		return f.camps, nil
 	}
 	return f.dcfc, nil
 }

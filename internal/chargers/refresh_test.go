@@ -92,12 +92,23 @@ func TestArchiveRefresh(t *testing.T) {
 // archiveWith builds a PMTiles file with n charger features, one tile each.
 func archiveWith(t *testing.T, n int) []byte {
 	t.Helper()
+	props := make([]map[string]any, n)
+	for i := range props {
+		props[i] = map[string]any{"name": "S", "@id": "nrel/" + string(rune('a'+i%26)) + string(rune('A'+i/26))}
+	}
+	return archiveWithProps(t, props)
+}
+
+// archiveWithProps builds a PMTiles file with one charger feature per props
+// map, one tile each.
+func archiveWithProps(t *testing.T, all []map[string]any) []byte {
+	t.Helper()
 	var entries []pm.EntryV3
 	var data []byte
-	for i := 0; i < n; i++ {
+	for i, p := range all {
 		tile := maptile.New(uint32(1000+i), 6000, 14)
 		f := geojson.NewFeature(tile.Bound().Center())
-		f.Properties = geojson.Properties{"name": "S", "@id": "nrel/" + string(rune('a'+i%26)) + string(rune('A'+i/26))}
+		f.Properties = geojson.Properties(p)
 		layer := &mvt.Layer{Name: "chargers", Version: 2, Extent: 4096, Features: []*geojson.Feature{f}}
 		layer.ProjectToTile(tile)
 		raw, err := mvt.Marshal(mvt.Layers{layer})

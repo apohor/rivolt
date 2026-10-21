@@ -27,8 +27,14 @@ const (
 	corridorKm         = 12.0 // a hotel counts as near the route within this
 	dcfcNearKm         = 8.0  // "within about 10 minutes" of a morning top-up
 	assumedL2KW        = 7.0  // when the listing gives no power
-	assumedSpeedMS     = 25.0 // 90 km/h, when the day's drive time isn't given
-	maxCandidates      = 3
+	// Planned power at a campground hookup, through Rivian's Portable Charger
+	// (32 A, 7.6 kW at most, per Rivian's page): a NEMA 14-50 site is planned at
+	// 7.2 kW (a little under, for campground voltage); a 30 A TT-30 or a 15-20 A
+	// outlet is 120 V, which the charger draws 12 A from (1.4 kW).
+	nema1450KW     = 7.2
+	slow120KW      = 1.4
+	assumedSpeedMS = 25.0 // 90 km/h, when the day's drive time isn't given
+	maxCandidates  = 3
 	// Hotels are ranked by a score in points; see score.
 	maxScoredL2KW = 19.2
 	weakL2KW      = 6.0
@@ -44,7 +50,30 @@ type Request struct {
 	// BudgetMiles, when positive, is used instead.
 	BudgetHours float64
 	BudgetMiles float64
+	// Kinds are the stays to suggest: KindHotel, KindCampground. Empty means
+	// hotels only, as before.
+	Kinds []string
 }
+
+// Kinds of stay a candidate can be.
+const (
+	KindHotel      = "hotel"
+	KindCampground = "campground"
+)
+
+// Connectors a candidate is reached through.
+const (
+	ConnJ1772    = "j1772"
+	ConnNEMA1450 = "nema_14_50"
+	ConnTT30     = "nema_tt_30"
+	ConnNEMA520  = "nema_5_20"
+)
+
+// Attribution is the credit the Recreation.gov data needs (CC BY 4.0).
+const Attribution = "Data: Recreation.gov (RIDB), CC BY 4.0"
+
+// recreationCampgroundURL is the only place a candidate links out to.
+const recreationCampgroundURL = "https://www.recreation.gov/camping/campgrounds/"
 
 // DCFC is a fast charger near a candidate, for a morning top-up.
 type DCFC struct {
@@ -60,6 +89,22 @@ type Candidate struct {
 	Lon          float64 `json:"lon"`
 	EntityID     string  `json:"entity_id,omitempty"`
 	FacilityType string  `json:"facility_type,omitempty"`
+	// Kind is KindHotel or KindCampground.
+	Kind string `json:"kind"`
+	// Connector, NeedsAdapter, ElectricSites, Sites, ReservationRequired, Fee,
+	// Source, SourceURL, AsOf and Attribution are set for campgrounds. A 30 A
+	// TT-30 site needs an adapter Rivian's Portable Charger does not ship.
+	// ReservationRequired is null when the listing does not say.
+	Connector           string `json:"connector,omitempty"`
+	NeedsAdapter        bool   `json:"needs_adapter,omitempty"`
+	ElectricSites       int    `json:"electric_sites,omitempty"`
+	Sites               int    `json:"sites,omitempty"`
+	ReservationRequired *bool  `json:"reservation_required,omitempty"`
+	Fee                 string `json:"fee,omitempty"`
+	Source              string `json:"source,omitempty"`
+	SourceURL           string `json:"source_url,omitempty"`
+	AsOf                string `json:"asof,omitempty"`
+	Attribution         string `json:"attribution,omitempty"`
 	// L2KW is the listed power, or the assumed 7 kW when the listing has none
 	// (then L2KWAssumed is true and the UI says so).
 	L2KW        float64 `json:"l2_kw"`
@@ -145,36 +190,55 @@ func Suggest(a Archive, req Request) (*Result, error) {
 	if len(sub) < 2 {
 		return res, nil
 	}
-	pois, err := a.QueryCorridor(sub, chargers.FilterHotels, chargers.QueryCorridorOptions{
-		CorridorKm: corridorKm, EndpointTrimMeter: 1, IncludeEndpoints: true,
-	})
+	kinds, err := wantedKinds(req.Kinds)
 	if err != nil {
 		return nil, err
 	}
 	var all []scored
-	for _, p := range pois {
-		if !p.IsL2 {
-			continue
+	for _, kind := range kinds {
+		filter := chargers.FilterHotels
+		if kind == KindCampground {
+			filter = chargers.FilterCamp
 		}
-		along, off := pth.project(p.Lat, p.Lon)
-		if along < lo || along > hi {
-			continue
+		pois, err := a.QueryCorridor(sub, filter, chargers.QueryCorridorOptions{
+			CorridorKm: corridorKm, EndpointTrimMeter: 1, IncludeEndpoints: true,
+		})
+		if err != nil {
+			return nil, err
 		}
-		kw, assumed := p.MaxPowerKW, false
-		if kw <= 0 {
-			kw, assumed = assumedL2KW, true
+		for _, p := range pois {
+			along, off := pth.project(p.Lat, p.Lon)
+			if along < lo || along > hi {
+				continue
+			}
+			var c Candidate
+			if kind == KindCampground {
+				cc, ok := campCandidate(p)
+				if !ok {
+					continue
+				}
+				c = cc
+			} else {
+				if !p.IsL2 {
+					continue
+				}
+				kw, assumed := p.MaxPowerKW, false
+				if kw <= 0 {
+					kw, assumed = assumedL2KW, true
+				}
+				// A hotel with a DC fast charger listed shows its fast power; the
+				// overnight charge is the Level 2, so cap the claim at the L2 range.
+				if kw > maxScoredL2KW && !assumed {
+					kw = maxScoredL2KW
+				}
+				c = Candidate{
+					Name: p.Name, Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, FacilityType: p.FacilityType,
+					Kind: KindHotel, L2KW: round1(kw), L2KWAssumed: assumed, L2Count: p.L2Count,
+				}
+			}
+			c.DetourM, c.AlongM = math.Round(2*off), math.Round(along)
+			all = append(all, scored{c: c})
 		}
-		// A hotel with a DC fast charger listed shows its fast power; the
-		// overnight charge is the Level 2, so cap the claim at the L2 range.
-		if kw > maxScoredL2KW && !assumed {
-			kw = maxScoredL2KW
-		}
-		c := Candidate{
-			Name: p.Name, Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, FacilityType: p.FacilityType,
-			L2KW: round1(kw), L2KWAssumed: assumed, L2Count: p.L2Count,
-			DetourM: math.Round(2 * off), AlongM: math.Round(along),
-		}
-		all = append(all, scored{c: c})
 	}
 	// Rank on the listing alone first, then look for a morning fast charger
 	// for the few that are in the running.
@@ -196,7 +260,89 @@ func Suggest(a Archive, req Request) (*Result, error) {
 	return res, nil
 }
 
-// score ranks a hotel: its Level 2 power matters most, a long detour costs,
+// wantedKinds is the stays to look for: hotels when none is asked for.
+func wantedKinds(in []string) ([]string, error) {
+	if len(in) == 0 {
+		return []string{KindHotel}, nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, k := range in {
+		if k != KindHotel && k != KindCampground {
+			return nil, fmt.Errorf("%w: unknown kind %q", ErrBadRequest, k)
+		}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
+// campCandidate turns a campground listing into a candidate, with the power
+// the stay is planned at. A J1772 Level 2 stall is a stall; otherwise the
+// hookup decides: a 50 A site (or a listed NEMA 14-50) is 240 V and takes
+// Rivian's Portable Charger at nema1450KW; a 30 A site is a 120 V TT-30 that
+// needs an adapter; 15-20 A is 120 V. Slow 120 V sites (under 30 A, or no
+// hookup and no stall) are not offered. ok is false for a listing that is
+// not a way to charge overnight.
+func campCandidate(p chargers.POI) (Candidate, bool) {
+	c := Candidate{
+		Name: p.Name, Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, FacilityType: p.FacilityType,
+		Kind: KindCampground, ElectricSites: p.ElectricSites, Sites: p.Sites, L2Count: p.L2Count,
+		Source: campSource(p), AsOf: p.AsOf, Fee: p.EVPricing,
+	}
+	if p.RIDBID != "" {
+		b := p.Reservable
+		c.ReservationRequired = &b
+		if id, ok := ridbFacilityID(p.RIDBID); ok {
+			c.SourceURL = recreationCampgroundURL + id
+			c.Attribution = Attribution
+		}
+	}
+	switch {
+	case p.SocketJ1772 && p.IsL2:
+		c.Connector = ConnJ1772
+		c.L2KW, c.L2KWAssumed = assumedL2KW, true
+		if p.MaxPowerKW > 0 && p.MaxPowerKW <= maxScoredL2KW {
+			c.L2KW, c.L2KWAssumed = p.MaxPowerKW, false
+		}
+	case p.HookupAmps >= 50 || p.SocketNEMA1450:
+		c.Connector, c.L2KW, c.L2KWAssumed = ConnNEMA1450, nema1450KW, true
+	case p.HookupAmps >= 30:
+		c.Connector, c.L2KW, c.L2KWAssumed, c.NeedsAdapter = ConnTT30, slow120KW, true, true
+	case p.L2Count > 0 && p.HookupAmps == 0:
+		// A listed Level 2 stall with no connector flag: an ordinary stall.
+		c.L2KW, c.L2KWAssumed = assumedL2KW, true
+	default:
+		return Candidate{}, false
+	}
+	c.L2KW = round1(c.L2KW)
+	return c, true
+}
+
+func campSource(p chargers.POI) string {
+	if p.RIDBID != "" {
+		return "Recreation.gov"
+	}
+	return ""
+}
+
+// ridbFacilityID checks a Recreation.gov FacilityID is numeric, so it can only
+// ever build a plain campground link.
+func ridbFacilityID(id string) (string, bool) {
+	if id == "" || len(id) > 12 {
+		return "", false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return id, true
+}
+
+// score ranks a stay: its Level 2 power matters most, a long detour costs,
 // and a fast charger nearby is a bonus only when the Level 2 is weak (the
 // morning top-up it makes up for).
 func score(c Candidate, hasDCFC bool) float64 {

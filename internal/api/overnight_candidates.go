@@ -23,6 +23,9 @@ type overnightRequest struct {
 	// given, is used instead.
 	BudgetHours float64 `json:"budget_hours,omitempty"`
 	BudgetMiles float64 `json:"budget_miles,omitempty"`
+	// Kinds are the stays to suggest: "hotel", "campground". Omitted: hotels
+	// only, as before.
+	Kinds []string `json:"kinds,omitempty"`
 }
 
 // overnightResponse adds the caveat the SPA must show to the suggestion.
@@ -30,6 +33,9 @@ type overnightResponse struct {
 	*overnight.Result
 	// Source says what the list is: a static listing, not live availability.
 	Source string `json:"source"`
+	// Attribution is the credit line the page must show when any candidate
+	// is a Recreation.gov campground (CC BY 4.0); empty otherwise.
+	Attribution string `json:"attribution,omitempty"`
 }
 
 // handleOvernightCandidates serves POST /api/trips/overnight-candidates: up to
@@ -68,6 +74,7 @@ func overnightHandler(arch overnight.Archive, ensure func(context.Context) error
 		}
 		res, err := overnight.Suggest(arch, overnight.Request{
 			Path: req.Path, DriveSec: req.DriveSec, BudgetHours: req.BudgetHours, BudgetMiles: req.BudgetMiles,
+			Kinds: req.Kinds,
 		})
 		if err != nil {
 			if errors.Is(err, overnight.ErrBadRequest) {
@@ -77,7 +84,15 @@ func overnightHandler(arch overnight.Archive, ensure func(context.Context) error
 			jsonError(w, http.StatusInternalServerError, "could not look up hotels")
 			return
 		}
-		writeJSON(w, http.StatusOK, overnightResponse{Result: res, Source: "NREL charging-station listing (a snapshot; availability is not checked)"})
+		out := overnightResponse{Result: res, Source: "NREL charging-station listing (a snapshot; availability is not checked)"}
+		for _, c := range res.Candidates {
+			if c.Attribution != "" {
+				out.Source = "NREL charging-station listing and Recreation.gov campgrounds (a snapshot; availability is not checked)"
+				out.Attribution = overnight.Attribution
+				break
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
