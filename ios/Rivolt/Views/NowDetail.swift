@@ -62,8 +62,9 @@ struct ChargingDetail: Equatable {
         if let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
-        if let est = s.estimatedCost, est > 0 {
-            return .estimate(amount: est, currency: s.estimatedCurrency ?? "")
+        // An estimate with no currency would read as a bare number, so it is left out.
+        if let est = s.estimatedCost, est > 0, let cur = s.estimatedCurrency, cur.count == 3 {
+            return .estimate(amount: est, currency: cur)
         }
         return s.isFreeSession ? .free : nil
     }
