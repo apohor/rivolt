@@ -202,6 +202,7 @@ const (
 var hotelFacilityTypes = map[string]bool{
 	"HOTEL":             true,
 	"MOTEL":             true,
+	"B_AND_B":           true, // what NREL writes
 	"BED_AND_BREAKFAST": true,
 	"INN":               true,
 	"LODGE":             true,
