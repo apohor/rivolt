@@ -57,7 +57,8 @@ struct ChargingDetail: Equatable {
     }
 
     private static func cost(of s: LiveSession) -> Cost? {
-        if let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
+        // Any price Rivian sent counts as billed, "0.00" included (the web does the same).
+        if let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
         if let est = s.estimatedCost, est > 0 {

@@ -166,8 +166,9 @@ actor APIClient {
         return rows.first
     }
 
+    /// Asks for a few: the server drops a gear-bounce row after picking it, so a one-row page can come back empty.
     func latestDrive() async throws -> DriveBrief? {
-        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=1")
+        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=5")
         return rows.first
     }
 

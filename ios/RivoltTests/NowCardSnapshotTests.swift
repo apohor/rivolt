@@ -22,7 +22,23 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("now-stale", NowCard(vehicle: vehicle, summary: NowSummary(state: st, now: now, clock: clock), clock: clock))
     }
 
-    private func snapshot(_ name: String, _ card: NowCard) throws {
+    func testRenderChargingAndDriveDetail() throws {
+        let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
+        let clock = try XCTUnwrap(now.at).addingTimeInterval(120)
+        let summary = NowSummary(state: st, now: now, clock: clock)
+        let charge = try Fixture.decode([ChargeBrief].self, "charges_last").first
+        for (name, file) in [("detail-charging-fast", "live_session"), ("detail-charging-home", "live_session_home")] {
+            let session = try Fixture.decode(LiveSession.self, file)
+            let detail = try XCTUnwrap(ChargingDetail.make(summary: summary, session: session, charge: charge))
+            try snapshot(name, ChargingDetailCard(detail: detail))
+        }
+        let parked = NowSummary(input: .init(socPct: 70, rangeKm: 250, chargeTargetPct: nil, gear: "P", powerState: "ready", chargerState: nil, chargerPowerKw: nil, at: clock), now: nil, clock: clock)
+        let last = try Fixture.decode([DriveBrief].self, "drives_last").first
+        let lastDetail = try XCTUnwrap(DriveDetail.make(summary: parked, live: nil, last: last))
+        try snapshot("detail-last-drive", DriveDetailCard(detail: lastDetail, clock: clock.addingTimeInterval(3600)))
+    }
+
+    private func snapshot(_ name: String, _ card: some View) throws {
         for scheme in [ColorScheme.light, .dark] {
             let view = card
                 .padding()

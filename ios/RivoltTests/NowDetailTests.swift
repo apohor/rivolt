@@ -90,4 +90,25 @@ final class NowDetailTests: XCTestCase {
         XCTAssertEqual(NowFormat.duration(4320), "1 h 12 min")
         XCTAssertEqual(NowFormat.money(4.5, currency: ""), "4.50")
     }
+
+    func testServerFixturesDecodeAndFeedTheCards() throws {
+        let sum = try charging()
+        let billed = try Fixture.decode(LiveSession.self, "live_session")
+        XCTAssertEqual(billed.timeRemainingSeconds, 1500)
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: billed, charge: nil)?.cost, .billed(amount: 18.97, currency: "USD"))
+        let home = try Fixture.decode(LiveSession.self, "live_session_home")
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: home, charge: nil)?.cost, .estimate(amount: 3.224, currency: "USD"))
+        let drive = try Fixture.decode(LiveDrive.self, "live_drive")
+        XCTAssertEqual(drive.distanceMi, 17.7)
+        let drives = try Fixture.decode([DriveBrief].self, "drives_last")
+        XCTAssertEqual(drives.first?.distanceMi, 18.3)
+        XCTAssertEqual(drives.first?.estimatedCost, 0.858)
+        let charges = try Fixture.decode([ChargeBrief].self, "charges_last")
+        XCTAssertEqual(charges.first?.energyAddedKwh, 58.1)
+    }
+
+    func testAZeroPriceFromRivianIsStillBilled() throws {
+        let sum = try charging()
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0.00", currentCurrency: "USD"), charge: nil)?.cost, .billed(amount: 0, currency: "USD"))
+    }
 }
