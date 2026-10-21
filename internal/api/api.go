@@ -1126,6 +1126,10 @@ func New(d Deps) http.Handler {
 			}))
 			// What the iPhone's Home charts plot: compact drive and charge points
 			// with no coordinates, ids, costs or places (chart_points.go).
+			// The iPhone's Activity lists in one compact answer (activity.go).
+			r.With(gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleActivity(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
+			}))
 			// Home / Away / Fast charge split for the iPhone (charge_split.go).
 			r.Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeSplit(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
