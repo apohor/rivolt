@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the Notification Service Extension needs, kept free of UIKit so the
-/// app's unit tests cover it. An APNs payload carries only `{kind, id}` and a
+/// app's unit tests cover it. An APNs payload carries only `{id}` and a
 /// generic alert (Apple's servers never see the text); the extension fetches the
 /// real title and body from Rivolt over TLS with the signed-in token.
 enum NotificationFetch {

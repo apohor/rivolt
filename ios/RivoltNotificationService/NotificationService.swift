@@ -1,7 +1,7 @@
 import UserNotifications
 
 /// The Notification Service Extension. An APNs payload from Rivolt is only
-/// `{kind, id}` with a generic alert, because Apple's push servers are not
+/// `{id}` with a generic alert, because Apple's push servers are not
 /// end-to-end encrypted. This extension runs when it arrives, fetches the real
 /// title and body from Rivolt over TLS with the signed-in token (shared through
 /// the Keychain access group) and swaps them in. If anything goes wrong, or

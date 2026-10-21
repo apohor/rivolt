@@ -37,7 +37,7 @@ Settings → Notifications (Home menu) has the same five switches as the web
 (charging complete, software updates, anomalies, plug-in reminder and
 milestones, the last two off until turned on).
 
-An APNs payload carries only `{kind, id}` and a generic alert: Apple's push
+An APNs payload carries only `{id}` and a generic alert: Apple's push
 servers see that a notification was sent, never its words. The Notification
 Service Extension (`RivoltNotificationService`) fetches the title and body from
 `GET /api/push/notifications/{id}` with the signed-in token, shared through the
