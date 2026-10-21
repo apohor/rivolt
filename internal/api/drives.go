@@ -26,11 +26,8 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		// ?slim=1 leaves out the route polyline (the lists draw no maps);
 		// GET /api/drives/{id} has it for one drive.
-		list := store.ListRecent
-		if r.URL.Query().Get("slim") == "1" {
-			list = store.ListRecentSlim
-		}
-		out, err := list(r.Context(), limit)
+		// ?vehicle_id=<rivian vehicle id> narrows the list to one of the caller's trucks.
+		out, err := store.ListRecentFor(r.Context(), limit, r.URL.Query().Get("slim") == "1", r.URL.Query().Get("vehicle_id"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

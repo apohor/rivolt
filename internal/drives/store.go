@@ -184,17 +184,24 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 // ListRecent returns the most recent N drives, newest first.
 func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
-	return s.listRecent(ctx, limit, true)
+	return s.listRecent(ctx, limit, true, "")
+}
+
+// ListRecentFor is ListRecent or ListRecentSlim (slim) for one truck, by its Rivian
+// vehicle id ("" = every truck). The rows are the caller's own, so another user's
+// vehicle id matches nothing.
+func (s *Store) ListRecentFor(ctx context.Context, limit int, slim bool, rivianVehicleID string) ([]Drive, error) {
+	return s.listRecent(ctx, limit, !slim, rivianVehicleID)
 }
 
 // ListRecentSlim is ListRecent without the route polyline (RoutePolyline is
 // empty): the lists don't draw maps, and the polyline is most of a row's size.
 // Get returns the full row.
 func (s *Store) ListRecentSlim(ctx context.Context, limit int) ([]Drive, error) {
-	return s.listRecent(ctx, limit, false)
+	return s.listRecent(ctx, limit, false, "")
 }
 
-func (s *Store) listRecent(ctx context.Context, limit int, polyline bool) ([]Drive, error) {
+func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivianVehicleID string) ([]Drive, error) {
 	routeCol := `''`
 	if polyline {
 		routeCol = `COALESCE(d.route_polyline,'')`
@@ -218,8 +225,9 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool) ([]Dri
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
 		  AND ended_at - started_at >= interval '1 minute'
+		  AND ($3 = '' OR v.rivian_vehicle_id = $3)
 		ORDER BY d.started_at DESC
-		LIMIT $2`, s.userID, limit)
+		LIMIT $2`, s.userID, limit, rivianVehicleID)
 	if err != nil {
 		return nil, err
 	}
