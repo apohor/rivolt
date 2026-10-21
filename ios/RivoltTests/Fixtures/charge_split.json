@@ -1,0 +1,15 @@
+{
+  "home": {
+    "sessions": 18,
+    "energy_kwh": 412.6
+  },
+  "away": {
+    "sessions": 3,
+    "energy_kwh": 41.2
+  },
+  "fast": {
+    "sessions": 4,
+    "energy_kwh": 186.9
+  },
+  "total": 25
+}
