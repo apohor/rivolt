@@ -165,3 +165,9 @@ func haversineMeters(lat1, lon1, lat2, lon2 float64) float64 {
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	return r * c
 }
+
+// HaversineMeters is the great-circle distance between two lat/lon points; a missing
+// fix (the 0,0 sentinel) is +Inf, so a pair with an unknown location never merges.
+func HaversineMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	return haversineMeters(lat1, lon1, lat2, lon2)
+}
