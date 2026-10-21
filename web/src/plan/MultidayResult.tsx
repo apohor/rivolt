@@ -1,4 +1,4 @@
-import { hookupById, stayLine, type HookupId } from "./hookups";
+import { hookupById, hookupNote, stayLine, type HookupId } from "./hookups";
 import { Suspense } from "react";
 import { type FromPosition, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
@@ -38,7 +38,7 @@ export function OvernightRow({ day, stay }: { day: TripPlanMultidayDay; stay?: S
         <div data-stay-line className="font-medium text-neutral-100">
           {hk ? stayLine(o.name || "your stop", hk.id, o.l2_kw) : `Overnight at ${o.name || "your stop"}`}
         </div>
-        {hk && <div data-stay-note className="text-xs text-neutral-500">{hk.note}</div>}
+        {hk && <div data-stay-note className="text-xs text-neutral-500">{hookupNote(hk.id, o.l2_kw)}</div>}
         <div className="text-neutral-400">
           Arrive about {fmtTime(day.arrive_at)} at {day.arrival_soc.toFixed(0)}%. Parked about {o.parked_hours.toFixed(0)} h.
         </div>

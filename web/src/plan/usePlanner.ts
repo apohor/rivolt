@@ -1,4 +1,4 @@
-import { DEFAULT_OVERNIGHT_KW, hookupById, hookupForKw } from "./hookups";
+import { DEFAULT_OVERNIGHT_KW, hookupById } from "./hookups";
 import { noRoutePrefs, routePrefsFromInputs, routePrefsWire, type RoutePrefs } from "./routePrefs";
 import { buildDays, stopKey, type OvernightOptions } from "./days";
 import { useEffect, useRef, useState } from "react";
@@ -29,7 +29,7 @@ export function usePlanner() {
   const [overnightL2Kw, setOvernightL2Kw] = useState<number>(DEFAULT_OVERNIGHT_KW);
   const [overnightOpts, setOvernightOpts] = useState<Record<string, OvernightOptions>>({});
   const optsFor = (s: { lat: number; lon: number }): OvernightOptions =>
-    overnightOpts[stopKey(s)] ?? { l2Kw: overnightL2Kw, hookup: hookupForKw(overnightL2Kw), until: overnightDepartureLocal, maxSocPct: maxOvernightSoCPct };
+    overnightOpts[stopKey(s)] ?? { l2Kw: overnightL2Kw, until: overnightDepartureLocal, maxSocPct: maxOvernightSoCPct };
   // remember: the edit also becomes the starting value for the next overnight. A hotel's listed
   // charger belongs to that hotel only, so picking one does not.
   const updateOvernight = (s: { lat: number; lon: number }, patch: Partial<OvernightOptions>, remember = true) => {
@@ -404,7 +404,7 @@ export function usePlanner() {
           .filter((_, i) => overnightFlags[i])
           .map((st) => {
             const o = optsFor(st);
-            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct, hookup: o.hookup ?? hookupForKw(o.l2Kw) };
+            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct, ...(o.hookup ? { hookup: o.hookup } : {}) };
           }),
         targetSoc,
         startingSoc,
@@ -474,7 +474,7 @@ export function usePlanner() {
     if (typeof i.overnight_l2_kw === "number") setOvernightL2Kw(i.overnight_l2_kw);
     setOvernightOpts(
       Object.fromEntries(
-        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, hookup: hookupById(o.hookup)?.id ?? hookupForKw(o.l2_kw), until: o.until, maxSocPct: o.max_soc_pct }]),
+        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, hookup: hookupById(o.hookup)?.id, until: o.until, maxSocPct: o.max_soc_pct }]),
       ),
     );
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);

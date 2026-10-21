@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// Your own overnight stop: any place, with the hookup you choose. The planned power follows the hookup (7.2 kW by default,
+// Your own overnight stop: any place, with the hookup you choose. The planned power follows the hookup (7 kW by default,
 // editable from 1.0 to 11.5), the note names Rivian's Portable Charger, and the night is planned and saved with its hookup.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -41,20 +41,20 @@ for (const w of [390, 1280] as const) {
     await open(page);
     const night = page.locator("[data-overnight-stop]").first();
     await expect(night).toContainText("Mono Lake Campground");
-    // Default: a J1772 station at 7.2 kW, with the honest note.
+    // Default: a J1772 station at 7 kW, with the honest note.
     await expect(night.getByLabel("Hookup at the stop")).toHaveValue("j1772");
-    await expect(night.getByLabel("Planned power in kW")).toHaveValue("7.2");
-    await expect(night.locator("[data-hookup-note]")).toContainText("planned at 7.2 kW (estimate)");
+    await expect(night.getByLabel("Planned power in kW")).toHaveValue("7");
+    await expect(night.locator("[data-hookup-note]")).toContainText("planned at 7 kW (estimate)");
     // NEMA 14-50: the Portable Charger note, same 7.2 kW.
     await night.getByLabel("Hookup at the stop").selectOption("nema_14_50");
     await expect(night.locator("[data-hookup-note]")).toContainText("Up to 7.6 kW with Rivian's Portable Charger; planned at 7.2 kW (estimate) for campground voltage. You need to carry the Portable Charger.");
     await expect(night.getByLabel("Planned power in kW")).toHaveValue("7.2");
     // A slow outlet changes the power; the kW stays editable and in range.
     await night.getByLabel("Hookup at the stop").selectOption("tt_30");
-    await expect(night.getByLabel("Planned power in kW")).toHaveValue("2.9");
-    await expect(night.locator("[data-hookup-note]")).toContainText("Needs an adapter not included with the truck");
+    await expect(night.getByLabel("Planned power in kW")).toHaveValue("1.4");
+    await expect(night.locator("[data-hookup-note]")).toContainText("needs an adapter not included with the truck");
     await night.getByLabel("Planned power in kW").fill("40");
-    await expect(night.getByLabel("Planned power in kW")).toHaveValue("11.5");
+    await expect(night.getByLabel("Planned power in kW")).toHaveValue("1.4");
     await night.getByLabel("Hookup at the stop").selectOption("nema_14_50");
     // No charger hides the power field.
     await night.getByLabel("Hookup at the stop").selectOption("none");
@@ -70,7 +70,7 @@ for (const w of [390, 1280] as const) {
 test("the chosen hookup goes to the plan with its power", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  const reqs: { days: { overnight?: { l2_kw: number; name: string } }[] }[] = [];
+  const reqs: { days: { overnight?: { l2_kw: number; hookup?: string; name: string } }[] }[] = [];
   await open(page, async () => {
     await page.route("**/api/trips/plan-multiday", (r) => {
       reqs.push(r.request().postDataJSON());
@@ -80,6 +80,6 @@ test("the chosen hookup goes to the plan with its power", async ({ browser }) =>
   await page.locator("[data-overnight-stop]").first().getByLabel("Hookup at the stop").selectOption("nema_14_50");
   await page.getByRole("button", { name: "Plan 2-day trip" }).click();
   await expect.poll(() => reqs.length).toBe(1);
-  expect(reqs[0].days[0].overnight).toMatchObject({ l2_kw: 7.2, name: expect.stringContaining("Mono Lake") });
+  expect(reqs[0].days[0].overnight).toMatchObject({ l2_kw: 7.2, hookup: "nema_14_50", name: expect.stringContaining("Mono Lake") });
   await ctx.close();
 });

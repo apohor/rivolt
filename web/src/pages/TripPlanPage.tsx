@@ -1,6 +1,6 @@
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
-import { HOOKUPS, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw } from "../plan/hookups";
+import { DEFAULT_OVERNIGHT_KW, HOOKUPS, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useUiNext } from "../lib/uiNext";
@@ -218,7 +218,10 @@ export default function TripPlanPage() {
       setExtraStops((prev) => [...prev, labeled]);
       setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
     }
-    if (stop.l2Kw !== undefined) updateOvernight(at >= 0 ? extraStops[at] : labeled, { l2Kw: stop.l2Kw, hookup: hookupForKw(stop.l2Kw) }, false);
+    // A place of your own starts as a J1772 station at 7.0 kW (you pick the hookup); a listed charger keeps its own power.
+    const target = at >= 0 ? extraStops[at] : labeled;
+    if (stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw }, false);
+    else updateOvernight(target, { l2Kw: DEFAULT_OVERNIGHT_KW, hookup: "j1772" }, false);
   };
   const overnightsEl = (
     <OvernightList
@@ -1690,11 +1693,11 @@ function OvernightList({
                   <span className="text-neutral-400">Planned power</span>
                   <input
                     type="number"
-                    min={KW_MIN}
-                    max={KW_MAX}
+                    min={hookupById(o.hookup)?.min ?? KW_MIN}
+                    max={hookupById(o.hookup)?.max ?? KW_MAX}
                     step={0.1}
                     value={o.l2Kw}
-                    onChange={(e) => onChange(stop, { l2Kw: clampKw(Number(e.target.value)) })}
+                    onChange={(e) => onChange(stop, { l2Kw: clampKw(Number(e.target.value), o.hookup) })}
                     aria-label="Planned power in kW"
                     className={`w-16 ${fieldCls}`}
                   />
@@ -1716,7 +1719,7 @@ function OvernightList({
               </label>
             </div>
             <p data-hookup-note className="text-xs text-neutral-500">
-              {hookupById(o.hookup ?? hookupForKw(o.l2Kw))?.note}{" "}
+              {hookupNote(o.hookup ?? hookupForKw(o.l2Kw), o.l2Kw)}{" "}
               {o.l2Kw > 0 ? `Charging is capped at ${o.maxSocPct}% for the hours you're parked.` : ""} Pick from the map to use a stay's listed charger.
             </p>
           </div>

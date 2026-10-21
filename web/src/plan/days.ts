@@ -30,7 +30,7 @@ export function buildDays(stops: StopSel[], overnightFlags: boolean[], destinati
         ...(vias.length ? { vias } : {}),
         end: point(s),
         ...(targetSocPct !== undefined ? { target_arrival_soc_pct: targetSocPct } : {}),
-        overnight: { l2_kw: o.l2Kw, until: o.until, max_soc_pct: o.maxSocPct, name: s.label },
+        overnight: { l2_kw: o.l2Kw, until: o.until, max_soc_pct: o.maxSocPct, name: s.label, ...(o.hookup ? { hookup: o.hookup } : {}) },
       });
       vias = [];
     } else {
