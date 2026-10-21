@@ -56,6 +56,8 @@ type Service struct {
 	vapid  VAPID
 	logger *slog.Logger
 	sender Sender
+	// apns, when set, also delivers to the user's iPhone app installs (nil: off).
+	apns *APNs
 
 	// ttlSeconds is the push server's "keep-alive" budget for a
 	// notification. 24h is the common default — long enough to survive a
@@ -146,6 +148,7 @@ func (s *Service) DeliverPlugInReminder(ctx context.Context, store *Store, soc, 
 		}
 		ok++
 	}
+	ok += s.fanAPNs(ctx, store, p)
 	if ok == 0 {
 		if last == nil {
 			last = errors.New("push: no subscription has the plug-in reminder on")
@@ -179,6 +182,7 @@ func (s *Service) DeliverMilestone(ctx context.Context, store *Store, title, bod
 		}
 		ok++
 	}
+	ok += s.fanAPNs(ctx, store, p)
 	if ok == 0 {
 		if last == nil {
 			last = errors.New("push: no subscription has milestones on")
@@ -284,6 +288,18 @@ func (s *Service) broadcast(store *Store, p Payload, sel selector) {
 	// one: hooks running this typically outlive the triggering frame.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
+	// The iPhone app's installs, independently of the web subscriptions (a user
+	// may have only the app).
+	var apnsDone sync.WaitGroup
+	if s.apns != nil {
+		apnsDone.Add(1)
+		go func() {
+			defer apnsDone.Done()
+			s.fanAPNs(ctx, store, p)
+		}()
+	}
+	defer apnsDone.Wait()
 
 	subs, err := store.List(ctx)
 	if err != nil {
