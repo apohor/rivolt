@@ -63,9 +63,9 @@ struct NotificationSettingsView: View {
                     } footer: {
                         VStack(alignment: .leading, spacing: 4) {
                             if prefs.chargingLiveKnown {
-                                Text("Open Rivolt while the truck is charging to start the Live Activity. It ends when the charge does.")
+                                Text("Starts when you open Rivolt while the truck is charging, and ends when the charge does.")
                                 if !liveActivitiesAllowed {
-                                    Text("Live Activities are off for Rivolt in iOS Settings.").foregroundStyle(.orange)
+                                    Text("Live Activities are turned off for Rivolt in iOS Settings.").foregroundStyle(.orange)
                                 }
                             }
                             if let error = manager.switchError {

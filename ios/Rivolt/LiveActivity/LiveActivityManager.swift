@@ -31,6 +31,9 @@ final class LiveActivityManager {
     @ObservationIgnored private let backend: LiveActivityBackend
     @ObservationIgnored private var server: PushServer?
     @ObservationIgnored private var registeredToken: String?
+    /// Which iPhone and truck the activity belongs to, for the server (set on each sync).
+    @ObservationIgnored private var deviceToken: String?
+    @ObservationIgnored private var vehicleID: String?
     @ObservationIgnored private var observing = false
 
     convenience init() {
@@ -50,8 +53,10 @@ final class LiveActivityManager {
     }
 
     /// Called after each refresh of the truck's state. `switchOn` is the person's per-iPhone switch.
-    func sync(summary: NowSummary, switchOn: Bool) async {
-        guard switchOn, backend.allowedInSettings else {
+    func sync(summary: NowSummary, switchOn: Bool, vehicleID: String?, deviceToken: String?) async {
+        self.vehicleID = vehicleID
+        self.deviceToken = deviceToken
+        guard switchOn, backend.allowedInSettings, vehicleID != nil, deviceToken != nil else {
             await stop()
             return
         }
@@ -80,7 +85,7 @@ final class LiveActivityManager {
         observing = false
         if let token = registeredToken {
             registeredToken = nil
-            try? await server?.endActivity(token: token)
+            try? await server?.endActivity(activityToken: token)
         }
     }
 
@@ -93,7 +98,9 @@ final class LiveActivityManager {
         { [weak self] token in
             guard let self else { return }
             self.registeredToken = token
-            Task { try? await self.server?.registerActivity(token: token) }
+            guard let device = self.deviceToken, let vehicle = self.vehicleID else { return }
+            // A 409 (the server's switch is off) or 404 is not retried: nothing is pushed for an unregistered activity.
+            Task { try? await self.server?.registerActivity(deviceToken: device, activityToken: token, vehicleID: vehicle) }
         }
     }
 }

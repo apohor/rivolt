@@ -136,6 +136,6 @@ struct HomeView: View {
     private func syncLiveActivity() async {
         let switchOn = state.notifications.isOn && state.notifications.preferences?.onChargingLive == true
         let summary = NowSummary(state: vehicleState, now: now, clock: .now)
-        await state.liveActivity.sync(summary: summary, switchOn: switchOn)
+        await state.liveActivity.sync(summary: summary, switchOn: switchOn, vehicleID: selected?.id, deviceToken: state.notifications.deviceToken)
     }
 }

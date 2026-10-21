@@ -77,7 +77,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .milestones:
             return "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."
         case .chargingLive:
-            return "Shows charge level, power and time to your target on the Lock Screen and Dynamic Island while a charge is running. While this is on, Apple can see your charge level and power during a charge."
+            return "Shows charge level, power and time to your target on the Lock Screen and in the Dynamic Island while a charge is running. While it's on, Apple's push service gets your charge level, charging power and minutes to target during a charge, but never your truck's location, name or VIN. Off by default; this iPhone only."
         default:
             return nil
         }

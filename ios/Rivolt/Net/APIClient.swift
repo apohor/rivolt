@@ -112,16 +112,22 @@ actor APIClient {
 
     private struct ActivityRegisterBody: Encodable {
         let token: String
-        let kind: String
+        let activityToken: String
+        let vehicleId: String
     }
 
-    /// Tells the server this iPhone's charging Live Activity token (the app started the activity; v1 has no push-to-start).
-    func registerActivity(token: String) async throws {
-        let _: Empty = try await request("POST", "/api/push/apns/activity", body: ActivityRegisterBody(token: token, kind: "update"))
+    private struct ActivityEndBody: Encodable {
+        let activityToken: String
     }
 
-    func endActivity(token: String) async throws {
-        let _: Empty = try await request("POST", "/api/push/apns/activity/end", body: ApnsTokenBody(token: token))
+    /// Tells the server this charging Live Activity's push token (the app started it; v1 has no push-to-start).
+    /// `deviceToken` is this iPhone's APNs token, `activityToken` ActivityKit's per-activity token (hex).
+    func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws {
+        let _: Empty = try await request("POST", "/api/push/apns/activity", body: ActivityRegisterBody(token: deviceToken, activityToken: activityToken, vehicleId: vehicleID))
+    }
+
+    func endActivity(activityToken: String) async throws {
+        let _: Empty = try await request("POST", "/api/push/apns/activity/end", body: ActivityEndBody(activityToken: activityToken))
     }
 
     func unregisterApns(token: String) async throws {

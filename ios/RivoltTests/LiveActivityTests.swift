@@ -11,8 +11,12 @@ private final class LiveFakeServer: PushServer, @unchecked Sendable {
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws {}
     func unregisterApns(token: String) async throws {}
     func testApns() async throws -> Int { 1 }
-    func registerActivity(token: String) async throws { registered.append(token) }
-    func endActivity(token: String) async throws { ended.append(token) }
+    var registeredWith: [(device: String, vehicle: String)] = []
+    func registerActivity(deviceToken: String, activityToken: String, vehicleID: String) async throws {
+        registered.append(activityToken)
+        registeredWith.append((deviceToken, vehicleID))
+    }
+    func endActivity(activityToken: String) async throws { ended.append(activityToken) }
 }
 
 @MainActor
@@ -85,7 +89,7 @@ final class ChargingActivityContentTests: XCTestCase {
         XCTAssertTrue(with.chargingLiveKnown)
         XCTAssertTrue(with.onChargingLive)
         XCTAssertEqual(PushKind.chargingLive.wireKey, "on_charging_live")
-        XCTAssertTrue(PushKind.chargingLive.help?.contains("Apple can see your charge level and power") == true)
+        XCTAssertTrue(PushKind.chargingLive.help?.contains("Apple's push service gets your charge level") == true)
     }
 }
 
@@ -106,23 +110,23 @@ final class LiveActivityManagerTests: XCTestCase {
     func testNothingStartsWithTheSwitchOffOrLiveActivitiesNotAllowed() async throws {
         let backend = FakeBackend()
         let m = LiveActivityManager(backend: backend)
-        await m.sync(summary: try charging(), switchOn: false)
+        await m.sync(summary: try charging(), switchOn: false, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertTrue(backend.started.isEmpty)
         backend.allowedInSettings = false
-        await m.sync(summary: try charging(), switchOn: true)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertTrue(backend.started.isEmpty)
     }
 
     func testAFreshChargeStartsOnceThenUpdates() async throws {
         let backend = FakeBackend()
         let m = LiveActivityManager(backend: backend)
-        await m.sync(summary: try charging(), switchOn: true)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertEqual(backend.started.count, 1)
         XCTAssertEqual(backend.started[0].target, 80)
         XCTAssertEqual(backend.started[0].state.socPct, 63)
         XCTAssertEqual(backend.started[0].state.powerKw, 11.1)
         XCTAssertEqual(backend.started[0].state.minutesToTarget, 122)
-        await m.sync(summary: try charging(clock: 120), switchOn: true)
+        await m.sync(summary: try charging(clock: 120), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertEqual(backend.started.count, 1, "already running: update, don't start another")
         XCTAssertEqual(backend.updates.count, 1)
     }
@@ -130,11 +134,11 @@ final class LiveActivityManagerTests: XCTestCase {
     func testStaleOrMissingDataChangesNothing() async throws {
         let backend = FakeBackend()
         let m = LiveActivityManager(backend: backend)
-        await m.sync(summary: try charging(), switchOn: true)
-        await m.sync(summary: try charging(clock: 3 * 3600), switchOn: true)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
+        await m.sync(summary: try charging(clock: 3 * 3600), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertEqual(backend.endCalls, 0)
         XCTAssertTrue(backend.updates.isEmpty)
-        await m.sync(summary: NowSummary(state: nil, now: nil, clock: .now), switchOn: true)
+        await m.sync(summary: NowSummary(state: nil, now: nil, clock: .now), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertEqual(backend.endCalls, 0)
     }
 
@@ -143,21 +147,31 @@ final class LiveActivityManagerTests: XCTestCase {
         let server = LiveFakeServer()
         let m = LiveActivityManager(backend: backend)
         m.attach(server: server)
-        await m.sync(summary: try charging(), switchOn: true)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         backend.onToken?("abc123")
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(server.registered, ["abc123"])
-        await m.sync(summary: try parked(), switchOn: true)
+        XCTAssertEqual(server.registeredWith.first?.device, "dev")
+        XCTAssertEqual(server.registeredWith.first?.vehicle, "veh-1")
+        await m.sync(summary: try parked(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertEqual(backend.endCalls, 1)
         XCTAssertEqual(server.ended, ["abc123"])
+    }
+
+    func testWithoutATruckOrDeviceTokenNothingStarts() async throws {
+        let backend = FakeBackend()
+        let m = LiveActivityManager(backend: backend)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: nil, deviceToken: "dev")
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: nil)
+        XCTAssertTrue(backend.started.isEmpty)
     }
 
     func testTurningTheSwitchOffEndsARunningActivity() async throws {
         let backend = FakeBackend()
         let m = LiveActivityManager(backend: backend)
-        await m.sync(summary: try charging(), switchOn: true)
+        await m.sync(summary: try charging(), switchOn: true, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertTrue(backend.isRunning)
-        await m.sync(summary: try charging(), switchOn: false)
+        await m.sync(summary: try charging(), switchOn: false, vehicleID: "veh-1", deviceToken: "dev")
         XCTAssertFalse(backend.isRunning)
         XCTAssertEqual(backend.endCalls, 1)
     }
