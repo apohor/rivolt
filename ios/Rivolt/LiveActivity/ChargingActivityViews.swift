@@ -15,7 +15,7 @@ struct ChargingLockScreenView: View {
                 .font(.title2)
                 .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
             VStack(alignment: .leading, spacing: 2) {
-                Text(isStale ? "Waiting for an update" : "Charging")
+                Text(isStale ? "May be out of date" : "Charging")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
                 Text("\(state.socPct)%")
@@ -52,7 +52,7 @@ enum ChargingActivityText {
     static func spoken(_ s: ChargingActivityAttributes.ContentState, targetPct: Int?, isStale: Bool) -> String {
         var parts = ["Charging, \(s.socPct) percent", String(format: "%.1f kilowatts", s.powerKw)]
         if let line = untilTarget(s.minutesToTarget, targetPct: targetPct) { parts.append(line) }
-        if isStale { parts.append("waiting for an update") }
+        if isStale { parts.append("may be out of date") }
         return parts.joined(separator: ", ")
     }
 }
