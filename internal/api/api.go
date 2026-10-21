@@ -1101,6 +1101,7 @@ func New(d Deps) http.Handler {
 				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
 				r.Get("/enabled", handleLedgerEnabled(uiThemeNextEnabled(d.Flags)))
 				r.Get("/monthly", withUser(la.monthly))
+				r.Get("/monthly.csv", withUser(la.statementCSV))
 				r.Get("/summary", withUser(la.summary))
 				r.Get("/trips", withUser(la.trips))
 				r.Get("/savings", withUser(la.savings))
