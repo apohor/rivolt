@@ -9,6 +9,10 @@
 // Loaded as a blocking same-origin script before the app's module entry,
 // because the CSP forbids inline scripts. Plain ES5: it runs before, and
 // without, the app's own polyfills.
+//
+// The file name is fixed (not hashed): bump ?v= in index.html on ANY change
+// here, or browsers and Cloudflare may keep the old copy (the server gives
+// unhashed root files max-age=300, which caps how long).
 (function () {
   var KEY = "rivolt.assetReloads";
   var MAX = 2;

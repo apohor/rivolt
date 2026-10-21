@@ -134,8 +134,19 @@ func spaHandler(fsys fs.FS) http.Handler {
 			shell(w, r)
 			return
 		}
-		if p == "index.html" {
+		switch {
+		case p == "index.html":
 			noCacheIndex(w)
+		case p == "sw.js":
+			// The service worker: browsers should see a new one promptly.
+			w.Header().Set("Cache-Control", "no-cache")
+		case !strings.HasPrefix(p, "assets/"):
+			// Unhashed root files (asset-guard.js, theme-init.js, the
+			// manifest, icons, og.png): a short, explicit TTL, so a fix ships
+			// within minutes even if a ?v= bump is forgotten, and Cloudflare's
+			// default edge TTL doesn't decide for us. Hashed /assets/* keep
+			// whatever they had.
+			w.Header().Set("Cache-Control", "public, max-age=300")
 		}
 		fileServer.ServeHTTP(w, r)
 	})
