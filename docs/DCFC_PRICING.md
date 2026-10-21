@@ -26,6 +26,21 @@
 > presets without observed prices so the demo stops showing a figure the live planner
 > hides.
 
+## Membership terms (`membership.go`)
+
+What each network says its membership plans cost and give (for example EVgo Plus
+$6.99 a month and up to 15% off, Electrify America Pass+ "about 25%"), each row with
+the operator page it was read from, how it was read (the page, or a search snippet of
+it when the page itself blocks fetching) and the date it was last checked. Served by
+`GET /api/settings/charging/membership-terms`; every row carries "As listed by
+<network>; may be out of date; last checked <date>." and a row last checked over 12
+months ago is not returned. Rules: facts as the operator states them, no percentage
+a network does not state (Rivian Adventure Network states none), no fee read only
+from a third party (Electrify America Pass+ and the Tesla Supercharging Membership
+fees are left out), never merged with a user's own rates. Re-check by hand, update
+`membershipTerms` and the `Checked` dates; unchecked rows disappear on their own
+after 12 months. Checked 2026-10-20 (growth's recheck).
+
 ## The rate table (matching and Settings only)
 
 The trip planner's cost strip ("DCFC spend: $X guest / $Y with

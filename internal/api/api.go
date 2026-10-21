@@ -778,6 +778,8 @@ func New(d Deps) http.Handler {
 				r.Post("/networks/reset", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksReset(d.Settings.For(uid))(w, r)
 				}))
+				// Networks' membership terms: sourced facts with their check date.
+				r.Get("/membership-terms", handleMembershipTerms(time.Now))
 				// The user's off-peak electricity schedule (times and rates).
 				r.Get("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleOffpeakGet(d.Settings.For(uid))(w, r)
