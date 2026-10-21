@@ -13,7 +13,7 @@
 -- HMACs of the browser-binding state value and of the one-time code are
 -- stored (same pepper as session tokens), never the raw values.
 --
--- Rollback: DROP TABLE app_auth_requests; ALTER TABLE sessions DROP COLUMN kind.
+-- Rollback: DROP TABLE app_auth_requests (drops its policy); ALTER TABLE sessions DROP COLUMN kind.
 
 ALTER TABLE sessions
     ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'web'
@@ -31,3 +31,14 @@ CREATE TABLE IF NOT EXISTS app_auth_requests (
 
 CREATE INDEX IF NOT EXISTS app_auth_requests_expires_at_idx
     ON app_auth_requests (expires_at);
+
+-- Tenant row-level security, the 0008/0059 stage-1 pattern: ENABLE, not
+-- FORCE, so the app role (the table owner) is unaffected and the policy is
+-- ready for the role split. Like sessions, this table is read before any user
+-- is known (start and token run unauthenticated), so the role-split stage
+-- will need the same pre-auth access path sessions gets.
+ALTER TABLE app_auth_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS app_auth_requests_tenant_isolation ON app_auth_requests;
+CREATE POLICY app_auth_requests_tenant_isolation ON app_auth_requests
+    USING (user_id = rivolt_current_user_id())
+    WITH CHECK (user_id = rivolt_current_user_id());
