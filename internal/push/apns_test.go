@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -288,5 +289,112 @@ func TestAPNsSendRefusesMalformedTokenBeforeRequest(t *testing.T) {
 	defer mu.Unlock()
 	if hits != 0 {
 		t.Errorf("%d requests reached Apple for malformed tokens", hits)
+	}
+}
+
+// The Live Activity payload is exactly aps{timestamp, event, content-state{soc_pct,
+// power_kw, minutes_to_target}} and nothing else, for an update and for the end:
+// no strings, no names, no places (DA's condition).
+func TestLiveBodyHasExactlyTheAllowedKeys(t *testing.T) {
+	for _, event := range []string{LiveUpdate, LiveEnd} {
+		raw := liveBody(event, time.Unix(1790000000, 0), NewLiveState(64.4, 11.46, 42.2))
+		var top map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &top); err != nil {
+			t.Fatal(err)
+		}
+		if len(top) != 1 || top["aps"] == nil {
+			t.Fatalf("%s: top-level keys = %s", event, raw)
+		}
+		var aps map[string]json.RawMessage
+		_ = json.Unmarshal(top["aps"], &aps)
+		keys := func(m map[string]json.RawMessage) string {
+			var ks []string
+			for k := range m {
+				ks = append(ks, k)
+			}
+			sort.Strings(ks)
+			return strings.Join(ks, ",")
+		}
+		if keys(aps) != "content-state,event,timestamp" {
+			t.Errorf("%s: aps keys = %s", event, keys(aps))
+		}
+		var cs map[string]json.RawMessage
+		_ = json.Unmarshal(aps["content-state"], &cs)
+		if keys(cs) != "minutes_to_target,power_kw,soc_pct" {
+			t.Errorf("%s: content-state keys = %s", event, keys(cs))
+		}
+		var event2 string
+		_ = json.Unmarshal(aps["event"], &event2)
+		if event2 != event || string(aps["timestamp"]) != "1790000000" {
+			t.Errorf("%s: event/timestamp = %s %s", event, aps["event"], aps["timestamp"])
+		}
+		// Numbers only inside the content state: no quotes at all.
+		if strings.Count(string(aps["content-state"]), `"`) != 6 { // three keys, three numbers
+			t.Errorf("%s: content-state holds a string: %s", event, aps["content-state"])
+		}
+		if string(cs["soc_pct"]) != "64" || string(cs["power_kw"]) != "11.5" || string(cs["minutes_to_target"]) != "42" {
+			t.Errorf("%s: figures = %s", event, aps["content-state"])
+		}
+	}
+}
+
+func TestNewLiveStateClampsAndRounds(t *testing.T) {
+	for _, c := range []struct {
+		soc, kw, min float64
+		want         LiveState
+	}{
+		{64.5, 11.46, 42.4, LiveState{65, 11.5, 42}},
+		{-3, -1, -5, LiveState{0, 0, 0}},
+		{130, 250.04, 9999.6, LiveState{100, 250, 10000}},
+	} {
+		if got := NewLiveState(c.soc, c.kw, c.min); got != c.want {
+			t.Errorf("NewLiveState(%v,%v,%v) = %+v, want %+v", c.soc, c.kw, c.min, got, c.want)
+		}
+	}
+}
+
+// A Live Activity update goes to the activity token's path with the live-activity
+// push type, the app's topic plus the live suffix, low priority for an update and
+// high for the end; a malformed token never reaches the request.
+func TestAPNsSendLive(t *testing.T) {
+	key, pemKey := testKey(t)
+	type seen struct{ path, pushType, topic, prio, body string }
+	var mu sync.Mutex
+	var got []seen
+	a := apnsServer(t, key, pemKey, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, seen{r.URL.Path, r.Header.Get("apns-push-type"), r.Header.Get("apns-topic"), r.Header.Get("apns-priority"), string(b)})
+		mu.Unlock()
+	})
+	const tok = "0123456789abcdef0123456789abcdef0123456789abcdef"
+	st := NewLiveState(50, 10, 30)
+	if err := a.SendLive(t.Context(), EnvProduction, tok, LiveUpdate, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SendLive(t.Context(), EnvProduction, tok, LiveEnd, st); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "zz", tok + "/../x", tok + "?x=1"} {
+		if err := a.SendLive(t.Context(), EnvProduction, bad, LiveUpdate, st); err == nil {
+			t.Errorf("token %q was sent", bad)
+		}
+	}
+	if err := a.SendLive(t.Context(), EnvProduction, tok, "alert", st); err == nil {
+		t.Error("an unknown event was sent")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 {
+		t.Fatalf("%d requests reached Apple, want 2: %+v", len(got), got)
+	}
+	for i, want := range []struct{ event, prio string }{{LiveUpdate, "5"}, {LiveEnd, "10"}} {
+		g := got[i]
+		if g.path != "/3/device/"+tok || g.pushType != "liveactivity" || g.topic != "me.apoh.rivolt.push-type.liveactivity" || g.prio != want.prio {
+			t.Errorf("%s: %+v", want.event, g)
+		}
+		if !strings.Contains(g.body, `"event":"`+want.event+`"`) {
+			t.Errorf("%s: body = %s", want.event, g.body)
+		}
 	}
 }

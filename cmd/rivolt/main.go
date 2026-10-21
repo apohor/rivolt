@@ -459,6 +459,11 @@ func runServer() {
 				} else {
 					pushSvc.WithAPNs(a)
 					logger.Info("APNs enabled", "topic", a.Topic())
+					// The charging Live Activity: off unless RIVOLT_APNS_LIVE is set.
+					if live := strings.EqualFold(os.Getenv("RIVOLT_APNS_LIVE"), "true") || os.Getenv("RIVOLT_APNS_LIVE") == "1"; live {
+						pushSvc.WithLive(true)
+						logger.Info("APNs live activities enabled")
+					}
 				}
 			}
 			// Notification text is kept 24 hours for the app to fetch; sweep it hourly.

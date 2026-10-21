@@ -182,15 +182,33 @@ func apnsBody(notificationID string) []byte {
 // Apple's refusals; Dead() says the token should be removed. A 403 ExpiredProviderToken
 // refreshes the provider token and retries once.
 func (a *APNs) Send(ctx context.Context, env, deviceToken, notificationID string) error {
+	if !ValidDeviceToken(deviceToken) {
+		return &APNsError{Status: http.StatusBadRequest, Reason: "BadDeviceToken"}
+	}
+	return a.deliver(ctx, env, deviceToken, apnsRequest{
+		pushType: "alert", topic: a.cfg.Topic, priority: "10", body: apnsBody(notificationID), ttl: time.Hour,
+	})
+}
+
+// apnsRequest is what differs between an alert and a Live Activity update.
+type apnsRequest struct {
+	pushType string
+	topic    string
+	priority string
+	body     []byte
+	ttl      time.Duration
+}
+
+// deliver posts one request to the token's path under the environment's host,
+// retrying once when Apple says the provider token expired. The token must already
+// be validated by the caller: it becomes part of the URL path.
+func (a *APNs) deliver(ctx context.Context, env, token string, r apnsRequest) error {
 	base, ok := a.urls[env]
 	if !ok {
 		return errors.New("apns: unknown environment")
 	}
-	if !ValidDeviceToken(deviceToken) {
-		return &APNsError{Status: http.StatusBadRequest, Reason: "BadDeviceToken"}
-	}
 	for attempt := 0; ; attempt++ {
-		err := a.sendOnce(ctx, base, deviceToken, notificationID)
+		err := a.sendOnce(ctx, base, token, r)
 		var ae *APNsError
 		if attempt == 0 && errors.As(err, &ae) && ae.Reason == "ExpiredProviderToken" {
 			a.dropToken()
@@ -200,20 +218,20 @@ func (a *APNs) Send(ctx context.Context, env, deviceToken, notificationID string
 	}
 }
 
-func (a *APNs) sendOnce(ctx context.Context, base, deviceToken, id string) error {
+func (a *APNs) sendOnce(ctx context.Context, base, token string, ar apnsRequest) error {
 	tok, err := a.providerToken()
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/3/device/"+deviceToken, bytes.NewReader(apnsBody(id)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/3/device/"+token, bytes.NewReader(ar.body))
 	if err != nil {
 		return errors.New("apns: request")
 	}
 	req.Header.Set("authorization", "bearer "+tok)
-	req.Header.Set("apns-topic", a.cfg.Topic)
-	req.Header.Set("apns-push-type", "alert")
-	req.Header.Set("apns-priority", "10")
-	req.Header.Set("apns-expiration", strconv.FormatInt(a.now().Add(time.Hour).Unix(), 10))
+	req.Header.Set("apns-topic", ar.topic)
+	req.Header.Set("apns-push-type", ar.pushType)
+	req.Header.Set("apns-priority", ar.priority)
+	req.Header.Set("apns-expiration", strconv.FormatInt(a.now().Add(ar.ttl).Unix(), 10))
 	req.Header.Set("content-type", "application/json")
 	resp, err := a.hc.Do(req)
 	if err != nil {
