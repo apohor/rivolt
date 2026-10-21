@@ -273,6 +273,9 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true, ...(uiNext ? { ui_theme_next: true } : {}) });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month, new Date(e2eNow())));
+    // Off-peak savings: in the demo, the demo owner's last complete month against the example schedule.
+    if (p === "/api/ledger/savings")
+      return json(route, { version: 1, tz: "America/Los_Angeles", currency: "USD", schedule_tz: "America/Los_Angeles", base_rate: 0.16, could_have_saved: 9.6, sessions_considered: 12, sessions_moved: 10, sessions_left_out: 2, left_out_reasons: { plugged_in_too_briefly: 2 }, as_charged_total: 38.4, if_moved_total: 28.8, basis: "Each home charge is priced again at the cheapest of your off-peak windows that its plug-in time could have held in full, from your own sessions only. It is an estimate: your real bill can differ, and charges that could not move are left out." });
     if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12, new Date(e2eNow())));
     if (p === "/api/health") {
       return rivian === "backend-down"

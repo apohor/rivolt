@@ -13,7 +13,7 @@ const ALLOW: RegExp[] = [
   /^\/api\/demo$/, /^\/api\/config$/, /^\/api\/health$/,
   /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|trends|cold-range)$`),
   new RegExp(`^/api/state/${VEHICLE_ID}$`),
-  /^\/api\/ledger\/(enabled|monthly|summary|trips)$/,
+  /^\/api\/ledger\/(enabled|monthly|summary|trips|savings)$/,
   /^\/api\/charges(\/clusters)?$/, /^\/api\/drives$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
   /^\/api\/settings\/(charging|charging\/networks|home-location)\/?$/,
   /^\/api\/trips\/saved$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
@@ -233,6 +233,20 @@ test("demo Truck: the range-at-temperatures card shows sample figures", async ({
   const bad = watch(page);
   await page.goto("/demo/truck");
   await expect(page.locator("[data-cold-range]")).toContainText("from your own drives (estimate)");
+  await page.waitForTimeout(800);
+  expect(bad, bad.join("\n")).toEqual([]);
+});
+
+test("demo money: the savings card is labelled as a sample truck with an example schedule, for the last full month only", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  const bad = watch(page);
+  await page.goto("/demo/money");
+  const card = page.locator("[data-savings]");
+  await expect(card).toBeVisible();
+  await expect(card.locator("[data-savings-sample]")).toHaveText("Sample truck · example schedule");
+  await expect(card).toContainText("could have saved about $9.60 (estimate)");
+  // The demo answers for one month, so there is no month switch.
+  await expect(page.getByRole("button", { name: "This month so far" })).toHaveCount(0);
   await page.waitForTimeout(800);
   expect(bad, bad.join("\n")).toEqual([]);
 });
