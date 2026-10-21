@@ -4,36 +4,43 @@ import SwiftUI
 /// the same figures as the web's Now page, with our own cost always marked as an estimate.
 struct ChargingDetailCard: View {
     let detail: ChargingDetail
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var bigNumber: CGFloat = 34
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
+            // At accessibility sizes the title, tag and limit stack instead of squeezing side by side.
+            let layout = typeSize.isAccessibilityCategory ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+            layout {
                 Label("Charging session", systemImage: "bolt.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(NowInk.charging)
-                Spacer()
+                if !typeSize.isAccessibilityCategory { Spacer() }
                 if let place = detail.place {
                     Text(place).font(.caption.weight(.medium)).foregroundStyle(NowInk.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(String(format: "%.1f", detail.powerKw)).font(.system(size: 34, weight: .semibold, design: .rounded)).monospacedDigit()
-                Text("kW").font(.subheadline).foregroundStyle(NowInk.secondary)
-                Spacer()
+            layout {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(detail.powerKw.map(NowFormat.oneDecimal) ?? "—")
+                        .font(.system(size: bigNumber, weight: .semibold, design: .rounded)).monospacedDigit()
+                    Text("kW").font(.subheadline).foregroundStyle(NowInk.secondary)
+                }
+                if !typeSize.isAccessibilityCategory { Spacer() }
                 if let to = detail.toTargetPct, let target = detail.targetPct {
                     Text("\(Int(to.rounded()))% to \(Int(target.rounded()))%").font(.subheadline).foregroundStyle(NowInk.secondary)
                 }
             }
             if detail.haveLiveData {
-                LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 10) {
-                    if let r = detail.remaining { field("Time left", "about \(NowFormat.duration(r))") }
-                    if let e = detail.elapsed { field("Elapsed", NowFormat.duration(e)) }
-                    if let kwh = detail.energyKwh { field("Energy added", String(format: "%.1f kWh", kwh)) }
-                    if let km = detail.rangeAddedKm { field("Range added", distance(km: km)) }
-                    if let rate = detail.rateKmPerHour { field("Rate", "\(distance(km: rate))/h") }
-                    if let cost = detail.cost { field("Cost so far", NowFormat.costText(cost)) }
+                FieldGrid {
+                    if let r = detail.remaining { Field(label: "Time left", value: "about \(NowFormat.duration(r))") }
+                    if let e = detail.elapsed { Field(label: "Elapsed", value: NowFormat.duration(e)) }
+                    if let kwh = detail.energyKwh { Field(label: "Energy added", value: "\(NowFormat.oneDecimal(kwh)) kWh") }
+                    if let km = detail.rangeAddedKm { Field(label: "Range added", value: distance(km: km)) }
+                    if let rate = detail.rateKmPerHour { Field(label: "Rate", value: "\(distance(km: rate))/h") }
+                    if let cost = detail.cost { Field(label: "Cost so far", value: NowFormat.costText(cost)) }
                 }
             } else {
                 Text("Waiting for the first reading from the charger.").font(.footnote).foregroundStyle(NowInk.secondary)
@@ -41,14 +48,8 @@ struct ChargingDetailCard: View {
         }
         .padding(20)
         .background(.background, in: RoundedRectangle(cornerRadius: 20))
-        .accessibilityElement(children: .combine)
-    }
-
-    private func field(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.caption).foregroundStyle(NowInk.secondary)
-            Text(value).font(.subheadline.weight(.medium)).monospacedDigit()
-        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(detail.spoken)
     }
 
     private func distance(km: Double) -> String {
@@ -61,24 +62,27 @@ struct ChargingDetailCard: View {
 struct DriveDetailCard: View {
     let detail: DriveDetail
     var clock: Date = .now
+    @ScaledMetric(relativeTo: .title) private var bigNumber: CGFloat = 30
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: "steeringwheel").font(.subheadline.weight(.semibold))
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(distanceText).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit()
-            }
-            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 10) {
-                if let e = detail.elapsed { field("Time", NowFormat.duration(e)) }
-                if let v = detail.avgSpeedMph { field("Average speed", speed(mph: v)) }
-                if let kwh = detail.energyKwh { field("Energy used", String(format: "%.1f kWh", kwh)) }
-                if let eff = detail.miPerKwh { field("Efficiency", efficiency(eff)) }
-                if let c = detail.estimatedCost { field("Cost", "~\(NowFormat.money(c, currency: detail.currency ?? "")) (estimate)") }
+                .accessibilityAddTraits(.isHeader)
+            Text(distanceText).font(.system(size: bigNumber, weight: .semibold, design: .rounded)).monospacedDigit()
+            FieldGrid {
+                if let e = detail.elapsed { Field(label: "Time", value: NowFormat.duration(e)) }
+                if let v = detail.avgSpeedMph { Field(label: "Average speed", value: speed(mph: v)) }
+                if let kwh = detail.energyKwh { Field(label: "Energy used", value: "\(NowFormat.oneDecimal(kwh)) kWh") }
+                if let eff = detail.miPerKwh { Field(label: "Efficiency", value: efficiency(eff)) }
+                if let c = detail.estimatedCost, let m = NowFormat.moneyIfKnown(c, currency: detail.currency) {
+                    Field(label: "Cost", value: "~\(m) (estimate)")
+                }
             }
         }
         .padding(20)
         .background(.background, in: RoundedRectangle(cornerRadius: 20))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(detail.spoken(title: title))
     }
 
     private var title: String {
@@ -105,10 +109,28 @@ struct DriveDetailCard: View {
     /// mi/kWh, or km/kWh on a metric phone.
     private func efficiency(_ miPerKwh: Double) -> String {
         let usesMetric = Locale.current.measurementSystem != .us && Locale.current.measurementSystem != .uk
-        return usesMetric ? String(format: "%.2f km/kWh", miPerKwh * 1.609344) : String(format: "%.2f mi/kWh", miPerKwh)
+        return usesMetric ? "\(NowFormat.twoDecimals(miPerKwh * 1.609344)) km/kWh" : "\(NowFormat.twoDecimals(miPerKwh)) mi/kWh"
     }
+}
 
-    private func field(_ label: String, _ value: String) -> some View {
+/// Two columns, or one at accessibility text sizes where half a card is too narrow for "about 1 h 12 min".
+private struct FieldGrid<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let columns = typeSize.isAccessibilityCategory
+            ? [GridItem(.flexible(), alignment: .leading)]
+            : [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)]
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) { content }
+    }
+}
+
+private struct Field: View {
+    let label: String
+    let value: String
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.caption).foregroundStyle(NowInk.secondary)
             Text(value).font(.subheadline.weight(.medium)).monospacedDigit()
