@@ -17,6 +17,10 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
+    @State private var session: LiveSession?
+    @State private var liveDrive: LiveDrive?
+    @State private var latestCharge: ChargeBrief?
+    @State private var latestDrive: DriveBrief?
 
     private var selected: Vehicle? {
         vehicles.first { $0.id == selectedID } ?? vehicles.first
@@ -27,8 +31,19 @@ struct HomeView: View {
             ScrollView {
                 Group {
                     if let vehicle = selected, vehicleState != nil || now != nil {
-                        NowCard(vehicle: vehicle,
-                                summary: NowSummary(state: vehicleState, now: now, clock: .now))
+                        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+                        VStack(spacing: 16) {
+                            // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
+                            if summary.freshness != .stale,
+                               let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
+                                ChargingDetailCard(detail: charging)
+                            }
+                            NowCard(vehicle: vehicle, summary: summary)
+                            if summary.freshness != .stale,
+                               let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
+                                DriveDetailCard(detail: drive)
+                            }
+                        }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
                     } else if let loadError {
@@ -79,6 +94,8 @@ struct HomeView: View {
             }
             .refreshable { await load() }
             .task { await load() }
+            // While the screen is up the live reads follow the charge or drive (about every 10 s).
+            .task(id: selectedID) { await pollLive() }
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
@@ -114,14 +131,23 @@ struct HomeView: View {
         guard let id = selected?.id else {
             vehicleState = nil
             now = nil
+            session = nil
+            liveDrive = nil
+            latestCharge = nil
+            latestDrive = nil
             return
         }
         let client = state.client
         async let st = try? client.vehicleState(id: id)
         async let nw = try? client.vehicleNow(id: id)
-        let (s, n) = await (st, nw)
+        async let ch = try? client.latestCharge()
+        async let dr = try? client.latestDrive()
+        let (s, n, c, d) = await (st, nw, ch, dr)
         vehicleState = s
         now = n ?? nil
+        latestCharge = c ?? nil
+        latestDrive = d ?? nil
+        await loadLive(id: id)
         // The widgets read this truck from this server (never the token: that stays in the Keychain).
         WidgetStore().setSession(vehicleID: id, server: state.serverURL)
         WidgetCenter.shared.reloadAllTimelines()
@@ -129,6 +155,29 @@ struct HomeView: View {
             loadError = "Couldn't load this truck's status."
         }
         await syncLiveActivity()
+    }
+
+    /// The session or drive reads that only make sense while charging or in gear.
+    private func loadLive(id: String) async {
+        let label = NowSummary(state: vehicleState, now: now, clock: .now).stateLabel
+        session = label == "Charging" ? (try? await state.client.liveSession(id: id)) ?? nil : nil
+        liveDrive = label == "Driving" ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
+    }
+
+    private func pollLive() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled, let id = selected?.id else { continue }
+            let label = NowSummary(state: vehicleState, now: now, clock: .now).stateLabel
+            if label == "Charging" || label == "Driving" {
+                async let st = try? state.client.vehicleState(id: id)
+                async let nw = try? state.client.vehicleNow(id: id)
+                let (s, n) = await (st, nw)
+                if let s { vehicleState = s }
+                if let n { now = n }
+                await loadLive(id: id)
+            }
+        }
     }
 
     /// Starts, updates or ends the charging Live Activity from what was just loaded. Only with the

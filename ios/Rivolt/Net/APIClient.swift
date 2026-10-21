@@ -140,6 +140,32 @@ actor APIClient {
         let _: Empty = try await request("POST", "/api/push/apns/unregister", body: ApnsTokenBody(token: token))
     }
 
+    // MARK: Now detail reads (the same ones the web's Now page makes)
+
+    private func pathID(_ id: String) -> String {
+        id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    }
+
+    /// The charge in progress; nil when the server has none (404) or doesn't know the endpoint.
+    func liveSession(id: String) async throws -> LiveSession? {
+        do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _) { return nil }
+    }
+
+    func liveDrive(id: String) async throws -> LiveDrive? {
+        do { return try await request("GET", "/api/live-drive/\(pathID(id))") } catch APIError.server(404, _) { return nil }
+    }
+
+    /// The newest charge (for its place and cost).
+    func latestCharge() async throws -> ChargeBrief? {
+        let rows: [ChargeBrief] = try await request("GET", "/api/charges?limit=1")
+        return rows.first
+    }
+
+    func latestDrive() async throws -> DriveBrief? {
+        let rows: [DriveBrief] = try await request("GET", "/api/drives?limit=1")
+        return rows.first
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }
@@ -260,3 +286,4 @@ enum AnyJSON: Encodable {
         }
     }
 }
+
