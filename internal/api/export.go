@@ -53,6 +53,7 @@ var exportedSettingKeys = map[string]bool{
 	"charging.gas_price_per_gallon": true,
 	"charging.comparison_mpg":       true,
 	"charging.networks":             true,
+	"charging.offpeak_schedule":     true,
 	"planner.default_drive_mode":    true,
 	"planner.has_adapter":           true,
 	"planner.favorites":             true,
