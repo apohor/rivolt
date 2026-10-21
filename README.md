@@ -111,6 +111,25 @@ spells out what is and is not included in the total.
 
 ![Money](docs/screenshots/money.png)
 
+#### Off-peak hours and what moving charging would save
+
+In Settings → Charging you can enter your off-peak hours yourself: several
+windows, weekday and weekend splits, windows that run past midnight, a rate
+for each, in your time zone. Rivolt uses them only for estimates; it does not
+contact your utility and cannot check them. With a schedule and a home rate
+set, Money shows an "Off-peak savings" card: what moving your home charging
+into your cheapest window **could have saved, about $Y (estimate)**, from your
+own home charges. Sessions that could not move are left out and the card says
+how many. It is advice only: Rivolt never changes charging on the truck. A
+share card can carry one extra line, the percentage of your home charging that
+ran off-peak, behind its own switch that is off every time.
+
+#### Month statement as a CSV
+
+"Download CSV" on Money saves the month as a spreadsheet file: totals by cost
+type, home versus away, and one line per session, in your time zone. It is
+your own data, downloaded straight from your Rivolt; nothing is sent anywhere.
+
 #### Share a month, a trip or a milestone
 
 Any month, drive or milestone can become a square image you share from
@@ -248,8 +267,10 @@ A five-tab layout for the per-user controls:
   [`docs/SIGNUP.md`](docs/SIGNUP.md)).
 - **Vehicle** — vehicle profile (pack capacity), display units,
   home location.
-- **Charging** — home $/kWh rate + currency, preferred public
-  networks, trip planner defaults.
+- **Charging** — home $/kWh rate + currency, your off-peak
+  schedule, preferred public networks (with each network's
+  membership plans as it lists them, its source and the date it was
+  last checked), trip planner defaults.
 - **Notifications** — per-device push subscription with per-event
   toggles (see below).
 - **Data** — ElectraFi CSV import + danger zone (full JSON
