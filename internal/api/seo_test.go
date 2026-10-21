@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func seoGet(t *testing.T, h http.Handler, host, path string) *httptest.ResponseRecorder {
@@ -181,6 +182,46 @@ func TestSEOInjection(t *testing.T) {
 		md := markdownPage(hostApp, page, pathChargeCost)
 		if strings.Contains(md, "$") {
 			t.Errorf("a dollar figure in the markdown: %s", md)
+		}
+	})
+	t.Run("charging cost page carries the dated tracker price as a data element, only while it is shown", func(t *testing.T) {
+		defer func(old func() time.Time) { seoNow = old }(seoNow)
+		at := func(y int, m time.Month, d int) func() time.Time {
+			return func() time.Time { return time.Date(y, m, d, 12, 0, 0, 0, time.UTC) }
+		}
+		const el = `<script type="application/json" id="charging-cost">{"fast_price":0.482,"price_month":"2026-10"}</script>`
+		seoNow = at(2026, 10, 21)
+		b := seoGet(t, h, "rivolt.dev", "/charging-cost").Body.String()
+		if !strings.Contains(b, el) {
+			t.Fatalf("data element missing:\n%s", b)
+		}
+		// Only that element: not the noscript summary, the JSON-LD, llms.txt, the
+		// markdown view or the sitemap.
+		rest := strings.Replace(b, el, "", 1)
+		if strings.Contains(rest, "0.482") || strings.Contains(rest, "2026-10") {
+			t.Error("the figure or its month appears outside the data element")
+		}
+		md := markdownPage(hostApp, seoPages[hostApp][pathChargeCost], pathChargeCost)
+		ll, _ := llmsTxt(hostApp)
+		if strings.Contains(md, "0.482") || strings.Contains(ll, "0.482") || strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "0.482") {
+			t.Error("the figure leaked into markdown, llms.txt or the sitemap")
+		}
+		if strings.Contains(seoGet(t, h, "demo.rivolt.dev", "/charging-cost").Body.String(), "charging-cost\"") {
+			t.Error("the demo host got the element")
+		}
+		// The 12-month boundary: the figure of 2026-10 is shown through 2027-09-30
+		// and gone from 2027-10-01.
+		seoNow = at(2027, 9, 30)
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/charging-cost").Body.String(), el) {
+			t.Error("element gone a day early")
+		}
+		seoNow = at(2027, 10, 1)
+		gone := seoGet(t, h, "rivolt.dev", "/charging-cost").Body.String()
+		if strings.Contains(gone, `id="charging-cost"`) || strings.Contains(gone, "0.482") {
+			t.Error("element still served after the 12-month boundary")
+		}
+		if !strings.Contains(gone, `"@type":"Article"`) {
+			t.Error("the rest of the page's head disappeared with the figure")
 		}
 	})
 	t.Run("app routes are noindex and keep the generic shell", func(t *testing.T) {
