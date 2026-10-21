@@ -92,12 +92,18 @@ jobs:
             -quiet
 
       - name: Test summary (fail if no tests ran)
+        if: always() && steps.sim.outcome == 'success'
         run: |
           set -euo pipefail
           # -quiet hides the per-test lines; the result bundle has the counts.
           xcrun xcresulttool get test-results summary \
             --path "$RUNNER_TEMP/ios.xcresult" --compact > "$RUNNER_TEMP/summary.json"
           jq '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/summary.json"
+          # Failures and what they said, so a red run is readable without
+          # downloading the result bundle (nobody has Xcode locally).
+          jq -r '.testFailures[]? | "FAILED \(.testIdentifierString // .testName): \(.failureText)"' "$RUNNER_TEMP/summary.json"
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/ios.xcresult" --compact \
+            | jq -r '.. | objects | select(.result? == "Failed" and .nodeType? == "Test Case") | "case: \(.name)"' || true
           total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
           if [ "${total:-0}" -lt 1 ]; then
             echo "no tests ran"; exit 1
