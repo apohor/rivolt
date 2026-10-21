@@ -85,7 +85,8 @@ struct DriveDetailCard: View {
         switch detail.kind {
         case .now: return "Driving now"
         case .last(let ended):
-            guard let ended else { return "Last drive" }
+            // A clock a little behind the server's must not read "in 5 minutes".
+            guard let ended, ended <= clock else { return "Last drive" }
             let f = RelativeDateTimeFormatter()
             f.unitsStyle = .full
             return "Last drive, \(f.localizedString(for: ended, relativeTo: clock))"
