@@ -178,6 +178,9 @@ def sweep(jwt: str, revoked: set, now: float, delete: bool) -> int:
         candidates.append((c["id"], line))
     print(f"sweep: {len(certs)} development certificates, {len(candidates)} old API-made")
     if len(candidates) > SWEEP_CAP:
+        # List them anyway, so the log shows what the filter caught.
+        for _, line in candidates:
+            print(f"sweep matched (not revoked): {line}")
         print(f"::error::sweep matched {len(candidates)} (> {SWEEP_CAP}): the filter is wrong, nothing revoked")
         return 1
     for cid, line in candidates:

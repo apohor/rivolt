@@ -47,6 +47,10 @@ if [ "${REQUIRE_SIGNED_ENTITLEMENTS:-0}" = 1 ]; then
     printf '%s\n' "$domains" | grep -qx "[[:space:]]*$want" \
       || { echo "FAIL: the signed app lacks the associated domain $want"; fail=1; }
   done
+  # Exactly those two: a stray domain (preview, another host) would let the
+  # shipped app claim links it shouldn't (DA, sign-in design condition 6).
+  count=$(printf '%s\n' "$domains" | grep -cvE '^[[:space:]]*(Array \{|\})[[:space:]]*$|^[[:space:]]*$')
+  [ "$count" = 2 ] || { echo "FAIL: the signed app has $count associated domains, want exactly 2"; fail=1; }
   rm -f "$ents"
 fi
 
