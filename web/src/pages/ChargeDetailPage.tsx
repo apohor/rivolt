@@ -734,7 +734,7 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // it implies, plus a flag noting whether this is a real billed
 // number or a home-rate estimate. Falls back to undefined so the
 // tile collapses cleanly when we have nothing useful to say.
-function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): string | undefined {
+export function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): string | undefined {
   if (c.classification_unavailable) return "price classification unavailable right now";
   if (isFreeCharge(c)) return "marked free by you";
   if (c.cost_source_effective === "home_rate_misapplied") return "estimate pending · was priced at your home rate";
@@ -753,9 +753,10 @@ function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): strin
         : c.EnergyAddedKWh > 0
           ? c.Cost / c.EnergyAddedKWh
           : 0;
-    return ppk > 0
-      ? `at ${ppk.toFixed(3)}${c.Currency ? ` ${c.Currency}` : ""}/kWh`
-      : undefined;
+    // Say where a billed figure came from, the way an estimate says it is one.
+    const billed = (c.cost_source_effective ?? c.cost_source) === "rivian" ? "billed by Rivian" : "";
+    const rate = ppk > 0 ? `at ${ppk.toFixed(3)}${c.Currency ? ` ${c.Currency}` : ""}/kWh` : "";
+    return [billed, rate].filter(Boolean).join(" · ") || undefined;
   }
   if (c.estimated_cost && c.estimated_cost > 0 && c.EnergyAddedKWh > 0) {
     const ppk = c.estimated_cost / c.EnergyAddedKWh;
