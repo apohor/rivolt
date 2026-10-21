@@ -166,3 +166,27 @@ func handlePushNotification(store *push.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, n)
 	}
 }
+
+// handleAPNsTest: POST /api/push/apns/test sends a fixed test notification to
+// the caller's own signed-in iPhones (any session, so the owner can try it from
+// the browser too). Own user only, rate-limited by the route; nothing in the
+// request reaches Apple or the phone.
+func handleAPNsTest(svc *push.Service, store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !svc.APNsEnabled() {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not available"})
+			return
+		}
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
+		n := svc.SendAPNsTest(r.Context(), store)
+		if n == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no iPhone to send to"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": n})
+	}
+}

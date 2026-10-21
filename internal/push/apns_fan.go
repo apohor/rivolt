@@ -40,6 +40,12 @@ func apnsSelector(kind string, p Preferences) bool {
 // Apple reports dead is removed. Failures are logged by reason, never by token, and
 // never affect the web sends. Does nothing when APNs is off or no device wants the kind.
 func (s *Service) fanAPNs(ctx context.Context, store *Store, p Payload) int {
+	return s.fanAPNsTo(ctx, store, p, false)
+}
+
+// fanAPNsTo is fanAPNs; everyDevice sends to every live install whatever its
+// switches say (the user's own test).
+func (s *Service) fanAPNsTo(ctx context.Context, store *Store, p Payload, everyDevice bool) int {
 	if s == nil || s.apns == nil || store == nil {
 		return 0
 	}
@@ -50,7 +56,7 @@ func (s *Service) fanAPNs(ctx context.Context, store *Store, p Payload) int {
 	}
 	var want []APNsDevice
 	for _, d := range devs {
-		if d.BundleID == s.apns.Topic() && apnsSelector(p.Kind, d.Prefs) {
+		if d.BundleID == s.apns.Topic() && (everyDevice || apnsSelector(p.Kind, d.Prefs)) {
 			want = append(want, d)
 		}
 	}
@@ -102,4 +108,13 @@ func (s *Service) APNsTopic() string {
 		return ""
 	}
 	return s.apns.Topic()
+}
+
+// SendAPNsTest sends the user's own test notification to each of their signed-in
+// iPhones, whatever its switches say, and returns how many Apple accepted. The
+// words are fixed here, so nothing a caller sends reaches Apple or the phone.
+func (s *Service) SendAPNsTest(ctx context.Context, store *Store) int {
+	return s.fanAPNsTo(ctx, store, Payload{
+		Kind: "test", Title: "Rivolt test", Body: "Notifications work on this iPhone.", URL: "/",
+	}, true)
 }
