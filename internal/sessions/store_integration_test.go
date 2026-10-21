@@ -63,7 +63,7 @@ func TestDeviceListRevocation(t *testing.T) {
 	if ok, _ := st.RevokeOwned(ctx, me, foreign.ID); ok {
 		t.Error("revoked another user's session")
 	}
-	if _, err := st.Lookup(ctx, webTok); err != nil {
+	if _, err := st.Lookup(ctx, webTok, sessions.KindWeb); err != nil {
 		t.Errorf("an untouched session stopped working: %v", err)
 	}
 
@@ -72,10 +72,10 @@ func TestDeviceListRevocation(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("revoke others = %d, %v (want 1: the web session; app1 was already revoked)", n, err)
 	}
-	if _, err := st.Lookup(ctx, webTok); err == nil {
+	if _, err := st.Lookup(ctx, webTok, sessions.KindWeb); err == nil {
 		t.Error("the web session survived sign-out everywhere else")
 	}
-	if _, err := st.Lookup(ctx, app2Tok); err != nil {
+	if _, err := st.Lookup(ctx, app2Tok, sessions.KindApp); err != nil {
 		t.Errorf("the caller's own session was revoked: %v", err)
 	}
 	if l, _ := st.List(ctx, other); len(l) != 1 || l[0].ID != foreign.ID {
