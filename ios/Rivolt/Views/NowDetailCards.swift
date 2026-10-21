@@ -10,12 +10,12 @@ struct ChargingDetailCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // At accessibility sizes the title, tag and limit stack instead of squeezing side by side.
-            let layout = typeSize.isAccessibilityCategory ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
             layout {
                 Label("Charging session", systemImage: "bolt.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(NowInk.charging)
-                if !typeSize.isAccessibilityCategory { Spacer() }
+                if !typeSize.isAccessibilitySize { Spacer() }
                 if let place = detail.place {
                     Text(place).font(.caption.weight(.medium)).foregroundStyle(NowInk.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 2)
@@ -28,7 +28,7 @@ struct ChargingDetailCard: View {
                         .font(.system(size: bigNumber, weight: .semibold, design: .rounded)).monospacedDigit()
                     Text("kW").font(.subheadline).foregroundStyle(NowInk.secondary)
                 }
-                if !typeSize.isAccessibilityCategory { Spacer() }
+                if !typeSize.isAccessibilitySize { Spacer() }
                 if let to = detail.toTargetPct, let target = detail.targetPct {
                     Text("\(Int(to.rounded()))% to \(Int(target.rounded()))%").font(.subheadline).foregroundStyle(NowInk.secondary)
                 }
@@ -119,7 +119,7 @@ private struct FieldGrid<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        let columns = typeSize.isAccessibilityCategory
+        let columns = typeSize.isAccessibilitySize
             ? [GridItem(.flexible(), alignment: .leading)]
             : [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)]
         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) { content }
