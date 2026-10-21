@@ -51,6 +51,9 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"ledger_summary.json":       &ledgerSummaryResponse{},
 		"ledger_savings.json":       &savingsResponse{},
 		"ledger_savings_needs.json": &savingsResponse{},
+		// Activity (item E): drives (one merged round trip) and charges for a
+		// window, with no coordinates.
+		"activity.json": &activityResponse{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
