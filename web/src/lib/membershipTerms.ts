@@ -20,8 +20,18 @@ export const fetchMembershipTerms = async (signal?: AbortSignal): Promise<Member
   return Array.isArray(r?.terms) ? r.terms : [];
 };
 
-// Only the network's own https page is linked; anything else shows as plain text.
-export const safeSourceUrl = (u: string | undefined | null): string | null => (u && /^https:\/\/[^\s/]+\.[^\s/]+\//.test(u) ? u : null);
+// A source is linked only when it is an https page on one of the networks' own sites; anything else shows as plain text.
+const SOURCE_HOSTS = ["rivian.com", "electrifyamerica.com", "evgo.com", "shell.us", "tesla.com"];
+export function safeSourceUrl(u: string | undefined | null): string | null {
+  if (!u) return null;
+  try {
+    const url = new URL(u);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" && !url.username && !url.password && SOURCE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`)) ? u : null;
+  } catch {
+    return null;
+  }
+}
 
 // The terms grouped by network, in the order the server sent them.
 export function groupByNetwork(rows: MembershipTerm[]): { slug: string; network: string; plans: MembershipTerm[] }[] {

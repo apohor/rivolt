@@ -12,7 +12,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const ROWS = [
   { network_slug: "evgo", network: "EVgo", plan: "EVgo Plus", terms: "$6.99 a month; up to 15% off standard rates; free reservations; no session fees.", source_url: "https://www.evgo.com/pricing/", read_via: "page", checked: "2026-10-20", label: "As listed by EVgo; may be out of date; last checked 2026-10-20." },
   { network_slug: "evgo", network: "EVgo", plan: "EVgo PlusMax", terms: "$12.99 a month; up to 30% off standard rates; free reservations; no session fees.", source_url: "https://www.evgo.com/pricing/", read_via: "search snippet", checked: "2026-10-20", label: "As listed by EVgo; may be out of date; last checked 2026-10-20." },
-  { network_slug: "ea", network: "Electrify America", plan: "Pass+ <b>x</b>", terms: "Save about 25% on charging compared with guest pricing.", source_url: "javascript:alert(1)", read_via: "page", checked: "2026-10-20", label: "As listed by Electrify America; may be out of date; last checked 2026-10-20." },
+  { network_slug: "ea", network: "Electrify America", plan: "Pass+ <b>x</b>", terms: "Save about 25% on charging compared with guest pricing.", source_url: "https://evil.example/www.electrifyamerica.com/", read_via: "page", checked: "2026-10-20", label: "As listed by Electrify America; may be out of date; last checked 2026-10-20." },
 ];
 
 async function open(page: Page, respond: (r: import("@playwright/test").Route) => Promise<void>) {
