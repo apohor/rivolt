@@ -3,6 +3,7 @@ package offpeak
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func win(days, start, end string, rate float64) Window {
@@ -120,5 +121,59 @@ func TestMessagesArePlainWords(t *testing.T) {
 	// An end before the start, and 00:00 as an end, are fine: past midnight.
 	if _, e = Normalize(Schedule{TZ: "America/Chicago", Windows: []Window{win(All, "21:00", "00:00", 0.1)}}); e != nil {
 		t.Errorf("a window ending at 00:00 was refused: %v", e)
+	}
+}
+
+func TestInstances(t *testing.T) {
+	s, e := Normalize(Schedule{TZ: "America/Chicago", Windows: []Window{
+		win(Weekdays, "21:00", "06:00", 0.08),
+		win(Weekends, "06:00", "20:00", 0.10),
+	}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	loc, _ := time.LoadLocation("America/Chicago")
+	at := func(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, loc) }
+	// Wednesday 2026-10-21 02:00 to Thursday 08:00 holds Tuesday night's tail and
+	// Wednesday night.
+	got := s.Instances(at(2026, 10, 21, 2, 0), at(2026, 10, 22, 8, 0))
+	if len(got) != 2 {
+		t.Fatalf("%d instances, want Tuesday night's tail and Wednesday night: %+v", len(got), got)
+	}
+	if !got[0].End.Equal(at(2026, 10, 21, 6, 0)) || !got[1].Start.Equal(at(2026, 10, 21, 21, 0)) || !got[1].End.Equal(at(2026, 10, 22, 6, 0)) || got[1].Rate != 0.08 {
+		t.Errorf("instances = %+v", got)
+	}
+	// Friday night runs into Saturday morning; Saturday's own window is 06:00-20:00.
+	var spill, sat bool
+	for _, in := range s.Instances(at(2026, 10, 23, 20, 0), at(2026, 10, 24, 12, 0)) {
+		if in.Start.Equal(at(2026, 10, 23, 21, 0)) && in.End.Equal(at(2026, 10, 24, 6, 0)) {
+			spill = true
+		}
+		if in.Start.Equal(at(2026, 10, 24, 6, 0)) && in.End.Equal(at(2026, 10, 24, 20, 0)) && in.Rate == 0.10 {
+			sat = true
+		}
+	}
+	if !spill || !sat {
+		t.Errorf("Friday-night spill %v, Saturday window %v", spill, sat)
+	}
+	// Saturday and Sunday nights have no weekday night window.
+	for _, in := range s.Instances(at(2026, 10, 24, 20, 0), at(2026, 10, 25, 23, 0)) {
+		if in.Rate == 0.08 && !in.Start.Before(at(2026, 10, 24, 6, 0)) {
+			t.Errorf("a weekday night window on a weekend night: %+v", in)
+		}
+	}
+	// Fall back (2026-11-01, 02:00 CDT -> 01:00 CST): Friday night 21:00 to
+	// Saturday 06:00 is nowhere near it, but Sunday's own 06:00-20:00 window is
+	// anchored to wall-clock times on either side of the change.
+	sun := s.Instances(at(2026, 11, 1, 5, 0), at(2026, 11, 1, 21, 0))
+	if len(sun) != 1 || !sun[0].Start.Equal(at(2026, 11, 1, 6, 0)) || !sun[0].End.Equal(at(2026, 11, 1, 20, 0)) {
+		t.Errorf("fall-back Sunday = %+v", sun)
+	}
+	// A long span is fine and an empty or reversed one is nothing.
+	if n := len(s.Instances(at(2026, 10, 1, 0, 0), at(2026, 11, 1, 0, 0))); n < 30 {
+		t.Errorf("a month has %d instances", n)
+	}
+	if s.Instances(at(2026, 10, 22, 0, 0), at(2026, 10, 22, 0, 0)) != nil {
+		t.Error("an empty span has instances")
 	}
 }

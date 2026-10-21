@@ -163,3 +163,55 @@ func ParseClock(s string) (int, bool) {
 	}
 	return h*60 + m, true
 }
+
+// Instance is one occurrence of a window on a particular night or day, as
+// instants.
+type Instance struct {
+	Start, End time.Time
+	Rate       float64
+}
+
+// Instances lists every occurrence of the schedule's windows that overlaps
+// [from, to), in the schedule's own zone. Wall-clock times follow the zone's
+// rules: on a spring-forward day a window minute that does not exist is skipped
+// over by the clock, on a fall-back day the repeated hour is part of the window.
+// The schedule must have passed Normalize.
+func (s Schedule) Instances(from, to time.Time) []Instance {
+	loc, err := time.LoadLocation(s.TZ)
+	if err != nil || len(s.Windows) == 0 || !to.After(from) {
+		return nil
+	}
+	fl, tl := from.In(loc), to.In(loc)
+	day := time.Date(fl.Year(), fl.Month(), fl.Day(), 12, 0, 0, 0, loc).AddDate(0, 0, -1)
+	last := time.Date(tl.Year(), tl.Month(), tl.Day(), 12, 0, 0, 0, loc).AddDate(0, 0, 1)
+	var out []Instance
+	for ; !day.After(last); day = day.AddDate(0, 0, 1) {
+		wd := int(day.Weekday())
+		for _, w := range s.Windows {
+			if !hasDay(w.Days, wd) {
+				continue
+			}
+			sm, _ := ParseClock(w.Start)
+			em, _ := ParseClock(w.End)
+			y, m, d := day.Date()
+			st := time.Date(y, m, d, sm/60, sm%60, 0, 0, loc)
+			ed := time.Date(y, m, d, em/60, em%60, 0, 0, loc)
+			if em <= sm {
+				ed = time.Date(y, m, d+1, em/60, em%60, 0, 0, loc)
+			}
+			if ed.After(from) && st.Before(to) {
+				out = append(out, Instance{Start: st, End: ed, Rate: w.Rate})
+			}
+		}
+	}
+	return out
+}
+
+func hasDay(days string, wd int) bool {
+	for _, d := range daysOf(days) {
+		if d == wd {
+			return true
+		}
+	}
+	return false
+}
