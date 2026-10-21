@@ -254,18 +254,52 @@ func Suggest(a Archive, req Request) (*Result, error) {
 		all[i].score = score(all[i].c, false)
 	}
 	sort.SliceStable(all, func(i, j int) bool { return rankBefore(all[i], all[j]) })
+	wantCamp := false
+	for _, k := range kinds {
+		wantCamp = wantCamp || k == KindCampground
+	}
 	if len(all) > 10 {
-		all = all[:10]
+		// The best campground stays in the running even when ten hotels score
+		// higher: it is kept a slot below.
+		pool := all[:10:10]
+		if wantCamp && indexOfKind(pool, KindCampground) < 0 {
+			if i := indexOfKind(all[10:], KindCampground); i >= 0 {
+				pool = append(pool, all[10+i])
+			}
+		}
+		all = pool
 	}
 	for i := range all {
 		all[i].c.DCFCNearby = nearbyDCFC(a, all[i].c)
 		all[i].score = score(all[i].c, all[i].c.DCFCNearby != nil)
 	}
 	sort.SliceStable(all, func(i, j int) bool { return rankBefore(all[i], all[j]) })
-	for i := 0; i < len(all) && i < maxCandidates; i++ {
-		res.Candidates = append(res.Candidates, all[i].c)
+	top := all
+	if len(top) > maxCandidates {
+		top = top[:maxCandidates]
+		// When campgrounds are asked for, one of the three goes to the best
+		// campground in reach (the others stay the best-ranked); none in reach
+		// leaves the hotels alone.
+		if wantCamp && indexOfKind(top, KindCampground) < 0 {
+			if i := indexOfKind(all, KindCampground); i >= 0 {
+				top = append(top[:maxCandidates-1:maxCandidates-1], all[i])
+			}
+		}
+	}
+	for _, sc := range top {
+		res.Candidates = append(res.Candidates, sc.c)
 	}
 	return res, nil
+}
+
+// indexOfKind is the first stay of the given kind, or -1.
+func indexOfKind(list []scored, kind string) int {
+	for i, sc := range list {
+		if sc.c.Kind == kind {
+			return i
+		}
+	}
+	return -1
 }
 
 // wantedKinds is the stays to look for: hotels when none is asked for.
