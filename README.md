@@ -262,6 +262,39 @@ The same tabs work at phone width, and the main tabs have a light theme.
 
 ---
 
+## Rivolt on iPhone (TestFlight)
+
+A native iPhone app is in internal testing. Access is **by invitation from the
+maintainer through TestFlight**, with no public link and no App Store listing
+yet, so most people will use the web app above for now.
+
+What it does today:
+
+- **Now** — charge level, range, what the truck is doing and how fresh that
+  is, with a switcher when you have more than one truck.
+- **Widgets** — charge and range on the Home Screen and the Lock Screen. A
+  widget that can't refresh says how old its numbers are instead of looking
+  current.
+- **Notifications** — charging complete, software updates and anomalies, plus the
+  plug-in reminder and milestones if you turn them on in Settings on rivolt.dev.
+  Apple's push service sees only your phone's push address and a generic 'Rivolt update'; the words are fetched from Rivolt when it arrives.
+
+Signing in uses a browser sheet on **rivolt.dev**, the same sign-in as the web
+app, followed by one confirmation page ("Sign in to the Rivolt iPhone app?":
+tap Continue), so the app never sees your password and keeps only a revocable
+session token in the iPhone Keychain. Signing out removes it, and you can revoke it from the web.
+The app is read-only like the rest of Rivolt: it never sends anything to your
+truck.
+
+If you run your own server, "Other server" on the sign-in screen accepts an
+https address and checks that it is a Rivolt server; your server turns app
+sign-in on with `RIVOLT_APP_CALLBACK_URL=rivolt://auth`. Notifications from the
+App Store build come only from rivolt.dev, since they need Rivolt's own Apple key.
+
+See [`ios/README.md`](ios/README.md) for how it is built and tested.
+
+---
+
 ## Settings — everything in one place
 
 A five-tab layout for the per-user controls:
