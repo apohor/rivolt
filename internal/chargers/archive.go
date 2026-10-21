@@ -271,21 +271,38 @@ func (a *Archive) lookupLeaf(offset uint64, length uint32) []pm.EntryV3 {
 // renderer code is unchanged. Names are camelCase on the JSON wire
 // to match the existing TS type.
 type POI struct {
-	Lat            float64 `json:"lat"`
-	Lon            float64 `json:"lon"`
-	Name           string  `json:"name,omitempty"`
-	IsDCFC         bool    `json:"isDCFC"`
-	IsL2           bool    `json:"isL2"`
-	MaxPowerKW     float64 `json:"maxPowerKW,omitempty"`
-	FacilityType   string  `json:"facilityType,omitempty"`
-	EVNetwork      string  `json:"evNetwork,omitempty"`
-	EVPricing      string  `json:"evPricing,omitempty"`
-	EntityID       string  `json:"entityID,omitempty"`
-	DCFCCount      int     `json:"dcfcCount,omitempty"`
-	L2Count        int     `json:"l2Count,omitempty"`
-	SocketTesla    bool    `json:"socketTeslaSupercharger,omitempty"`
-	SocketCCS1     bool    `json:"socketType1Combo,omitempty"`
-	SocketChademo  bool    `json:"socketChademo,omitempty"`
+	Lat           float64 `json:"lat"`
+	Lon           float64 `json:"lon"`
+	Name          string  `json:"name,omitempty"`
+	IsDCFC        bool    `json:"isDCFC"`
+	IsL2          bool    `json:"isL2"`
+	MaxPowerKW    float64 `json:"maxPowerKW,omitempty"`
+	FacilityType  string  `json:"facilityType,omitempty"`
+	EVNetwork     string  `json:"evNetwork,omitempty"`
+	EVPricing     string  `json:"evPricing,omitempty"`
+	EntityID      string  `json:"entityID,omitempty"`
+	DCFCCount     int     `json:"dcfcCount,omitempty"`
+	L2Count       int     `json:"l2Count,omitempty"`
+	SocketTesla   bool    `json:"socketTeslaSupercharger,omitempty"`
+	SocketCCS1    bool    `json:"socketType1Combo,omitempty"`
+	SocketChademo bool    `json:"socketChademo,omitempty"`
+	// SocketJ1772 and SocketNEMA1450 are the AC connectors the listing flags
+	// (the archive's socket:type1 and socket:nema_1450).
+	SocketJ1772    bool `json:"socketJ1772,omitempty"`
+	SocketNEMA1450 bool `json:"socketNema1450,omitempty"`
+	// The campground fields come from the Recreation.gov (RIDB) step of the
+	// archive build; zero on every NREL-only station. HookupAmps is the
+	// highest electric hookup of any campsite, ElectricSites of Sites the
+	// number with power. AsOf is the export's date ("2026-10-20").
+	HookupAmps    int    `json:"hookupAmps,omitempty"`
+	ElectricSites int    `json:"electricSites,omitempty"`
+	Sites         int    `json:"sites,omitempty"`
+	Reservable    bool   `json:"reservable,omitempty"`
+	Source        string `json:"source,omitempty"`
+	// RIDBID is the Recreation.gov FacilityID of the campground, set on a
+	// station that came from, or was merged with, a RIDB record.
+	RIDBID string `json:"ridbID,omitempty"`
+	AsOf   string `json:"asof,omitempty"`
 }
 
 // Filter matches the SPA's ChargerFilter strings.
@@ -295,6 +312,7 @@ const (
 	FilterDCFC   Filter = "dcfc"
 	FilterL2     Filter = "l2"
 	FilterHotels Filter = "hotels"
+	FilterCamp   Filter = "camp"
 	FilterAll    Filter = "all"
 )
 
@@ -309,6 +327,22 @@ var hotelFacilityTypes = map[string]bool{
 	"INN":               true,
 	"LODGE":             true,
 	"RESORT":            true,
+}
+
+// campFacilityTypes are the NREL facility types of a campground; a station the
+// Recreation.gov step added carries CAMPGROUND too.
+var campFacilityTypes = map[string]bool{
+	"CAMPGROUND": true,
+	"RV_PARK":    true,
+}
+
+// IsCampground reports whether poi is a campground or RV park with a way to
+// plug in: a listed hookup (HookupAmps), a Level 2 stall or a NEMA 14-50.
+func (poi POI) IsCampground() bool {
+	if !campFacilityTypes[strNormUpper(poi.FacilityType)] {
+		return false
+	}
+	return poi.HookupAmps > 0 || poi.IsL2 || poi.SocketNEMA1450
 }
 
 // chargersZoom is the zoom level the build pipeline emits in
@@ -551,6 +585,8 @@ func (poi POI) matches(filter Filter) bool {
 		return poi.IsL2
 	case FilterHotels:
 		return hotelFacilityTypes[strNormUpper(poi.FacilityType)] && poi.IsL2
+	case FilterCamp:
+		return poi.IsCampground()
 	}
 	return true
 }
@@ -657,6 +693,15 @@ func (a *Archive) tilePOIs(z uint8, x, y uint32) ([]POI, error) {
 			poi.SocketTesla = yesProp(props, "socket:tesla_supercharger")
 			poi.SocketCCS1 = yesProp(props, "socket:type1_combo")
 			poi.SocketChademo = yesProp(props, "socket:chademo")
+			poi.SocketJ1772 = yesProp(props, "socket:type1")
+			poi.SocketNEMA1450 = yesProp(props, "socket:nema_1450")
+			poi.HookupAmps = intProp(props, "hookup_amps")
+			poi.ElectricSites = intProp(props, "electric_sites")
+			poi.Sites = intProp(props, "sites")
+			poi.Reservable = yesProp(props, "reservable")
+			poi.Source = stringProp(props, "source")
+			poi.RIDBID = firstStringProp(props, "ridb_id")
+			poi.AsOf = stringProp(props, "asof")
 
 			// DCFC/L2 inference: prefer explicit counts when emitted,
 			// otherwise infer from unambiguous DC connectors or
@@ -672,6 +717,12 @@ func (a *Archive) tilePOIs(z uint8, x, y uint32) ([]POI, error) {
 				poi.IsL2 = true
 			} else if !poi.IsDCFC {
 				poi.IsL2 = true
+			}
+			// A campground hookup (a RIDB record with amps, no EVSE counts, no J1772)
+			// is an outlet, not a Level 2 stall: it must not show up under the
+			// "l2" filter or count as a hotel-style L2.
+			if poi.HookupAmps > 0 && poi.L2Count == 0 && !poi.SocketJ1772 {
+				poi.IsL2 = false
 			}
 			pois = append(pois, poi)
 		}

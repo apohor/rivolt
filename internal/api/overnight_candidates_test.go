@@ -13,11 +13,14 @@ import (
 	"github.com/apohor/rivolt/internal/chargers"
 )
 
-type hotelArchive struct{ pois []chargers.POI }
+type hotelArchive struct{ pois, camps []chargers.POI }
 
 func (h hotelArchive) QueryCorridor(_ [][2]float64, f chargers.Filter, _ chargers.QueryCorridorOptions) ([]chargers.POI, error) {
-	if f == chargers.FilterHotels {
+	switch f {
+	case chargers.FilterHotels:
 		return h.pois, nil
+	case chargers.FilterCamp:
+		return h.camps, nil
 	}
 	return nil, nil
 }
@@ -107,5 +110,51 @@ func TestOvernightCandidatesRefusals(t *testing.T) {
 	handleOvernightCandidates(nil)(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString("{}")))
 	if rec.Code != 404 {
 		t.Errorf("no archive = %d", rec.Code)
+	}
+}
+
+// Campgrounds are opt-in by "kinds"; with one in the answer the credit line
+// travels with the list, and a bad kind is a 400.
+func TestOvernightCandidatesCampgrounds(t *testing.T) {
+	noLoad := func(context.Context) error { return nil }
+	h := overnightHandler(hotelArchive{camps: []chargers.POI{
+		{Name: "Tule", EntityID: "ridb/232709", RIDBID: "232709", Source: "ridb", Reservable: true, HookupAmps: 50, FacilityType: "CAMPGROUND", Lat: 34 + 800/111.195, Lon: -118.003, AsOf: "2026-10-20"},
+	}}, noLoad)
+	var out struct {
+		Candidates []struct {
+			Kind                string `json:"kind"`
+			Connector           string `json:"connector"`
+			SourceURL           string `json:"source_url"`
+			ReservationRequired *bool  `json:"reservation_required"`
+		} `json:"candidates"`
+		Source      string `json:"source"`
+		Attribution string `json:"attribution"`
+	}
+	body := map[string]any{"path": straight(1000), "drive_sec": 36000, "budget_hours": 8}
+	rec := postOvernight(h, body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Candidates) != 0 || out.Attribution != "" {
+		t.Fatalf("default must stay hotels only: %d %s", rec.Code, rec.Body.String())
+	}
+	body["kinds"] = []string{"hotel", "campground"}
+	rec = postOvernight(h, body)
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Candidates) != 1 {
+		t.Fatalf("%v %s", err, rec.Body.String())
+	}
+	c := out.Candidates[0]
+	if c.Kind != "campground" || c.Connector != "nema_14_50" || c.SourceURL != "https://www.recreation.gov/camping/campgrounds/232709" ||
+		c.ReservationRequired == nil || !*c.ReservationRequired {
+		t.Errorf("candidate = %+v", c)
+	}
+	if out.Attribution != "Data: Recreation.gov (RIDB), CC BY 4.0; filtered by Rivolt" ||
+		!strings.Contains(rec.Body.String(), `"attribution_source_url":"https://catalog.data.gov/dataset/recreation-information-database-ridb"`) ||
+		!strings.Contains(rec.Body.String(), `"attribution_license_url":"https://creativecommons.org/licenses/by/4.0/"`) || !strings.Contains(out.Source, "Recreation.gov") {
+		t.Errorf("credit line missing: %q / %q", out.Attribution, out.Source)
+	}
+	body["kinds"] = []string{"castle"}
+	if rec := postOvernight(h, body); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown kind = %d, want 400", rec.Code)
 	}
 }
