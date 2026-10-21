@@ -81,4 +81,14 @@ struct NowSnapshot: Decodable, Equatable {
     let charge: Charge?
     /// Only when the user turned outside temperature on.
     let ambient: Ambient?
+
+    /// Keys as `.convertFromSnakeCase` produces them. It capitalizes each
+    /// segment with `String.capitalized`, which turns "6h" into "6H", so
+    /// `failed_sleeps_6h` arrives as `failedSleeps6H`, not `failedSleeps6h`.
+    private enum CodingKeys: String, CodingKey {
+        case version, at, locationFixAt, connection, state, asleep, stateSince
+        case socAtStateStart, tirePressureMinBar
+        case failedSleeps6h = "failedSleeps6H"
+        case vehicleStateFrameAt, charge, ambient
+    }
 }

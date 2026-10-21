@@ -16,6 +16,13 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNotNil(n.vehicleStateFrameAt)
     }
 
+    /// `.convertFromSnakeCase` capitalizes "6h" to "6H"; NowSnapshot's
+    /// CodingKeys depend on that.
+    func testFailedSleepsKeyConversion() throws {
+        let n = try JSON.decoder().decode(NowSnapshot.self, from: Data(#"{"version":1,"at":null,"location_fix_at":null,"connection":"live","state":"parked","state_since":null,"soc_at_state_start":null,"tire_pressure_min_bar":null,"failed_sleeps_6h":3,"vehicle_state_frame_at":null,"charge":null}"#.utf8))
+        XCTAssertEqual(n.failedSleeps6h, 3)
+    }
+
     func testNowSnapshotWithNullsAndMissingOptionalFields() throws {
         let n = try Fixture.decode(NowSnapshot.self, "now_v1_minimal")
         XCTAssertEqual(n.connection, .paused)
