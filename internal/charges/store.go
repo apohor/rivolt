@@ -1342,7 +1342,7 @@ type ChartCharge struct {
 // MaxChartRows bounds one chart answer (newest rows win when a window holds more).
 const MaxChartRows = 5000
 
-// ListChartPoints returns the user's charges that started in [since, until], oldest
+// ListChartPoints returns the user's charges that started in [since, until), oldest
 // first, narrowed to ChartCharge; the same rows the list shows (at least a minute).
 // rivianVehicleID "" means every truck; at most MaxChartRows, the newest if more.
 func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, rivianVehicleID string) ([]ChartCharge, error) {
@@ -1352,7 +1352,7 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
 		  AND c.ended_at - c.started_at >= interval '1 minute'
-		  AND c.started_at >= $2 AND c.started_at <= $3
+		  AND c.started_at >= $2 AND c.started_at < $3
 		  AND ($4 = '' OR v.rivian_vehicle_id = $4)
 		ORDER BY c.started_at DESC
 		LIMIT $5`, s.userID, since, until, rivianVehicleID, MaxChartRows)

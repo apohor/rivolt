@@ -451,7 +451,7 @@ type ChartDrive struct {
 // MaxChartRows bounds one chart answer (newest rows win when a window holds more).
 const MaxChartRows = 5000
 
-// ListChartPoints returns the user's drives that started in [since, until], oldest
+// ListChartPoints returns the user's drives that started in [since, until), oldest
 // first, for the charts: the same rows the list shows (at least a minute, no
 // re-parking rows), narrowed to ChartDrive. rivianVehicleID "" means every truck;
 // at most MaxChartRows, the newest if there are more.
@@ -462,7 +462,7 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
 		  AND d.ended_at - d.started_at >= interval '1 minute'
-		  AND d.started_at >= $2 AND d.started_at <= $3
+		  AND d.started_at >= $2 AND d.started_at < $3
 		  AND ($4 = '' OR v.rivian_vehicle_id = $4)
 		ORDER BY d.started_at DESC
 		LIMIT $5`, s.userID, since, until, rivianVehicleID, MaxChartRows)

@@ -20,27 +20,40 @@ const maxChartWindow = 400 * 24 * time.Hour
 // own, optionally one truck (vehicle_id, as on the lists). since defaults to 30 days
 // ago and until to now; a window wider than maxChartWindow is a 400; at most
 // MaxChartRows of each, the newest if there are more.
+// chartWindow reads the window and truck the iPhone's aggregate endpoints share:
+// since (default 30 days ago), until (default now), both RFC 3339, at most
+// maxChartWindow apart, and the optional vehicle_id (as on the lists). Rows count when
+// they start in [since, until): the end is exclusive, like the web's period filter.
+// Writes a 400 and returns false for anything else.
+func chartWindow(w http.ResponseWriter, r *http.Request) (since, until time.Time, vehicleID string, ok bool) {
+	vehicleID, ok = vehicleFilter(w, r)
+	if !ok {
+		return
+	}
+	now := time.Now()
+	since, until = now.Add(-30*24*time.Hour), now
+	for name, dst := range map[string]*time.Time{"since": &since, "until": &until} {
+		if s := r.URL.Query().Get(name); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				http.Error(w, name+" must be an RFC 3339 time", http.StatusBadRequest)
+				return since, until, "", false
+			}
+			*dst = t
+		}
+	}
+	if until.Before(since) || until.Sub(since) > maxChartWindow {
+		http.Error(w, "the window must be between 0 and 400 days", http.StatusBadRequest)
+		return since, until, "", false
+	}
+	return since, until, vehicleID, true
+}
+
 func handleChartPoints(ds *drives.Store, cs *charges.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		vehicleID, ok := vehicleFilter(w, r)
+		since, until, vehicleID, ok := chartWindow(w, r)
 		if !ok {
-			return
-		}
-		now := time.Now()
-		since, until := now.Add(-30*24*time.Hour), now
-		for name, dst := range map[string]*time.Time{"since": &since, "until": &until} {
-			if s := r.URL.Query().Get(name); s != "" {
-				t, err := time.Parse(time.RFC3339, s)
-				if err != nil {
-					http.Error(w, name+" must be an RFC 3339 time", http.StatusBadRequest)
-					return
-				}
-				*dst = t
-			}
-		}
-		if until.Before(since) || until.Sub(since) > maxChartWindow {
-			http.Error(w, "the window must be between 0 and 400 days", http.StatusBadRequest)
 			return
 		}
 		out := struct {
