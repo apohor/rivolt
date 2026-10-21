@@ -498,8 +498,11 @@ export function sourceLabel(
 
 // "2026-10" -> "Oct 2026" (empty when the month isn't there).
 export function monthLabelShort(ym: string | null | undefined): string {
-  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "";
-  return new Date(`${ym}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  const m = ym ? /^(\d{4})-(\d{2})$/.exec(ym) : null;
+  // A real month only: "2026-13" or "2026-00" is a malformed value, not a date ("Invalid Date" must never reach the page).
+  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return "";
+  const d = new Date(`${ym}-15T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 export function bySource(m: MonthSummary): SpendBySource {

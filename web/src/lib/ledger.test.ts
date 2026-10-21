@@ -205,7 +205,7 @@ describe("sourceLabel: a tracker estimate", () => {
     expect(sourceLabel({ ...r, estimate_month: "2026-10" }, "USD")).toBe("Estimate: typical price seen by DCFC Tracker, Oct 2026 · Electrify America");
   });
   it("is never an undated tracker figure", () => {
-    for (const m of ["", undefined, null, "soon"]) {
+    for (const m of ["", undefined, null, "soon", "2026-13", "2026-00", "2026-99"]) {
       expect(sourceLabel({ ...r, estimate_month: m as string | null | undefined }, "USD")).toBe("Estimate (typical observed price, date unknown) · Electrify America");
     }
   });
