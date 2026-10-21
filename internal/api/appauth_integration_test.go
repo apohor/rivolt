@@ -129,7 +129,7 @@ func TestAppSignInFlow(t *testing.T) {
 		if w.Code != http.StatusOK || w.Header().Get("Location") != "" {
 			t.Fatalf("GET finish must show the consent page, got %d to %q", w.Code, w.Header().Get("Location"))
 		}
-		if !strings.Contains(w.Body.String(), "app-flow") || w.Header().Get("X-Frame-Options") != "DENY" {
+		if !strings.Contains(w.Body.String(), "<!--email_off-->app-flow<!--/email_off-->") || w.Header().Get("X-Frame-Options") != "DENY" {
 			t.Fatalf("consent page: %s", w.Body)
 		}
 		m := consentRE.FindStringSubmatch(w.Body.String())

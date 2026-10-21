@@ -152,7 +152,7 @@ func (a *AppAuth) handleAppFinishPage(d Deps) http.HandlerFunc {
 		}
 		consentHeaders(w)
 		_ = appConsentPage.Execute(w, appConsent{
-			Username: name,
+			Username: emailOff(name),
 			Action:   appFinishPath,
 			Token:    a.Store.ConsentToken(c.Value),
 		})
@@ -214,13 +214,24 @@ func consentHeaders(w http.ResponseWriter) {
 }
 
 type appConsent struct {
-	Username string
+	Username template.HTML
 	Action   string
 	Token    string
 }
 
+// emailOff escapes the username and wraps it in Cloudflare's email_off
+// markers. Usernames are often email addresses, and Cloudflare's Email
+// Address Obfuscation would otherwise replace one with "[email protected]",
+// decoded by a script this page's CSP blocks: the user couldn't see which
+// account the app is about to use. html/template drops comments written in
+// the template itself, so the markers go in as template.HTML around the
+// escaped name.
+func emailOff(name string) template.HTML {
+	return template.HTML("<!--email_off-->" + template.HTMLEscapeString(name) + "<!--/email_off-->")
+}
+
 // appConsentPage asks before handing the app a session. html/template
-// escapes the username and token.
+// escapes the token; emailOff escapes the username.
 var appConsentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in to the Rivolt app</title>
