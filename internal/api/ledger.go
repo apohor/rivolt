@@ -77,6 +77,12 @@ func receiptsAllowed(ctx context.Context, f *flags.Store, sf *settings.Factory, 
 	return f != nil && sf != nil && f.RivianReceipts().Enabled(uid.String()) && sf.RivianReceiptsOptIn(ctx, uid)
 }
 
+// billedFor is receiptsAllowed for the request's user, for the handlers that
+// show a charge: with receipts on, a billed session shows what Rivian billed.
+func billedFor(d Deps, uid uuid.UUID) func(context.Context) bool {
+	return func(ctx context.Context) bool { return receiptsAllowed(ctx, d.Flags, d.Settings, uid) }
+}
+
 // newLedgerAPI wires the production seams: read-only queries on the
 // shared pool, the vehicle-ownership check, and the user's charging
 // settings (home rate, currency) and home location.
