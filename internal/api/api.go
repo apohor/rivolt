@@ -116,6 +116,9 @@ type Deps struct {
 	// request context but the API stays open (legacy single-tenant
 	// UX so docker-compose upgrades don't lock anyone out).
 	Auth *auth.Service
+	// Sessions, when set, mounts the signed-in user's device list under
+	// /api/auth/sessions (list, revoke one, sign out everywhere else).
+	Sessions *SessionsAPI
 	// AuthEnforced flips on the requireUser middleware for /api/*.
 	// True when at least one real issuer is configured (OIDC,
 	// trusted-proxy, or the debug bypass).
@@ -438,6 +441,11 @@ func New(d Deps) http.Handler {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
 				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
+				if d.Sessions != nil && !d.AdminOnly {
+					r.Get("/sessions", d.Sessions.List)
+					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
+					r.Delete("/sessions/{id}", d.Sessions.Revoke)
+				}
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
