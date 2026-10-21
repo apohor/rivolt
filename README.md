@@ -275,15 +275,14 @@ What it does today:
 - **Widgets** — charge and range on the Home Screen and the Lock Screen. A
   widget that can't refresh says how old its numbers are instead of looking
   current.
-- **Notifications** — charging complete, software updates, anomalies, and the
-  plug-in reminder and milestones if you turn them on, once you switch them on in
-  the app (on rivolt.dev). Apple's push service only learns that a notification
-  was sent; the words are fetched from Rivolt when it arrives.
+- **Notifications** — charging complete, software updates and anomalies, plus the
+  plug-in reminder and milestones if you turn them on in Settings on rivolt.dev.
+  Apple's push service sees only your phone's push address and a generic 'Rivolt update'; the words are fetched from Rivolt when it arrives.
 
 Signing in uses a browser sheet on **rivolt.dev**, the same sign-in as the web
 app, followed by one confirmation page ("Sign in to the Rivolt iPhone app?":
-tap Continue), so the app never sees your password and keeps only a session token
-in the iPhone Keychain. Signing out removes it, and you can revoke it from the web.
+tap Continue), so the app never sees your password and keeps only a revocable
+session token in the iPhone Keychain. Signing out removes it, and you can revoke it from the web.
 The app is read-only like the rest of Rivolt: it never sends anything to your
 truck.
 

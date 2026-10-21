@@ -17,9 +17,9 @@ Builds are uploaded from tagged releases (`ios-v*`).
 Tap **Sign in** and a browser sheet opens on **rivolt.dev**, signing in the way
 the web app does (Rivolt's own sign-in; the app never asks for or sees a
 password). Rivolt then asks one more thing on a confirmation page, "Sign in to
-the Rivolt iPhone app as you?": tap **Continue** and the sheet closes and you are
-in. (Cancel, or close the sheet, and nothing happens.) The app keeps a session
-token in the iPhone Keychain; sign out removes it, and you can revoke it from
+the Rivolt iPhone app?": tap **Continue** and the sheet closes and you are in.
+(Cancel, or close the sheet, and nothing happens.) The app keeps a revocable
+session token in the iPhone Keychain; sign out removes it, and you can revoke it from
 the web. The token is tied to the server that issued it and is only ever sent
 there.
 
@@ -74,8 +74,9 @@ milestones, the last two off until turned on), and a **Send test notification**
 button that sends one to your own iPhones (it works once notifications are on
 for the phone).
 
-An APNs payload carries only `{id}` and a generic alert: Apple's push
-servers see that a notification was sent, never its words. The Notification
+An APNs payload carries only `{id}` and a generic alert: Apple's push service
+sees only your phone's push address and a generic 'Rivolt update'; the words are
+fetched from Rivolt when it arrives. The Notification
 Service Extension (`RivoltNotificationService`) fetches the title and body from
 `GET /api/push/notifications/{id}` with the signed-in token, shared through the
 Keychain access group, and falls back to the generic alert if that fails. The
