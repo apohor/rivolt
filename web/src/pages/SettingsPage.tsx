@@ -35,6 +35,7 @@ import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
+import { OffpeakPanel } from "../components/OffpeakCard";
 import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
@@ -210,6 +211,9 @@ function SettingsPageInner() {
         <>
           <Card title="Home charging cost" id="cost">
             <ChargingCostPanel />
+          </Card>
+          <Card title="Off-peak schedule" id="offpeak">
+            <OffpeakPanel />
           </Card>
           <Card title="Charging networks" id="networks">
             <ChargingNetworksPanel />
