@@ -29,6 +29,8 @@ struct NowSummary: Equatable {
     let lastSeen: Date?
     let freshness: Freshness
     let outsideTempC: Double?
+    /// The pack size, when the truck reports it.
+    let packKwh: Double?
 
     /// The few fields the card works from. The widget builds this directly from
     /// the fields it decodes (it never decodes a location), the app from a full
@@ -42,9 +44,10 @@ struct NowSummary: Equatable {
         var chargerState: String?
         var chargerPowerKw: Double?
         var at: Date?
+        var packKwh: Double?
 
         init(socPct: Double?, rangeKm: Double?, chargeTargetPct: Double?, gear: String?, powerState: String?,
-             chargerState: String?, chargerPowerKw: Double?, at: Date?) {
+             chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil) {
             self.socPct = socPct
             self.rangeKm = rangeKm
             self.chargeTargetPct = chargeTargetPct
@@ -53,12 +56,13 @@ struct NowSummary: Equatable {
             self.chargerState = chargerState
             self.chargerPowerKw = chargerPowerKw
             self.at = at
+            self.packKwh = packKwh
         }
 
         init(_ s: VehicleState) {
             self.init(socPct: s.batteryLevelPct, rangeKm: s.distanceToEmpty, chargeTargetPct: s.chargeTargetPct,
                       gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
-                      chargerPowerKw: s.chargerPowerKw, at: s.at)
+                      chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh)
         }
     }
 
@@ -94,6 +98,7 @@ struct NowSummary: Equatable {
             }
         }
         outsideTempC = now?.ambient?.tempC
+        packKwh = input?.packKwh.flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// How old the newest data may be before the card says it may be out of

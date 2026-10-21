@@ -63,18 +63,21 @@ final class AppState {
     let tokens: TokenStore
     /// Notifications on this iPhone (the Apple token, permission, the switches).
     let notifications: NotificationManager
+    /// The charging Live Activity (started by the app while charging, with the person's switch on).
+    let liveActivity: LiveActivityManager
 
     private static let serverDefaultsKey = "rivolt.server_url"
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
     private static let legacyServerDefaultsKey = "rivolt.api_base_url"
 
-    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil) {
+    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil, liveActivity: LiveActivityManager? = nil) {
         defaults.removeObject(forKey: Self.legacyServerDefaultsKey)
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
         self.serverURL = server
         self.tokens = tokens
         self.notifications = notifications ?? NotificationManager.shared
+        self.liveActivity = liveActivity ?? LiveActivityManager.shared
         self.client = APIClient(baseURL: server, tokens: tokens)
     }
 
@@ -96,6 +99,7 @@ final class AppState {
             let me = try await client.me()
             phase = .loggedIn(username: me.username)
             await notifications.signedIn(server: client)
+        liveActivity.attach(server: client)
         } catch {
             phase = .loggedOut
         }
@@ -188,12 +192,15 @@ final class AppState {
         // The widgets were showing "sign in"; they can fetch now.
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
+        liveActivity.attach(server: client)
     }
 
     func logout() async {
         // Best effort on the server; locally the token always goes, so the UI
         // reflects the user's intent even offline.
         // The phone is forgotten for notifications first, while the token still works.
+        await liveActivity.stop()
+        liveActivity.attach(server: nil)
         await notifications.signedOut()
         try? await client.logout()
         try? tokens.deleteToken(for: serverURL)

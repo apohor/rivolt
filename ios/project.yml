@@ -63,6 +63,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app
         PRODUCT_NAME: Rivolt
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt
+        # The app starts the charging Live Activity.
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         # iPhone only. Without this the app is iPhone+iPad and App Store
         # validation demands iPad icons and iPad multitasking orientations
         # (ios-v0.1.0 was rejected for both). Per target: XcodeGen's iOS
@@ -126,6 +128,8 @@ targets:
       - path: Rivolt/Widget
       - path: Rivolt/Views/NowModel.swift
       - path: Rivolt/Views/NowInk.swift
+      - path: Rivolt/LiveActivity/ChargingActivity.swift
+      - path: Rivolt/LiveActivity/ChargingActivityViews.swift
       - path: Rivolt/Net/Models.swift
       - path: Rivolt/Net/JSON.swift
       - path: Rivolt/Net/ServerURL.swift

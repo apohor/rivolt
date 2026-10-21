@@ -33,6 +33,17 @@ private final class FakeServer: PushServer, @unchecked Sendable {
         tests += 1
         return try testResult.get()
     }
+
+    var activityTokens: [String] = []
+    var endedActivityTokens: [String] = []
+
+    func registerActivity(token: String) async throws {
+        activityTokens.append(token)
+    }
+
+    func endActivity(token: String) async throws {
+        endedActivityTokens.append(token)
+    }
 }
 
 @MainActor
@@ -216,7 +227,7 @@ final class PushPreferencesTests: XCTestCase {
     }
 
     func testEveryKindHasItsWebWordingAndWireKey() {
-        XCTAssertEqual(PushKind.allCases.count, 5)
+        XCTAssertEqual(PushKind.allCases.count, 6)
         XCTAssertEqual(PushKind.chargingDone.title, "Charging session completes")
         XCTAssertEqual(PushKind.plugInReminder.wireKey, "on_plug_in_reminder")
         var p = PushPreferences()

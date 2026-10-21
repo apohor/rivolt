@@ -8,6 +8,8 @@ import UIKit
 /// when the server offers notifications.
 struct NotificationSettingsView: View {
     let manager: NotificationManager
+    /// Whether iOS lets Rivolt show Live Activities (iOS Settings); for the hint under that switch.
+    var liveActivitiesAllowed = true
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -44,7 +46,7 @@ struct NotificationSettingsView: View {
 
                 if let prefs = manager.preferences {
                     Section {
-                        ForEach(PushKind.allCases) { kind in
+                        ForEach(PushKind.allCases.filter { $0 != .chargingLive || prefs.chargingLiveKnown }) { kind in
                             Toggle(isOn: binding(for: kind, in: prefs)) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(kind.title)
@@ -59,8 +61,16 @@ struct NotificationSettingsView: View {
                     } header: {
                         Text("Notify me when…")
                     } footer: {
-                        if let error = manager.switchError {
-                            Text(error).foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 4) {
+                            if prefs.chargingLiveKnown {
+                                Text("Open Rivolt while the truck is charging to start the Live Activity. It ends when the charge does.")
+                                if !liveActivitiesAllowed {
+                                    Text("Live Activities are off for Rivolt in iOS Settings.").foregroundStyle(.orange)
+                                }
+                            }
+                            if let error = manager.switchError {
+                                Text(error).foregroundStyle(.red)
+                            }
                         }
                     }
                 }

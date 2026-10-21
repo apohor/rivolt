@@ -9,6 +9,10 @@ struct PushPreferences: Codable, Equatable {
     var onAnomaly = true
     var onSoftwareUpdate = true
     var onMilestones = false
+    /// The charging Live Activity switch: off until the person turns it on, per iPhone. `chargingLiveKnown`
+    /// is false when the server did not send it (a server without Live Activities): the row is then hidden.
+    var onChargingLive = false
+    var chargingLiveKnown = false
 
     init() {}
 
@@ -20,6 +24,9 @@ struct PushPreferences: Codable, Equatable {
         onAnomaly = try c.decodeIfPresent(Bool.self, forKey: .onAnomaly) ?? true
         onSoftwareUpdate = try c.decodeIfPresent(Bool.self, forKey: .onSoftwareUpdate) ?? true
         onMilestones = try c.decodeIfPresent(Bool.self, forKey: .onMilestones) ?? false
+        let live = try c.decodeIfPresent(Bool.self, forKey: .onChargingLive)
+        onChargingLive = live ?? false
+        chargingLiveKnown = live != nil
     }
 
     subscript(kind: PushKind) -> Bool {
@@ -30,6 +37,7 @@ struct PushPreferences: Codable, Equatable {
             case .anomaly: return onAnomaly
             case .softwareUpdate: return onSoftwareUpdate
             case .milestones: return onMilestones
+            case .chargingLive: return onChargingLive
             }
         }
         set {
@@ -39,13 +47,14 @@ struct PushPreferences: Codable, Equatable {
             case .anomaly: onAnomaly = newValue
             case .softwareUpdate: onSoftwareUpdate = newValue
             case .milestones: onMilestones = newValue
+            case .chargingLive: onChargingLive = newValue
             }
         }
     }
 }
 
 enum PushKind: CaseIterable, Identifiable {
-    case chargingDone, softwareUpdate, anomaly, plugInReminder, milestones
+    case chargingDone, softwareUpdate, anomaly, plugInReminder, milestones, chargingLive
 
     var id: Self { self }
 
@@ -57,6 +66,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .anomaly: return "An anomaly is detected"
         case .plugInReminder: return "Plug-in reminder"
         case .milestones: return "Milestones"
+        case .chargingLive: return "Live Activity while charging"
         }
     }
 
@@ -66,6 +76,8 @@ enum PushKind: CaseIterable, Identifiable {
             return "One notification in the evening if the truck is parked at home, unplugged, and below the level you set on the Rivolt website."
         case .milestones:
             return "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."
+        case .chargingLive:
+            return "Shows charge level, power and time to your target on the Lock Screen and Dynamic Island while a charge is running. While this is on, Apple can see your charge level and power during a charge."
         default:
             return nil
         }
@@ -79,6 +91,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .anomaly: return "on_anomaly"
         case .plugInReminder: return "on_plug_in_reminder"
         case .milestones: return "on_milestones"
+        case .chargingLive: return "on_charging_live"
         }
     }
 }
