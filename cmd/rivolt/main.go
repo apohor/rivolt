@@ -2268,7 +2268,18 @@ func runServer() {
 		}
 		archiveRestorer = rs
 	}
+	var sessionsAPI *api.SessionsAPI
+	if sessionStore != nil {
+		sessionsAPI = &api.SessionsAPI{
+			Store: sessionStore,
+			Current: func(r *http.Request) (uuid.UUID, bool) {
+				ref, ok := auth.SessionFromContext(r.Context())
+				return ref.ID, ok
+			},
+		}
+	}
 	handler := api.New(api.Deps{
+		Sessions:              sessionsAPI,
 		SampleRetentionMonths: sampleRetentionMonths,
 		ArchiveRows:           archiveRows,
 		ArchiveRestorer:       archiveRestorer,
