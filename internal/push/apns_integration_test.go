@@ -95,9 +95,10 @@ func TestAPNsDevicesFollowTheirSession(t *testing.T) {
 	if devs[0].Env != EnvProduction || !devs[0].Prefs.OnPlugInReminder || devs[0].Prefs.OnMilestones {
 		t.Errorf("after re-register and opt-in: %+v", devs[0])
 	}
-	// The export lists devices without the token.
+	// The export lists devices without the token. (The revoked session's device is
+	// already gone: revoking deletes it.)
 	rows, err := st.ExportAPNsDevices(ctx)
-	if err != nil || len(rows) != 3 {
+	if err != nil || len(rows) != 2 {
 		t.Fatalf("export = %+v, %v", rows, err)
 	}
 	// Deleting the session deletes its device; deleting the account deletes the rest.
@@ -106,8 +107,8 @@ func TestAPNsDevicesFollowTheirSession(t *testing.T) {
 	}
 	var n int
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM push_apns_devices WHERE user_id = $1`, uid).Scan(&n)
-	if n != 2 {
-		t.Errorf("after deleting a session: %d devices, want 2", n)
+	if n != 1 {
+		t.Errorf("after deleting a session: %d devices, want 1 (the expired session's)", n)
 	}
 	if _, err := st.CreateNotification(ctx, "charging_done", "t", "b", "/"); err != nil {
 		t.Fatal(err)
