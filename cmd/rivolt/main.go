@@ -446,6 +446,40 @@ func runServer() {
 			logger.Warn("VAPID setup failed", "err", verr.Error())
 		} else {
 			pushSvc = push.NewService(serverPushStore, vapid, logger)
+			// The iPhone app's push (Apple Push Notification service). Off unless
+			// all four RIVOLT_APNS_* values are set; an incomplete or unusable
+			// key is logged and leaves it off rather than stopping the server.
+			apnsCfg := push.APNsConfig{
+				KeyID: os.Getenv("RIVOLT_APNS_KEY_ID"), TeamID: os.Getenv("RIVOLT_APNS_TEAM_ID"),
+				KeyPEM: os.Getenv("RIVOLT_APNS_KEY"), Topic: os.Getenv("RIVOLT_APNS_TOPIC"),
+			}
+			if apnsCfg.Enabled() {
+				if a, aerr := push.NewAPNs(apnsCfg); aerr != nil {
+					logger.Warn("APNs disabled", "err", aerr.Error())
+				} else {
+					pushSvc.WithAPNs(a)
+					logger.Info("APNs enabled", "topic", a.Topic())
+				}
+			}
+			// Notification text is kept 24 hours for the app to fetch; sweep it hourly.
+			go func() {
+				t := time.NewTicker(time.Hour)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						pctx, pcancel := context.WithTimeout(ctx, time.Minute)
+						if n, perr := push.PurgeNotifications(pctx, pgPool); perr != nil {
+							logger.Warn("push notifications sweep failed", "err", perr.Error())
+						} else if n > 0 {
+							logger.Info("push notifications sweep", "deleted", n)
+						}
+						pcancel()
+					}
+				}
+			}()
 		}
 	}
 
