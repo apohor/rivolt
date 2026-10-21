@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/testpg"
@@ -109,8 +111,8 @@ func TestRevokeDeletesPushDevices(t *testing.T) {
 		}
 		n++
 		if _, err := pool.ExecContext(ctx,
-			`INSERT INTO push_apns_devices (user_id, session_id, token, env, bundle_id) VALUES ($1, $2, $3, 'sandbox', 'dev.rivolt.app')`,
-			me, s.ID, strings.Repeat(string(rune('a'+n)), 64)); err != nil {
+			`INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id) VALUES ($1, $2, $3, $4, 'sandbox', 'dev.rivolt.app')`,
+			uuid.New(), me, s.ID, strings.Repeat(string(rune('a'+n)), 64)); err != nil {
 			t.Fatal(err)
 		}
 		return s, raw
