@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -399,6 +402,121 @@ func TestLedgerSavings(t *testing.T) {
 	for _, u := range []string{"?months=0", "?months=13", "?months=x", "?month=2026-13", "?tz=Mars/Base"} {
 		if code, _ := get("/api/ledger/savings" + u); code != http.StatusBadRequest {
 			t.Errorf("%s = %d, want 400", u, code)
+		}
+	}
+}
+
+// GET /api/ledger/monthly.csv: the statement as a download, tying to the JSON
+// month, with spreadsheet formulas neutralised and only the caller's own rows.
+func TestLedgerStatementCSV(t *testing.T) {
+	uid := uuid.New()
+	home := &ledger.LatLon{Lat: 30.2701, Lon: -97.7401}
+	f64 := func(v float64) *float64 { return &v }
+	mk := func(id string, day int, kwh, cost float64, src, network string, peak float64, lat, lon float64) ledger.Charge {
+		st := time.Date(2026, 9, day, 18, 0, 0, 0, time.UTC)
+		end := st.Add(3 * time.Hour)
+		c := ledger.Charge{ID: id, VehicleID: "veh-1", StartedAt: st, EndedAt: end, CreatedAt: st, EnergyKWh: f64(kwh), PeakKW: f64(peak),
+			Currency: "USD", CostSource: src, Network: network, FinalState: "charging_complete", Source: "live", Lat: f64(lat), Lon: f64(lon)}
+		if cost > 0 {
+			c.Cost, c.PricePerKWh = f64(cost), f64(cost/kwh)
+		}
+		return c
+	}
+	f := &fakeLedgerData{charges: []ledger.Charge{
+		mk("h1", 2, 30, 3.30, "home_rate", "", 7, home.Lat, home.Lon),
+		mk("h2", 9, 20, 2.20, "home_rate", "", 7, home.Lat, home.Lon),
+		mk("dc", 14, 60, 30, "network_estimate", "=HYPERLINK(\"http://evil\",\"x\")", 150, 35.47, -97.52),
+		mk("free", 20, 10, 0, "", "", 7, 35.47, -97.52), // unpriced away AC
+	}}
+	a := f.api(time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC))
+	a.config = func(context.Context, uuid.UUID) (ledger.Config, error) {
+		return ledger.Config{Currency: "USD", HomeRate: 0.11, Home: home}, nil
+	}
+	rec := ledgerGET(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.statementCSV(uid, w, r) }), uid, "/api/ledger/monthly.csv?month=2026-09&tz=America/Chicago")
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") || !strings.Contains(rec.Header().Get("Content-Disposition"), `filename="rivolt-statement-2026-09.csv"`) ||
+		rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("headers: %v", rec.Header())
+	}
+	rows, err := csv.NewReader(strings.NewReader(rec.Body.String())).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(rows[0], ",") != strings.Join(statementHeader, ",") {
+		t.Fatalf("header %v", rows[0])
+	}
+	col := map[string]int{}
+	for i, h := range rows[0] {
+		col[h] = i
+	}
+	// The same month as JSON, for the tie.
+	jrec := ledgerGET(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.monthly(uid, w, r) }), uid, "/api/ledger/monthly?month=2026-09&tz=America/Chicago")
+	var m struct {
+		Spend struct {
+			Total float64 `json:"total"`
+		} `json:"spend"`
+		Energy struct {
+			ByPlaceKind map[string]map[string]struct {
+				Cost float64 `json:"cost"`
+			} `json:"by_place_kind"`
+		} `json:"energy"`
+	}
+	if err := json.Unmarshal(jrec.Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+	var sessionSum float64
+	var sessions, totalSpend, homeAC int
+	for _, r := range rows[1:] {
+		switch r[col["record"]] {
+		case "total":
+			if r[col["key_1"]] == "spend" {
+				totalSpend++
+				if v, _ := strconv.ParseFloat(r[col["cost"]], 64); v != m.Spend.Total {
+					t.Errorf("total spend %v, Money %v", v, m.Spend.Total)
+				}
+			}
+		case "by_place_kind":
+			if r[col["key_1"]] == "home" && r[col["key_2"]] == "ac" {
+				homeAC++
+				if v, _ := strconv.ParseFloat(r[col["cost"]], 64); v != m.Energy.ByPlaceKind["home"]["ac"].Cost {
+					t.Errorf("home ac %v, Money %v", v, m.Energy.ByPlaceKind["home"]["ac"].Cost)
+				}
+			}
+		case "session":
+			sessions++
+			if v, err := strconv.ParseFloat(r[col["cost"]], 64); err == nil {
+				sessionSum += v
+			}
+			if r[col["currency"]] != "USD" || r[col["month"]] != "2026-09" || r[col["started_at"]] == "" {
+				t.Errorf("session row %v", r)
+			}
+			if strings.HasPrefix(r[col["network"]], "=") {
+				t.Errorf("a formula leaked into the network cell: %q", r[col["network"]])
+			}
+		}
+	}
+	if totalSpend != 1 || homeAC != 1 || sessions != 4 {
+		t.Errorf("rows: %d spend, %d home ac, %d sessions", totalSpend, homeAC, sessions)
+	}
+	if math.Abs(sessionSum-m.Spend.Total) > 0.005 {
+		t.Errorf("session lines add up to %v, Money's total is %v", sessionSum, m.Spend.Total)
+	}
+	if !strings.Contains(rec.Body.String(), "'=HYPERLINK") {
+		t.Errorf("the formula in a network name was not neutralised:\n%s", rec.Body.String())
+	}
+	// Local times: 18:00 UTC on 2026-09-02 is 13:00 in Chicago.
+	if !strings.Contains(rec.Body.String(), "2026-09-02T13:00:00-05:00") {
+		t.Errorf("session times are not in the statement's zone:\n%s", rec.Body.String())
+	}
+	// Only the caller's own data was asked for, and bad input is refused.
+	if f.gotUser != uid {
+		t.Errorf("loaded for %v, want the caller %v", f.gotUser, uid)
+	}
+	for _, u := range []string{"", "?month=2026-13", "?month=2026-09&tz=Mars/Base"} {
+		if rec := ledgerGET(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.statementCSV(uid, w, r) }), uid, "/api/ledger/monthly.csv"+u); rec.Code != http.StatusBadRequest {
+			t.Errorf("%q = %d, want 400", u, rec.Code)
 		}
 	}
 }
