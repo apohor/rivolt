@@ -669,6 +669,10 @@ func New(d Deps) http.Handler {
 				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity/end", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityEnd(d.PushService, d.Push.For(uid))(w, r)
 				}))
+				apnsActivityTestLimiter := mapsUserLimiter(3)
+				r.With(apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsActivityTest(d.PushService, d.Push.For(uid))(w, r)
+				}))
 				apnsTestLimiter := mapsUserLimiter(6)
 				r.With(apnsTestLimiter.Middleware).Post("/apns/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsTest(d.PushService, d.Push.For(uid))(w, r)

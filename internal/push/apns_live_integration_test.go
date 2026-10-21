@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -356,4 +357,91 @@ func TestLiveWorkerAndChargeEnd(t *testing.T) {
 	if n := off.EndLiveForCharge(ctx, f, uid, "lw-idle", 80); n != 0 {
 		t.Errorf("flag off: end reached %d", n)
 	}
+}
+
+// The user's own Live Activity test: fixed figures to every running activity of
+// theirs on any vehicle (ignoring the update interval), then the end, which forgets
+// them; nothing without the flag or without an activity.
+func TestTestLive(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	uid, _ := db.EnsureUser(ctx, pool, "live-test-a")
+	other, _ := db.EnsureUser(ctx, pool, "live-test-b")
+	st, _ := OpenStore(pool, uid)
+	stOther, _ := OpenStore(pool, other)
+	sess := session(t, ctx, pool, uid)
+	var v1, v2 uuid.UUID
+	for rid, dst := range map[string]*uuid.UUID{"lt-1": &v1, "lt-2": &v2} {
+		if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2) RETURNING id`, uid, rid).Scan(dst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const dev = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: dev, Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.SetAPNsLive(ctx, dev, true); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	a1, a2 := act(0)+"11", act(1)+"22" // hex, like the real tokens
+	if err := st.RegisterActivity(ctx, dev, a1, v1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RegisterActivity(ctx, dev, a2, v2); err != nil {
+		t.Fatal(err)
+	}
+	// A routine update was just sent to a1: the test ignores the interval.
+	if _, err := pool.ExecContext(ctx, `UPDATE push_apns_activities SET last_sent_at = now() WHERE user_id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	old := liveTestEndDelay
+	liveTestEndDelay = 50 * time.Millisecond
+	t.Cleanup(func() { liveTestEndDelay = old })
+	key, pemKey := testKey(t)
+	var mu sync.Mutex
+	got := map[string][]string{}
+	a := apnsServer(t, key, pemKey, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got[r.URL.Path] = append(got[r.URL.Path], string(b))
+		mu.Unlock()
+	})
+	svc := (&Service{apns: a, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}).WithLive(true)
+
+	if n := (&Service{apns: a, logger: svc.logger}).TestLive(ctx, st); n != 0 {
+		t.Errorf("flag off: %d sent", n)
+	}
+	if n := svc.TestLive(ctx, stOther); n != 0 {
+		t.Errorf("a user with no activity: %d sent", n)
+	}
+	if n := svc.TestLive(ctx, st); n != 2 {
+		t.Fatalf("test reached %d, want 2 (both vehicles, interval ignored)", n)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		done := len(got["/3/device/"+a1]) == 2 && len(got["/3/device/"+a2]) == 2
+		mu.Unlock()
+		if done || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	for _, p := range []string{a1, a2} {
+		b := got["/3/device/"+p]
+		if len(b) != 2 || !strings.Contains(b[0], `"event":"update"`) || !strings.Contains(b[0], `"soc_pct":50`) ||
+			!strings.Contains(b[0], `"power_kw":7.2`) || !strings.Contains(b[0], `"minutes_to_target":60`) || !strings.Contains(b[1], `"event":"end"`) {
+			t.Errorf("%s: bodies = %v", p, b)
+		}
+	}
+	mu.Unlock()
+	// The end forgets them.
+	for i := 0; i < 50; i++ {
+		if n, _ := st.ActivityCount(ctx); n == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("the activities were not forgotten after the test's end")
 }

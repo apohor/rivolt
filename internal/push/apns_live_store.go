@@ -163,12 +163,16 @@ type Activity struct {
 // device has the Live Activity switch on and a live (not revoked, not expired) app
 // session, and which are not older than ActivityTTL.
 func (s *Store) ListLiveActivities(ctx context.Context, vehicleID uuid.UUID) ([]Activity, error) {
+	return s.listLiveActivities(ctx, &vehicleID)
+}
+
+func (s *Store) listLiveActivities(ctx context.Context, vehicleID *uuid.UUID) ([]Activity, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.token, d.env, d.bundle_id
 		  FROM push_apns_activities a
 		  JOIN push_apns_devices d ON d.id = a.device_id
 		  JOIN sessions se ON se.id = d.session_id
-		 WHERE a.user_id = $1 AND a.vehicle_id = $2
+		 WHERE a.user_id = $1 AND ($2::uuid IS NULL OR a.vehicle_id = $2)
 		   AND d.on_charging_live
 		   AND se.revoked_at IS NULL AND se.expires_at > now()
 		   AND a.started_at > now() - make_interval(secs => $3)
@@ -219,4 +223,9 @@ func (s *Store) vehicleUUID(ctx context.Context, rivianVehicleID string) (uuid.U
 		return uuid.Nil, nil
 	}
 	return id, err
+}
+
+// ListUserLiveActivities is ListLiveActivities across all of the user's vehicles.
+func (s *Store) ListUserLiveActivities(ctx context.Context) ([]Activity, error) {
+	return s.listLiveActivities(ctx, nil)
 }

@@ -28,6 +28,12 @@ type LiveState struct {
 // NewLiveState clamps the figures to what the lock screen can show: charge 0-100,
 // power at least 0 with one decimal, minutes at least 0.
 func NewLiveState(socPct, powerKW, minutesToTarget float64) LiveState {
+	// A non-finite figure would make the payload unencodable; show 0.
+	for _, v := range []*float64{&socPct, &powerKW, &minutesToTarget} {
+		if math.IsNaN(*v) || math.IsInf(*v, 0) {
+			*v = 0
+		}
+	}
 	return LiveState{
 		SoCPct:          int(math.Round(math.Min(math.Max(socPct, 0), 100))),
 		PowerKW:         math.Round(math.Max(powerKW, 0)*10) / 10,
@@ -49,20 +55,39 @@ const liveTopicSuffix = ".push-type.liveactivity"
 // and the end are not routine and bypass it.
 const LiveMinInterval = 5 * time.Minute
 
-// liveAPS and liveEnvelope are the whole payload: aps with a timestamp, the event
-// and the content state. Nothing else is added.
+// liveAPS and liveEnvelope are the whole payload: aps with a timestamp, the event and
+// the content state, plus one more timestamp where the event wants it: stale-date on
+// an update (the lock screen marks a silent activity stale) and dismissal-date on the
+// end (the finished card leaves soon rather than after the system default). Those are
+// times, not content. Nothing else is added.
 type liveAPS struct {
-	Timestamp    int64     `json:"timestamp"`
-	Event        string    `json:"event"`
-	ContentState LiveState `json:"content-state"`
+	Timestamp     int64     `json:"timestamp"`
+	Event         string    `json:"event"`
+	ContentState  LiveState `json:"content-state"`
+	StaleDate     int64     `json:"stale-date,omitempty"`
+	DismissalDate int64     `json:"dismissal-date,omitempty"`
 }
 
 type liveEnvelope struct {
 	APS liveAPS `json:"aps"`
 }
 
+// Lock-screen timing: an update goes stale if nothing follows within liveStaleAfter,
+// and the ended card is dismissed liveDismissAfter after the end.
+const (
+	liveStaleAfter   = 15 * time.Minute
+	liveDismissAfter = 10 * time.Minute
+)
+
 func liveBody(event string, at time.Time, st LiveState) []byte {
-	b, _ := json.Marshal(liveEnvelope{APS: liveAPS{Timestamp: at.Unix(), Event: event, ContentState: st}})
+	aps := liveAPS{Timestamp: at.Unix(), Event: event, ContentState: st}
+	switch event {
+	case LiveUpdate:
+		aps.StaleDate = at.Add(liveStaleAfter).Unix()
+	case LiveEnd:
+		aps.DismissalDate = at.Add(liveDismissAfter).Unix()
+	}
+	b, _ := json.Marshal(liveEnvelope{APS: aps})
 	return b
 }
 
@@ -119,6 +144,13 @@ func (s *Service) sendLive(ctx context.Context, store *Store, vehicleID uuid.UUI
 		s.logger.Warn("push: list live activities failed")
 		return 0
 	}
+	return s.sendLiveTo(ctx, store, acts, event, st, event == LiveUpdate)
+}
+
+// sendLiveTo sends one event to the given activities, claiming the routine-update
+// interval first when claim is set, and forgets them after an end. It returns how
+// many Apple accepted.
+func (s *Service) sendLiveTo(ctx context.Context, store *Store, acts []Activity, event string, st LiveState, claim bool) int {
 	var (
 		wg sync.WaitGroup
 		mu sync.Mutex
@@ -128,7 +160,7 @@ func (s *Service) sendLive(ctx context.Context, store *Store, vehicleID uuid.UUI
 		if a.BundleID != s.apns.Topic() {
 			continue
 		}
-		if event == LiveUpdate {
+		if claim {
 			claimed, err := store.claimActivityUpdate(ctx, a.ID, LiveMinInterval)
 			if err != nil || !claimed {
 				continue
@@ -162,4 +194,40 @@ func (s *Service) sendLive(ctx context.Context, store *Store, vehicleID uuid.UUI
 	}
 	wg.Wait()
 	return ok
+}
+
+// LiveTestState is what the user's own "test" shows on the lock screen.
+var LiveTestState = LiveState{SoCPct: 50, PowerKW: 7.2, MinutesToTarget: 60}
+
+// liveTestEndDelay is how long the test card stays before the test sends the end
+// (a variable so a test can shorten it).
+var liveTestEndDelay = 20 * time.Second
+
+// TestLive sends fixed figures to every running activity of the user's (any
+// vehicle, ignoring the update interval) and, after a short delay, the end.
+// It returns how many activities the update reached; the end follows in the
+// background. For trying the Live Activity where no real charge runs.
+func (s *Service) TestLive(ctx context.Context, store *Store) int {
+	if !s.LiveEnabled() || store == nil {
+		return 0
+	}
+	acts, err := store.ListUserLiveActivities(ctx)
+	if err != nil || len(acts) == 0 {
+		return 0
+	}
+	n := s.sendLiveTo(ctx, store, acts, LiveUpdate, LiveTestState, false)
+	if n > 0 {
+		bg := context.WithoutCancel(ctx)
+		go func() {
+			select {
+			case <-time.After(liveTestEndDelay):
+			case <-bg.Done():
+				return
+			}
+			ectx, cancel := context.WithTimeout(bg, 30*time.Second)
+			defer cancel()
+			s.sendLiveTo(ectx, store, acts, LiveEnd, LiveTestState, false)
+		}()
+	}
+	return n
 }

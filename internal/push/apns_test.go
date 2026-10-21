@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -315,8 +316,15 @@ func TestLiveBodyHasExactlyTheAllowedKeys(t *testing.T) {
 			sort.Strings(ks)
 			return strings.Join(ks, ",")
 		}
-		if keys(aps) != "content-state,event,timestamp" {
-			t.Errorf("%s: aps keys = %s", event, keys(aps))
+		// Plus exactly one more time: stale-date on an update, dismissal-date on the end.
+		wantAPS := map[string]string{LiveUpdate: "content-state,event,stale-date,timestamp", LiveEnd: "content-state,dismissal-date,event,timestamp"}[event]
+		if keys(aps) != wantAPS {
+			t.Errorf("%s: aps keys = %s, want %s", event, keys(aps), wantAPS)
+		}
+		extra := map[string]string{LiveUpdate: "stale-date", LiveEnd: "dismissal-date"}[event]
+		wantExtra := map[string]string{LiveUpdate: "1790000900", LiveEnd: "1790000600"}[event]
+		if string(aps[extra]) != wantExtra {
+			t.Errorf("%s: %s = %s, want %s", event, extra, aps[extra], wantExtra)
 		}
 		var cs map[string]json.RawMessage
 		_ = json.Unmarshal(aps["content-state"], &cs)
@@ -396,5 +404,17 @@ func TestAPNsSendLive(t *testing.T) {
 		if !strings.Contains(g.body, `"event":"`+want.event+`"`) {
 			t.Errorf("%s: body = %s", want.event, g.body)
 		}
+	}
+}
+
+// A figure that is not finite never reaches the payload as NaN (json.Marshal would
+// fail and an empty body would be sent): it becomes 0.
+func TestNewLiveStateNonFinite(t *testing.T) {
+	got := NewLiveState(math.NaN(), math.Inf(1), math.Inf(-1))
+	if got != (LiveState{}) {
+		t.Errorf("NewLiveState(NaN, +Inf, -Inf) = %+v, want zeros", got)
+	}
+	if b := liveBody(LiveUpdate, time.Unix(1790000000, 0), got); len(b) == 0 || !json.Valid(b) {
+		t.Errorf("body = %q", b)
 	}
 }
