@@ -17,12 +17,20 @@ Revoking is irreversible, so (DA):
 - no new serial means no revoke call;
 - the API token is masked in the log; serials are logged by suffix only.
 
+Then a sweep (the owner's request; DA's amendment to the first rule): any
+development certificate named exactly "Created via API" (made by an API key,
+so by CI runs, cancelled ones included, or any other API-key tooling) whose
+notBefore is more than 2 hours ago. At most 5 per run: more matches mean the
+filter is wrong, so none is revoked and the step fails. Log-only unless
+RIVOLT_CERT_SWEEP=delete.
+
 usage:
   revoke-runner-dev-certs.py snapshot <file>
   revoke-runner-dev-certs.py revoke <snapshot file> <AuthKey.p8> <key id> <issuer id>
 Standard library plus the openssl, security and curl command-line tools only.
 """
 import base64
+import calendar
 import json
 import os
 import subprocess
@@ -32,6 +40,9 @@ import urllib.parse
 
 API = "https://api.appstoreconnect.apple.com/v1"
 DEV_TYPES = ("DEVELOPMENT", "IOS_DEVELOPMENT")
+SWEEP_NAME = "Created via API"
+SWEEP_MIN_AGE = 2 * 3600
+SWEEP_CAP = 5
 
 
 def b64url(b: bytes) -> str:
@@ -128,6 +139,56 @@ def lookup(serial_forms: list, jwt: str) -> list:
     return []
 
 
+def not_before(content_b64: str):
+    """The certificate's notBefore as a Unix time, or None if it can't be read."""
+    try:
+        der = base64.b64decode(content_b64)
+        out = subprocess.run(["openssl", "x509", "-inform", "DER", "-noout", "-startdate"], input=der,
+                             capture_output=True, check=True).stdout.decode()
+        return calendar.timegm(time.strptime(out.split("=", 1)[1].strip(), "%b %d %H:%M:%S %Y GMT"))
+    except Exception:  # noqa: BLE001 - any parse failure means "skip"
+        return None
+
+
+def sweep(jwt: str, revoked: set, now: float, delete: bool) -> int:
+    """Old API-made development certificates; see the module doc."""
+    q = urllib.parse.urlencode({"filter[certificateType]": ",".join(DEV_TYPES), "limit": "200",
+                                "fields[certificates]": "certificateType,displayName,serialNumber,expirationDate,certificateContent"})
+    certs = api("GET", f"/certificates?{q}", jwt)["data"]
+    candidates = []
+    for c in certs:
+        a = c["attributes"]
+        s = norm(a.get("serialNumber") or "")
+        # Never the certificate's name: it can carry a person's name, and the
+        # CI log is public (DA). displayName is only printed when it is ours.
+        line = f"{a.get('certificateType')} displayName={a.get('displayName')!r} expires={a.get('expirationDate')} {tail(s)}"
+        if s in revoked:
+            continue
+        if a.get("certificateType") not in DEV_TYPES or a.get("displayName") != SWEEP_NAME:
+            # No name in the log: it may be a person's, and the CI log is public.
+            print(f"sweep keeps (not named {SWEEP_NAME!r}): {a.get('certificateType')} {tail(s)}")
+            continue
+        nb = not_before(a.get("certificateContent") or "")
+        if nb is None:
+            print(f"sweep skips (no readable notBefore): {line}")
+            continue
+        if now - nb < SWEEP_MIN_AGE:
+            print(f"sweep skips (younger than 2 h): {line}")
+            continue
+        candidates.append((c["id"], line))
+    print(f"sweep: {len(certs)} development certificates, {len(candidates)} old API-made")
+    if len(candidates) > SWEEP_CAP:
+        print(f"::error::sweep matched {len(candidates)} (> {SWEEP_CAP}): the filter is wrong, nothing revoked")
+        return 1
+    for cid, line in candidates:
+        if not delete:
+            print(f"sweep would revoke (log-only): {line}")
+            continue
+        api("DELETE", f"/certificates/{urllib.parse.quote(cid)}", jwt)
+        print(f"sweep revoked: {line}")
+    return 0
+
+
 def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
     try:
         with open(snapshot) as f:
@@ -144,6 +205,7 @@ def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
     print(f"development certificates in the keychain: {len(before)} before, {len(now)} after, {len(new)} new")
     jwt = token(key_path, key_id, issuer)
     failed = 0
+    revoked = set()
     for s, raw in new.items():
         try:
             found = lookup([raw, s], jwt)
@@ -156,10 +218,16 @@ def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
                 print(f"skip {tail(s)}: {kind}, not a development certificate with this serial")
                 continue
             api("DELETE", f"/certificates/{urllib.parse.quote(cert['id'])}", jwt)
+            revoked.add(s)
             print(f"revoked {tail(s)} ({kind})")
         except RuntimeError as e:
             failed += 1
             print(f"::error::revoking {tail(s)} failed: {e}")
+    try:
+        failed += sweep(jwt, revoked, time.time(), os.environ.get("RIVOLT_CERT_SWEEP") == "delete")
+    except RuntimeError as e:
+        failed += 1
+        print(f"::error::sweep failed: {e}")
     q = urllib.parse.urlencode({"filter[certificateType]": ",".join(DEV_TYPES), "limit": "200",
                                 "fields[certificates]": "certificateType"})
     left = len(api("GET", f"/certificates?{q}", jwt)["data"])
