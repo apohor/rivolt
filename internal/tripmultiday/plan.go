@@ -52,6 +52,11 @@ type Overnight struct {
 	// L2KW is the available AC power. nil means "not given" and takes
 	// DefaultL2KW; an explicit 0 means no charging at this stop.
 	L2KW *float64
+	// Hookup is the connector an own stop was entered with ("nema_14_50", ...);
+	// it is echoed in the result. L2KWGiven is whether the caller sent L2KW: when
+	// it did not, the power is a default for the hookup and the result says so.
+	Hookup    string
+	L2KWGiven bool
 	// Until is the local time ("15:04") the truck is wanted the next morning.
 	// The next day departs at the next such time after arrival.
 	Until string
@@ -167,6 +172,10 @@ type OvernightResult struct {
 	Name        string  `json:"name,omitempty"`
 	ParkedHours float64 `json:"parked_hours"`
 	L2KW        float64 `json:"l2_kw"`
+	// Hookup echoes an own stop's connector; L2KWAssumed is true when the power
+	// is the default for it rather than a value the user gave.
+	Hookup      string `json:"hookup,omitempty"`
+	L2KWAssumed bool   `json:"l2_kw_assumed,omitempty"`
 	// AddedKWh is the energy that went into the battery.
 	AddedKWh         float64 `json:"added_kwh"`
 	PostChargeSoCPct float64 `json:"post_charge_soc_pct"`
@@ -461,7 +470,8 @@ func overnight(arrSoC, hours float64, ov *Overnight, packKWh, acMaxKW, capPct fl
 	if ov.L2KW != nil {
 		kw = *ov.L2KW
 	}
-	res := &OvernightResult{Name: ov.Name, ParkedHours: round2(hours), L2KW: kw, PostChargeSoCPct: arrSoC}
+	res := &OvernightResult{Name: ov.Name, ParkedHours: round2(hours), L2KW: kw, PostChargeSoCPct: arrSoC,
+		Hookup: ov.Hookup, L2KWAssumed: ov.Hookup != "" && !ov.L2KWGiven}
 	if kw <= 0 || hours <= 0 {
 		return res
 	}
