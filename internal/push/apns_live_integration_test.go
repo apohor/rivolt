@@ -382,7 +382,7 @@ func TestTestLive(t *testing.T) {
 	if ok, err := st.SetAPNsLive(ctx, dev, true); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	a1, a2 := act(6), act(7)
+	a1, a2 := act(0)+"11", act(1)+"22" // hex, like the real tokens
 	if err := st.RegisterActivity(ctx, dev, a1, v1); err != nil {
 		t.Fatal(err)
 	}
