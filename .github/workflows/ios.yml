@@ -1,0 +1,116 @@
+name: ios
+
+# Native iOS client (ios/): generate the Xcode project with XcodeGen, build
+# and run the unit tests on an iOS Simulator. No signing, no TestFlight (that
+# is a separate, reviewer-gated job once the Apple account exists). Nobody
+# builds the app locally (no heavy local builds), so this is the only place
+# the iOS code compiles: keep it green.
+#
+# Pins: the runner image's Xcode 26.3 (iOS 26.2 simulator SDK; App Store
+# uploads need the current SDK) and XcodeGen 2.46.0 checked against its
+# release sha256. Public repo: standard macOS runners cost nothing.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  XCODE_APP: /Applications/Xcode_26.3.app
+  SIM_RUNTIME: iOS 26.2
+  XCODEGEN_VERSION: 2.46.0
+  XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+
+jobs:
+  build-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Install XcodeGen (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          xcodegen --version
+          xcodegen generate
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          # First available iPhone on the pinned runtime; the device names
+          # change with every Xcode, the runtime is what we pin.
+          udid=$(xcrun simctl list devices available -j | jq -r --arg rt "$SIM_RUNTIME" '
+            .devices | to_entries[]
+            | select(.key | test("SimRuntime\\.iOS-" + ($rt | sub("^iOS "; "") | gsub("\\."; "-")) + "$"))
+            | .value[] | select(.name | startswith("iPhone")) | .udid' | head -n1)
+          if [ -z "$udid" ]; then
+            echo "no iPhone simulator for $SIM_RUNTIME"; xcrun simctl list runtimes; exit 1
+          fi
+          xcrun simctl list devices | grep "$udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project ios/Rivolt.xcodeproj \
+            -scheme Rivolt \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath "$RUNNER_TEMP/ios.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+
+      - name: Test summary (fail if no tests ran)
+        run: |
+          set -euo pipefail
+          # -quiet hides the per-test lines; the result bundle has the counts.
+          xcrun xcresulttool get test-results summary \
+            --path "$RUNNER_TEMP/ios.xcresult" --compact > "$RUNNER_TEMP/summary.json"
+          jq '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/summary.json"
+          total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
+          if [ "${total:-0}" -lt 1 ]; then
+            echo "no tests ran"; exit 1
+          fi
+          {
+            echo "### iOS unit tests"
+            jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the result bundle
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-xcresult
+          path: ${{ runner.temp }}/ios.xcresult
+          retention-days: 7

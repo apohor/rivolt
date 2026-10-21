@@ -27,7 +27,9 @@ settings:
   base:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    SWIFT_VERSION: "5.10"
+    # Swift 5 language mode. Xcode 26 accepts only 4.0/4.2/5.0/6.0 here;
+    # moving to 6 (strict concurrency) is its own change.
+    SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     # Required Info.plist keys that xcodegen will emit for every
     # target that references this settings block.
@@ -60,3 +62,27 @@ targets:
         # survives app restart). Set here so a fresh install
         # already points at the operator's prod host.
         INFOPLIST_KEY_RivoltAPIBaseURL: "https://rivolt.apoh.synology.me"
+
+  # Unit tests, run by CI (.github/workflows/ios.yml) on a simulator. No
+  # host-app UI is exercised; tests import the app module with @testable.
+  RivoltTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RivoltTests
+    dependencies:
+      - target: Rivolt
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.apoh.rivolt.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Rivolt:
+    build:
+      targets:
+        Rivolt: all
+        RivoltTests: [test]
+    test:
+      targets:
+        - RivoltTests
