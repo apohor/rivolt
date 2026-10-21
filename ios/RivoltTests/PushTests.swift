@@ -7,6 +7,8 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     var changed: [(token: String, key: String, on: Bool)] = []
     var unregistered: [String] = []
     var failSwitch = false
+    var testResult: Result<Int, Error> = .success(1)
+    var tests = 0
     var prefs = PushPreferences()
 
     func appConfig() async throws -> AppConfig {
@@ -25,6 +27,11 @@ private final class FakeServer: PushServer, @unchecked Sendable {
 
     func unregisterApns(token: String) async throws {
         unregistered.append(token)
+    }
+
+    func testApns() async throws -> Int {
+        tests += 1
+        return try testResult.get()
     }
 }
 
@@ -155,6 +162,27 @@ final class NotificationManagerTests: XCTestCase {
         await m.set(.anomaly, to: false)
         XCTAssertEqual(m.preferences?.onAnomaly, true, "a refused switch goes back")
         XCTAssertNotNil(m.switchError)
+    }
+
+    func testTheTestNotificationIsSentOnlyWhileOnAndSaysHowManyOrWhy() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        let m = make(system)
+        await m.signedIn(server: server)
+        await m.sendTest()
+        XCTAssertEqual(server.tests, 0, "nothing is sent while notifications are off")
+        XCTAssertEqual(m.test, .idle)
+        await m.turnOn()
+        await m.register(deviceToken: Data([0x03]))
+        await m.sendTest()
+        XCTAssertEqual(m.test, .sent(1))
+        server.testResult = .failure(APIError.server(status: 404, message: "x"))
+        await m.sendTest()
+        XCTAssertEqual(m.test, .failed(NotificationManager.testMessage(for: APIError.server(status: 404, message: "x"))))
+        XCTAssertTrue(NotificationManager.testMessage(for: APIError.server(status: 429, message: "x")).contains("Wait a minute"))
+        XCTAssertTrue(NotificationManager.testMessage(for: URLError(.notConnectedToInternet)).contains("Couldn't send"))
+        await m.turnOff()
+        XCTAssertEqual(m.test, .idle)
     }
 
     func testTheTokenIsHexAndTheEnvironmentIsKnown() {
