@@ -1329,3 +1329,50 @@ func (s *Store) LiveCovers(ctx context.Context, rivianVehicleID string, start, e
 		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
 	return ok, err
 }
+
+// ChartCharge is the part of a charge the iPhone's charts need: when and the charge
+// at each end. No ids, costs, places or coordinates.
+type ChartCharge struct {
+	StartedAt   time.Time `json:"started_at"`
+	EndedAt     time.Time `json:"ended_at"`
+	StartSoCPct float64   `json:"start_soc_pct"`
+	EndSoCPct   float64   `json:"end_soc_pct"`
+}
+
+// MaxChartRows bounds one chart answer (newest rows win when a window holds more).
+const MaxChartRows = 5000
+
+// ListChartPoints returns the user's charges that started in [since, until], oldest
+// first, narrowed to ChartCharge; the same rows the list shows (at least a minute).
+// rivianVehicleID "" means every truck; at most MaxChartRows, the newest if more.
+func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, rivianVehicleID string) ([]ChartCharge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.started_at, c.ended_at, COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0)
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1
+		  AND c.ended_at - c.started_at >= interval '1 minute'
+		  AND c.started_at >= $2 AND c.started_at <= $3
+		  AND ($4 = '' OR v.rivian_vehicle_id = $4)
+		ORDER BY c.started_at DESC
+		LIMIT $5`, s.userID, since, until, rivianVehicleID, MaxChartRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChartCharge
+	for rows.Next() {
+		var c ChartCharge
+		if err := rows.Scan(&c.StartedAt, &c.EndedAt, &c.StartSoCPct, &c.EndSoCPct); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}

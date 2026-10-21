@@ -1124,6 +1124,11 @@ func New(d Deps) http.Handler {
 			r.With(gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
+			// What the iPhone's Home charts plot: compact drive and charge points
+			// with no coordinates, ids, costs or places (chart_points.go).
+			r.With(gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChartPoints(d.Drives.For(uid), d.Charges.For(uid))(w, r)
+			}))
 			r.Delete("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDeleteCharge(d.Charges.For(uid))(w, r)
 			}))
