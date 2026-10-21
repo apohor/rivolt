@@ -104,7 +104,12 @@ final class NotificationManager {
         #endif
     }
 
-    init(system: NotificationSystem = SystemNotifications(), defaults: UserDefaults = .standard, environment: String = NotificationManager.defaultEnvironment) {
+    /// The real one: iOS's notification centre and the standard defaults.
+    convenience init() {
+        self.init(system: SystemNotifications(), defaults: .standard, environment: Self.defaultEnvironment)
+    }
+
+    init(system: NotificationSystem, defaults: UserDefaults, environment: String) {
         self.system = system
         self.defaults = defaults
         self.environment = environment

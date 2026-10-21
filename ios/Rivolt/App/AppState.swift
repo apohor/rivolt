@@ -32,13 +32,13 @@ final class AppState {
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
     private static let legacyServerDefaultsKey = "rivolt.api_base_url"
 
-    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager = .shared) {
+    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil) {
         defaults.removeObject(forKey: Self.legacyServerDefaultsKey)
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
         self.serverURL = server
         self.tokens = tokens
-        self.notifications = notifications
+        self.notifications = notifications ?? NotificationManager.shared
         self.client = APIClient(baseURL: server, tokens: tokens)
     }
 
