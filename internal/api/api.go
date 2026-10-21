@@ -151,6 +151,9 @@ type Deps struct {
 	// header. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
+	// AppAuth, when non-nil (with OIDC), mounts the iPhone app's sign-in
+	// under /api/auth/app. nil: /api/app/config reports app_login=false.
+	AppAuth *AppAuth
 	// Hydra, when non-nil along with Kratos, mounts the custom
 	// login + consent handlers under /api/auth/hydra. This makes
 	// Rivolt the bring-your-own-UI for an Ory Hydra OAuth2 / OIDC
@@ -422,12 +425,26 @@ func New(d Deps) http.Handler {
 			r.With(clLimiter.Middleware).Get("/changelog", cl)
 			r.With(clLimiter.Middleware).Head("/changelog", cl)
 		}
+		// The iPhone app's server check (iOS design §2). Not on the admin
+		// deployment: the app never signs in there.
+		if !d.AdminOnly {
+			r.Get("/app/config", handleAppConfig(d))
+		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
 				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
+				}
+				// The iPhone app's sign-in: start → the usual OIDC sign-in →
+				// finish (one-time code to the app's fixed callback) → token.
+				if d.AppAuth != nil && d.OIDC != nil && !d.AdminOnly {
+					r.Route("/app", func(r chi.Router) {
+						r.Get("/start", d.AppAuth.handleAppStart(d))
+						r.Get("/finish", d.AppAuth.handleAppFinish())
+						r.Post("/token", d.AppAuth.handleAppToken(d))
+					})
 				}
 				// Hydra OIDC bridge: Rivolt is the login + consent UI
 				// for our Ory Hydra OAuth2 server. Both Hydra (admin
