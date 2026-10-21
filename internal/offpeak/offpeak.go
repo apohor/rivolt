@@ -69,52 +69,54 @@ func Normalize(s Schedule) (Schedule, *FieldError) {
 	}
 	tz := strings.TrimSpace(s.TZ)
 	if tz == "" || len(tz) > MaxTZLen || strings.EqualFold(tz, "local") {
-		return s, bad("tz", "tz must be an IANA time zone, e.g. America/Chicago")
+		return s, bad("tz", "Choose your time zone, e.g. America/Chicago.")
 	}
 	if _, err := time.LoadLocation(tz); err != nil {
-		return s, bad("tz", "tz must be an IANA time zone, e.g. America/Chicago")
+		return s, bad("tz", "Choose your time zone, e.g. America/Chicago.")
 	}
 	if len(s.Windows) > MaxWindows {
-		return s, bad("windows", "at most %d windows", MaxWindows)
+		return s, bad("windows", "You can add at most %d windows.", MaxWindows)
 	}
 	out := Schedule{TZ: tz, Windows: make([]Window, len(s.Windows))}
 	// owner[day][minute] is 1+the window that holds the minute.
 	var owner [7][minutesInDay]int8
 	for i, w := range s.Windows {
 		f := func(name string) string { return fmt.Sprintf("windows[%d].%s", i, name) }
+		// Every message names its window, so a form can show it as it stands.
+		n := i + 1
 		switch w.Days {
 		case Weekdays, Weekends, All:
 		default:
-			return s, bad(f("days"), "days must be weekdays, weekends or all")
+			return s, bad(f("days"), "Window %d: choose weekdays, weekends or every day.", n)
 		}
 		start, ok := ParseClock(w.Start)
 		if !ok {
-			return s, bad(f("start"), "start must be a time like 21:00")
+			return s, bad(f("start"), "Window %d: the start must be a time like 21:00.", n)
 		}
 		end, ok := ParseClock(w.End)
 		if !ok {
-			return s, bad(f("end"), "end must be a time like 06:00")
+			return s, bad(f("end"), "Window %d: the end must be a time like 06:00.", n)
 		}
 		if start == end {
-			return s, bad(f("end"), "end must differ from start")
+			return s, bad(f("end"), "Window %d: the end must differ from the start.", n)
 		}
 		if math.IsNaN(w.Rate) || math.IsInf(w.Rate, 0) || w.Rate < 0 || w.Rate > MaxRate {
-			return s, bad(f("rate"), "rate must be between 0 and %g per kWh", MaxRate)
+			return s, bad(f("rate"), "Window %d: the rate must be between 0 and %g per kWh.", n, MaxRate)
 		}
 		label := strings.TrimSpace(w.Label)
 		if utf8.RuneCountInString(label) > MaxLabelLen {
-			return s, bad(f("label"), "label is longer than %d characters", MaxLabelLen)
+			return s, bad(f("label"), "Window %d: the label is longer than %d characters.", n, MaxLabelLen)
 		}
 		for _, c := range label {
 			if unicode.IsControl(c) || c == '<' || c == '>' {
-				return s, bad(f("label"), "label has characters that are not allowed")
+				return s, bad(f("label"), "Window %d: the label has characters that are not allowed.", n)
 			}
 		}
 		for _, day := range daysOf(w.Days) {
 			mark := func(d, from, to int) *FieldError {
 				for m := from; m < to; m++ {
 					if o := owner[d][m]; o != 0 {
-						return bad(f("start"), "overlaps window %d", int(o))
+						return bad(f("start"), "Window %d overlaps window %d.", n, int(o))
 					}
 					owner[d][m] = int8(i + 1)
 				}
