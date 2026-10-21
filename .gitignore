@@ -45,3 +45,6 @@ CLAUDE.md
 
 # Editor / IDE local config
 .cursor/
+
+# XcodeGen writes the extension Info.plist from project.yml
+ios/RivoltNotificationService/Info.plist

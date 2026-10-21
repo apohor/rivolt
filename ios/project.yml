@@ -53,13 +53,51 @@ targets:
     platform: iOS
     sources:
       - path: Rivolt
+    dependencies:
+      - target: RivoltNotificationService
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.apoh.rivolt
         PRODUCT_NAME: Rivolt
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt
+      configs:
+        # Push and the shared Keychain group need a signed build (TestFlight):
+        # the entitlements apply to Release only, so the unsigned simulator
+        # build CI runs keeps working with the Keychain as before.
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Rivolt/Rivolt.entitlements
         # The server defaults to https://rivolt.dev in code (ServerURL);
         # "Other server" on the sign-in screen changes it.
+
+  # The Notification Service Extension: swaps the generic APNs alert for the real
+  # text, fetched from Rivolt (design §3, DA condition 6). It shares the Keychain
+  # token store and the fetch logic with the app, and nothing else.
+  RivoltNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RivoltNotificationService
+      - path: Rivolt/Push/NotificationFetch.swift
+      - path: Rivolt/Auth/TokenStore.swift
+      - path: Rivolt/Net/ServerURL.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.apoh.rivolt.notification-service
+        PRODUCT_NAME: RivoltNotificationService
+        INFOPLIST_KEY_CFBundleDisplayName: Rivolt notifications
+        # The extension point goes in through the Info.plist XcodeGen writes below.
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: RivoltNotificationService/RivoltNotificationService.entitlements
+    info:
+      path: RivoltNotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Rivolt notifications
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
 
   # Unit tests, run by CI (.github/workflows/ios.yml) on a simulator. No
   # host-app UI is exercised; tests import the app module with @testable.
@@ -80,6 +118,7 @@ schemes:
     build:
       targets:
         Rivolt: all
+        RivoltNotificationService: all
         RivoltTests: [test]
     test:
       targets:

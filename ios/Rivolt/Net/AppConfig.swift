@@ -8,6 +8,15 @@ struct AppConfig: Decodable, Equatable {
     let apiVersion: Int
     let appLogin: Bool
     let minIosBuild: Int?
+    /// Which push transports the server runs. Absent on a server that predates push.
+    var push: Push? = nil
+
+    struct Push: Decodable, Equatable {
+        let apns: Bool
+    }
+
+    /// Whether this server sends notifications to the app (APNs is configured).
+    var apnsAvailable: Bool { push?.apns == true }
 
     /// What the sign-in screen does with a server's answer.
     enum Verdict: Equatable {

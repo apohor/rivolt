@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var current: VehicleState?
     @State private var loadError: String?
     @State private var isLoading = false
+    @State private var showNotifications = false
 
     var body: some View {
         NavigationStack {
@@ -47,6 +48,9 @@ struct HomeView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Refresh") { Task { await load() } }
+                        if state.notifications.offered {
+                            Button("Notifications") { showNotifications = true }
+                        }
                         Divider()
                         Button("Sign out", role: .destructive) {
                             Task { await state.logout() }
@@ -58,6 +62,16 @@ struct HomeView: View {
             }
             .refreshable { await load() }
             .task { await load() }
+            .safeAreaInset(edge: .top) {
+                if state.notifications.shouldAskInApp {
+                    NotificationPromptCard(manager: state.notifications)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+            }
+            .sheet(isPresented: $showNotifications) {
+                NotificationSettingsView(manager: state.notifications)
+            }
         }
     }
 

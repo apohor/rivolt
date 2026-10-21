@@ -28,6 +28,28 @@ The `.xcodeproj` is generated from [`project.yml`](project.yml) and not
 checked in. Regenerate (`make project`) after adding a folder or changing build
 settings.
 
+## Notifications (push)
+
+After signing in, and only when the server's `/api/app/config` says
+`push.apns` is true, Home shows Rivolt's own "Get a notification when charging
+finishes" card; "Turn on" raises the iOS prompt, "Not now" is remembered.
+Settings → Notifications (Home menu) has the same five switches as the web
+(charging complete, software updates, anomalies, plug-in reminder and
+milestones, the last two off until turned on).
+
+An APNs payload carries only `{kind, id}` and a generic alert: Apple's push
+servers see that a notification was sent, never its words. The Notification
+Service Extension (`RivoltNotificationService`) fetches the title and body from
+`GET /api/push/notifications/{id}` with the signed-in token, shared through the
+Keychain access group, and falls back to the generic alert if that fails. The
+entitlements (push, the shared Keychain group) apply to Release builds only, so
+the unsigned simulator build in CI is unchanged. Real pushes need the Apple
+Developer account (N28).
+
+CI also launches the app with `-rivolt-preview <prompt|notifications|notifications-denied>`
+(fixed screens, no network) and uploads simulator screenshots in light and dark
+as the `ios-screenshots` artifact.
+
 ## Installing on a phone
 
 Through TestFlight, once the Apple Developer account exists (owner item N28).
