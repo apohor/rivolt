@@ -45,6 +45,10 @@ charging stops.
   [rivolt.dev/sample-trips](https://rivolt.dev/sample-trips). Each lists every
   charging stop, the battery on arrival and departure, charge time and the
   estimated cost for a sample R1S, and opens in the demo planner.
+- A public worked example and a calculator for what it costs to charge a
+  Rivian at home, with no sign-in and nothing leaving your browser:
+  [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
+  figure on it is an example.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
   with Google or GitHub (the beta has an account cap); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
