@@ -222,3 +222,100 @@ func TestDeterministicAndValidating(t *testing.T) {
 		t.Error("an archive error must surface")
 	}
 }
+
+func campAt(name string, km, offKm float64, amps int) chargers.POI {
+	return chargers.POI{
+		Name: name, EntityID: "ridb/" + name, Lat: 34 + km/111.195, Lon: -118 + offKm/111.195/math.Cos(34*math.Pi/180),
+		FacilityType: "CAMPGROUND", HookupAmps: amps, ElectricSites: 10, Sites: 40, RIDBID: "251906", Source: "ridb",
+	}
+}
+
+func kinds(cs []Candidate) (hotels, camps int) {
+	for _, c := range cs {
+		if c.Kind == KindCampground {
+			camps++
+		} else {
+			hotels++
+		}
+	}
+	return
+}
+
+// With campgrounds asked for, one of the three goes to the best campground in
+// reach even when hotels outscore it; the others stay the best hotels.
+func TestOneSlotIsReservedForTheBestCampground(t *testing.T) {
+	var hs []chargers.POI
+	for _, n := range []string{"A", "B", "C", "D", "E"} {
+		hs = append(hs, hotel("Hotel "+n, 800, 0.3, 11.5))
+	}
+	a := &fakeArchive{hotels: hs, camps: []chargers.POI{campAt("Weak camp", 800, 5, 30), campAt("Best camp", 800, 1, 50)}}
+	req := Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8, Kinds: []string{KindHotel, KindCampground}}
+	res, err := Suggest(a, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, c := kinds(res.Candidates); len(res.Candidates) != 3 || h != 2 || c != 1 {
+		t.Fatalf("candidates = %+v", res.Candidates)
+	}
+	for _, c := range res.Candidates {
+		if c.Kind == KindCampground && c.Name != "Best camp" {
+			t.Errorf("the reserved slot went to %q", c.Name)
+		}
+	}
+	// Hotels only, as before: three hotels.
+	req.Kinds = nil
+	res, _ = Suggest(a, req)
+	if h, c := kinds(res.Candidates); h != 3 || c != 0 {
+		t.Errorf("hotels only = %+v", res.Candidates)
+	}
+}
+
+// The campground is kept even when more than ten hotels outrank it.
+func TestReservedCampgroundSurvivesTheTopTenCut(t *testing.T) {
+	var hs []chargers.POI
+	for i := 0; i < 14; i++ {
+		hs = append(hs, hotel(string(rune('A'+i)), 800, 0.3, 11.5))
+	}
+	a := &fakeArchive{hotels: hs, camps: []chargers.POI{campAt("Only camp", 800, 6, 50)}}
+	res, err := Suggest(a, Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8, Kinds: []string{KindHotel, KindCampground}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, c := kinds(res.Candidates); h != 2 || c != 1 {
+		t.Fatalf("candidates = %+v", res.Candidates)
+	}
+}
+
+// No campground in reach (none listed, one outside the day's window, or one
+// too slow to offer) leaves the three best hotels; nothing is padded.
+func TestNoCampgroundInReachLeavesHotels(t *testing.T) {
+	var hs []chargers.POI
+	for _, n := range []string{"A", "B", "C", "D"} {
+		hs = append(hs, hotel("Hotel "+n, 800, 0.3, 11.5))
+	}
+	for name, camps := range map[string][]chargers.POI{
+		"none":        nil,
+		"too early":   {campAt("Far back", 300, 0, 50)},
+		"120 V slow":  {campAt("Slow", 800, 0, 20)},
+	} {
+		res, err := Suggest(&fakeArchive{hotels: hs, camps: camps}, Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8, Kinds: []string{KindHotel, KindCampground}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h, c := kinds(res.Candidates); h != 3 || c != 0 {
+			t.Errorf("%s: candidates = %+v", name, res.Candidates)
+		}
+	}
+}
+
+// Campgrounds only: the three best campgrounds, as before.
+func TestCampgroundsOnlyIsUnchanged(t *testing.T) {
+	a := &fakeArchive{camps: []chargers.POI{campAt("A", 800, 0, 50), campAt("B", 800, 1, 50), campAt("C", 800, 2, 50), campAt("D", 800, 3, 50)}}
+	res, err := Suggest(a, Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8, Kinds: []string{KindCampground}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, c := kinds(res.Candidates); h != 0 || c != 3 {
+		t.Fatalf("candidates = %+v", res.Candidates)
+	}
+}
