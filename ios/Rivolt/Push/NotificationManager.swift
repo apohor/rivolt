@@ -241,10 +241,10 @@ final class NotificationManager {
 extension NotificationManager {
     /// A fixed state for simulator screenshots and previews: no network, no iOS prompts.
     static func preview(authorization: PushAuthorization, registered: Bool, preferences: PushPreferences? = nil, offered: Bool = true) -> NotificationManager {
-        let m = NotificationManager(system: PreviewNotificationSystem(), defaults: UserDefaults(suiteName: "rivolt.preview") ?? .standard)
+        let m = NotificationManager(system: PreviewNotificationSystem(), defaults: UserDefaults(suiteName: "rivolt.preview") ?? .standard, environment: "sandbox")
         m.offered = offered
         m.authorization = authorization
-        m.registration = registered ? .registered : .idle
+        m.registration = registered ? Registration.registered : Registration.idle
         m.deviceToken = registered ? "preview" : nil
         m.preferences = registered ? (preferences ?? PushPreferences()) : nil
         m.promptDismissed = false
