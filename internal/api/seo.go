@@ -23,6 +23,7 @@ const (
 	pathSafeConnect = "/safe-to-connect"
 	pathLeaseCalc   = "/lease-calculator"
 	pathChangelog   = "/changelog"
+	pathChargeCost  = "/charging-cost"
 )
 
 const (
@@ -59,6 +60,16 @@ var seoPages = map[string]map[string]seoPage{
 			desc:  "Free lease mileage calculator: see if you're on pace for your allowance and what overage could cost. Runs in your browser. " + notAffiliated,
 			summary: "A free lease mileage calculator that runs in your browser. Enter your lease dates, allowance and odometer to see miles used, whether you are on pace, " +
 				"projected miles and overage at lease return, and the miles a day that keep you within the allowance. Nothing you type is sent or stored. " + notAffiliated,
+		},
+		// No price or date-bound figure belongs in this entry: the page shows the
+		// typical fast-charge price itself, from the dated table with its 12-month
+		// hide, and a copy here (title, meta, JSON-LD, sitemap, llms.txt) would
+		// outlive that.
+		pathChargeCost: {
+			title: "How much does it cost to charge a Rivian at home? (worked example)",
+			desc:  "A worked example for a Rivian R1S: home charging at your own rate, what off-peak hours change, and what one fast-charge stop adds. Free calculator, no sign-in.",
+			summary: "A worked example of what home charging costs a Rivian R1S: your electricity rate, what off-peak hours change and what one fast-charge stop adds, " +
+				"with a free calculator that runs in your browser. Figures on the page are examples, not measurements of any owner's truck. " + notAffiliated,
 		},
 		pathSafeConnect: {
 			title: "Is it safe to connect my Rivian account to Rivolt?",
@@ -157,6 +168,9 @@ func llmsTxt(host string) (string, bool) {
 	b.WriteString("- [Terms of service](" + base + "/terms)\n")
 	if _, ok := pages[pathLeaseCalc]; ok {
 		b.WriteString("- [Rivian lease mileage calculator](" + base + pathLeaseCalc + "): runs in your browser\n")
+	}
+	if _, ok := pages[pathChargeCost]; ok {
+		b.WriteString("- [How much does it cost to charge a Rivian at home?](" + base + pathChargeCost + "): a worked example and a free calculator\n")
 	}
 	if _, ok := pages[pathSafeConnect]; ok {
 		b.WriteString("- [Is it safe to connect my Rivian account?](" + base + pathSafeConnect + "): what is kept and how to undo it\n")
@@ -261,6 +275,21 @@ func jsonLD(host string) string {
 	return `<script type="application/ld+json">` + string(b) + `</script>`
 }
 
+// articleLD is schema.org Article data for a public guide page: headline,
+// description and publisher only. Nothing price- or date-bound.
+func articleLD(host string, page seoPage, canon string) string {
+	url := "https://" + host + canon
+	doc := map[string]any{
+		"@context": "https://schema.org",
+		"@graph": []any{
+			map[string]any{"@type": "Article", "@id": url + "#article", "headline": page.title, "description": page.desc, "url": url,
+				"publisher": map[string]any{"@type": "Organization", "name": "Rivolt", "url": "https://" + host + "/"}},
+		},
+	}
+	b, _ := json.Marshal(doc) // escapes <, > and & as \u003c etc.
+	return `<script type="application/ld+json">` + string(b) + `</script>`
+}
+
 func sitemapXML(host string) (string, bool) {
 	pages, ok := seoPages[host]
 	if !ok {
@@ -268,7 +297,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range append([]string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi, pathChangelog}, sampleTripPaths()...) {
+	for _, p := range append([]string{"/", "/privacy", "/terms", pathLeaseCalc, pathChargeCost, pathSafeConnect, pathElectraFi, pathChangelog}, sampleTripPaths()...) {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}
@@ -305,8 +334,11 @@ func injectSEO(shell []byte, host string, page seoPage, canon string) []byte {
 	rep(reTwTitle, `<meta name="twitter:title" content="`+e(page.title)+`" />`)
 	rep(reTwDesc, `<meta name="twitter:description" content="`+e(page.desc)+`" />`)
 	extra := ""
-	if canon == "/" {
+	switch canon {
+	case "/":
 		extra = "    " + jsonLD(host) + "\n"
+	case pathChargeCost:
+		extra = "    " + articleLD(host, page, canon) + "\n"
 	}
 	rep(reHeadClose, `<link rel="canonical" href="`+e(url)+`" />`+"\n"+
 		`    <meta property="og:url" content="`+e(url)+`" />`+"\n"+extra+"  </head>")
