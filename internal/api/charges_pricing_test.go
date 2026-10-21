@@ -225,3 +225,47 @@ func TestDecorateChargeCleansEstimateFields(t *testing.T) {
 		t.Errorf("valid values dropped: %+v", got.Charge)
 	}
 }
+
+// With receipts on, a charge Rivian billed shows the bill (the Money tab's
+// rule), not the tracker estimate it was first priced at; with them off, or in
+// another currency, or without a receipt, it is untouched.
+func TestBilledChargesShowTheReceipt(t *testing.T) {
+	bill := 29.0
+	est := charges.Charge{
+		ID: "bk-est-billed", EnergyAddedKWh: 50, Cost: 31.8, Currency: "USD", PricePerKWh: 0.636,
+		CostSource: "observed_estimate", Network: "EVgo", EstimateMonth: "2026-10", EstimateURL: "https://dcfctracker.com/reports/evgo",
+		NetworkState: "estimated", ReceiptCost: &bill, ReceiptCurrency: "USD", ReceiptTxnID: "t1",
+	}
+	plain := charges.Charge{ID: "no-receipt", EnergyAddedKWh: 50, Cost: 31.8, Currency: "USD", CostSource: "observed_estimate", EstimateMonth: "2026-10"}
+	eur := est
+	eur.ID, eur.ReceiptCurrency = "eur", "EUR"
+	in := []charges.Charge{est, plain, eur}
+	cfg := ledger.Config{Currency: "USD", Billed: true}
+
+	got := billedCharges(in, cfg)
+	b := got[0]
+	if b.Cost != 29 || b.CostSource != "rivian" || b.Currency != "USD" || b.PricePerKWh != 29.0/50 ||
+		b.EstimateMonth != "" || b.EstimateURL != "" || b.NetworkState != "" {
+		t.Errorf("billed charge: %+v", b)
+	}
+	if got[1].CostSource != "observed_estimate" || got[1].Cost != 31.8 || got[1].EstimateMonth != "2026-10" {
+		t.Errorf("no receipt must stay the estimate: %+v", got[1])
+	}
+	if got[2].CostSource != "observed_estimate" || got[2].Cost != 31.8 {
+		t.Errorf("a receipt in another currency must stay out: %+v", got[2])
+	}
+	if in[0].Cost != 31.8 || in[0].CostSource != "observed_estimate" {
+		t.Error("billedCharges modified its input")
+	}
+	// The classification the list and the charge page carry follows.
+	cl := ledger.ClassifyAll([]ledger.Charge{ledger.FromCharge(got[0])}, cfg)[0]
+	if cl.CostSource != "rivian" || cl.EstimateMonth != "" || cl.EstimateURL != "" {
+		t.Errorf("classification after the bill: %+v", cl)
+	}
+
+	// Receipts off: nothing changes.
+	cfg.Billed = false
+	if off := billedCharges(in, cfg); off[0].CostSource != "observed_estimate" || off[0].Cost != 31.8 {
+		t.Errorf("receipts off: %+v", off[0])
+	}
+}

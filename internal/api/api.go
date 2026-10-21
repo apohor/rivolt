@@ -1051,7 +1051,7 @@ func New(d Deps) http.Handler {
 				handleDriveWeatherBackfill(d, uid)(w, r)
 			}))
 			r.With(gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleCharges(d.Charges.For(uid), d.Settings.For(uid))(w, r)
+				handleCharges(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			r.Delete("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDeleteCharge(d.Charges.For(uid))(w, r)
@@ -1074,7 +1074,7 @@ func New(d Deps) http.Handler {
 					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
 					return
 				}
-				handleConfirmChargeNetwork(st, d.Settings.For(uid))(w, r)
+				handleConfirmChargeNetwork(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			r.Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				st := d.Charges.For(uid)
@@ -1082,7 +1082,7 @@ func New(d Deps) http.Handler {
 					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
 					return
 				}
-				handleGetCharge(st, d.Settings.For(uid))(w, r)
+				handleGetCharge(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)

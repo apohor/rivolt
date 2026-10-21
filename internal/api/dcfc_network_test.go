@@ -88,7 +88,7 @@ func (f *fakeConfirmer) GetByExternalID(context.Context, string) (*charges.Charg
 
 func confirmCall(f *fakeConfirmer) *httptest.ResponseRecorder {
 	r := chi.NewRouter()
-	r.Post("/charges/{id}/pricing/confirm", handleConfirmChargeNetwork(f, nil))
+	r.Post("/charges/{id}/pricing/confirm", handleConfirmChargeNetwork(f, nil, nil))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/charges/c-1/pricing/confirm", nil))
 	return rec

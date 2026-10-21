@@ -114,7 +114,7 @@ func TestAPI_CrossTenantIsolation_DrivesAndCharges(t *testing.T) {
 	}
 	hitCharges := func(uid uuid.UUID) []chargeResponse {
 		t.Helper()
-		h := handleCharges(chargeFactory.For(uid), settingsFactory.For(uid))
+		h := handleCharges(chargeFactory.For(uid), settingsFactory.For(uid), nil)
 		req := httptest.NewRequest(http.MethodGet, "/api/charges", nil)
 		req = req.WithContext(auth.WithUser(ctx, uid))
 		w := httptest.NewRecorder()

@@ -18,7 +18,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 )
 
-func handleCharges(store *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
+func handleCharges(store *charges.Store, settingsStore *settings.Store, billed func(context.Context) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusOK, []any{})
@@ -30,14 +30,20 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		decorated := decorateCharges(r.Context(), out, settingsStore)
+		decorated := decorateCharges(r.Context(), out, settingsStore, billed != nil && billed(r.Context()))
 		writeJSON(w, http.StatusOK, decorated)
 	}
 }
 
 // decorateCharges turns stored charges into their wire shape: the
 // classification the Money tab uses plus the legacy local estimate.
-func decorateCharges(ctx context.Context, out []charges.Charge, settingsStore *settings.Store) []chargeResponse {
+//
+// billed is whether the user's Rivian receipts are on (the operator flag and
+// their opt-in, receiptsAllowed): a session with a usable receipt then shows
+// what Rivian billed, as the Money tab does (cost, rivian as the source, the
+// rate that implies, no estimate note and no pending verify state), so the
+// list and the charge page agree with it. The stored row is not changed.
+func decorateCharges(ctx context.Context, out []charges.Charge, settingsStore *settings.Store, billed bool) []chargeResponse {
 	cfg, _ := settings.GetChargingConfig(ctx, settingsStore)
 	home, _ := settings.GetHomeLocation(ctx, settingsStore)
 	homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
@@ -45,6 +51,10 @@ func decorateCharges(ctx context.Context, out []charges.Charge, settingsStore *s
 	// location) the classification would be wrong (home-rate rows
 	// read as billed, every place unknown), so leave it out.
 	lcfg, cerr := ledgerConfig(ctx, settingsStore)
+	lcfg.Billed = billed
+	if cerr == nil {
+		out = billedCharges(out, lcfg)
+	}
 	var classes []ledger.Classification
 	if cerr == nil {
 		rows := make([]ledger.Charge, len(out))
@@ -65,6 +75,38 @@ func decorateCharges(ctx context.Context, out []charges.Charge, settingsStore *s
 		decorated = append(decorated, resp)
 	}
 	return decorated
+}
+
+// billedCharges returns cs with each session that has a usable Rivian receipt
+// shown as billed (cfg.Billed on, receipt in the statement currency); the input
+// is not modified.
+func billedCharges(cs []charges.Charge, cfg ledger.Config) []charges.Charge {
+	if !cfg.Billed {
+		return cs
+	}
+	out := append([]charges.Charge(nil), cs...)
+	for i := range out {
+		if b, ok := ledger.BilledCost(ledger.FromCharge(out[i]), cfg); ok {
+			out[i] = withBilledCost(out[i], b)
+		}
+	}
+	return out
+}
+
+// withBilledCost is c as the statement counts it once Rivian's bill is in:
+// the billed amount as the cost, in the receipt's currency, source rivian,
+// the rate that implies, and no estimate report or pending verify state.
+func withBilledCost(c charges.Charge, billed float64) charges.Charge {
+	c.Cost = billed
+	c.Currency = strings.ToUpper(c.ReceiptCurrency)
+	c.CostSource = "rivian"
+	c.PricePerKWh = 0
+	if c.EnergyAddedKWh > 0 {
+		c.PricePerKWh = billed / c.EnergyAddedKWh
+	}
+	c.EstimateMonth, c.EstimateURL = "", ""
+	c.NetworkState, c.NetworkConfidence, c.NetworkEvidence = "", nil, nil
+	return c
 }
 
 // handleDeleteCharge removes a single charge row by external ID,
@@ -327,7 +369,7 @@ type networkConfirmer interface {
 // idempotent (an already-confirmed estimate answers 200 again); 409 when
 // there is no estimate to confirm (user-priced, Rivian-billed, or nothing
 // matched); 404 for an unknown charge.
-func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.Store) http.HandlerFunc {
+func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.Store, billed func(context.Context) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(chi.URLParam(r, "id"))
 		if id == "" {
@@ -352,12 +394,12 @@ func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.
 			http.Error(w, "no auto-detected network estimate to confirm", http.StatusConflict)
 			return
 		}
-		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0])
+		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore, billed != nil && billed(r.Context()))[0])
 	}
 }
 
 // handleGetCharge serves GET /api/charges/{id}.
-func handleGetCharge(store networkConfirmer, settingsStore *settings.Store) http.HandlerFunc {
+func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, billed func(context.Context) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := store.GetByExternalID(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")))
 		if err != nil {
@@ -368,7 +410,7 @@ func handleGetCharge(store networkConfirmer, settingsStore *settings.Store) http
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0])
+		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore, billed != nil && billed(r.Context()))[0])
 	}
 }
 

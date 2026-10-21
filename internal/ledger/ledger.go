@@ -755,6 +755,11 @@ func currencyMatches(c Charge, cfg Config) bool {
 // billedCost is the session's Rivian-billed amount when the user has the
 // feature on and the receipt is in the statement currency (an empty receipt
 // currency is unknown, so not counted).
+// BilledCost is what Rivian billed for the session when the user's receipts
+// are on (cfg.Billed) and the receipt is in the statement currency. It is the
+// amount Build counts instead of the stored estimate.
+func BilledCost(c Charge, cfg Config) (float64, bool) { return billedCost(c, cfg) }
+
 func billedCost(c Charge, cfg Config) (float64, bool) {
 	if !cfg.Billed || c.BilledCost == nil || c.BilledCurrency == "" {
 		return 0, false
