@@ -782,6 +782,24 @@ func runServer() {
 			}
 			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
 		}()
+		// The archive is rebuilt out of band (a monthly job rewrites the file on
+		// the tiles volume), so look for a new one every few hours: a conditional
+		// GET, which costs nothing while the file is unchanged.
+		go func() {
+			t := time.NewTicker(6 * time.Hour)
+			defer t.Stop()
+			for range t.C {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				changed, err := chargersArchive.Refresh(ctx)
+				cancel()
+				switch {
+				case err != nil:
+					logger.Warn("chargers archive refresh failed (keeping the loaded copy)", "err", err.Error())
+				case changed:
+					logger.Info("chargers archive refreshed", "url", url, "loaded_at", chargersArchive.LoadedAt())
+				}
+			}
+		}()
 	}
 	// The replay planner's route and charger sources. A long multi-stop route
 	// takes Valhalla longer than the recorder's gap-fill budget, hence its own

@@ -46,6 +46,8 @@ type Archive struct {
 	leafDirs sync.Map // map[uint64][]pm.EntryV3, key = leaf offset
 
 	loadedAt time.Time
+	// etag is the validator of the loaded file, sent as If-None-Match by Refresh.
+	etag string
 }
 
 // New returns an empty archive; the caller drives Reload to populate
@@ -67,32 +69,57 @@ func (a *Archive) LoadedAt() time.Time {
 // in-flight queries continue to read the previous bytes via their
 // captured RLock; the next query sees the new state.
 func (a *Archive) Reload(ctx context.Context) error {
+	_, err := a.fetch(ctx, false)
+	return err
+}
+
+// Refresh reloads the archive only when the file behind the URL changed (a
+// conditional GET on the ETag of the loaded copy), so a rebuilt archive is picked
+// up without a restart. changed is false when the server says 304; a server
+// that sends no ETag gets the full file each time (and reports changed). A
+// failed fetch leaves the loaded archive in place.
+func (a *Archive) Refresh(ctx context.Context) (changed bool, err error) {
+	return a.fetch(ctx, true)
+}
+
+func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	if a.url == "" {
-		return errors.New("chargers: no archive URL configured")
+		return false, errors.New("chargers: no archive URL configured")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.url, nil)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if conditional {
+		a.mu.RLock()
+		etag := a.etag
+		a.mu.RUnlock()
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
 	}
 	cl := &http.Client{Timeout: 60 * time.Second}
 	resp, err := cl.Do(req)
 	if err != nil {
-		return fmt.Errorf("fetch chargers archive: %w", err)
+		return false, fmt.Errorf("fetch chargers archive: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotModified {
+		return false, nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("chargers archive: HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("chargers archive: HTTP %d", resp.StatusCode)
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read archive: %w", err)
+		return false, fmt.Errorf("read archive: %w", err)
 	}
 	if len(raw) < pm.HeaderV3LenBytes {
-		return fmt.Errorf("chargers archive too short: %d bytes", len(raw))
+		return false, fmt.Errorf("chargers archive too short: %d bytes", len(raw))
 	}
 	header, err := pm.DeserializeHeader(raw[:pm.HeaderV3LenBytes])
 	if err != nil {
-		return fmt.Errorf("parse header: %w", err)
+		return false, fmt.Errorf("parse header: %w", err)
 	}
 	rootBytes := raw[header.RootOffset : header.RootOffset+header.RootLength]
 	rootDir := pm.DeserializeEntries(bytes.NewBuffer(rootBytes), header.InternalCompression)
@@ -103,8 +130,9 @@ func (a *Archive) Reload(ctx context.Context) error {
 	a.rootDir = rootDir
 	a.leafDirs = sync.Map{}
 	a.loadedAt = time.Now()
+	a.etag = resp.Header.Get("ETag")
 	a.mu.Unlock()
-	return nil
+	return true, nil
 }
 
 // tileBytes returns the decompressed MVT bytes for (z,x,y) or nil
