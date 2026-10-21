@@ -1,96 +1,93 @@
 import SwiftUI
 
-/// Username + password + server URL. Three fields is the whole login
-/// surface: Rivolt is self-hosted, so the "which server" question is
-/// just as user-facing as the credential itself. Pre-filled from
-/// `AppState.serverURLString` (which seeds from Info.plist), so most
-/// users never touch it.
+/// Sign-in screen. Rivolt signs in through the server's own web sign-in (the
+/// app never asks for a password); the server is rivolt.dev unless the user
+/// chooses another under "Other server", which is checked before it's used.
 struct LoginView: View {
     @Environment(AppState.self) private var state
 
-    @State private var username = ""
-    @State private var password = ""
-    @State private var server = ""
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
-    @FocusState private var focused: Field?
-
-    private enum Field { case server, username, password }
+    @State private var showOtherServer = false
+    @State private var otherServer = ""
+    @State private var isWorking = false
+    @State private var message: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Server") {
-                    TextField("https://rivolt.example.com", text: $server)
-                        .textContentType(.URL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focused, equals: .server)
-                        .submitLabel(.next)
-                        .onSubmit { focused = .username }
-                }
-                Section("Account") {
-                    TextField("Username", text: $username)
-                        .textContentType(.username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focused, equals: .username)
-                        .submitLabel(.next)
-                        .onSubmit { focused = .password }
-                    SecureField("Password", text: $password)
-                        .textContentType(.password)
-                        .focused($focused, equals: .password)
-                        .submitLabel(.go)
-                        .onSubmit { Task { await submit() } }
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
                 Section {
                     Button {
-                        Task { await submit() }
+                        Task { await signIn() }
                     } label: {
                         HStack {
                             Spacer()
-                            if isSubmitting {
+                            if isWorking {
                                 ProgressView().tint(.white)
                             } else {
-                                Text("Sign in")
-                                    .fontWeight(.semibold)
+                                Text("Sign in").fontWeight(.semibold)
                             }
                             Spacer()
                         }
                     }
-                    .disabled(isSubmitting || username.isEmpty || password.isEmpty || server.isEmpty)
+                    .disabled(isWorking)
                     .listRowBackground(Color.accentColor)
                     .foregroundStyle(.white)
+                } footer: {
+                    Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                }
+
+                if let message {
+                    Section {
+                        Text(message).font(.footnote)
+                    }
+                }
+
+                Section {
+                    DisclosureGroup("Other server", isExpanded: $showOtherServer) {
+                        TextField("https://rivolt.example.com", text: $otherServer)
+                            .textContentType(.URL)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .onSubmit { Task { await checkServer() } }
+                        Button("Use this server") { Task { await checkServer() } }
+                            .disabled(isWorking || otherServer.isEmpty)
+                    }
+                } footer: {
+                    Text("For a self-hosted Rivolt. Rivolt is unofficial and not affiliated with Rivian.")
                 }
             }
             .navigationTitle("Rivolt")
         }
-        .onAppear {
-            if server.isEmpty { server = state.serverURLString }
-            if focused == nil { focused = .username }
+    }
+
+    private func signIn() async {
+        message = nil
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await state.signIn()
+        } catch {
+            message = error.localizedDescription
         }
     }
 
-    private func submit() async {
-        errorMessage = nil
-        isSubmitting = true
-        defer { isSubmitting = false }
-        // Persist the server URL before hitting login — that way a
-        // failed login against a typo-URL still leaves the corrected
-        // value stored for the next attempt.
-        if server != state.serverURLString { state.serverURLString = server }
+    private func checkServer() async {
+        message = nil
+        isWorking = true
+        defer { isWorking = false }
         do {
-            try await state.login(username: username, password: password)
+            switch try await state.useServer(otherServer) {
+            case .ready, .noAppSignIn:
+                message = "Using \(state.serverURL.host ?? "that server")."
+                showOtherServer = false
+            case .notRivolt:
+                message = SignInError.notRivolt.localizedDescription
+            case .appTooOld:
+                message = SignInError.updateApp.localizedDescription
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            message = error.localizedDescription
         }
     }
 }
