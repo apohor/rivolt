@@ -11,6 +11,9 @@
     <!-- Blocking same-origin script (CSP allows 'self', not inline): sets
          the cached light theme before first paint. See theme-init.js. -->
     <script src="/theme-init.js?v=3"></script>
+    <!-- Before the app's module entry: reloads (at most twice) if an
+         /assets/ file fails to load across a deploy. See asset-guard.js. -->
+    <script src="/asset-guard.js?v=1"></script>
     <meta
       name="description"
       content="Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. Unofficial, not affiliated with Rivian."
