@@ -1,15 +1,30 @@
 # Rivolt iOS
 
-Native iOS client for Rivolt. It signs in to **https://rivolt.dev** by default;
-"Other server" on the sign-in screen points it at a self-hosted Rivolt (https
-only, checked against the server's `/api/app/config`).
+The native iPhone app for Rivolt: the **Now** card, charge and range
+**widgets** (Home Screen and Lock Screen) and **notifications**. It is
+read-only: it never sends anything to the truck.
 
-Status (Sprint 6): the sign-in skeleton. Server address handling, PKCE and the
-per-server Keychain token store are in place and tested; signing in itself
-waits for the server's app sign-in endpoints (design: the team's
-`ios-app-design.md`). The home screen is the v0.9 placeholder.
+## Installing
 
-## Building
+Through **TestFlight**, as an invited internal tester: invite-only, with no
+public link and no App Store listing yet. You get an invitation by email,
+install TestFlight from the App Store, and accept it. Builds are uploaded from
+tagged releases (`ios-v*`).
+
+## Signing in
+
+The app opens a browser sheet on **rivolt.dev** and signs in the way the web
+app does (Rivolt's own sign-in; the app never asks for or sees a password),
+then keeps a session token in the iPhone Keychain. Sign out removes it. The
+token is tied to the server that issued it and is only ever sent there.
+
+**Self-hosters:** "Other server" on the sign-in screen accepts an https address
+and checks it against the server's `/api/app/config`. The server enables app
+sign-in with `RIVOLT_APP_CALLBACK_URL=rivolt://auth`. Notifications in the App
+Store build come only from rivolt.dev (they need Rivolt's Apple key); a
+self-hosted server can sign in and read data, but not push to that build.
+
+## Building (contributors)
 
 Nobody builds this locally (no heavy local builds on the team's Mac). CI does:
 `.github/workflows/ios.yml` generates the project with XcodeGen, then builds and
@@ -17,16 +32,24 @@ runs the unit tests on an iOS Simulator with the pinned Xcode, without signing.
 Look at the job's summary for the test counts and at the uploaded
 `ios-xcresult` artifact when it fails.
 
-If you do have a Mac with Xcode:
-
-```sh
-cd ios
-make open         # regenerates Rivolt.xcodeproj from project.yml and opens it
-```
-
 The `.xcodeproj` is generated from [`project.yml`](project.yml) and not
-checked in. Regenerate (`make project`) after adding a folder or changing build
-settings.
+checked in (`make project` regenerates it; `make open` also opens it, for
+someone who does have Xcode). Look at the uploaded `ios-snapshots` and
+`ios-screenshots` artifacts for how the screens render in light and dark.
+
+## Widgets
+
+Charge and range on the Home Screen (small, medium) and the Lock Screen
+(circular, rectangular, inline). They are read-only and do nothing when tapped
+except open the app. A widget reads the same two endpoints the Now card does
+(`/api/state/{id}` and `/api/vehicles/{id}/now`) on your Rivolt server only,
+with the token from the shared Keychain group, and never talks to Rivian. Old
+data says so ("Updated 3 hr. ago", dimmed, "(old)" on the Lock Screen) instead
+of looking current. The App Group `group.dev.rivolt.app` holds only which truck
+and server to read and the last numbers shown (no VIN, name or location), and is
+cleared on sign-out, on switching server and when the server refuses the token.
+The system decides how often a widget refreshes; Rivolt asks for about every
+15 minutes while charging or driving, 30 parked and 60 asleep or stale.
 
 ## Notifications (push)
 
@@ -49,8 +72,3 @@ Developer account (N28).
 CI also launches the app with `-rivolt-preview <prompt|notifications|notifications-denied>`
 (fixed screens, no network) and uploads simulator screenshots in light and dark
 as the `ios-screenshots` artifact.
-
-## Installing on a phone
-
-Through TestFlight, once the Apple Developer account exists (owner item N28).
-Until then there is no install path.
