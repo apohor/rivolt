@@ -5,15 +5,15 @@ describe("savingsView", () => {
   it("says what is missing instead of a number", () => {
     expect(savingsView({ needs: "offpeak_schedule" })).toEqual({ kind: "needs", need: "schedule" });
     expect(savingsView({ needs: "home_rate" })).toEqual({ kind: "needs", need: "home_rate" });
-    expect(savingsView({ needs: "more_sessions" })).toEqual({ kind: "needs", need: "sessions" });
+    expect(savingsView({ needs: "more_home_sessions" })).toEqual({ kind: "needs", need: "sessions" });
     expect(savingsView({ could_have_saved: null })).toEqual({ kind: "needs", need: "sessions" });
   });
   it("a saving carries the counts and the reasons, biggest first", () => {
-    const v = savingsView({ could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, reasons: { too_short: 1, no_window_fits: 2 }, as_charged_total: 40, if_moved_total: 27.6 });
-    expect(v).toEqual({ kind: "saved", saved: 12.4, moved: 9, leftOut: 3, asCharged: 40, ifMoved: 27.6, reasons: ["2 no window fits", "1 too short"] });
+    const v = savingsView({ could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, left_out_reasons: { plugged_in_too_briefly: 1, no_cheaper_hours: 2 }, sessions_considered: 12, basis: "From your home charges.", as_charged_total: 40, if_moved_total: 27.6 });
+    expect(v).toEqual({ kind: "saved", saved: 12.4, moved: 9, leftOut: 3, asCharged: 40, ifMoved: 27.6, reasons: ["already at the cheapest hours it could use (2)", "plugged in too briefly for the charge to fit in one stretch (1)"], considered: 12, basis: "From your home charges." });
   });
   it("no saving is its own state, not a zero dollar claim", () => {
-    expect(savingsView({ could_have_saved: 0, sessions_moved: 0, sessions_left_out: 2 })).toMatchObject({ kind: "nothing", leftOut: 2 });
+    expect(savingsView({ could_have_saved: 0, sessions_moved: 0, sessions_left_out: 2 })).toMatchObject({ kind: "nothing", leftOut: 2, considered: null });
   });
 });
 

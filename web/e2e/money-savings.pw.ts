@@ -35,12 +35,14 @@ for (const v of [
     const ctx = await browser.newContext({ viewport: { width: v.w, height: 900 }, colorScheme: v.scheme });
     const page = await ctx.newPage();
     const asked: string[] = [];
-    await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, reasons: { no_window_fits: 2, too_short: 1 }, as_charged_total: 40, if_moved_total: 27.6 }), asked);
+    await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, left_out_reasons: { no_cheaper_hours: 2, plugged_in_too_briefly: 1 }, sessions_considered: 12, basis: "Cheapest window that fits inside each session.", as_charged_total: 40, if_moved_total: 27.6 }), asked);
     const card = page.locator("[data-savings]");
     expect(asked[0]).toBe(LAST);
     await expect(card).toContainText("Moving 9 home charges into your off-peak windows could have saved about $12.40 (estimate).");
     await expect(card).toContainText("3 sessions could not be moved and are left out.");
-    await expect(card).toContainText("Why: 2 no window fits, 1 too short.");
+    await expect(card).toContainText("Why: already at the cheapest hours it could use (2); plugged in too briefly for the charge to fit in one stretch (1).");
+    await expect(card).toContainText("Based on 12 home charges.");
+    await expect(card).toContainText("Cheapest window that fits inside each session.");
     await expect(card).toContainText("as charged $40.00 · if moved $27.60 (estimate)");
     await expect(card).not.toContainText(/overpaid|wasted/i);
     await expect(card).toContainText("Rivolt never changes charging on the truck");
@@ -66,7 +68,7 @@ test("savings: states with no number say what is missing and link to it", async 
   needs = "home_rate";
   await page.getByRole("button", { name: "This month so far" }).click();
   await expect(card).toContainText("Set your home rate first");
-  needs = "more_sessions";
+  needs = "more_home_sessions";
   await page.reload();
   await expect(card).toContainText("A few more home charges are needed");
   await ctx.close();

@@ -65,7 +65,7 @@ export function SavingsCard({ area }: { area?: string }) {
         ) : view.kind === "nothing" ? (
           <>
             <p className="text-neutral-300">Nothing to move in {monthLabel(month)}: your home charging already ran at your lowest rate, or no session fit a cheaper window.</p>
-            {view.leftOut > 0 && <p className="text-xs text-neutral-500">{leftOutLine(view.leftOut)}</p>}
+            {view.leftOut > 0 && <p className="text-xs text-neutral-500">{leftOutLine(view.leftOut)}{view.reasons.length > 0 && <> Why: {view.reasons.join("; ")}.</>}</p>}
           </>
         ) : (
           <>
@@ -75,10 +75,12 @@ export function SavingsCard({ area }: { area?: string }) {
                 Home charging as charged {formatMoney(view.asCharged, currency)} · if moved {formatMoney(view.ifMoved, currency)} (estimate)
               </p>
             )}
+            {view.considered != null && <p className="text-xs text-neutral-500">Based on {view.considered} home {view.considered === 1 ? "charge" : "charges"}.</p>}
+            {view.basis && <p className="text-xs text-neutral-500">{view.basis}</p>}
             {view.leftOut > 0 && (
               <p className="text-xs text-neutral-500">
                 {leftOutLine(view.leftOut)}
-                {view.reasons.length > 0 && <> Why: {view.reasons.join(", ")}.</>}
+                {view.reasons.length > 0 && <> Why: {view.reasons.join("; ")}.</>}
               </p>
             )}
           </>

@@ -10,11 +10,14 @@ export type SavingsResponse = {
   sessions_moved?: number;
   sessions_left_out?: number;
   // Why sessions could not be moved, as counts by reason.
-  reasons?: Record<string, number>;
+  left_out_reasons?: Record<string, number>;
+  // How many home charges the estimate considered.
+  sessions_considered?: number;
   as_charged_total?: number | null;
   if_moved_total?: number | null;
-  // Set instead of a number when something is missing.
+  // Set instead of a number when something is missing: "home_rate", "offpeak_schedule" or "more_home_sessions".
   needs?: string | null;
+  // A sentence on how the figure was made, to show under it as text.
   basis?: string;
 };
 
@@ -23,17 +26,21 @@ export const fetchSavings = (month: string, signal?: AbortSignal) =>
 
 export type SavingsView =
   | { kind: "needs"; need: "schedule" | "home_rate" | "sessions" }
-  | { kind: "nothing"; leftOut: number; reasons: string[] }
-  | { kind: "saved"; saved: number; moved: number; leftOut: number; asCharged: number | null; ifMoved: number | null; reasons: string[] };
+  | { kind: "nothing"; leftOut: number; reasons: string[]; considered: number | null }
+  | { kind: "saved"; saved: number; moved: number; leftOut: number; asCharged: number | null; ifMoved: number | null; reasons: string[]; considered: number | null; basis: string };
 
-// A reason key from the server as plain words ("no_window_fits" -> "no window fits").
-export const reasonText = (key: string): string => key.replace(/[_-]+/g, " ").trim().toLowerCase();
+const REASONS: Record<string, string> = {
+  plugged_in_too_briefly: "plugged in too briefly for the charge to fit in one stretch",
+  no_cheaper_hours: "already at the cheapest hours it could use",
+};
+// A reason key from the server as plain words; an unknown key is spelled out ("some_reason" -> "some reason").
+export const reasonText = (key: string): string => REASONS[key] ?? key.replace(/[_-]+/g, " ").trim().toLowerCase();
 
 const reasonList = (r: Record<string, number> | undefined): string[] =>
   Object.entries(r ?? {})
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([k, n]) => `${n} ${reasonText(k)}`);
+    .map(([k, n]) => `${reasonText(k)} (${n})`);
 
 export function savingsView(d: SavingsResponse): SavingsView {
   if (d.needs === "offpeak_schedule") return { kind: "needs", need: "schedule" };
@@ -43,8 +50,8 @@ export function savingsView(d: SavingsResponse): SavingsView {
   const leftOut = d.sessions_left_out ?? 0;
   const moved = d.sessions_moved ?? 0;
   if (saved == null) return { kind: "needs", need: "sessions" };
-  if (saved <= 0 || moved === 0) return { kind: "nothing", leftOut, reasons: reasonList(d.reasons) };
-  return { kind: "saved", saved, moved, leftOut, asCharged: d.as_charged_total ?? null, ifMoved: d.if_moved_total ?? null, reasons: reasonList(d.reasons) };
+  if (saved <= 0 || moved === 0) return { kind: "nothing", leftOut, reasons: reasonList(d.left_out_reasons), considered: d.sessions_considered ?? null };
+  return { kind: "saved", saved, moved, leftOut, asCharged: d.as_charged_total ?? null, ifMoved: d.if_moved_total ?? null, reasons: reasonList(d.left_out_reasons), considered: d.sessions_considered ?? null, basis: d.basis ?? "" };
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
