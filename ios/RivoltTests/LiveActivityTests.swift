@@ -81,7 +81,9 @@ final class ChargingActivityContentTests: XCTestCase {
 
     func testTheSwitchIsOffByDefaultAndHiddenWhenTheServerDoesNotKnowIt() throws {
         XCTAssertFalse(PushPreferences().onChargingLive)
+        // The API client's decoder converts snake_case keys.
         let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
         let without = try d.decode(PushPreferences.self, from: Data(#"{"on_charging_done":true}"#.utf8))
         XCTAssertFalse(without.chargingLiveKnown)
         XCTAssertFalse(without.onChargingLive)
