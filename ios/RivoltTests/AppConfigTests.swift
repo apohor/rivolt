@@ -10,7 +10,7 @@ final class AppConfigTests: XCTestCase {
 
     func testDecodesTheServerShape() throws {
         let c = try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":false},"min_ios_build":3}"#)
-        XCTAssertEqual(c, AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: 3))
+        XCTAssertEqual(c, AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: 3, push: .init(apns: false)))
     }
 
     func testVerdicts() {
@@ -19,5 +19,12 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(ready.verdict(appBuild: 2), .appTooOld(minimumBuild: 3))
         XCTAssertEqual(AppConfig(server: "rivolt", apiVersion: 1, appLogin: false, minIosBuild: nil).verdict(appBuild: 1), .noAppSignIn)
         XCTAssertEqual(AppConfig(server: "nextcloud", apiVersion: 1, appLogin: true, minIosBuild: nil).verdict(appBuild: 1), .notRivolt)
+    }
+
+    func testApnsAvailabilityFollowsTheServer() throws {
+        XCTAssertTrue(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":true}}"#).apnsAvailable)
+        XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true,"push":{"apns":false}}"#).apnsAvailable)
+        // A server that predates push says nothing about it: no notifications offered.
+        XCTAssertFalse(try decode(#"{"server":"rivolt","api_version":1,"app_login":true}"#).apnsAvailable)
     }
 }

@@ -42,7 +42,7 @@ env:
 jobs:
   build-test:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -94,6 +94,7 @@ jobs:
             -scheme Rivolt \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/ios.xcresult" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
@@ -120,6 +121,75 @@ jobs:
             echo "### iOS unit tests"
             jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Fixed screens (launch argument -rivolt-preview <name>: no network, no
+      # Keychain, no iOS prompts) in light and dark, for review: nobody has Xcode
+      # locally, so this is how the native UI is looked at.
+      - name: Screenshots (light and dark)
+        if: always() && steps.sim.outcome == 'success'
+        timeout-minutes: 20
+        run: |
+          set -uo pipefail
+          udid="${{ steps.sim.outputs.udid }}"
+          app="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/Rivolt.app"
+          test -d "$app"
+          # Every simulator call is bounded, and the bounds are generous: right after the
+          # tests the simulator is slow (a first run needed ~6 minutes for its first
+          # terminate and launch), and killing a simctl call midway made it worse. The
+          # bound is there so a truly hung call fails this step with a message.
+          bounded() {
+            local secs=$1; shift
+            "$@" &
+            local pid=$! i=0
+            while kill -0 "$pid" 2>/dev/null; do
+              i=$((i + 1))
+              if [ "$i" -gt "$secs" ]; then
+                echo "TIMEOUT after ${secs}s: $*" >&2
+                kill -9 "$pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 1
+            done
+            wait "$pid"
+          }
+          failed=0
+          # The bundle id comes from the build (the owner may still change it, N28).
+          bid=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          echo "bundle id: $bid"
+          bounded 120 xcrun simctl boot "$udid" || true
+          bounded 300 xcrun simctl bootstatus "$udid" -b || { echo "simulator did not finish booting"; exit 1; }
+          bounded 600 xcrun simctl install "$udid" "$app" || { echo "install failed"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/shots"
+          for mode in light dark; do
+            bounded 300 xcrun simctl ui "$udid" appearance "$mode" || true
+            for screen in prompt notifications notifications-denied; do
+              if ! bounded 420 xcrun simctl launch --terminate-running-process "$udid" "$bid" -rivolt-preview "$screen"; then
+                echo "launch failed for $screen ($mode)"; failed=1
+                # What the app said, so a crash in preview mode is readable.
+                bounded 120 xcrun simctl spawn "$udid" log show --last 1m --style compact --predicate 'process == "Rivolt"' | tail -40 || true
+                continue
+              fi
+              # Give the first frame time, then shoot; a blank or tiny file is retried.
+              sleep 6
+              out="$RUNNER_TEMP/shots/$screen-$mode.png"
+              for try in 1 2 3; do
+                bounded 180 xcrun simctl io "$udid" screenshot "$out" || true
+                [ -f "$out" ] && [ "$(stat -f%z "$out")" -gt 20000 ] && break
+                sleep 3
+              done
+              [ -f "$out" ] || failed=1
+            done
+          done
+          ls -l "$RUNNER_TEMP/shots" || true
+          exit "$failed"
+
+      - name: Upload the screenshots
+        if: always() && steps.sim.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-screenshots
+          path: ${{ runner.temp }}/shots
+          retention-days: 14
 
       - name: Upload the UI snapshots
         if: always() && steps.sim.outcome == 'success'

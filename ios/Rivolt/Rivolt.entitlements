@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push notifications. "development" is rewritten to production when the build is exported for TestFlight. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- One shared Keychain group, first in the list so it is the default: the app and the notification extension
+	     then read and write the same session token. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.rivolt.app.shared</string>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,262 @@
+import Foundation
+import Observation
+import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// The server calls push needs. `APIClient` is the real one; tests use a fake.
+protocol PushServer: Sendable {
+    func appConfig() async throws -> AppConfig
+    func registerApns(token: String, environment: String) async throws -> PushPreferences
+    func setApnsPreference(token: String, wireKey: String, on: Bool) async throws
+    func unregisterApns(token: String) async throws
+}
+
+extension APIClient: PushServer {}
+
+enum PushAuthorization: Equatable {
+    case notDetermined, denied, authorized
+}
+
+/// What the manager asks of iOS (permission and the Apple token), behind a
+/// protocol so tests don't touch the real notification centre.
+@MainActor
+protocol NotificationSystem {
+    func authorizationStatus() async -> PushAuthorization
+    func requestAuthorization() async -> Bool
+    func registerForRemoteNotifications()
+    func unregisterForRemoteNotifications()
+}
+
+@MainActor
+struct SystemNotifications: NotificationSystem {
+    func authorizationStatus() async -> PushAuthorization {
+        let s = await UNUserNotificationCenter.current().notificationSettings()
+        switch s.authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return .authorized
+        case .denied: return .denied
+        default: return .notDetermined
+        }
+    }
+
+    func requestAuthorization() async -> Bool {
+        (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+    }
+
+    func registerForRemoteNotifications() {
+        #if canImport(UIKit)
+        UIApplication.shared.registerForRemoteNotifications()
+        #endif
+    }
+
+    func unregisterForRemoteNotifications() {
+        #if canImport(UIKit)
+        UIApplication.shared.unregisterForRemoteNotifications()
+        #endif
+    }
+}
+
+/// Notifications on this iPhone: whether the server offers them, whether iOS
+/// allows them, the Apple device token and the person's switches.
+///
+/// The rules (Sprint 6, slice 2):
+///  - nothing is asked before sign-in, and nothing at all unless the server's
+///    `/api/app/config` says `push.apns` is true;
+///  - Rivolt's own card asks first; the iOS prompt only follows the person's tap;
+///  - the Apple token goes to the server only while notifications are on, and is
+///    removed again on sign-out or when the person turns them off.
+@MainActor
+@Observable
+final class NotificationManager {
+    static let shared = NotificationManager()
+
+    enum Registration: Equatable {
+        case idle
+        case registering
+        case registered
+        case failed(String)
+    }
+
+    private(set) var offered = false
+    private(set) var authorization: PushAuthorization = .notDetermined
+    private(set) var registration: Registration = .idle
+    private(set) var deviceToken: String?
+    private(set) var preferences: PushPreferences?
+    private(set) var promptDismissed: Bool
+    /// The last failed switch, shown once under the list.
+    private(set) var switchError: String?
+
+    @ObservationIgnored private let system: NotificationSystem
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let environment: String
+    @ObservationIgnored private var server: PushServer?
+
+    private static let dismissedKey = "rivolt.push_prompt_dismissed"
+
+    /// APNs has two environments; a debug build talks to the sandbox, anything
+    /// shipped to TestFlight or the store to production.
+    static var defaultEnvironment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    /// The real one: iOS's notification centre and the standard defaults.
+    convenience init() {
+        self.init(system: SystemNotifications(), defaults: .standard, environment: Self.defaultEnvironment)
+    }
+
+    init(system: NotificationSystem, defaults: UserDefaults, environment: String) {
+        self.system = system
+        self.defaults = defaults
+        self.environment = environment
+        self.promptDismissed = defaults.bool(forKey: Self.dismissedKey)
+    }
+
+    /// Rivolt's own "turn on notifications" card: the server offers them, iOS
+    /// hasn't been asked, and the person hasn't said "not now".
+    var shouldAskInApp: Bool { offered && authorization == .notDetermined && !promptDismissed }
+
+    /// Notifications are on when iOS allows them and the server has this phone.
+    var isOn: Bool { authorization == .authorized && registration == .registered }
+
+    // MARK: - Lifecycle
+
+    /// Called once the person is signed in (cold launch with a valid token, or
+    /// after sign-in). Reads what the server offers; if iOS already allows
+    /// notifications, registers again, as Apple advises on every launch.
+    func signedIn(server: PushServer) async {
+        self.server = server
+        offered = (try? await server.appConfig())?.apnsAvailable ?? false
+        authorization = await system.authorizationStatus()
+        guard offered else { return }
+        if authorization == .authorized {
+            registration = .registering
+            system.registerForRemoteNotifications()
+            if deviceToken != nil { await sync() }
+        }
+    }
+
+    /// Sign-out: tell the server to forget this phone (best effort) and let iOS
+    /// drop its token. The person's iOS permission stays as it was.
+    func signedOut() async {
+        if let server, let token = deviceToken {
+            try? await server.unregisterApns(token: token)
+        }
+        system.unregisterForRemoteNotifications()
+        server = nil
+        offered = false
+        registration = .idle
+        deviceToken = nil
+        preferences = nil
+        switchError = nil
+    }
+
+    // MARK: - From the person
+
+    /// "Turn on": the iOS permission prompt (once), then the Apple token.
+    func turnOn() async {
+        guard offered else { return }
+        if authorization == .notDetermined {
+            authorization = await system.requestAuthorization() ? .authorized : .denied
+        }
+        guard authorization == .authorized else { return }
+        registration = .registering
+        system.registerForRemoteNotifications()
+        if deviceToken != nil { await sync() }
+    }
+
+    /// "Not now" on the card. Remembered, so it isn't shown again; the switch in
+    /// Settings still works.
+    func dismissPrompt() {
+        promptDismissed = true
+        defaults.set(true, forKey: Self.dismissedKey)
+    }
+
+    /// "Turn off notifications on this iPhone".
+    func turnOff() async {
+        if let server, let token = deviceToken {
+            try? await server.unregisterApns(token: token)
+        }
+        system.unregisterForRemoteNotifications()
+        registration = .idle
+        deviceToken = nil
+        preferences = nil
+    }
+
+    /// One switch. Shown at once, put back if the server says no.
+    func set(_ kind: PushKind, to on: Bool) async {
+        guard var prefs = preferences, let server, let token = deviceToken else { return }
+        let before = prefs[kind]
+        prefs[kind] = on
+        preferences = prefs
+        switchError = nil
+        do {
+            try await server.setApnsPreference(token: token, wireKey: kind.wireKey, on: on)
+        } catch {
+            var back = prefs
+            back[kind] = before
+            preferences = back
+            switchError = "Couldn't change that switch. Try again."
+        }
+    }
+
+    // MARK: - From iOS
+
+    /// The Apple device token, as the hex string the server stores.
+    func didRegister(deviceToken data: Data) {
+        Task { await register(deviceToken: data) }
+    }
+
+    /// Keeps the token and tells the server (awaitable, for tests).
+    func register(deviceToken data: Data) async {
+        deviceToken = Self.hex(data)
+        await sync()
+    }
+
+    func didFailToRegister(_ error: Error) {
+        registration = .failed("iOS couldn't register this iPhone for notifications.")
+    }
+
+    private func sync() async {
+        guard offered, authorization == .authorized, let server, let token = deviceToken else { return }
+        registration = .registering
+        do {
+            preferences = try await server.registerApns(token: token, environment: environment)
+            registration = .registered
+        } catch {
+            registration = .failed("Rivolt couldn't register this iPhone. Try again.")
+        }
+    }
+
+    static func hex(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+#if DEBUG
+extension NotificationManager {
+    /// A fixed state for simulator screenshots and previews: no network, no iOS prompts.
+    static func preview(authorization: PushAuthorization, registered: Bool, preferences: PushPreferences? = nil, offered: Bool = true) -> NotificationManager {
+        let m = NotificationManager(system: PreviewNotificationSystem(), defaults: UserDefaults(suiteName: "rivolt.preview") ?? .standard, environment: "sandbox")
+        m.offered = offered
+        m.authorization = authorization
+        m.registration = registered ? Registration.registered : Registration.idle
+        m.deviceToken = registered ? "preview" : nil
+        m.preferences = registered ? (preferences ?? PushPreferences()) : nil
+        m.promptDismissed = false
+        return m
+    }
+}
+
+@MainActor
+private struct PreviewNotificationSystem: NotificationSystem {
+    func authorizationStatus() async -> PushAuthorization { .notDetermined }
+    func requestAuthorization() async -> Bool { false }
+    func registerForRemoteNotifications() {}
+    func unregisterForRemoteNotifications() {}
+}
+#endif

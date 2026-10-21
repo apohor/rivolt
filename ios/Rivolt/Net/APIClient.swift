@@ -56,6 +56,38 @@ actor APIClient {
         try await request("GET", "/api/auth/me")
     }
 
+    // MARK: Push (APNs)
+
+    private struct ApnsRegisterBody: Encodable {
+        let token: String
+        let env: String
+    }
+
+    private struct ApnsRegistered: Decodable {
+        let preferences: PushPreferences
+    }
+
+    private struct ApnsTokenBody: Encodable {
+        let token: String
+    }
+
+    /// Tells the server this phone's Apple device token. The server answers with
+    /// the phone's switches (new phones start with the web's defaults).
+    func registerApns(token: String, environment: String) async throws -> PushPreferences {
+        let r: ApnsRegistered = try await request("POST", "/api/push/apns/register", body: ApnsRegisterBody(token: token, env: environment))
+        return r.preferences
+    }
+
+    /// Changes one switch of this phone (`on_charging_done` and so on).
+    func setApnsPreference(token: String, wireKey: String, on: Bool) async throws {
+        let body: [String: AnyJSON] = ["token": .string(token), wireKey: .bool(on)]
+        let _: Empty = try await request("POST", "/api/push/apns/preferences", body: body)
+    }
+
+    func unregisterApns(token: String) async throws {
+        let _: Empty = try await request("POST", "/api/push/apns/unregister", body: ApnsTokenBody(token: token))
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }
@@ -158,5 +190,21 @@ private struct AnyEncodable: Encodable {
     }
     func encode(to encoder: Encoder) throws {
         try wrapped.encode(to: encoder)
+    }
+}
+
+/// A JSON value for a body whose keys are chosen at run time (the one switch
+/// being changed). The keys are already snake_case, which the encoder's key
+/// strategy leaves as it is.
+enum AnyJSON: Encodable {
+    case string(String)
+    case bool(Bool)
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .bool(let b): try c.encode(b)
+        }
     }
 }

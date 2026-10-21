@@ -25,17 +25,20 @@ final class AppState {
     private(set) var serverURL: URL
     let client: APIClient
     let tokens: TokenStore
+    /// Notifications on this iPhone (the Apple token, permission, the switches).
+    let notifications: NotificationManager
 
     private static let serverDefaultsKey = "rivolt.server_url"
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
     private static let legacyServerDefaultsKey = "rivolt.api_base_url"
 
-    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard) {
+    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil) {
         defaults.removeObject(forKey: Self.legacyServerDefaultsKey)
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
         self.serverURL = server
         self.tokens = tokens
+        self.notifications = notifications ?? NotificationManager.shared
         self.client = APIClient(baseURL: server, tokens: tokens)
     }
 
@@ -56,6 +59,7 @@ final class AppState {
         do {
             let me = try await client.me()
             phase = .loggedIn(username: me.username)
+            await notifications.signedIn(server: client)
         } catch {
             phase = .loggedOut
         }
@@ -103,6 +107,8 @@ final class AppState {
     func logout() async {
         // Best effort on the server; locally the token always goes, so the UI
         // reflects the user's intent even offline.
+        // The phone is forgotten for notifications first, while the token still works.
+        await notifications.signedOut()
         try? await client.logout()
         try? tokens.deleteToken(for: serverURL)
         phase = .loggedOut
