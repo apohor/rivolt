@@ -12,7 +12,8 @@ struct ChargingDetail: Equatable {
         case free
     }
 
-    let powerKw: Double
+    /// Nil when neither the session nor the state has a reading: the card shows a dash, never a made-up 0.
+    let powerKw: Double?
     let socPct: Double?
     let targetPct: Double?
     /// Percentage points left to the charge limit, when there is one ahead.
@@ -32,7 +33,7 @@ struct ChargingDetail: Equatable {
     static func make(summary: NowSummary, session: LiveSession?, charge: ChargeBrief?) -> ChargingDetail? {
         guard summary.stateLabel == "Charging" else { return nil }
         let s = session
-        let power: Double = s.flatMap { $0.powerKw > 0 ? $0.powerKw : nil } ?? summary.chargePowerKw ?? 0
+        let power: Double? = s.flatMap { $0.powerKw > 0 ? $0.powerKw : nil } ?? summary.chargePowerKw.flatMap { $0 > 0 ? $0 : nil }
         let soc: Double? = s.flatMap { $0.socPct > 0 ? $0.socPct : nil } ?? summary.socPct
         let target = summary.chargeTargetPct
         let toTarget: Double? = {
@@ -61,8 +62,9 @@ struct ChargingDetail: Equatable {
         if let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
-        if let est = s.estimatedCost, est > 0 {
-            return .estimate(amount: est, currency: s.estimatedCurrency ?? "")
+        // An estimate with no currency would read as a bare number, so it is left out.
+        if let est = s.estimatedCost, est > 0, let cur = s.estimatedCurrency, cur.count == 3 {
+            return .estimate(amount: est, currency: cur)
         }
         return s.isFreeSession ? .free : nil
     }
@@ -129,3 +131,67 @@ enum NowFormat {
         }
     }
 }
+
+// MARK: What VoiceOver says and how numbers read (kept out of the views so they can be tested)
+
+extension NowFormat {
+    /// One decimal, in the phone's number format.
+    static func oneDecimal(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(1))) }
+    static func twoDecimals(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(2))) }
+
+    /// Duration said in words: "1 hour 12 minutes".
+    static func spokenDuration(_ seconds: TimeInterval) -> String {
+        let m = max(0, Int((seconds / 60).rounded()))
+        let h = m / 60, r = m % 60
+        func unit(_ n: Int, _ one: String) -> String { "\(n) \(one)\(n == 1 ? "" : "s")" }
+        if h == 0 { return unit(r, "minute") }
+        return r == 0 ? unit(h, "hour") : "\(unit(h, "hour")) \(unit(r, "minute"))"
+    }
+
+    static func spokenCost(_ c: ChargingDetail.Cost) -> String {
+        switch c {
+        case .billed(let a, let cur): return money(a, currency: cur)
+        case .estimate(let a, let cur): return "about \(money(a, currency: cur)), an estimate"
+        case .free: return "free"
+        }
+    }
+
+    /// An amount only when its currency is a real code: a bare "3.10" with no symbol says nothing about money.
+    static func moneyIfKnown(_ amount: Double, currency: String?) -> String? {
+        guard let currency, currency.count == 3 else { return nil }
+        return money(amount, currency: currency)
+    }
+}
+
+extension ChargingDetail {
+    /// The card read as sentences, so VoiceOver doesn't spell out "kW", "~" and "%".
+    var spoken: String {
+        var parts = ["Charging session" + (place.map { " at \($0.lowercased())" } ?? "") + "."]
+        if let powerKw { parts.append("\(NowFormat.oneDecimal(powerKw)) kilowatts.") }
+        if let socPct, let targetPct, targetPct > socPct {
+            parts.append("\(Int(socPct.rounded())) percent, charge limit \(Int(targetPct.rounded())) percent.")
+        } else if let socPct {
+            parts.append("\(Int(socPct.rounded())) percent.")
+        }
+        guard haveLiveData else { return (parts + ["Waiting for the first reading from the charger."]).joined(separator: " ") }
+        if let remaining { parts.append("About \(NowFormat.spokenDuration(remaining)) left.") }
+        if let elapsed { parts.append("Elapsed \(NowFormat.spokenDuration(elapsed)).") }
+        if let energyKwh { parts.append("\(NowFormat.oneDecimal(energyKwh)) kilowatt hours added.") }
+        if let cost { parts.append("Cost so far, \(NowFormat.spokenCost(cost)).") }
+        return parts.joined(separator: " ")
+    }
+}
+
+extension DriveDetail {
+    func spoken(title: String) -> String {
+        var parts = ["\(title)."]
+        parts.append("\(NowFormat.oneDecimal(distanceMi)) miles.")
+        if let elapsed { parts.append("\(NowFormat.spokenDuration(elapsed)).") }
+        if let avgSpeedMph { parts.append("Average \(Int(avgSpeedMph.rounded())) miles per hour.") }
+        if let energyKwh { parts.append("\(NowFormat.oneDecimal(energyKwh)) kilowatt hours used.") }
+        if let miPerKwh { parts.append("\(NowFormat.twoDecimals(miPerKwh)) miles per kilowatt hour.") }
+        if let estimatedCost, let m = NowFormat.moneyIfKnown(estimatedCost, currency: currency) { parts.append("Cost about \(m), an estimate.") }
+        return parts.joined(separator: " ")
+    }
+}
+

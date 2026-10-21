@@ -111,4 +111,29 @@ final class NowDetailTests: XCTestCase {
         let sum = try charging()
         XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0.00", currentCurrency: "USD"), charge: nil)?.cost, .billed(amount: 0, currency: "USD"))
     }
+
+    func testASpokenCardSaysWordsNotSymbols() throws {
+        let session = LiveSession(active: true, timeElapsedSeconds: 4320, timeRemainingSeconds: 2520, powerKw: 7.2, totalChargedEnergyKwh: 5.6, socPct: 78, estimatedCost: 3.1, estimatedCurrency: "USD")
+        let d = try XCTUnwrap(ChargingDetail.make(summary: try charging(), session: session, charge: nil))
+        let said = d.spoken
+        XCTAssertTrue(said.contains("kilowatts"), said)
+        XCTAssertTrue(said.contains("charge limit"), said)
+        XCTAssertTrue(said.contains("About 42 minutes left"), said)
+        XCTAssertTrue(said.contains("an estimate"), said)
+        XCTAssertFalse(said.contains("~"), said)
+        XCTAssertEqual(NowFormat.spokenDuration(4320), "1 hour 12 minutes")
+    }
+
+    func testNoPowerReadingIsLeftOutNotSpokenAsZero() {
+        let d = ChargingDetail(powerKw: nil, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil,
+                               elapsed: nil, remaining: nil, cost: nil, place: nil, haveLiveData: false)
+        XCTAssertFalse(d.spoken.contains("kilowatts"))
+        XCTAssertTrue(d.spoken.contains("Waiting for the first reading"))
+    }
+
+    func testADriveEstimateWithoutACurrencyIsLeftOut() {
+        XCTAssertNil(NowFormat.moneyIfKnown(3.1, currency: nil))
+        XCTAssertNil(NowFormat.moneyIfKnown(3.1, currency: ""))
+        XCTAssertEqual(NowFormat.moneyIfKnown(3.1, currency: "USD"), "$3.10")
+    }
 }
