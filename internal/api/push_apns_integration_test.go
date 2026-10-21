@@ -296,3 +296,47 @@ func TestAPNsLiveActivityEndpoints(t *testing.T) {
 		t.Errorf("rows after end = %d", n)
 	}
 }
+
+// The Live Activity test endpoint answers 404 while Live Activity is off and when
+// nothing is registered, and refuses view-as.
+func TestAPNsActivityTestEndpoint(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, _ := x509.MarshalPKCS8PrivateKey(k)
+	a, err := push.NewAPNs(push.APNsConfig{KeyID: "KEY123ABCD", TeamID: "TEAM123456", Topic: "dev.rivolt.app",
+		KeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := db.EnsureUserVerified(ctx, pool, "live-test-api", "live-test-api@x.test", "live-test-api", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := push.OpenStore(pool, uid)
+	call := func(svc *push.Service, imp bool) int {
+		c := auth.WithUser(ctx, uid)
+		if imp {
+			c = auth.WithImpersonation(c, uuid.New(), uid)
+		}
+		rec := httptest.NewRecorder()
+		handleAPNsActivityTest(svc, st)(rec, httptest.NewRequest("POST", "/x", nil).WithContext(c))
+		return rec.Code
+	}
+	off := (&push.Service{}).WithAPNs(a)
+	live := (&push.Service{}).WithAPNs(a).WithLive(true)
+	if code := call(off, false); code != 404 {
+		t.Errorf("Live Activity off = %d, want 404", code)
+	}
+	if code := call(live, false); code != 404 {
+		t.Errorf("nothing registered = %d, want 404", code)
+	}
+	if code := call(live, true); code != 403 {
+		t.Errorf("view-as = %d, want 403", code)
+	}
+}

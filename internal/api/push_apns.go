@@ -271,3 +271,27 @@ func handleAPNsActivityEnd(svc *push.Service, store *push.Store) http.HandlerFun
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
+
+// handleAPNsActivityTest: POST /api/push/apns/activity/test sends fixed figures to
+// the caller's own running Live Activities, then (a few seconds later) the end. Own
+// user only, rate-limited by the route, 404 while Live Activity is off or nothing is
+// registered. Nothing in the request reaches Apple or the phone.
+func handleAPNsActivityTest(svc *push.Service, store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !svc.LiveEnabled() {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not available"})
+			return
+		}
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+			return
+		}
+		n := svc.TestLive(r.Context(), store)
+		if n == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no live charging display to send to"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": n})
+	}
+}
