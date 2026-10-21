@@ -6,10 +6,11 @@ read-only: it never sends anything to the truck.
 
 ## Installing
 
-Through **TestFlight**, as an invited internal tester: invite-only, with no
-public link and no App Store listing yet. You get an invitation by email,
-install TestFlight from the App Store, and accept it. Builds are uploaded from
-tagged releases (`ios-v*`).
+Through **TestFlight**, while the app is in internal testing: access is by
+invitation from the maintainer, with no public link and no App Store listing
+yet (internal testing is limited to 100 testers). You get an invitation email,
+install TestFlight from the App Store with the same Apple ID, and accept it.
+Builds are uploaded from tagged releases (`ios-v*`).
 
 ## Signing in
 

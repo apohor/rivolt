@@ -264,9 +264,9 @@ The same tabs work at phone width, and the main tabs have a light theme.
 
 ## Rivolt on iPhone (TestFlight)
 
-A native iPhone app is in internal testing. It is **invite-only through
-TestFlight**, with no public link and no App Store listing yet, so most people
-will use the web app above for now.
+A native iPhone app is in internal testing. Access is **by invitation from the
+maintainer through TestFlight**, with no public link and no App Store listing
+yet, so most people will use the web app above for now.
 
 What it does today:
 
