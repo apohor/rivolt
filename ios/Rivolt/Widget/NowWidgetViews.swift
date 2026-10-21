@@ -168,7 +168,7 @@ private struct InlineView: View {
 
     var body: some View {
         Label("\(socText(snapshot)) · \(rangeText(snapshot.rangeKm))\(snapshot.isStale(at: at) ? " (old)" : "")",
-              systemImage: snapshot.isCharging ? "bolt.fill" : "car")
+              systemImage: snapshot.isStale(at: at) ? "clock.badge.exclamationmark" : (snapshot.isCharging ? "bolt.fill" : "car"))
             .accessibilityLabel(spoken(snapshot, at: at))
     }
 }
@@ -178,6 +178,19 @@ private struct PlaceholderView: View {
     let family: WidgetFamily
 
     var body: some View {
+        // The round lock-screen widget is too small for words: the icon, with the words for VoiceOver.
+        if family == .accessoryCircular {
+            Image(systemName: "bolt.car")
+                .font(.title2)
+                .foregroundStyle(NowInk.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel(text)
+        } else {
+            wordsView
+        }
+    }
+
+    private var wordsView: some View {
         Label(text, systemImage: "bolt.car")
             .font(family == .accessoryInline ? .body : .caption.weight(.semibold))
             .foregroundStyle(NowInk.secondary)
