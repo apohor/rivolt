@@ -1,50 +1,66 @@
 import SwiftUI
 
-/// Single-vehicle home screen: hero SoC + range number for the first
-/// (or only) vehicle on the account. Intentionally dumb — this is the
-/// v0.9-day-one smoke screen, not the final layout. The real home
-/// will mirror the web `/` overview once the API surface for drives
-/// and charges is available.
+/// Home: the Now card for one truck, with a switcher when the account has
+/// more than one. Read-only: the app never sends anything to the truck.
 ///
-/// Refresh strategy:
-///   • On appear: one `/vehicles` + one `/state/:id` call.
-///   • Pull-to-refresh to re-fetch without leaving the screen.
-///
-/// Polling + websocket will land with the live panel; for now we
-/// keep it manual so we don't bake polling into the v0.9 skeleton
-/// before we've thought about battery cost on real device.
+/// Refresh: on appear, on pull-to-refresh, and when the selected truck
+/// changes. `/state` and `/now` load in parallel; without `/now` (an older
+/// server) the card works from `/state` alone.
 struct HomeView: View {
     @Environment(AppState.self) private var state
 
+    @AppStorage("rivolt.selected_vehicle") private var selectedID = ""
     @State private var vehicles: [Vehicle] = []
-    @State private var current: VehicleState?
+    @State private var vehicleState: VehicleState?
+    @State private var now: NowSnapshot?
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
 
+    private var selected: Vehicle? {
+        vehicles.first { $0.id == selectedID } ?? vehicles.first
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading && current == nil {
-                    ProgressView().controlSize(.large)
-                } else if let current, let vehicle = vehicles.first {
-                    content(vehicle: vehicle, st: current)
-                } else if let loadError {
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.title)
-                        Text(loadError).multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding()
-                } else {
-                    Text("No vehicles on this account")
+            ScrollView {
+                Group {
+                    if let vehicle = selected, vehicleState != nil || now != nil {
+                        NowCard(vehicle: vehicle,
+                                summary: NowSummary(state: vehicleState, now: now, clock: .now))
+                    } else if isLoading {
+                        ProgressView().controlSize(.large).padding(.top, 80)
+                    } else if let loadError {
+                        VStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle").font(.title)
+                            Text(loadError).multilineTextAlignment(.center)
+                        }
                         .foregroundStyle(.secondary)
+                        .padding(.top, 80)
+                    } else if vehicles.isEmpty {
+                        Text("No vehicles on this account yet. Connect your Rivian account on the web.")
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 80)
+                    }
                 }
+                .padding()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(vehicles.first?.name ?? "Rivolt")
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle(selected?.name ?? "Rivolt")
             .toolbar {
+                if vehicles.count > 1 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Picker("Vehicle", selection: $selectedID) {
+                                ForEach(vehicles) { v in Text(v.name).tag(v.id) }
+                            }
+                        } label: {
+                            Image(systemName: "car.2")
+                        }
+                        .accessibilityLabel("Switch vehicle")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Refresh") { Task { await load() } }
@@ -62,6 +78,7 @@ struct HomeView: View {
             }
             .refreshable { await load() }
             .task { await load() }
+            .onChange(of: selectedID) { Task { await loadSelected() } }
             .safeAreaInset(edge: .top) {
                 if state.notifications.shouldAskInApp {
                     NotificationPromptCard(manager: state.notifications)
@@ -75,96 +92,35 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func content(vehicle: Vehicle, st: VehicleState) -> some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 4) {
-                Text("\(Int(st.batteryLevelPct.rounded()))%")
-                    .font(.system(size: 80, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Text("state of charge")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            ProgressView(value: min(max(st.batteryLevelPct, 0), 100), total: 100)
-                .progressViewStyle(.linear)
-                .tint(batteryTint(st.batteryLevelPct))
-                .padding(.horizontal, 32)
-
-            VStack(spacing: 2) {
-                Text("\(Int(rangeMiles(km: st.distanceToEmpty).rounded())) mi")
-                    .font(.title)
-                    .monospacedDigit()
-                Text("estimated range")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let charger = st.chargerState, charger != "charger_disconnected", charger != "" {
-                Label(formatCharger(charger, powerKW: st.chargerPowerKw), systemImage: "bolt.fill")
-                    .foregroundStyle(.green)
-                    .font(.subheadline)
-            }
-
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(vehicle.model)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("VIN \(vehicle.vin.suffix(8))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .monospaced()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-        }
-        .padding(.top, 32)
-    }
-
     private func load() async {
         isLoading = true
         defer { isLoading = false }
         loadError = nil
         do {
-            let vs = try await state.client.vehicles()
-            self.vehicles = vs
-            guard let first = vs.first else {
-                self.current = nil
-                return
+            vehicles = try await state.client.vehicles()
+            if selected == nil || !vehicles.contains(where: { $0.id == selectedID }) {
+                selectedID = vehicles.first?.id ?? ""
             }
-            self.current = try await state.client.vehicleState(id: first.id)
+            await loadSelected()
         } catch {
-            self.loadError = error.localizedDescription
+            loadError = error.localizedDescription
         }
     }
 
-    private func batteryTint(_ pct: Double) -> Color {
-        switch pct {
-        case ..<15: return .red
-        case ..<30: return .orange
-        default: return .green
+    private func loadSelected() async {
+        guard let id = selected?.id else {
+            vehicleState = nil
+            now = nil
+            return
         }
-    }
-
-    private func rangeMiles(km: Double) -> Double { km * 0.621371 }
-
-    private func formatCharger(_ raw: String, powerKW: Double?) -> String {
-        let label: String
-        switch raw {
-        case "charging_active":  label = "Charging"
-        case "charging_complete": label = "Charge complete"
-        case "charger_connected": label = "Plug connected"
-        default:
-            label = raw
-                .replacingOccurrences(of: "_", with: " ")
-                .capitalized
+        let client = state.client
+        async let st = try? client.vehicleState(id: id)
+        async let nw = try? client.vehicleNow(id: id)
+        let (s, n) = await (st, nw)
+        vehicleState = s
+        now = n ?? nil
+        if s == nil && now == nil {
+            loadError = "Couldn't load this truck's status."
         }
-        if let kw = powerKW, kw > 0.1 {
-            return String(format: "%@ · %.1f kW", label, kw)
-        }
-        return label
     }
 }

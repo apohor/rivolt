@@ -12,11 +12,11 @@ import { Card } from "./ui";
 export function SavingsCard({ area }: { area?: string }) {
   const [which, setWhich] = useState<"last" | "now">("last");
   const month = which === "last" ? shiftMonth(currentMonth(), -1) : currentMonth();
-  // The demo has no schedule and its access gate does not allow the endpoint: no card there.
+  // In the demo the server answers for the sample truck against an example schedule, always for the last complete month.
   const demo = inDemo();
-  const q = useQuery({ queryKey: ["savings", month], queryFn: ({ signal }) => fetchSavings(month, signal), staleTime: 5 * 60_000, retry: 0, enabled: !demo });
+  const q = useQuery({ queryKey: ["savings", month], queryFn: ({ signal }) => fetchSavings(month, signal), staleTime: 5 * 60_000, retry: 0 });
   const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
-  if (demo || q.isError) return null;
+  if (q.isError) return null;
   const currency = q.data?.currency || settings.data?.home_currency || "USD";
   const view = q.data ? savingsView(q.data) : null;
 
@@ -25,6 +25,7 @@ export function SavingsCard({ area }: { area?: string }) {
       title="Off-peak savings"
       area={area}
       actions={
+        demo ? undefined : (
         <div className="inline-flex rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Month">
           {(["last", "now"] as const).map((k) => (
             <button
@@ -38,10 +39,14 @@ export function SavingsCard({ area }: { area?: string }) {
             </button>
           ))}
         </div>
+        )
       }
     >
       <div data-savings className="space-y-2 text-sm">
-        <p className="text-xs text-neutral-500">{monthLabel(month)}</p>
+        <p className="text-xs text-neutral-500">
+          {monthLabel(month)}
+          {demo && <> · <span data-savings-sample>Sample truck · example schedule</span></>}
+        </p>
         {!view ? (
           <p className="text-neutral-500">…</p>
         ) : view.kind === "needs" ? (

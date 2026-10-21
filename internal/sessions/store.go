@@ -113,7 +113,16 @@ type CreateOpts struct {
 	UserAgent   string
 	IPAddress   string // textual form; Create parses it
 	DeviceLabel string
+	// Kind is "web" (the browser cookie, the default) or "app" (a bearer
+	// token held by the iPhone app, migration 0076).
+	Kind string
 }
+
+// Session kinds (sessions.kind).
+const (
+	KindWeb = "web"
+	KindApp = "app"
+)
 
 // Create mints a fresh session for userID and returns:
 //
@@ -156,10 +165,18 @@ func (s *Store) Create(ctx context.Context, userID uuid.UUID, ttl time.Duration,
 		ua = opts.UserAgent
 	}
 
+	kind := opts.Kind
+	if kind == "" {
+		kind = KindWeb
+	}
+	if kind != KindWeb && kind != KindApp {
+		return Session{}, "", fmt.Errorf("sessions: unknown kind %q", kind)
+	}
+
 	const q = `INSERT INTO sessions
-		(id, user_id, token_hash, created_at, last_seen_at, expires_at, user_agent, ip_address, device_label)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8)`
-	if _, err := s.db.ExecContext(ctx, q, id, userID, hash, now, expires, ua, ip, label); err != nil {
+		(id, user_id, token_hash, created_at, last_seen_at, expires_at, user_agent, ip_address, device_label, kind)
+		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9)`
+	if _, err := s.db.ExecContext(ctx, q, id, userID, hash, now, expires, ua, ip, label, kind); err != nil {
 		return Session{}, "", fmt.Errorf("sessions: insert: %w", err)
 	}
 	return Session{

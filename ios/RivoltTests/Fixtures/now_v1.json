@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "at": "2026-10-21T14:03:12.123456789Z",
+  "location_fix_at": "2026-10-21T14:02:58Z",
+  "connection": "live",
+  "state": "charging",
+  "asleep": false,
+  "state_since": "2026-10-21T12:40:00Z",
+  "soc_at_state_start": 41.5,
+  "tire_pressure_min_bar": 2.9,
+  "failed_sleeps_6h": 0,
+  "vehicle_state_frame_at": "2026-10-21T14:03:10.5Z",
+  "charge": {
+    "started_at": "2026-10-21T12:40:00Z",
+    "soc_start": 41.5,
+    "peak_kw": 11.2
+  },
+  "ambient": {
+    "temp_c": 12.5,
+    "source": "open-meteo",
+    "as_of": "2026-10-21T14:00:00Z"
+  }
+}

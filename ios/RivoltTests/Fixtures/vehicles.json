@@ -1,0 +1,17 @@
+[
+  {
+    "id": "01-242521064",
+    "vin": "7FCTGAAL0PN000001",
+    "name": "Sample truck",
+    "model": "R1T",
+    "model_year": 2023,
+    "make": "Rivian",
+    "pack_kwh": 135
+  },
+  {
+    "id": "01-242521065",
+    "vin": "7PDSGABA2RN000002",
+    "name": "Second",
+    "model": "R1S"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "at": null,
+  "location_fix_at": null,
+  "connection": "paused",
+  "state": "unknown",
+  "state_since": null,
+  "soc_at_state_start": null,
+  "tire_pressure_min_bar": null,
+  "failed_sleeps_6h": 0,
+  "vehicle_state_frame_at": null,
+  "charge": null
+}

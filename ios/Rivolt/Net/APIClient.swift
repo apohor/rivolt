@@ -30,10 +30,7 @@ actor APIClient {
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.decoder = decoder
+        self.decoder = JSON.decoder()
 
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -101,6 +98,18 @@ actor APIClient {
         // insurance against ever passing one that does.
         let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         return try await request("GET", "/api/state/\(escaped)")
+    }
+
+    /// The server's view of the truck right now (now-contract v1): state,
+    /// freshness inputs and the current charge. Nil on a server without it
+    /// (404 or 501), so the card falls back to `vehicleState` alone.
+    func vehicleNow(id: String) async throws -> NowSnapshot? {
+        let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        do {
+            return try await request("GET", "/api/vehicles/\(escaped)/now")
+        } catch APIError.server(404, _), APIError.server(501, _) {
+            return nil
+        }
     }
 
     // MARK: - Core
