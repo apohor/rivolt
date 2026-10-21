@@ -120,14 +120,7 @@ jobs:
       # A dry run never reaches App Store validation, so check here what
       # rejected ios-v0.1.0: icon name, iPhone-only family, a compiled icon.
       - name: Check the archived app for App Store basics
-        run: |
-          set -euo pipefail
-          app="$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
-          pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Info.plist"; }
-          [ "$(pb CFBundleIconName)" = AppIcon ] || { echo "CFBundleIconName missing"; exit 1; }
-          [ "$(pb UIDeviceFamily:0)" = 1 ] && ! pb UIDeviceFamily:1 >/dev/null 2>&1 \
-            || { echo "UIDeviceFamily is not iPhone-only"; exit 1; }
-          ls "$app"/AppIcon60x60@2x.png >/dev/null || { echo "no compiled 120x120 icon"; exit 1; }
+        run: ios/check-app-store-basics.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
 
       - name: Export and upload
         env:

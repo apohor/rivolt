@@ -46,10 +46,6 @@ settings:
     # Rivolt only runs portrait on phone; landscape comes later
     # when the drive-detail maps need it.
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
-    # iPhone only. Without this the target defaults to iPhone+iPad and App
-    # Store validation demands iPad icons and iPad multitasking orientations
-    # (ios-v0.1.0 upload was rejected for both).
-    TARGETED_DEVICE_FAMILY: "1"
 
 targets:
   Rivolt:
@@ -65,6 +61,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app
         PRODUCT_NAME: Rivolt
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt
+        # iPhone only. Without this the app is iPhone+iPad and App Store
+        # validation demands iPad icons and iPad multitasking orientations
+        # (ios-v0.1.0 was rejected for both). Per target: XcodeGen's iOS
+        # preset sets "1,2" on every target, which overrides a project-level
+        # value (ios-v0.1.1 still came out [1, 2]).
+        TARGETED_DEVICE_FAMILY: "1"
         # Names the AppIcon set so actool emits CFBundleIconName and the
         # sized icons; App Store validation rejects the build without them.
         # The 1024 PNG is a placeholder from web/public/icon-maskable-512.png
@@ -93,6 +95,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app.notifications
+        # iPhone only, as the app (see the Rivolt target).
+        TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_NAME: RivoltNotificationService
         INFOPLIST_KEY_CFBundleDisplayName: Rivolt notifications
         # The extension point goes in through the Info.plist XcodeGen writes below.

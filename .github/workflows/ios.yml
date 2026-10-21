@@ -191,6 +191,26 @@ jobs:
           path: ${{ runner.temp }}/shots
           retention-days: 14
 
+      # The App Store rejects what a simulator test build never shows (app icon,
+      # iPhone-only family): build Release for a device, unsigned, and run the
+      # same check ios-testflight.yml runs on the signed archive before upload.
+      - name: App Store basics (Release device build, unsigned)
+        if: always() && steps.sim.outcome == 'success'
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project ios/Rivolt.xcodeproj \
+            -scheme Rivolt \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/release" \
+            CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/release.log" 2>&1 \
+            || { tail -60 "$RUNNER_TEMP/release.log"; exit 1; }
+          # The asset catalog step, so a missing icon is traceable to actool.
+          grep -A3 -E '^CompileAssetCatalog' "$RUNNER_TEMP/release.log" | cut -c1-400 || echo "no CompileAssetCatalog step ran"
+          ios/check-app-store-basics.sh \
+            "$RUNNER_TEMP/release/Build/Products/Release-iphoneos/Rivolt.app" "$RUNNER_TEMP/release"
+
       - name: Upload the UI snapshots
         if: always() && steps.sim.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
