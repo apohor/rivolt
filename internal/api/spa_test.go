@@ -97,9 +97,34 @@ func TestRootStaticFilesShortCache(t *testing.T) {
 			t.Errorf("%s: %d Cache-Control=%q, want %q", p, w.Code, w.Header().Get("Cache-Control"), want)
 		}
 	}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/app-abc.js", nil))
-	if got := w.Header().Get("Cache-Control"); got == "public, max-age=300" || got == "no-store" {
-		t.Errorf("a hashed asset got %q", got)
+}
+
+func TestHashedAssetsImmutable(t *testing.T) {
+	const immutable = "public, max-age=31536000, immutable"
+	fsys := fstest.MapFS{
+		"index.html":                     {Data: []byte("<html>shell</html>")},
+		"assets/index-BW3_JwXA.js":       {Data: []byte("//js")},
+		"assets/jsx-runtime-Wy9s6hX0.js": {Data: []byte("//js")},
+		"assets/index-a-B_c9xZ.css":      {Data: []byte("a{}")},
+		"assets/unhashed.js":             {Data: []byte("//js")},
+		"assets/short-abc.js":            {Data: []byte("//js")},
+		"theme-init-BW3_JwXA.js":         {Data: []byte("//not under assets/")},
+	}
+	// Through the real router, so no middleware overrides the header.
+	r := New(Deps{WebFS: fsys})
+	for p, want := range map[string]string{
+		"/assets/index-BW3_JwXA.js":       immutable,
+		"/assets/jsx-runtime-Wy9s6hX0.js": immutable,
+		"/assets/index-a-B_c9xZ.css":      immutable,
+		"/assets/unhashed.js":             "public, max-age=300",
+		"/assets/short-abc.js":            "public, max-age=300",
+		"/theme-init-BW3_JwXA.js":         "public, max-age=300",
+		"/assets/index-NOTTHERE.js":       "no-store",
+	} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if got := w.Header().Get("Cache-Control"); got != want {
+			t.Errorf("%s: %d Cache-Control=%q, want %q", p, w.Code, got, want)
+		}
 	}
 }
