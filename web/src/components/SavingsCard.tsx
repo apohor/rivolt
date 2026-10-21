@@ -71,7 +71,7 @@ export function SavingsCard({ area }: { area?: string }) {
           </p>
         ) : view.kind === "nothing" ? (
           <>
-            <p className="text-neutral-300">Nothing to move in {monthLabel(month)}: your home charging already ran at your lowest rate, or no session fit a cheaper window.</p>
+            <p className="text-neutral-300">Nothing to move in {monthLabel(month)}: {demo ? "the sample truck's" : "your"} home charging already ran at the lowest rate, or no session fit a cheaper window.</p>
             {view.leftOut > 0 && <p className="text-xs text-neutral-500">{leftOutLine(view.leftOut)}{view.reasons.length > 0 && <> Why: {view.reasons.join("; ")}.</>}</p>}
           </>
         ) : (
@@ -92,7 +92,7 @@ export function SavingsCard({ area }: { area?: string }) {
             )}
           </>
         )}
-        <p className="text-[11px] text-neutral-500">Estimated from your own home charges and your off-peak hours. Advice only: Rivolt never changes charging on the truck.</p>
+        <p className="text-[11px] text-neutral-500">{demo ? "Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data." : "Estimated from your own home charges and your off-peak hours."} Advice only: Rivolt never changes charging on the truck.</p>
       </div>
     </Card>
   );
