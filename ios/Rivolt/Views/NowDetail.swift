@@ -156,6 +156,34 @@ extension NowFormat {
         }
     }
 
+    static var usesMetric: Bool {
+        let system = Locale.current.measurementSystem
+        return system != .us && system != .uk
+    }
+
+    /// A distance recorded in miles, shown (or said, with `spoken`) the way the phone's units say.
+    static func distance(mi: Double, spoken: Bool = false) -> String {
+        Measurement(value: mi, unit: UnitLength.miles)
+            .formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1))))
+    }
+
+    static func speed(mph: Double, spoken: Bool = false) -> String {
+        let m = Measurement(value: mph, unit: UnitSpeed.milesPerHour)
+        let shown = usesMetric ? m.converted(to: .kilometersPerHour) : m
+        return shown.formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))))
+    }
+
+    /// mi/kWh, or km/kWh on a metric phone.
+    static func efficiency(miPerKwh: Double, spoken: Bool = false) -> String {
+        let value = twoDecimals(usesMetric ? miPerKwh * 1.609344 : miPerKwh)
+        switch (usesMetric, spoken) {
+        case (true, true): return "\(value) kilometres per kilowatt hour"
+        case (true, false): return "\(value) km/kWh"
+        case (false, true): return "\(value) miles per kilowatt hour"
+        case (false, false): return "\(value) mi/kWh"
+        }
+    }
+
     /// An amount only when its currency is a real code: a bare "3.10" with no symbol says nothing about money.
     static func moneyIfKnown(_ amount: Double, currency: String?) -> String? {
         guard let currency, currency.count == 3 else { return nil }
@@ -166,7 +194,15 @@ extension NowFormat {
 extension ChargingDetail {
     /// The card read as sentences, so VoiceOver doesn't spell out "kW", "~" and "%".
     var spoken: String {
-        var parts = ["Charging session" + (place.map { " at \($0.lowercased())" } ?? "") + "."]
+        let where_: String = {
+            switch place {
+            case "Home": return " at home"
+            case "Away": return " away from home"
+            case "Fast": return ", fast charger"
+            default: return ""
+            }
+        }()
+        var parts = ["Charging session" + where_ + "."]
         if let powerKw { parts.append("\(NowFormat.oneDecimal(powerKw)) kilowatts.") }
         if let socPct, let targetPct, targetPct > socPct {
             parts.append("\(Int(socPct.rounded())) percent, charge limit \(Int(targetPct.rounded())) percent.")
@@ -185,11 +221,11 @@ extension ChargingDetail {
 extension DriveDetail {
     func spoken(title: String) -> String {
         var parts = ["\(title)."]
-        parts.append("\(NowFormat.oneDecimal(distanceMi)) miles.")
+        parts.append("\(NowFormat.distance(mi: distanceMi, spoken: true)).")
         if let elapsed { parts.append("\(NowFormat.spokenDuration(elapsed)).") }
-        if let avgSpeedMph { parts.append("Average \(Int(avgSpeedMph.rounded())) miles per hour.") }
+        if let avgSpeedMph { parts.append("Average \(NowFormat.speed(mph: avgSpeedMph, spoken: true)).") }
         if let energyKwh { parts.append("\(NowFormat.oneDecimal(energyKwh)) kilowatt hours used.") }
-        if let miPerKwh { parts.append("\(NowFormat.twoDecimals(miPerKwh)) miles per kilowatt hour.") }
+        if let miPerKwh { parts.append("\(NowFormat.efficiency(miPerKwh: miPerKwh, spoken: true)).") }
         if let estimatedCost, let m = NowFormat.moneyIfKnown(estimatedCost, currency: currency) { parts.append("Cost about \(m), an estimate.") }
         return parts.joined(separator: " ")
     }
