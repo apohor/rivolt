@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,5 +77,29 @@ func TestValidAppID(t *testing.T) {
 		if ValidAppID(id) != want {
 			t.Errorf("ValidAppID(%q) != %v", id, want)
 		}
+	}
+}
+
+// When the Universal Link doesn't open the app, the browser requests
+// /app/callback?code=…: the access log records the path, never the query, so
+// the one-time code (and anything else in the query) stays out of the logs.
+func TestAppCallbackQueryNeverLogged(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	r := New(Deps{IOSAppIDs: []string{"CK383X39S5.dev.rivolt.app"}})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/app/callback?code=SECRET-CODE-123&state=SECRET-STATE", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("callback page: %d", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"path":"/app/callback"`) {
+		t.Fatalf("no access-log line for the callback: %s", out)
+	}
+	if strings.Contains(out, "SECRET-CODE-123") || strings.Contains(out, "SECRET-STATE") {
+		t.Fatalf("the callback's query reached the logs: %s", out)
 	}
 }
