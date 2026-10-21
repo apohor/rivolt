@@ -915,18 +915,22 @@ func Classify(c Charge, cfg Config) Classification {
 
 // estimateMonthOf / estimateURLOf are the report behind an observed_estimate
 // price, "" for any other source (a receipt that replaced it clears them).
+// A value the store would not have accepted (a row written around it) is
+// dropped here too, so the app never shows an invalid month or a foreign link.
 func estimateMonthOf(c Charge, source string) string {
 	if source != SourceObservedEstimate {
 		return ""
 	}
-	return c.EstimateMonth
+	m, _ := charges.CleanEstimate(c.EstimateMonth, "")
+	return m
 }
 
 func estimateURLOf(c Charge, source string) string {
 	if source != SourceObservedEstimate {
 		return ""
 	}
-	return c.EstimateURL
+	_, u := charges.CleanEstimate("", c.EstimateURL)
+	return u
 }
 
 // rateSlugOf is the slug of the nearest network the detection saw for an
@@ -1362,7 +1366,7 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			RateSlug:          rateSlugOf(c, v.needsRate),
 		})
 		if v.source == SourceObservedEstimate && r.EstimateMonth == "" {
-			r.EstimateMonth, r.EstimateURL = c.EstimateMonth, c.EstimateURL
+			r.EstimateMonth, r.EstimateURL = estimateMonthOf(c, v.source), estimateURLOf(c, v.source)
 		}
 		if v.needsRate && !r.NeedsRate {
 			r.NeedsRate, r.RateSlug = true, rateSlugOf(c, true)

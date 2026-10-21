@@ -104,3 +104,20 @@ func TestNeedsRateCarriesTheDetectedNetwork(t *testing.T) {
 		t.Errorf("no detection: %+v", cl)
 	}
 }
+
+// A month or link the store would never have written (a row inserted around
+// it) is not shown.
+func TestEstimateFieldsAreCleanedOnRead(t *testing.T) {
+	c := priced(at(charge("bad", "2026-10-21T14:00:00Z", 40*60e9, 50, 150), awayLat, awayLon), 0.636)
+	c.CostSource = SourceObservedEstimate
+	for _, month := range []string{"2026-13", "2026-00", "soon"} {
+		c.EstimateMonth, c.EstimateURL = month, "javascript:alert(1)"
+		if cl := Classify(c, cfg()); cl.EstimateMonth != "" || cl.EstimateURL != "" || cl.CostSource != SourceObservedEstimate {
+			t.Errorf("month %q: %+v, want no month or link but still the estimate", month, cl)
+		}
+	}
+	c.EstimateMonth, c.EstimateURL = "2026-10", "https://dcfctracker.com/reports/evgo"
+	if cl := Classify(c, cfg()); cl.EstimateMonth != "2026-10" || cl.EstimateURL == "" {
+		t.Errorf("valid values dropped: %+v", cl)
+	}
+}
