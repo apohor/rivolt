@@ -137,8 +137,6 @@ struct DriveBrief: Decodable, Equatable {
     let distanceMi: Double
     let avgSpeedMph: Double
     let energyUsedKwh: Double
-    let drivingSeconds: Double?
-    let roundTripLegs: Int?
     let estimatedCost: Double?
     let estimatedCurrency: String?
 
@@ -147,6 +145,6 @@ struct DriveBrief: Decodable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id = "ID", startedAt = "StartedAt", endedAt = "EndedAt", distanceMi = "DistanceMi", avgSpeedMph = "AvgSpeedMph"
-        case energyUsedKwh = "EnergyUsedKWh", drivingSeconds = "DrivingSeconds", roundTripLegs, estimatedCost, estimatedCurrency
+        case energyUsedKwh = "EnergyUsedKWh", estimatedCost, estimatedCurrency
     }
 }

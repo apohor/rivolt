@@ -28,9 +28,8 @@ final class NowDetailTests: XCTestCase {
         let charges = try decode([ChargeBrief].self, #"[{"ID":"c1","StartedAt":"2026-10-21T12:40:00Z","EndedAt":"2026-10-21T13:40:00.123456789Z","EnergyAddedKWh":20.5,"Lat":30.1,"Lon":-97.7,"Cost":4.1,"Currency":"USD","kind":"ac","place":"home","estimated_cost":4.1}]"#)
         XCTAssertEqual(charges[0].placeLabel, "Home")
         XCTAssertEqual(charges[0].energyAddedKwh, 20.5)
-        let drives = try decode([DriveBrief].self, #"[{"ID":"d1","StartedAt":"2026-10-21T10:00:00Z","EndedAt":"2026-10-21T10:30:00Z","DistanceMi":12,"AvgSpeedMph":40,"EnergyUsedKWh":4,"StartLat":30.1,"RoutePolyline":"abc","round_trip_legs":2}]"#)
+        let drives = try decode([DriveBrief].self, #"[{"ID":"d1","StartedAt":"2026-10-21T10:00:00Z","EndedAt":"2026-10-21T10:30:00Z","DistanceMi":12,"AvgSpeedMph":40,"EnergyUsedKWh":4,"StartLat":30.1,"RoutePolyline":"abc"}]"#)
         XCTAssertEqual(drives[0].miPerKwh, 3)
-        XCTAssertEqual(drives[0].roundTripLegs, 2)
     }
 
     func testPlaceLabelFollowsTheWebsRules() throws {
@@ -79,11 +78,10 @@ final class NowDetailTests: XCTestCase {
         XCTAssertEqual(now.kind, .now)
         XCTAssertEqual(now.distanceMi, 7.5)
         let parked = NowSummary(input: .init(socPct: 70, rangeKm: 250, chargeTargetPct: nil, gear: "P", powerState: "ready", chargerState: nil, chargerPowerKw: nil, at: Date()), now: nil, clock: Date())
-        let lastRow = try decode([DriveBrief].self, #"[{"ID":"d1","StartedAt":"2026-10-21T10:00:00Z","EndedAt":"2026-10-21T10:30:00Z","DistanceMi":12,"AvgSpeedMph":40,"EnergyUsedKWh":4,"round_trip_legs":1}]"#)[0]
+        let lastRow = try decode([DriveBrief].self, #"[{"ID":"d1","StartedAt":"2026-10-21T10:00:00Z","EndedAt":"2026-10-21T10:30:00Z","DistanceMi":12,"AvgSpeedMph":40,"EnergyUsedKWh":4}]"#)[0]
         let last = try XCTUnwrap(DriveDetail.make(summary: parked, live: live, last: lastRow))
         if case .last = last.kind {} else { XCTFail("expected the last drive") }
         XCTAssertEqual(last.elapsed, 1800)
-        XCTAssertNil(last.roundTripLegs, "a single leg is not a round trip")
         XCTAssertNil(DriveDetail.make(summary: parked, live: nil, last: nil))
     }
 

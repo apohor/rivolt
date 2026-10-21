@@ -83,7 +83,6 @@ struct DriveDetail: Equatable {
     let miPerKwh: Double?
     let estimatedCost: Double?
     let currency: String?
-    let roundTripLegs: Int?
 
     /// While in gear, the live drive; otherwise the newest recorded one. Nil when there is nothing to say.
     static func make(summary: NowSummary, live: LiveDrive?, last: DriveBrief?) -> DriveDetail? {
@@ -92,20 +91,19 @@ struct DriveDetail: Equatable {
                 kind: .now, distanceMi: d.distanceMi, elapsed: d.elapsedSec > 0 ? d.elapsedSec : nil,
                 avgSpeedMph: d.avgSpeedMph > 0 ? d.avgSpeedMph : nil, maxSpeedMph: d.maxSpeedMph > 0 ? d.maxSpeedMph : nil,
                 energyKwh: d.energyUsedKwh > 0 ? d.energyUsedKwh : nil, miPerKwh: d.miPerKwh > 0 ? d.miPerKwh : nil,
-                estimatedCost: nil, currency: nil, roundTripLegs: nil)
+                estimatedCost: nil, currency: nil)
         }
         guard let l = last, l.distanceMi > 0 else { return nil }
         let ended = l.endedAt.flatMap { $0.timeIntervalSince1970 > 946_684_800 ? $0 : nil }
         return DriveDetail(
             kind: .last(endedAt: ended), distanceMi: l.distanceMi,
-            elapsed: l.drivingSeconds ?? {
+            elapsed: {
                 guard let s = l.startedAt, let e = ended else { return nil }
                 return e.timeIntervalSince(s)
             }(),
             avgSpeedMph: l.avgSpeedMph > 0 ? l.avgSpeedMph : nil, maxSpeedMph: nil,
             energyKwh: l.energyUsedKwh > 0 ? l.energyUsedKwh : nil, miPerKwh: l.miPerKwh,
-            estimatedCost: l.estimatedCost.flatMap { $0 > 0 ? $0 : nil }, currency: l.estimatedCurrency,
-            roundTripLegs: (l.roundTripLegs ?? 0) > 1 ? l.roundTripLegs : nil)
+            estimatedCost: l.estimatedCost.flatMap { $0 > 0 ? $0 : nil }, currency: l.estimatedCurrency)
     }
 }
 
