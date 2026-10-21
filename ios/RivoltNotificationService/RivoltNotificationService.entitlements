@@ -4,7 +4,7 @@
 <dict>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)me.apoh.rivolt.shared</string>
+		<string>$(AppIdentifierPrefix)dev.rivolt.app.shared</string>
 	</array>
 </dict>
 </plist>

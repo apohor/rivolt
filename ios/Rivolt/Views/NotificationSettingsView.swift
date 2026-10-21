@@ -77,8 +77,12 @@ struct NotificationSettingsView: View {
                 Button("Turn on notifications") { Task { await manager.turnOn() } }
             }
         case (.authorized, .registered):
-            Label("On for this iPhone", systemImage: "bell.badge")
-                .foregroundStyle(.green)
+            // The icon is green; the words stay the primary colour (green text on white is too faint).
+            Label {
+                Text("On for this iPhone")
+            } icon: {
+                Image(systemName: "bell.badge").foregroundStyle(.green)
+            }
         case (.authorized, .failed(let message)):
             VStack(alignment: .leading, spacing: 8) {
                 Label(message, systemImage: "exclamationmark.triangle")
