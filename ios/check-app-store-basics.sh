@@ -24,7 +24,8 @@ fail=0
 for ext in "$app"/PlugIns/*.appex; do
   [ -d "$ext" ] || continue
   f=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$ext/Info.plist" 2>/dev/null | tr -d ' \n')
-  [ "$f" = "Array{1}" ] || { echo "FAIL: $(basename "$ext") UIDeviceFamily is not iPhone-only: $f"; fail=1; }
+  if [ "$f" = "Array{1}" ]; then echo "$(basename "$ext"): iPhone only"
+  else echo "FAIL: $(basename "$ext") UIDeviceFamily is not iPhone-only: $f"; fail=1; fi
 done
 ls "$app"/AppIcon60x60@2x.png >/dev/null 2>&1 || { echo "FAIL: no compiled 120x120 icon (AppIcon60x60@2x.png)"; fail=1; }
 
