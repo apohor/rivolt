@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { decodePolyline6 } from "./TripRouteMap";
+import { campPopupHTML, decodePolyline6 } from "./TripRouteMap";
+import { campgroundOfPoi } from "../plan/stays";
+import type { POI } from "../lib/poi";
 
 // Encode (precision 6) the way Valhalla/the backend does, so the test pins
 // the decoder to the stored-geometry format the demo presets use.
@@ -43,5 +45,25 @@ describe("decodePolyline6", () => {
   it("returns an empty list for nothing", () => {
     expect(decodePolyline6("")).toEqual([]);
     expect(decodePolyline6(null)).toEqual([]);
+  });
+});
+
+describe("campground popup", () => {
+  const poi = (over: Partial<POI>): POI => ({ lat: 37.6, lon: -118.9, kind: "charging_station", distanceM: 0, source: "chargers", facilityType: "CAMPGROUND", hookupAmps: 50, electricSites: 12, sites: 88, ridbID: "ridb/232447", ...over });
+  it("escapes the name, warns, credits, and links only to the campground page", () => {
+    const p = poi({ name: '<img src=x onerror=alert(1)>' });
+    const c = campgroundOfPoi(p)!;
+    const html = campPopupHTML(p, c, true);
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("Reservation required. Listed, not guaranteed. Some parks don");
+    expect(html).toContain('href="https://www.recreation.gov/camping/campgrounds/232447"');
+    expect(html).toContain("CC BY 4.0");
+    expect(html).toContain("charger-overnight-btn");
+  });
+  it("a bad id draws no link, 20 A is not a campground we offer", () => {
+    expect(campPopupHTML(poi({ ridbID: "ridb/x\"y" }), campgroundOfPoi(poi({ ridbID: "ridb/x\"y" }))!, false)).not.toContain("on Recreation.gov");
+    expect(campgroundOfPoi(poi({ hookupAmps: 20 }))).toBeNull();
+    expect(campgroundOfPoi(poi({ facilityType: "HOTEL" }))).toBeNull();
   });
 });

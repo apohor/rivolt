@@ -13,6 +13,7 @@ export const stopKey = (s: { lat: number; lon: number }) => `${s.lat.toFixed(4)}
 export type OvernightOptions = {
   l2Kw: number; // 0: no charger
   hookup?: HookupId; // what the stop has; absent on a save from before hookups (read from the kW)
+  campground?: boolean; // the stop is a campground (Recreation.gov): its row says so and carries the data credit
   until: string; // "HH:MM", local time the truck is wanted the next morning
   maxSocPct: number;
 };

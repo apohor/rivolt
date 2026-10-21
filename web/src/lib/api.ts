@@ -1734,7 +1734,7 @@ export const backend = {
     api.post<TripPlanMultidayResponse>("/api/trips/plan-multiday", req),
   chargersAlongPath: (req: {
     path: [number, number][];
-    filter?: "dcfc" | "l2" | "hotels" | "all";
+    filter?: "dcfc" | "l2" | "hotels" | "camp" | "all";
     corridor_km?: number;
     min_power_kw?: number;
   }) =>
@@ -1755,6 +1755,14 @@ export const backend = {
         socketTeslaSupercharger?: boolean;
         socketType1Combo?: boolean;
         socketChademo?: boolean;
+        // Recreation.gov (RIDB) campgrounds only.
+        hookupAmps?: number;
+        electricSites?: number;
+        sites?: number;
+        reservable?: boolean;
+        ridbID?: string;
+        asof?: string;
+        source?: string;
       }[];
       count: number;
     }>("/api/maps/chargers-along", req),
@@ -2526,6 +2534,8 @@ export type OvernightCandidatesRequest = {
   drive_sec?: number;
   budget_hours?: number;
   budget_miles?: number;
+  // Stays to suggest. Omitted: hotels only.
+  kinds?: ("hotel" | "campground")[];
 };
 
 export type OvernightCandidate = {
@@ -2537,12 +2547,29 @@ export type OvernightCandidate = {
   l2_kw: number;
   // True when the listing gave no power and 7 kW is assumed.
   l2_kw_assumed: boolean;
+  // Set when the truck cannot draw the whole l2_kw (a 19.2 kW station plans at the truck's 11.5).
+  planned_kw?: number;
   l2_count?: number;
   // The round trip off the route, in metres.
   detour_m: number;
   // How far along the day the stop is, in metres.
   along_m: number;
   dcfc_nearby?: { name: string; distance_m: number; max_power_kw: number } | null;
+  // Absent on a hotel from an older server.
+  kind?: "hotel" | "campground";
+  // Campgrounds only (Recreation.gov, RIDB).
+  connector?: "j1772" | "nema_14_50" | "nema_tt_30";
+  needs_adapter?: boolean;
+  electric_sites?: number;
+  sites?: number;
+  // null: not known.
+  reservation_required?: boolean | null;
+  fee?: string;
+  source?: string;
+  source_url?: string;
+  asof?: string;
+  // The labelled demo/sample campground.
+  sample?: boolean;
 };
 
 export type OvernightCandidatesResponse = {
@@ -2550,6 +2577,7 @@ export type OvernightCandidatesResponse = {
   target: { lat: number; lon: number; along_m: number; reaches_end: boolean };
   route_m: number;
   source: string;
+  attribution?: string;
 };
 
 export type TripPlanWaypointEcho = { latitude: number; longitude: number; label?: string; entity_id?: string };
@@ -2575,6 +2603,10 @@ export type TripPlanOvernightResult = {
   name?: string;
   parked_hours: number;
   l2_kw: number;
+  // Present only when the truck cannot draw the whole l2_kw; the plan used this.
+  planned_kw?: number;
+  hookup?: string;
+  l2_kw_assumed?: boolean;
   added_kwh: number;
   post_charge_soc_pct: number;
   capped: boolean;
@@ -2672,7 +2704,7 @@ export type SavedTripInputs = {
   // Charger at the overnight stops, in kW (0: none). Older saves omit it (7 kW).
   overnight_l2_kw?: number;
   // Each overnight's own settings, matched to its stop by position.
-  overnight_settings?: { lat: number; lon: number; until: string; l2_kw: number; max_soc_pct: number; hookup?: string }[];
+  overnight_settings?: { lat: number; lon: number; until: string; l2_kw: number; max_soc_pct: number; hookup?: string; campground?: boolean }[];
 };
 
 // PlanVsActual is GET /api/trips/saved/{id}/actual

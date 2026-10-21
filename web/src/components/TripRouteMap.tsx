@@ -11,6 +11,8 @@ import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { valhallaBase, tilesPMTilesURL, ensureConfig, bookingAffiliateID } from "../lib/config";
 import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
+import type { HookupId } from "../plan/hookups";
+import { CAMP_WARNING, RIDB_CREDIT, campgroundOfPoi, campPowerLine, outletLabel, sitesLine } from "../plan/stays";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
 
 // TripRouteMap renders a planned trip on a Leaflet map: a road-
@@ -23,7 +25,7 @@ import type { PlannedWaypoint, TripRoute } from "../lib/api";
 // real-world trip (origin + a handful of stops + destination)
 // resolves in a single round trip. Shape is returned as polyline6.
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
-type AddOvernight = (stop: { lat: number; lon: number; label: string; l2Kw?: number }) => void;
+type AddOvernight = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean }) => void;
 
 // PreviewResult mirrors the shape returned by the trip planner
 // page's onPreviewStop callback. Kept local so this component
@@ -95,7 +97,9 @@ export function TripRouteMap({
   // selection (row click in the table) can pulse the right one.
   const wpMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
-  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "hotels" | "all">("dcfc");
+  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "hotels" | "camp" | "all">("dcfc");
+  // Whether the route has campgrounds with a hookup; the Campgrounds chip shows only then.
+  const [campCount, setCampCount] = useState(0);
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive):
@@ -328,7 +332,10 @@ export function TripRouteMap({
           poi.facilityType &&
           HOTEL_FACILITY_TYPES.has(poi.facilityType.toUpperCase())
         );
-        const variant: "dcfc" | "l2" | "hotel" = isHotel
+        const camp = campgroundOfPoi(poi);
+        const variant: "dcfc" | "l2" | "hotel" | "camp" = camp
+          ? "camp"
+          : isHotel
           ? "hotel"
           : poi.isDCFC !== false
             ? "dcfc"
@@ -343,13 +350,15 @@ export function TripRouteMap({
           weight: style.weight,
         })
           .bindPopup(
-            chargerPopupHTML(
-              poi,
-              !!onAddStopRef.current,
-              !!onPreviewStopRef.current,
-              isHotel ? bookingDeepLink(poi, departureAt) : "",
-              isHotel && !!onAddOvernightRef.current,
-            ),
+            camp
+              ? campPopupHTML(poi, camp, !!onAddOvernightRef.current)
+              : chargerPopupHTML(
+                  poi,
+                  !!onAddStopRef.current,
+                  !!onPreviewStopRef.current,
+                  isHotel ? bookingDeepLink(poi, departureAt) : "",
+                  isHotel && !!onAddOvernightRef.current,
+                ),
           );
         m.on("popupopen", (e) => {
           const el = e.popup.getElement() as HTMLElement | null;
@@ -369,7 +378,8 @@ export function TripRouteMap({
           // the multi-day endpoint.
           const overnightBtn = el.querySelector<HTMLButtonElement>(".charger-overnight-btn");
           overnightBtn?.addEventListener("click", () => {
-            onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label, l2Kw: hotelKw(poi) });
+            if (camp) onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label: `${label} (campground)`, l2Kw: camp.kw, hookup: camp.hookup, campground: true });
+            else onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label, l2Kw: hotelKw(poi) });
             map.closePopup();
           });
           // Preview path. Click fires the hypothetical replan, then
@@ -411,10 +421,27 @@ export function TripRouteMap({
     };
   }, [routePath, chargerFilter, departureAt]);
 
+  // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
+  useEffect(() => {
+    if (routePath.length < 2) return;
+    let live = true;
+    void findChargersAlongPath(routePath, "camp")
+      .then((found) => {
+        if (live) setCampCount((found ?? []).filter((p) => campgroundOfPoi(p)).length);
+      })
+      .catch(() => {
+        if (live) setCampCount(0);
+      });
+    return () => {
+      live = false;
+    };
+  }, [routePath]);
+
   const filterLabels: Record<typeof chargerFilter, string> = {
     dcfc: "DCFC",
     l2: "L2",
     hotels: "Hotels with Level 2",
+    camp: "Campgrounds",
     all: "All",
   };
 
@@ -423,7 +450,7 @@ export function TripRouteMap({
       {!noChargerSource && (
         <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
-          {(["dcfc", "l2", "hotels", "all"] as const).map((f) => (
+          {(["dcfc", "l2", "hotels", "camp", "all"] as const).filter((f) => f !== "camp" || campCount > 0 || chargerFilter === "camp").map((f) => (
             <button
               key={f}
               onClick={() => setChargerFilter(f)}
@@ -449,7 +476,13 @@ export function TripRouteMap({
             <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
               <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;
               <span style={{ color: "#a3e635" }}>●</span> L2 &nbsp;
-              <span style={{ color: "#a78bfa" }}>●</span> Hotel L2
+              <span style={{ color: "#a78bfa" }}>●</span> Hotel L2 &nbsp;
+              {campCount > 0 && (<><span style={{ color: "#22c55e" }}>●</span> Campground, electric hookup</>)}
+            </span>
+          )}
+          {chargerFilter === "camp" && (
+            <span className="text-xs text-neutral-600 ml-1">
+              <span style={{ color: "#22c55e" }}>●</span> Campground, electric hookup
             </span>
           )}
           {chargerFilter === "hotels" && (
@@ -535,10 +568,11 @@ function selectedDotIcon(color: string, size: number): L.DivIcon {
 //   - l2:    lime,   plain Level-2 stop
 //   - hotel: violet, L2 at an overnight venue (HOTEL/MOTEL/INN/
 //           B_AND_B/RESORT per NREL facility_type)
-const CHARGER_DOT_COLORS: Record<"dcfc" | "l2" | "hotel", string> = {
+const CHARGER_DOT_COLORS: Record<"dcfc" | "l2" | "hotel" | "camp", string> = {
   dcfc: "#06b6d4",
   l2: "#a3e635",
   hotel: "#a78bfa",
+  camp: "#22c55e",
 };
 
 // Canvas-rendered styling for charger circleMarkers. Used instead
@@ -547,9 +581,9 @@ const CHARGER_DOT_COLORS: Record<"dcfc" | "l2" | "hotel", string> = {
 // renderer). The shape mirrors the old chargerDotIcon: hotels are
 // slightly larger with a white outline; other variants get a thin
 // dark outline.
-function chargerCircleStyle(variant: "dcfc" | "l2" | "hotel") {
+function chargerCircleStyle(variant: "dcfc" | "l2" | "hotel" | "camp") {
   const fill = CHARGER_DOT_COLORS[variant];
-  if (variant === "hotel") {
+  if (variant === "hotel" || variant === "camp") {
     return { radius: 5, fill, stroke: "#fafafa", weight: 2 };
   }
   return { radius: 4, fill, stroke: "#0a0a0a", weight: 1.5 };
@@ -602,6 +636,39 @@ function isoDate(d: Date): string {
 // A hotel listing without a power rating is taken as a 7 kW Level 2 charger.
 const HOTEL_L2_ASSUMED_KW = 7;
 const hotelKw = (poi: POI) => (poi.maxPowerKW && poi.maxPowerKW > 0 ? poi.maxPowerKW : HOTEL_L2_ASSUMED_KW);
+
+// campPopupHTML is the popup of a Recreation.gov campground pin. Everything from the data is escaped; the only link is the
+// campground's page (built from a numeric id) and the fixed credit.
+export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; url: string }, overnightable: boolean): string {
+  const name = poi.name || "Campground";
+  const muted = "color:#a3a3a3";
+  const out: string[] = [
+    `<div class="charger-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px;max-width:240px">`,
+    `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)} <span style="font-weight:400;${muted}">(campground)</span></div>`,
+    `<div>${escapeHTML(outletLabel(camp.hookup))}</div>`,
+    `<div>${escapeHTML(campPowerLine(camp.hookup, camp.kw))}</div>`,
+  ];
+  const sites = sitesLine(poi.electricSites, poi.sites);
+  if (sites) out.push(`<div style="${muted}">${escapeHTML(sites)}</div>`);
+  out.push(`<div style="color:#fbbf24;margin-top:3px">${escapeHTML(CAMP_WARNING)}</div>`);
+  if (camp.url) {
+    out.push(`<a href="${camp.url}" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:4px;color:#34d399">on Recreation.gov</a>`);
+  }
+  out.push(
+    `<div style="${muted};font-size:10px;margin-top:4px">${RIDB_CREDIT.lead}` +
+      `<a href="${RIDB_CREDIT.source.href}" target="_blank" rel="noopener noreferrer" style="color:#a3a3a3">${escapeHTML(RIDB_CREDIT.source.label)}</a>, ` +
+      `<a href="${RIDB_CREDIT.licence.href}" target="_blank" rel="noopener noreferrer" style="color:#a3a3a3">${escapeHTML(RIDB_CREDIT.licence.label)}</a>${RIDB_CREDIT.tail}</div>`,
+  );
+  if (overnightable) {
+    out.push(
+      `<button class="charger-overnight-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
+        `background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
+        `Use as overnight stop</button>`,
+    );
+  }
+  out.push(`</div>`);
+  return out.join("");
+}
 
 export function chargerPopupHTML(
   poi: POI,

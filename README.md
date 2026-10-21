@@ -174,6 +174,14 @@ while you sleep.
   time, legs, charging stops and arrival charge. If a day can't be
   routed, the days before it are kept and the error says which day to
   fix.
+- **Campgrounds.** On a long day, campgrounds with an electric hookup
+  are suggested next to hotels (a "Campgrounds" chip and green pins on
+  the map when the route has any). The outlet decides the planned power:
+  a 50 A site is planned at 7.2 kW (estimate) with Rivian's Portable
+  Charger, a 30 A site needs an adapter that isn't included with the
+  truck and plans slow. Reservation is the campground's: listed, not
+  guaranteed, and some parks don't allow EV charging, so ask first.
+  Campground data: Recreation.gov (RIDB), CC BY 4.0; filtered by Rivolt.
 - **Limits.** Up to 10 points per day (start, vias, end) and 10 days
   per trip.
 
