@@ -11,6 +11,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/vehiclelease"
 )
 
 // The iOS app decodes these server responses from fixtures in
@@ -33,6 +34,13 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 			Drives  []drives.ChartDrive   `json:"drives"`
 			Charges []charges.ChartCharge `json:"charges"`
 		}{},
+		// Slice C: milestones and the "Three things" card (lease set? statement
+		// email offered and on?).
+		"milestones.json": &struct {
+			Milestones []milestoneCard `json:"milestones"`
+		}{},
+		"lease_terms.json":     &vehiclelease.Terms{},
+		"statement_email.json": &statementSettings{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
