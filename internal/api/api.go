@@ -655,6 +655,19 @@ func New(d Deps) http.Handler {
 				r.Post("/off", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushOff(d.Push.For(uid))(w, r)
 				}))
+				// The iPhone app (bearer only; see push_apns.go).
+				r.Post("/apns/register", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsRegister(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Post("/apns/preferences", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Post("/apns/unregister", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleAPNsUnregister(d.PushService, d.Push.For(uid))(w, r)
+				}))
+				r.Get("/notifications/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushNotification(d.Push.For(uid))(w, r)
+				}))
 			})
 
 			// Rivian live endpoints. /api/vehicles returns [] when no real

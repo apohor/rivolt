@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/vehiclelease"
 )
@@ -104,6 +105,8 @@ type exportData struct {
 	Recaps     []driveRecapRow
 	Analyses   []driveAnalysisRow
 	Milestones []milestoneRow
+	// The iPhone app installs registered for push, without their Apple tokens.
+	IPhoneDevices []push.APNsExportRow
 	// Stored weather per drive (a coarse start location and the hour), whole rows.
 	Weather       []json.RawMessage
 	WeatherSeries []json.RawMessage
@@ -290,6 +293,8 @@ saved_trips.json  your saved trips (name, inputs, plan, advice)
 drive_recaps.json     the recap text generated for each drive
 drive_analyses.json   the efficiency analysis generated for each drive
 milestones.json       your milestones, per vehicle
+iphone_devices.json   the iPhone app installs signed in to your account for notifications
+                      (when it registered, its notification switches; never the device token)
 drive_weather.json    the weather stored for each drive (a coarse start location, about 11 km,
                       and the hour)
 drive_weather_series.json  the same weather over the drive, step by step
@@ -362,6 +367,7 @@ func writeExportZip(w io.Writer, e exportData) error {
 		{"drive_recaps.json", jsonFile(nonNil(e.Recaps))},
 		{"drive_analyses.json", jsonFile(nonNil(e.Analyses))},
 		{"milestones.json", jsonFile(nonNil(e.Milestones))},
+		{"iphone_devices.json", jsonFile(nonNil(e.IPhoneDevices))},
 		{"drive_weather.json", jsonFile(nonNil(e.Weather))},
 		{"drive_weather_series.json", jsonFile(nonNil(e.WeatherSeries))},
 		{"settings.json", jsonFile(e.Settings)},
@@ -401,6 +407,7 @@ func writeExportJSON(w io.Writer, e exportData) error {
 		"drive_recaps":         nonNil(e.Recaps),
 		"drive_analyses":       nonNil(e.Analyses),
 		"milestones":           nonNil(e.Milestones),
+		"iphone_devices":       nonNil(e.IPhoneDevices),
 		"drive_weather":        nonNil(e.Weather),
 		"drive_weather_series": nonNil(e.WeatherSeries),
 		"settings":             e.Settings,
@@ -482,6 +489,13 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 		}
 	}
 
+	if d.Push != nil {
+		if ps := d.Push.For(uid); ps != nil {
+			if e.IPhoneDevices, err = ps.ExportAPNsDevices(ctx); err != nil {
+				return e, fmt.Errorf("iphone devices: %w", err)
+			}
+		}
+	}
 	e.Terms, _ = db.TermsFor(ctx, d.DB, uid)
 	e.Onboarding, _ = db.OnboardingEmailsFor(ctx, d.DB, uid)
 	e.Profiles = []exportProfile{}
