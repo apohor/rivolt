@@ -179,3 +179,110 @@ func TestAPNsEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestAPNsLiveActivityEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, _ := x509.MarshalPKCS8PrivateKey(k)
+	a, err := push.NewAPNs(push.APNsConfig{KeyID: "KEY123ABCD", TeamID: "TEAM123456", Topic: "dev.rivolt.app",
+		KeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	on := (&push.Service{}).WithAPNs(a)
+	mk := func(name string) (uuid.UUID, *push.Store, uuid.UUID, uuid.UUID) {
+		uid, err := db.EnsureUserVerified(ctx, pool, name, name+"@x.test", name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, _ := push.OpenStore(pool, uid)
+		sid := uuid.New()
+		if _, err := pool.ExecContext(ctx,
+			`INSERT INTO sessions (id, user_id, token_hash, kind, expires_at) VALUES ($1, $2, $3, 'app', now() + interval '1 day')`,
+			sid, uid, []byte(sid.String())); err != nil {
+			t.Fatal(err)
+		}
+		var vid uuid.UUID
+		if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2) RETURNING id`, uid, name+"-v").Scan(&vid); err != nil {
+			t.Fatal(err)
+		}
+		return uid, st, sid, vid
+	}
+	alice, as, asid, avid := mk("live-api-alice")
+	bob, bs, bsid, bvid := mk("live-api-bob")
+	const (
+		dev  = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		actT = "0123456789abcdef0123456789abcdef0123456789abcdef"
+	)
+	call := func(h http.HandlerFunc, uid, sid uuid.UUID, bearer bool, body string) (int, map[string]any) {
+		c := auth.WithUser(ctx, uid)
+		if bearer {
+			c = logging.WithAuthMethod(c, logging.AuthBearer)
+			c = auth.WithSession(c, auth.SessionRef{ID: sid, Kind: "app"})
+		}
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest("POST", "/x", bytes.NewBufferString(body)).WithContext(c))
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	reqA := `{"token":"` + dev + `","activity_token":"` + actT + `","vehicle_id":"` + avid.String() + `"}`
+
+	if code, _ := call(handleAPNsRegister(on, as), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`); code != 200 {
+		t.Fatalf("register device = %d", code)
+	}
+	// Register returns the switch, off.
+	_, out := call(handleAPNsRegister(on, as), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`)
+	if p, _ := out["preferences"].(map[string]any); p["on_charging_live"] != false {
+		t.Errorf("register preferences = %v, want on_charging_live false", out["preferences"])
+	}
+	if code, _ := call(handleAPNsActivity(on, as), alice, asid, false, reqA); code != 403 {
+		t.Errorf("cookie = %d, want 403", code)
+	}
+	if code, _ := call(handleAPNsActivity(on, as), alice, asid, true, reqA); code != 409 {
+		t.Errorf("switch off = %d, want 409", code)
+	}
+	if code, _ := call(handleAPNsPreferences(on, as), alice, asid, true, `{"token":"`+dev+`","on_charging_live":true}`); code != 200 {
+		t.Fatalf("turn on = %d", code)
+	}
+	if code, _ := call(handleAPNsActivity(on, as), alice, asid, true, reqA); code != 200 {
+		t.Errorf("register = %d, want 200", code)
+	}
+	if n, _ := as.ActivityCount(ctx); n != 1 {
+		t.Errorf("rows = %d", n)
+	}
+	for name, body := range map[string]string{
+		"bad activity token": `{"token":"` + dev + `","activity_token":"zz","vehicle_id":"` + avid.String() + `"}`,
+		"bad vehicle id":     `{"token":"` + dev + `","activity_token":"` + actT + `","vehicle_id":"nope"}`,
+	} {
+		if code, _ := call(handleAPNsActivity(on, as), alice, asid, true, body); code != 400 {
+			t.Errorf("%s = %d, want 400", name, code)
+		}
+	}
+	if code, _ := call(handleAPNsActivity(on, as), alice, asid, true,
+		`{"token":"`+dev+`","activity_token":"`+actT+`","vehicle_id":"`+bvid.String()+`"}`); code != 404 {
+		t.Errorf("another user's vehicle = %d, want 404", code)
+	}
+	// Bob can't end Alice's activity; Alice can; ending twice is fine.
+	_, _, _ = bob, bs, bsid
+	if code, _ := call(handleAPNsActivityEnd(on, bs), bob, bsid, true, `{"activity_token":"`+actT+`"}`); code != 200 {
+		t.Errorf("bob end = %d", code)
+	}
+	if n, _ := as.ActivityCount(ctx); n != 1 {
+		t.Error("bob's end removed alice's activity")
+	}
+	for i := 0; i < 2; i++ {
+		if code, _ := call(handleAPNsActivityEnd(on, as), alice, asid, true, `{"activity_token":"`+actT+`"}`); code != 200 {
+			t.Errorf("alice end = %d", code)
+		}
+	}
+	if n, _ := as.ActivityCount(ctx); n != 0 {
+		t.Errorf("rows after end = %d", n)
+	}
+}
