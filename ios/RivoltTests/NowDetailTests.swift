@@ -34,7 +34,7 @@ final class NowDetailTests: XCTestCase {
 
     func testPlaceLabelFollowsTheWebsRules() throws {
         func label(_ kind: String?, _ place: String?) throws -> String? {
-            let json = "[{\"ID\":\"c\",\"EnergyAddedKWh\":1" + (kind.map { ",\"kind\":\"\($0)\"" } ?? "") + (place.map { ",\"place\":\"\($0)\"" } ?? "") + "}]"
+            let json = "[{\"ID\":\"c\",\"EnergyAddedKWh\":1,\"Cost\":0" + (kind.map { ",\"kind\":\"\($0)\"" } ?? "") + (place.map { ",\"place\":\"\($0)\"" } ?? "") + "}]"
             return try decode([ChargeBrief].self, json)[0].placeLabel
         }
         XCTAssertEqual(try label("dcfc", "away"), "Fast")
