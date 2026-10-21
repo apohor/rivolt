@@ -47,6 +47,8 @@ private final class FakeServer: PushServer, @unchecked Sendable {
     func endActivity(activityToken: String) async throws {
         endedActivityTokens.append(activityToken)
     }
+
+    func testLiveActivity() async throws {}
 }
 
 @MainActor

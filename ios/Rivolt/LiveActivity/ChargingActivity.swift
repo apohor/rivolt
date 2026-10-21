@@ -25,6 +25,8 @@ struct ChargingActivityAttributes: ActivityAttributes {
 
     /// The charge limit (percent) when the activity started, if the truck reported one.
     var targetPct: Int?
+    /// A test from "Send test Live Activity" (fixed numbers): the card says so. Local only, like the rest of the attributes.
+    var isTest = false
 }
 
 enum ChargingActivityMath {

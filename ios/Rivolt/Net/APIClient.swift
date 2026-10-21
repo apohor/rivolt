@@ -126,6 +126,12 @@ actor APIClient {
         let _: Empty = try await request("POST", "/api/push/apns/activity", body: ActivityRegisterBody(token: deviceToken, activityToken: activityToken, vehicleId: vehicleID))
     }
 
+    /// Asks the server to send fixed test figures (50%, 7.2 kW, 60 min), then an end, to this person's running
+    /// Live Activities. 404: Live Activities are off on the server or nothing is registered; 409/429 as usual.
+    func testLiveActivity() async throws {
+        let _: Empty = try await request("POST", "/api/push/apns/activity/test")
+    }
+
     func endActivity(activityToken: String) async throws {
         let _: Empty = try await request("POST", "/api/push/apns/activity/end", body: ActivityEndBody(activityToken: activityToken))
     }
