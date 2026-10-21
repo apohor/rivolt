@@ -30,6 +30,15 @@ type Savings struct {
 	// CouldHaveSaved is AsChargedTotal - IfMovedTotal, never negative. Absent
 	// (with Needs set) when the estimate cannot be made yet.
 	CouldHaveSaved *float64 `json:"could_have_saved,omitempty"`
+	// OffpeakSharePct is the share, by energy, of the home charging that happened
+	// in off-peak hours (windows priced below the flat home rate), over the
+	// sessions whose plug-in lies wholly inside such hours or wholly outside them:
+	// when in a plug-in the charge ran is not known, so a session that straddles
+	// the edge is left out rather than guessed (OffpeakShareSessions counts the
+	// sessions that were used). Absent below MinSavingsSessions of them, or with no
+	// schedule or home rate.
+	OffpeakSharePct      *float64 `json:"offpeak_share_pct,omitempty"`
+	OffpeakShareSessions int      `json:"offpeak_share_sessions"`
 	// Needs says what is missing: "home_rate", "offpeak_schedule" or
 	// "more_home_sessions". When set, no figure is given.
 	Needs string `json:"needs,omitempty"`
@@ -86,9 +95,21 @@ const assumedHomeKW = 7.0
 // used. baseRate is the flat home rate that applies outside every window.
 func EstimateSavings(sessions []HomeSession, sch offpeak.Schedule, baseRate float64) Savings {
 	out := Savings{Reasons: map[string]int{}}
+	var inKWh, decidedKWh float64
 	for _, s := range sessions {
 		out.Considered++
 		out.AsChargedTotal += s.Cost
+		if baseRate > 0 && len(sch.Windows) > 0 {
+			switch offpeakPlacement(s, sch, baseRate) {
+			case placedInside:
+				out.OffpeakShareSessions++
+				inKWh += s.KWh
+				decidedKWh += s.KWh
+			case placedOutside:
+				out.OffpeakShareSessions++
+				decidedKWh += s.KWh
+			}
+		}
 		moved, reason := cheapestMove(s, sch, baseRate)
 		switch {
 		case reason != "":
@@ -118,7 +139,51 @@ func EstimateSavings(sessions []HomeSession, sch offpeak.Schedule, baseRate floa
 		s := math.Max(0, round2(out.AsChargedTotal-out.IfMovedTotal))
 		out.CouldHaveSaved = &s
 	}
+	if baseRate > 0 && len(sch.Windows) > 0 && out.OffpeakShareSessions >= MinSavingsSessions && decidedKWh > 0 {
+		p := math.Round(inKWh/decidedKWh*1000) / 10
+		out.OffpeakSharePct = &p
+	}
 	return out
+}
+
+type placement int
+
+const (
+	placedStraddles placement = iota // partly in off-peak hours: not known
+	placedInside                     // the whole plug-in is in off-peak hours
+	placedOutside                    // none of it is
+)
+
+// offpeakPlacement says whether a session's whole plug-in lies in off-peak hours
+// (occurrences of windows priced below baseRate), none of it does, or it
+// straddles an edge.
+func offpeakPlacement(s HomeSession, sch offpeak.Schedule, baseRate float64) placement {
+	if !s.End.After(s.Start) || s.KWh <= 0 {
+		return placedStraddles
+	}
+	var cheap []offpeak.Instance
+	for _, w := range sch.Instances(s.Start, s.End) {
+		if w.Rate < baseRate {
+			cheap = append(cheap, w)
+		}
+	}
+	if len(cheap) == 0 {
+		return placedOutside
+	}
+	sort.Slice(cheap, func(i, j int) bool { return cheap[i].Start.Before(cheap[j].Start) })
+	cursor := s.Start
+	for _, w := range cheap {
+		if w.Start.After(cursor) {
+			return placedStraddles // a gap before this window
+		}
+		if w.End.After(cursor) {
+			cursor = w.End
+		}
+	}
+	if !cursor.Before(s.End) {
+		return placedInside
+	}
+	return placedStraddles
 }
 
 // cheapestMove is what the session's energy would cost at the cheapest single
