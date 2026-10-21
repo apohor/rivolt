@@ -177,33 +177,42 @@ func TestActivityThroughTheRouter(t *testing.T) {
 	}
 }
 
-// charge-split and activity share one per-user ceiling (each call reads and clusters
-// the user's last 5000 charges): past it the answer is 429, for that user only, and
-// counted across the two routes.
+// activity, charge-split and chart-points share one per-user ceiling (each reads the
+// user's rows, two of them cluster the last 5000 charges): past it the answer is 429
+// with a Retry-After, for that user only, and counted across the three routes.
 func TestAggregateEndpointsAreRateLimitedPerUser(t *testing.T) {
 	r := New(Deps{})
-	call := func(uid uuid.UUID, path string) int {
+	call := func(uid uuid.UUID, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev"+path, nil)
 		req = req.WithContext(auth.WithUser(req.Context(), uid))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
-		return w.Code
+		return w
 	}
 	a, b := uuid.New(), uuid.New()
+	paths := []string{"/api/charge-split", "/api/activity", "/api/chart-points"}
 	limited := 0
-	for i := 0; i < 40; i++ {
-		path := "/api/charge-split"
-		if i%2 == 1 {
-			path = "/api/activity"
-		}
-		if call(a, path) == http.StatusTooManyRequests {
+	for i := 0; i < 45; i++ {
+		w := call(a, paths[i%3])
+		if w.Code == http.StatusTooManyRequests {
 			limited++
+			if ra := w.Header().Get("Retry-After"); ra == "" || ra == "0" {
+				t.Fatalf("429 without a usable Retry-After: %q", ra)
+			}
 		}
 	}
 	if limited == 0 {
-		t.Error("40 calls across charge-split and activity were never limited")
+		t.Error("45 calls across the three routes were never limited")
 	}
-	if code := call(b, "/api/activity"); code != http.StatusOK {
-		t.Errorf("another user's first call: %d, want 200", code)
+	// The bucket is shared: the route that was never the one to run dry is limited too.
+	for _, p := range paths {
+		if w := call(a, p); w.Code != http.StatusTooManyRequests {
+			t.Errorf("%s after the shared ceiling: %d, want 429", p, w.Code)
+		}
+	}
+	for _, p := range paths {
+		if w := call(b, p); w.Code != http.StatusOK {
+			t.Errorf("another user's %s: %d, want 200", p, w.Code)
+		}
 	}
 }
