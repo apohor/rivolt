@@ -150,3 +150,61 @@ func PurgeActivities(ctx context.Context, db *sql.DB) (int64, error) {
 	}
 	return res.RowsAffected()
 }
+
+// Activity is a registered running Live Activity, with what a send needs.
+type Activity struct {
+	ID       uuid.UUID
+	Token    string
+	Env      string
+	BundleID string
+}
+
+// ListLiveActivities returns the user's running activities on one vehicle whose
+// device has the Live Activity switch on and a live (not revoked, not expired) app
+// session, and which are not older than ActivityTTL.
+func (s *Store) ListLiveActivities(ctx context.Context, vehicleID uuid.UUID) ([]Activity, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id, a.token, d.env, d.bundle_id
+		  FROM push_apns_activities a
+		  JOIN push_apns_devices d ON d.id = a.device_id
+		  JOIN sessions se ON se.id = d.session_id
+		 WHERE a.user_id = $1 AND a.vehicle_id = $2
+		   AND d.on_charging_live
+		   AND se.revoked_at IS NULL AND se.expires_at > now()
+		   AND a.started_at > now() - make_interval(secs => $3)
+		 ORDER BY a.started_at`, s.userID, vehicleID, ActivityTTL.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Activity
+	for rows.Next() {
+		var a Activity
+		if err := rows.Scan(&a.ID, &a.Token, &a.Env, &a.BundleID); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// claimActivityUpdate reserves a routine update for one activity: true when none
+// was sent in the last minInterval (and records this one), false otherwise.
+// Atomic, so two senders cannot both send inside the interval.
+func (s *Store) claimActivityUpdate(ctx context.Context, id uuid.UUID, minInterval time.Duration) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE push_apns_activities SET last_sent_at = now()
+		 WHERE user_id = $1 AND id = $2
+		   AND (last_sent_at IS NULL OR last_sent_at <= now() - make_interval(secs => $3))`,
+		s.userID, id, minInterval.Seconds())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (s *Store) deleteActivityByID(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM push_apns_activities WHERE user_id = $1 AND id = $2`, s.userID, id)
+	return err
+}

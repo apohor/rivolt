@@ -170,6 +170,16 @@ func TestAPNsEndpoints(t *testing.T) {
 		t.Errorf("bad id = %d, want 404", code)
 	}
 
+	// /api/app/config reports the Live Activity capability only when the flag is on.
+	liveOn := (&push.Service{}).WithAPNs(a).WithLive(true)
+	for svc, want := range map[*push.Service]bool{liveOn: true, on: false, off: false} {
+		rec := httptest.NewRecorder()
+		handleAppConfig(Deps{PushService: svc})(rec, httptest.NewRequest("GET", "/api/app/config", nil))
+		if !strings.Contains(rec.Body.String(), `"live":`+map[bool]string{true: "true", false: "false"}[want]) {
+			t.Errorf("app config = %s, want live=%v", rec.Body.String(), want)
+		}
+	}
+
 	// /api/app/config reports the capability.
 	for svc, want := range map[*push.Service]bool{on: true, off: false} {
 		rec := httptest.NewRecorder()

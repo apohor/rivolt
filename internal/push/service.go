@@ -58,6 +58,7 @@ type Service struct {
 	sender Sender
 	// apns, when set, also delivers to the user's iPhone app installs (nil: off).
 	apns *APNs
+	live bool // Live Activity updates (RIVOLT_APNS_LIVE); needs apns
 
 	// ttlSeconds is the push server's "keep-alive" budget for a
 	// notification. 24h is the common default — long enough to survive a

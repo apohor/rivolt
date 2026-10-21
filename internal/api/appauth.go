@@ -60,6 +60,9 @@ type appConfigResponse struct {
 
 type appConfigPush struct {
 	APNs bool `json:"apns"`
+	// Live is whether the server sends charging Live Activity updates; the app
+	// shows its switch only when it is true.
+	Live bool `json:"live"`
 }
 
 // handleAppConfig tells the app whether this is a Rivolt server it can sign
@@ -72,6 +75,7 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 			resp.MinIOSBuild = d.AppAuth.MinIOSBuild
 		}
 		resp.Push.APNs = d.PushService.APNsEnabled()
+		resp.Push.Live = d.PushService.LiveEnabled()
 		w.Header().Set("Cache-Control", "no-cache")
 		writeJSON(w, http.StatusOK, resp)
 	}
