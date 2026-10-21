@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 /// App entry point. Responsible for one thing only: constructing the
 /// long-lived `AppState` and handing it to the root view. All session
@@ -44,7 +45,22 @@ struct RivoltApp: App {
 
 /// Apple hands the push device token to the app delegate; SwiftUI has no other
 /// hook for it. It goes straight to the notification manager.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// The notification-centre delegate is set at launch. Without it iOS drops a notification that arrives
+    /// while the app is open: the owner's test notification was accepted by Apple and never shown.
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    /// A notification that arrives while Rivolt is in the foreground is still shown.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        NotificationPresentation.foreground
+    }
+
+    /// A tap just opens the app.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {}
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in NotificationManager.shared.didRegister(deviceToken: deviceToken) }
     }

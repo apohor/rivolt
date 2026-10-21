@@ -5,6 +5,11 @@ import UserNotifications
 import UIKit
 #endif
 
+/// How a notification is shown while the app is open.
+enum NotificationPresentation {
+    static let foreground: UNNotificationPresentationOptions = [.banner, .list, .sound]
+}
+
 /// The server calls push needs. `APIClient` is the real one; tests use a fake.
 protocol PushServer: Sendable {
     func appConfig() async throws -> AppConfig

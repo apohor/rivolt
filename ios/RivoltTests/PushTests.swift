@@ -255,3 +255,65 @@ final class NotificationFetchTests: XCTestCase {
         XCTAssertNil(NotificationFetch.decode(Data("not json".utf8)))
     }
 }
+
+/// The extension's failure path: whatever goes wrong, nothing is returned and the generic alert stays.
+private final class FetchStub: URLProtocol {
+    nonisolated(unsafe) static var reply: (Int, Data)?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let (code, data) = Self.reply else {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
+        let resp = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private struct FetchTokens: TokenStore {
+    let token: String?
+    func token(for server: URL) throws -> String? { token }
+    func setToken(_ token: String, for server: URL) throws {}
+    func deleteToken(for server: URL) throws {}
+}
+
+final class NotificationFailurePathTests: XCTestCase {
+    private func session() -> URLSession {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [FetchStub.self]
+        return URLSession(configuration: c)
+    }
+
+    func testEveryFailureReturnsNilSoTheGenericAlertStays() async {
+        let id = "3f2b8c1e-aaaa-4bbb-8ccc-0123456789ab"
+        FetchStub.reply = (200, Data(#"{"title":"Charging complete","body":"At 80%."}"#.utf8))
+        let ok = await NotificationFetch.text(id: id, tokens: FetchTokens(token: "tok"), session: session())
+        XCTAssertEqual(ok, NotificationFetch.Text(title: "Charging complete", body: "At 80%."))
+
+        let noToken = await NotificationFetch.text(id: id, tokens: FetchTokens(token: nil), session: session())
+        XCTAssertNil(noToken, "signed out: no fetch, generic alert")
+        FetchStub.reply = (404, Data())
+        let gone = await NotificationFetch.text(id: id, tokens: FetchTokens(token: "tok"), session: session())
+        XCTAssertNil(gone)
+        FetchStub.reply = (200, Data("not json".utf8))
+        let junk = await NotificationFetch.text(id: id, tokens: FetchTokens(token: "tok"), session: session())
+        XCTAssertNil(junk)
+        FetchStub.reply = nil
+        let offline = await NotificationFetch.text(id: id, tokens: FetchTokens(token: "tok"), session: session())
+        XCTAssertNil(offline)
+    }
+
+    func testANotificationShownInTheForegroundHasABannerAListAndASound() {
+        let o = NotificationPresentation.foreground
+        XCTAssertTrue(o.contains(.banner))
+        XCTAssertTrue(o.contains(.list))
+        XCTAssertTrue(o.contains(.sound))
+    }
+}
