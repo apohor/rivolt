@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "tz": "America/Chicago",
+  "currency": "USD",
+  "months": [
+    "2026-09"
+  ],
+  "schedule_tz": "America/Chicago",
+  "base_rate": 0.13,
+  "sessions_considered": 2,
+  "sessions_moved": 2,
+  "sessions_left_out": 0,
+  "left_out_reasons": {},
+  "moved_kwh": 92.5,
+  "as_charged_total": 12.02,
+  "if_moved_total": 6.48,
+  "offpeak_share_sessions": 0,
+  "needs": "more_home_sessions",
+  "basis": "Each home charge is priced again at the cheapest of your off-peak windows that its plug-in time could have held in full, from your own sessions only. It is an estimate: your real bill can differ, and charges that could not move are left out."
+}

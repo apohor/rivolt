@@ -1,0 +1,420 @@
+{
+  "version": 1,
+  "tz": "America/Chicago",
+  "currency": "USD",
+  "months": [
+    {
+      "version": 1,
+      "period": "2026-08",
+      "tz": "America/Chicago",
+      "tz_source": "",
+      "range": {
+        "start": "2026-08-01T05:00:00Z",
+        "end": "2026-09-01T05:00:00Z"
+      },
+      "currency": "USD",
+      "vehicle_id": null,
+      "is_current_month": false,
+      "first_activity_at": null,
+      "last_activity_at": null,
+      "spend": {
+        "total": 0,
+        "by_source": {
+          "home_rate": 0,
+          "network_estimate": 0,
+          "observed_estimate": 0,
+          "rivian": 0,
+          "user": 0
+        },
+        "estimated_share": null,
+        "priced_sessions": 0,
+        "unpriced_sessions": 0,
+        "unpriced_kwh": 0,
+        "unpriced_home_rate_estimate": 0,
+        "estimate_pending_sessions": 0,
+        "estimate_pending_kwh": 0,
+        "observed_estimate_cost": 0,
+        "observed_estimate_sessions": 0,
+        "unpriced_fast_sessions": 0
+      },
+      "energy": {
+        "sessions": 0,
+        "kwh_added": 0,
+        "null_energy_sessions": 0,
+        "by_kind": {
+          "ac": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "dcfc": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          }
+        },
+        "by_place": {
+          "away": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "home": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "unknown": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          }
+        },
+        "by_place_kind": {
+          "away": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          },
+          "home": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          },
+          "unknown": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          }
+        }
+      },
+      "driving": {
+        "drives": 0,
+        "miles": 0,
+        "miles_with_energy": 0,
+        "kwh_used_known": 0,
+        "coverage": null,
+        "cost_per_mile": null,
+        "cost_per_mile_basis": "spend_over_miles"
+      },
+      "data_quality": {
+        "cost_source_inferred": false,
+        "cost_source_derived_sessions": 0,
+        "superseded_excluded": 0,
+        "drives_superseded_excluded": 0,
+        "open_sessions": 0,
+        "home_rate_on_dcfc": 0,
+        "home_rate_away": 0,
+        "currency_mismatch_excluded": 0
+      }
+    },
+    {
+      "version": 1,
+      "period": "2026-09",
+      "tz": "America/Chicago",
+      "tz_source": "",
+      "range": {
+        "start": "2026-09-01T05:00:00Z",
+        "end": "2026-10-01T05:00:00Z"
+      },
+      "currency": "USD",
+      "vehicle_id": null,
+      "is_current_month": false,
+      "first_activity_at": "2026-09-04T02:00:00Z",
+      "last_activity_at": "2026-09-24T15:00:00Z",
+      "spend": {
+        "total": 35.43,
+        "by_source": {
+          "home_rate": 12.02,
+          "network_estimate": 0,
+          "observed_estimate": 0,
+          "rivian": 23.41,
+          "user": 0
+        },
+        "estimated_share": 0,
+        "priced_sessions": 3,
+        "unpriced_sessions": 1,
+        "unpriced_kwh": 16.2,
+        "unpriced_home_rate_estimate": 0,
+        "estimate_pending_sessions": 0,
+        "estimate_pending_kwh": 0,
+        "observed_estimate_cost": 0,
+        "observed_estimate_sessions": 0,
+        "unpriced_fast_sessions": 0
+      },
+      "energy": {
+        "sessions": 4,
+        "kwh_added": 180,
+        "null_energy_sessions": 0,
+        "by_kind": {
+          "ac": {
+            "sessions": 3,
+            "kwh": 108.7,
+            "cost": 12.02,
+            "peak_kw": 11.5
+          },
+          "dcfc": {
+            "sessions": 1,
+            "kwh": 71.3,
+            "cost": 23.41,
+            "peak_kw": 198
+          }
+        },
+        "by_place": {
+          "away": {
+            "sessions": 2,
+            "kwh": 87.5,
+            "cost": 23.41,
+            "peak_kw": 198
+          },
+          "home": {
+            "sessions": 2,
+            "kwh": 92.5,
+            "cost": 12.02,
+            "peak_kw": 11.5
+          },
+          "unknown": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          }
+        },
+        "by_place_kind": {
+          "away": {
+            "ac": {
+              "sessions": 1,
+              "kwh": 16.2,
+              "cost": 0,
+              "peak_kw": 7.2
+            },
+            "dcfc": {
+              "sessions": 1,
+              "kwh": 71.3,
+              "cost": 23.41,
+              "peak_kw": 198
+            }
+          },
+          "home": {
+            "ac": {
+              "sessions": 2,
+              "kwh": 92.5,
+              "cost": 12.02,
+              "peak_kw": 11.5
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          },
+          "unknown": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          }
+        }
+      },
+      "driving": {
+        "drives": 3,
+        "miles": 273.7,
+        "miles_with_energy": 273.7,
+        "kwh_used_known": 111.4,
+        "coverage": 1,
+        "cost_per_mile": 0.1294,
+        "cost_per_mile_basis": "spend_over_miles"
+      },
+      "data_quality": {
+        "cost_source_inferred": true,
+        "cost_source_derived_sessions": 1,
+        "superseded_excluded": 0,
+        "drives_superseded_excluded": 0,
+        "open_sessions": 0,
+        "home_rate_on_dcfc": 0,
+        "home_rate_away": 0,
+        "currency_mismatch_excluded": 0
+      }
+    },
+    {
+      "version": 1,
+      "period": "2026-10",
+      "tz": "America/Chicago",
+      "tz_source": "",
+      "range": {
+        "start": "2026-10-01T05:00:00Z",
+        "end": "2026-11-01T05:00:00Z"
+      },
+      "currency": "USD",
+      "vehicle_id": null,
+      "is_current_month": true,
+      "first_activity_at": null,
+      "last_activity_at": null,
+      "spend": {
+        "total": 0,
+        "by_source": {
+          "home_rate": 0,
+          "network_estimate": 0,
+          "observed_estimate": 0,
+          "rivian": 0,
+          "user": 0
+        },
+        "estimated_share": null,
+        "priced_sessions": 0,
+        "unpriced_sessions": 0,
+        "unpriced_kwh": 0,
+        "unpriced_home_rate_estimate": 0,
+        "estimate_pending_sessions": 0,
+        "estimate_pending_kwh": 0,
+        "observed_estimate_cost": 0,
+        "observed_estimate_sessions": 0,
+        "unpriced_fast_sessions": 0
+      },
+      "energy": {
+        "sessions": 0,
+        "kwh_added": 0,
+        "null_energy_sessions": 0,
+        "by_kind": {
+          "ac": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "dcfc": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          }
+        },
+        "by_place": {
+          "away": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "home": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          },
+          "unknown": {
+            "sessions": 0,
+            "kwh": 0,
+            "cost": 0,
+            "peak_kw": null
+          }
+        },
+        "by_place_kind": {
+          "away": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          },
+          "home": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          },
+          "unknown": {
+            "ac": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            },
+            "dcfc": {
+              "sessions": 0,
+              "kwh": 0,
+              "cost": 0,
+              "peak_kw": null
+            }
+          }
+        }
+      },
+      "driving": {
+        "drives": 0,
+        "miles": 0,
+        "miles_with_energy": 0,
+        "kwh_used_known": 0,
+        "coverage": null,
+        "cost_per_mile": null,
+        "cost_per_mile_basis": "spend_over_miles"
+      },
+      "data_quality": {
+        "cost_source_inferred": false,
+        "cost_source_derived_sessions": 0,
+        "superseded_excluded": 0,
+        "drives_superseded_excluded": 0,
+        "open_sessions": 0,
+        "home_rate_on_dcfc": 0,
+        "home_rate_away": 0,
+        "currency_mismatch_excluded": 0
+      }
+    }
+  ],
+  "to_confirm_count": 0,
+  "needs_attention_count": 0
+}

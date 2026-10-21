@@ -9,6 +9,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/vehiclelease"
@@ -43,6 +44,13 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"statement_email.json": &statementSettings{},
 		// Slice D: where you charged, Home / Away / Fast, without coordinates.
 		"charge_split.json": &chargeSplit{},
+		// Money: the month's statement (receipts keep billed vs estimated:
+		// cost_source), the months summary, and the off-peak savings card
+		// with and without a figure.
+		"ledger_monthly.json":       &ledger.Monthly{},
+		"ledger_summary.json":       &ledgerSummaryResponse{},
+		"ledger_savings.json":       &savingsResponse{},
+		"ledger_savings_needs.json": &savingsResponse{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},
