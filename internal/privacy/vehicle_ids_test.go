@@ -17,11 +17,6 @@ var (
 	placeholder = regexp.MustCompile(`^01-0000000[0-9]{2}$`)
 )
 
-// Applied migrations are never edited; a real id in one is the owner's decision (see the PR that added this).
-var skipFiles = map[string]bool{
-	"internal/db/migrations/0001_initial_schema.sql": true,
-}
-
 var skipDirs = map[string]bool{".git": true, "node_modules": true, "dist": true, "build": true, "DerivedData": true, ".build": true}
 
 func TestNoRealVehicleIDsInTheTree(t *testing.T) {
@@ -41,9 +36,6 @@ func TestNoRealVehicleIDsInTheTree(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
-		if skipFiles[rel] {
-			return nil
-		}
 		info, err := d.Info()
 		if err != nil || info.Size() > 4<<20 {
 			return err
