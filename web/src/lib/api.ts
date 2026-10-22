@@ -438,6 +438,9 @@ export type Charge = {
   // column existed and on sessions that didn't go through the
   // Parallax stream (REST poller, ElectraFi import).
   ThermalKWh?: number | null;
+  // The charge limit the truck was set to for the session (1 to 100), stored on the charge (migration 0080);
+  // null when unknown. Absent on servers before #897.
+  ChargeLimitPct?: number | null;
   // Wall-clock seconds the session actually spent charging (charger
   // power above the idle floor), accumulated by the live recorder from
   // the same gated dt that feeds the energy integral. Distinct from

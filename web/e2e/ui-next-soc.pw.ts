@@ -59,7 +59,7 @@ for (const theme of ["dark", "light"] as const) {
           await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit now");
           // The limit is today's: a two-day segment labelled "Limit N%", not a line across the period.
           await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);
-          const limitW = await page.getByTestId("soc-limit").locator("line").evaluate((l) => Number(l.getAttribute("x2")) - Number(l.getAttribute("x1")));
+          const limitW = await page.getByTestId("soc-limit").locator("path[data-limit-line]").evaluate((l) => (l as SVGPathElement).getBBox().width);
           expect(limitW).toBeLessThan(box!.width / 2);
           // One strip per stretch below the 0% line, no wash over the plot.
           const bands = chart.locator("[data-band]");
@@ -68,7 +68,7 @@ for (const theme of ["dark", "light"] as const) {
           const zero = await chart.locator("svg[role='img'] line").first().evaluate((l) => Number(l.getAttribute("y1")));
           expect(stripTop).toBeGreaterThan(zero);
           // The limit swatch is the same amber as the drawn line.
-          const drawn = await page.getByTestId("soc-limit").locator("line").evaluate((l) => getComputedStyle(l).stroke);
+          const drawn = await page.getByTestId("soc-limit").locator("path[data-limit-line]").evaluate((l) => getComputedStyle(l).stroke);
           const swatch = await page.getByTestId("legend-limit-swatch").evaluate((l) => getComputedStyle(l).stroke);
           expect(swatch).toBe(drawn);
           expect(swatch).toBe("rgb(245, 158, 11)");
