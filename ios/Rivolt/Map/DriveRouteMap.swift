@@ -123,15 +123,11 @@ struct RouteMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView.displayOnly(styleJSON: styleJSON)
-        // The speed legend sits bottom-left (as on the web); MapLibre's mark goes top-left.
-        map.logoViewPosition = .topLeft
-        map.delegate = context.coordinator
-        return map
+        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
-        if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
+        context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.update(drawing, on: map)
     }
 
@@ -170,6 +166,7 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
+            MapLoadWatch.clear(style, prefix: RouteMapView.sourceID)
             sources = [:]
             for (name, shape) in Self.shapes(drawing) {
                 let s = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-\(name)", shape: shape, options: nil)
@@ -218,7 +215,12 @@ struct RouteMapView: UIViewRepresentable {
             fit(map)
         }
 
+        override func resized(_ map: MLNMapView) { fit(map) }
+
+        /// The camera on the whole drawing. MapLibre ignores a fit while the view has no size, so it's made again
+        /// when the view gets one (`resized`).
         private func fit(_ map: MLNMapView) {
+            guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
                 .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
             guard !coords.isEmpty else { return }
@@ -248,9 +250,11 @@ struct MapAttribution: View {
 
 extension MLNMapView {
     /// A map that is a picture: our style (as JSON, never fetched), no user location, no pan, zoom, rotation or tilt,
-    /// no compass, and the credit drawn by the SwiftUI side (MapAttribution) instead of the info button.
-    static func displayOnly(styleJSON: String) -> MLNMapView {
-        let map = MLNMapView(frame: .zero, styleJSON: styleJSON)
+    /// no compass, the credit drawn by the SwiftUI side (MapAttribution) instead of the info button, and no MapLibre
+    /// mark (its BSD licence asks for the notice in Acknowledgements, not a logo). `watch` is its delegate from the
+    /// start, so it sees the style even when MapLibre loads it inside the initialiser.
+    static func displayOnly(styleJSON: String, watch: MapLoadWatch) -> DisplayMapView {
+        let map = DisplayMapView(frame: .zero, styleJSON: styleJSON)
         map.showsUserLocation = false
         map.isRotateEnabled = false
         map.isPitchEnabled = false
@@ -258,8 +262,23 @@ extension MLNMapView {
         map.isZoomEnabled = false
         map.compassView.isHidden = true
         map.attributionButton.isHidden = true
-        map.logoViewPosition = .bottomLeft
+        map.logoView.isHidden = true
+        watch.attach(map, styleJSON: styleJSON)
         return map
+    }
+}
+
+/// A MapLibre view that says when its size changes: SwiftUI creates it at zero size and lays it out later, and a
+/// camera fit made before that is ignored.
+final class DisplayMapView: MLNMapView {
+    var onResize: ((MLNMapView) -> Void)?
+    private var laidOutSize = CGSize.zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0, bounds.size != laidOutSize else { return }
+        laidOutSize = bounds.size
+        onResize?(self)
     }
 }
 
@@ -318,14 +337,47 @@ struct MapLoadState {
     }
 }
 
-/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), and how the basemap is doing.
+/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), the view's size (`resized`), and
+/// how the basemap is doing.
 class MapLoadWatch: NSObject, MLNMapViewDelegate {
     private let onHealth: (MapHealth) -> Void
     private var state = MapLoadState()
+    /// The style JSON last given to the map (compared here, not with MapLibre's `styleJSON`, which needn't echo it).
+    private var styleJSON: String?
 
     init(onHealth: @escaping (MapHealth) -> Void) { self.onHealth = onHealth }
 
+    /// Adds this map's sources and layers to a style that finished loading. Called again for a new style (light or
+    /// dark), and possibly twice for one, so it starts by clearing its own (`clear`).
     func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {}
+
+    /// The view got or changed its size.
+    func resized(_ map: MLNMapView) {}
+
+    /// Becomes `map`'s delegate. A style given as JSON can finish loading inside MapLibre's initialiser, before
+    /// there was a delegate to tell, and nothing was ever drawn on it (0.2.6: no route, no pins, the camera on the
+    /// whole world): a style already in is handled here.
+    func attach(_ map: DisplayMapView, styleJSON: String) {
+        self.styleJSON = styleJSON
+        map.delegate = self
+        map.onResize = { [weak self] in self?.resized($0) }
+        if let style = map.style { styleLoaded(map, style) }
+    }
+
+    /// Switches the map to `json` when it differs from the last one given (light/dark); true when it did.
+    @discardableResult
+    func setStyle(_ json: String, on map: MLNMapView) -> Bool {
+        guard json != styleJSON else { return false }
+        styleJSON = json
+        map.styleJSON = json
+        return true
+    }
+
+    /// Removes the sources and layers whose identifiers start with `prefix`.
+    static func clear(_ style: MLNStyle, prefix: String) {
+        for layer in style.layers where layer.identifier.hasPrefix(prefix) { style.removeLayer(layer) }
+        for source in style.sources where source.identifier.hasPrefix(prefix) { style.removeSource(source) }
+    }
 
     func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) { styleLoaded(map, style) }
 

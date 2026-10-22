@@ -57,14 +57,16 @@ struct ChargePlacesMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(places: places, onHealth: onHealth) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView.displayOnly(styleJSON: styleJSON)
-        map.delegate = context.coordinator
-        return map
+        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
+        let changed = context.coordinator.places != places
         context.coordinator.places = places
-        if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
+        // A new style redraws the places itself; otherwise new places are drawn on the style that's in.
+        if !context.coordinator.setStyle(styleJSON, on: map), changed, let style = map.style {
+            context.coordinator.styleLoaded(map, style)
+        }
     }
 
     final class Coordinator: MapLoadWatch {
@@ -76,6 +78,7 @@ struct ChargePlacesMapView: UIViewRepresentable {
         }
 
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
+            MapLoadWatch.clear(style, prefix: ChargePlacesMapView.sourceID)
             guard !places.isEmpty else { return }
             let features: [MLNPointFeature] = places.map { p in
                 let f = MLNPointFeature()
@@ -96,6 +99,14 @@ struct ChargePlacesMapView: UIViewRepresentable {
                 layer.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
                 style.addLayer(layer)
             }
+            fit(map)
+        }
+
+        override func resized(_ map: MLNMapView) { fit(map) }
+
+        /// The camera on every place, once the view has a size (MapLibre ignores a fit before).
+        private func fit(_ map: MLNMapView) {
+            guard !places.isEmpty, map.bounds.width > 0, map.bounds.height > 0 else { return }
             var coords = places.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
             if coords.count == 1 {
                 map.setCenter(coords[0], zoomLevel: 12, animated: false)
