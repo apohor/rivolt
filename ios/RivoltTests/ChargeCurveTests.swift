@@ -78,6 +78,16 @@ final class ChargeCurveTests: XCTestCase {
         XCTAssertEqual(ChargeCurve.unit(temp: 30, range: 20...30), 0.95, accuracy: 1e-9)
     }
 
+    func testTheAxisTicksAreRoundNumbersInsideTheRange() {
+        func ticks(_ lo: Double, _ hi: Double) -> [Double] { ChargeCurve.socTicks(.init(socLo: lo, socHi: hi, powerMax: 200)) }
+        XCTAssertEqual(ticks(36, 85), [40, 50, 60, 70, 80])
+        XCTAssertEqual(ticks(13, 79), [20, 40, 60])
+        XCTAssertEqual(ticks(50, 90), [50, 60, 70, 80, 90])
+        XCTAssertEqual(ticks(88, 100), [90, 95, 100])
+        XCTAssertEqual(ticks(0, 100), [0, 25, 50, 75, 100])
+        XCTAssertEqual(ChargeCurve.powerTicks(.init(socLo: 0, socHi: 100, powerMax: 25)), [0, 12.5, 25])
+    }
+
     func testTheReadoutFindsTheNearestSample() {
         let pts = [pt(0, 10), pt(60, 20), pt(120, 30)]
         XCTAssertEqual(ChargeCurve.nearest(pts, to: t0.addingTimeInterval(50)), 20)

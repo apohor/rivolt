@@ -96,6 +96,20 @@ enum ChargeCurve {
         return Axes(socLo: lo, socHi: hi, powerMax: powerAxisMax(peak: peakKw, smoothed: series.power))
     }
 
+    /// Round values for the battery axis inside its range (5, 10, 20, 25 or 50 points apart: the finest that leaves no
+    /// more than five), so the gridlines read 40, 50, 60 and not the range's own 36 and 85.
+    static func socTicks(_ axes: Axes) -> [Double] {
+        for step in [5.0, 10, 20, 25, 50] {
+            let first = (axes.socLo / step).rounded(.up)
+            let last = (axes.socHi / step).rounded(.down)
+            if last >= first, Int(last - first) + 1 <= 5 { return (Int(first)...Int(last)).map { Double($0) * step } }
+        }
+        return [axes.socLo, axes.socHi]
+    }
+
+    /// The right axis' labels: nothing, half and the top of the power range.
+    static func powerTicks(_ axes: Axes) -> [Double] { [0, axes.powerMax / 2, axes.powerMax] }
+
     // MARK: Plot space
 
     /// Every series is drawn in 0...1: the battery over its axis, the power over its own, the temperature over the
