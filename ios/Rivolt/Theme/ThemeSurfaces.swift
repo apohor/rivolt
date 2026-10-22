@@ -33,6 +33,13 @@ struct ThemeCard: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {
+                    // Shadows first and outside the card only, like CSS box-shadow: under a translucent card they
+                    // would show through it, and on the content they would put a shadow behind every word.
+                    shape.outerShadow(Theme.cardShadowFar, blur: 8, y: 8)
+                    shape.outerShadow(Theme.cardShadowNear, blur: 1, y: 1)
+                    if live != .none {
+                        shape.outerShadow(live == .charging ? Theme.glowChargingHalo : Theme.glowDrivingHalo, blur: 16, y: 0)
+                    }
                     shape.fill(Theme.card.opacity(hero ? 0.6 : 0.5))
                     shape.fill(LinearGradient(colors: [Theme.cardSheen, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.45)))
                     if hero {
@@ -50,9 +57,20 @@ struct ThemeCard: ViewModifier {
                 if live == .charging { shape.inset(by: -1).stroke(Theme.glowChargingRing, lineWidth: 1) }
                 if live == .driving { shape.inset(by: -1).stroke(Theme.glowDrivingRing, lineWidth: 1) }
             }
-            .shadow(color: live == .charging ? Theme.glowChargingHalo : live == .driving ? Theme.glowDrivingHalo : .clear, radius: 16)
-            .shadow(color: Theme.cardShadowNear, radius: 1, x: 0, y: 1)
-            .shadow(color: Theme.cardShadowFar, radius: 8, x: 0, y: 8)
+    }
+}
+
+extension Shape {
+    /// A blurred copy of the shape in `color`, offset down by `y`, drawn only outside the shape itself.
+    func outerShadow(_ color: Color, blur: CGFloat, y: CGFloat) -> some View {
+        fill(color)
+            .blur(radius: blur)
+            .offset(y: y)
+            .mask {
+                Rectangle().fill(.black).padding(-60)
+                    .overlay { fill(.black).blendMode(.destinationOut) }
+                    .compositingGroup()
+            }
     }
 }
 
