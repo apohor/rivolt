@@ -649,6 +649,33 @@ jobs:
             done
           done
 
+      # The image job exports its layers with mode=max, and main merges many times a
+      # day: ~575 new layer blobs (~2.5 GB) in a day, and a build reads back only the
+      # few layers it reuses. A blob that was written more than 6 hours ago and has
+      # not been read since is from a superseded build; keeping it until GitHub's
+      # 7-day expiry (or until it evicts something in use) only crowds the cache.
+      # Blobs a later build reused have been read since they were written (their
+      # last access is later than their creation), so they stay, and so does anything
+      # from the last 6 hours (the newest build's layers, which publish and the next
+      # build read). A deleted layer a build still wanted is just rebuilt by that
+      # build's image job, which runs beside the tests; publish reads its own
+      # commit's scope, written minutes earlier.
+      - name: Drop Docker layer blobs nothing will read again
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cutoff=$(( $(date -u +%s) - 6 * 3600 ))
+          n=0; freed=0
+          while IFS=$'\t' read -r id size; do
+            n=$((n + 1)); freed=$((freed + size))
+            gh cache delete "$id" --repo "$GITHUB_REPOSITORY" > /dev/null || true   # already evicted: fine
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?ref=refs/heads/main&key=buildkit-blob-1-&per_page=100" --jq "
+            def t: sub(\"\\\\.[0-9]+\"; \"\") | fromdateiso8601;
+            .actions_caches[]
+            | select((.created_at | t) < $cutoff and ((.last_accessed_at | t) - (.created_at | t)) < 600)
+            | [.id, .size_in_bytes] | @tsv")
+          echo "docker layer blobs older than 6 h and never read since they were written: $n deleted ($((freed / 1048576)) MB)"
+
   image:
     name: image
     # Builds the image while the tests run, without pushing or tagging
