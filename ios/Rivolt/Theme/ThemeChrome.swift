@@ -95,6 +95,8 @@ struct ThemeTabBar: View {
 /// disabled in the current month.
 struct ThemeStepper: View {
     let title: String
+    /// What VoiceOver says for the month ("October 2026"); the printed title is the short form.
+    var spokenTitle: String?
     let canGoForward: Bool
     let previous: () -> Void
     let next: () -> Void
@@ -106,6 +108,7 @@ struct ThemeStepper: View {
                 .frame(width: 40, height: 36)
             Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
                 .frame(minWidth: 84)
+                .accessibilityLabel(spokenTitle ?? title)
                 .accessibilityAddTraits(.isHeader)
             Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: 11)) }
                 .disabled(!canGoForward)

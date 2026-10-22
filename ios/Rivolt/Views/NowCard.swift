@@ -101,12 +101,12 @@ struct NowCard: View {
 
     // MARK: Charging readout
 
-    private var timeLeft: String? {
-        guard let soc = summary.socPct,
-              let minutes = ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
-        else { return nil }
-        return Self.eta(minutes: minutes)
+    private var timeLeftMinutes: Int? {
+        guard let soc = summary.socPct else { return nil }
+        return ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
     }
+
+    private var timeLeft: String? { timeLeftMinutes.map(Self.eta(minutes:)) }
 
     @ViewBuilder
     private var detailRows: some View {
@@ -156,7 +156,8 @@ struct NowCard: View {
 
     private var footer: String { Self.footer(for: summary, clock: clock) }
 
-    private var spoken: String {
+    /// The card as sentences for VoiceOver: units and symbols as words.
+    var spoken: String {
         var parts = ["\(vehicle.name). \(Self.headline(for: summary, place: place))."]
         if let soc = summary.socPct {
             parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
@@ -167,9 +168,22 @@ struct NowCard: View {
         if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
         if charging {
             if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
-            if let t = timeLeft { parts.append("About \(t.replacingOccurrences(of: "~", with: "")) left, an estimate.") }
+            if let m = timeLeftMinutes { parts.append("About \(ChartMath.spokenMinutes(Double(m))) left, an estimate.") }
+            if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
+                parts.append("About \(NowFormat.oneDecimal(added / 100 * pack)) kilowatt hours added.")
+            }
+            if let cost = ChargingDetail.make(summary: summary, session: session, charge: nil)?.cost {
+                parts.append("Cost so far, \(NowFormat.spokenCost(cost)).")
+            }
         }
-        parts.append(footer + ".")
+        if driving, let d = liveDrive, d.distanceMi > 0 {
+            parts.append("Trip so far, \(NowFormat.distance(mi: d.distanceMi, spoken: true)).")
+            if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
+        }
+        if let temp = summary.outsideTempC {
+            parts.append("\(Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .wide, usage: .weather))) outside.")
+        }
+        parts.append(SpokenText.words(footer) + ".")
         return parts.joined(separator: " ")
     }
 

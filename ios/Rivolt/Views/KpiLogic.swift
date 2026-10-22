@@ -36,11 +36,11 @@ struct KpiTile: Equatable, Identifiable {
     let unit: String
     let hint: String?
 
-    /// One sentence for VoiceOver.
+    /// One sentence for VoiceOver, with the units and symbols as words.
     var spoken: String {
         var parts = ["\(label), \(value) \(unit)".trimmingCharacters(in: .whitespaces)]
         if let hint { parts.append(hint) }
-        return parts.joined(separator: ". ")
+        return SpokenText.words(parts.joined(separator: ". "))
     }
 }
 

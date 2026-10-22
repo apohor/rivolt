@@ -133,7 +133,7 @@ struct HomeView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: month.title(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
+            ThemeStepper(title: month.title(calendar: .current), spokenTitle: month.spokenTitle(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
                          previous: { month = month.shifted(by: -1, calendar: .current) },
                          next: { month = month.shifted(by: 1, calendar: .current) })
         }
