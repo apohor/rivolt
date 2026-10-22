@@ -391,3 +391,85 @@ final class MoneyModelTests: XCTestCase {
         XCTAssertTrue(model.savingsFailed)
     }
 }
+
+/// Answers the client in place of the server, by path.
+private final class MoneyStub: URLProtocol {
+    nonisolated(unsafe) static var paths: [String] = []
+    nonisolated(unsafe) static var respond: (String) -> (Int, Data) = { _ in (500, Data()) }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let path = request.url.map { $0.path + ($0.query.map { "?" + $0 } ?? "") } ?? ""
+        Self.paths.append(path)
+        let (status, data) = Self.respond(path)
+        let resp = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private struct MoneyNoTokens: TokenStore {
+    func token(for server: URL) throws -> String? { nil }
+    func setToken(_ token: String, for server: URL) throws {}
+    func deleteToken(for server: URL) throws {}
+}
+
+final class MoneyClientTests: XCTestCase {
+    private func client() -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MoneyStub.self]
+        return APIClient(baseURL: URL(string: "https://rivolt.example")!, tokens: MoneyNoTokens(), session: URLSession(configuration: config))
+    }
+
+    /// The server's to-confirm list: the same keys as the charge list, without coordinates.
+    private let toConfirm = Data("""
+    [{"ID":"c2","StartedAt":"2026-10-03T10:00:00Z","PricePerKWh":0,"Cost":0,"Currency":"USD","network_state":"needs_confirmation",
+      "network_evidence":{"candidates":null}},
+     {"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","PricePerKWh":0.48,"Cost":18.2,"Currency":"USD","network_state":"estimated",
+      "network_evidence":{"candidates":[{"network":"Electrify America"}]}}]
+    """.utf8)
+
+    override func setUp() {
+        super.setUp()
+        MoneyStub.paths = []
+    }
+
+    func testToConfirmReadsTheCoordinateFreeList() async throws {
+        let body = toConfirm
+        MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (200, body) : (500, Data()) }
+        let rows = try await client().chargesToConfirm()
+        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
+        XCTAssertEqual(rows.map(\.id), ["c2", "c1"])
+        XCTAssertEqual(rows[1].networkEvidence?.candidates?.first?.network, "Electrify America")
+    }
+
+    func testAnOlderServerFallsBackToTheChargeList() async throws {
+        let full = Data("""
+        [{"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","Lat":30.2672,"Lon":-97.7431,"PricePerKWh":0.48,"Cost":18.2,"Currency":"USD",
+          "network_state":"estimated"},
+         {"ID":"c3","StartedAt":"2026-10-04T10:00:00Z","Lat":30.2,"Lon":-97.7,"PricePerKWh":0.13,"Cost":5,"Currency":"USD","network_state":""}]
+        """.utf8)
+        MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (404, Data("404 page not found".utf8)) : (200, full) }
+        let rows = try await client().chargesToConfirm()
+        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm", "/api/charges?limit=5000"])
+        XCTAssertEqual(rows.map(\.id), ["c1"])
+    }
+
+    func testARateLimitIsNotAFallback() async {
+        MoneyStub.respond = { _ in (429, Data("{\"error\":\"slow down\"}".utf8)) }
+        do {
+            _ = try await client().chargesToConfirm()
+            XCTFail("expected the 429")
+        } catch APIError.server(let status, _) {
+            XCTAssertEqual(status, 429)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
+    }
+}

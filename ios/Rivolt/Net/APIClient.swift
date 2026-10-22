@@ -276,9 +276,16 @@ actor APIClient {
         try await request("GET", "/api/ledger/savings?" + ledgerQuery([("month", month)]))
     }
 
-    /// Every charge whose auto-detected network is still open (estimated or needing confirmation), newest first.
+    /// Every charge whose auto-detected network is still open (estimated or needing confirmation), newest first, from
+    /// the server's coordinate-free list. A server without it (404/501) answers from the full charge list instead,
+    /// decoded into the same coordinate-free type; drop that fallback once every server has the route.
     func chargesToConfirm() async throws -> [ConfirmCharge] {
-        let rows: [ConfirmCharge] = try await request("GET", "/api/charges?limit=5000")
+        let rows: [ConfirmCharge]
+        do {
+            rows = try await request("GET", "/api/charges/to-confirm")
+        } catch APIError.server(let status, _) where status == 404 || status == 501 {
+            rows = try await request("GET", "/api/charges?limit=5000")
+        }
         return rows.filter { MoneyLogic.isOpenNetworkState($0.networkState) }.sorted { $0.startedAt > $1.startedAt }
     }
 
