@@ -24,11 +24,11 @@ final class SocChartTests: XCTestCase {
           {"started_at":"2026-10-18T14:00:00Z","ended_at":"2026-10-18T14:30:00Z","distance_mi":14,"start_soc_pct":88,"end_soc_pct":84},
           {"started_at":"2026-10-20T09:00:00Z","ended_at":"2026-10-20T09:18:00Z","distance_mi":10,"start_soc_pct":80,"end_soc_pct":77}
         ],"charges":[
-          {"started_at":"2026-10-03T01:00:00Z","ended_at":"2026-10-03T07:00:00Z","start_soc_pct":66,"end_soc_pct":70},
-          {"started_at":"2026-10-08T01:00:00Z","ended_at":"2026-10-08T09:00:00Z","start_soc_pct":58,"end_soc_pct":97},
-          {"started_at":"2026-10-09T23:40:00Z","ended_at":"2026-10-10T01:10:00Z","start_soc_pct":41,"end_soc_pct":70},
-          {"started_at":"2026-10-12T17:00:00Z","ended_at":"2026-10-13T06:00:00Z","start_soc_pct":2.6,"end_soc_pct":88},
-          {"started_at":"2026-10-19T01:00:00Z","ended_at":"2026-10-19T05:00:00Z","start_soc_pct":84,"end_soc_pct":80}
+          {"started_at":"2026-10-03T01:00:00Z","ended_at":"2026-10-03T07:00:00Z","start_soc_pct":66,"end_soc_pct":70,"charge_limit_pct":70},
+          {"started_at":"2026-10-08T01:00:00Z","ended_at":"2026-10-08T09:00:00Z","start_soc_pct":58,"end_soc_pct":97,"charge_limit_pct":100},
+          {"started_at":"2026-10-09T23:40:00Z","ended_at":"2026-10-10T01:10:00Z","start_soc_pct":41,"end_soc_pct":70,"charge_limit_pct":70},
+          {"started_at":"2026-10-12T17:00:00Z","ended_at":"2026-10-13T06:00:00Z","start_soc_pct":2.6,"end_soc_pct":88,"charge_limit_pct":85},
+          {"started_at":"2026-10-19T01:00:00Z","ended_at":"2026-10-19T05:00:00Z","start_soc_pct":84,"end_soc_pct":80,"charge_limit_pct":80}
         ]}
         """
         return try JSON.decoder().decode(ChartPoints.self, from: Data(json.utf8))

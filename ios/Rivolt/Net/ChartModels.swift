@@ -20,6 +20,9 @@ struct ChargePoint: Decodable, Equatable {
     let endedAt: Date
     let startSocPct: Double
     let endSocPct: Double
+    /// The limit the truck was set to for this charge (1 to 100); null or 0 when unknown, and absent on a server
+    /// that predates it.
+    var chargeLimitPct: Double? = nil
 }
 
 /// One row of `GET /api/sleep-activity`: a UTC day, in hours.

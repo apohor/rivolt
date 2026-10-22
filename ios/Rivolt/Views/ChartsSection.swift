@@ -143,7 +143,11 @@ struct ChartsSection: View {
             .init(label: "Charging", style: .swatch(Theme.chartSocCharge)),
             .init(label: "Driving", style: .swatch(Theme.chartSocDrive)),
         ]
-        if limitShown(range: range) { items.append(.init(label: "Charge limit now", style: .dashed(Theme.chartSocLimit))) }
+        if !limitSteps(range: range).isEmpty {
+            items.append(.init(label: "Charge limit", style: .dashed(Theme.chartSocLimit)))
+        } else if limitShown(range: range) {
+            items.append(.init(label: "Charge limit now", style: .dashed(Theme.chartSocLimit)))
+        }
         items.append(.init(label: "High and low", style: .dot(Theme.textPrimary)))
         return items
     }
@@ -182,17 +186,48 @@ struct ChartsSection: View {
         ChartMath.limitVisible(limit, now: now, since: range.since, until: range.until)
     }
 
+    private func limitSteps(range: (since: Date, until: Date)) -> [ChartMath.LimitStep] {
+        ChartMath.limitSteps(model.points?.charges ?? [], from: range.since, to: range.until, now: now, live: limit)
+    }
+
+    /// The limit as steps from the charges' stored limits; a server that doesn't send them yet (or a period with none
+    /// known) keeps the short segment of today's limit, on the current month only.
     @ChartContentBuilder
     private func limitMark(range: (since: Date, until: Date)) -> some ChartContent {
-        if limitShown(range: range), let limit {
+        let steps = limitSteps(range: range)
+        if !steps.isEmpty {
+            stepMarks(steps, range: range)
+        } else if limitShown(range: range), let limit {
             RuleMark(xStart: .value("From", max(range.since, now.addingTimeInterval(-2 * 86_400))), xEnd: .value("To", now), y: .value("Limit", limit))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 .foregroundStyle(Theme.chartSocLimit)
-                // Right of the segment, in the days still to come: nothing is drawn there, so it never sits on the line.
-                // In the last days of the month there is no room to the right, so it goes above the segment.
-                .annotation(position: range.until.timeIntervalSince(now) < 4 * 86_400 ? .top : .trailing,
-                            alignment: range.until.timeIntervalSince(now) < 4 * 86_400 ? .trailing : .center, spacing: 4) {
+                .annotation(position: limitLabelAbove(range) ? .top : .trailing, alignment: limitLabelAbove(range) ? .trailing : .center, spacing: 4) {
                     Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
+                }
+        }
+    }
+
+    /// In the last days of the month there is no room to the right of now, so the value goes above the line.
+    private func limitLabelAbove(_ range: (since: Date, until: Date)) -> Bool {
+        range.until.timeIntervalSince(now) < 4 * 86_400
+    }
+
+    /// One line through the steps (a vertical jump where the limit changes), and, on the current month only, the
+    /// value once, at the line's end at now. A past month shows its steps without a value.
+    @ChartContentBuilder
+    private func stepMarks(_ steps: [ChartMath.LimitStep], range: (since: Date, until: Date)) -> some ChartContent {
+        let points = steps.flatMap { [(at: $0.start, pct: $0.pct), (at: $0.end, pct: $0.pct)] }
+        ForEach(Array(points.enumerated()), id: \.offset) { _, p in
+            LineMark(x: .value("Time", p.at), y: .value("Limit", p.pct), series: .value("Series", "Limit"))
+                .foregroundStyle(Theme.chartSocLimit)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                .interpolationMethod(.linear)
+        }
+        if let last = steps.last, now >= range.since, now <= range.until, now.timeIntervalSince(last.end) < 60 {
+            PointMark(x: .value("Time", last.end), y: .value("Limit", last.pct))
+                .symbolSize(0)
+                .annotation(position: limitLabelAbove(range) ? .top : .trailing, alignment: limitLabelAbove(range) ? .trailing : .center, spacing: 4) {
+                    Text("Limit \(NumberText.fixed(last.pct, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
     }
