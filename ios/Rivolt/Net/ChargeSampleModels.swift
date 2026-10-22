@@ -12,8 +12,10 @@ struct ChargeSample: Decodable, Equatable {
     let packTempMinC: Double?
     let packTempMaxC: Double?
 
+    /// The app's decoder turns `pack_temp_avg_c` into `packTempAvgC` before it looks the key up, so those three are
+    /// named as it leaves them; the others are the server's Go field names.
     private enum CodingKeys: String, CodingKey {
         case at = "At", batteryLevelPct = "BatteryLevelPct", chargerPowerKw = "ChargerPowerKW"
-        case packTempAvgC = "pack_temp_avg_c", packTempMinC = "pack_temp_min_c", packTempMaxC = "pack_temp_max_c"
+        case packTempAvgC, packTempMinC, packTempMaxC
     }
 }
