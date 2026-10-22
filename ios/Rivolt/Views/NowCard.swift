@@ -111,7 +111,7 @@ struct NowCard: View {
 
     @ViewBuilder
     private var detailRows: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             if charging { chargingRows }
             if driving { drivingRows }
             if let temp = summary.outsideTempC {
@@ -133,7 +133,7 @@ struct NowCard: View {
 
     @ViewBuilder
     private var chargingRows: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if let t = timeLeft { readout("Time left", "\(t) · est.") }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
