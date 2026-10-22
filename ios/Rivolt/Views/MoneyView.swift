@@ -561,9 +561,9 @@ private struct MoneySection<Actions: View, Content: View>: View {
 
 /// The web's small bordered button (Share statement, Download CSV).
 private struct MoneySmallButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Body(configuration: configuration) }
+    func makeBody(configuration: Configuration) -> some View { Look(configuration: configuration) }
 
-    private struct Body: View {
+    private struct Look: View {
         let configuration: ButtonStyleConfiguration
         @Environment(\.isEnabled) private var isEnabled
 
