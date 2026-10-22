@@ -495,14 +495,6 @@ jobs:
           cat vet.log
           exit $(( t != 0 || v != 0 ))
 
-      - name: TEMP measure the Go caches
-        if: always()
-        run: |
-          du -sh ~/.cache/go-build ~/go/pkg/mod ~/go/pkg/mod/cache/download 2>&1 || true
-          du -sh ~/.cache/go-build/* 2>/dev/null | sort -h | tail -3 || true
-          find ~/.cache/go-build -type f -atime +2 2>/dev/null | wc -l | sed 's/^/files not read in 2 days: /'
-          find ~/.cache/go-build -type f 2>/dev/null | wc -l | sed 's/^/files total: /'
-
       - name: Save Go build and module cache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
