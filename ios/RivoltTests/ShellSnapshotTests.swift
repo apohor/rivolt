@@ -81,4 +81,40 @@ final class ShellSnapshotTests: XCTestCase {
         try state("plugged-idle", summary(soc: 55, power: "charger_connected", kw: 0))
         try state("stale", summary(soc: 41, age: 5 * 60))
     }
+
+    /// The whole Now page in the order HomeView lays it out, to compare with the web's full-page capture.
+    func testRenderTheWholeNowPage() throws {
+        let v = try vehicle()
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let now = try XCTUnwrap(JSON.parseDate("2026-10-21T15:00:00Z"))
+        let month = PeriodMonth(containing: now, calendar: utc)
+        let a = try Fixture.decode(ActivityResponse.self, "activity")
+        let tiles = KpiLogic.tiles(drives: KpiLogic.drives(a.drives), charges: KpiLogic.charges(a.charges), since: nil, sinceKnown: true,
+                                   ledger: try Fixture.decode(LedgerMonthSpend.self, "ledger_monthly"), ledgerPending: false, metric: false, calendar: utc)
+        let idle = IdleAwakeTile.make(sleep: try Fixture.decode([DayActivity].self, "sleep_activity"), now: now, calendar: utc)
+        let charts = ChartsModel(points: try Fixture.decode(ChartPoints.self, "chart_points"), sleep: try Fixture.decode([DayActivity].self, "sleep_activity"))
+        let split = try Fixture.decode(ChargeSplit.self, "charge_split")
+        let s = summary(soc: 52, power: "charging_active", kw: 7.2)
+        let whole = VStack(spacing: 0) {
+            ThemeTopBar { Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary) }
+            VStack(spacing: 16) {
+                ThreeThingsCard(rows: [.lease], webURL: { _ in URL(string: "https://example.invalid") }, onOpenNotifications: {}, onHide: {})
+                HStack(alignment: .center) {
+                    Text("Now").themeText(.hero)
+                    Spacer()
+                    ThemeStepper(title: month.title(calendar: utc), canGoForward: false, previous: {}, next: {})
+                }
+                NowCard(vehicle: v, summary: s, clock: at, place: "Home", session: try Fixture.decode(LiveSession.self, "live_session_home"))
+                KpiGrid(tiles: tiles, idle: idle, idleLoading: false)
+                PlacesCard(split: split, periodTitle: month.title(calendar: utc))
+                ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
+            }
+            .padding(16)
+            ThemeTabBar(items: tabs, selection: .constant("now"))
+        }
+        .frame(width: 390)
+        .background(ThemePageBackground())
+        try render("shell-now-page", whole)
+    }
 }
