@@ -19,7 +19,7 @@ struct AcknowledgementsView: View {
             ScrollView {
                 // The web's titled card: the heading in its own row above a hairline, so the paragraph under it
                 // doesn't read as the larger text.
-                SettingsSection(title: "Geist and Geist Mono") {
+                ThemeSection(title: "Geist and Geist Mono") {
                     Text("The app's typeface is Geist, with Geist Mono for the large readouts, from the Geist Project Authors (github.com/vercel/geist-font), used under the SIL Open Font License, Version 1.1.")
                         .themeText(.value)
                         .fixedSize(horizontal: false, vertical: true)

@@ -19,7 +19,7 @@ struct NotificationSettingsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4 * Theme.unit) {
-                    SettingsSection(title: "This iPhone") {
+                    ThemeSection(title: "This iPhone") {
                         statusRow
                         Text("Apple's push service sees only this phone's push address and a generic “Rivolt update”. The words are fetched from Rivolt over an encrypted connection when it arrives.")
                             .themeText(.caption)
@@ -28,7 +28,7 @@ struct NotificationSettingsView: View {
 
                     // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
                     // what is missing until then.
-                    SettingsSection(title: "Test") {
+                    ThemeSection(title: "Test") {
                         Button {
                             Task { await manager.sendTest() }
                         } label: {
@@ -57,7 +57,7 @@ struct NotificationSettingsView: View {
                     }
 
                     if let live, manager.liveOffered, manager.isOn, manager.preferences?.onChargingLive == true {
-                        SettingsSection(title: "Live Activity") {
+                        ThemeSection(title: "Live Activity") {
                             Button {
                                 Task { await live.sendTest(vehicleID: vehicleID, deviceToken: manager.deviceToken) }
                             } label: {
@@ -83,7 +83,7 @@ struct NotificationSettingsView: View {
                     }
 
                     if let prefs = manager.preferences {
-                        SettingsSection(title: "Notify me when…") {
+                        ThemeSection(title: "Notify me when…") {
                             let kinds = PushKind.allCases.filter { $0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown) }
                             ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
                                 if index > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
@@ -225,29 +225,5 @@ struct NotificationPromptCard: View {
             }
         }
         .themeCard()
-    }
-}
-
-/// The web's titled card (a header row, a hairline, then the content), composed here from Theme tokens.
-/// Mirrors ux's `ThemeSection` (#861) exactly; replaced by it once that is on main. Used by the Settings and
-/// Acknowledgements screens.
-struct SettingsSection<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
-                .foregroundStyle(Theme.textBody)
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2.5 * Theme.unit)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(Theme.border).frame(height: 1)
-            VStack(alignment: .leading, spacing: 8) { content }
-                .padding(4 * Theme.unit)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .themeCard(padding: 0)
     }
 }
