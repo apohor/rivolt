@@ -91,6 +91,15 @@ final class ActivityMapTests: XCTestCase {
         XCTAssertTrue(model.drives.isEmpty)
     }
 
+    /// Long routes are simplified (about 5 m), keeping their ends and their shape.
+    func testRoutesAreSimplified() {
+        let straight = (0..<500).map { DriveRoute.Point(lat: 32.7 + Double($0) * 1e-4, lon: -96.8) }
+        XCTAssertEqual(ActivityMapModel.simplify(straight, tolerance: ActivityMapModel.tolerance), [straight[0], straight[499]])
+        let corner = [DriveRoute.Point(lat: 0, lon: 0), .init(lat: 0.5, lon: 0.000001), .init(lat: 1, lon: 0), .init(lat: 1, lon: 1)]
+        XCTAssertEqual(ActivityMapModel.simplify(corner, tolerance: ActivityMapModel.tolerance), [corner[0], corner[2], corner[3]])
+        XCTAssertEqual(ActivityMapModel.simplify(Array(corner.prefix(2)), tolerance: 1), Array(corner.prefix(2)))
+    }
+
     func testATapOpensTheDriveOrChargeOfTheMonth() throws {
         let r = try Fixture.decode(ActivityResponse.self, "activity")
         let d = r.drives[0], c = r.charges[0]
@@ -106,7 +115,8 @@ final class ActivityMapTests: XCTestCase {
     }
 
     func testTheMapDrawsTheMonthAndFitsWhatTheFilterShows() throws {
-        let drives = [try decode(MapDrive.self, drive("d1", "2026-10-03T10:00:00Z"))]
+        let d1 = try decode(MapDrive.self, drive("d1", "2026-10-03T10:00:00Z"))
+        let drives = [ActivityMapModel.Drive(id: d1.id, startedAt: d1.startedAt, points: d1.points)]
         let charges = [try decode(MapCharge.self, charge("c1", "2026-10-04T10:00:00Z", kw: 150, kind: "dcfc", lat: 30.2672))]
         let server = URL(string: "https://rivolt.example")!
         let coordinator = ActivityMapRepresentable.Coordinator(drives: drives, charges: charges, filter: .all, onHealth: { _ in })

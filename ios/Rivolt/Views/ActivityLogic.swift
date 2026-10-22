@@ -19,7 +19,7 @@ enum ActivityMode: String, CaseIterable, Identifiable {
     var label: String { self == .list ? "List" : "Map" }
 }
 
-enum ActivityItem: Equatable, Identifiable {
+enum ActivityItem: Hashable, Identifiable {
     case drive(ActivityDrive)
     case charge(ActivityCharge)
 

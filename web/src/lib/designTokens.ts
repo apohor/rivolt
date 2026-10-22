@@ -242,7 +242,7 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chargePin: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#f59e0b")', use: "charge map: the charge's pin, the charger square and the dashed link to it" } },
   chargeRecorded: { both: { file: "src/components/DriveMap.tsx", css: "background:#737373;border:1.5px solid #0a0a0a", use: "charge map: the recorded GPS dot once the pin snapped to a charger" } },
   chargePinInk: { both: { file: "src/components/DriveMap.tsx", css: "color:#0a0a0a;font:700 13px", use: "charge map: the bolt on the charger square and the dots' rings" } },
-  activityRoute: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#34d399",', use: "activity map: every drive's route (1.5 px at 50%)" } },
+  mapDrive: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#34d399",', use: "activity map: every drive's route (1.5 px at 50%)" } },
   chargeFast: { both: { file: "src/components/DriveMap.tsx", css: 'fast: "#f43f5e",', use: "activity map: a DC fast charge's dot" } },
   chargeL2: { both: { file: "src/components/DriveMap.tsx", css: 'l2: "#06b6d4",', use: "activity map: a level 2 (AC, 3 kW and up) charge's dot" } },
   chargeL1: { both: { file: "src/components/DriveMap.tsx", css: 'l1: "#a3a3a3",', use: "activity map: a level 1 (under 3 kW) charge's dot" } },

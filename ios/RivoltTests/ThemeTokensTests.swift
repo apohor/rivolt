@@ -67,7 +67,7 @@ final class ThemeTokensTests: XCTestCase {
             "chargePin": ThemeTokens.chargePin,
             "chargeRecorded": ThemeTokens.chargeRecorded,
             "chargePinInk": ThemeTokens.chargePinInk,
-            "activityRoute": ThemeTokens.activityRoute,
+            "mapDrive": ThemeTokens.mapDrive,
             "chargeFast": ThemeTokens.chargeFast,
             "chargeL2": ThemeTokens.chargeL2,
             "chargeL1": ThemeTokens.chargeL1,

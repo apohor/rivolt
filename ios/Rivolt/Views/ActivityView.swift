@@ -10,7 +10,9 @@ struct ActivityView: View {
     @State private var model = ActivityModel()
     @State private var month = PeriodMonth(containing: .now, calendar: .current)
     @State private var filter = ActivityFilter.all
+    /// List every launch (not kept): the accessible view first, and no map read on a slow connection unless asked.
     @State private var mode = ActivityMode.list
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var picked: ActivityItem?
     private let calendar = Calendar.current
 
@@ -35,25 +37,28 @@ struct ActivityView: View {
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    ThemeTopBar { AccountMenu(vehicleID: vehicleID, onRefresh: { Task { await load(force: true) } }) }
+                    // Refresh reloads the map too: map mode has no pull-to-refresh.
+                    ThemeTopBar { AccountMenu(vehicleID: vehicleID, onRefresh: { Task { await load(force: true); await loadMap(force: true) } }) }
                     titleRow
                 }
             }
             // A tap on the map opens the drive or charge, as a row does.
-            .navigationDestination(isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } })) {
-                if let picked { ActivityDetailView(item: picked, calendar: calendar) }
-            }
+            .navigationDestination(item: $picked) { ActivityDetailView(item: $0, calendar: calendar) }
             .task(id: "\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") { await load(force: false) }
             .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") { await loadMap() }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
         }
     }
 
-    /// The filter (All, Drives, Charges) and the view (List, Map).
+    /// The filter (All, Drives, Charges) and the view (List, Map), side by side; stacked at accessibility text sizes.
     private var controls: some View {
-        HStack(spacing: 2 * Theme.unit) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2 * Theme.unit))
+            : AnyLayout(HStackLayout(spacing: 2 * Theme.unit))
+        return layout {
             ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
-            ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode)
+            ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode,
+                           accessibilityName: "View")
                 .fixedSize()
         }
     }
@@ -141,11 +146,11 @@ struct ActivityView: View {
     }
 
     /// The map's lists, read only when the Map view is open (the web's Activity map lists).
-    private func loadMap() async {
+    private func loadMap(force: Bool = false) async {
         guard mode == .map else { return }
         if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] }
         guard let id = vehicleID else { return }
-        await state.activityMap.load(source: state.client, vehicleID: id, month: month, calendar: calendar)
+        await state.activityMap.load(source: state.client, vehicleID: id, month: month, force: force, calendar: calendar)
     }
 
     private func load(force: Bool) async {

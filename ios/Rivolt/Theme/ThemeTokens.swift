@@ -89,7 +89,7 @@ enum ThemeTokens {
     static let chargePin = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
     static let chargeRecorded = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
     static let chargePinInk = Pair(dark: Rgba(0x0A0A0A, 1), light: Rgba(0x0A0A0A, 1))
-    static let activityRoute = Pair(dark: Rgba(0x34D399, 1), light: Rgba(0x34D399, 1))
+    static let mapDrive = Pair(dark: Rgba(0x34D399, 1), light: Rgba(0x34D399, 1))
     static let chargeFast = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
     static let chargeL2 = Pair(dark: Rgba(0x06B6D4, 1), light: Rgba(0x06B6D4, 1))
     static let chargeL1 = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
