@@ -23,6 +23,25 @@ final class NowParityTests: XCTestCase {
         XCTAssertEqual(summary(power: "charger_connected", sleep: true, age: 1000).presence, .live, "a plugged-in truck that sleeps keeps the asleep cadence")
     }
 
+    func testAFreshTruckFromTheServersOwnFixturesIsLive() throws {
+        let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
+        let clock = try XCTUnwrap(now.at).addingTimeInterval(60)
+        let s = NowSummary(state: st, now: now, clock: clock)
+        XCTAssertEqual(s.presence, .live, "the server's own timestamp format (nine fractional digits) reads as a date")
+        XCTAssertNotEqual(NowCard.pill(for: s, clock: clock).text, "Offline")
+    }
+
+    func testAReauthTruckKeepsTheReconnectHintButNotTheOfflinePill() throws {
+        let st = try Fixture.decode(VehicleState.self, "state")
+        let json = #"{"version":1,"at":"2026-10-21T14:03:12.5Z","connection":"reauth","state":"parked","failed_sleeps_6h":0}"#
+        let now = try JSON.decoder().decode(NowSnapshot.self, from: Data(json.utf8))
+        let clock = try XCTUnwrap(now.at).addingTimeInterval(30)
+        let s = NowSummary(state: st, now: now, clock: clock)
+        XCTAssertEqual(s.freshness, .needsReconnect)
+        XCTAssertEqual(NowCard.pill(for: s, clock: clock).text, "Live")
+        XCTAssertEqual(NowCard.footer(for: s, clock: clock), "Reconnect your Rivian account on the web to see live data.")
+    }
+
     func testTheHeadlinesAreTheWebs() {
         XCTAssertEqual(NowCard.headline(for: summary(gear: "D")), "Driving")
         XCTAssertEqual(NowCard.headline(for: summary(power: "charging_active", kw: 7.2)), "Charging")
