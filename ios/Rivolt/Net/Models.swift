@@ -28,6 +28,18 @@ struct Vehicle: Decodable, Identifiable, Equatable {
     let model: String
     let modelYear: Int?
     let imageUrl: String?
+    /// The software versions' release notes (an outbound link only, never fetched by the app).
+    let ota: OTA?
+
+    struct OTA: Decodable, Equatable {
+        struct Version: Decodable, Equatable {
+            let version: String?
+            let releaseNotesUrl: String?
+        }
+
+        let current: Version?
+        let available: Version?
+    }
 }
 
 /// Point-in-time vehicle snapshot from `GET /api/state/{vehicleID}`.
@@ -51,8 +63,14 @@ struct VehicleState: Decodable, Equatable {
     let speedKph: Double?
     /// The pack size, to work out the time to the charge limit.
     let batteryCapacityKwh: Double?
-    let latitude: Double?
-    let longitude: Double?
+    /// Tire pressures in bar (0 when a wheel doesn't report) and the software versions: the Truck tab's Vehicle card.
+    /// The state's coordinates are not decoded: the app never shows or keeps where the truck is.
+    let tirePressureFlBar: Double?
+    let tirePressureFrBar: Double?
+    let tirePressureRlBar: Double?
+    let tirePressureRrBar: Double?
+    let otaCurrentVersion: String?
+    let otaAvailableVersion: String?
 }
 
 /// `GET /api/vehicles/{id}/now` (now-contract v1): the server's view of the

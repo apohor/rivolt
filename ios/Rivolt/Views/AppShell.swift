@@ -22,7 +22,7 @@ struct AppShell: View {
 
     private var tabs: [ThemeTabItem] {
         [ThemeTabItem(id: "now", label: "Now", icon: "now"), ThemeTabItem(id: "activity", label: "Activity", icon: "activity"),
-         ThemeTabItem(id: "money", label: "Money", icon: "money")]
+         ThemeTabItem(id: "money", label: "Money", icon: "money"), ThemeTabItem(id: "truck", label: "Truck", icon: "truck")]
     }
 
     var body: some View {
@@ -49,6 +49,7 @@ struct AppShell: View {
         switch id {
         case "activity": ActivityView()
         case "money": MoneyView()
+        case "truck": TruckView()
         default: HomeView()
         }
     }
