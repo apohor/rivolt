@@ -73,6 +73,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   networks: "charging",
   planner: "charging",
   notifications: "notifications",
+  "statement-email": "notifications",
   import: "data",
   danger: "data",
 };
