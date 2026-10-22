@@ -23,7 +23,7 @@ final class ChargeCurveSnapshotTests: XCTestCase {
             let pack = 22 + 19 * f
             out.append(ChargeSample(at: start.addingTimeInterval(t), batteryLevelPct: 18 + 56 * f + (i % 3 == 0 ? 0.4 : 0),
                                     chargerPowerKw: kw + Double(i % 5) * 2, packTempAvgC: pack, packTempMinC: pack - 2, packTempMaxC: pack + 3,
-                                    outsideTempC: 7 + 2 * f))
+                                    outsideTempC: 9 - 5 * f))
         }
         return (out, start.addingTimeInterval(2_460))
     }

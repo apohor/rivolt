@@ -206,7 +206,8 @@ struct ChargeCurveView: View {
     }
 
     /// The pack temperature, mapped into the same 0...1 space over the power's range, as the web maps it into its right
-    /// axis (the readout says the real value).
+    /// axis: a thin solid line, with its first and last values at the ends in its colour (there is no scale for it, so
+    /// the ends say what it ran between; the touch readout says the value at a moment).
     @ChartContentBuilder
     private func packMarks() -> some ChartContent {
         let pts = packInUnit
@@ -214,13 +215,32 @@ struct ChargeCurveView: View {
         ForEach(Array(pts.enumerated()), id: \.offset) { _, p in
             LineMark(x: .value("Time", p.at), y: .value("Pack", ChargeCurve.unit(temp: p.value, range: range)), series: .value("Series", "Pack"))
                 .foregroundStyle(Self.packColor)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round, dash: [4, 2]))
+                .lineStyle(StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.linear)
+        }
+        endLabels(pts, range: range, color: Self.packColor, above: true)
+    }
+
+    /// A temperature line's two ends named in its colour: its first value at the left of the plot, its last at the
+    /// right, above the line (pack) or below it (outside) so the two overlays' labels don't sit on each other.
+    @ChartContentBuilder
+    private func endLabels(_ pts: [ChargeCurve.Pt], range: ClosedRange<Double>, color: Color, above: Bool) -> some ChartContent {
+        if let first = pts.first, let last = pts.last {
+            PointMark(x: .value("Time", first.at), y: .value("Temperature", ChargeCurve.unit(temp: first.value, range: range)))
+                .symbolSize(0)
+                .annotation(position: above ? .top : .bottom, alignment: .leading, spacing: 2) {
+                    Text("\(NumberText.fixed(first.value, 0))\(tempUnit)").themeText(.caption, color: color)
+                }
+            PointMark(x: .value("Time", last.at), y: .value("Temperature", ChargeCurve.unit(temp: last.value, range: range)))
+                .symbolSize(0)
+                .annotation(position: above ? .top : .bottom, alignment: .trailing, spacing: 2) {
+                    Text("\(NumberText.fixed(last.value, 0))\(tempUnit)").themeText(.caption, color: color)
+                }
         }
     }
 
-    /// The outside temperature, mapped like the pack's: a thin dashed line over its own range, the readout saying the
-    /// real value.
+    /// The outside temperature, mapped like the pack's: a thin dashed line (the pack's is solid, so the two differ by
+    /// more than colour), its ends named below it, the touch readout giving the real value at a moment.
     @ChartContentBuilder
     private func outsideMarks() -> some ChartContent {
         let pts = outsideInUnit
@@ -228,9 +248,10 @@ struct ChargeCurveView: View {
         ForEach(Array(pts.enumerated()), id: \.offset) { _, p in
             LineMark(x: .value("Time", p.at), y: .value("Outside", ChargeCurve.unit(temp: p.value, range: range)), series: .value("Series", "Outside"))
                 .foregroundStyle(Self.outsideColor)
-                .lineStyle(StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round, dash: [3, 3]))
+                .lineStyle(StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round, dash: [3, 3]))
                 .interpolationMethod(.linear)
         }
+        endLabels(pts, range: range, color: Self.outsideColor, above: false)
     }
 
     @ChartContentBuilder
@@ -244,14 +265,18 @@ struct ChargeCurveView: View {
 
     // MARK: Note
 
+    /// What the pack cells' spread was: a plain fact, not a verdict (a DC charge normally has a spread).
+    static func spreadNote(spreadC: Double, metric: Bool) -> String {
+        let spread = metric ? spreadC : spreadC * 1.8
+        return "Pack cell temperatures: the hottest and coolest cells were up to \(NumberText.fixed(spread, 1))\(metric ? "°C" : "°F") apart."
+    }
+
     @ViewBuilder
     private var note: some View {
         if !hasPower {
             Text("No charger-power samples for this session.").themeText(.caption, color: Theme.textTertiary)
         } else if showPack, series.packSpreadC > 0 {
-            let spread = metric ? series.packSpreadC : series.packSpreadC * 1.8
-            Text("Pack cell temperatures: the widest spread between the hottest and the coolest cell was \(NumberText.fixed(spread, 1))\(tempUnit), a sign of thermal imbalance.")
-                .themeText(.caption, color: Theme.textTertiary)
+            Text(Self.spreadNote(spreadC: series.packSpreadC, metric: metric)).themeText(.caption, color: Theme.textTertiary)
         }
     }
 }

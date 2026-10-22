@@ -146,6 +146,12 @@ final class ChargeCurveTests: XCTestCase {
         XCTAssertTrue(ChargeCurve.series([sample(0, soc: 50, kw: 7)], from: t0, to: t0).outsideC.isEmpty)
     }
 
+    func testThePackSpreadIsStatedNotJudged() {
+        XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: false), "Pack cell temperatures: the hottest and coolest cells were up to 9.0°F apart.")
+        XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: true), "Pack cell temperatures: the hottest and coolest cells were up to 5.0°C apart.")
+        XCTAssertFalse(ChargeCurveView.spreadNote(spreadC: 5, metric: false).contains("imbalance"), "no verdict: a DC charge normally has a spread")
+    }
+
     func testTheReadoutFindsTheNearestSample() {
         let pts = [pt(0, 10), pt(60, 20), pt(120, 30)]
         XCTAssertEqual(ChargeCurve.nearest(pts, to: t0.addingTimeInterval(50)), 20)
