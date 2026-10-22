@@ -67,7 +67,7 @@ struct NowCard: View {
     private var gaugeRow: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
         return layout {
-            ThemeGauge(value: summary.socPct ?? 0, width: gaugeWidth, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
+            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
                         .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
