@@ -21,6 +21,8 @@ struct HomeView: View {
     @State private var liveDrive: LiveDrive?
     @State private var latestCharge: ChargeBrief?
     @State private var latestDrive: DriveBrief?
+    @State private var charts = ChartsModel()
+    @State private var chartWindow = ChartWindow.week
 
     private var selected: Vehicle? {
         vehicles.first { $0.id == selectedID } ?? vehicles.first
@@ -43,6 +45,7 @@ struct HomeView: View {
                                let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
                                 DriveDetailCard(detail: drive)
                             }
+                            ChartsSection(model: charts, window: $chartWindow)
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
@@ -79,7 +82,7 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Refresh") { Task { await load() } }
+                        Button("Refresh") { Task { await load(force: true) } }
                         if state.notifications.offered {
                             Button("Notifications") { showNotifications = true }
                         }
@@ -92,10 +95,12 @@ struct HomeView: View {
                     }
                 }
             }
-            .refreshable { await load() }
+            .refreshable { await load(force: true) }
             .task { await load() }
             // While the screen is up the live reads follow the charge or drive (about every 10 s).
             .task(id: selectedID) { await pollLive() }
+            // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
+            .task(id: "\(selected?.id ?? "")|\(chartWindow.days)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
@@ -112,7 +117,13 @@ struct HomeView: View {
         }
     }
 
-    private func load() async {
+    private func loadCharts(force: Bool) async {
+        guard let id = selected?.id else { return }
+        await charts.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
+    }
+
+    /// `force` is for a pull or the Refresh button: only then are the charts read again before their cache expires.
+    private func load(force: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
         loadError = nil
@@ -122,6 +133,7 @@ struct HomeView: View {
                 selectedID = vehicles.first?.id ?? ""
             }
             await loadSelected()
+            if force { await loadCharts(force: true) }
         } catch {
             loadError = error.localizedDescription
         }

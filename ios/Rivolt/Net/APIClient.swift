@@ -179,6 +179,24 @@ actor APIClient {
         return rows.first
     }
 
+    // MARK: Chart reads (the same ones the web's Home charts use, without coordinates)
+
+    private func rfc3339(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: date)
+    }
+
+    /// Drives and charges in `[since, until)`: distances and charge levels only.
+    func chartPoints(since: Date, until: Date, vehicleID: String) async throws -> ChartPoints {
+        try await request("GET", "/api/chart-points?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")
+    }
+
+    /// Per-day power-state hours (UTC days) in `[since, until)`; the server's key here is `vehicle`, not `vehicle_id`.
+    func sleepActivity(since: Date, until: Date, vehicleID: String) async throws -> [DayActivity] {
+        try await request("GET", "/api/sleep-activity?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle=\(queryValue(vehicleID))")
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }
@@ -311,3 +329,4 @@ enum AnyJSON: Encodable {
     }
 }
 
+extension APIClient: ChartsSource {}

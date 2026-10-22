@@ -39,6 +39,16 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("detail-last-drive", DriveDetailCard(detail: lastDetail, clock: try XCTUnwrap(last?.endedAt).addingTimeInterval(54 * 60)))
     }
 
+    func testRenderCharts() throws {
+        let model = ChartsModel(points: try Fixture.decode(ChartPoints.self, "chart_points"),
+                                sleep: try Fixture.decode([DayActivity].self, "sleep_activity"))
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let now = try XCTUnwrap(JSON.parseDate("2026-10-21T15:00:00Z"))
+        try snapshot("charts", ChartsSection(model: model, window: .constant(.week), now: now, calendar: utc))
+        try snapshot("charts-empty", ChartsSection(model: ChartsModel(points: ChartPoints(drives: [], charges: []), sleep: []), window: .constant(.week), now: now, calendar: utc))
+    }
+
     private func snapshot(_ name: String, _ card: some View) throws {
         for scheme in [ColorScheme.light, .dark] {
             let view = card
