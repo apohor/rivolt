@@ -118,10 +118,10 @@ func TestDeriveChargeSoCFallback(t *testing.T) {
 func TestSplitFrozenGPS_NoParking(t *testing.T) {
 	t0 := time.Date(2026, 5, 1, 14, 0, 0, 0, time.UTC)
 	snaps := []snapshot{
-		{at: t0, lat: 30.55, lon: -97.76},
-		{at: t0.Add(time.Minute), lat: 30.56, lon: -97.77},
-		{at: t0.Add(2 * time.Minute), lat: 30.57, lon: -97.78},
-		{at: t0.Add(3 * time.Minute), lat: 30.58, lon: -97.79},
+		{at: t0, lat: 32.77, lon: -96.80},
+		{at: t0.Add(time.Minute), lat: 32.78, lon: -96.81},
+		{at: t0.Add(2 * time.Minute), lat: 32.79, lon: -96.82},
+		{at: t0.Add(3 * time.Minute), lat: 32.80, lon: -96.83},
 	}
 	got := splitFrozenGPS(snaps, 30*time.Minute)
 	if len(got) != 1 {
@@ -138,14 +138,14 @@ func TestSplitFrozenGPS_NoParking(t *testing.T) {
 func TestSplitFrozenGPS_ShortPause(t *testing.T) {
 	t0 := time.Date(2026, 5, 1, 14, 0, 0, 0, time.UTC)
 	snaps := []snapshot{
-		{at: t0, lat: 30.55, lon: -97.76},
-		{at: t0.Add(time.Minute), lat: 30.56, lon: -97.77},
+		{at: t0, lat: 32.77, lon: -96.80},
+		{at: t0.Add(time.Minute), lat: 32.78, lon: -96.81},
 		// 5-minute frozen run at the same coords (drive-thru):
-		{at: t0.Add(2 * time.Minute), lat: 30.57, lon: -97.78},
-		{at: t0.Add(3 * time.Minute), lat: 30.57, lon: -97.78},
-		{at: t0.Add(7 * time.Minute), lat: 30.57, lon: -97.78},
+		{at: t0.Add(2 * time.Minute), lat: 32.79, lon: -96.82},
+		{at: t0.Add(3 * time.Minute), lat: 32.79, lon: -96.82},
+		{at: t0.Add(7 * time.Minute), lat: 32.79, lon: -96.82},
 		// Movement resumes:
-		{at: t0.Add(8 * time.Minute), lat: 30.58, lon: -97.79},
+		{at: t0.Add(8 * time.Minute), lat: 32.80, lon: -96.83},
 	}
 	got := splitFrozenGPS(snaps, 30*time.Minute)
 	if len(got) != 1 || len(got[0]) != 6 {
@@ -166,12 +166,12 @@ func TestSplitFrozenGPS_OvernightParked(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		snaps = append(snaps, snapshot{
 			at:  t0.Add(time.Duration(i*30) * time.Minute),
-			lat: 30.5 + float64(i)*0.01,
-			lon: -97.7 - float64(i)*0.01,
+			lat: 32.7 + float64(i)*0.01,
+			lon: -96.7 - float64(i)*0.01,
 		})
 	}
 	// 36-hour frozen run at the same coords (cached frame).
-	parkLat, parkLon := 30.56, -97.76
+	parkLat, parkLon := 32.78, -96.80
 	parkStart := t0.Add(3 * time.Hour)
 	for i := 0; i <= 72; i++ {
 		snaps = append(snaps, snapshot{
@@ -185,8 +185,8 @@ func TestSplitFrozenGPS_OvernightParked(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		snaps = append(snaps, snapshot{
 			at:  resumeStart.Add(time.Duration(i*10) * time.Minute),
-			lat: 31.0 + float64(i)*0.01,
-			lon: -98.0 - float64(i)*0.01,
+			lat: 33.2 + float64(i)*0.01,
+			lon: -97.0 - float64(i)*0.01,
 		})
 	}
 
@@ -218,8 +218,8 @@ func TestSplitFrozenGPS_AllParked(t *testing.T) {
 	for i := 0; i <= 80; i++ {
 		snaps = append(snaps, snapshot{
 			at:  t0.Add(time.Duration(i*30) * time.Minute),
-			lat: 30.55,
-			lon: -97.76,
+			lat: 32.77,
+			lon: -96.80,
 		})
 	}
 	got := splitFrozenGPS(snaps, 30*time.Minute)

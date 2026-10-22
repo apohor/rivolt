@@ -126,6 +126,21 @@ jobs:
           chart=false
           if git diff --name-only $RANGE | grep -q -E '^deploy/helm/|^\.github/'; then chart=true; fi
           echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"; echo "chart=$chart" >> "$GITHUB_OUTPUT"
+      # Personal data that must never come back into the tree (real coordinates, ids), one fixed string per
+      # line in the PRIVACY_DENYLIST secret, so the values themselves are never in the repo. Only file names
+      # are printed. Skipped where the secret isn't available (a fork, or not set yet). Real Rivian ids are
+      # also caught without the secret by internal/privacy's test.
+      - name: Personal-data denylist
+        env:
+          DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+        run: |
+          if [ -z "$DENYLIST" ]; then echo "PRIVACY_DENYLIST is not set: skipped"; exit 0; fi
+          deny="$RUNNER_TEMP/deny"
+          printf '%s\n' "$DENYLIST" | sed '/^[[:space:]]*$/d' > "$deny"
+          hits=$(git grep -l -F -f "$deny" -- . || true)
+          rm -f "$deny"
+          if [ -n "$hits" ]; then echo "Personal data from the denylist is in:"; echo "$hits"; exit 1; fi
+          echo "No denylisted values in the tree."
 
   web:
     name: web

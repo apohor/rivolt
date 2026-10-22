@@ -23,7 +23,7 @@ func TestEnabledNeedsReplayOverSampleCorpus(t *testing.T) {
 		{"true", "stub", "sample", false},
 		// replaying a recorded vehicle must never be public
 		{"true", "replay", "", false},
-		{"true", "replay", "01-242521064", false},
+		{"true", "replay", "01-000000000", false},
 		{"true", "replay", "sample", true},
 		{"TRUE", "REPLAY", "sample", true},
 	} {
@@ -39,7 +39,7 @@ func TestEnabledNeedsReplayOverSampleCorpus(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "true")
 	t.Setenv("RIVIAN_CLIENT", "replay")
 	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
-	t.Setenv("RIVOLT_REPLAY_SOURCE_VEHICLE", "01-242521064")
+	t.Setenv("RIVOLT_REPLAY_SOURCE_VEHICLE", "01-000000000")
 	if Enabled() {
 		t.Error("Enabled must be false while RIVOLT_REPLAY_SOURCE_VEHICLE is set")
 	}

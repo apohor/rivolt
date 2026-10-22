@@ -1,7 +1,7 @@
 {
   "_source": "Anonymized from prod, read-only, 2026-10-15: devils-advocate's R2 audit vehicles. Times are seconds from the first event, odometer is miles from the first event; no coordinates, VIN or ids. ts is the Parallax event ts (seconds); a repeated ts is the cloud replaying the last frame. vehicleState values are what Rivolt cached from vehicleState (power/gear blank = not reported).",
   "park_drive_park_sleep": {
-    "_from": "01-244816997, 2026-10-15 13:00:00-13:33:46Z (Parallax shadow log + vehicle_state rows)",
+    "_from": "01-000000004, 2026-10-15 13:00:00-13:33:46Z (Parallax shadow log + vehicle_state rows)",
     "events": [
       {"t": 0,    "kind": "vs", "gear": "", "power": "", "mph": 0, "odo": 0, "cs": "charging_ready", "soc": 32.1},
       {"t": 1,    "kind": "px_power", "enum": 2, "ts": 1},
@@ -46,7 +46,7 @@
     ]
   },
   "charge_with_stale_gear": {
-    "_from": "01-247739360, 2026-10-13 03:40:53-03:47:25Z (vehicle_state rows); an R2 reports no chargerStatus at all, so none here; the pause and the charging_complete exit are its observed transitions",
+    "_from": "01-000000001, 2026-10-13 03:40:53-03:47:25Z (vehicle_state rows); an R2 reports no chargerStatus at all, so none here; the pause and the charging_complete exit are its observed transitions",
     "events": [
       {"t": 0,   "kind": "vs", "gear": "D", "power": "go", "mph": 28.9, "odo": 0, "cs": "charging_ready", "kw": 0, "soc": 37.9},
       {"t": 53,  "kind": "vs", "soc": 38.0},
@@ -65,7 +65,7 @@
       {"t": 389, "kind": "vs", "kw": 7.4},
       {"t": 450, "kind": "vs", "kw": 0, "_note": "a 0 kW pause mid-session"},
       {"t": 470, "kind": "vs", "kw": 7.4, "soc": 38.6},
-      {"t": 900, "kind": "vs", "cs": "charging_complete", "kw": 0, "soc": 39.5, "_note": "the R2 leaves charging_active this way (01-247739360: active->complete 4, active->user_stopped 2 in 5 days)"}
+      {"t": 900, "kind": "vs", "cs": "charging_complete", "kw": 0, "soc": 39.5, "_note": "the R2 leaves charging_active this way (01-000000001: active->complete 4, active->user_stopped 2 in 5 days)"}
     ]
   }
 }

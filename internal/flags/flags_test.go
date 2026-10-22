@@ -90,10 +90,10 @@ func TestWakeSafetyJSON(t *testing.T) {
 
 func TestWakeSafetyRestQuietJSON(t *testing.T) {
 	var w WakeSafetyState
-	if err := json.Unmarshal([]byte(`{"rest_quiet":{"vehicles":["01-2772711101","01-2781829100","01-242521064"]}}`), &w); err != nil {
+	if err := json.Unmarshal([]byte(`{"rest_quiet":{"vehicles":["01-000000005","01-000000002","01-000000000"]}}`), &w); err != nil {
 		t.Fatal(err)
 	}
-	if !w.RestQuiet.Covers("01-242521064") || w.RestQuiet.Covers("01-248088167") || w.HoldAsleep.Covers("01-242521064") {
+	if !w.RestQuiet.Covers("01-000000000") || w.RestQuiet.Covers("01-000000003") || w.HoldAsleep.Covers("01-000000000") {
 		t.Errorf("experiment A selection decoded as %+v", w)
 	}
 }

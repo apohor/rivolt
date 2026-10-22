@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- -------------------------------------------------------------------
 -- vehicles: a car one user owns. rivian_vehicle_id is the
--- Rivian-gateway string id (e.g. "01-242521064") for live ingest;
+-- Rivian-gateway string id (e.g. "01-000000000") for live ingest;
 -- importers that don't have a real id generate a stable synthetic
 -- one (`electrafi_<hash>`) so the same UNIQUE(user_id,
 -- rivian_vehicle_id) slot catches re-imports.

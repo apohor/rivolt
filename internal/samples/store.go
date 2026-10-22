@@ -16,7 +16,7 @@ import (
 )
 
 // Sample is a single polling snapshot. VehicleID is the Rivian gateway
-// string id ("01-242521064"); the store resolves it to the internal
+// string id ("01-000000000"); the store resolves it to the internal
 // vehicles.id UUID on write.
 type Sample struct {
 	VehicleID       string

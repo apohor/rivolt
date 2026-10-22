@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -747,16 +748,24 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 		}
 		out := map[string]any{}
 
+		// The caller's own truck: ?vehicle= when it is one of theirs, else their first. Never a fixed id.
+		vehicleID, err := diagVehicle(r.Context(), c, r.URL.Query().Get("vehicle"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Known-good v2 inlined call. Returns real plans when the
 		// upstream is healthy; an INTERNAL_SERVER_ERROR here means
-		// Rivian's planner is degraded again.
+		// Rivian's planner is degraded again. The route is between two
+		// public city centres (Dallas to Houston), nobody's address.
 		v2Query := `query planTripWithMultiStopV2 {
   planTrip2(
     waypoints: [
-      {latitude: 30.5538, longitude: -97.7622},
-      {latitude: 32.7767, longitude: -96.797}
+      {latitude: 32.7767, longitude: -96.797},
+      {latitude: 29.7604, longitude: -95.3698}
     ],
-    vehicle: "01-242521064",
+    vehicle: "` + vehicleID + `",
     startingSoc: 54.0,
     startingRangeMeters: 270000.0,
     targetArrivalSocPercent: 20.0
@@ -805,6 +814,30 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// diagVehicleID is the shape of a Rivian vehicle id, so the one put into the diagnostic query can't change it.
+var diagVehicleID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// diagVehicle picks the diagnostic's truck from the caller's own: the one asked for when it is theirs, else the
+// first. An error when they have none, or ask for one that isn't theirs.
+func diagVehicle(ctx context.Context, c rivian.Client, want string) (string, error) {
+	vs, err := c.Vehicles(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list vehicles: %w", err)
+	}
+	for _, v := range vs {
+		if !diagVehicleID.MatchString(v.ID) {
+			continue
+		}
+		if want == "" || v.ID == want {
+			return v.ID, nil
+		}
+	}
+	if want != "" {
+		return "", errors.New("vehicle is not one of this account's")
+	}
+	return "", errors.New("no vehicle on this account")
 }
 
 // tripPlannerOf returns the client's trip planner: the live client, or the

@@ -23,7 +23,7 @@ import (
 // transaction; --restore-csv undoes an apply. Prints no locations.
 func runRepairR2History(args []string) int {
 	fs := flag.NewFlagSet("repair-r2-history", flag.ContinueOnError)
-	vehicle := fs.String("vehicle", "", "Rivian vehicle id, e.g. 01-247739360 (required)")
+	vehicle := fs.String("vehicle", "", "Rivian vehicle id, e.g. 01-000000001 (required)")
 	sinceS := fs.String("since", "", "window start, RFC3339 (required)")
 	untilS := fs.String("until", "", "window end, RFC3339, before the fixed release reached prod (required)")
 	apply := fs.Bool("apply", false, "write the plan (default: dry run)")

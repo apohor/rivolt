@@ -127,7 +127,7 @@ func TestReplayClient_SessionAndVehicleIsolation(t *testing.T) {
 	if err != nil || len(vs) != 1 || vs[0].ID != DemoVehicleID(uid) {
 		t.Fatalf("vehicles = %+v, %v", vs, err)
 	}
-	err = c.Stream(context.Background(), "01-242521064", func(State, bool) {
+	err = c.Stream(context.Background(), "01-000000000", func(State, bool) {
 		t.Fatal("emitted a frame for a real vehicle")
 	})
 	if !errors.Is(err, ErrVehicleNotFound) {

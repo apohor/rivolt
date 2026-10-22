@@ -128,7 +128,7 @@ const AICallCapName = "ai_call_cap"
 // psql with no deploy, e.g.:
 //
 //	INSERT INTO flags (name, value, updated_by)
-//	VALUES ('sleep_safe_vehicles', '{"vehicles":["01-242521064"]}', 'ops')
+//	VALUES ('sleep_safe_vehicles', '{"vehicles":["01-000000000"]}', 'ops')
 //	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
 //
 // {"all": true} applies it to every vehicle; "except" opts vehicles
@@ -203,7 +203,7 @@ type AICallCapState struct {
 }
 
 // SleepSafeState is the JSONB payload for SleepSafeName. Vehicles are
-// Rivian vehicle IDs (e.g. "01-242521064").
+// Rivian vehicle IDs (e.g. "01-000000000").
 type SleepSafeState struct {
 	All      bool     `json:"all,omitempty"`
 	Vehicles []string `json:"vehicles,omitempty"`

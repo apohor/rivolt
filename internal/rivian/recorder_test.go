@@ -588,7 +588,7 @@ func TestDriveCloseHook_FiresOnDtoP(t *testing.T) {
 	_ = s.handleDriveLifecycle(&State{
 		VehicleID: "vid-1", At: t0, Gear: "D",
 		BatteryLevelPct: 80, OdometerKm: 1000,
-		Latitude: 30.55, Longitude: -97.76,
+		Latitude: 32.77, Longitude: -96.80,
 	}, nil, m, ctx)
 	if got.seen {
 		t.Fatalf("hook fired on drive OPEN; should only fire on close")
@@ -598,7 +598,7 @@ func TestDriveCloseHook_FiresOnDtoP(t *testing.T) {
 	_ = s.handleDriveLifecycle(&State{
 		VehicleID: "vid-1", At: t0.Add(5 * time.Minute), Gear: "D",
 		BatteryLevelPct: 79, OdometerKm: 1010, SpeedKph: 100,
-		Latitude: 30.6, Longitude: -97.8,
+		Latitude: 32.82, Longitude: -96.84,
 	}, nil, m, ctx)
 	if got.seen {
 		t.Fatalf("hook fired on ongoing drive frame; should only fire on close")
@@ -609,7 +609,7 @@ func TestDriveCloseHook_FiresOnDtoP(t *testing.T) {
 	_ = s.handleDriveLifecycle(&State{
 		VehicleID: "vid-1", At: t0.Add(10 * time.Minute), Gear: "P",
 		BatteryLevelPct: 78, OdometerKm: 1020,
-		Latitude: 30.65, Longitude: -97.85,
+		Latitude: 32.87, Longitude: -96.89,
 	}, nil, m, ctx)
 
 	select {
@@ -771,9 +771,9 @@ func TestHandleDriveLifecycle_CloseSplicesParkingFix(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 7, 14, 23, 11, 0, 0, time.UTC)
 
-	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20, Latitude: 30.55, Longitude: -97.76}, nil, m, ctx)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20, Latitude: 32.77, Longitude: -96.80}, nil, m, ctx)
 	// Blackout … then the parking frame arrives at a new location.
-	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(6 * time.Minute), Gear: "P", OdometerKm: 60003, SpeedKph: 0, Latitude: 30.52, Longitude: -97.77}, nil, m, ctx)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(6 * time.Minute), Gear: "P", OdometerKm: 60003, SpeedKph: 0, Latitude: 32.74, Longitude: -96.81}, nil, m, ctx)
 	if s.drive != nil {
 		t.Fatal("setup: drive should be closed")
 	}
@@ -782,7 +782,7 @@ func TestHandleDriveLifecycle_CloseSplicesParkingFix(t *testing.T) {
 		t.Fatalf("parking fix must be appended to the path, got %v", path)
 	}
 	end := path[len(path)-1]
-	if end[0] != 30.52 || end[1] != -97.77 {
+	if end[0] != 32.74 || end[1] != -96.81 {
 		t.Fatalf("path must end at the parking spot, got %v", end)
 	}
 }
@@ -797,20 +797,20 @@ func TestHandleDriveLifecycle_StaleFixReplayRejected(t *testing.T) {
 	t0 := time.Date(2026, 7, 14, 20, 0, 0, 0, time.UTC)
 
 	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20,
-		Latitude: 30.50, Longitude: -97.70, LocationFixAt: t0}, nil, m, ctx)
+		Latitude: 32.72, Longitude: -96.74, LocationFixAt: t0}, nil, m, ctx)
 	// Fresh (Parallax) fix.
 	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(30 * time.Second), Gear: "D", OdometerKm: 60000.5, SpeedKph: 20,
-		Latitude: 30.51, Longitude: -97.71, LocationFixAt: t0.Add(30 * time.Second)}, nil, m, ctx)
+		Latitude: 32.73, Longitude: -96.75, LocationFixAt: t0.Add(30 * time.Second)}, nil, m, ctx)
 	// Stale vehicleState replay: older LocationFixAt, old coords.
 	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(33 * time.Second), Gear: "D", OdometerKm: 60000.5, SpeedKph: 20,
-		Latitude: 30.50, Longitude: -97.70, LocationFixAt: t0.Add(-10 * time.Second)}, nil, m, ctx)
+		Latitude: 32.72, Longitude: -96.74, LocationFixAt: t0.Add(-10 * time.Second)}, nil, m, ctx)
 
 	path := s.drive.path
 	end := path[len(path)-1]
-	if end[0] != 30.51 || end[1] != -97.71 {
+	if end[0] != 32.73 || end[1] != -96.75 {
 		t.Fatalf("stale replay must be rejected; path end = %v", end)
 	}
-	if s.drive.endLat != 30.51 {
+	if s.drive.endLat != 32.73 {
 		t.Fatalf("stale replay must not move endLat; got %v", s.drive.endLat)
 	}
 }

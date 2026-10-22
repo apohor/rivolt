@@ -1062,7 +1062,7 @@ func New(d Deps) http.Handler {
 					// Trip-planner diagnostic bundle. GET-only so an operator
 					// can click the URL on mobile (no DevTools needed). Runs:
 					//   1. __type introspection on a few likely names
-					//   2. planTripWithMultiStop with a known-Austin payload
+					//   2. planTripWithMultiStop for the caller's own truck between two city centres
 					// Dumps every response together. Paste-back-to-debug.
 					r.Get("/trips/plan/diag", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 						handleTripPlanDiag(clientFor(d, uid))(w, r)

@@ -12,7 +12,7 @@ import (
 )
 
 // VehicleResolver translates Rivian gateway vehicle-id strings
-// (e.g. "01-242521064") into the internal vehicles.id UUID, creating
+// (e.g. "01-000000000") into the internal vehicles.id UUID, creating
 // the row on first sight. Results are cached in-process so the hot
 // path (per-sample writes) doesn't hit the DB on every call.
 //
