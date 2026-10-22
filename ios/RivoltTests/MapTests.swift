@@ -96,3 +96,38 @@ final class ChargePlaceTests: XCTestCase {
         XCTAssertLessThan(r(2), r(10))
     }
 }
+
+final class MapLoadStateTests: XCTestCase {
+    /// A slow connection: the first tile requests time out, the map settles with none loaded ("Map unavailable."
+    /// over the map), then MapLibre's retry brings a tile and the line goes.
+    func testNoTilesYetClearsWhenATileArrives() {
+        var s = MapLoadState()
+        s.tileFailed()
+        s.tileFailed()
+        XCTAssertEqual(s.idle(), .noTiles)
+        XCTAssertNil(s.idle())
+        XCTAssertEqual(s.tileLoaded(), .ok)
+        XCTAssertEqual(s.health, .ok)
+        // Settling again after a tile has loaded never brings the line back.
+        s.tileFailed()
+        XCTAssertNil(s.idle())
+    }
+
+    func testTilesThatLoadNeverShowTheLine() {
+        var s = MapLoadState()
+        XCTAssertNil(s.tileLoaded())
+        s.tileFailed()
+        XCTAssertNil(s.idle())
+        XCTAssertEqual(s.health, .ok)
+    }
+
+    /// The map itself failing is for good: a late tile doesn't undo it.
+    func testAFailedMapStaysFailed() {
+        var s = MapLoadState()
+        s.tileFailed()
+        XCTAssertEqual(s.idle(), .noTiles)
+        XCTAssertEqual(s.mapFailed(), .failed)
+        XCTAssertNil(s.tileLoaded())
+        XCTAssertEqual(s.health, .failed)
+    }
+}
