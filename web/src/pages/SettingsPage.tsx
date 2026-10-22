@@ -971,7 +971,11 @@ function ChargingNetworksPanel() {
                   </div>
                 )}
 
-                {!r.slug && (
+                {!r.slug && (() => {
+                  const parsed = r.locDraft === undefined ? null : parseNetworkLocation(r.locDraft);
+                  const bad = parsed && !parsed.ok ? parsed.why : null;
+                  const hintId = `net-loc-hint-${i}`;
+                  return (
                   <label className="mt-2 flex flex-col text-xs" data-network-location>
                     <span className="text-[11px] uppercase tracking-wide text-neutral-500">Location (optional)</span>
                     <input
@@ -979,16 +983,17 @@ function ChargingNetworksPanel() {
                       inputMode="decimal"
                       value={r.locDraft ?? formatNetworkLocation(r)}
                       onChange={(e) => update(i, { locDraft: e.target.value })}
+                      aria-describedby={hintId}
+                      aria-invalid={bad ? true : undefined}
                       placeholder="lat, lon"
                       className="mt-1 w-full rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
                     />
-                    <span className="mt-1 text-neutral-500">
-                      {r.locDraft !== undefined && !parseNetworkLocation(r.locDraft).ok
-                        ? (parseNetworkLocation(r.locDraft) as { why: string }).why
-                        : "Only used to label your own charges near it."}
+                    <span id={hintId} role={bad ? "alert" : undefined} className={"mt-1 " + (bad ? "text-rose-400" : "text-neutral-500")}>
+                      {bad ?? "Only used to label your own charges near it. Clear it to remove it."}
                     </span>
                   </label>
-                )}
+                  );
+                })()}
 
                 {hasMembership && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
