@@ -112,6 +112,20 @@ func TestChargeLimitStoredAndBackfilled(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, "UPDATE charges c"+upd); err != nil {
 		t.Fatalf("backfill: %v", err)
 	}
+	// Idempotent: a second run changes nothing (it only fills NULLs).
+	var before, after int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1 AND charge_limit_pct IS NOT NULL`, uid).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, "UPDATE charges c"+upd); err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1 AND charge_limit_pct IS NOT NULL`, uid).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if before != after || before != 3 {
+		t.Errorf("limits set: %d before the second run, %d after; want 3 both times (cl-1, cl-bf-a, cl-bf-b)", before, after)
+	}
 	for id, want := range map[string]float64{"cl-bf-a": 85, "cl-bf-b": 75, "cl-bf-c": 0} {
 		v := get(id)
 		switch {
