@@ -114,6 +114,7 @@ final class ShellSnapshotTests: XCTestCase {
                 KpiGrid(tiles: tiles, idle: idle, idleLoading: false)
                 PlacesCard(split: split, periodTitle: month.title(calendar: utc))
                 ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
+                PageFooter(server: URL(string: "https://rivolt.dev")!)
             }
             .padding(16)
             ThemeTabBar(items: tabs, selection: .constant("now"))

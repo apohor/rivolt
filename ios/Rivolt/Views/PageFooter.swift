@@ -3,7 +3,8 @@ import SwiftUI
 /// The web's page footer: the project and legal links, the site's public pages and the app's version. Each link opens
 /// the page in Safari: the project's own, or the user's own Rivolt server for Privacy, Terms and the rest.
 struct PageFooter: View {
-    @Environment(AppState.self) private var state
+    /// The user's own Rivolt server: the base for Privacy, Terms and the other pages.
+    let server: URL
 
     struct Item: Identifiable, Equatable {
         enum Target: Equatable { case external(String), server(String), text }
@@ -71,7 +72,7 @@ struct PageFooter: View {
 
     @ViewBuilder
     private func entry(_ item: Item) -> some View {
-        if let url = Self.url(for: item, server: state.serverURL) {
+        if let url = Self.url(for: item, server: server) {
             Link(destination: url) { Text(item.label).themeText(.subline, color: Theme.textTertiary) }
         } else {
             Text(item.label).themeText(.subline, color: Theme.textTertiary)

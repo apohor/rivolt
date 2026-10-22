@@ -65,7 +65,7 @@ struct HomeView: View {
                                 PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
                             ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
-                            PageFooter()
+                            PageFooter(server: state.serverURL)
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
