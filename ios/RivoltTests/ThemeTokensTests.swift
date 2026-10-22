@@ -105,6 +105,21 @@ final class ThemeTokensTests: XCTestCase {
         XCTAssertEqual(ThemeTokens.logoWordmarkTracking, n("logo.wordmarkTracking"))
     }
 
+    func testTheTabBarIconsMatchTheJSON() throws {
+        struct Icons: Decodable {
+            struct I: Decodable { let stroke: Double; let paths: [String: [String]] }
+            let icons: I
+        }
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "tokens", withExtension: "json"))
+        let icons = try JSONDecoder().decode(Icons.self, from: Data(contentsOf: url)).icons
+        XCTAssertEqual(ThemeTokens.iconStroke, icons.stroke)
+        XCTAssertEqual(ThemeTokens.iconPaths, icons.paths)
+        // Every path draws something, whatever commands it uses.
+        for (name, paths) in icons.paths {
+            XCTAssertFalse(SVGPath.path(paths).boundingRect.isEmpty, "\(name) icon drew nothing")
+        }
+    }
+
     func testTheBundledFontsRegisterAndResolve() {
         Theme.registerFonts()
         for name in ["Geist-Regular", "Geist-Medium", "Geist-SemiBold", "GeistMono-Medium", "GeistMono-SemiBold"] {

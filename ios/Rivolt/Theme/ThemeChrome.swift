@@ -6,13 +6,13 @@ struct ThemeLogo: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .inset(by: 4 + 1.75)
-                .stroke(Theme.accent.opacity(0.9), lineWidth: 3.5)
-            BoltShape().fill(Theme.accent)
+            RoundedRectangle(cornerRadius: ThemeTokens.logoFrameRadius, style: .continuous)
+                .inset(by: 4 + ThemeTokens.logoFrameStroke / 2)
+                .stroke(Theme.brandMark.opacity(ThemeTokens.logoFrameOpacity), lineWidth: ThemeTokens.logoFrameStroke)
+            BoltShape().fill(Theme.brandMark)
         }
-        .frame(width: 64, height: 64)
-        .scaleEffect(size / 64)
+        .frame(width: ThemeTokens.logoViewBox, height: ThemeTokens.logoViewBox)
+        .scaleEffect(size / ThemeTokens.logoViewBox)
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
@@ -39,9 +39,10 @@ struct ThemeTopBar<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(spacing: 8) {
-            ThemeLogo(size: 22)
-            Text(title).font(Theme.sans(16, .semibold, relativeTo: .headline)).foregroundStyle(Theme.textPrimary)
+        HStack(spacing: ThemeTokens.logoWordmarkGap) {
+            ThemeLogo(size: ThemeTokens.logoSize)
+            Text(title).font(Theme.sans(16, .semibold, relativeTo: .headline)).tracking(ThemeTokens.logoWordmarkTracking * 16)
+                .foregroundStyle(Theme.textPrimary)
             Spacer(minLength: 8)
             trailing
         }
