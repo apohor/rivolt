@@ -272,6 +272,12 @@ jobs:
     needs: changes
     if: "github.event_name == 'pull_request' && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
+    # WebKit runs in Playwright's own image: its system libraries are not on the runner,
+    # and installing them with apt from the runner's mirror stalled 350 to 500 s on some
+    # runs. The image carries the libraries and the browser build for this Playwright
+    # version. Pinned by digest of the multi-arch index (v1.64.1-noble, built Oct 14);
+    # bump the tag and digest with playwright-core (the step below fails on a mismatch).
+    container: ${{ matrix.project == 'webkit' && 'mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf' || null }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -318,14 +324,28 @@ jobs:
       # the cache: web/scripts/pw-system-deps.sh installs them only when the
       # browser's binary reports a missing one (apt from a slow mirror took up
       # to 10 minutes of a shard that runs 2-3 minutes of tests).
+      - name: The WebKit image matches Playwright
+        if: matrix.project == 'webkit'
+        env:
+          VERSION: ${{ steps.pw-ver.outputs.version }}
+        run: |
+          # The image's tag is the Playwright version it was built for; a different
+          # playwright-core would look for a browser build the image does not have.
+          if [ "$VERSION" != "1.64.1" ]; then
+            echo "::error::playwright-core is $VERSION but the webkit image is v1.64.1: bump the container tag and digest"
+            exit 1
+          fi
+
       - name: Restore Playwright browsers
         id: pw-cache
+        if: matrix.project != 'webkit'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ steps.pw-ver.outputs.version }}
 
       - name: Install Playwright browser
+        if: matrix.project != 'webkit'
         working-directory: web
         run: |
           if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
@@ -371,7 +391,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, webkit]
+        project: [chromium]   # WebKit runs in the Playwright image (see the e2e job)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
