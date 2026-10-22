@@ -9,7 +9,7 @@ struct MilestoneCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: milestone.title).font(.headline).accessibilityAddTraits(.isHeader)
-            Text(verbatim: milestone.body).font(.subheadline).foregroundStyle(NowInk.secondary)
+            Text(verbatim: milestone.body).font(.subheadline).foregroundStyle(NowInk.secondary).fixedSize(horizontal: false, vertical: true)
             if failed {
                 Text("Couldn't hide that just now. Try again.").font(.footnote).foregroundStyle(NowInk.stale)
             }
@@ -34,7 +34,7 @@ struct ThreeThingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
-                Text("Three things you may not have turned on").font(.headline).accessibilityAddTraits(.isHeader)
+                Text("Three things you may not have turned on").font(.headline).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 Button("Hide this", action: onHide).font(.footnote)
                     .accessibilityLabel("Hide this card")
@@ -42,7 +42,8 @@ struct ThreeThingsCard: View {
             ForEach(rows) { row in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(row.label).font(.subheadline.weight(.medium))
-                    Text(row.hint).font(.footnote).foregroundStyle(NowInk.secondary)
+                    // Wrap to the full hint at any text size, never cut it off with an ellipsis.
+                    Text(row.hint).font(.footnote).foregroundStyle(NowInk.secondary).fixedSize(horizontal: false, vertical: true)
                     action(for: row)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
