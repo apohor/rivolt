@@ -1,6 +1,6 @@
 [
   {
-    "ID": "01-482113904",
+    "ID": "chg-confirm-1",
     "StartedAt": "2026-10-21T17:42:10Z",
     "PricePerKWh": 0.48,
     "Cost": 21.6,
@@ -14,7 +14,7 @@
     }
   },
   {
-    "ID": "01-481876220",
+    "ID": "chg-estimated-1",
     "StartedAt": "2026-10-14T12:05:44Z",
     "PricePerKWh": 0.36,
     "Cost": 14.04,
@@ -27,7 +27,7 @@
     }
   },
   {
-    "ID": "01-481240077",
+    "ID": "chg-unpriced-1",
     "StartedAt": "2026-10-02T19:31:02Z",
     "PricePerKWh": 0,
     "Cost": 0,
