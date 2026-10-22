@@ -203,8 +203,13 @@ actor APIClient {
 
     /// The newest charge (for its place and cost).
     func latestCharge(vehicleID: String) async throws -> ChargeBrief? {
-        let rows: [ChargeBrief] = try await request("GET", "/api/charges?limit=1&vehicle_id=\(queryValue(vehicleID))")
-        return rows.first
+        try await recentCharges(vehicleID: vehicleID).first
+    }
+
+    /// The newest few charges, newest first: while one is in progress the newest row is that one, and "since the last
+    /// charge" needs the one before.
+    func recentCharges(vehicleID: String) async throws -> [ChargeBrief] {
+        try await request("GET", "/api/charges?limit=3&vehicle_id=\(queryValue(vehicleID))")
     }
 
     /// Asks for a few: the server drops a gear-bounce row after picking it, so a one-row page can come back empty.
@@ -219,6 +224,18 @@ actor APIClient {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f.string(from: date)
+    }
+
+    /// Drives and charges in `[since, until)` for one truck, newest first, no coordinates. The server may answer 429.
+    func activity(since: Date, until: Date, vehicleID: String) async throws -> ActivityResponse {
+        try await request("GET", "/api/activity?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")
+    }
+
+    /// The month's charging spend, as Money shows it. `vehicleID` is only sent for an account with more than one truck.
+    func ledgerSpend(month: String, timeZone: String, vehicleID: String?) async throws -> LedgerMonthSpend {
+        var path = "/api/ledger/monthly?month=\(queryValue(month))&tz=\(queryValue(timeZone))"
+        if let vehicleID { path += "&vehicle_id=\(queryValue(vehicleID))" }
+        return try await request("GET", path)
     }
 
     /// Home, Away and Fast counts and energy in `[since, until)`. The server may answer 429 (a per-user limit).
