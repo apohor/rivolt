@@ -46,23 +46,19 @@ struct HomeView: View {
                                 }
                             }
                             threeThings
-                            // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
-                            if summary.freshness != .stale,
-                               let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
-                                ChargingDetailCard(detail: charging)
-                            }
-                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge))
+                            // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
+                            // charge we can't see.
+                            let fresh = summary.freshness != .stale
+                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
+                                    session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil)
                             ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
-                            if summary.freshness != .stale,
-                               let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
-                                DriveDetailCard(detail: drive)
-                            }
-                            ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
+                            // The web's order after the tiles: where it charges, then the two charts.
                             if let split = places.split, split.total > 0 {
                                 PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
+                            ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)

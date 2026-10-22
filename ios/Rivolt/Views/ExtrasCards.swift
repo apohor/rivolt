@@ -7,17 +7,23 @@ struct MilestoneCard: View {
     let onHide: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(verbatim: milestone.title).font(.headline).accessibilityAddTraits(.isHeader)
-            Text(verbatim: milestone.body).font(.subheadline).foregroundStyle(NowInk.secondary).fixedSize(horizontal: false, vertical: true)
-            if failed {
-                Text("Couldn't hide that just now. Try again.").font(.footnote).foregroundStyle(NowInk.stale)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: milestone.title).font(Theme.sans(ThemeTokens.typeValue, .semibold, relativeTo: .headline))
+                    .foregroundStyle(Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(verbatim: milestone.body).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+                if failed {
+                    Text("Couldn't hide that just now. Try again.").themeText(.subline, color: Theme.estimate)
+                }
             }
+            Spacer(minLength: 8)
             Button("Hide this", action: onHide)
-                .font(.footnote)
+                .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
+                .foregroundStyle(Theme.textSecondary)
                 .accessibilityLabel("Hide this milestone")
         }
-        .themeCard(padding: 20)
+        .themeCard(padding: 4 * Theme.unit)
     }
 }
 
@@ -31,33 +37,53 @@ struct ThreeThingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                Text("Three things you may not have turned on").font(.headline).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+            HStack(alignment: .top, spacing: 12) {
+                Text("Three things you may not have turned on")
+                    .font(Theme.sans(ThemeTokens.typeValue, .semibold, relativeTo: .headline))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
-                Button("Hide this", action: onHide).font(.footnote)
+                Button("Hide this", action: onHide)
+                    .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Theme.textSecondary)
                     .accessibilityLabel("Hide this card")
             }
             ForEach(rows) { row in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(row.label).font(.subheadline.weight(.medium))
-                    // Wrap to the full hint at any text size, never cut it off with an ellipsis.
-                    Text(row.hint).font(.footnote).foregroundStyle(NowInk.secondary).fixedSize(horizontal: false, vertical: true)
-                    action(for: row)
+                // The text on the left and the action on the right; the action drops below when there isn't room.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 12) {
+                        text(row)
+                        action(for: row)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        text(row)
+                        action(for: row)
+                    }
                 }
+                .padding(3 * Theme.unit)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
             }
         }
-        .themeCard(padding: 20)
+        .themeCard(padding: 4 * Theme.unit)
+    }
+
+    private func text(_ row: ThreeThingsRow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(row.label).themeText(.value, color: Theme.textPrimary)
+            // Wrap to the full hint at any text size, never cut it off with an ellipsis.
+            Text(row.hint).themeText(.subline).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private func action(for row: ThreeThingsRow) -> some View {
         if row == .push {
-            Button(row.cta, action: onOpenNotifications).buttonStyle(.bordered)
+            Button(row.cta, action: onOpenNotifications).buttonStyle(ThemeSecondaryButtonStyle()).fixedSize()
         } else if let url = webURL(row) {
-            Link(row.cta, destination: url).buttonStyle(.bordered)
+            Link(destination: url) { Text(row.cta) }.buttonStyle(ThemeSecondaryButtonStyle()).fixedSize()
         }
     }
 }

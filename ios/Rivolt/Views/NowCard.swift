@@ -11,6 +11,9 @@ struct NowCard: View {
     var clock: Date = .now
     /// Home, Away or Fast from the latest charge's ledger place, when it is known (no location is used for it).
     var place: String?
+    /// The charge in progress and the drive in progress, from their live reads; they add the cost so far and the trip.
+    var session: LiveSession?
+    var liveDrive: LiveDrive?
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -36,7 +39,7 @@ struct NowCard: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             gaugeRow
-            if charging { chargingRows }
+            if charging || driving || summary.outsideTempC != nil { detailRows }
             Text(footer).themeText(.subline)
         }
         .themeHero(live: liveKind, critical: critical)
@@ -106,12 +109,37 @@ struct NowCard: View {
     }
 
     @ViewBuilder
+    private var detailRows: some View {
+        VStack(spacing: 8) {
+            if charging { chargingRows }
+            if driving { drivingRows }
+            if let temp = summary.outsideTempC {
+                readout("Outside", Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .abbreviated, usage: .weather)))
+            }
+        }
+    }
+
+    /// The trip so far and its efficiency, from the live drive, once there is enough of it to mean something.
+    @ViewBuilder
+    private var drivingRows: some View {
+        if let d = liveDrive, d.distanceMi > 0 {
+            readout("Trip so far", NowFormat.distance(mi: d.distanceMi))
+            if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 {
+                readout("Efficiency", NowFormat.efficiency(miPerKwh: d.miPerKwh))
+            }
+        }
+    }
+
+    @ViewBuilder
     private var chargingRows: some View {
         VStack(spacing: 8) {
             if let kw = summary.chargePowerKw { readout("Power", "\(kw.formatted(.number.precision(.fractionLength(kw < 10 ? 1 : 0)))) kW") }
             if let t = timeLeft { readout("Time left", "\(t) · est.") }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
+            }
+            if let cost = ChargingDetail.make(summary: summary, session: session, charge: nil)?.cost {
+                readout("Cost so far", NowFormat.costText(cost))
             }
         }
     }
