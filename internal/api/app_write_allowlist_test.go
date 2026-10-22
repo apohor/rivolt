@@ -70,6 +70,11 @@ func TestAppSessionWritesThroughTheRouter(t *testing.T) {
 		}
 		mutating++
 		path := pathOf(route)
+		// A route mounted as "…/" is also served without the slash; the list holds that
+		// spelling, and the slash spelling below must be refused.
+		if t := strings.TrimSuffix(path, "/"); t != path && appWrites[method+" "+t] {
+			listed[method+" "+t] = true
+		}
 		if appWrites[method+" "+path] {
 			listed[method+" "+path] = true
 			if rec := send(sessions.KindApp, method, path); denied(rec) {
@@ -94,7 +99,7 @@ func TestAppSessionWritesThroughTheRouter(t *testing.T) {
 	if mutating < 40 {
 		t.Fatalf("only %d mutating routes walked: the walk is not seeing the router", mutating)
 	}
-	for _, want := range []string{"POST /api/auth/logout", "POST /api/push/apns/register", "POST /api/push/apns/activity/end"} {
+	for _, want := range []string{"POST /api/auth/logout", "POST /api/push/apns/register", "POST /api/push/apns/activity/end", "PATCH /api/settings/charging"} {
 		if !listed[want] {
 			t.Errorf("%s is on the list but the real router does not mount it (the list has gone stale)", want)
 		}
