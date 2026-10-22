@@ -36,8 +36,8 @@ final class TruckSnapshotTests: XCTestCase {
                 ThemeStepper(title: "Oct 2026", canGoForward: false, previous: {}, next: {})
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
-            TruckContent(model: m, vehicle: v, drainKey: .constant(key), temp: -10, pickTemp: { _ in }, r2Dismissed: .constant(false),
-                         month: PeriodMonth(containing: now, calendar: cal), now: now, calendar: cal, metric: true)
+            TruckContent(model: m, vehicle: v, drainKey: .constant(key), temp: 15.6, pickTemp: { _ in }, r2Dismissed: .constant(false),
+                         month: PeriodMonth(containing: now, calendar: cal), now: now, calendar: cal, metric: false)
                 .padding(16)
         }
         .frame(width: 390)
@@ -64,7 +64,6 @@ final class TruckSnapshotTests: XCTestCase {
         }
     }
 
-    /// °C chips (the cold-range fixture answers for -10 °C) and lease kilometres.
     func testRenderTheTruckTab() throws {
         try render("truck-7d", try page(.week))
         try render("truck-30d", try page(.month))

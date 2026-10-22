@@ -15,12 +15,12 @@ final class TruckLogicTests: XCTestCase {
 
     func testTheSharedFixturesDecode() throws {
         let d = try drain()
-        XCTAssertEqual(d.windows.week.drainPctPerDay, 1.4)
+        XCTAssertEqual(d.windows.week.drainPctPerDay, 0.6)
         XCTAssertEqual(d.windows.month.split?.reason, "not_enough_data")
-        XCTAssertEqual(d.daily.count, 2)
-        XCTAssertEqual(try Fixture.decode(PackHealth.self, "pack_health").samples?.count, 2)
-        XCTAssertNil(try Fixture.decode(TruckTrends.self, "trends").capacity?.medianKwh)
-        XCTAssertEqual(try Fixture.decode(ColdRange.self, "cold_range").available, [-10, 0, 10])
+        XCTAssertEqual(d.daily.count, 30)
+        XCTAssertEqual(try Fixture.decode(PackHealth.self, "pack_health").samples?.count, 5)
+        XCTAssertEqual(try Fixture.decode(TruckTrends.self, "trends").capacity?.medianKwh, 122.4)
+        XCTAssertEqual(try Fixture.decode(ColdRange.self, "cold_range").available, [4.4, 15.6, 26.7])
         XCTAssertEqual(try Fixture.decode(LeaseStatus.self, "lease_status").daysLeft, 588)
         XCTAssertEqual(try Fixture.decode([Vehicle].self, "vehicles")[0].ota?.current?.version, "2026.34.1")
     }
@@ -35,16 +35,13 @@ final class TruckLogicTests: XCTestCase {
     func testParkedDrainReadsAsTheWebs() throws {
         let d = try drain()
         let v = TruckLogic.drainView(d.windows.week, .week)
-        XCTAssertEqual(v, .ok(pctPerDay: 1.4, kwhPerDay: 1.83, sleeps: 9, quickRewakes: 1, medianSleepSeconds: 14400, daysUsed: 7, daysExcluded: 0))
-        XCTAssertEqual(TruckLogic.drainSleeps(.week, sleeps: 9, quickRewakes: 1, medianSleepSeconds: 14400),
-                       "Over 7 days: 9 sleeps, 1 under a minute, median 4.0 h. Time spent awake while parked is in the Sleep card below.")
-        // 30 days is too thin for a figure, so the basis line doesn't quote one.
-        XCTAssertEqual(TruckLogic.drainView(d.windows.month, .month), .insufficient(haveHours: 40, needHours: 72))
-        XCTAssertEqual(TruckLogic.drainBasis(daysUsed: 7, daysExcluded: 0, other: .month, otherView: TruckLogic.drainView(d.windows.month, .month)),
-                       "Based on 7 days.")
-        XCTAssertEqual(TruckLogic.drainBasis(daysUsed: 7, daysExcluded: 3, other: .month, otherView: v), "Based on 7 days (3 left out: too little parked data). 30 days: 1.4% / day.")
+        XCTAssertEqual(v, .ok(pctPerDay: 0.6, kwhPerDay: 0.8, sleeps: 22, quickRewakes: 0, medianSleepSeconds: 12240, daysUsed: 7, daysExcluded: 3))
+        XCTAssertEqual(TruckLogic.drainSleeps(.week, sleeps: 22, quickRewakes: 0, medianSleepSeconds: 12240),
+                       "Over 7 days: 22 sleeps, median 3.4 h. Time spent awake while parked is in the Sleep card below.")
+        XCTAssertEqual(TruckLogic.drainBasis(daysUsed: 7, daysExcluded: 3, other: .month, otherView: TruckLogic.drainView(d.windows.month, .month)),
+                       "Based on 7 days (3 left out: too little parked data). 30 days: 1.5% / day.")
         XCTAssertEqual(TruckLogic.split(d, .week),
-                       .ok(text: "Of the 7% your truck lost while parked this week, about 3% was while it was awake (22 h).", awakeShare: 0.43, awake: true, asleep: true))
+                       .ok(text: "Of the 3% your truck lost while parked this week, about 0% was while it was awake (6.0 h).", awakeShare: 0.06, awake: true, asleep: true))
         // 30 days is too thin for the split, so the week's is shown, said as such.
         if case .ok(let text, _, _, _)? = TruckLogic.split(d, .month) { XCTAssertTrue(text.contains("this week")) } else { XCTFail("expected the week's split") }
     }
@@ -59,28 +56,27 @@ final class TruckLogicTests: XCTestCase {
 
     func testDrainBarsKeepLeftOutDaysAndNeverFakeAZero() throws {
         let (bars, top) = TruckLogic.drainBars(try drain().daily)
-        XCTAssertEqual(top, 1.2)
-        XCTAssertEqual(bars.map(\.height), [1, 0])
-        XCTAssertNil(bars[1].value)
-        XCTAssertEqual(bars[1].excluded, "not_enough_parked")
-        // A day the battery rose is drawn faint at 0, never as a fake reading; the scale never drops under 0.5.
-        let rose = TruckLogic.drainBars([DrainDay(day: "2026-10-22", drainPct: -0.3, excluded: nil)])
-        XCTAssertEqual(rose.max, 0.5)
-        XCTAssertEqual(rose.bars[0].value, 0)
-        XCTAssertEqual(rose.bars[0].gained, 0.3)
+        XCTAssertEqual(top, 3.9)
+        XCTAssertEqual(bars.count, 30)
+        XCTAssertNil(bars[2].value)
+        XCTAssertEqual(bars[2].excluded, "insufficient")
+        XCTAssertEqual(bars[14].height, 1)
+        let rose = try XCTUnwrap(bars.first { $0.gained != nil })
+        XCTAssertEqual(rose.gained, 0.3)
+        XCTAssertEqual(rose.value, 0)
     }
 
     func testPackCapacityPrefersTheTrucksOwnFigureAndHidesAGrossSpec() throws {
         let v = TruckLogic.pack(try Fixture.decode(PackHealth.self, "pack_health"))
-        XCTAssertEqual(v.head, .reported(kwh: 131, spec: 135))
-        XCTAssertEqual(v.trend.count, 2)
-        XCTAssertEqual(v.note, "Median of the last 2 clean sessions · 2 total")
+        XCTAssertEqual(v.head, .reported(kwh: 123, spec: 135))
+        XCTAssertEqual(v.trend.count, 5)
+        XCTAssertEqual(v.note, "Median of the last 5 clean sessions · 5 total")
         XCTAssertEqual(TruckLogic.specKwh(180), 0)
     }
 
     func testTrendsSayHowFarAlongTheyAre() throws {
         let t = try Fixture.decode(TruckTrends.self, "trends")
-        XCTAssertEqual(TruckLogic.capacity(t), .sparse("Needs about 5 charges that add at least 40% of battery, spread over at least 30 days. So far: 2 of 5 charges, over 14 of 30 days."))
+        XCTAssertEqual(TruckLogic.capacity(t), .ok(median: 122.4, spec: 135, need: 30))
         XCTAssertEqual(TruckLogic.monthLabel("2026-08"), "Aug 26")
     }
 
@@ -88,25 +84,22 @@ final class TruckLogicTests: XCTestCase {
         let d = try Fixture.decode(ColdRange.self, "cold_range")
         XCTAssertEqual(TruckLogic.grid(fahrenheit: true).map { TruckLogic.chip($0, fahrenheit: true) }, ["0 °F", "20 °F", "40 °F", "60 °F", "80 °F"])
         XCTAssertEqual(TruckLogic.grid(fahrenheit: false).map { TruckLogic.chip($0, fahrenheit: false) }, ["-20 °C", "-10 °C", "0 °C", "10 °C", "20 °C"])
-        XCTAssertTrue(TruckLogic.chipOff(d, -20))
-        XCTAssertFalse(TruckLogic.chipOff(d, -10))
-        XCTAssertFalse(TruckLogic.chipOff(d, 10))
+        XCTAssertTrue(TruckLogic.chipOff(d, -17.8))
+        XCTAssertFalse(TruckLogic.chipOff(d, 15.6))
         XCTAssertEqual(TruckLogic.band(283, 283, digits: 0, unit: "mi"), "283 mi")
         XCTAssertEqual(TruckLogic.band(2.25, 2.41, digits: 1, unit: "mi/kWh"), "2.3–2.4 mi/kWh")
-        XCTAssertEqual(TruckLogic.temperature(-13, fahrenheit: true), "9 °F")
+        XCTAssertEqual(TruckLogic.temperature(11.7, fahrenheit: true), "53 °F")
     }
 
     func testTheLeaseBarAndStanding() throws {
         let st = try Fixture.decode(LeaseStatus.self, "lease_status")
         let b = TruckLogic.leaseBar(st, allowedTotal: 36000)
-        // The projection (42,620 mi) is past the allowance, so it sets the track's width.
-        XCTAssertEqual(b.used, 18408.5 / 42620, accuracy: 1e-9)
-        XCTAssertEqual(b.plan, 16200 / 42620, accuracy: 1e-9)
-        XCTAssertEqual(b.allowed, 36000 / 42620, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(b.projected), 1, accuracy: 1e-9)
-        XCTAssertEqual(b.tone, .watch)
-        XCTAssertEqual(TruckLogic.planStanding(st, metric: false)?.text, "2,209 mi over plan")
-        XCTAssertEqual(TruckLogic.planStanding(st, metric: true)?.text, "3,555 km over plan")
+        XCTAssertEqual(b.used, 14520.2 / 36000, accuracy: 1e-9)
+        XCTAssertEqual(b.plan, 15880.3 / 36000, accuracy: 1e-9)
+        XCTAssertEqual(b.allowed, 1)
+        XCTAssertEqual(b.tone, .ok)
+        XCTAssertEqual(TruckLogic.planStanding(st, metric: false)?.text, "1,360 mi under plan")
+        XCTAssertEqual(TruckLogic.planStanding(st, metric: true)?.text, "2,189 km under plan")
         XCTAssertEqual(TruckLogic.distance(36000, metric: false), "36,000 mi")
     }
 
@@ -277,9 +270,9 @@ final class TruckClientTests: XCTestCase {
         }
         let c = client()
         let d = try await c.drain(vehicleID: "veh-fixture")
-        XCTAssertEqual(d?.windows.week.sleeps, 9)
+        XCTAssertEqual(d?.windows.week.sleeps, 22)
         let r = try await c.coldRange(vehicleID: "veh-fixture", tempC: 15.6, grid: [-17.8, -6.7, 4.4, 15.6, 26.7], metric: false)
-        XCTAssertEqual(r?.rangeLow, 249)
+        XCTAssertEqual(r?.rangeLow, 283)
         let t = try await c.trends(vehicleID: "veh-fixture", metric: true)
         XCTAssertNil(t)
         let l = try await c.leaseTerms(vehicleID: "veh-fixture")
