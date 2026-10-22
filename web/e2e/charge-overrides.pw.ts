@@ -128,7 +128,7 @@ for (const v of [
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-network-invalid-${v.n}-dark.png`), fullPage: false });
     await input.fill("40.5, -100.25");
     await expect(fields).toContainText("Only used to label your own charges near it.");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(() => saved).not.toBeNull();
     const rows = saved as { name: string; lat?: number; lon?: number; locDraft?: string }[];
     expect(rows.find((r) => r.name === "Office garage")).toMatchObject({ lat: 40.5, lon: -100.25 });

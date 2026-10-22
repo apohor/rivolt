@@ -1664,16 +1664,19 @@ function overrideButton(active: boolean): string {
 // Reversible, so no confirmation. Web only.
 export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "PlaceOverride"> }) {
   const qc = useQueryClient();
-  const current = charge.PlaceOverride === "home" || charge.PlaceOverride === "away" ? charge.PlaceOverride : null;
+  const stored = charge.PlaceOverride === "home" || charge.PlaceOverride === "away" ? charge.PlaceOverride : null;
+  // The choice shows at once and stays while the charge refetches; a failed save puts the stored one back.
+  const [chosen, setChosen] = useState<"home" | "away" | null | undefined>(undefined);
+  const current = chosen === undefined ? stored : chosen;
   const save = useMutation({
     mutationFn: (place: "home" | "away" | null) => backend.setChargePlace(charge.ID, place),
+    onError: () => setChosen(undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["ledger"] });
     },
   });
-  const pending = save.isPending ? save.variables : undefined;
-  const shown = save.isPending ? pending ?? null : current;
+  const shown = current;
   const opts: { label: string; value: "home" | "away" | null }[] = [
     { label: "Auto", value: null },
     { label: "Home", value: "home" },
@@ -1690,7 +1693,9 @@ export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/a
             aria-pressed={shown === o.value}
             disabled={save.isPending}
             onClick={() => {
-              if (o.value !== current) save.mutate(o.value);
+              if (o.value === current) return;
+              setChosen(o.value);
+              save.mutate(o.value);
             }}
             className={overrideButton(shown === o.value)}
           >
@@ -1710,12 +1715,15 @@ export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/a
 // nearest public charger. Reversible; web only.
 export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "LocationOverride"> }) {
   const qc = useQueryClient();
-  const on = charge.LocationOverride === "recorded";
+  // As above: the choice shows at once; a failed save puts the stored one back.
+  const [chosen, setChosen] = useState<boolean | undefined>(undefined);
+  const on = chosen ?? charge.LocationOverride === "recorded";
   const save = useMutation({
     mutationFn: (recorded: boolean) => backend.setChargeLocation(charge.ID, recorded),
+    onError: () => setChosen(undefined),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["charges"] }),
   });
-  const shown = save.isPending ? !!save.variables : on;
+  const shown = on;
   return (
     <div className="mt-3 text-sm" data-location-override>
       <label className="flex items-start gap-2">
@@ -1724,7 +1732,10 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
           className="mt-0.5"
           checked={shown}
           disabled={save.isPending}
-          onChange={(e) => save.mutate(e.target.checked)}
+          onChange={(e) => {
+            setChosen(e.target.checked);
+            save.mutate(e.target.checked);
+          }}
         />
         <span>
           <span className="text-neutral-200">Pin where the truck was</span>

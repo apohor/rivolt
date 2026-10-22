@@ -65,6 +65,33 @@ describe("charge overrides", () => {
   });
 });
 
+describe("charge overrides on a failed save", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the choice at once and puts the stored one back when the save fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500, headers: { get: () => "text/plain" }, text: async () => "boom" }) as unknown as Response),
+    );
+    wrap(
+      <>
+        <PlaceOverrideControl charge={{ ID: "c1", PlaceOverride: "" }} />
+        <LocationOverrideToggle charge={{ ID: "c1", LocationOverride: "" }} />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Away" }));
+    expect(screen.getByRole("button", { name: "Away" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+  });
+});
+
 describe("own network locations", () => {
   const nets = [
     { name: "Office", price_per_kwh: 0.2, currency: "USD", lat: 40.0, lon: -100.0 },
