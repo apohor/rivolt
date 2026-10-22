@@ -74,3 +74,60 @@ final class MapStyleTests: XCTestCase {
         XCTAssertNil(h.header(for: URL(string: "https://rivolt.example/api/maps/tiles/us.pmtiles")))
     }
 }
+
+final class ChargePlaceTests: XCTestCase {
+    func testPlacesAreTheServersClustersWithoutTheirMembers() throws {
+        let places = try Fixture.decode([ChargePlace].self, "charge_clusters")
+        XCTAssertEqual(places.count, 4)
+        // Only the cluster's label, centre and totals are held; the member charge ids are not decoded.
+        XCTAssertEqual(Mirror(reflecting: places[0]).children.compactMap(\.label), ["label", "lat", "lon", "sessions", "energyKwh", "radiusM"])
+        let shown = ChargePlace.shown(places)
+        // The no-fix cluster is left out; the busiest place comes first.
+        XCTAssertEqual(shown.map(\.title), ["Home", "Away", "Fast"])
+        XCTAssertEqual(shown.map(\.key), [.home, .away, .dcfc])
+        XCTAssertEqual(ChargePlace(label: "", lat: 1, lon: 1, sessions: 1, energyKwh: 1, radiusM: 1).title, "Other")
+    }
+
+    func testCirclesGrowWithSessionsWithinBounds() {
+        func r(_ n: Int) -> Double { ChargePlace(label: "Home", lat: 1, lon: 1, sessions: n, energyKwh: 1, radiusM: 1).circleRadius }
+        XCTAssertEqual(r(1), 6)
+        XCTAssertEqual(r(5), 10, accuracy: 1e-9)
+        XCTAssertEqual(r(500), 18)
+        XCTAssertLessThan(r(2), r(10))
+    }
+}
+
+final class MapLoadStateTests: XCTestCase {
+    /// A slow connection: the first tile requests time out, the map settles with none loaded ("Map unavailable."
+    /// over the map), then MapLibre's retry brings a tile and the line goes.
+    func testNoTilesYetClearsWhenATileArrives() {
+        var s = MapLoadState()
+        s.tileFailed()
+        s.tileFailed()
+        XCTAssertEqual(s.idle(), .noTiles)
+        XCTAssertNil(s.idle())
+        XCTAssertEqual(s.tileLoaded(), .ok)
+        XCTAssertEqual(s.health, .ok)
+        // Settling again after a tile has loaded never brings the line back.
+        s.tileFailed()
+        XCTAssertNil(s.idle())
+    }
+
+    func testTilesThatLoadNeverShowTheLine() {
+        var s = MapLoadState()
+        XCTAssertNil(s.tileLoaded())
+        s.tileFailed()
+        XCTAssertNil(s.idle())
+        XCTAssertEqual(s.health, .ok)
+    }
+
+    /// The map itself failing is for good: a late tile doesn't undo it.
+    func testAFailedMapStaysFailed() {
+        var s = MapLoadState()
+        s.tileFailed()
+        XCTAssertEqual(s.idle(), .noTiles)
+        XCTAssertEqual(s.mapFailed(), .failed)
+        XCTAssertNil(s.tileLoaded())
+        XCTAssertEqual(s.health, .failed)
+    }
+}

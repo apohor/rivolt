@@ -206,6 +206,10 @@ private final class FakeTruck: TruckSource, @unchecked Sendable {
     func sleepActivity(since: Date, until: Date, vehicleID: String) async throws -> [DayActivity] {
         try check("sleep"); return try Fixture.decode([DayActivity].self, "sleep_activity")
     }
+    func chargePlaces() async throws -> [ChargePlace] {
+        try check("places")
+        return [ChargePlace(label: "Home", lat: 32.7767, lon: -96.797, sessions: 40, energyKwh: 1500, radiusM: 30)]
+    }
 }
 
 @MainActor
@@ -216,7 +220,7 @@ final class TruckModelTests: XCTestCase {
         let src = FakeTruck()
         let model = TruckModel()
         await model.load(source: src, vehicleID: "v1", metric: false, now: now)
-        XCTAssertEqual(Set(src.calls), ["state", "drain", "pack", "trends", "lease", "leaseStatus"])
+        XCTAssertEqual(Set(src.calls), ["state", "drain", "pack", "trends", "lease", "leaseStatus", "places"])
         XCTAssertNotNil(model.drain?.value)
         // No trends on this server: the card is left out, not an error.
         XCTAssertEqual(model.trends, .missing)
@@ -306,6 +310,7 @@ final class TruckClientTests: XCTestCase {
             if path.hasSuffix("/drain") { return (200, (try? Fixture.data("drain")) ?? Data()) }
             if path.contains("/cold-range") { return (200, (try? Fixture.data("cold_range")) ?? Data()) }
             if path.contains("/pack-health") { return (200, (try? Fixture.data("pack_health")) ?? Data()) }
+            if path == "/api/charges/clusters" { return (200, (try? Fixture.data("charge_clusters")) ?? Data()) }
             return (404, Data("404 page not found".utf8))
         }
         let c = client()
@@ -319,12 +324,15 @@ final class TruckClientTests: XCTestCase {
         XCTAssertNil(l)
         let p = try await c.packHealth(vehicleID: "veh-fixture")
         XCTAssertEqual(p.samples?.count, 5)
+        let places = try await c.chargePlaces()
+        XCTAssertEqual(places.count, 4)
         XCTAssertEqual(TruckStub.paths, [
             "/api/vehicles/veh-fixture/drain",
             "/api/vehicles/veh-fixture/cold-range?temp_c=15.6&grid=-17.8,-6.7,4.4,15.6,26.7&units=imperial",
             "/api/vehicles/veh-fixture/trends?units=metric",
             "/api/vehicles/veh-fixture/lease",
             "/api/vehicles/veh-fixture/pack-health?limit=30",
+            "/api/charges/clusters",
         ])
     }
 
