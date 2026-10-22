@@ -63,19 +63,42 @@ type TabId = "account" | "vehicle" | "charging" | "notifications" | "data";
 // Input that means the reader is scrolling on their own, so stop re-aligning.
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
 
+// Every card id a link may point at; a missing one opens Account with no card.
 const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
+  "ai-features": "account",
+  "ambient-temp": "account",
   display: "vehicle",
   home: "vehicle",
   profile: "vehicle",
   lease: "vehicle",
   cost: "charging",
+  offpeak: "charging",
   networks: "charging",
   planner: "charging",
   notifications: "notifications",
+  "statement-email": "notifications",
+  "weekly-recap": "notifications",
+  "onboarding-email": "notifications",
+  export: "data",
   import: "data",
   danger: "data",
 };
+
+// How far down the sticky bars reach once stuck: the top nav and, in the new
+// look, the page's own title row ([data-ui-header]). An anchored card lands
+// just below them; a fixed scroll margin was too short on a phone.
+function stickyTopOffset(): number {
+  let bottom = 0;
+  document.querySelectorAll<HTMLElement>("header, [data-ui-header]").forEach((el) => {
+    const cs = getComputedStyle(el);
+    if (cs.position !== "sticky" && cs.position !== "fixed") return;
+    const top = parseFloat(cs.top);
+    if (Number.isNaN(top)) return;
+    bottom = Math.max(bottom, top + el.offsetHeight);
+  });
+  return bottom;
+}
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "account", label: "Account" },
@@ -120,7 +143,12 @@ function SettingsPageInner() {
     // Cards above the target (the vehicle profile, the lease terms) fill in after the first frame
     // and push it down, so keep it pinned to the top until the layout stops moving, the user takes
     // over the scroll, or a few seconds pass.
-    const align = (behavior: ScrollBehavior) => document.getElementById(id)?.scrollIntoView({ behavior, block: "start" });
+    const align = (behavior: ScrollBehavior) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY - stickyTopOffset() - 8;
+      window.scrollTo({ top: Math.max(0, top), behavior });
+    };
     const raf = requestAnimationFrame(() => align("smooth"));
     let ro: ResizeObserver | undefined;
     const stop = () => {
