@@ -4,15 +4,18 @@ import SwiftUI
 /// own top bar, so its actions sit in it.
 struct AppShell: View {
     @State private var tab = "now"
+    /// Kept for the signed-in session, so the ledger's 15-minute cache outlives a tab switch.
+    @State private var money = MoneyModel()
 
     private var tabs: [ThemeTabItem] {
-        [ThemeTabItem(id: "now", label: "Now", icon: "now")]
+        [ThemeTabItem(id: "now", label: "Now", icon: "now"), ThemeTabItem(id: "money", label: "Money", icon: "money")]
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Group {
                 switch tab {
+                case "money": MoneyView(model: money)
                 default: HomeView()
                 }
             }
