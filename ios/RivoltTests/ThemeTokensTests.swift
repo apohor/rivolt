@@ -49,6 +49,8 @@ final class ThemeTokensTests: XCTestCase {
             "accentFill": ThemeTokens.accentFill, "accentButton": ThemeTokens.accentButton, "estimate": ThemeTokens.estimate,
             "estimateFill": ThemeTokens.estimateFill, "critical": ThemeTokens.critical, "criticalBorder": ThemeTokens.criticalBorder,
             "drive": ThemeTokens.drive, "edge": ThemeTokens.edge,
+            "home": ThemeTokens.home, "away": ThemeTokens.away, "awayFill": ThemeTokens.awayFill, "fast": ThemeTokens.fast,
+            "fastFill": ThemeTokens.fastFill,
             "bar": ThemeTokens.bar, "heroTint": ThemeTokens.heroTint, "heroTintDriving": ThemeTokens.heroTintDriving, "pageGlow": ThemeTokens.pageGlow,
             "glowDrivingRing": ThemeTokens.glowDrivingRing, "glowSparkDot": ThemeTokens.glowSparkDot, "cardSheen": ThemeTokens.cardSheen,
             "cardShadowNear": ThemeTokens.cardShadowNear, "cardShadowFar": ThemeTokens.cardShadowFar,

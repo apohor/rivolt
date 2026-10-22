@@ -540,13 +540,37 @@ private struct MoneyChip: View {
     }
 }
 
-/// Home is the accent, Away the drive colour and Fast the warm tone, as on the web.
-private func splitColor(_ key: MoneyLogic.SplitKey) -> Color {
-    switch key {
-    case .home, .ac: return Theme.accent
-    case .away, .publicAC: return Theme.drive
-    case .dcfc: return Theme.estimate
-    case .unknown: return Theme.textTertiary
+/// The web's place colours (components/money.tsx): the bar fill, the dot, and the chip's text and border.
+private enum PlaceTone {
+    static func fill(_ key: MoneyLogic.SplitKey) -> Color {
+        switch key {
+        case .home, .ac: return Theme.accentFill
+        case .away, .publicAC: return Theme.awayFill
+        case .dcfc: return Theme.fastFill
+        case .unknown: return Theme.textTertiary
+        }
+    }
+
+    static func dot(_ key: MoneyLogic.SplitKey) -> Color {
+        switch key {
+        case .home, .ac: return Theme.home
+        case .away, .publicAC: return Theme.away
+        case .dcfc: return Theme.fast
+        case .unknown: return Theme.textSecondary
+        }
+    }
+
+    static func ink(_ key: MoneyLogic.SplitKey) -> Color {
+        switch key {
+        case .home, .ac: return Theme.accent
+        case .away, .publicAC: return Theme.drive
+        case .dcfc: return Theme.estimate
+        case .unknown: return Theme.textBody
+        }
+    }
+
+    static func edge(_ key: MoneyLogic.SplitKey) -> Color {
+        key == .unknown ? Theme.borderStrong : fill(key).opacity(0.4)
     }
 }
 
@@ -568,7 +592,7 @@ private struct MoneySplitBar: View {
                 HStack(spacing: 0) {
                     if total > 0 {
                         ForEach(bar.segments) { s in
-                            if amount(s.totals) > 0 { Rectangle().fill(splitColor(s.key)).frame(width: g.size.width * amount(s.totals) / total) }
+                            if amount(s.totals) > 0 { Rectangle().fill(PlaceTone.fill(s.key)).frame(width: g.size.width * amount(s.totals) / total) }
                         }
                     }
                     Spacer(minLength: 0)
@@ -595,7 +619,7 @@ private struct MoneySplitBar: View {
     private func legend(_ s: MoneyLogic.Segment) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Circle().fill(splitColor(s.key)).frame(width: 8, height: 8)
+                Circle().fill(PlaceTone.dot(s.key)).frame(width: 8, height: 8)
                 Text(s.label).themeText(.subline)
             }
             Text(text(s.totals)).themeText(.subline, color: Theme.textPrimary)
@@ -618,15 +642,15 @@ private struct MoneyReceiptRow: View {
     var body: some View {
         let r = receipt
         let line = MoneyReceiptLine(r, currency: currency)
-        let tone = splitColor(line.chip.key)
+        let key = line.chip.key
         HStack(alignment: .top, spacing: 12) {
-            Circle().fill(tone).frame(width: 8, height: 8).padding(.top, 6).accessibilityHidden(true)
+            Circle().fill(PlaceTone.dot(key)).frame(width: 8, height: 8).padding(.top, 6).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(MoneyLogic.dateTime(r.startedAt, calendar: calendar)).themeText(.value, color: Theme.textPrimary).lineLimit(1)
-                    Text(line.chip.label).themeText(.caption, color: tone)
+                    Text(line.chip.label).themeText(.caption, color: PlaceTone.ink(key))
                         .padding(.horizontal, 1.5 * Theme.unit).padding(.vertical, 1)
-                        .overlay(Capsule().strokeBorder(tone.opacity(0.4), lineWidth: 1))
+                        .overlay(Capsule().strokeBorder(PlaceTone.edge(key), lineWidth: 1))
                     Spacer(minLength: 8)
                     MoneyValueText(value: line.value)
                 }
