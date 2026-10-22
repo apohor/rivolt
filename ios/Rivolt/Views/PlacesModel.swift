@@ -44,14 +44,14 @@ final class PlacesModel {
 
     init(split: ChargeSplit? = nil) { self.split = split }
 
-    func load(source: some PlacesSource, vehicleID: String, window: ChartWindow, force: Bool = false,
+    func load(source: some PlacesSource, vehicleID: String, month: PeriodMonth, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current) async {
-        let key = "\(vehicleID)|\(window.days)"
+        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             split = hit.split
             return
         }
-        let (since, until) = window.range(now: now, calendar: calendar)
+        let (since, until) = month.range(calendar: calendar)
         do {
             let fresh = try await source.chargeSplit(since: since, until: until, vehicleID: vehicleID)
             cache[key] = Entry(split: fresh, fetchedAt: now)

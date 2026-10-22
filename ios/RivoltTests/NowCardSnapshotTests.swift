@@ -45,8 +45,9 @@ final class NowCardSnapshotTests: XCTestCase {
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         let now = try XCTUnwrap(JSON.parseDate("2026-10-21T15:00:00Z"))
-        try snapshot("charts", ChartsSection(model: model, window: .constant(.week), now: now, calendar: utc))
-        try snapshot("charts-empty", ChartsSection(model: ChartsModel(points: ChartPoints(drives: [], charges: []), sleep: []), window: .constant(.week), now: now, calendar: utc))
+        let month = PeriodMonth(containing: now, calendar: utc)
+        try snapshot("charts", ChartsSection(model: model, month: month, limit: 80, now: now, calendar: utc))
+        try snapshot("charts-empty", ChartsSection(model: ChartsModel(points: ChartPoints(drives: [], charges: []), sleep: []), month: month, now: now, calendar: utc))
     }
 
     func testRenderMilestoneAndThreeThings() throws {
@@ -57,7 +58,7 @@ final class NowCardSnapshotTests: XCTestCase {
 
     func testRenderPlaces() throws {
         let split = try Fixture.decode(ChargeSplit.self, "charge_split")
-        try snapshot("places", PlacesCard(split: split, days: 30))
+        try snapshot("places", PlacesCard(split: split, periodTitle: "Oct 2026"))
     }
 
     private func snapshot(_ name: String, _ card: some View) throws {

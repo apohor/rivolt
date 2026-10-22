@@ -9,6 +9,8 @@ struct NowCard: View {
     let vehicle: Vehicle
     let summary: NowSummary
     var clock: Date = .now
+    /// Home, Away or Fast from the latest charge's ledger place, when it is known (no location is used for it).
+    var place: String?
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -48,7 +50,7 @@ struct NowCard: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(vehicle.name).themeText(.label)
-                Text(Self.headline(for: summary)).themeText(.value)
+                Text(Self.headline(for: summary, place: place)).themeText(.value)
             }
             Spacer(minLength: 8)
             let pill = Self.pill(for: summary, clock: clock)
@@ -118,7 +120,7 @@ struct NowCard: View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).themeText(.value, color: Theme.textSecondary)
             Spacer(minLength: 12)
-            Text(value).font(Theme.mono(ThemeTokens.typeValue, .medium, relativeTo: .body)).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.trailing)
+            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.trailing)
         }
     }
 
@@ -127,7 +129,7 @@ struct NowCard: View {
     private var footer: String { Self.footer(for: summary, clock: clock) }
 
     private var spoken: String {
-        var parts = ["\(vehicle.name). \(Self.headline(for: summary))."]
+        var parts = ["\(vehicle.name). \(Self.headline(for: summary, place: place))."]
         if let soc = summary.socPct {
             parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
         }
@@ -178,14 +180,14 @@ struct NowCard: View {
     }
 
     /// What the truck is doing, in the web's words.
-    static func headline(for s: NowSummary) -> String {
+    static func headline(for s: NowSummary, place: String? = nil) -> String {
         if s.presence == .offline || s.freshness == .needsReconnect { return "Not heard from recently" }
         switch s.kind {
         case .driving: return "Driving"
         case .charging:
             if (s.chargePowerKw ?? 0) <= 0.3 { return "Starting to charge…" }
             if max(s.chargePeakKw ?? 0, s.chargePowerKw ?? 0) >= 50 { return "Fast charging" }
-            return "Charging"
+            return place == "Home" ? "Charging at home" : "Charging"
         case .plugged:
             if let soc = s.socPct, let limit = s.chargeTargetPct, soc >= limit - 1.5 { return "Plugged in, holding \(Int(limit.rounded()))%" }
             return "Plugged in"

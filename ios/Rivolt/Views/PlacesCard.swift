@@ -5,48 +5,63 @@ import SwiftUI
 /// fast charge wherever it was (the same rules as the web). A list of counts: it never shows where.
 struct PlacesCard: View {
     let split: ChargeSplit
-    let days: Int
+    /// The period the figures cover, as the stepper reads it ("Oct 2026").
+    let periodTitle: String
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private struct Row: Identifiable {
         let id: String
-        let tint: Color
         let bucket: ChargeSplit.Bucket
         let share: Int
     }
 
     private var rows: [Row] {
-        let buckets = [("Home", NowInk.charging, split.home), ("Away", NowInk.secondary, split.away), ("Fast", NowInk.stale, split.fast)]
-        let shares = PlacesMath.shareByEnergy(buckets.map { $0.2.energyKwh })
-        return zip(buckets, shares).map { Row(id: $0.0, tint: $0.1, bucket: $0.2, share: $1) }
+        let buckets = [("Home", split.home), ("Away", split.away), ("Fast", split.fast)]
+        let shares = PlacesMath.shareByEnergy(buckets.map { $0.1.energyKwh })
+        return zip(buckets, shares).map { Row(id: $0.0, bucket: $0.1, share: $1) }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Charging locations").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
-            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+        ThemeSection(title: "Charging locations") {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
             layout {
                 ForEach(rows) { r in tile(r) }
             }
-            Text("Last \(days) days. Share of the energy added.").font(.caption).foregroundStyle(NowInk.secondary)
+            Text("\(periodTitle). Share of the energy added.").themeText(.caption)
         }
-        .themeCard(padding: 20)
+    }
+
+    /// Home is the accent, Away is neutral and Fast is the warm tone, as on the web.
+    private func tone(_ label: String) -> (ink: Color, edge: Color, fill: Color) {
+        switch label {
+        case "Home": return (Theme.accent, Theme.accentFill.opacity(0.4), Theme.accentFill.opacity(0.1))
+        case "Fast": return (Theme.estimate, Theme.estimateFill.opacity(0.4), Theme.estimateFill.opacity(0.1))
+        default: return (Theme.textBody, Theme.borderStrong, .clear)
+        }
     }
 
     private func tile(_ r: Row) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let t = tone(r.id)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(r.id).font(.caption.weight(.semibold)).foregroundStyle(r.tint)
+                Text(r.id).themeText(.caption, color: t.ink)
+                    .padding(.horizontal, 2 * Theme.unit).padding(.vertical, Theme.unit / 2)
+                    .background(t.fill, in: Capsule())
+                    .overlay(Capsule().strokeBorder(t.edge, lineWidth: 1))
                 Spacer(minLength: 4)
-                Text("\(r.share)%").font(.caption).foregroundStyle(NowInk.secondary).monospacedDigit()
+                Text("\(r.share)%").themeText(.caption)
             }
-            Text("\(r.bucket.sessions)").font(.title2.weight(.semibold)).monospacedDigit()
-            + Text(" \(r.bucket.sessions == 1 ? "session" : "sessions")").font(.caption).foregroundColor(NowInk.secondary)
-            Text("\(NowFormat.oneDecimal(r.bucket.energyKwh)) kWh added").font(.caption2).foregroundStyle(NowInk.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(r.bucket.sessions)").themeText(.title)
+                Text(r.bucket.sessions == 1 ? "session" : "sessions").themeText(.caption)
+            }
+            Text("\(NowFormat.oneDecimal(r.bucket.energyKwh)) kWh added").themeText(.caption)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
+        .padding(3 * Theme.unit)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+        .background(Theme.card.opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(r.id), \(r.bucket.sessions) \(r.bucket.sessions == 1 ? "session" : "sessions"), \(NowFormat.oneDecimal(r.bucket.energyKwh)) kilowatt hours added, \(r.share) percent of the energy")
     }

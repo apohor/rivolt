@@ -90,3 +90,30 @@ struct ThemeTabBar: View {
         .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 }
+
+/// The month stepper beside the page title: previous and next arrows around the month, in a bordered pill. Next is
+/// disabled in the current month.
+struct ThemeStepper: View {
+    let title: String
+    let canGoForward: Bool
+    let previous: () -> Void
+    let next: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: previous) { Image(systemName: "arrowtriangle.left.fill").font(.system(size: 11)) }
+                .accessibilityLabel("Previous month")
+                .frame(width: 40, height: 36)
+            Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
+                .frame(minWidth: 84)
+                .accessibilityAddTraits(.isHeader)
+            Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: 11)) }
+                .disabled(!canGoForward)
+                .accessibilityLabel("Next month")
+                .frame(width: 40, height: 36)
+        }
+        .foregroundStyle(Theme.textTertiary)
+        .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+    }
+}

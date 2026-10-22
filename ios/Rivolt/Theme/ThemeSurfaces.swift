@@ -136,6 +136,8 @@ struct ThemePill: View {
             .themeText(.caption, color: textColor)
             .padding(.horizontal, 2 * Theme.unit)
             .padding(.vertical, Theme.unit / 2)
+            // The warning pill carries a faint amber fill, like the web's.
+            .background(tone == .stale ? Theme.estimateFill.opacity(0.1) : .clear, in: Capsule())
             .overlay(Capsule().strokeBorder(border, lineWidth: 1))
     }
 }

@@ -1,22 +1,5 @@
 import Foundation
 
-/// The period the Home charts cover: the last N local days, today included.
-struct ChartWindow: Equatable, Hashable {
-    let days: Int
-
-    static let week = ChartWindow(days: 7)
-    static let month = ChartWindow(days: 30)
-
-    /// `since` is inclusive and `until` exclusive on the server: the start of the first local day and the start of the
-    /// day after today.
-    func range(now: Date, calendar: Calendar) -> (since: Date, until: Date) {
-        let today = calendar.startOfDay(for: now)
-        let since = calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
-        let until = calendar.date(byAdding: .day, value: 1, to: today) ?? today
-        return (since, until)
-    }
-}
-
 struct DayValue: Equatable, Identifiable {
     /// A local calendar day (its start).
     let day: Date
@@ -32,17 +15,39 @@ struct SocPoint: Equatable, Identifiable {
 
 /// The chart maths, the same as the web's `analytics.ts`, without any view code so it can be tested.
 enum ChartMath {
-    /// Miles driven on each of the last `days` local days, bucketed by the local day each drive started.
-    static func milesPerDay(_ drives: [DrivePoint], days: Int, now: Date, calendar: Calendar) -> [DayValue] {
+    /// Miles driven on each of `days` (local days), bucketed by the local day each drive started.
+    static func milesPerDay(_ drives: [DrivePoint], over days: [Date], calendar: Calendar) -> [DayValue] {
         var buckets: [Date: Double] = [:]
         for d in drives {
             buckets[calendar.startOfDay(for: d.startedAt), default: 0] += max(0, d.distanceMi)
         }
-        let today = calendar.startOfDay(for: now)
-        return (0..<days).reversed().compactMap { back in
-            guard let day = calendar.date(byAdding: .day, value: -back, to: today) else { return nil }
-            return DayValue(day: day, value: buckets[day] ?? 0)
+        return days.map { DayValue(day: $0, value: buckets[$0] ?? 0) }
+    }
+
+    /// The stretches the truck was charging or driving, for the bands behind the charge-level line.
+    struct Band: Equatable, Identifiable {
+        enum Kind { case charging, driving }
+        let kind: Kind
+        let start: Date
+        let end: Date
+        var id: String { "\(kind)-\(start.timeIntervalSince1970)" }
+    }
+
+    /// Charging and driving stretches within `[from, to]`, clipped to it; empty or backwards ones are left out.
+    static func bands(drives: [DrivePoint], charges: [ChargePoint], from: Date, to: Date) -> [Band] {
+        func make(_ kind: Band.Kind, _ s: Date, _ e: Date) -> Band? {
+            let start = max(s, from), end = min(e, to)
+            return end > start ? Band(kind: kind, start: start, end: end) : nil
         }
+        let all = charges.compactMap { make(.charging, $0.startedAt, $0.endedAt) } + drives.compactMap { make(.driving, $0.startedAt, $0.endedAt) }
+        return all.sorted { $0.start < $1.start }
+    }
+
+    /// The highest and lowest points of the line, for the two labelled dots; nil with fewer than two points.
+    static func highLow(_ trend: [SocPoint]) -> (high: SocPoint, low: SocPoint)? {
+        guard trend.count >= 2, let high = trend.max(by: { $0.pct < $1.pct }), let low = trend.min(by: { $0.pct < $1.pct }),
+              high != low else { return nil }
+        return (high, low)
     }
 
     /// Both ends of every drive and charge, oldest first. A reading of 0 or less is "unknown", as on the web.
@@ -95,8 +100,8 @@ enum ChartMath {
 
     /// What VoiceOver says for a per-day chart: the period, the average over the days shown and the biggest day.
     /// `format` turns a value into words ("28 miles").
-    static func spokenDaily(title: String, days: Int, bars: [DayValue], calendar: Calendar, format: (Double) -> String) -> (label: String, value: String) {
-        let label = "\(title), last \(days) days"
+    static func spokenDaily(title: String, period: String, bars: [DayValue], calendar: Calendar, format: (Double) -> String) -> (label: String, value: String) {
+        let label = "\(title), \(period)"
         guard !bars.isEmpty else { return (label, "") }
         let avg = bars.reduce(0) { $0 + $1.value } / Double(bars.count)
         var value = "average \(format(avg))"
@@ -107,8 +112,8 @@ enum ChartMath {
     }
 
     /// For the charge-level line: where it starts and ends, and its lowest and highest points.
-    static func spokenLevel(days: Int, trend: [SocPoint]) -> (label: String, value: String) {
-        let label = "Charge level, last \(days) days"
+    static func spokenLevel(period: String, trend: [SocPoint]) -> (label: String, value: String) {
+        let label = "Charge level, \(period)"
         guard let first = trend.first, let last = trend.last,
               let low = trend.min(by: { $0.pct < $1.pct }), let high = trend.max(by: { $0.pct < $1.pct }) else { return (label, "") }
         func pc(_ v: Double) -> String { "\(Int(v.rounded())) percent" }
