@@ -58,9 +58,11 @@ struct ActivityFeedRow: View {
 private struct DriveCardContent: View {
     let drive: ActivityDrive
     let calendar: Calendar
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        layout {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textSecondary)
@@ -68,8 +70,8 @@ private struct DriveCardContent: View {
                 }
                 Text(sub).themeText(.subline)
             }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 4) {
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
                 Text(NowFormat.distance(mi: drive.distanceMi)).themeText(.value, color: Theme.textPrimary)
                 if ActivityLogic.missingEnergy(drive) {
                     Text("No energy reading").themeText(.subline, color: Theme.estimate)
@@ -98,10 +100,12 @@ private struct DriveCardContent: View {
 private struct ChargeCardContent: View {
     let charge: ActivityCharge
     let calendar: Calendar
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let line = ActivityLogic.costLine(charge)
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        layout {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(ActivityLogic.placeLabel(charge) == "Fast" ? Theme.fast : Theme.home)
@@ -111,8 +115,8 @@ private struct ChargeCardContent: View {
                 }
                 Text(ActivityLogic.timeRange(start: charge.startedAt, end: charge.endedAt, calendar: calendar)).themeText(.subline)
             }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 4) {
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
                 Text("\(NowFormat.oneDecimal(charge.energyAddedKwh)) kWh").themeText(.value, color: Theme.textPrimary)
                 Text(costText(line)).themeText(.subline, color: costColor(line))
             }

@@ -16,6 +16,7 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
 
     private var offline: Bool { summary.presence == .offline || summary.freshness == .needsReconnect }
     private var charging: Bool { summary.kind == .charging && !offline }
@@ -66,7 +67,7 @@ struct NowCard: View {
     private var gaugeRow: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
         return layout {
-            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
+            ThemeGauge(value: summary.socPct ?? 0, width: gaugeWidth, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
                         .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
@@ -145,10 +146,11 @@ struct NowCard: View {
     }
 
     private func readout(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        return layout {
             Text(label).themeText(.value, color: Theme.textSecondary)
-            Spacer(minLength: 12)
-            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.trailing)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
         }
     }
 

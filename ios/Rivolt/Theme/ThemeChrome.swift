@@ -108,6 +108,7 @@ struct ThemeStepper: View {
                 .frame(width: 40, height: 36)
             Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
                 .frame(minWidth: 84)
+                .lineLimit(1).minimumScaleFactor(0.6)
                 .accessibilityLabel(spokenTitle ?? title)
                 .accessibilityAddTraits(.isHeader)
             Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: 11)) }
