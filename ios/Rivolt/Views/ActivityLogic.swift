@@ -206,7 +206,7 @@ extension ActivityLogic {
         out.append(KpiTile(id: "distance", label: "Distance", value: f(d.distanceMi * k, 1), unit: dist, hint: nil))
         if let t = duration(d) { out.append(KpiTile(id: "duration", label: "Duration", value: shortDuration(t), unit: "", hint: nil)) }
         if d.startSocPct > 0, d.endSocPct > 0 {
-            out.append(KpiTile(id: "soc", label: "Charge level", value: "\(Int(d.startSocPct.rounded()))% → \(Int(d.endSocPct.rounded()))%", unit: "", hint: nil))
+            out.append(KpiTile(id: "soc", label: "SoC", value: "\(Int(d.startSocPct.rounded()))% → \(Int(d.endSocPct.rounded()))%", unit: "", hint: nil))
         }
         if d.avgSpeedMph > 0 || d.maxSpeedMph > 0 {
             out.append(KpiTile(id: "speed", label: "Speed avg / max", value: "\(f(d.avgSpeedMph * k, 0)) / \(f(d.maxSpeedMph * k, 0))", unit: metric ? "km/h" : "mph", hint: nil))
@@ -232,7 +232,7 @@ extension ActivityLogic {
         var out: [KpiTile] = []
         if let t = duration(c) { out.append(KpiTile(id: "duration", label: "Duration", value: shortDuration(t), unit: "", hint: nil)) }
         if c.startSocPct > 0, c.endSocPct > 0 {
-            out.append(KpiTile(id: "soc", label: "Charge level", value: "\(Int(c.startSocPct.rounded()))% → \(Int(c.endSocPct.rounded()))%", unit: "", hint: nil))
+            out.append(KpiTile(id: "soc", label: "SoC", value: "\(Int(c.startSocPct.rounded()))% → \(Int(c.endSocPct.rounded()))%", unit: "", hint: nil))
         }
         out.append(KpiTile(id: "energy", label: "Energy", value: f(c.energyAddedKwh, 1), unit: "kWh", hint: nil))
         if c.maxPowerKw > 0 { out.append(KpiTile(id: "power", label: "Max kW", value: f(c.maxPowerKw, 1), unit: "kW", hint: nil)) }
