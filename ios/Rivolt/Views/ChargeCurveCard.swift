@@ -39,20 +39,38 @@ struct ChargeCurveView: View {
 
     @State private var showBattery = true
     @State private var showPower = true
-    @State private var showPack = false
+    @State private var showPack: Bool
+    @State private var showOutside: Bool
     @State private var cursor: Date?
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 220
 
+    /// The two temperature overlays start hidden, as on the web; a test can start them shown.
+    init(series: ChargeCurve.Series, startPct: Double, endPct: Double, peakKw: Double, calendar: Calendar = .current,
+         metric: Bool = NowFormat.usesMetric, showPack: Bool = false, showOutside: Bool = false) {
+        self.series = series
+        self.startPct = startPct
+        self.endPct = endPct
+        self.peakKw = peakKw
+        self.calendar = calendar
+        self.metric = metric
+        _showPack = State(initialValue: showPack)
+        _showOutside = State(initialValue: showOutside)
+    }
+
     /// The web's #a78bfa for the pack temperature (its charge page's colour; not in the design tokens).
     private static let packColor = Color(red: 167 / 255, green: 139 / 255, blue: 250 / 255)
+    /// And its #60a5fa for the outside temperature.
+    private static let outsideColor = Color(red: 96 / 255, green: 165 / 255, blue: 250 / 255)
     private var batteryColor: Color { Theme.chartSocCharge }
     private var powerColor: Color { Theme.chartSocLimit }
 
     private var axes: ChargeCurve.Axes { ChargeCurve.axes(series, startPct: startPct, endPct: endPct, peakKw: peakKw) }
     private var hasPower: Bool { !series.power.isEmpty }
     private var hasPack: Bool { series.packAvgC.count > 1 }
+    private var hasOutside: Bool { series.outsideC.count > 1 }
     private var tempUnit: String { metric ? "°C" : "°F" }
     private var packInUnit: [ChargeCurve.Pt] { series.packAvgC.map { .init(at: $0.at, value: ChargeCurve.temperature($0.value, metric: metric)) } }
+    private var outsideInUnit: [ChargeCurve.Pt] { series.outsideC.map { .init(at: $0.at, value: ChargeCurve.temperature($0.value, metric: metric)) } }
 
     private var timeStyle: Date.FormatStyle {
         var f = Date.FormatStyle(timeZone: calendar.timeZone).hour().minute()
@@ -86,6 +104,9 @@ struct ChargeCurveView: View {
                 if showPack, hasPack, let v = ChargeCurve.nearest(packInUnit, to: cursor) {
                     pill("Pack", Self.packColor, "\(NumberText.fixed(v, 0))\(tempUnit)")
                 }
+                if showOutside, hasOutside, let v = ChargeCurve.nearest(outsideInUnit, to: cursor) {
+                    pill("Outside", Self.outsideColor, "\(NumberText.fixed(v, 0))\(tempUnit)")
+                }
             } else {
                 Text("Touch the chart to inspect a moment").themeText(.caption, color: Theme.textTertiary)
             }
@@ -107,6 +128,7 @@ struct ChargeCurveView: View {
             CurveChip(label: "Battery", color: batteryColor, on: showBattery) { showBattery.toggle() }
             if hasPower { CurveChip(label: "Power", color: powerColor, on: showPower) { showPower.toggle() } }
             if hasPack { CurveChip(label: "Pack temp", color: Self.packColor, on: showPack) { showPack.toggle() } }
+            if hasOutside { CurveChip(label: "Outside temp", color: Self.outsideColor, on: showOutside) { showOutside.toggle() } }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -121,6 +143,7 @@ struct ChargeCurveView: View {
             if showBattery { batteryMarks(ax) }
             if showPower, hasPower { powerMarks(ax) }
             if showPack, hasPack { packMarks() }
+            if showOutside, hasOutside { outsideMarks() }
             cursorMark
         }
         .chartXScale(domain: first...last)
@@ -192,6 +215,20 @@ struct ChargeCurveView: View {
             LineMark(x: .value("Time", p.at), y: .value("Pack", ChargeCurve.unit(temp: p.value, range: range)), series: .value("Series", "Pack"))
                 .foregroundStyle(Self.packColor)
                 .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round, dash: [4, 2]))
+                .interpolationMethod(.linear)
+        }
+    }
+
+    /// The outside temperature, mapped like the pack's: a thin dashed line over its own range, the readout saying the
+    /// real value.
+    @ChartContentBuilder
+    private func outsideMarks() -> some ChartContent {
+        let pts = outsideInUnit
+        let range = ChargeCurve.tempRange(pts)
+        ForEach(Array(pts.enumerated()), id: \.offset) { _, p in
+            LineMark(x: .value("Time", p.at), y: .value("Outside", ChargeCurve.unit(temp: p.value, range: range)), series: .value("Series", "Outside"))
+                .foregroundStyle(Self.outsideColor)
+                .lineStyle(StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round, dash: [3, 3]))
                 .interpolationMethod(.linear)
         }
     }
