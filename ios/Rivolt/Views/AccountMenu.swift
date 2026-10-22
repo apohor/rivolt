@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The account menu at the end of every screen's top bar: Refresh (when the screen has something to refresh),
-/// Notifications (when this server can push), Acknowledgements and Sign out. It opens its own sheets, so each screen
+/// Notifications (when this server can push), Appearance (System, Light or Dark, saved on this iPhone), Acknowledgements and Sign out. It opens its own sheets, so each screen
 /// only places it. The screens it opens are the architect's (Settings); the menu itself is shared.
 struct AccountMenu: View {
     @Environment(AppState.self) private var state
@@ -10,6 +10,7 @@ struct AccountMenu: View {
     /// Nil when the screen has nothing to refresh by hand.
     var onRefresh: (() -> Void)?
 
+    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showNotifications = false
     @State private var showAcknowledgements = false
 
@@ -20,6 +21,9 @@ struct AccountMenu: View {
             }
             if state.notifications.offered {
                 Button("Notifications") { showNotifications = true }
+            }
+            Picker("Appearance", selection: $appearance) {
+                ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
             }
             Button("Acknowledgements") { showAcknowledgements = true }
             Divider()
