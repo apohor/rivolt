@@ -511,10 +511,15 @@ maps:
   valhalla:
     baseUrl: ""
   photon:
-    # Self-hosted Photon geocoder for street-level addresses.
-    # Typical in-cluster value:
-    #   "http://photon.photon.svc.cluster.local"
-    # Empty falls back to Open-Meteo's city-level geocoding.
+    # Optional Photon geocoder for street-level home and trip search
+    # (RIVOLT_PHOTON_BASE_URL). Without it, trip and place search is city-level
+    # (via Open-Meteo) and the home address field is hidden; home can still be
+    # set from a charge's location or by coordinates.
+    # Self-hosted, e.g. "http://photon.photon.svc.cluster.local" (serves
+    # OpenStreetMap data). komoot's public server "https://photon.komoot.io"
+    # also works (same /api/?q= path), but then every search, including typed
+    # home addresses, goes to komoot, who ask for fair, light use and
+    # guarantee nothing.
     baseUrl: ""
   tiles:
     baseUrl: ""
