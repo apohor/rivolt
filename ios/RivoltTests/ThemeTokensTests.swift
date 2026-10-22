@@ -61,6 +61,7 @@ final class ThemeTokensTests: XCTestCase {
             "chartMilesBar": ThemeTokens.chartMilesBar, "chartSocCharge": ThemeTokens.chartSocCharge,
             "chartSocDrive": ThemeTokens.chartSocDrive, "chartSocLimit": ThemeTokens.chartSocLimit,
             "chartIdleAwakeBar": ThemeTokens.chartIdleAwakeBar, "chartIdleAwakeTile": ThemeTokens.chartIdleAwakeTile,
+            "brandMark": ThemeTokens.brandMark,
         ]
         for (name, p) in d.roles.merging(d.literals, uniquingKeysWith: { a, _ in a }) {
             let swift = try XCTUnwrap(swiftPairs[name], "\(name) is in tokens.json but not in ThemeTokens: run ios/design/generate_theme.py")
@@ -95,6 +96,13 @@ final class ThemeTokensTests: XCTestCase {
         XCTAssertEqual(ThemeTokens.tabBarMinHeight, n("tabBar.minHeight"))
         XCTAssertEqual(ThemeTokens.tabBarIcon, n("tabBar.icon"))
         XCTAssertEqual(ThemeTokens.tabBarIconStroke, n("tabBar.iconStroke"))
+        XCTAssertEqual(ThemeTokens.logoSize, n("logo.size"))
+        XCTAssertEqual(ThemeTokens.logoViewBox, n("logo.viewBox"))
+        XCTAssertEqual(ThemeTokens.logoFrameRadius, n("logo.frameRadius"))
+        XCTAssertEqual(ThemeTokens.logoFrameStroke, n("logo.frameStroke"))
+        XCTAssertEqual(ThemeTokens.logoFrameOpacity, n("logo.frameOpacity"))
+        XCTAssertEqual(ThemeTokens.logoWordmarkGap, n("logo.wordmarkGap"))
+        XCTAssertEqual(ThemeTokens.logoWordmarkTracking, n("logo.wordmarkTracking"))
     }
 
     func testTheBundledFontsRegisterAndResolve() {

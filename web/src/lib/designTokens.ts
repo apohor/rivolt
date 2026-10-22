@@ -127,6 +127,7 @@ export const ROLES: Record<string, { cssVar: string; use: string }> = {
   criticalBorder: { cssVar: "--color-rose-500", use: "Now hero border when critical, at 50%" },
   drive: { cssVar: "--color-sky-300", use: "drive figures and labels" },
   edge: { cssVar: "--ui-edge", use: "1px top-edge highlight inside cards" },
+  brandMark: { cssVar: "--color-emerald-400", use: "the Rivolt logo (Logo.tsx, text-emerald-400 in the header)" },
 };
 
 type Literal = { file: string; css: string; use: string };
@@ -237,6 +238,13 @@ export const SCALAR: Record<string, { value: number | string; file: string; css:
   "gauge.stroke": { value: 7, file: "src/components/ArcGauge.tsx", css: "strokeWidth={7}", use: "track and fill width, round caps" },
   "gauge.trackOpacity": { value: 0.14, file: "src/components/ArcGauge.tsx", css: "strokeOpacity={0.14}", use: "track = textBody at this opacity" },
   "gauge.size": { value: 132, file: "src/components/ArcGauge.tsx", css: "size = 132", use: "default width (pt); height = 0.9 × width" },
+  "logo.size": { value: 22, file: "src/layout/AppLayout.tsx", css: '<Logo size={22} className="text-emerald-400" />', use: "header logo size (pt), coloured roles.brandMark" },
+  "logo.viewBox": { value: 64, file: "src/components/Logo.tsx", css: 'viewBox="0 0 64 64"', use: "logo drawing space; frame inset 4, 56×56, corner 12" },
+  "logo.frameRadius": { value: 12, file: "src/components/Logo.tsx", css: 'rx="12"', use: "logo frame corner radius (viewBox units)" },
+  "logo.frameStroke": { value: 3.5, file: "src/components/Logo.tsx", css: 'strokeWidth="3.5"', use: "logo frame stroke (viewBox units), no fill" },
+  "logo.frameOpacity": { value: 0.9, file: "src/components/Logo.tsx", css: 'opacity="0.9"', use: "logo frame opacity; the bolt is solid" },
+  "logo.wordmarkGap": { value: 8, file: "src/layout/AppLayout.tsx", css: "flex items-center gap-2 font-semibold tracking-tight text-neutral-100", use: "gap between logo and 'Rivolt' (gap-2, pt); wordmark semibold, tracking-tight, roles.textPrimary" },
+  "logo.wordmarkTracking": { value: -0.025, file: "node_modules/tailwindcss/theme.css", css: "--tracking-tight: -0.025em", use: "'Rivolt' wordmark tracking (em)" },
   "tabBar.minHeight": { value: 56, file: "src/layout/TabShell.tsx", css: "min-h-14", use: "tab height (pt), plus the home-indicator inset" },
   "tabBar.icon": { value: 22, file: "src/layout/TabShell.tsx", css: "width: 22", use: "icon size (pt), 24×24 viewBox" },
   "tabBar.iconStroke": { value: 1.8, file: "src/layout/TabShell.tsx", css: "strokeWidth: 1.8", use: "icon stroke, round caps and joins" },
@@ -250,6 +258,9 @@ export const ICONS: Record<string, string[]> = {
   plan: ["M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z", "circle 12 11 2"],
   truck: ["M3 16V8h11v8M14 11h4l3 3v2h-7", "circle 7 17 2", "circle 17 17 2"],
 };
+
+// The logo's bolt (filled), 64×64 viewBox.
+export const BRAND_BOLT = "M36 10 L18 36 H30 L26 54 L46 26 H34 Z";
 
 // ---- Build ------------------------------------------------------------------
 
@@ -303,6 +314,8 @@ export function buildTokens(src: Sources) {
     }
   }
 
+  has("src/components/Logo.tsx", `d="${BRAND_BOLT}"`);
+
   if (problems.length) throw new Error(`design tokens drifted from the web:\n${problems.join("\n")}`);
   return {
     version: 1,
@@ -311,6 +324,8 @@ export function buildTokens(src: Sources) {
     literals,
     scalars,
     icons: { viewBox: "0 0 24 24", stroke: 1.8, paths: ICONS, source: "src/layout/TabShell.tsx" },
+    // The Rivolt mark: a rounded-square frame (scalars logo.*) and this bolt, filled, in a 64×64 viewBox.
+    brandBolt: { viewBox: "0 0 64 64", path: BRAND_BOLT, source: "src/components/Logo.tsx" },
     // Where the iPhone differs from the web.
     platform: {
       units: "Web CSS px map 1:1 to iOS points.",
@@ -332,5 +347,7 @@ export const SOURCE_FILES = [
   "src/components/SocTrendChart.tsx",
   "src/components/IdleAwakeTile.tsx",
   "src/pages/HomePage.tsx",
+  "src/components/Logo.tsx",
+  "src/layout/AppLayout.tsx",
   "node_modules/tailwindcss/theme.css",
 ];
