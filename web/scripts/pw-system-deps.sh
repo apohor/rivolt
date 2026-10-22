@@ -5,7 +5,9 @@
 # the Ubuntu mirror is sometimes slow: 26 MB at 96 kB/s took 4.5 minutes of a 3-minute shard. ubuntu-latest already
 # carries the libraries chromium links against, so check the binaries and call apt only if the dynamic linker says a
 # library is missing. (What install-deps would add on top is CJK and other fallback fonts: no spec renders them.)
-# WebKit's libraries are not on the image: it always installs.
+# WebKit's libraries are not on the image: it always installs, and a slow mirror can stall that for the whole job
+# limit, so each attempt gets five minutes and there is one retry (apt resumes partial downloads). A second stall
+# fails the step with a message, instead of the job running out its 15 minutes.
 #
 # usage: pw-system-deps.sh <chromium|webkit>
 set -euo pipefail
@@ -27,4 +29,9 @@ if [ "$project" = "chromium" ]; then
   fi
 fi
 
-npx playwright install-deps "$project"
+for attempt in 1 2; do
+  if timeout 300 npx playwright install-deps "$project"; then exit 0; fi
+  echo "::warning::playwright install-deps $project: attempt $attempt failed or took over 5 minutes (slow apt mirror?)"
+done
+echo "::error::playwright install-deps $project failed twice; the apt mirror is probably slow. Re-run the job."
+exit 1
