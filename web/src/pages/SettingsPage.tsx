@@ -21,9 +21,7 @@ import {
   type DriveWeatherBackfillResult,
   type GeocodeResult,
   type HomeLocation,
-  type RestampResult,
   type RestoreProgress,
-  type RestampUndoResult,
   type PlannerPrefs,
   type ImportResult,
   type ImportProgress,
@@ -37,6 +35,7 @@ import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
 import { OffpeakPanel } from "../components/OffpeakCard";
 import { MembershipTerms } from "../components/MembershipTerms";
+import { useHomeRecheck } from "../components/HomeRecheck";
 import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
@@ -2748,39 +2747,24 @@ export function HomeLocationPanel() {
     queryFn: backend.homeLocationGet,
     staleTime: 60 * 1000,
   });
-  // "Wrong pin or moved?": asked only when an existing home is replaced
-  // and re-checking would change past charges (dry run first).
-  const [ask, setAsk] = useState<RestampResult | null>(null);
-  const restampDry = useMutation({
-    mutationFn: () => backend.restampPlace(true),
-    onSuccess: (r) => setAsk(r.changed > 0 ? r : null),
-  });
-  const restamp = useMutation({
-    mutationFn: () => backend.restampPlace(false),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["ledger"] });
-      qc.invalidateQueries({ queryKey: ["charges"] });
-    },
-  });
-  const undo = useMutation({
-    mutationFn: (id: string | null | undefined) => backend.restampPlaceUndo(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["ledger"] });
-      qc.invalidateQueries({ queryKey: ["charges"] });
-    },
-  });
+  const recheck = useHomeRecheck();
+  const saved = (data: HomeLocation, prev: HomeLocation | undefined) => {
+    qc.setQueryData(["settings", "homeLocation"], data);
+    recheck.reset();
+    if (shell && prev?.set && data.set && homeMoved(prev, data)) recheck.start();
+  };
   const save = useMutation({
     mutationFn: (h: HomeLocation) => backend.homeLocationPut(h),
-    onSuccess: (data, vars) => {
-      const prev = qc.getQueryData<HomeLocation>(["settings", "homeLocation"]);
-      qc.setQueryData(["settings", "homeLocation"], data);
-      setAsk(null);
-      restamp.reset();
-      undo.reset();
-      if (shell && prev?.set && vars.set && homeMoved(prev, vars)) restampDry.mutate();
-    },
+    onSuccess: (data) => saved(data, qc.getQueryData<HomeLocation>(["settings", "homeLocation"])),
+  });
+  const restore = useMutation({
+    mutationFn: () => backend.homeLocationRestore(),
+    onSuccess: (data) => saved(data, qc.getQueryData<HomeLocation>(["settings", "homeLocation"])),
   });
 
+  const home = homeQ.data;
+  // A street address only on this server's own geocoder (Photon); without it the field isn't shown.
+  const addressSearch = !!home?.address_search;
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
@@ -2788,28 +2772,34 @@ export function HomeLocationPanel() {
     return () => clearTimeout(t);
   }, [query]);
   const results = useQuery({
-    queryKey: ["geocode", debounced],
-    queryFn: () => backend.geocode(debounced, 5),
-    enabled: debounced.trim().length >= 2,
+    queryKey: ["home-address", debounced],
+    queryFn: () => backend.homeAddressSearch(debounced),
+    enabled: addressSearch && debounced.trim().length >= 3,
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
-
-  const home = homeQ.data;
   const onSelect = (r: GeocodeResult) => {
-    // Label is the user-visible name everywhere this point appears
-    // (trip planner "From: Home", drive map "leaves Home at 8:42").
-    // Default to "Home" so the planner UI stays compact — the full
-    // geocoded address goes into `address`, surfaced as a subtitle
-    // on the Settings card for context but never as the location's
-    // primary name. Users can rename via the Display name field below.
+    // "Home" everywhere the point appears; the address only as the card's subtitle.
     save.mutate({
       set: true,
       latitude: r.latitude,
       longitude: r.longitude,
       label: "Home",
       address: [r.name, r.admin1, r.country].filter(Boolean).join(", "),
+      source: "address",
     });
     setQuery("");
+  };
+
+  // Exact coordinates, e.g. pasted from a map app ("32.77666, -96.79699" in the first box works too).
+  const [lat, setLat] = useState("");
+  const [lon, setLon] = useState("");
+  const coords = parseHomeCoordinates(lat, lon);
+  const onCoordinates = () => {
+    if (!coords.ok) return;
+    save.mutate({ set: true, latitude: coords.lat, longitude: coords.lon, label: "Home", address: "", source: "coordinates" });
+    setLat("");
+    setLon("");
   };
   const onClear = () => {
     save.mutate({ set: false, latitude: 0, longitude: 0, label: "" });
@@ -2824,118 +2814,123 @@ export function HomeLocationPanel() {
           <div>
             <span className="text-neutral-400">Home: </span>
             <span className="text-neutral-100">{home.label || "Home"}</span>
-            {home.address && (
-              <div className="text-xs text-neutral-500">{home.address}</div>
-            )}
+            {home.address && <div className="text-xs text-neutral-500">{home.address}</div>}
+            {home.source && <div data-home-source className="text-xs text-neutral-500">{HOME_SOURCE_TEXT[home.source] ?? ""}</div>}
           </div>
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-xs text-neutral-500 hover:text-neutral-300"
-          >
+          <button type="button" onClick={onClear} className="text-xs text-neutral-500 hover:text-neutral-300">
             clear
           </button>
         </div>
       ) : (
-        <p className="text-neutral-500">
-          Not set. Pick a place below to enable the Home preset on the trip planner.
-        </p>
+        <p className="text-neutral-500">Not set. Set it below, or from a charge you made at home.</p>
       )}
 
-      <div className="relative">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={home?.set ? "Search for a different home…" : "Search for your home city…"}
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
-        />
-        {(results.data ?? []).length > 0 && (
-          <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
-            {(results.data ?? []).map((r) => (
-              <li key={`${r.latitude},${r.longitude}`}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(r)}
-                  className="block w-full px-3 py-2 text-left hover:bg-neutral-800"
-                >
-                  <div className="text-neutral-100">{r.name}</div>
-                  <div className="text-xs text-neutral-500">
-                    {[r.admin1, r.country].filter(Boolean).join(", ")}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {save.isError && (
-        <p className="text-xs text-rose-400">Save failed: {String(save.error)}</p>
-      )}
-      {ask && !restamp.isSuccess && (
-        <div role="group" aria-label="Wrong pin or moved" className="rounded-md border border-amber-500/30 bg-amber-950/20 p-3">
-          <p className="text-neutral-100">Was the old location wrong, or did you move?</p>
-          <p className="mt-1 text-xs text-neutral-400">
-            If it was wrong, {ask.changed} past {ask.changed === 1 ? "charge" : "charges"} will be re-checked against
-            the new home: {ask.to_home} will move to Home and {ask.to_away} to away.{" "}
-            {(ask.would_price_at_home_rate ?? 0) > 0
-              ? `${ask.would_price_at_home_rate} unpriced home ${ask.would_price_at_home_rate === 1 ? "charge" : "charges"} will be priced at your home rate (+${(ask.total_cost_delta ?? 0).toFixed(2)} ${ask.currency ?? ""}). `
-              : "Charges without a price stay unpriced (you can add prices). "}
-            You can undo this right after. If you moved, history stays as recorded.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={restamp.isPending}
-              onClick={() => restamp.mutate()}
-              className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
-            >
-              {restamp.isPending ? "Updating…" : "It was wrong, re-check"}
-            </button>
-            <button
-              type="button"
-              disabled={restamp.isPending}
-              onClick={() => setAsk(null)}
-              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
-            >
-              I moved, keep history
-            </button>
-          </div>
-          {restamp.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(restamp.error)}</p>}
+      {addressSearch && (
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Home street address"
+            placeholder={home?.set ? "Search for a different address…" : "Search for your street address…"}
+            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
+          />
+          {(results.data ?? []).length > 0 && (
+            <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
+              {(results.data ?? []).map((r) => (
+                <li key={`${r.latitude},${r.longitude}`}>
+                  <button type="button" onClick={() => onSelect(r)} className="block w-full px-3 py-2 text-left hover:bg-neutral-800">
+                    <div className="text-neutral-100">{r.name}</div>
+                    <div className="text-xs text-neutral-500">{[r.admin1, r.country].filter(Boolean).join(", ")}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
-      {restamp.isSuccess && !undo.isSuccess && (
-        <div role="status" className="flex flex-wrap items-center gap-3 text-xs text-emerald-300">
-          <span>
-            Updated {restamp.data.changed} {restamp.data.changed === 1 ? "charge" : "charges"}
-            {(restamp.data.would_price_at_home_rate ?? 0) > 0
-              ? `, ${restamp.data.would_price_at_home_rate} priced at your home rate`
-              : ""}
-            .
-          </span>
+
+      <fieldset className="space-y-2" aria-label="Home coordinates">
+        <legend className="text-xs text-neutral-400">Or enter exact coordinates</legend>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={lat}
+            onChange={(e) => {
+              // A pasted "lat, lon" pair fills both boxes.
+              const pair = e.target.value.split(/[,\s]+/).filter(Boolean);
+              if (pair.length === 2) {
+                setLat(pair[0]);
+                setLon(pair[1]);
+              } else setLat(e.target.value);
+            }}
+            aria-label="Latitude"
+            placeholder="Latitude, e.g. 32.77666"
+            className="w-44 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
+          />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={lon}
+            onChange={(e) => setLon(e.target.value)}
+            aria-label="Longitude"
+            placeholder="Longitude, e.g. -96.79699"
+            className="w-44 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
+          />
           <button
             type="button"
-            disabled={undo.isPending}
-            onClick={() => undo.mutate(restamp.data.restamp_id)}
-            className="rounded-md border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+            disabled={!coords.ok || save.isPending}
+            onClick={onCoordinates}
+            className="rounded-md border border-neutral-700 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
           >
-            {undo.isPending ? "Undoing…" : "Undo"}
+            Save coordinates
           </button>
-          {undo.isError && <span className="text-rose-400">Couldn&apos;t undo: {String(undo.error)}</span>}
         </div>
+        {(lat !== "" || lon !== "") && !coords.ok && <p className="text-xs text-amber-300">{coords.why}</p>}
+      </fieldset>
+
+      {home?.previous_set && (
+        <button
+          type="button"
+          disabled={restore.isPending}
+          onClick={() => restore.mutate()}
+          className="text-xs text-neutral-400 underline hover:text-neutral-200 disabled:opacity-50"
+        >
+          {restore.isPending ? "Restoring…" : "Restore the previous home"}
+        </button>
       )}
-      {undo.isSuccess && (
-        <p role="status" className="text-xs text-emerald-300">
-          Restored {(undo.data as RestampUndoResult).restored_place} {(undo.data as RestampUndoResult).restored_place === 1 ? "charge" : "charges"}
-          {(undo.data as RestampUndoResult).unpriced > 0 ? `; ${(undo.data as RestampUndoResult).unpriced} unpriced again` : ""}.
-        </p>
+
+      {(save.isError || restore.isError) && (
+        <p className="text-xs text-rose-400">Save failed: {String(save.error ?? restore.error)}</p>
       )}
+      {recheck.prompt}
       <p className="text-xs text-neutral-500">
-        Street-level geocoding via self-hosted Photon, falling back to Open-Meteo (city-level) when unset.
+        Your home is kept as exactly as you set it.
+        {addressSearch ? " Addresses are looked up on this server's own geocoder and aren't sent anywhere else." : ""}
+        {" "}On a charge you made at home, “Use this charge's location as home” sets it from where the truck was.
       </p>
     </div>
   );
+}
+
+const HOME_SOURCE_TEXT: Record<string, string> = {
+  city: "Set from a city search",
+  address: "Set from a street address",
+  coordinates: "Set from coordinates",
+  charge: "Set from a charge's location",
+};
+
+// parseHomeCoordinates checks typed coordinates as the server will: finite, latitude -90…90, longitude -180…180.
+export function parseHomeCoordinates(lat: string, lon: string): { ok: true; lat: number; lon: number } | { ok: false; why: string } {
+  const a = Number(lat.trim());
+  const b = Number(lon.trim());
+  if (lat.trim() === "" || lon.trim() === "" || !Number.isFinite(a) || !Number.isFinite(b)) {
+    return { ok: false, why: "Enter both a latitude and a longitude, as decimal degrees." };
+  }
+  if (a < -90 || a > 90) return { ok: false, why: "Latitude must be between -90 and 90." };
+  if (b < -180 || b > 180) return { ok: false, why: "Longitude must be between -180 and 180." };
+  return { ok: true, lat: a, lon: b };
 }
 
 // PlannerPrefsPanel saves defaults for the trip planner: drive

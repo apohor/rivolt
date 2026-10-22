@@ -45,10 +45,17 @@ import (
 // appears in internal/settings without being classified here or in
 // notExportedSettingKeys.
 var exportedSettingKeys = map[string]bool{
-	"home_location.latitude":        true,
-	"home_location.longitude":       true,
-	"home_location.label":           true,
-	"home_location.address":         true,
+	"home_location.latitude":  true,
+	"home_location.longitude": true,
+	"home_location.label":     true,
+	"home_location.address":   true,
+	"home_location.source":    true,
+	// The home a change replaced (Settings → Restore the previous home): the user's own, exported like the home.
+	"home_location.prev_latitude":   true,
+	"home_location.prev_longitude":  true,
+	"home_location.prev_label":      true,
+	"home_location.prev_address":    true,
+	"home_location.prev_source":     true,
 	"charging.home_price_per_kwh":   true,
 	"charging.home_currency":        true,
 	"charging.gas_price_per_gallon": true,

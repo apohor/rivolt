@@ -1706,6 +1706,10 @@ export const backend = {
   homeLocationGet: () => api.get<HomeLocation>("/api/settings/home-location"),
   homeLocationPut: (h: HomeLocation) =>
     api.put<HomeLocation>("/api/settings/home-location", h),
+  // Back to the home the latest change replaced. 404 when there is none.
+  homeLocationRestore: () => api.post<HomeLocation>("/api/settings/home-location/restore", null),
+  // A street address on this server's own Photon (the address in the body, never the URL). 404 without Photon.
+  homeAddressSearch: (q: string) => api.post<GeocodeResult[]>("/api/settings/home-location/search", { q }),
   // Trip-planner default drive mode + Tesla NACS adapter flag.
   // SPA pre-fills the per-trip form from these.
   // In the demo these live in browser memory only (no request, nothing saved).
@@ -2291,6 +2295,11 @@ export type HomeLocation = {
   label?: string;
   // Full geocoded address, kept as Settings-card subtitle context.
   address?: string;
+  // How it was set: "city", "address", "coordinates" or "charge" (absent before it was recorded).
+  source?: "city" | "address" | "coordinates" | "charge" | "";
+  // Read-only, from GET/PUT: an earlier home can be restored; a street address can be looked up (Photon).
+  previous_set?: boolean;
+  address_search?: boolean;
 };
 
 // GeocodeResult is one match from /api/geocode (Open-Meteo).
