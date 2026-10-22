@@ -481,7 +481,7 @@ export default function HomePage() {
             {next ? (
               <SocTrendChart
                 trend={trend}
-                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime() }))}
+                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime(), limit: c.ChargeLimitPct }))}
                 drives={winDrives.map((d) => ({ x0: new Date(d.StartedAt).getTime(), x1: new Date(d.EndedAt).getTime() }))}
                 // The whole period, not just up to today: the axis runs to the month's end, as on the iPhone.
                 domain={range.start ? [range.start.getTime(), range.end ? range.end.getTime() : Date.now()] : null}

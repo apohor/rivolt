@@ -3,10 +3,47 @@ import { axisDayIndices, mmdd } from "../lib/period";
 
 // Battery (SoC) trend for the ui_theme_next layer, the same chart as the iPhone's (#895): a linear line with a
 // fading fill down to 0%, one strip below the 0% line marking charging (emerald) and driving (sky), the charge
-// limit as a "Limit N%" segment over the last two days to now (current period only), the high and low labelled inside
+// limit as steps from the charges' stored limits (else today's target over the last two days), the high and low labelled inside
 // the plot, and a crosshair tooltip.
 type Pt = { x: number; y: number };
 type Span = { x0: number; x1: number };
+// A charge: its span and the limit it was set to (1–100; null or 0 unknown).
+type ChargeSpan = Span & { limit?: number | null };
+export type LimitStep = { x0: number; x1: number; pct: number };
+
+const validLimit = (p: number | null | undefined): p is number => p != null && Number.isFinite(p) && p > 0 && p <= 100;
+
+/** The charge limit as steps over [from, to), the same rule as the iPhone: each charge with a limit starts a step
+ *  at its start, held to the next one with a limit (a charge without one carries the step on); nothing before the
+ *  period's first such charge. After the last charge's end, up to now, the live target when known (the current
+ *  period only), else that charge's limit. Steps end at now: days to come stay empty. Neighbouring steps at the
+ *  same value are joined. */
+export function limitSteps(charges: ChargeSpan[], from: number, to: number, now: number, live: number | null): LimitStep[] {
+  const end = Math.min(to, now);
+  const set = charges
+    .filter((c) => validLimit(c.limit) && c.x0 >= from && c.x0 < end)
+    .sort((a, b) => a.x0 - b.x0);
+  const out: LimitStep[] = [];
+  const push = (x0: number, x1: number, pct: number) => {
+    if (x1 <= x0) return;
+    const last = out[out.length - 1];
+    if (last && last.pct === pct && last.x1 >= x0) last.x1 = Math.max(last.x1, x1);
+    else out.push({ x0, x1, pct });
+  };
+  set.forEach((c, i) => {
+    const pct = c.limit as number;
+    const next = set[i + 1];
+    if (next) {
+      push(c.x0, next.x0, pct);
+      return;
+    }
+    const held = Math.min(Math.max(c.x1, c.x0), end);
+    push(c.x0, held, pct);
+    const current = now >= from && now <= to;
+    push(held, end, current && validLimit(live) ? live : pct);
+  });
+  return out;
+}
 
 const H = 190;
 const PAD = { l: 34, r: 20, t: 8, b: 22 };
@@ -45,7 +82,7 @@ export function SocTrendChart({
   limit,
 }: {
   trend: Pt[];
-  charges: Span[];
+  charges: ChargeSpan[];
   drives: Span[];
   domain: [number, number] | null;
   limit: number | null;
@@ -96,15 +133,25 @@ export function SocTrendChart({
   const lo = pts.length >= 2 ? pts.reduce<Pt | null>((m, p) => (m == null || p.y < m.y ? p : m), null) : null;
   const hi = pts.length >= 2 ? pts.reduce<Pt | null>((m, p) => (m == null || p.y > m.y ? p : m), null) : null;
   const extremes = hi && lo && pctLabel(hi.y) !== pctLabel(lo.y) ? { hi, lo } : null;
-  // The limit is today's (the live charge target), so it's drawn only on a period that contains now, over the
-  // last 24 hours; past periods have none until charges carry the limit in force.
   // (All time ends at the now of its memo, a moment before this one: a few minutes' slack.)
   const now = Math.min(Date.now(), Math.max(x1, Date.now() - 5 * 60_000));
-  const limitShown = limit != null && limit > 0 && limit < 100 && now >= x0 && now <= x1;
-  const limitPct = limitShown ? (limit as number) : 0;
-  // The last two days, as the iPhone (#895). Its value sits right of the segment in the days still to come, or
-  // above it in a period's last four days, where there's no room to the right.
-  const limitFrom = Math.max(x0, now - 2 * DAY);
+  const current = now >= x0 && now <= x1;
+  // The limit as steps from the charges' stored limits (limitSteps). Without any (an older server, or none known
+  // in the period), today's target over the last two days, on the current period only, as the iPhone (#895).
+  const steps = limitSteps(charges, x0, x1, now, limit);
+  const limitLine: LimitStep[] =
+    steps.length > 0 ? steps : current && validLimit(limit) ? [{ x0: Math.max(x0, now - 2 * DAY), x1: now, pct: limit }] : [];
+  const limitShown = limitLine.length > 0;
+  let limitPath = "";
+  limitLine.forEach((s, i) => {
+    const prev = limitLine[i - 1];
+    limitPath += prev && prev.x1 === s.x0 ? ` V ${Y(s.pct).toFixed(1)}` : ` M ${X(s.x0).toFixed(1)} ${Y(s.pct).toFixed(1)}`;
+    limitPath += ` H ${X(s.x1).toFixed(1)}`;
+  });
+  // One value, on the current period: at the line's end at now, right of it in the days still to come, or above it
+  // in a period's last four days (no room to the right). Past periods carry no value.
+  const limitEnd = limitLine[limitLine.length - 1];
+  const limitLabel = current && limitEnd && now - limitEnd.x1 < 60_000 ? limitEnd : null;
   const limitLabelAbove = x1 - now < 4 * DAY;
   const ticks = dayTicks(x0, x1, Math.max(2, Math.min(5, Math.floor(iw / 110))));
   const tickAnchor = (x: number): "start" | "middle" | "end" =>
@@ -158,13 +205,14 @@ export function SocTrendChart({
         {area && <path d={area} fill="url(#soc-fill)" className="text-neutral-100" />}
         {line && <path d={line} data-draw="line" fill="none" stroke="currentColor" className="text-neutral-100" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
         {limitShown && (
-          <g data-testid="soc-limit" data-draw="limit">
-            <line x1={X(limitFrom)} x2={X(now)} y1={Y(limitPct)} y2={Y(limitPct)} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5} />
-            {limitLabelAbove ? (
-              <text x={X(now)} y={Y(limitPct) - 5} textAnchor={X(now) - PAD.l < 80 ? "start" : "end"} className="fill-amber-400 text-[10px]">Limit {Math.round(limitPct)}%</text>
-            ) : (
-              <text x={X(now) + 4} y={Y(limitPct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(limitPct)}%</text>
-            )}
+          <g data-testid="soc-limit" data-draw="limit" data-steps={steps.length}>
+            <path d={limitPath.trim()} data-limit-line fill="none" stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5} />
+            {limitLabel &&
+              (limitLabelAbove ? (
+                <text x={X(limitLabel.x1)} y={Y(limitLabel.pct) - 5} textAnchor={X(limitLabel.x1) - PAD.l < 80 ? "start" : "end"} className="fill-amber-400 text-[10px]">Limit {Math.round(limitLabel.pct)}%</text>
+              ) : (
+                <text x={X(limitLabel.x1) + 4} y={Y(limitLabel.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(limitLabel.pct)}%</text>
+              ))}
           </g>
         )}
         {extremes && (
@@ -223,7 +271,7 @@ export function SocTrendChart({
             <svg aria-hidden width="16" height="4" className="mr-1 inline-block align-middle">
               <line data-testid="legend-limit-swatch" x1="0" x2="16" y1="2" y2="2" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3" />
             </svg>
-            Charge limit now
+            {steps.length > 0 ? "Charge limit" : "Charge limit now"}
           </span>
         )}
         {extremes && (
