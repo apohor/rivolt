@@ -74,7 +74,7 @@ struct WidgetSnapshot: Codable, Equatable {
             return (ageText(at: date) ?? "May be out of date", "clock.badge.exclamationmark", .stale)
         }
         var text = stateLabel
-        if let kw = chargePowerKw { text += String(format: " · %.1f kW", kw) }
+        if let kw = chargePowerKw { text += " · \(NumberText.fixed(kw, 1)) kW" }
         return (text, isCharging ? "bolt.fill" : "parkingsign", isCharging ? .charging : .normal)
     }
 

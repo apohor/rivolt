@@ -34,15 +34,18 @@ struct NowWidgetView: View {
     }
 }
 
-private func rangeText(_ km: Double) -> String {
-    Measurement(value: km, unit: UnitLength.kilometers)
-        .formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(0))))
+/// The range in the phone's road unit (miles in the US and UK, as the app's Now card), whole, rounded as the web does.
+private func rangeText(_ km: Double, spoken: Bool = false) -> String {
+    let system = Locale.current.measurementSystem
+    let miles = system == .us || system == .uk
+    let unit = spoken ? (miles ? "miles" : "kilometres") : (miles ? "mi" : "km")
+    return "\(NumberText.fixed(miles ? km / 1.609344 : km, 0)) \(unit)"
 }
 
 private func socText(_ s: WidgetSnapshot) -> String { "\(Int(s.socPct.rounded()))%" }
 
 private func spoken(_ s: WidgetSnapshot, at date: Date) -> String {
-    var parts = ["Charge \(Int(s.socPct.rounded())) percent", "range \(rangeText(s.rangeKm))"]
+    var parts = ["Charge \(Int(s.socPct.rounded())) percent", "range \(rangeText(s.rangeKm, spoken: true))"]
     parts.append(s.status(at: date).text)
     return parts.joined(separator: ", ")
 }

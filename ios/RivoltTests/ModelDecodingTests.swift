@@ -35,7 +35,7 @@ final class ModelDecodingTests: XCTestCase {
 
     func testVehicleStateDecodes() throws {
         let s = try Fixture.decode(VehicleState.self, "state")
-        XCTAssertEqual(s.vehicleId, "01-242521064")
+        XCTAssertEqual(s.vehicleId, "veh-fixture")
         XCTAssertEqual(s.batteryLevelPct, 63.4)
         XCTAssertEqual(s.distanceToEmpty, 312.7)
         XCTAssertEqual(s.chargerState, "charging_active")
@@ -45,7 +45,7 @@ final class ModelDecodingTests: XCTestCase {
 
     func testVehiclesDecode() throws {
         let vs = try Fixture.decode([Vehicle].self, "vehicles")
-        XCTAssertEqual(vs.map(\.id), ["01-242521064", "01-242521065"])
+        XCTAssertEqual(vs.map(\.id), ["veh-fixture", "veh-fixture-2"])
         XCTAssertNil(vs[1].modelYear)
     }
 

@@ -1,7 +1,7 @@
 {
   "at": "2026-10-21T14:03:10.512345678Z",
   "location_fix_at": "2026-10-21T14:02:58Z",
-  "vehicle_id": "01-242521064",
+  "vehicle_id": "veh-fixture",
   "battery_level_pct": 63.4,
   "battery_capacity_kwh": 135,
   "distance_to_empty": 312.7,

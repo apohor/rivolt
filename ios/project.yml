@@ -134,6 +134,8 @@ targets:
         buildPhase: resources
       - path: Rivolt/Views/NowModel.swift
       - path: Rivolt/Views/NowInk.swift
+      # The one rounding rule for every figure (the web's), in the widgets and the Live Activity too.
+      - path: Rivolt/Views/NumberText.swift
       - path: Rivolt/LiveActivity/ChargingActivity.swift
       - path: Rivolt/LiveActivity/ChargingActivityViews.swift
       - path: Rivolt/Net/Models.swift
