@@ -308,3 +308,18 @@ struct NowAlertBanner: View {
             .accessibilityLabel(alert.text)
     }
 }
+
+/// When the truck has said nothing yet: what is happening and that the last known values will appear. The month's
+/// figures under it still show.
+struct NoDataCard: View {
+    let vehicleName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Rivolt can't reach \(vehicleName) right now.").themeText(.value, color: Theme.textPrimary)
+            Text("Reconnecting. The last known values appear here when available.").themeText(.subline)
+        }
+        .themeCard(padding: 5 * Theme.unit)
+        .accessibilityElement(children: .combine)
+    }
+}

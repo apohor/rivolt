@@ -82,6 +82,10 @@ final class ShellSnapshotTests: XCTestCase {
         try state("stale", summary(soc: 41, age: 5 * 60))
     }
 
+    func testRenderTheNoDataState() throws {
+        try render("shell-now-no-data", page(NoDataCard(vehicleName: "Sample Truck")))
+    }
+
     /// The whole Now page in the order HomeView lays it out, to compare with the web's full-page capture.
     func testRenderTheWholeNowPage() throws {
         let v = try vehicle()

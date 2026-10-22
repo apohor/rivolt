@@ -37,8 +37,9 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 Group {
-                    if let vehicle = selected, vehicleState != nil || now != nil {
+                    if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
                         let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+                        let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
                             if let m = extras.current(vehicleID: vehicle.id) {
                                 MilestoneCard(milestone: m, failed: extras.dismissFailed) {
@@ -49,9 +50,14 @@ struct HomeView: View {
                             // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
                             // charge we can't see.
                             let fresh = summary.freshness != .stale
-                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
-                                    session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil)
-                            ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
+                            if haveData {
+                                NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
+                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil)
+                                ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
+                            } else {
+                                // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
+                                NoDataCard(vehicleName: vehicle.name)
+                            }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
                             // The web's order after the tiles: where it charges, then the two charts.
