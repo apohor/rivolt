@@ -1,0 +1,14 @@
+{
+  "units": "imperial",
+  "distance_unit": "mi",
+  "efficiency_unit": "mi/kWh",
+  "temp_c": -10,
+  "efficiency_low": 1.9,
+  "efficiency_high": 2.3,
+  "range_low": 249,
+  "range_high": 301,
+  "based_on": { "drives": 14, "miles": 310.5, "temp_lo_c": -13, "temp_hi_c": -7 },
+  "available": [-10, 0, 10],
+  "min_drives": 5,
+  "min_miles": 50
+}

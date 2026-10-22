@@ -1,0 +1,30 @@
+{
+  "units": "imperial",
+  "distance_unit": "mi",
+  "efficiency_unit": "mi/kWh",
+  "timezone": "America/Chicago",
+  "months": 12,
+  "min_month_distance": 50,
+  "min_months": 3,
+  "qualifying_months": 3,
+  "efficiency": [
+    { "month": "2026-08", "distance": 812.4, "energy_kwh": 301.5, "efficiency": 2.69, "drives": 41 },
+    { "month": "2026-09", "distance": 655.0, "energy_kwh": 240.2, "efficiency": 2.73, "drives": 33 },
+    { "month": "2026-10", "distance": 420.3, "energy_kwh": 160.9, "efficiency": 2.61, "drives": 22 }
+  ],
+  "capacity": {
+    "samples": [
+      { "at": "2026-09-30T04:10:00Z", "kwh_effective": 127.9 },
+      { "at": "2026-10-14T05:22:00Z", "kwh_effective": 128.9 }
+    ],
+    "median_kwh": null,
+    "spec_kwh": 135,
+    "reported_kwh": 131,
+    "min_soc_delta_pct": 40,
+    "min_peak_kw": 20,
+    "qualifying_count": 2,
+    "span_days": 14,
+    "min_samples": 5,
+    "min_span_days": 30
+  }
+}
