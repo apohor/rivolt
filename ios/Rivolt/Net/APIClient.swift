@@ -270,6 +270,17 @@ actor APIClient {
         try await request("GET", "/api/ledger/summary?" + ledgerQuery([("months", String(months)), ("tz", timeZone), ("vehicle_id", vehicleID)]))
     }
 
+    /// One truck's efficiency breakdowns for `[since, until)` in `units` ("imperial" or "metric"), as the web's
+    /// Activity → Efficiency. nil when the server has no such endpoint (404).
+    func efficiency(vehicleID: String, units: String, since: Date, until: Date) async throws -> EfficiencyInsights? {
+        do {
+            let insights: EfficiencyInsights = try await request("GET", "/api/insights/efficiency?vehicle=\(queryValue(vehicleID))&units=\(queryValue(units))&since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))")
+            return insights
+        } catch APIError.server(let status, _) where status == 404 {
+            return nil
+        }
+    }
+
     /// The off-peak estimate for a month. Like the web, no zone or truck is sent: the server cuts the month in the zone
     /// the off-peak schedule is read in.
     func ledgerSavings(month: String) async throws -> LedgerSavings {

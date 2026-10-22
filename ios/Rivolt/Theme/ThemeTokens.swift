@@ -93,6 +93,7 @@ enum ThemeTokens {
     static let chargeFast = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
     static let chargeL2 = Pair(dark: Rgba(0x06B6D4, 1), light: Rgba(0x06B6D4, 1))
     static let chargeL1 = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
+    static let efficiencyBarEnd = Pair(dark: Rgba(0x059669, 1), light: Rgba(0x059669, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11

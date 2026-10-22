@@ -71,6 +71,7 @@ final class ThemeTokensTests: XCTestCase {
             "chargeFast": ThemeTokens.chargeFast,
             "chargeL2": ThemeTokens.chargeL2,
             "chargeL1": ThemeTokens.chargeL1,
+            "efficiencyBarEnd": ThemeTokens.efficiencyBarEnd,
             "bar": ThemeTokens.bar, "heroTint": ThemeTokens.heroTint, "heroTintDriving": ThemeTokens.heroTintDriving, "pageGlow": ThemeTokens.pageGlow,
             "glowDrivingRing": ThemeTokens.glowDrivingRing, "glowSparkDot": ThemeTokens.glowSparkDot, "cardSheen": ThemeTokens.cardSheen,
             "cardShadowNear": ThemeTokens.cardShadowNear, "cardShadowFar": ThemeTokens.cardShadowFar,

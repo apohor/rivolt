@@ -246,6 +246,7 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chargeFast: { both: { file: "src/components/DriveMap.tsx", css: 'fast: "#f43f5e",', use: "activity map: a DC fast charge's dot" } },
   chargeL2: { both: { file: "src/components/DriveMap.tsx", css: 'l2: "#06b6d4",', use: "activity map: a level 2 (AC, 3 kW and up) charge's dot" } },
   chargeL1: { both: { file: "src/components/DriveMap.tsx", css: 'l1: "#a3a3a3",', use: "activity map: a level 1 (under 3 kW) charge's dot" } },
+  efficiencyBarEnd: { both: { file: "src/components/EfficiencyBars.tsx", css: ",#059669)", use: "efficiency bars: the bottom of a bar's gradient (its top is mapDrive for the best bucket, routeStart for the rest)" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.
@@ -375,6 +376,7 @@ export function buildTokens(src: Sources) {
 }
 
 export const SOURCE_FILES = [
+  "src/components/EfficiencyBars.tsx",
   "src/index.css",
   "src/styles/next-type.css",
   "src/components/ArcGauge.tsx",

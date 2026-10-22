@@ -9,6 +9,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/insights"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
@@ -31,6 +32,8 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"sleep_activity.json": &[]samples.DayActivity{},
 		// The miles-per-day and charge-level charts. The handler's response is an
 		// anonymous struct; its two keys and row types are pinned here.
+		// Activity → Efficiency: the breakdowns by temperature, speed and drive mode (aggregates only).
+		"efficiency.json": &insights.Efficiency{},
 		"chart_points.json": &struct {
 			Drives  []drives.ChartDrive   `json:"drives"`
 			Charges []charges.ChartCharge `json:"charges"`

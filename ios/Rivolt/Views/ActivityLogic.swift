@@ -12,11 +12,18 @@ enum ActivityFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Activity screen's two views: the day list, or the month on the map (the web's Activity "Map").
+/// The Activity screen's views: the day list, the month on the map (the web's Activity "Map"), or its efficiency
+/// breakdowns (the web's Activity "Efficiency").
 enum ActivityMode: String, CaseIterable, Identifiable {
-    case list, map
+    case list, map, efficiency
     var id: String { rawValue }
-    var label: String { self == .list ? "List" : "Map" }
+    var label: String {
+        switch self {
+        case .list: return "List"
+        case .map: return "Map"
+        case .efficiency: return "Efficiency"
+        }
+    }
 }
 
 enum ActivityItem: Hashable, Identifiable {
