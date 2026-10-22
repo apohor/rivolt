@@ -17,22 +17,33 @@ struct AcknowledgementsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3 * Theme.unit) {
                     Text("Geist and Geist Mono")
-                        .font(.headline)
+                        .font(Theme.sans(ThemeTokens.typeValue, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
                     Text("The app's typeface is Geist, with Geist Mono for the large readouts, from the Geist Project Authors (github.com/vercel/geist-font), used under the SIL Open Font License, Version 1.1.")
-                        .font(.subheadline)
+                        .themeText(.value)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Rectangle().fill(Theme.border).frame(height: 1)
                     Text(Self.licenceText())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .themeText(.caption)
                         .textSelection(.enabled)
                 }
-                .padding()
+                .themeCard()
+                .padding(4 * Theme.unit)
             }
+            .themePage()
             .navigationTitle("Acknowledgements")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Theme.bar, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .font(Theme.sans(ThemeTokens.typeValue, .medium))
+                        .tint(Theme.accent)
+                }
             }
         }
     }

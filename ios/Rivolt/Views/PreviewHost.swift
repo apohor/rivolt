@@ -9,6 +9,7 @@ struct PreviewHost: View {
         case prompt, notifications, notificationsDenied = "notifications-denied"
         case signin, signinUnavailable = "signin-unavailable"
         case notificationsTest = "notifications-test"
+        case acknowledgements
     }
 
     let screen: Screen
@@ -39,6 +40,8 @@ struct PreviewHost: View {
             LoginView().environment(AppState.preview(signIn: .available))
         case .signinUnavailable:
             LoginView().environment(AppState.preview(signIn: .unavailable(.notOnThisServer)))
+        case .acknowledgements:
+            AcknowledgementsView()
         }
     }
 }
