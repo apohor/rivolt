@@ -1,0 +1,32 @@
+{
+  "headline": {
+    "documented_kwh": 135,
+    "effective_kwh": 128.4,
+    "nameplate_kwh": 131,
+    "pct_of_nameplate": 98.0,
+    "reported_kwh": 131,
+    "reported_pct_of_documented": 97.0,
+    "sample_count": 2,
+    "window": 2
+  },
+  "samples": [
+    {
+      "vehicle_id": "00000000-0000-4000-8000-00000000f001",
+      "charge_id": "00000000-0000-4000-8000-00000000c001",
+      "at": "2026-09-30T04:10:00Z",
+      "pack_kwh_effective": 127.9,
+      "soc_delta_pct": 52.0,
+      "energy_delivered_kwh": 66.5,
+      "derate_active": false
+    },
+    {
+      "vehicle_id": "00000000-0000-4000-8000-00000000f001",
+      "charge_id": "00000000-0000-4000-8000-00000000c002",
+      "at": "2026-10-14T05:22:00Z",
+      "pack_kwh_effective": 128.9,
+      "soc_delta_pct": 61.0,
+      "energy_delivered_kwh": 78.6,
+      "derate_active": false
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "odometer_mi": 18420.5,
+  "odometer_at": "2026-10-21T22:10:00Z",
+  "used_mi": 18408.5,
+  "allowed_to_date_mi": 16200,
+  "ahead_behind_mi": -2208.5,
+  "days_total": 1096,
+  "days_elapsed": 508,
+  "days_left": 588,
+  "pace_mi_per_day": 41.2,
+  "pace_basis": "last_90_days",
+  "projected_total_mi": 42620,
+  "projected_return_odometer_mi": 42632,
+  "projected_overage_mi": 6620,
+  "projected_overage_cost": 1655,
+  "miles_per_day_budget": 30.2,
+  "currency": "USD"
+}

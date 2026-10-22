@@ -126,6 +126,25 @@ func handleVehicleProfilePut(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter,
 	}
 }
 
+// packHealthHeadline and packHealthResponse are GET /api/vehicles/{id}/pack-health.
+// The fields are in the alphabetical order the map they replaced encoded in, so the
+// bytes are the same.
+type packHealthHeadline struct {
+	DocumentedKWh           float64 `json:"documented_kwh"`
+	EffectiveKWh            float64 `json:"effective_kwh"`
+	NameplateKWh            float64 `json:"nameplate_kwh"`
+	PctOfNameplate          float64 `json:"pct_of_nameplate"`
+	ReportedKWh             float64 `json:"reported_kwh"`
+	ReportedPctOfDocumented float64 `json:"reported_pct_of_documented"`
+	SampleCount             int     `json:"sample_count"`
+	Window                  int     `json:"window"`
+}
+
+type packHealthResponse struct {
+	Headline packHealthHeadline  `json:"headline"`
+	Samples  []packhealth.Sample `json:"samples"`
+}
+
 // handlePackHealthGet returns the derived effective-pack-capacity
 // time series for a vehicle, plus a headline (current effective
 // kWh + % of nameplate). Time series is oldest-first so the SPA
@@ -211,17 +230,17 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 		if documentedKWh > 0 && reportedKWh > 0 {
 			reportedPctOfDocumented = reportedKWh / documentedKWh * 100.0
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"samples": samples,
-			"headline": map[string]any{
-				"effective_kwh":              headlineEffective,
-				"nameplate_kwh":              nameplateKWh.Float64,
-				"pct_of_nameplate":           pctOfNameplate,
-				"documented_kwh":             documentedKWh,
-				"reported_kwh":               reportedKWh,
-				"reported_pct_of_documented": reportedPctOfDocumented,
-				"sample_count":               len(samples),
-				"window":                     len(clean),
+		writeJSON(w, http.StatusOK, packHealthResponse{
+			Samples: samples,
+			Headline: packHealthHeadline{
+				EffectiveKWh:            headlineEffective,
+				NameplateKWh:            nameplateKWh.Float64,
+				PctOfNameplate:          pctOfNameplate,
+				DocumentedKWh:           documentedKWh,
+				ReportedKWh:             reportedKWh,
+				ReportedPctOfDocumented: reportedPctOfDocumented,
+				SampleCount:             len(samples),
+				Window:                  len(clean),
 			},
 		})
 	}

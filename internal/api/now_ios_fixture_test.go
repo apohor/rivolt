@@ -61,6 +61,13 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"live_drive.json":        &rivian.LiveDrive{},
 		"drives_last.json":       &[]driveResponse{},
 		"charges_last.json":      &[]chargeResponse{},
+		// The Truck tab (item G): parked drain, pack health, the monthly trends, the
+		// cold-weather range and the lease status.
+		"drain.json":        &drainResponse{},
+		"pack_health.json":  &packHealthResponse{},
+		"trends.json":       &vehicleTrends{},
+		"cold_range.json":   &coldRange{},
+		"lease_status.json": &vehiclelease.Status{},
 		// Money's "To confirm" list: the open auto-detected networks, without coordinates.
 		"charges_to_confirm.json": &[]toConfirmCharge{},
 	} {

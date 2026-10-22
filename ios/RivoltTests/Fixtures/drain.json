@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-22T15:04:05Z",
+  "tz": "America/Chicago",
+  "pack_kwh": 131.0,
+  "windows": {
+    "7d": {
+      "drain_pct_per_day": 1.4,
+      "drain_kwh_per_day": 1.83,
+      "idle_awake_hours_per_day": 2.1,
+      "sleeps": 9,
+      "quick_rewakes": 1,
+      "median_sleep_seconds": 14400,
+      "parked_hours": 121.5,
+      "power_state_observed_hours": 118.0,
+      "days_in_window": 7,
+      "days_with_data": 7,
+      "days_excluded": {},
+      "sufficient": true,
+      "split": {
+        "sufficient": true,
+        "asleep_hours": 96.0,
+        "awake_hours": 22.0,
+        "asleep_points_lost": 4.0,
+        "awake_points_lost": 3.0,
+        "awake_share_of_loss": 0.43,
+        "awake_share_of_time": 0.19,
+        "min_hours": 48.0,
+        "min_points_lost": 3.0
+      }
+    },
+    "30d": {
+      "drain_pct_per_day": null,
+      "drain_kwh_per_day": null,
+      "idle_awake_hours_per_day": null,
+      "sleeps": 3,
+      "quick_rewakes": 0,
+      "median_sleep_seconds": null,
+      "parked_hours": 40.0,
+      "power_state_observed_hours": 0,
+      "days_in_window": 30,
+      "days_with_data": 4,
+      "days_excluded": { "not_enough_parked": 26 },
+      "sufficient": false,
+      "split": {
+        "sufficient": false,
+        "reason": "not_enough_data",
+        "asleep_hours": 0,
+        "awake_hours": 0,
+        "asleep_points_lost": null,
+        "awake_points_lost": null,
+        "awake_share_of_loss": null,
+        "awake_share_of_time": null,
+        "min_hours": 48.0,
+        "min_points_lost": 3.0
+      }
+    }
+  },
+  "daily": [
+    {
+      "day": "2026-10-20",
+      "drain_pct": 1.2,
+      "idle_awake_hours": 2.5,
+      "awake_hours": 2.0,
+      "observed_hours": 18.0,
+      "parked_hours": 20.5,
+      "charging_hours": 1.0,
+      "driving_hours": 2.5,
+      "sleeps": 2,
+      "quick_rewakes": 0,
+      "excluded": null
+    },
+    {
+      "day": "2026-10-21",
+      "drain_pct": null,
+      "idle_awake_hours": null,
+      "awake_hours": 1.0,
+      "observed_hours": 2.0,
+      "parked_hours": 8.0,
+      "charging_hours": 0,
+      "driving_hours": 0.5,
+      "sleeps": 0,
+      "quick_rewakes": 0,
+      "excluded": "not_enough_parked"
+    }
+  ]
+}
