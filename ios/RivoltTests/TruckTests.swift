@@ -74,6 +74,23 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(TruckLogic.specKwh(180), 0)
     }
 
+    /// A truck with no qualifying charge yet: a newer server sends `samples: []`, an older one `null`. Both read as
+    /// "none yet", with the truck's own figure still shown.
+    func testPackHealthWithNoSamplesDecodesFromAnEmptyListOrNull() throws {
+        for samples in ["[]", "null"] {
+            let json = """
+            {"samples":\(samples),"headline":{"effective_kwh":0,"nameplate_kwh":131,"pct_of_nameplate":0,"documented_kwh":135,"reported_kwh":131,
+             "reported_pct_of_documented":97,"sample_count":0,"window":0}}
+            """
+            let p = try JSON.decoder().decode(PackHealth.self, from: Data(json.utf8))
+            XCTAssertEqual(p.samples ?? [], [], samples)
+            let v = TruckLogic.pack(p)
+            XCTAssertEqual(v.head, .reported(kwh: 131, spec: 135), samples)
+            XCTAssertEqual(v.trend, [], samples)
+            XCTAssertEqual(v.note, "Effective-capacity trend needs a charge session spanning 30%+ SoC.", samples)
+        }
+    }
+
     func testTrendsSayHowFarAlongTheyAre() throws {
         let t = try Fixture.decode(TruckTrends.self, "trends")
         XCTAssertEqual(TruckLogic.capacity(t), .ok(median: 122.4, spec: 135, need: 30))
