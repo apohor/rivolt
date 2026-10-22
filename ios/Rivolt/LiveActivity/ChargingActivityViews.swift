@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The Lock Screen and banner view of the charging Live Activity, and the pieces the Dynamic Island
-/// reuses. Read-only: a tap just opens the app. Shared by the widget extension and (for CI renders) the
-/// app's tests.
+/// reuses, in the web's new look (the Theme layer): the battery arc, the status in the Now pill's tones and the
+/// power and time-left readouts in the Now card's readout style. Read-only: a tap just opens the app. Shared by the widget
+/// extension and (for CI renders) the app's tests.
 struct ChargingLockScreenView: View {
     let state: ChargingActivityAttributes.ContentState
     let targetPct: Int?
@@ -12,37 +13,136 @@ struct ChargingLockScreenView: View {
     var isTest = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: isStale ? "clock.badge.exclamationmark" : "bolt.fill")
-                .font(.title2)
-                .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isStale ? "May be out of date" : (isTest ? "Charging (test numbers)" : "Charging"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isStale ? NowInk.stale : NowInk.charging)
-                Text("\(state.socPct)%")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(String(format: "%.1f kW", state.powerKw))
-                    .font(.headline)
-                    .monospacedDigit()
+        HStack(alignment: .center, spacing: 3.5 * Theme.unit) {
+            ChargingGauge(state: state, targetPct: targetPct, isStale: isStale, width: 64)
+            VStack(alignment: .leading, spacing: Theme.unit / 2) {
+                ChargingStatus(isStale: isStale, isTest: isTest)
+                // Power and time left in the Now card's readout style (proportional Geist, tabular figures), so the
+                // two agree; Geist Mono is only for the web's hero readout.
+                Text(ChargingActivityText.power(state)).themeText(.value, color: Theme.textPrimary)
                 if let line = ChargingActivityText.untilTarget(state.minutesToTarget, targetPct: targetPct) {
-                    Text(line).font(.caption).foregroundStyle(NowInk.secondary)
+                    Text(line).themeText(.value, color: Theme.textPrimary)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .opacity(isStale ? 0.7 : 1)
+        .padding(.horizontal, 4 * Theme.unit)
+        .padding(.vertical, 3 * Theme.unit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(ChargingActivityText.spoken(state, targetPct: targetPct, isStale: isStale))
     }
 }
 
+/// The battery as the Theme's arc with the charge level in the centre: the normal fill and its glow while live, the
+/// idle fill once the activity is stale.
+struct ChargingGauge: View {
+    let state: ChargingActivityAttributes.ContentState
+    let targetPct: Int?
+    let isStale: Bool
+    let width: CGFloat
+
+    var body: some View {
+        let number = width * 0.28
+        ThemeGauge(value: Double(state.socPct), limit: targetPct.map(Double.init), live: !isStale,
+                   tone: isStale ? .idle : .ok, width: width) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("\(state.socPct)")
+                    .font(Theme.sans(number, .semibold))
+                    .monospacedDigit()
+                    .tracking(ThemeTokens.typeNumberTracking * number)
+                    .foregroundStyle(Theme.textPrimary)
+                Text("%")
+                    .font(Theme.sans(number * 0.5))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        }
+    }
+}
+
+/// "Charging" in the accent, or "May be out of date" in the estimate amber, as the web's Now pill.
+struct ChargingStatus: View {
+    let isStale: Bool
+    var isTest = false
+
+    var body: some View {
+        Label {
+            Text(isStale ? "May be out of date" : (isTest ? "Charging (test numbers)" : "Charging"))
+        } icon: {
+            Image(systemName: isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+        }
+        .font(Theme.sans(ThemeTokens.typeCaption, .medium))
+        .foregroundStyle(isStale ? Theme.estimate : Theme.accent)
+        .lineLimit(1)
+    }
+}
+
+// MARK: Dynamic Island (always on black: the Theme's dark values)
+
+/// Expanded, leading: the battery arc.
+struct ChargingIslandLeading: View {
+    let state: ChargingActivityAttributes.ContentState
+    let targetPct: Int?
+    let isStale: Bool
+
+    var body: some View {
+        ChargingGauge(state: state, targetPct: targetPct, isStale: isStale, width: 56)
+    }
+}
+
+/// Expanded, trailing: the power and the status.
+struct ChargingIslandTrailing: View {
+    let state: ChargingActivityAttributes.ContentState
+    let isStale: Bool
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: Theme.unit / 2) {
+            Text(ChargingActivityText.power(state)).themeText(.value, color: Theme.textPrimary)
+            ChargingStatus(isStale: isStale)
+        }
+    }
+}
+
+/// Expanded, bottom: the time to the limit, or what is happening.
+struct ChargingIslandBottom: View {
+    let state: ChargingActivityAttributes.ContentState
+    let targetPct: Int?
+
+    var body: some View {
+        Text(ChargingActivityText.untilTarget(state.minutesToTarget, targetPct: targetPct) ?? "Charging")
+            .themeText(.value, color: Theme.textPrimary)
+    }
+}
+
+/// Compact and minimal: the bolt (or the clock once stale) in the status tone.
+struct ChargingIslandIcon: View {
+    let isStale: Bool
+
+    var body: some View {
+        Image(systemName: isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+            .foregroundStyle(isStale ? Theme.estimate : Theme.accent)
+    }
+}
+
+/// Compact, trailing: the charge level.
+struct ChargingIslandLevel: View {
+    let state: ChargingActivityAttributes.ContentState
+
+    var body: some View {
+        Text("\(state.socPct)%")
+            .font(Theme.sans(ThemeTokens.typeValue, .semibold))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textPrimary)
+    }
+}
+
 enum ChargingActivityText {
+    /// "11.1 kW".
+    static func power(_ s: ChargingActivityAttributes.ContentState) -> String {
+        String(format: "%.1f kW", s.powerKw)
+    }
+
     /// "about 42 min to 80%", or "42 min" without a limit; nil when unknown.
     static func untilTarget(_ minutes: Int?, targetPct: Int?) -> String? {
         // The server sends 0 when it can't tell (never a missing key): that is "unknown", not "0 min".
