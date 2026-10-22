@@ -479,8 +479,10 @@ private struct MoneySection<Actions: View, Content: View>: View {
                     .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
                     .foregroundStyle(Theme.textBody)
                     .accessibilityAddTraits(.isHeader)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                actions
+                // The control keeps its full labels; the title wraps first.
+                actions.fixedSize()
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
             Rectangle().fill(Theme.border).frame(height: 1)
@@ -506,7 +508,7 @@ private struct MoneyToggle<T: Hashable>: View {
                 Button { selection = value } label: {
                     Text(text).themeText(.subline, color: on ? Theme.textPrimary : Theme.textSecondary)
                         .lineLimit(1)
-                        .padding(.horizontal, 2 * Theme.unit).padding(.vertical, Theme.unit / 2)
+                        .padding(.horizontal, 1.5 * Theme.unit).padding(.vertical, Theme.unit / 2)
                         .background(on ? Theme.border : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusInner / 2, style: .continuous))
                 }
                 .buttonStyle(.plain)
