@@ -17,7 +17,6 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
-    @State private var showAcknowledgements = false
     @State private var extras = ExtrasModel()
     @State private var session: LiveSession?
     @State private var liveDrive: LiveDrive?
@@ -103,34 +102,14 @@ struct HomeView: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    ThemeTopBar { accountMenu }
+                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }) }
                     titleRow
                 }
             }
-            .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
             .sheet(isPresented: $showNotifications) {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
             }
         }
-    }
-
-    /// The account menu at the end of the top bar. Anything that changes it goes through ux (the architect's Settings
-    /// screens are the ones it opens).
-    private var accountMenu: some View {
-        Menu {
-            Button("Refresh") { Task { await load(force: true) } }
-            if state.notifications.offered {
-                Button("Notifications") { showNotifications = true }
-            }
-            Button("Acknowledgements") { showAcknowledgements = true }
-            Divider()
-            Button("Sign out", role: .destructive) {
-                Task { await state.logout() }
-            }
-        } label: {
-            Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
-        }
-        .accessibilityLabel("Account")
     }
 
     /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
