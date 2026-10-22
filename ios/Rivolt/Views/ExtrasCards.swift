@@ -34,6 +34,7 @@ struct ThreeThingsCard: View {
     let webURL: (ThreeThingsRow) -> URL?
     let onOpenNotifications: () -> Void
     let onHide: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -50,16 +51,12 @@ struct ThreeThingsCard: View {
                     .accessibilityLabel("Hide this card")
             }
             ForEach(rows) { row in
-                // The text on the left and the action on the right; the action drops below when there isn't room.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: 12) {
-                        text(row)
-                        action(for: row)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        text(row)
-                        action(for: row)
-                    }
+                // The text on the left (it wraps) and the action on the right, as the web's; at accessibility sizes the
+                // action drops below.
+                let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+                layout {
+                    text(row)
+                    action(for: row)
                 }
                 .padding(3 * Theme.unit)
                 .frame(maxWidth: .infinity, alignment: .leading)
