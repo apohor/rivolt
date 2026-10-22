@@ -123,14 +123,14 @@ struct LoginView: View {
             Text("For a self-hosted Rivolt, use Other server. Rivolt is unofficial and not affiliated with Rivian.")
                 .themeText(.caption)
                 .fixedSize(horizontal: false, vertical: true)
+            // Only the links are underlined, as on the web; the dot between them isn't.
             HStack(spacing: 1.5 * Theme.unit) {
-                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
+                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy")).underline()
                 Text("·").accessibilityHidden(true)
-                Link("Terms", destination: state.serverURL.appending(path: "terms"))
+                Link("Terms", destination: state.serverURL.appending(path: "terms")).underline()
             }
             .font(Theme.sans(ThemeTokens.typeSubline))
             .foregroundStyle(Theme.textSecondary)
-            .underline()
             .frame(maxWidth: .infinity)
         }
     }
