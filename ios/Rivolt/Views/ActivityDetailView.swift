@@ -42,6 +42,7 @@ struct ActivityDetailView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(tiles) { KpiTileView(tile: $0) }
                 }
+                if case .charge(let c) = item { ChargeCurveCard(charge: c, calendar: calendar) }
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
