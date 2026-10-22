@@ -347,6 +347,22 @@ actor APIClient {
         try await request("GET", "/api/drives/\(pathID(id))")
     }
 
+    /// The samples of `[since, until)` for one truck (the web's drive-map window: the drive and 10 minutes either side,
+    /// at most 2000, downsampled by the server beyond that).
+    func driveSamples(since: Date, until: Date, vehicleID: String, limit: Int = 2000) async throws -> [DriveSample] {
+        try await request("GET", "/api/samples?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&limit=\(limit)&vehicle=\(queryValue(vehicleID))")
+    }
+
+    /// Valhalla's map matching through our proxy (in-cluster on prod).
+    func valhallaTrace(_ body: ValhallaTraceRequest) async throws -> ValhallaTraceResponse {
+        try await request("POST", "/api/maps/valhalla/trace_route", body: body)
+    }
+
+    /// Valhalla's routing between two points through our proxy.
+    func valhallaRoute(_ body: ValhallaRouteRequest) async throws -> ValhallaRouteResponse {
+        try await request("POST", "/api/maps/valhalla/route", body: body)
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }

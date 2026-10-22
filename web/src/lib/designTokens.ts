@@ -227,6 +227,18 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   shareCardValue: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#e5e5e5"', use: "share card: stat values" } },
   shareCardNote: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#fbbf24"', use: "share card: notes (estimated share, not yet priced)" } },
   shareCardFooter: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#737373"', use: "share card: footer lines" } },
+  // The drive route on a map (components/DriveMap.tsx), the same in both themes: a glow under a line coloured by speed
+  // (mph buckets), neutral routed or unknown gaps, and the start and end pins.
+  routeGlow: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#10b981",', use: "drive route: the wide faint glow under the line (18%)" } },
+  routeLine: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#34d399",', use: "drive route: the line without speeds" } },
+  routeSpeedUnder5: { both: { file: "src/components/DriveMap.tsx", css: '{ max: 5, color: "#6b7280", label: "<5" }', use: "drive route: under 5 mph" } },
+  routeSpeed5to25: { both: { file: "src/components/DriveMap.tsx", css: '{ max: 25, color: "#06b6d4", label: "5–25" }', use: "drive route: 5 to 25 mph" } },
+  routeSpeed25to50: { both: { file: "src/components/DriveMap.tsx", css: '{ max: 50, color: "#34d399", label: "25–50" }', use: "drive route: 25 to 50 mph" } },
+  routeSpeed50to65: { both: { file: "src/components/DriveMap.tsx", css: '{ max: 65, color: "#f59e0b", label: "50–65" }', use: "drive route: 50 to 65 mph" } },
+  routeSpeed65Plus: { both: { file: "src/components/DriveMap.tsx", css: '{ max: Infinity, color: "#f43f5e", label: "65+" }', use: "drive route: 65 mph and over" } },
+  routeGap: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#737373",', use: "drive route: routed (solid) and unknown (dashed) gaps" } },
+  routeStart: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#10b981")', use: "drive route: the start pin" } },
+  routeEnd: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#f43f5e")', use: "drive route: the end pin" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.
@@ -363,5 +375,6 @@ export const SOURCE_FILES = [
   "src/components/Logo.tsx",
   "src/layout/AppLayout.tsx",
   "src/lib/shareCard.ts",
+  "src/components/DriveMap.tsx",
   "node_modules/tailwindcss/theme.css",
 ];

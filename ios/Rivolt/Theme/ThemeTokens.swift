@@ -76,6 +76,16 @@ enum ThemeTokens {
     static let shareCardValue = Pair(dark: Rgba(0xE5E5E5, 1), light: Rgba(0xE5E5E5, 1))
     static let shareCardNote = Pair(dark: Rgba(0xFBBF24, 1), light: Rgba(0xFBBF24, 1))
     static let shareCardFooter = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
+    static let routeGlow = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
+    static let routeLine = Pair(dark: Rgba(0x34D399, 1), light: Rgba(0x34D399, 1))
+    static let routeSpeedUnder5 = Pair(dark: Rgba(0x6B7280, 1), light: Rgba(0x6B7280, 1))
+    static let routeSpeed5to25 = Pair(dark: Rgba(0x06B6D4, 1), light: Rgba(0x06B6D4, 1))
+    static let routeSpeed25to50 = Pair(dark: Rgba(0x34D399, 1), light: Rgba(0x34D399, 1))
+    static let routeSpeed50to65 = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
+    static let routeSpeed65Plus = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
+    static let routeGap = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
+    static let routeStart = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
+    static let routeEnd = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11
