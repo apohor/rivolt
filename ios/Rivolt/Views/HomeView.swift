@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
+    @State private var extras = ExtrasModel()
     @State private var session: LiveSession?
     @State private var liveDrive: LiveDrive?
     @State private var latestCharge: ChargeBrief?
@@ -35,6 +36,12 @@ struct HomeView: View {
                     if let vehicle = selected, vehicleState != nil || now != nil {
                         let summary = NowSummary(state: vehicleState, now: now, clock: .now)
                         VStack(spacing: 16) {
+                            if let m = extras.current(vehicleID: vehicle.id) {
+                                MilestoneCard(milestone: m, failed: extras.dismissFailed) {
+                                    Task { await extras.dismiss(m, source: state.client) }
+                                }
+                            }
+                            threeThings
                             // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
                             if summary.freshness != .stale,
                                let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
@@ -167,6 +174,7 @@ struct HomeView: View {
             loadError = "Couldn't load this truck's status."
         }
         await syncLiveActivity()
+        await extras.load(source: client, vehicleID: id)
     }
 
     /// The session or drive reads that only make sense while charging or in gear.
@@ -189,6 +197,23 @@ struct HomeView: View {
                 if let n { now = n }
                 await loadLive(id: id)
             }
+        }
+    }
+
+    /// Only once there is some history: a brand-new account has the first-day cards instead.
+    @ViewBuilder
+    private var threeThings: some View {
+        let pushNeeded = state.notifications.offered && !(state.notifications.isOn && state.notifications.preferences?.onChargingDone == true)
+        let rows = (latestDrive != nil || latestCharge != nil) ? extras.rows(pushNeeded: pushNeeded) : []
+        if !rows.isEmpty {
+            ThreeThingsCard(
+                rows: rows,
+                webURL: { row in
+                    let path = row == .lease ? "/settings#lease" : "/settings?tab=notifications"
+                    return URL(string: path, relativeTo: state.serverURL)?.absoluteURL
+                },
+                onOpenNotifications: { showNotifications = true },
+                onHide: { extras.hideThreeThings() })
         }
     }
 

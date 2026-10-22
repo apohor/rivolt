@@ -49,6 +49,12 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("charts-empty", ChartsSection(model: ChartsModel(points: ChartPoints(drives: [], charges: []), sleep: []), window: .constant(.week), now: now, calendar: utc))
     }
 
+    func testRenderMilestoneAndThreeThings() throws {
+        let m = try XCTUnwrap(Fixture.decode(MilestonesResponse.self, "milestones").milestones.first)
+        try snapshot("milestone", MilestoneCard(milestone: m, failed: false, onHide: {}))
+        try snapshot("three-things", ThreeThingsCard(rows: [.push, .lease, .statement], webURL: { _ in URL(string: "https://example.invalid") }, onOpenNotifications: {}, onHide: {}))
+    }
+
     private func snapshot(_ name: String, _ card: some View) throws {
         for scheme in [ColorScheme.light, .dark] {
             let view = card
