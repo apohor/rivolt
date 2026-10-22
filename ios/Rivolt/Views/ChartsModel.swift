@@ -30,18 +30,26 @@ final class ChartsModel {
     }
 
     @ObservationIgnored private var cache: [String: Entry] = [:]
+    @ObservationIgnored private var shownKey: String?
 
-    func load(source: some ChartsSource, vehicleID: String, window: ChartWindow, force: Bool = false,
+    func load(source: some ChartsSource, vehicleID: String, month: PeriodMonth, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current) async {
-        let key = "\(vehicleID)|\(window.days)"
+        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             points = hit.points
             sleep = hit.sleep
+            shownKey = key
             return
+        }
+        // Another month or truck: never leave the last one's chart under the new title while this one loads.
+        if shownKey != key {
+            points = nil
+            sleep = nil
+            shownKey = key
         }
         isLoading = true
         defer { isLoading = false }
-        let (since, until) = window.range(now: now, calendar: calendar)
+        let (since, until) = month.range(calendar: calendar)
         async let p = try? source.chartPoints(since: since, until: until, vehicleID: vehicleID)
         async let s = try? source.sleepActivity(since: since, until: until, vehicleID: vehicleID)
         let (pp, ss) = await (p, s)

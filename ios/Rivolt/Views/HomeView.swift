@@ -24,7 +24,7 @@ struct HomeView: View {
     @State private var latestCharge: ChargeBrief?
     @State private var latestDrive: DriveBrief?
     @State private var charts = ChartsModel()
-    @State private var chartWindow = ChartWindow.week
+    @State private var month = PeriodMonth(containing: .now, calendar: .current)
     @State private var places = PlacesModel()
 
     private var selected: Vehicle? {
@@ -44,21 +44,20 @@ struct HomeView: View {
                                 }
                             }
                             threeThings
-                            titleRow
                             // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
                             if summary.freshness != .stale,
                                let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
                                 ChargingDetailCard(detail: charging)
                             }
-                            NowCard(vehicle: vehicle, summary: summary)
+                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge))
                             ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             if summary.freshness != .stale,
                                let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
                                 DriveDetailCard(detail: drive)
                             }
-                            ChartsSection(model: charts, window: $chartWindow)
+                            ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
                             if let split = places.split, split.total > 0 {
-                                PlacesCard(split: split, days: chartWindow.days)
+                                PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
                         }
                     } else if isLoading {
@@ -87,7 +86,7 @@ struct HomeView: View {
             // While the screen is up the live reads follow the charge or drive (about every 10 s).
             .task(id: selectedID) { await pollLive() }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
-            .task(id: "\(selected?.id ?? "")|\(chartWindow.days)") { await loadCharts(force: false) }
+            .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
@@ -98,7 +97,12 @@ struct HomeView: View {
                         .padding(.top, 8)
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) { ThemeTopBar { accountMenu } }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    ThemeTopBar { accountMenu }
+                    titleRow
+                }
+            }
             .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
             .sheet(isPresented: $showNotifications) {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
@@ -125,9 +129,10 @@ struct HomeView: View {
         .accessibilityLabel("Account")
     }
 
-    /// The page title and, with more than one truck, which one is shown.
+    /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
+    /// bar like the web's.
     private var titleRow: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center, spacing: 8) {
             Text("Now").themeText(.hero).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             if vehicles.count > 1 {
@@ -136,24 +141,25 @@ struct HomeView: View {
                         ForEach(vehicles) { v in Text(v.name).tag(v.id) }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Text(selected?.name ?? "Vehicle").themeText(.value, color: Theme.textPrimary)
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+                    Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
+                        .frame(width: 36, height: 36)
                 }
                 .accessibilityLabel("Switch vehicle")
             }
+            ThemeStepper(title: month.title(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
+                         previous: { month = month.shifted(by: -1, calendar: .current) },
+                         next: { month = month.shifted(by: 1, calendar: .current) })
         }
-        .padding(.top, 2 * Theme.unit)
+        .padding(.horizontal, 4 * Theme.unit)
+        .padding(.vertical, 2 * Theme.unit)
+        .background(Theme.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 
     private func loadCharts(force: Bool) async {
         guard let id = selected?.id else { return }
-        async let c: Void = charts.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
-        async let p: Void = places.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
+        async let c: Void = charts.load(source: state.client, vehicleID: id, month: month, force: force)
+        async let p: Void = places.load(source: state.client, vehicleID: id, month: month, force: force)
         _ = await (c, p)
     }
 

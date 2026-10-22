@@ -110,6 +110,21 @@ struct DriveDetail: Equatable {
     }
 }
 
+/// Where the charge in progress is (Home, Away or Fast), from the latest charge's ledger row, but only when that row
+/// is this session: while charging, the newest row can still be the previous, finished session, and saying "at home"
+/// for a charge that began elsewhere would be wrong. Without a match there is no place.
+enum ChargingPlace {
+    /// How far apart the two start times may be and still be the same session.
+    static let tolerance: TimeInterval = 15 * 60
+
+    static func label(summary: NowSummary, charge: ChargeBrief?) -> String? {
+        guard summary.kind == .charging, let started = summary.chargeStartedAt,
+              let charge, let rowStart = charge.startedAt,
+              abs(rowStart.timeIntervalSince(started)) <= tolerance else { return nil }
+        return charge.placeLabel
+    }
+}
+
 enum NowFormat {
     /// How long ago, in the web's words: "just now", "5 min ago", "3 h ago", "2 d ago".
     static func ago(_ seconds: TimeInterval) -> String {
