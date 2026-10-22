@@ -17,10 +17,19 @@ struct ChargeInsights: Equatable {
     var socGainedPct: Double
     var socPerHour: Double
     var limitPct: Int?
-    /// "~0.130 USD/kWh": priced per kWh, with a "~" when it is an estimate.
-    var costPerKwh: String?
     var outsideTempC: Double?
     var insideTempC: Double?
+    // From the charge's row (ChargeRow); nil until it is read, or when the row doesn't say.
+    var milesAdded: Double?
+    var avgPowerKw: Double?
+    /// Miles per kWh of the energy added, when both are known.
+    var miPerKwh: Double?
+    /// "~0.150 USD/mi", priced per mile of range added; a "~" for an estimate.
+    var costPerMile: String?
+    var finalState: String?
+    var source: String?
+    var thermalKwh: Double?
+    var thermalSharePct: Double?
 
     /// The charger class by its peak power, in the web's words.
     static func tier(maxKw: Double) -> Tier {
@@ -37,7 +46,7 @@ struct ChargeInsights: Equatable {
     /// A step between two samples counts as charging time up to this long, so a dropout isn't counted as charging.
     static let activeStepCap: TimeInterval = 300
 
-    static func compute(_ charge: ActivityCharge, samples: [ChargeSample]) -> ChargeInsights {
+    static func compute(_ charge: ActivityCharge, samples: [ChargeSample], row: ChargeRow? = nil) -> ChargeInsights {
         let window = samples
             .filter { $0.at >= charge.startedAt && $0.at <= charge.endedAt.addingTimeInterval(60) }
             .sorted { $0.at < $1.at }
@@ -73,8 +82,13 @@ struct ChargeInsights: Equatable {
             best = counts[l, default: 0]
         }
 
+        // The samples' own count of the time above 0 kW; the row's ActiveSeconds when there are none to count.
+        if active == 0, let a = row?.activeSeconds, a > 0 { active = a }
+
         let gained = max(0, charge.endSocPct - charge.startSocPct)
         let hours = totalSec / 3600
+        let miles = row?.milesAdded.flatMap { $0 > 0 ? $0 : nil }
+        let thermal = row?.thermalKwh.flatMap { $0 >= 0 ? $0 : nil }
 
         return ChargeInsights(
             tier: tier(maxKw: charge.maxPowerKw),
@@ -84,9 +98,16 @@ struct ChargeInsights: Equatable {
             socGainedPct: gained,
             socPerHour: hours > 0 ? gained / hours : 0,
             limitPct: limit,
-            costPerKwh: costPerKwh(charge),
             outsideTempC: mean(window.map(\.outsideTempC)),
-            insideTempC: mean(window.map(\.insideTempC))
+            insideTempC: mean(window.map(\.insideTempC)),
+            milesAdded: miles,
+            avgPowerKw: row?.avgPowerKw.flatMap { $0 > 0 ? $0 : nil },
+            miPerKwh: miles.flatMap { charge.energyAddedKwh > 0 ? $0 / charge.energyAddedKwh : nil },
+            costPerMile: miles.flatMap { costPerMile(charge, miles: $0) },
+            finalState: finalState(row?.finalState),
+            source: source(row?.source),
+            thermalKwh: thermal,
+            thermalSharePct: thermal.flatMap { $0 > 0 && charge.energyAddedKwh > 0 ? $0 / charge.energyAddedKwh * 100 : nil }
         )
     }
 
@@ -111,6 +132,70 @@ struct ChargeInsights: Equatable {
         guard amount > 0 else { return nil }
         let code = currency.count == 3 ? currency : "USD"
         return "\(estimate ? "~" : "")\(NumberText.money(amount / charge.energyAddedKwh, code, digits: 3))/kWh"
+    }
+
+    /// The cost (billed, or the estimate) over the range the charge added, in the phone's distance unit; nil with no
+    /// price or no miles. A "~" says it is an estimate, as the Money tab's "~$x (estimate)".
+    static func costPerMile(_ charge: ActivityCharge, miles: Double, metric: Bool = NowFormat.usesMetric) -> String? {
+        guard miles > 0 else { return nil }
+        let amount: Double
+        let currency: String
+        let estimate: Bool
+        switch ActivityLogic.costLine(charge).tone {
+        case .billed:
+            amount = charge.cost; currency = charge.currency; estimate = false
+        case .estimate:
+            if charge.cost > 0 { amount = charge.cost; currency = charge.currency } else {
+                amount = charge.estimatedCost ?? 0; currency = charge.estimatedCurrency ?? ""
+            }
+            estimate = true
+        case .free, .missing:
+            return nil
+        }
+        guard amount > 0 else { return nil }
+        let code = currency.count == 3 ? currency : "USD"
+        let distance = metric ? miles * 1.609344 : miles
+        return "\(estimate ? "~" : "")\(NumberText.money(amount / distance, code, digits: 3))/\(metric ? "km" : "mi")"
+    }
+
+    /// How the session ended, in the web's words (its `formatChargeState`); nil for none, and for a last snapshot that was
+    /// still "Charging", which says nothing about how it ended.
+    static func finalState(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        switch raw {
+        case "Charging": return nil
+        case "Complete": return "Complete"
+        case "Disconnected": return "Disconnected"
+        case "Stopped": return "Stopped"
+        case "Starting": return "Starting"
+        case "NoPower": return "No power"
+        case "charging_station_err": return "Interrupted"
+        default:
+            let words = raw.replacingOccurrences(of: "_", with: " ").split(separator: " ").joined(separator: " ")
+            return words.prefix(1).uppercased() + words.dropFirst()
+        }
+    }
+
+    /// Where the row came from: the recorder or an import.
+    static func source(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        switch raw {
+        case "live": return "Recorded live"
+        case "electrafi_import": return "Imported from ElectraFi"
+        default:
+            let words = raw.replacingOccurrences(of: "_", with: " ")
+            return words.prefix(1).uppercased() + words.dropFirst()
+        }
+    }
+
+    /// A rough bucket for the thermal share, the web's calibration (a heuristic, not a Rivian figure).
+    static func thermalIntensity(_ sharePct: Double?) -> String {
+        guard let p = sharePct else { return "—" }
+        if p < 1 { return "Minimal" }
+        if p < 3 { return "Light" }
+        if p < 6 { return "Moderate" }
+        if p < 10 { return "Heavy" }
+        return "Aggressive"
     }
 
     /// The plain mean of the readings that are there: 0 is the recorder's "not reported", so it doesn't count.

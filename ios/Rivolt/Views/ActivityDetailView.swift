@@ -12,6 +12,8 @@ struct ActivityDetailView: View {
     @Environment(AppState.self) private var state
     /// A drive's row and samples, read once for its route map and timeline.
     @State private var driveDetail = DriveDetailModel()
+    /// A charge's row, read once for its map and its session card.
+    @State private var chargeRow = ChargeRowModel()
 
     private var title: String {
         switch item {
@@ -44,7 +46,7 @@ struct ActivityDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
                 if case .drive = item { DriveRouteMap(phase: driveDetail.phase) }
-                if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, calendar: calendar) }
+                if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, row: chargeRow.phase, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
                     : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
@@ -54,13 +56,14 @@ struct ActivityDetailView: View {
                 if case .drive(let d) = item {
                     DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar)
                 }
-                if case .charge(let c) = item { ChargeDetailSections(charge: c, calendar: calendar) }
+                if case .charge(let c) = item { ChargeDetailSections(charge: c, row: chargeRow.phase.row, calendar: calendar) }
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
         .background(ThemePageBackground().ignoresSafeArea())
         .task(id: item.id) {
             if case .drive(let d) = item { await driveDetail.load(source: state.client, drive: d) }
+            if case .charge(let c) = item { await chargeRow.load(source: state.client, id: c.id) }
         }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {

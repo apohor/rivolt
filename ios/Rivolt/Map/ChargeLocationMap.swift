@@ -1,18 +1,14 @@
 import MapLibre
 import SwiftUI
 
-/// Where one charge happened, from `GET /api/charges/{id}`: the recorded position, the peak power (DC or not) and the
-/// network the server matched. Decoded only for this map, held while the charge's screen is open, never stored; the
-/// rest of the charge row is not decoded.
-struct ChargeLocation: Decodable, Equatable {
+/// Where one charge happened: the recorded position, the peak power (DC or not) and the network the server matched, from
+/// the charge's row (`ChargeRow`, read once by the screen and shared with the session card). Held while the charge's
+/// screen is open, never stored.
+struct ChargeLocation: Equatable {
     let lat: Double
     let lon: Double
     let maxPowerKW: Double?
     let network: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case lat = "Lat", lon = "Lon", maxPowerKW = "MaxPowerKW", network = "Network"
-    }
 
     /// The web's rule for "may say DC fast charger": a peak of 30 kW or more.
     var isDC: Bool { (maxPowerKW ?? 0) >= 30 }
@@ -30,6 +26,8 @@ struct ChargeLocationMap: View {
     /// When the charge started and on which truck: the ledger month that holds it.
     let startedAt: Date
     let vehicleID: String
+    /// The charge's row, read by the screen (one request for this map and the session card).
+    let row: ChargeRowModel.Phase
     var calendar: Calendar = .current
 
     @Environment(AppState.self) private var state
@@ -62,30 +60,36 @@ struct ChargeLocationMap: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
-        .task(id: chargeID) { await load() }
+        .task(id: LoadKey(chargeID: chargeID, ready: row.row != nil, failed: row == .failed)) { await load() }
+    }
+
+    private struct LoadKey: Equatable {
+        let chargeID: String
+        let ready: Bool
+        let failed: Bool
     }
 
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
         health = .ok
         pinLabel = nil
-        let client = state.client
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .gregorian)
-        f.timeZone = calendar.timeZone
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM"
-        let month = f.string(from: startedAt)
-        async let row = client.chargeLocation(id: chargeID)
-        async let ledger = try? client.ledgerMonth(month: month, timeZone: calendar.timeZone.identifier, vehicleID: vehicleID)
-        do {
-            let r = try await row
-            // The ledger's network wins (DA): a top-up takes its plug-in's.
-            let network = await ledger.flatMap { ChargerPin.ledgerNetwork($0, chargeID: chargeID) } ?? r.network
-            location = ChargeLocation(lat: r.lat, lon: r.lon, maxPowerKW: r.maxPowerKW, network: network)
-            failed = false
-        } catch {
+        switch row {
+        case .loading:
+            return
+        case .failed:
             failed = true
+        case .ready(let r):
+            let client = state.client
+            let f = DateFormatter()
+            f.calendar = Calendar(identifier: .gregorian)
+            f.timeZone = calendar.timeZone
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM"
+            let month = f.string(from: startedAt)
+            let ledger = try? await client.ledgerMonth(month: month, timeZone: calendar.timeZone.identifier, vehicleID: vehicleID)
+            // The ledger's network wins (DA): a top-up takes its plug-in's.
+            location = r.location(network: ledger.flatMap { ChargerPin.ledgerNetwork($0, chargeID: chargeID) })
+            failed = false
         }
     }
 }
