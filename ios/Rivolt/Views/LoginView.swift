@@ -78,9 +78,8 @@ struct LoginView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(ThemeButtonStyle())
-        // Dimmed when the server can't do app sign-in: no invitation to a tap that can't work.
+        // Disabled (the Theme's disabled look) when the server can't do app sign-in: no invitation to a tap that can't work.
         .disabled(isWorking || unavailable != nil)
-        .opacity(unavailable == nil ? 1 : 0.45)
     }
 
     private var otherServerSection: some View {
@@ -113,9 +112,8 @@ struct LoginView: View {
                     .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
                 Button("Use this server") { Task { await checkServer() } }
-                    .buttonStyle(OutlinedButtonStyle())
+                    .buttonStyle(ThemeSecondaryButtonStyle())
                     .disabled(isWorking || otherServer.isEmpty)
-                    .opacity(isWorking || otherServer.isEmpty ? 0.45 : 1)
             }
         }
     }
@@ -169,19 +167,5 @@ struct LoginView: View {
         } catch {
             message = error.localizedDescription
         }
-    }
-}
-
-/// The web's secondary button (the sign-in page's "Continue with …"): the card colour, a 1 px border, primary text.
-/// Theme colours and sizes only. Stopgap: replaced by the Theme's secondary style (asked of ux) before parity sign-off.
-private struct OutlinedButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.sans(ThemeTokens.typeValue, .medium))
-            .foregroundStyle(Theme.textPrimary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 2.5 * Theme.unit)
-            .background(configuration.isPressed ? Theme.border : Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
     }
 }
