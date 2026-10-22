@@ -75,4 +75,34 @@ final class ChargeCurveSnapshotTests: XCTestCase {
         try render("charge-curve-dc", card(dcSeries, 18, 74, 152))
         try render("charge-curve-home", card(homeSeries, 55, 85, 7.2))
     }
+
+    private func charge(_ extra: String) throws -> ActivityCharge {
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"id":"c1","vehicle_id":"veh-1","started_at":"\(iso.string(from: start))","ended_at":"\(iso.string(from: start.addingTimeInterval(2_460)))",
+         "energy_added_kwh":62.4,"start_soc_pct":18,"end_soc_pct":74,"max_power_kw":152,"cost":0,"currency":"USD",\(extra)}
+        """
+        return try JSON.decoder().decode(ActivityCharge.self, from: Data(json.utf8))
+    }
+
+    func testRenderTheSessionAndPricingCards() throws {
+        let dc = dcFast()
+        let samples = dc.samples.map { s in
+            ChargeSample(at: s.at, batteryLevelPct: s.batteryLevelPct, chargerPowerKw: s.chargerPowerKw, packTempAvgC: s.packTempAvgC,
+                         packTempMinC: s.packTempMinC, packTempMaxC: s.packTempMaxC, chargeLimitPct: 80, outsideTempC: 7, insideTempC: 21)
+        }
+        let billed = try charge(#""cost_source_effective":"rivian","kind":"dcfc","place":"away","network":"Rivian Adventure Network","cost":31.2"#)
+        let estimate = try charge(#""cost_source_effective":"network_estimate","kind":"dcfc","place":"away","network":"Electrify America","cost":28.4,"cost_source_derived":true"#)
+        let unpriced = try charge(#""cost_source_effective":"unknown","kind":"ac","place":"away""#)
+        func page(_ c: ActivityCharge, _ withSamples: Bool) -> some View {
+            VStack(alignment: .leading, spacing: 12) {
+                ChargeSessionCard(charge: c, insights: ChargeInsights.compute(c, samples: withSamples ? samples : []))
+                ChargePricingCard(charge: c, serverURL: URL(string: "https://rivolt.dev")!)
+            }
+            .padding(16).frame(width: 390).background(ThemePageBackground())
+        }
+        try render("charge-session-billed", page(billed, true))
+        try render("charge-session-estimate", page(estimate, true))
+        try render("charge-session-unpriced-nosamples", page(unpriced, false))
+    }
 }

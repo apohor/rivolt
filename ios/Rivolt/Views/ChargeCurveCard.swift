@@ -3,17 +3,15 @@ import SwiftUI
 
 /// The charge detail's "Charge" card, as the web's: the battery level and the charger's power over the session on one
 /// chart (a right axis in kW), chips to show or hide each line (the pack's temperature is opt-in) and a readout for the
-/// moment under the finger. The samples are read when the screen opens and kept only while it is open.
+/// moment under the finger. The samples (read by `ChargeDetailSections`) are kept only while the screen is open.
 struct ChargeCurveCard: View {
+    let phase: ChargeCurveModel.Phase
     let charge: ActivityCharge
     var calendar: Calendar = .current
 
-    @Environment(AppState.self) private var state
-    @State private var model = ChargeCurveModel()
-
     var body: some View {
         ThemeSection(title: "Charge") {
-            switch model.phase {
+            switch phase {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, minHeight: 140)
             case .failed:
@@ -27,7 +25,6 @@ struct ChargeCurveCard: View {
                 }
             }
         }
-        .task(id: charge.id) { await model.load(source: state.client, charge: charge) }
     }
 }
 

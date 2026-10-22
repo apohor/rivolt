@@ -18,6 +18,8 @@ final class ChargeCurveModel {
     }
 
     private(set) var phase = Phase.loading
+    /// The session card's numbers: from the charge's row alone until the samples arrive, or if they can't be read.
+    private(set) var insights: ChargeInsights?
 
     /// The window the web asks for: a minute before the start to a minute after the end; a charge still going (its end
     /// is within 15 minutes of now) runs to now.
@@ -28,14 +30,17 @@ final class ChargeCurveModel {
 
     func load(source: some ChargeSamplesSource, charge: ActivityCharge, now: Date = .now) async {
         phase = .loading
+        insights = nil
         let (since, until) = Self.window(for: charge, now: now)
         do {
             let samples = try await source.chargeSamples(since: since, until: until, vehicleID: charge.vehicleId, limit: 2000)
             phase = .ready(ChargeCurve.series(samples, from: charge.startedAt, to: until.addingTimeInterval(-60)))
+            insights = ChargeInsights.compute(charge, samples: samples)
         } catch {
             // The screen closed while this was in flight: there is nothing to say.
             if Task.isCancelled { return }
             phase = .failed
+            insights = ChargeInsights.compute(charge, samples: [])
         }
     }
 }
