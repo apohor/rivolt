@@ -265,14 +265,15 @@ extension MLNMapView {
     /// A map that is a picture: our style (as JSON, never fetched), no user location, no pan, zoom, rotation or tilt,
     /// no compass, the credit drawn by the SwiftUI side (MapAttribution) instead of the info button, and no MapLibre
     /// mark (its BSD licence asks for the notice in Acknowledgements, not a logo). `watch` is its delegate from the
-    /// start, so it sees the style even when MapLibre loads it inside the initialiser.
-    static func displayOnly(styleJSON: String, watch: MapLoadWatch) -> DisplayMapView {
+    /// start, so it sees the style even when MapLibre loads it inside the initialiser. `interactive` allows pan and
+    /// pinch-zoom (never rotation or tilt), for a map that is a screen's main content (the Activity map).
+    static func displayOnly(styleJSON: String, watch: MapLoadWatch, interactive: Bool = false) -> DisplayMapView {
         let map = DisplayMapView(frame: .zero, styleJSON: styleJSON)
         map.showsUserLocation = false
         map.isRotateEnabled = false
         map.isPitchEnabled = false
-        map.isScrollEnabled = false
-        map.isZoomEnabled = false
+        map.isScrollEnabled = interactive
+        map.isZoomEnabled = interactive
         map.compassView.isHidden = true
         map.attributionButton.isHidden = true
         map.logoView.isHidden = true

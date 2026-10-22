@@ -65,6 +65,8 @@ final class AppState {
     let notifications: NotificationManager
     /// The charging Live Activity (started by the app while charging, with the person's switch on).
     let liveActivity: LiveActivityManager
+    /// The Activity map's drives and charges (coordinates, in memory only): dropped on sign-out and on another server.
+    let activityMap = ActivityMapModel()
 
     private static let serverDefaultsKey = "rivolt.server_url"
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
@@ -146,6 +148,7 @@ final class AppState {
             WidgetStore().clear()
             WidgetCenter.shared.reloadAllTimelines()
             MapNetwork.reset()
+            activityMap.clear()
             serverURL = url
             UserDefaults.standard.set(url.absoluteString, forKey: Self.serverDefaultsKey)
             await client.updateBaseURL(url)
@@ -208,6 +211,7 @@ final class AppState {
         // The widgets forget the truck and its last numbers with the session; the map forgets its token and cached tiles.
         WidgetStore().clear()
         MapNetwork.reset()
+        activityMap.clear()
         WidgetCenter.shared.reloadAllTimelines()
         phase = .loggedOut
     }

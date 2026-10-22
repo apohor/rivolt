@@ -28,8 +28,13 @@ struct DriveRoute: Decodable, Equatable {
     /// The trace, or a straight line between the ends when there is none (as the web). Points at 0,0 (no fix) are
     /// dropped; nothing to draw is an empty list.
     var points: [Point] {
-        let trace = DriveRoute.decode(routePolyline ?? "")
-        let line = trace.count >= 2 ? trace : [Point(lat: startLat, lon: startLon), Point(lat: endLat, lon: endLon)]
+        DriveRoute.line(polyline: routePolyline, start: Point(lat: startLat, lon: startLon), end: Point(lat: endLat, lon: endLon))
+    }
+
+    /// A drive's line from its stored trace, else its two ends (the drive map and the Activity map alike).
+    static func line(polyline: String?, start: Point, end: Point) -> [Point] {
+        let trace = decode(polyline ?? "")
+        let line = trace.count >= 2 ? trace : [start, end]
         let real = line.filter { !($0.lat == 0 && $0.lon == 0) && abs($0.lat) <= 90 && abs($0.lon) <= 180 }
         return real.count >= 2 ? real : []
     }

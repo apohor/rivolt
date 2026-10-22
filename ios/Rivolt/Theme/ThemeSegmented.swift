@@ -9,6 +9,8 @@ struct ThemeSegmented<ID: Hashable>: View {
 
     let options: [Option]
     @Binding var selection: ID
+    /// What the choice is about, read before each option by VoiceOver ("View, Map").
+    var accessibilityName: String?
 
     var body: some View {
         HStack(spacing: 2) {
@@ -23,6 +25,7 @@ struct ThemeSegmented<ID: Hashable>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityName.map { "\($0), \(o.label)" } ?? o.label)
                 .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
             }
         }

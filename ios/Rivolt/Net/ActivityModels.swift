@@ -7,7 +7,7 @@ struct ActivityResponse: Decodable, Equatable {
     let charges: [ActivityCharge]
 }
 
-struct ActivityDrive: Decodable, Equatable, Identifiable {
+struct ActivityDrive: Decodable, Hashable, Identifiable {
     let id: String
     let vehicleId: String
     let startedAt: Date
@@ -28,7 +28,7 @@ struct ActivityDrive: Decodable, Equatable, Identifiable {
     let drivingSeconds: Double?
 }
 
-struct ActivityCharge: Decodable, Equatable, Identifiable {
+struct ActivityCharge: Decodable, Hashable, Identifiable {
     let id: String
     let vehicleId: String
     let startedAt: Date
