@@ -67,6 +67,8 @@ final class AppState {
     let liveActivity: LiveActivityManager
     /// The Activity map's drives and charges (coordinates, in memory only): dropped on sign-out and on another server.
     let activityMap = ActivityMapModel()
+    /// Activity → Efficiency's figures (aggregates, in memory only): dropped with the Activity map.
+    let efficiency = EfficiencyModel()
 
     private static let serverDefaultsKey = "rivolt.server_url"
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
@@ -149,6 +151,7 @@ final class AppState {
             WidgetCenter.shared.reloadAllTimelines()
             MapNetwork.reset()
             activityMap.clear()
+            efficiency.clear()
             serverURL = url
             UserDefaults.standard.set(url.absoluteString, forKey: Self.serverDefaultsKey)
             await client.updateBaseURL(url)
@@ -212,6 +215,7 @@ final class AppState {
         WidgetStore().clear()
         MapNetwork.reset()
         activityMap.clear()
+        efficiency.clear()
         WidgetCenter.shared.reloadAllTimelines()
         phase = .loggedOut
     }

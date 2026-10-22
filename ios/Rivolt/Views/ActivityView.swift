@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The Activity tab: one month of the selected truck's drives and charges on a timeline, newest first and grouped by day,
-/// with the month stepper and an All / Drives / Charges filter, as the web's feed; or (List / Map) the month's routes
-/// and charges on our own map, as the web's Activity map. Read-only. A row, a route or a dot opens its detail.
+/// with the month stepper and an All / Drives / Charges filter, as the web's feed; or (List / Map / Efficiency) the
+/// month's routes and charges on our own map, or its efficiency breakdowns, as the web's Activity views. Read-only. A
+/// row, a route or a dot opens its detail.
 struct ActivityView: View {
     @Environment(AppState.self) private var state
     @AppStorage("rivolt.selected_vehicle") private var selectedID = ""
@@ -12,7 +13,6 @@ struct ActivityView: View {
     @State private var filter = ActivityFilter.all
     /// List every launch (not kept): the accessible view first, and no map read on a slow connection unless asked.
     @State private var mode = ActivityMode.list
-    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var picked: ActivityItem?
     private let calendar = Calendar.current
 
@@ -28,7 +28,11 @@ struct ActivityView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if mode == .map { mapBody } else { listBody }
+                switch mode {
+                case .list: listBody
+                case .map: mapBody
+                case .efficiency: efficiencyBody
+                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .overlay {
@@ -38,28 +42,34 @@ struct ActivityView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     // Refresh reloads the map too: map mode has no pull-to-refresh.
-                    ThemeTopBar { AccountMenu(vehicleID: vehicleID, onRefresh: { Task { await load(force: true); await loadMap(force: true) } }) }
+                    ThemeTopBar {
+                        AccountMenu(vehicleID: vehicleID, onRefresh: {
+                            Task { await load(force: true); await loadMap(force: true); await loadEfficiency(force: true) }
+                        })
+                    }
                     titleRow
                 }
             }
             // A tap on the map opens the drive or charge, as a row does.
             .navigationDestination(item: $picked) { ActivityDetailView(item: $0, calendar: calendar) }
             .task(id: "\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") { await load(force: false) }
-            .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") { await loadMap() }
+            .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") {
+                await loadMap()
+                await loadEfficiency()
+            }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
         }
     }
 
-    /// The filter (All, Drives, Charges) and the view (List, Map), side by side; stacked at accessibility text sizes.
+    /// The view (List, Map, Efficiency) on a row of its own, the filter (All, Drives, Charges) under it; no filter in
+    /// Efficiency, which is drives only.
     private var controls: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2 * Theme.unit))
-            : AnyLayout(HStackLayout(spacing: 2 * Theme.unit))
-        return layout {
-            ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
+        VStack(alignment: .leading, spacing: 2 * Theme.unit) {
             ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode,
-                           accessibilityName: "View")
-                .fixedSize()
+                           accessibilityName: "View", fillsWidth: true)
+            if mode != .efficiency {
+                ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
+            }
         }
     }
 
@@ -87,6 +97,18 @@ struct ActivityView: View {
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
         .refreshable { await load(force: true) }
+    }
+
+    /// The month's efficiency breakdowns (the web's Activity "Efficiency").
+    private var efficiencyBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                controls
+                EfficiencyView(shown: state.efficiency.shown, monthName: month.spokenTitle(calendar: calendar))
+            }
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
+        }
+        .refreshable { await loadEfficiency(force: true) }
     }
 
     /// The month on the map: the screen's main content, pannable and zoomable.
@@ -151,6 +173,14 @@ struct ActivityView: View {
         if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] }
         guard let id = vehicleID else { return }
         await state.activityMap.load(source: state.client, vehicleID: id, month: month, force: force, calendar: calendar)
+    }
+
+    /// Efficiency for the month, read only when that view is open.
+    private func loadEfficiency(force: Bool = false) async {
+        guard mode == .efficiency else { return }
+        if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] }
+        guard let id = vehicleID else { return }
+        await state.efficiency.load(source: state.client, vehicleID: id, month: month, metric: NowFormat.usesMetric, force: force, calendar: calendar)
     }
 
     private func load(force: Bool) async {

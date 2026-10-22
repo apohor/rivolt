@@ -66,6 +66,7 @@ enum Theme {
     static let chargeFast = color(ThemeTokens.chargeFast)
     static let chargeL2 = color(ThemeTokens.chargeL2)
     static let chargeL1 = color(ThemeTokens.chargeL1)
+    static let efficiencyBarEnd = color(ThemeTokens.efficiencyBarEnd)
     static let edge = color(ThemeTokens.edge)
 
     // Literals
