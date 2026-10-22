@@ -12,6 +12,11 @@ struct RivoltApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var state = AppState()
 
+    init() {
+        // The bundled Geist fonts, before the first screen asks for them.
+        Theme.registerFonts()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
