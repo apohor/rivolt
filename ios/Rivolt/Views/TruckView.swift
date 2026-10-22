@@ -636,7 +636,7 @@ private struct DrainBars: View {
                             RoundedRectangle(cornerRadius: 1).strokeBorder(Theme.accentFill.opacity(0.35), lineWidth: 1)
                                 .frame(width: slot * 0.8, height: h * 9 / 40).offset(x: x, y: h * 30 / 40)
                         } else {
-                            let bh = max(1, b.height * h * 38 / 40)
+                            let bh: CGFloat = max(1, CGFloat(b.height) * h * 38 / 40)
                             RoundedRectangle(cornerRadius: 1).fill(Theme.accentFill.opacity(b.gained != nil ? 0.5 : 1))
                                 .frame(width: slot * 0.8, height: bh).offset(x: x, y: h * 39 / 40 - bh)
                         }
