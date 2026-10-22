@@ -23,6 +23,11 @@ UPDATE_DESIGN_TOKENS=1 npx vitest run src/lib/designTokens.test.ts
 
 Then update the app's Theme to match.
 
+Role names, in case you think in other words: "text" = `textPrimary`, "secondary text" =
+`textSecondary`, "charging" / "live" = `accent` (fills `accentFill`), "warning" = `estimate`
+(amber), "error" / "low battery" = `critical`. Differences from the web are listed under
+`platform` in `tokens.json`.
+
 ## Building the Swift Theme from it
 
 - **Colours:** `Color(hex:)` with `alpha`, in a `Theme` with dark and light variants, e.g. an
