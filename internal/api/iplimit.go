@@ -60,29 +60,41 @@ func newIPLimiter(perWindow int, window, idleTTL time.Duration) *ipLimiter {
 // Requires the clientip middleware upstream so r.RemoteAddr reflects the
 // real client IP (Cloudflare's CF-Connecting-IP, from a trusted proxy).
 func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		if l.key != nil {
-			ip = l.key(r)
-		}
-		if ok, wait := l.allow(ip); !ok {
-			if l.onDeny != nil {
-				l.onDeny()
-			}
-			// Honest: the time until the bucket has a token again, not a guess.
-			w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
-			writeJSON(w, http.StatusTooManyRequests, map[string]any{
-				"error": "too many requests, try again later",
-			})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return l.MiddlewareN(func(*http.Request) int { return 1 })(next)
 }
 
-// allow checks and decrements the bucket for ip. Lazy-creates a new
-// bucket on first sight and updates lastSeen for the janitor.
-func (l *ipLimiter) allow(ip string) (bool, time.Duration) {
+// MiddlewareN is Middleware where a request costs cost(r) tokens instead of one
+// (a byte budget: the limiter's rate and burst are then in bytes). A cost of 0
+// or less is free.
+func (l *ipLimiter) MiddlewareN(cost func(*http.Request) int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			if l.key != nil {
+				ip = l.key(r)
+			}
+			if ok, wait := l.allowN(ip, cost(r)); !ok {
+				if l.onDeny != nil {
+					l.onDeny()
+				}
+				// Honest: the time until the bucket has the tokens again, not a guess.
+				w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+				writeJSON(w, http.StatusTooManyRequests, map[string]any{
+					"error": "too many requests, try again later",
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// allowN checks and decrements n tokens (n <= 0 is free) of the bucket for ip.
+// Lazy-creates a new bucket on first sight and updates lastSeen for the janitor.
+func (l *ipLimiter) allowN(ip string, n int) (bool, time.Duration) {
+	if n <= 0 {
+		return true, 0
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -103,11 +115,11 @@ func (l *ipLimiter) allow(ip string) (bool, time.Duration) {
 	b.lastSeen = now
 	// Reserve instead of Allow so a refusal can say how long until the next
 	// token; a refused reservation is cancelled and costs nothing.
-	res := b.l.Reserve()
+	res := b.l.ReserveN(now, n)
 	if d := res.Delay(); d > 0 || !res.OK() {
 		res.Cancel()
 		if !res.OK() || d <= 0 {
-			d = time.Duration(float64(time.Second) / float64(l.rps))
+			d = time.Duration(float64(n) * float64(time.Second) / float64(l.rps))
 		}
 		return false, d
 	}

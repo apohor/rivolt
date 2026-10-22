@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -83,10 +84,56 @@ const demoTilesPath = "/api/maps/tiles/us.pmtiles"
 // budgets. The corridor query (/api/maps/chargers-along) stays closed.
 const demoChargersTilesPath = "/api/maps/tiles/chargers.pmtiles"
 
-// demoTileMaxRange caps one anonymous tile read. The tile limiter counts
-// requests, not bytes, so a request with no Range (the whole archive) or
-// a huge one is refused instead.
-const demoTileMaxRange = 2 << 20
+// demoTileMaxRange caps one anonymous tile read: 512 KiB by default (a real read
+// is a header, a directory or one tile, tens of KB), so a request cannot ask for
+// the archive in a few big gulps. RIVOLT_DEMO_TILE_MAX_RANGE_KB raises it, to at
+// most 2048, if a very large tile is ever refused. A request with no Range (the
+// whole archive) or a bigger one is refused instead.
+func demoTileMaxRange() int64 {
+	kb := demoBudgetEnv("RIVOLT_DEMO_TILE_MAX_RANGE_KB", 512)
+	if kb > 2048 {
+		kb = 2048
+	}
+	return int64(kb) << 10
+}
+
+// Byte budgets on top of the request budgets: the request limiter counts reads,
+// not how much they carry. Each read is charged its requested range, per client
+// and install-wide, and a refused one is a 429 with a Retry-After. The defaults
+// are megabytes per hour; RIVOLT_DEMO_TILES_MB_PER_CLIENT_PER_HOUR and
+// RIVOLT_DEMO_TILES_MB_GLOBAL_PER_HOUR set a deployment's own.
+const (
+	demoTileMBPerClientPerHour = 200
+	demoTileMBGlobalPerHour    = 3000
+)
+
+func demoTileByteBudgets() (perClient, global int) {
+	return demoBudgetEnv("RIVOLT_DEMO_TILES_MB_PER_CLIENT_PER_HOUR", demoTileMBPerClientPerHour) << 20,
+		demoBudgetEnv("RIVOLT_DEMO_TILES_MB_GLOBAL_PER_HOUR", demoTileMBGlobalPerHour) << 20
+}
+
+// demoRangeLen is the number of bytes a validated Range header asks for (0 for
+// none, which is a HEAD).
+func demoRangeLen(h string) int {
+	spec, ok := strings.CutPrefix(strings.TrimSpace(h), "bytes=")
+	if !ok {
+		return 0
+	}
+	lo, hi, ok := strings.Cut(spec, "-")
+	if !ok {
+		return 0
+	}
+	if lo == "" {
+		n, _ := strconv.ParseInt(hi, 10, 64)
+		return int(max(n, 0))
+	}
+	a, err1 := strconv.ParseInt(lo, 10, 64)
+	b, err2 := strconv.ParseInt(hi, 10, 64)
+	if err1 != nil || err2 != nil || b < a {
+		return 0
+	}
+	return int(b - a + 1)
+}
 
 // demoTileRangeOK validates a Range header for an anonymous tile read:
 // exactly one "bytes=a-b" (or suffix "bytes=-n") range of at most
@@ -106,7 +153,7 @@ func demoTileRangeOK(h string) int {
 		if err != nil || n <= 0 {
 			return http.StatusBadRequest
 		}
-		if n > demoTileMaxRange {
+		if n > demoTileMaxRange() {
 			return http.StatusRequestedRangeNotSatisfiable
 		}
 		return 0
@@ -116,7 +163,7 @@ func demoTileRangeOK(h string) int {
 	if err1 != nil || err2 != nil || a < 0 || b < a {
 		return http.StatusBadRequest
 	}
-	if b-a+1 > demoTileMaxRange {
+	if b-a+1 > demoTileMaxRange() {
 		return http.StatusRequestedRangeNotSatisfiable
 	}
 	return 0
@@ -357,6 +404,14 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 	tilesGlobal := newIPLimiter(tilesPerInstall, time.Minute, time.Hour)
 	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
 	tilesGlobal.onDeny = demoDenied("tiles", "global")
+	bytesPerClient, bytesPerInstall := demoTileByteBudgets()
+	tileBytes := newIPLimiter(bytesPerClient, time.Hour, time.Hour)
+	tileBytes.key = demoClientKey
+	tileBytes.onDeny = demoDenied("tile_bytes", "client")
+	tileBytesGlobal := newIPLimiter(bytesPerInstall, time.Hour, time.Hour)
+	tileBytesGlobal.key = func(*http.Request) string { return "global-tile-bytes" }
+	tileBytesGlobal.onDeny = demoDenied("tile_bytes", "global")
+	tileCost := func(r *http.Request) int { return demoRangeLen(r.Header.Get("Range")) }
 	// The heavy reads (parked drain, plan-vs-actual) share one small
 	// budget and one response cache.
 	heavy := newIPLimiter(demoHeavyPerClientPerMin, time.Minute, time.Hour)
@@ -396,10 +451,18 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				// (HEAD has no body, so it needs no range.)
 				if code := demoTileRangeOK(r.Header.Get("Range")); code != 0 && r.Method != http.MethodHead {
 					w.Header().Set("Content-Range", "bytes */*")
-					http.Error(w, "range required (single bytes range, at most 2 MiB)", code)
+					http.Error(w, fmt.Sprintf("range required (a single bytes range of at most %d KiB)", demoTileMaxRange()>>10), code)
 					return
 				}
-				tiles.Middleware(tilesGlobal.Middleware(serve)).ServeHTTP(w, r)
+				// A conditional header can turn a range read into the whole file (a
+				// mismatched If-Range makes a server ignore the Range), so none goes on.
+				for _, h := range []string{"If-Range", "If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since"} {
+					r.Header.Del(h)
+				}
+				// Per client (reads, then bytes) before install-wide, for the same
+				// reason as below.
+				tiles.Middleware(tileBytes.MiddlewareN(tileCost)(
+					tilesGlobal.Middleware(tileBytesGlobal.MiddlewareN(tileCost)(serve)))).ServeHTTP(w, r)
 				return
 			}
 			// Order matters: a token bucket is charged when it is
