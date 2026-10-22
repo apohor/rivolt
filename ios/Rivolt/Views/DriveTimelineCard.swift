@@ -166,7 +166,9 @@ struct DriveTimelineCard: View {
     }
 
     private func speedPanel(_ data: DriveTimelineData) -> some View {
-        let top = Swift.max(10, (data.speed.map(\.y).max() ?? 0) * k * 1.1)
+        // The scale fits every sample; the stated max is the drive's own (the summary's, as the web), so the card never
+        // shows two maxima.
+        let top = Swift.max(10, Swift.max(drive.maxSpeedMph, data.speed.map(\.y).max() ?? 0) * k * 1.1)
         return Chart {
             ForEach(Array(data.speed.enumerated()), id: \.offset) { _, p in
                 AreaMark(x: .value("Time", date(p.x)), yStart: .value("Floor", 0), yEnd: .value("Speed", p.y * k))
@@ -190,7 +192,7 @@ struct DriveTimelineCard: View {
         .chartYAxis { AxisMarks(values: [top / 2]) { _ in AxisGridLine().foregroundStyle(Theme.border.opacity(0.55)) } }
         .chartXSelection(value: $cursor)
         .frame(height: Self.speedHeight)
-        .panelTitled("Speed · \(speedUnit) · up to \(NumberText.fixed(top, 0))")
+        .panelTitled("Speed · \(speedUnit) · max \(NumberText.fixed(drive.maxSpeedMph * k, 0))")
     }
 
     private func powerPanel(_ data: DriveTimelineData) -> some View {
@@ -216,9 +218,9 @@ struct DriveTimelineCard: View {
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartXSelection(value: $cursor)
-        // The sign in words, not colour alone: "Draw" above the zero line, "Regen" below it, at the right edge.
-        .overlay(alignment: .trailing) {
-            VStack(alignment: .trailing, spacing: 0) {
+        // The sign in words, not colour alone: "Draw" above the zero line, "Regen" below it, at the left edge.
+        .overlay(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 0) {
                 PanelLabel(text: "Draw ↑", plain: true)
                 PanelLabel(text: "Regen ↓", plain: true)
             }
@@ -318,6 +320,9 @@ struct DriveTimelineCard: View {
                 }
                 .frame(height: 5 * Theme.unit)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.unit))
+                // The band names its segments; the legend only when one is too narrow to hold its name.
+                let span = data.end.timeIntervalSince(data.start) * 1000
+                if data.modes.contains(where: { ($0.x1 - $0.x0) / span < 0.2 }) {
                 ThemeFlow(spacing: 3 * Theme.unit, rowSpacing: Theme.unit) {
                     ForEach(modes, id: \.rawValue) { m in
                         HStack(spacing: Theme.unit) {
@@ -325,6 +330,7 @@ struct DriveTimelineCard: View {
                             Text(m.label).themeText(.caption)
                         }
                     }
+                }
                 }
             }
             .accessibilityElement(children: .ignore)

@@ -20,7 +20,8 @@ final class DriveTimelineTests: XCTestCase {
             if t < 0.2 {
                 speed = 25 + 10 * sin(x / 3)
             } else if t < 0.7 {
-                speed = 62 + 4 * sin(x / 5)
+                // The highway tops out at the row's 58 mph.
+                speed = 55 + 3 * abs(sin(x / 5))
             } else if t >= 0.72 {
                 speed = 30 + 8 * sin(x / 4)
             }
