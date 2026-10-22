@@ -72,7 +72,7 @@ struct DriveTimelineCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var cursor: Date?
 
-    private typealias M = DriveTimelineMath
+    typealias M = DriveTimelineMath
     private var k: Double { metric ? 1.609344 : 1 }
     private var speedUnit: String { metric ? "km/h" : "mph" }
 
