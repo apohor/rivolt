@@ -54,6 +54,7 @@ struct ChartsSection: View {
                         .cornerRadius(2)
                 }
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .chartXScale(domain: month.range(calendar: calendar).since...month.range(calendar: calendar).until)
                 .chartYScale(domain: 0...top)
                 .chartYAxis {
                     AxisMarks(position: .leading, values: [0, top / 2, top]) { value in
@@ -64,7 +65,7 @@ struct ChartsSection: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: days.filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
+                    AxisMarks(values: month.axisDays(calendar: calendar)) { value in
                         AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
@@ -97,17 +98,20 @@ struct ChartsSection: View {
                 ChartEmpty(text: "Not enough drives or charges in \(month.title(calendar: calendar)) yet.")
             } else {
                 let range = month.range(calendar: calendar)
-                let bands = ChartMath.bands(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], from: range.since, to: range.until)
+                // At least ~1% of the month wide, so a short drive is still a mark on the strip.
+                let bands = ChartMath.bands(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], from: range.since, to: range.until,
+                                            minSpan: range.until.timeIntervalSince(range.since) / 100)
                 let extremes = ChartMath.highLow(trend)
                 Chart {
                     bandMarks(bands)
                     trendMarks(trend)
-                    limitMark
+                    limitMark(range: range)
                     extremeMarks(extremes)
                 }
                 .chartXScale(domain: range.since...range.until)
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .chartYScale(domain: 0...100)
+                // Below 0% is the strip; above 100% is room for the high label.
+                .chartYScale(domain: -12...108)
                 .chartYAxis {
                     AxisMarks(position: .leading, values: [0, 50, 100]) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
@@ -117,9 +121,10 @@ struct ChartsSection: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: [days.first ?? range.since, days.last ?? range.since]) { value in
+                    // The same day labels as Miles per day: 10-01, 10-11, 10-21, 10-31.
+                    AxisMarks(values: month.axisDays(calendar: calendar)) { value in
                         AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
-                            if let d = value.as(Date.self) { ChartAxisText(d.formatted(Date.FormatStyle(timeZone: calendar.timeZone).month(.abbreviated).day())) }
+                            if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
                     }
                 }
@@ -127,29 +132,31 @@ struct ChartsSection: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(levelSpoken.label)
                 .accessibilityValue(levelSpoken.value)
-                ChartLegend(items: [
-                    .init(label: "Battery %", style: .line(Theme.textPrimary)),
-                    .init(label: "Charging", style: .swatch(Theme.chartSocCharge)),
-                    .init(label: "Driving", style: .swatch(Theme.chartSocDrive)),
-                    .init(label: "Charge limit", style: .dashed(Theme.chartSocLimit)),
-                    .init(label: "High and low", style: .dot(Theme.textPrimary)),
-                ])
+                ChartLegend(items: legendItems(range: range))
             }
         }
+    }
+
+    private func legendItems(range: (since: Date, until: Date)) -> [ChartLegend.Item] {
+        var items: [ChartLegend.Item] = [
+            .init(label: "Battery %", style: .line(Theme.textPrimary)),
+            .init(label: "Charging", style: .swatch(Theme.chartSocCharge)),
+            .init(label: "Driving", style: .swatch(Theme.chartSocDrive)),
+        ]
+        if limitShown(range: range) { items.append(.init(label: "Charge limit now", style: .dashed(Theme.chartSocLimit))) }
+        items.append(.init(label: "High and low", style: .dot(Theme.textPrimary)))
+        return items
     }
 
     private func bandColor(_ kind: ChartMath.Band.Kind) -> Color {
         kind == .charging ? Theme.chartSocCharge : Theme.chartSocDrive
     }
 
+    /// One thin strip under the 0% line: sky for driving, the accent for charging. No wash over the plot.
     @ChartContentBuilder
     private func bandMarks(_ bands: [ChartMath.Band]) -> some ChartContent {
         ForEach(bands) { b in
-            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("High", 100))
-                .foregroundStyle(bandColor(b.kind).opacity(0.14))
-        }
-        ForEach(bands) { b in
-            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("Top", 4))
+            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", -10), yEnd: .value("Top", -4))
                 .foregroundStyle(bandColor(b.kind))
         }
     }
@@ -157,26 +164,35 @@ struct ChartsSection: View {
     @ChartContentBuilder
     private func trendMarks(_ trend: [SocPoint]) -> some ChartContent {
         ForEach(trend) { p in
-            AreaMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
-                .interpolationMethod(.monotone)
+            AreaMark(x: .value("Time", p.at), yStart: .value("Floor", 0), yEnd: .value("Charge", p.pct))
+                .interpolationMethod(.linear)
                 .foregroundStyle(LinearGradient(colors: [Theme.textPrimary.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom))
         }
         ForEach(trend) { p in
             LineMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
-                .interpolationMethod(.monotone)
+                .interpolationMethod(.linear)
                 .foregroundStyle(Theme.textPrimary)
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         }
     }
 
+    /// The limit is what the truck is set to now, not what it was on earlier days (it was changed during the month), so
+    /// it is drawn only on the current month and only over the last two days, ending at now, with the value to its right.
+    private func limitShown(range: (since: Date, until: Date)) -> Bool {
+        ChartMath.limitVisible(limit, now: now, since: range.since, until: range.until)
+    }
+
     @ChartContentBuilder
-    private var limitMark: some ChartContent {
-        if let limit, limit > 0, limit <= 100 {
-            RuleMark(y: .value("Limit", limit))
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+    private func limitMark(range: (since: Date, until: Date)) -> some ChartContent {
+        if limitShown(range: range), let limit {
+            RuleMark(xStart: .value("From", max(range.since, now.addingTimeInterval(-2 * 86_400))), xEnd: .value("To", now), y: .value("Limit", limit))
+                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 .foregroundStyle(Theme.chartSocLimit)
-                .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                    Text("Limit \(Int(limit.rounded()))%").themeText(.caption, color: Theme.chartSocLimit)
+                // Right of the segment, in the days still to come: nothing is drawn there, so it never sits on the line.
+                // In the last days of the month there is no room to the right, so it goes above the segment.
+                .annotation(position: range.until.timeIntervalSince(now) < 4 * 86_400 ? .top : .trailing,
+                            alignment: range.until.timeIntervalSince(now) < 4 * 86_400 ? .trailing : .center, spacing: 4) {
+                    Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
     }
@@ -186,10 +202,10 @@ struct ChartsSection: View {
         if let e = extremes {
             PointMark(x: .value("Time", e.high.at), y: .value("Charge", e.high.pct))
                 .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                .annotation(position: .top, spacing: 2) { Text("\(Int(e.high.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
+                .annotation(position: .top, spacing: 2) { Text("\(NumberText.fixed(e.high.pct, 0))%").themeText(.caption, color: Theme.textPrimary) }
             PointMark(x: .value("Time", e.low.at), y: .value("Charge", e.low.pct))
                 .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                .annotation(position: .bottom, spacing: 2) { Text("\(Int(e.low.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
+                .annotation(position: .trailing, spacing: 4) { Text("\(NumberText.fixed(e.low.pct, 0))%").themeText(.caption, color: Theme.textPrimary) }
         }
     }
 

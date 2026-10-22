@@ -34,13 +34,25 @@ enum ChartMath {
     }
 
     /// Charging and driving stretches within `[from, to]`, clipped to it; empty or backwards ones are left out.
-    static func bands(drives: [DrivePoint], charges: [ChargePoint], from: Date, to: Date) -> [Band] {
+    /// `minSpan` widens a shorter stretch (to the right, still inside `to`) so a short drive is a visible mark at month
+    /// scale, as the web's minimum band width does.
+    static func bands(drives: [DrivePoint], charges: [ChargePoint], from: Date, to: Date, minSpan: TimeInterval = 0) -> [Band] {
         func make(_ kind: Band.Kind, _ s: Date, _ e: Date) -> Band? {
-            let start = max(s, from), end = min(e, to)
-            return end > start ? Band(kind: kind, start: start, end: end) : nil
+            let start = max(s, from)
+            guard min(e, to) > start else { return nil }
+            let end = min(max(e, start.addingTimeInterval(minSpan)), to)
+            return Band(kind: kind, start: start, end: end)
         }
         let all = charges.compactMap { make(.charging, $0.startedAt, $0.endedAt) } + drives.compactMap { make(.driving, $0.startedAt, $0.endedAt) }
         return all.sorted { $0.start < $1.start }
+    }
+
+    /// Whether the charge limit is drawn: only a real limit (above 0, below 100) and only on the month that contains
+    /// now. The limit is what the truck is set to today; an earlier month, or the earlier days of this one, may have
+    /// had another (it changes), so a line across them would say something we don't know.
+    static func limitVisible(_ limit: Double?, now: Date, since: Date, until: Date) -> Bool {
+        guard let limit, limit > 0, limit < 100 else { return false }
+        return now >= since && now < until
     }
 
     /// The highest and lowest points of the line, for the two labelled dots; nil with fewer than two points.
