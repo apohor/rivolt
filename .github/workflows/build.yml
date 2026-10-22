@@ -614,6 +614,41 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
+  # Keeps the repo's Actions cache from filling up. The Go caches are saved once a UTC
+  # day under a new key (so the build cache is refreshed), and the old day's entry
+  # stayed until GitHub evicted it for space: two ~3.9 GB + ~2.3 GB generations
+  # never fit in the 10 GB limit with the image layers and the Playwright browsers,
+  # so every daily refresh evicted something people were still using (a miss on
+  # publish's image layers or the browser cache cost minutes). After main's Go jobs
+  # have saved, keep only the newest entry of each Go cache and of each Playwright
+  # browser (a Playwright bump leaves the old version's entry behind too).
+  # Its own job so the actions:write token never reaches the jobs that run PR code.
+  # Main pushes only; a failure here never turns main red.
+  cache-prune:
+    name: cache-prune
+    needs: [go, integration]
+    if: "!cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.go.result == 'success' && needs.integration.result == 'success'"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the newest cache of each kind
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for prefix in go-unit-Linux- go-integration-Linux- playwright-Linux-chromium- playwright-Linux-webkit-; do
+            ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
+              | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
+            kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
+            echo "$prefix keeps $kept"
+            echo "$ids" | while read -r id key size; do
+              [ -n "$id" ] || continue
+              echo "  deleting $key ($((size / 1048576)) MB)"
+              gh cache delete "$id" --repo "$GITHUB_REPOSITORY"
+            done
+          done
+
   image:
     name: image
     # Builds the image while the tests run, without pushing or tagging
