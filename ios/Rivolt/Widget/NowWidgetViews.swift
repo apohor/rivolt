@@ -47,11 +47,33 @@ private func spoken(_ s: WidgetSnapshot, at date: Date) -> String {
     return parts.joined(separator: ", ")
 }
 
+/// The status line's colour, as the web's Now pill: live (charging) in the accent, out of date in the estimate amber,
+/// anything else secondary.
 private func toneColor(_ tone: WidgetSnapshot.Tone) -> Color {
     switch tone {
-    case .charging: return NowInk.charging
-    case .stale: return NowInk.stale
-    case .normal: return NowInk.secondary
+    case .charging: return Theme.accent
+    case .stale: return Theme.estimate
+    case .normal: return Theme.textSecondary
+    }
+}
+
+/// The gauge's fill, as the Now card's: low (under 10%, as the web) in the critical gradient, out of date in the idle
+/// one, otherwise the normal one.
+private func gaugeTone(_ s: WidgetSnapshot, at date: Date) -> ThemeGaugeTone {
+    if s.isStale(at: date) || s.attention != .none { return .idle }
+    if s.socPct > 0, s.socPct < 10 { return .critical }
+    return .ok
+}
+
+/// The home-screen widgets' background: the web's Now hero (the card over the page, with its light pool in the top
+/// left). Also used by the CI renders, which draw outside a widget.
+struct NowWidgetBackground: View {
+    var body: some View {
+        ZStack {
+            Theme.background
+            Theme.card.opacity(0.6)
+            RadialGradient(colors: [Theme.heroTint, .clear], center: UnitPoint(x: 0.14, y: 0), startRadius: 0, endRadius: 200)
+        }
     }
 }
 
@@ -64,65 +86,66 @@ private struct HomeFamilyView: View {
         let status = snapshot.status(at: at)
         // A charge limit belongs to a charge that is still going on, not to data that has gone stale.
         let target = (snapshot.isCharging && snapshot.attention == .none && !snapshot.isStale(at: at)) ? snapshot.chargeTargetPct : nil
-        VStack(alignment: .leading, spacing: 6) {
-            Label(status.text, systemImage: status.icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(toneColor(status.tone))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            HStack(alignment: .firstTextBaseline) {
-                Text(socText(snapshot))
-                    .font(.system(size: wide ? 52 : 44, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+        let live = snapshot.isCharging && snapshot.attention == .none && !snapshot.isStale(at: at)
+        VStack(alignment: .leading, spacing: 1.5 * Theme.unit) {
+            Label {
+                Text(status.text)
+            } icon: {
+                Image(systemName: status.icon)
+            }
+            .font(Theme.sans(ThemeTokens.typeCaption, .medium))
+            .foregroundStyle(toneColor(status.tone))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+
+            HStack(alignment: .center, spacing: 3 * Theme.unit) {
+                ThemeGauge(value: snapshot.socPct, limit: target, live: live, tone: gaugeTone(snapshot, at: at), width: wide ? 104 : 96) {
+                    HStack(alignment: .firstTextBaseline, spacing: 1) {
+                        Text("\(Int(snapshot.socPct.rounded()))")
+                            .font(Theme.sans(wide ? 30 : 28, .semibold))
+                            .monospacedDigit()
+                            .tracking(ThemeTokens.typeNumberTracking * (wide ? 30 : 28))
+                            .foregroundStyle(gaugeTone(snapshot, at: at) == .critical ? Theme.critical : Theme.textPrimary)
+                        Text("%").font(Theme.sans(ThemeTokens.typeValue)).foregroundStyle(Theme.textSecondary)
+                    }
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
+                }
                 if wide {
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(rangeText(snapshot.rangeKm)).font(.title2.weight(.semibold)).monospacedDigit()
-                        Text("range").font(.caption).foregroundStyle(NowInk.secondary)
+                    VStack(alignment: .leading, spacing: Theme.unit) {
+                        Text("Range")
+                            .font(Theme.sans(ThemeTokens.typeLabelSize, .medium))
+                            .textCase(.uppercase)
+                            .tracking(ThemeTokens.typeLabelTracking * ThemeTokens.typeLabelSize)
+                            .foregroundStyle(Theme.textTertiary)
+                        Text(rangeText(snapshot.rangeKm))
+                            .font(Theme.sans(ThemeTokens.typeTitle, .semibold))
+                            .monospacedDigit()
+                            .tracking(ThemeTokens.typeNumberTracking * ThemeTokens.typeTitle)
+                            .foregroundStyle(Theme.textPrimary)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                        if let target {
+                            Text("to \(Int(target.rounded()))%")
+                                .font(Theme.sans(ThemeTokens.typeSubline))
+                                .foregroundStyle(Theme.textSecondary)
+                        }
                     }
                 }
             }
-            SoCBar(socPct: snapshot.socPct, targetPct: target, dimmed: snapshot.isStale(at: at))
+            .frame(maxWidth: .infinity, alignment: wide ? .leading : .center)
+
             if !wide {
-                Text("\(rangeText(snapshot.rangeKm)) range").font(.caption).foregroundStyle(NowInk.secondary)
-            } else if let target {
-                Text("to \(Int(target.rounded()))%").font(.caption).foregroundStyle(NowInk.secondary)
+                Text("\(rangeText(snapshot.rangeKm)) range")
+                    .font(Theme.sans(ThemeTokens.typeSubline))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken(snapshot, at: at))
-    }
-}
-
-private struct SoCBar: View {
-    let socPct: Double
-    let targetPct: Double?
-    let dimmed: Bool
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule().fill(tint).frame(width: geo.size.width * min(max(socPct, 0), 100) / 100)
-                if let target = targetPct {
-                    Rectangle().fill(.secondary).frame(width: 2)
-                        .offset(x: geo.size.width * min(max(target, 0), 100) / 100 - 1)
-                }
-            }
-        }
-        .frame(height: 8)
-        .opacity(dimmed ? 0.5 : 1)
-    }
-
-    private var tint: Color {
-        switch socPct {
-        case ..<15: return .red
-        case ..<30: return .orange
-        default: return .green
-        }
     }
 }
 
@@ -150,10 +173,10 @@ private struct RectangularView: View {
     var body: some View {
         let status = snapshot.status(at: at)
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(socText(snapshot)) · \(rangeText(snapshot.rangeKm))").font(.headline).monospacedDigit()
-            Label(status.text, systemImage: status.icon).font(.caption).lineLimit(1)
+            Text("\(socText(snapshot)) · \(rangeText(snapshot.rangeKm))").font(Theme.sans(15, .semibold)).monospacedDigit()
+            Label(status.text, systemImage: status.icon).font(Theme.sans(ThemeTokens.typeSubline)).lineLimit(1)
             if snapshot.isCharging, snapshot.attention == .none, let target = snapshot.chargeTargetPct, !snapshot.isStale(at: at) {
-                Text("to \(Int(target.rounded()))%").font(.caption2)
+                Text("to \(Int(target.rounded()))%").font(Theme.sans(ThemeTokens.typeCaption))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,7 +205,7 @@ private struct PlaceholderView: View {
         if family == .accessoryCircular {
             Image(systemName: "bolt.car")
                 .font(.title2)
-                .foregroundStyle(NowInk.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel(text)
         } else {
@@ -191,9 +214,13 @@ private struct PlaceholderView: View {
     }
 
     private var wordsView: some View {
-        Label(text, systemImage: "bolt.car")
-            .font(family == .accessoryInline ? .body : .caption.weight(.semibold))
-            .foregroundStyle(NowInk.secondary)
+        Label {
+            Text(text)
+        } icon: {
+            Image(systemName: "bolt.car").foregroundStyle(family == .accessoryInline ? Theme.textSecondary : Theme.brandMark)
+        }
+            .font(family == .accessoryInline ? .body : Theme.sans(ThemeTokens.typeSubline, .medium))
+            .foregroundStyle(Theme.textSecondary)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }

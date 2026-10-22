@@ -3,6 +3,9 @@ import WidgetKit
 
 @main
 struct RivoltWidgets: WidgetBundle {
+    /// Geist, bundled in the extension too (OFL.txt ships with it).
+    init() { Theme.registerFonts() }
+
     var body: some Widget {
         NowWidget()
         ChargingLiveActivityWidget()
@@ -45,7 +48,8 @@ struct NowWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NowProvider()) { entry in
             NowWidgetEntryView(entry: entry)
-                .containerBackground(.fill.tertiary, for: .widget)
+                // The web's Now hero on the home screen; the lock screen draws its own (tinted) background.
+                .containerBackground(for: .widget) { NowWidgetBackground() }
         }
         .configurationDisplayName("Charge and range")
         .description("Your truck's charge level and range.")

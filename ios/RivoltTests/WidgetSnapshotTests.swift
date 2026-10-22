@@ -42,7 +42,8 @@ final class WidgetSnapshotTests: XCTestCase {
             let view = widget
                 .padding(lock ? 0 : 16)
                 .frame(width: size.width, height: size.height)
-                .background(lock ? Color.black.opacity(0.6) : Color(.secondarySystemBackground))
+                // The widget's own background (the system draws it in a real widget), so the render shows the look.
+                .background { if lock { Color.black.opacity(0.6) } else { NowWidgetBackground() } }
                 .environment(\.colorScheme, lock ? .dark : scheme)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 3
