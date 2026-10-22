@@ -31,6 +31,8 @@ struct NowSummary: Equatable {
     let outsideTempC: Double?
     /// The pack size, when the truck reports it.
     let packKwh: Double?
+    /// Speed in km/h, when the truck reports one.
+    let speedKph: Double?
 
     /// The few fields the card works from. The widget builds this directly from
     /// the fields it decodes (it never decodes a location), the app from a full
@@ -45,9 +47,10 @@ struct NowSummary: Equatable {
         var chargerPowerKw: Double?
         var at: Date?
         var packKwh: Double?
+        var speedKph: Double?
 
         init(socPct: Double?, rangeKm: Double?, chargeTargetPct: Double?, gear: String?, powerState: String?,
-             chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil) {
+             chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil, speedKph: Double? = nil) {
             self.socPct = socPct
             self.rangeKm = rangeKm
             self.chargeTargetPct = chargeTargetPct
@@ -57,12 +60,13 @@ struct NowSummary: Equatable {
             self.chargerPowerKw = chargerPowerKw
             self.at = at
             self.packKwh = packKwh
+            self.speedKph = speedKph
         }
 
         init(_ s: VehicleState) {
             self.init(socPct: s.batteryLevelPct, rangeKm: s.distanceToEmpty, chargeTargetPct: s.chargeTargetPct,
                       gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
-                      chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh)
+                      chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh, speedKph: s.speedKph)
         }
     }
 
@@ -99,6 +103,7 @@ struct NowSummary: Equatable {
         }
         outsideTempC = now?.ambient?.tempC
         packKwh = input?.packKwh.flatMap { $0 > 0 ? $0 : nil }
+        speedKph = (kind == .driving) ? input?.speedKph.flatMap { $0 >= 0 ? $0 : nil } : nil
     }
 
     /// How old the newest data may be before the card says it may be out of

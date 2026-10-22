@@ -111,6 +111,17 @@ struct DriveDetail: Equatable {
 }
 
 enum NowFormat {
+    /// How long ago, in the web's words: "just now", "5 min ago", "3 h ago", "2 d ago".
+    static func ago(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite else { return "a while ago" }
+        let m = Int(max(0, seconds) / 60)
+        if m < 1 { return "just now" }
+        if m < 60 { return "\(m) min ago" }
+        let h = m / 60
+        if h < 48 { return "\(h) h ago" }
+        return "\(h / 24) d ago"
+    }
+
     /// "42 min" or "1 h 12 min".
     static func duration(_ seconds: TimeInterval) -> String {
         let m = max(0, Int((seconds / 60).rounded()))

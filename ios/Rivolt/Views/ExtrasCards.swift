@@ -17,9 +17,7 @@ struct MilestoneCard: View {
                 .font(.footnote)
                 .accessibilityLabel("Hide this milestone")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
     }
 }
 
@@ -51,8 +49,7 @@ struct ThreeThingsCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
             }
         }
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
     }
 
     @ViewBuilder

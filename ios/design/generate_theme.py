@@ -68,6 +68,14 @@ for n, v in tokens["scalars"].items():
     head, _, tail = n.partition(".")
     name = head + tail[0].upper() + tail[1:]
     lines.append(f"    static let {name}: Double = {v['value']}")
+lines += ["", "    // MARK: Tab bar icons (SVG path data in a 24 x 24 box, stroked)"]
+icons = tokens["icons"]
+lines.append(f"    static let iconStroke: Double = {icons['stroke']}")
+lines.append("    static let iconPaths: [String: [String]] = [")
+for name, paths in icons["paths"].items():
+    items = ", ".join(json.dumps(p) for p in paths)
+    lines.append(f'        "{name}": [{items}],')
+lines.append("    ]")
 lines.append("}")
 out.write_text("\n".join(lines) + "\n")
 print(f"wrote {out}")
