@@ -638,9 +638,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for prefix in go-unit-Linux- go-integration-Linux- playwright-Linux-chromium- playwright-Linux-webkit-; do
-            ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
+            ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
-            kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
+            kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
             echo "$prefix keeps $kept"
             echo "$ids" | while read -r id key size; do
               [ -n "$id" ] || continue
