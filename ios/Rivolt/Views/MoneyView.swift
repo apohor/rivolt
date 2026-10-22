@@ -27,7 +27,6 @@ struct MoneyView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
                 Group {
                     if let vehiclesError, model.month == nil {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
@@ -40,10 +39,6 @@ struct MoneyView: View {
                 }
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
-                PageFooter(server: state.serverURL)
-                    .padding(.horizontal, 4 * Theme.unit)
-                    .padding(.bottom, 4 * Theme.unit)
-                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)

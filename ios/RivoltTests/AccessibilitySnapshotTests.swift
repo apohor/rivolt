@@ -67,7 +67,6 @@ final class AccessibilitySnapshotTests: XCTestCase {
                 } else {
                     PlacesCard(split: split, periodTitle: month.title(calendar: utc))
                     ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
-                    PageFooter(server: server)
                 }
             }
             .padding(16)
