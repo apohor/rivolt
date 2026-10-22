@@ -221,6 +221,11 @@ actor APIClient {
         return f.string(from: date)
     }
 
+    /// Drives and charges in `[since, until)` for one truck, newest first, no coordinates. The server may answer 429.
+    func activity(since: Date, until: Date, vehicleID: String) async throws -> ActivityResponse {
+        try await request("GET", "/api/activity?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")
+    }
+
     /// Home, Away and Fast counts and energy in `[since, until)`. The server may answer 429 (a per-user limit).
     func chargeSplit(since: Date, until: Date, vehicleID: String) async throws -> ChargeSplit {
         try await request("GET", "/api/charge-split?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")

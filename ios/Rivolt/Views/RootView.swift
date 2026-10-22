@@ -14,7 +14,12 @@ struct RootView: View {
         case .loggedOut:
             LoginView()
         case .loggedIn:
-            HomeView()
+            TabView {
+                HomeView()
+                    .tabItem { Label("Now", systemImage: "bolt.car") }
+                ActivityView()
+                    .tabItem { Label("Activity", systemImage: "list.bullet") }
+            }
         }
     }
 }
