@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: October 21, 2026
+Last updated: October 22, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
@@ -11,7 +11,7 @@ Last updated: October 21, 2026
 - **Your Rivian sign-in:** your Rivian email and the session tokens Rivian issues, stored encrypted, so we can keep reading your vehicle. **Your Rivian password is never stored**; it is used once to sign in to Rivian.
 - **Your vehicle's data**, read from Rivian: charge level, range, odometer, speed, temperatures, tire pressure, software version, trim and picture, and **GPS location**. We turn it into drives, charges and costs. Location is the most sensitive data we hold. It is never shown to other users. Rivolt records the vehicle, not the driver: if someone else drives it, their trips are recorded too. Altitude on recorded drives comes from a copy of the public Terrarium elevation dataset (Mapzen, via AWS Open Data) that we download in bulk and host ourselves; no request about your drives leaves our servers.
 - **Rivian charging receipts**, only if you turn them on in Settings (off by default; turning them off deletes the stored receipts): amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.
-- **Your settings:** electricity rates, saved places and trips, notification and email preferences, and your time zone (for when reminders arrive).
+- **Your settings:** electricity rates, saved places, including your home location (as exact as you set it), and trips, notification and email preferences, and your time zone (for when reminders arrive).
 - **Notifications:** if you turn on notifications, your browser's push address and User-Agent. Notifications you can turn on: charging complete, software updates, a plug-in reminder when the truck is parked at home below a level you choose, and milestones. If you turn them on in the Rivolt iPhone app, we also keep your phone's Apple push address (a token Apple gives the app), which sign-in it belongs to, and your notification switches; we delete the address when you turn notifications off, sign the phone out, or Apple reports it unusable. The text of each notification is kept for 24 hours so your phone can fetch it, then deleted. If you also turn on live charging on the lock screen (off until you do), we keep the push address Apple gives the app for each charging display, until the charge ends, and at the latest 13 hours after it starts, and delete it sooner when you turn the switch off or sign the phone out.
 - **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email. We also send a weekly summary if you turn it on.
 - **Cards you share:** Cards you create to share are made on your device. Rivolt doesn't upload, post or track them.

@@ -14,6 +14,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { rateBasisLabel, whyLine, type NetworkState } from "../lib/autoNetwork";
 import { LineChart } from "../components/charts";
 import { ChargeMap } from "../components/DriveMap";
+import { useHomeRecheck } from "../components/HomeRecheck";
 import {
   displayTimeZone,
   durationSeconds,
@@ -600,6 +601,7 @@ export default function ChargeDetailPage() {
             network={knownNetwork}
             dc={charge.MaxPowerKW >= 30}
           />
+          {!demo && <UseAsHome lat={charge.Lat} lon={charge.Lon} />}
         </Card>
       ) : null}
 
@@ -1610,6 +1612,58 @@ function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
           {needs ? `Set your rate${netName ? ` for ${netName}` : ""}` : "Set your rate"}
         </Link>
       </p>
+    </div>
+  );
+}
+
+// "Use this charge's location as home" (GitHub #906): the truck's position for this charge becomes the home, exactly
+// as recorded, after a confirmation. The home it replaces can be restored in Settings; past charges are re-checked
+// only if the user says the old home was wrong (the same prompt as Settings). Web only.
+export function UseAsHome({ lat, lon }: { lat: number; lon: number }) {
+  const qc = useQueryClient();
+  const shell = useMoneyTabEnabled();
+  const recheck = useHomeRecheck();
+  const [confirm, setConfirm] = useState(false);
+  const save = useMutation({
+    mutationFn: () => backend.homeLocationPut({ set: true, latitude: lat, longitude: lon, label: "Home", address: "", source: "charge" }),
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "homeLocation"], data);
+      setConfirm(false);
+      if (shell) recheck.start();
+    },
+  });
+  return (
+    <div className="mt-3 space-y-2 text-sm" data-use-as-home>
+      {save.isSuccess ? (
+        <p role="status" className="text-xs text-emerald-300">
+          Home set to where the truck was for this charge. You can restore the previous home in{" "}
+          <Link to={appPath("/settings")} className="underline">Settings</Link>.
+        </p>
+      ) : confirm ? (
+        <div role="group" aria-label="Use as home" className="rounded-md border border-neutral-700 p-3">
+          <p className="text-neutral-100">Set your home to where the truck was for this charge?</p>
+          <p className="mt-1 text-xs text-neutral-400">It replaces your saved home; you can restore that one in Settings.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate()}
+              className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
+            >
+              {save.isPending ? "Saving…" : "Set as home"}
+            </button>
+            <button type="button" onClick={() => setConfirm(false)} className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800">
+              Cancel
+            </button>
+          </div>
+          {save.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
+        </div>
+      ) : (
+        <button type="button" onClick={() => setConfirm(true)} className="text-xs text-neutral-400 underline hover:text-neutral-200">
+          Use this charge&apos;s location as home
+        </button>
+      )}
+      {recheck.prompt}
     </div>
   );
 }

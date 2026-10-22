@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,37 +58,136 @@ func handleGeocode(photon *geocoding.PhotonClient) http.HandlerFunc {
 	}
 }
 
+// homeLocationResponse is the saved home plus what the Settings card needs around it: whether there's an earlier
+// home to restore, and whether a street address can be looked up (self-hosted Photon only).
+type homeLocationResponse struct {
+	settings.HomeLocation
+	PreviousSet   bool `json:"previous_set"`
+	AddressSearch bool `json:"address_search"`
+}
+
+func homeLocationOut(ctx context.Context, store *settings.Store, photon *geocoding.PhotonClient) (homeLocationResponse, error) {
+	h, err := settings.GetHomeLocation(ctx, store)
+	if err != nil {
+		return homeLocationResponse{}, err
+	}
+	prev, err := settings.PreviousHomeLocation(ctx, store)
+	if err != nil {
+		return homeLocationResponse{}, err
+	}
+	return homeLocationResponse{HomeLocation: h, PreviousSet: prev.Set, AddressSearch: photon.Enabled()}, nil
+}
+
 // handleHomeLocationGet returns the user's saved home location, or
 // {"set": false} when none is configured. Used by the trip planner
 // to decide whether to render the "Home" preset.
-func handleHomeLocationGet(store *settings.Store) http.HandlerFunc {
+func handleHomeLocationGet(store *settings.Store, photon *geocoding.PhotonClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		h, err := settings.GetHomeLocation(r.Context(), store)
+		out, err := homeLocationOut(r.Context(), store, photon)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, h)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
-// handleHomeLocationPut writes the user's home location. Body shape
-// matches HomeLocation; passing Set=false clears the saved value.
-func handleHomeLocationPut(store *settings.Store) http.HandlerFunc {
+// homeChangedFields names what a save changes, for the audit line (never the values: no coordinates or address).
+func homeChangedFields(old, h settings.HomeLocation) []string {
+	var f []string
+	if old.Set != h.Set {
+		f = append(f, "set")
+	}
+	if old.Latitude != h.Latitude || old.Longitude != h.Longitude {
+		f = append(f, "latitude", "longitude")
+	}
+	if old.Label != h.Label && h.Label != "" {
+		f = append(f, "label")
+	}
+	if old.Address != h.Address {
+		f = append(f, "address")
+	}
+	if old.Source != h.Source {
+		f = append(f, "source")
+	}
+	return f
+}
+
+// handleHomeLocationPut writes the user's home location (web only: not on the app's write allowlist). Body shape
+// matches HomeLocation; Set=false clears it. A latitude or longitude that isn't finite and in range is a 400. The
+// home it replaces is kept for "restore". The audit line names the fields changed, never their values.
+func handleHomeLocationPut(store *settings.Store, photon *geocoding.PhotonClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var h settings.HomeLocation
-		if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&h); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
+		if err := settings.ValidateHomeLocation(h); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		old, _ := settings.GetHomeLocation(r.Context(), store)
 		if err := settings.SetHomeLocation(r.Context(), store, h); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Echo back what's now stored (post-validation) so the SPA
-		// can update its in-memory copy without a second GET.
-		out, _ := settings.GetHomeLocation(r.Context(), store)
+		slog.InfoContext(r.Context(), "home location saved", "fields", homeChangedFields(old, h), "source", h.Source)
+		// Echo back what's now stored so the SPA can update its in-memory copy without a second GET.
+		out, _ := homeLocationOut(r.Context(), store, photon)
 		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handleHomeLocationRestore serves POST /api/settings/home-location/restore: back to the home the latest change
+// replaced (404 when there's none). Web only, audited like a save.
+func handleHomeLocationRestore(store *settings.Store, photon *geocoding.PhotonClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, err := settings.RestorePreviousHomeLocation(r.Context(), store); err != nil {
+			if errors.Is(err, settings.ErrNoPreviousHome) {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "nothing to restore"})
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		slog.InfoContext(r.Context(), "home location restored", "fields", []string{"latitude", "longitude", "label", "address", "source"})
+		out, _ := homeLocationOut(r.Context(), store, photon)
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handleHomeAddressSearch serves POST /api/settings/home-location/search {"q": "..."}: a street address through the
+// self-hosted Photon only, never Open-Meteo or the planner's geocode path. 404 when Photon isn't configured (the
+// card then hides the address field). The address travels in the body, not the URL, and is never logged; an upstream
+// error is a bare 502 (Photon's error carries the URL).
+func handleHomeAddressSearch(photon *geocoding.PhotonClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !photon.Enabled() {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "address search isn't available on this server"})
+			return
+		}
+		var body struct {
+			Q string `json:"q"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<10)).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		q := strings.TrimSpace(body.Q)
+		if len(q) < 3 {
+			writeJSON(w, http.StatusOK, []geocoding.Result{})
+			return
+		}
+		res, err := photon.Search(r.Context(), q, 5)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "address search failed"})
+			return
+		}
+		if res == nil {
+			res = []geocoding.Result{}
+		}
+		writeJSON(w, http.StatusOK, res)
 	}
 }
 

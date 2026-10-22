@@ -887,10 +887,18 @@ func New(d Deps) http.Handler {
 			}
 			r.Route("/settings/home-location", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleHomeLocationGet(d.Settings.For(uid))(w, r)
+					handleHomeLocationGet(d.Settings.For(uid), d.Photon)(w, r)
 				}))
+				// Writes are web only: none is on the iPhone app's write allowlist.
 				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleHomeLocationPut(d.Settings.For(uid))(w, r)
+					handleHomeLocationPut(d.Settings.For(uid), d.Photon)(w, r)
+				}))
+				r.Post("/restore", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeLocationRestore(d.Settings.For(uid), d.Photon)(w, r)
+				}))
+				// A street address through the self-hosted Photon only (the address in the body, never logged).
+				r.Post("/search", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeAddressSearch(d.Photon)(w, r)
 				}))
 			})
 
