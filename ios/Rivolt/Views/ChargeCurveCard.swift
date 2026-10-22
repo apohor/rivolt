@@ -234,18 +234,24 @@ struct ChargeCurveView: View {
     @ChartContentBuilder
     private func endLabels(_ pts: [ChargeCurve.Pt], range: ClosedRange<Double>, color: Color, above: Bool) -> some ChartContent {
         if let first = pts.first, let last = pts.last {
-            PointMark(x: .value("Time", first.at), y: .value("Temperature", ChargeCurve.unit(temp: first.value, range: range)))
+            let firstY = ChargeCurve.unit(temp: first.value, range: range)
+            let lastY = ChargeCurve.unit(temp: last.value, range: range)
+            PointMark(x: .value("Time", first.at), y: .value("Temperature", firstY))
                 .symbolSize(0)
-                .annotation(position: above ? .top : .bottom, alignment: .leading, spacing: 2) {
+                .annotation(position: Self.labelAbove(above, y: firstY) ? .top : .bottom, alignment: .leading, spacing: 2) {
                     endLabel("\(NumberText.fixed(first.value, 0))\(tempUnit)", color: color)
                 }
-            PointMark(x: .value("Time", last.at), y: .value("Temperature", ChargeCurve.unit(temp: last.value, range: range)))
+            PointMark(x: .value("Time", last.at), y: .value("Temperature", lastY))
                 .symbolSize(0)
-                .annotation(position: above ? .top : .bottom, alignment: .trailing, spacing: 2) {
+                .annotation(position: Self.labelAbove(above, y: lastY) ? .top : .bottom, alignment: .trailing, spacing: 2) {
                     endLabel("\(NumberText.fixed(last.value, 0))\(tempUnit)", color: color)
                 }
         }
     }
+
+    /// A label wants to be above its line (pack) or below it (outside), but one under a line that ends near the floor of
+    /// the plot would land on the time labels, so it goes above instead.
+    static func labelAbove(_ above: Bool, y: Double) -> Bool { above || y < 0.15 }
 
     /// The outside temperature, mapped like the pack's: a thin dashed line (the pack's is solid, so the two differ by
     /// more than colour), its ends named below it, the touch readout giving the real value at a moment.

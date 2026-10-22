@@ -146,6 +146,12 @@ final class ChargeCurveTests: XCTestCase {
         XCTAssertTrue(ChargeCurve.series([sample(0, soc: 50, kw: 7)], from: t0, to: t0).outsideC.isEmpty)
     }
 
+    func testALabelBelowALineNearTheFloorGoesAboveIt() {
+        XCTAssertTrue(ChargeCurveView.labelAbove(true, y: 0.5), "the pack's labels are above")
+        XCTAssertFalse(ChargeCurveView.labelAbove(false, y: 0.5), "the outside's are below")
+        XCTAssertTrue(ChargeCurveView.labelAbove(false, y: 0.05), "but not onto the time labels")
+    }
+
     func testThePackSpreadIsStatedNotJudged() {
         XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: false), "Pack cell temperatures: the hottest and coolest cells were up to 9.0°F apart.")
         XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: true), "Pack cell temperatures: the hottest and coolest cells were up to 5.0°C apart.")
