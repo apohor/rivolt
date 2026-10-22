@@ -109,4 +109,10 @@ final class ThemeTokensTests: XCTestCase {
             || Bundle(for: Self.self).url(forResource: "OFL", withExtension: "txt") != nil
         XCTAssertTrue(found, "OFL.txt must be in the app bundle")
     }
+
+    func testTheAcknowledgementsCarryTheGeistLicence() {
+        let text = AcknowledgementsView.licenceText()
+        XCTAssertTrue(text.contains("Geist Project Authors"), "the copyright line is missing")
+        XCTAssertTrue(text.contains("SIL OPEN FONT LICENSE Version 1.1"), "the licence text is missing")
+    }
 }

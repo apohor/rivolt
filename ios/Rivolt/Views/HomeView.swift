@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
+    @State private var showAcknowledgements = false
     @State private var extras = ExtrasModel()
     @State private var session: LiveSession?
     @State private var liveDrive: LiveDrive?
@@ -97,6 +98,7 @@ struct HomeView: View {
                         if state.notifications.offered {
                             Button("Notifications") { showNotifications = true }
                         }
+                        Button("Acknowledgements") { showAcknowledgements = true }
                         Divider()
                         Button("Sign out", role: .destructive) {
                             Task { await state.logout() }
@@ -122,6 +124,7 @@ struct HomeView: View {
                         .padding(.top, 8)
                 }
             }
+            .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
             .sheet(isPresented: $showNotifications) {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
             }
