@@ -57,6 +57,24 @@ final class MapCameraTests: XCTestCase {
         XCTAssertEqual(dark.layers.filter { $0.identifier.hasPrefix("\(RouteMapView.sourceID)-pin-") }.count, 2)
     }
 
+    /// The owner's call: only "© OpenStreetMap" on the map (ODbL); Protomaps is credited, with its licence, in
+    /// Acknowledgements, which ship the licence file.
+    func testTheMapCreditIsOpenStreetMapAndProtomapsIsInAcknowledgements() throws {
+        XCTAssertEqual(MapAttribution.text, "© OpenStreetMap")
+        XCTAssertNotNil(Bundle.main.url(forResource: "LICENSE-protomaps-basemaps", withExtension: "txt", subdirectory: "Map"))
+    }
+
+    func testTheRouteSaysWhenItIsDrawn() throws {
+        let a = RouteSnap.Coord(lat: 32.7767, lon: -96.7970), b = RouteSnap.Coord(lat: 32.8500, lon: -96.8000)
+        let drawn = expectation(description: "drawn")
+        let coordinator = RouteMapView.Coordinator(
+            drawing: RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: [a, b], speed: .to25)], routedGaps: [], gaps: [], start: a, end: b, hasSpeed: true),
+            onHealth: { _ in }, onDrawn: { drawn.fulfill() })
+        let map = MLNMapView.displayOnly(styleJSON: try XCTUnwrap(MapStyle.json(dark: false, server: server)), watch: coordinator)
+        _ = try styleIn(map)
+        wait(for: [drawn], timeout: 5)
+    }
+
     func testChargePlacesAreDrawnAndTheCameraFitsThem() throws {
         let places = [
             ChargePlace(label: "Home", lat: 32.7767, lon: -96.7970, sessions: 12, energyKwh: 300, radiusM: 50),

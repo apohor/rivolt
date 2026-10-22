@@ -16,6 +16,8 @@ struct DriveRouteMap: View {
     @State private var empty = false
     /// How the basemap is doing once the drive's route arrived.
     @State private var health = MapHealth.ok
+    /// The route's layers are on the map (the speed legend shows only over a drawn speed route).
+    @State private var routeDrawn = false
 
     var body: some View {
         ZStack {
@@ -23,12 +25,14 @@ struct DriveRouteMap: View {
                 MapMessage(text: "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 })
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
-                    .overlay(alignment: .bottomLeading) { if drawing.hasSpeed { SpeedLegend().padding(4) } }
+                    .overlay(alignment: .bottomLeading) {
+                        if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend().padding(4) }
+                    }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
@@ -48,6 +52,7 @@ struct DriveRouteMap: View {
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
         health = .ok
+        routeDrawn = false
         let client = state.client
         let drive: DriveRoute
         do {
@@ -105,6 +110,8 @@ struct RouteMapView: UIViewRepresentable {
     let styleJSON: String
     let drawing: RouteSnap.Drawing
     var onHealth: (MapHealth) -> Void = { _ in }
+    /// The route's layers went onto the map.
+    var onDrawn: () -> Void = {}
 
     static let sourceID = "rivolt-route"
 
@@ -120,7 +127,7 @@ struct RouteMapView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth) }
+    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn) }
 
     func makeUIView(context: Context) -> MLNMapView {
         MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
@@ -134,9 +141,11 @@ struct RouteMapView: UIViewRepresentable {
     final class Coordinator: MapLoadWatch {
         private var drawing: RouteSnap.Drawing
         private var sources: [String: MLNShapeSource] = [:]
+        private let onDrawn: () -> Void
 
-        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void) {
+        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}) {
             self.drawing = drawing
+            self.onDrawn = onDrawn
             super.init(onHealth: onHealth)
         }
 
@@ -204,6 +213,7 @@ struct RouteMapView: UIViewRepresentable {
                 style.addLayer(c)
             }
             fit(map)
+            DispatchQueue.main.async { self.onDrawn() }
         }
 
         /// The snapped drawing replaces the recorded one in the same sources.
@@ -235,16 +245,19 @@ struct RouteMapView: UIViewRepresentable {
     }
 }
 
-/// The tiles are OpenStreetMap data (ODbL) through Protomaps: credited on every map, as the web does.
+/// The tiles are OpenStreetMap data (ODbL): a small credit in the corner of every map, as the web's. The Protomaps
+/// style and its licence are credited in Acknowledgements (owner's call, Oct 22).
 struct MapAttribution: View {
+    static let text = "© OpenStreetMap"
+
     var body: some View {
-        Text("© OpenStreetMap · Protomaps")
+        Text(Self.text)
             .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
             .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(Theme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
+            .padding(.horizontal, 3).padding(.vertical, 1)
+            .background(Theme.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
             .padding(4)
-            .accessibilityLabel("Map data OpenStreetMap, style Protomaps")
+            .accessibilityLabel("Map data OpenStreetMap")
     }
 }
 
