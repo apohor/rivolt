@@ -80,7 +80,7 @@ final class ChargeCurveSnapshotTests: XCTestCase {
         let iso = ISO8601DateFormatter()
         let json = """
         {"id":"c1","vehicle_id":"veh-1","started_at":"\(iso.string(from: start))","ended_at":"\(iso.string(from: start.addingTimeInterval(2_460)))",
-         "energy_added_kwh":62.4,"start_soc_pct":18,"end_soc_pct":74,"max_power_kw":152,"cost":0,"currency":"USD",\(extra)}
+         "energy_added_kwh":62.4,"start_soc_pct":18,"end_soc_pct":74,"max_power_kw":152,"currency":"USD",\(extra)}
         """
         return try JSON.decoder().decode(ActivityCharge.self, from: Data(json.utf8))
     }
@@ -93,7 +93,7 @@ final class ChargeCurveSnapshotTests: XCTestCase {
         }
         let billed = try charge(#""cost_source_effective":"rivian","kind":"dcfc","place":"away","network":"Rivian Adventure Network","cost":31.2"#)
         let estimate = try charge(#""cost_source_effective":"network_estimate","kind":"dcfc","place":"away","network":"Electrify America","cost":28.4,"cost_source_derived":true"#)
-        let unpriced = try charge(#""cost_source_effective":"unknown","kind":"ac","place":"away""#)
+        let unpriced = try charge(#""cost":0,"cost_source_effective":"unknown","kind":"ac","place":"away""#)
         func page(_ c: ActivityCharge, _ withSamples: Bool) -> some View {
             VStack(alignment: .leading, spacing: 12) {
                 ChargeSessionCard(charge: c, insights: ChargeInsights.compute(c, samples: withSamples ? samples : []))
