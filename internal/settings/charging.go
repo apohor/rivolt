@@ -101,19 +101,12 @@ func SetChargingConfig(ctx context.Context, s *Store, cfg ChargingConfig) error 
 	if cfg.ComparisonMPG < 0 {
 		cfg.ComparisonMPG = 0
 	}
-	if err := s.Set(ctx, keyChargingHomePricePerKWh,
-		strconv.FormatFloat(cfg.HomePricePerKWh, 'f', -1, 64)); err != nil {
-		return err
-	}
-	if err := s.Set(ctx, keyChargingHomeCurrency, cfg.HomeCurrency); err != nil {
-		return err
-	}
-	if err := s.Set(ctx, keyChargingGasPricePerGal,
-		strconv.FormatFloat(cfg.GasPricePerGallon, 'f', -1, 64)); err != nil {
-		return err
-	}
-	return s.Set(ctx, keyChargingComparisonMPG,
-		strconv.FormatFloat(cfg.ComparisonMPG, 'f', -1, 64))
+	return s.SetMany(ctx, map[string]string{
+		keyChargingHomePricePerKWh: strconv.FormatFloat(cfg.HomePricePerKWh, 'f', -1, 64),
+		keyChargingHomeCurrency:    cfg.HomeCurrency,
+		keyChargingGasPricePerGal:  strconv.FormatFloat(cfg.GasPricePerGallon, 'f', -1, 64),
+		keyChargingComparisonMPG:   strconv.FormatFloat(cfg.ComparisonMPG, 'f', -1, 64),
+	})
 }
 
 // MaxHomePricePerKWh is the dearest home rate a patch accepts, per kilowatt hour.
@@ -141,13 +134,12 @@ func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, cu
 	if s == nil {
 		return nil
 	}
+	kv := map[string]string{}
 	if pricePerKWh != nil {
-		if err := s.Set(ctx, keyChargingHomePricePerKWh, strconv.FormatFloat(*pricePerKWh, 'f', -1, 64)); err != nil {
-			return err
-		}
+		kv[keyChargingHomePricePerKWh] = strconv.FormatFloat(*pricePerKWh, 'f', -1, 64)
 	}
 	if currency != nil {
-		return s.Set(ctx, keyChargingHomeCurrency, *currency)
+		kv[keyChargingHomeCurrency] = *currency
 	}
-	return nil
+	return s.SetMany(ctx, kv)
 }
