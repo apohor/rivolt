@@ -229,8 +229,9 @@ struct NotificationPromptCard: View {
 }
 
 /// The web's titled card (a header row, a hairline, then the content), composed here from Theme tokens.
-/// Mirrors ux's `ThemeSection` (#861) exactly; replaced by it once that is on main.
-private struct SettingsSection<Content: View>: View {
+/// Mirrors ux's `ThemeSection` (#861) exactly; replaced by it once that is on main. Used by the Settings and
+/// Acknowledgements screens.
+struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
 
