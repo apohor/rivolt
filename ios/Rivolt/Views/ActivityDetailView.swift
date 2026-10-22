@@ -9,6 +9,9 @@ struct ActivityDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(AppState.self) private var state
+    /// A drive's row and samples, read once for its route map and timeline.
+    @State private var driveDetail = DriveDetailModel()
 
     private var title: String {
         switch item {
@@ -19,7 +22,13 @@ struct ActivityDetailView: View {
 
     private var tiles: [KpiTile] {
         switch item {
-        case .drive(let d): return ActivityLogic.tiles(d, metric: NowFormat.usesMetric)
+        case .drive(let d):
+            var out = ActivityLogic.tiles(d, metric: NowFormat.usesMetric)
+            // The web's "Regen recovered", once the samples are in: after Energy.
+            if let regen = driveDetail.timeline?.regenTile {
+                out.insert(regen, at: (out.firstIndex { $0.id == "energy" }).map { $0 + 1 } ?? out.count)
+            }
+            return out
         case .charge(let c): return ActivityLogic.tiles(c)
         }
     }
@@ -34,7 +43,7 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
-                if case .drive(let d) = item { DriveRouteMap(driveID: d.id) }
+                if case .drive = item { DriveRouteMap(phase: driveDetail.phase) }
                 if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
@@ -42,11 +51,17 @@ struct ActivityDetailView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(tiles) { KpiTileView(tile: $0) }
                 }
+                if case .drive(let d) = item {
+                    DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar)
+                }
                 if case .charge(let c) = item { ChargeDetailSections(charge: c, calendar: calendar) }
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
         .background(ThemePageBackground().ignoresSafeArea())
+        .task(id: item.id) {
+            if case .drive(let d) = item { await driveDetail.load(source: state.client, drive: d) }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {

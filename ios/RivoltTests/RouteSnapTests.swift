@@ -132,11 +132,15 @@ final class RouteSnapLogicTests: XCTestCase {
         XCTAssertNil(RouteSnap.path(drive: d, samples: [sample("2026-10-20T14:58:00Z", 32.77, -96.79, 0, "P")]))
     }
 
-    func testSamplesDecodeOnlyTheSixFields() throws {
-        let json = #"[{"VehicleID":"veh-fixture","At":"2026-10-20T15:01:00Z","Lat":32.775,"Lon":-96.797,"SpeedMph":20.5,"ShiftState":"D","LocationFixAt":"2026-10-20T15:00:58Z","BatteryLevelPct":80,"OdometerMi":12000,"InsideTempC":21,"temp_f":70}]"#
+    func testSamplesDecodeOnlyDAsNineFields() throws {
+        let json = #"[{"VehicleID":"veh-fixture","At":"2026-10-20T15:01:00Z","Lat":32.775,"Lon":-96.797,"SpeedMph":20.5,"ShiftState":"D","LocationFixAt":"2026-10-20T15:00:58Z","BatteryLevelPct":80,"altitude_m":152.4,"drive_mode":"everyday","OdometerMi":12000,"InsideTempC":21,"temp_f":70,"RangeMi":220}]"#
         let s = try JSON.decoder().decode([DriveSample].self, from: Data(json.utf8))
         XCTAssertEqual(s[0].speedMph, 20.5)
-        XCTAssertEqual(Mirror(reflecting: s[0]).children.compactMap(\.label), ["at", "lat", "lon", "speedMph", "shiftState", "locationFixAt"])
+        XCTAssertEqual(s[0].batteryLevelPct, 80)
+        XCTAssertEqual(s[0].altitudeM, 152.4)
+        XCTAssertEqual(s[0].driveMode, "everyday")
+        XCTAssertEqual(Mirror(reflecting: s[0]).children.compactMap(\.label),
+                       ["at", "lat", "lon", "speedMph", "shiftState", "locationFixAt", "batteryLevelPct", "altitudeM", "driveMode"])
     }
 
     func testTheValhallaBodiesAreTheWebs() throws {

@@ -1,8 +1,9 @@
 import Foundation
 
-/// One telemetry sample of a drive's window from `GET /api/samples`, only what the route map needs (DA's six fields):
-/// when, where, how fast, the gear, and when the GPS fix was taken. Battery, range, odometer, temperatures and
-/// weather in the same rows are not decoded. Held in memory while the drive's screen is open.
+/// One telemetry sample of a drive's window from `GET /api/samples`, only what the drive screen needs (DA's fields):
+/// when, where, how fast, the gear and when the GPS fix was taken (the route map); the battery %, the elevation and
+/// the drive mode (the timeline). Range, odometer, temperatures and weather in the same rows are not decoded. Held in
+/// memory while the drive's screen is open.
 struct DriveSample: Decodable, Equatable {
     let at: Date
     let lat: Double
@@ -10,9 +11,17 @@ struct DriveSample: Decodable, Equatable {
     let speedMph: Double?
     let shiftState: String?
     let locationFixAt: Date?
+    /// The battery %; nil or 0 when the frame had none.
+    var batteryLevelPct: Double? = nil
+    /// Elevation in metres, for the power model's grade term.
+    var altitudeM: Double? = nil
+    /// Rivian's drive mode ("everyday", "sport", "distance"…).
+    var driveMode: String? = nil
 
+    // altitude_m and drive_mode arrive snake_case: the decoder's convertFromSnakeCase turns them into these names.
     private enum CodingKeys: String, CodingKey {
         case at = "At", lat = "Lat", lon = "Lon", speedMph = "SpeedMph", shiftState = "ShiftState", locationFixAt = "LocationFixAt"
+        case batteryLevelPct = "BatteryLevelPct", altitudeM, driveMode
     }
 }
 

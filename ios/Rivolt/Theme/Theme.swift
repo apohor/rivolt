@@ -67,6 +67,12 @@ enum Theme {
     static let chargeL2 = color(ThemeTokens.chargeL2)
     static let chargeL1 = color(ThemeTokens.chargeL1)
     static let efficiencyBarEnd = color(ThemeTokens.efficiencyBarEnd)
+    static let timelineDraw = color(ThemeTokens.timelineDraw)
+    static let timelineRegen = color(ThemeTokens.timelineRegen)
+    static let modeConserve = color(ThemeTokens.modeConserve)
+    static let modeAllPurpose = color(ThemeTokens.modeAllPurpose)
+    static let modeSport = color(ThemeTokens.modeSport)
+    static let modeOther = color(ThemeTokens.modeOther)
     static let edge = color(ThemeTokens.edge)
 
     // Literals
