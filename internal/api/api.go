@@ -705,7 +705,14 @@ func New(d Deps) http.Handler {
 				vehicleScoped = func(next http.Handler) http.Handler { return next }
 			}
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger)(w, r)
+				var hasSession func(context.Context) (bool, error)
+				if d.Secrets != nil {
+					hasSession = func(ctx context.Context) (bool, error) {
+						sess, err := secrets.LoadRivianSession(ctx, d.Secrets, uid)
+						return sess.UserSessionToken != "", err
+					}
+				}
+				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession)(w, r)
 			}))
 			// /api/vehicles/owned reads straight from the local
 			// vehicles table — used by the import picker so the

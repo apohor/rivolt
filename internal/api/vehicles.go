@@ -274,7 +274,9 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 	}
 }
 
-func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
+// hasSession says whether the user has a stored Rivian session (nil: none can be stored, so none is). It decides
+// what a client with no session means: never linked (an empty list) or linked but unreadable right now (an error).
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
@@ -291,10 +293,24 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 			}
 			// A user who has not linked a Rivian account has no client session: that is
 			// "no vehicles yet", not a bad gateway (a new signup's first load got a 502).
-			// A linked account whose session died is ErrNeedsReauth, a 401 below.
+			// A linked account whose session died is ErrNeedsReauth, a 401 below; one whose
+			// stored session could not be read or restored stays an error, so the user is
+			// never told they have no vehicles when the truth is that we could not look.
 			if errors.Is(err, rivian.ErrNotAuthenticated) {
-				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
-				return
+				linked := false
+				if hasSession != nil {
+					var lerr error
+					if linked, lerr = hasSession(r.Context()); lerr != nil {
+						linked = true
+						if logger != nil {
+							logger.Warn("vehicles: stored rivian session unreadable", "err", lerr.Error())
+						}
+					}
+				}
+				if !linked {
+					writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+					return
+				}
 			}
 			writeUpstreamError(w, err)
 			return
