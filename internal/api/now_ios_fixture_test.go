@@ -61,6 +61,8 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"live_drive.json":        &rivian.LiveDrive{},
 		"drives_last.json":       &[]driveResponse{},
 		"charges_last.json":      &[]chargeResponse{},
+		// Money's "To confirm" list: the open auto-detected networks, without coordinates.
+		"charges_to_confirm.json": &[]toConfirmCharge{},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b, err := os.ReadFile(filepath.Join("..", "..", "ios", "RivoltTests", "Fixtures", name))
