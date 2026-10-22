@@ -1,70 +1,226 @@
 import SwiftUI
 import UIKit
 
-/// The Now card: charge level, range and what the truck is doing, with how
-/// fresh that is. Read-only. Units follow the phone's locale (miles or km,
-/// °F or °C). `clock` is injected so previews and the CI snapshot render the
-/// same text every time.
+/// The Now card, as the web's hero: the vehicle and what it is doing with a status pill, the battery as an arc gauge
+/// beside the figures that matter right now (the charge limit while charging, the speed while driving, the range), a
+/// Power and Time left readout while charging, and how fresh it all is. A glow only while it is live. Read-only.
+/// Units follow the phone's locale. `clock` is injected so previews and the CI snapshot render the same text every time.
 struct NowCard: View {
     let vehicle: Vehicle
     let summary: NowSummary
     var clock: Date = .now
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var offline: Bool { summary.presence == .offline || summary.freshness == .needsReconnect }
+    private var charging: Bool { summary.kind == .charging && !offline }
+    private var driving: Bool { summary.kind == .driving && !offline }
+    private var plugged: Bool { summary.kind == .plugged && !offline }
+    private var isLive: Bool { summary.presence == .live && summary.freshness != .needsReconnect && summary.freshness != .paused }
+    /// Under 10%, as on the web.
+    private var critical: Bool { Self.isCritical(summary) }
+
+    private var liveKind: ThemeLive {
+        guard isLive else { return .none }
+        return charging ? .charging : driving ? .driving : .none
+    }
+
+    private var tone: ThemeGaugeTone {
+        if offline { return .idle }
+        return critical ? .critical : .ok
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(summary.socPct.map { "\(Int($0.rounded()))%" } ?? "–")
-                    .font(.system(size: 72, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Spacer()
-                if let km = summary.rangeKm {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(Measurement(value: km, unit: UnitLength.kilometers)
-                            .formatted(.measurement(width: .abbreviated, usage: .road,
-                                                    numberFormatStyle: .number.precision(.fractionLength(0)))))
-                            .font(.title2.weight(.semibold))
-                            .monospacedDigit()
-                        Text("range").font(.footnote).foregroundStyle(NowInk.secondary)
-                    }
-                }
-            }
-
-            if let soc = summary.socPct {
-                SoCBar(socPct: soc, targetPct: summary.chargeTargetPct)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                let status = Self.status(for: summary)
-                Label(status.headline, systemImage: statusIcon)
-                    .font(.headline)
-                    .foregroundStyle(summary.stateLabel == "Charging" ? NowInk.charging : Color.primary)
-                if let detail = status.detail {
-                    Text(detail)
-                        .font(.subheadline)
-                        .foregroundStyle(NowInk.secondary)
-                }
-                if let added = summary.chargeAddedPct {
-                    Text(Self.chargeLine(added: added, peakKw: summary.chargePeakKw, powerKw: summary.chargePowerKw))
-                        .font(.subheadline)
-                        .foregroundStyle(NowInk.secondary)
-                }
-                if let temp = summary.outsideTempC {
-                    Text("\(Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .abbreviated, usage: .weather))) outside")
-                        .font(.subheadline)
-                        .foregroundStyle(NowInk.secondary)
-                }
-            }
-            .accessibilityElement(children: .combine)
-
-            FreshnessLine(summary: summary, clock: clock)
-
-            Text("\(vehicle.model) · VIN …\(vehicle.vin.suffix(6))")
-                .font(.caption)
-                .foregroundStyle(NowInk.secondary)
-                .monospaced()
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            gaugeRow
+            if charging { chargingRows }
+            Text(footer).themeText(.subline)
         }
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeHero(live: liveKind, critical: critical)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(vehicle.name).themeText(.label)
+                Text(Self.headline(for: summary)).themeText(.value)
+            }
+            Spacer(minLength: 8)
+            let pill = Self.pill(for: summary, clock: clock)
+            ThemePill(text: pill.text, tone: pill.tone)
+        }
+    }
+
+    // MARK: Gauge and figures
+
+    private var gaugeRow: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
+        return layout {
+            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                        .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                    Text("%").themeText(.value, color: Theme.textSecondary)
+                }
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                if charging || plugged, let target = summary.chargeTargetPct {
+                    figure("Charge limit", "\(Int(target.rounded()))", "%")
+                }
+                if driving, let kph = summary.speedKph {
+                    let speed = NowFormat.usesMetric ? kph : kph / 1.609344
+                    figure("Speed", speed.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km/h" : "mph")
+                }
+                if let km = summary.rangeKm {
+                    let range = NowFormat.usesMetric ? km : km / 1.609344
+                    figure("Range", range.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km" : "mi")
+                }
+            }
+        }
+    }
+
+    private func figure(_ label: String, _ value: String, _ unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).themeText(.label)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value).themeText(.title)
+                Text(unit).themeText(.value, color: Theme.textSecondary)
+            }
+        }
+    }
+
+    // MARK: Charging readout
+
+    private var timeLeft: String? {
+        guard let soc = summary.socPct,
+              let minutes = ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
+        else { return nil }
+        return Self.eta(minutes: minutes)
+    }
+
+    @ViewBuilder
+    private var chargingRows: some View {
+        VStack(spacing: 8) {
+            if let kw = summary.chargePowerKw { readout("Power", "\(kw.formatted(.number.precision(.fractionLength(kw < 10 ? 1 : 0)))) kW") }
+            if let t = timeLeft { readout("Time left", "\(t) · est.") }
+            if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
+                readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
+            }
+        }
+    }
+
+    private func readout(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).themeText(.value, color: Theme.textSecondary)
+            Spacer(minLength: 12)
+            Text(value).font(Theme.mono(ThemeTokens.typeValue, .medium, relativeTo: .body)).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.trailing)
+        }
+    }
+
+    // MARK: Footer
+
+    private var footer: String { Self.footer(for: summary, clock: clock) }
+
+    private var spoken: String {
+        var parts = ["\(vehicle.name). \(Self.headline(for: summary))."]
+        if let soc = summary.socPct {
+            parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
+        }
+        if let km = summary.rangeKm {
+            parts.append("Range \(NowFormat.distance(mi: km / 1.609344, spoken: true)).")
+        }
+        if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
+        if charging {
+            if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
+            if let t = timeLeft { parts.append("About \(t.replacingOccurrences(of: "~", with: "")) left, an estimate.") }
+        }
+        parts.append(footer + ".")
+        return parts.joined(separator: " ")
+    }
+
+    // MARK: Pill and wording
+
+    /// Live while the data is current to within two minutes, Asleep while a sleeping truck's rare frames are expected,
+    /// otherwise how long ago it was last seen (amber once it is older than the truck's usual cadence).
+    static func pill(for summary: NowSummary, clock: Date) -> (text: String, tone: ThemePill.Tone) {
+        if summary.freshness == .needsReconnect || summary.presence == .offline { return ("Offline", .neutral) }
+        if summary.freshness == .paused { return ("Paused", .neutral) }
+        guard let age = summary.ageSec else { return ("No data", .neutral) }
+        if summary.presence == .live, summary.kind == .asleep || (summary.kind == .plugged && summary.sleeping) { return ("Asleep", .neutral) }
+        if summary.presence == .live, age <= 120 { return ("Live", .live) }
+        return ("Last seen \(NowFormat.ago(age))", summary.presence == .stale ? .stale : .neutral)
+    }
+
+    /// The warnings under the hero, at most two: a low battery, a truck that keeps waking, a low tire.
+    static func alerts(for s: NowSummary, vehicleName: String) -> [NowAlert] {
+        var out: [NowAlert] = []
+        if isCritical(s), let soc = s.socPct {
+            out.append(NowAlert(id: "critical-soc", tone: .rose, text: "Battery at \(Int(soc.rounded()))%. Plan a charge soon."))
+        }
+        if let n = s.failedSleeps6h, n >= 3 {
+            out.append(NowAlert(id: "waking", tone: .amber, text: "\(vehicleName) woke up \(n) times in the last 6 hours."))
+        }
+        if let bar = s.tireMinBar, bar > 0, bar < 2.2 {
+            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(bar.formatted(.number.precision(.fractionLength(1)))) bar."))
+        }
+        return Array(out.prefix(2))
+    }
+
+    /// Under 10% and still in touch (an offline truck's last level isn't a warning).
+    static func isCritical(_ s: NowSummary) -> Bool {
+        guard let soc = s.socPct, soc > 0, soc < 10 else { return false }
+        return s.presence != .offline
+    }
+
+    /// What the truck is doing, in the web's words.
+    static func headline(for s: NowSummary) -> String {
+        if s.presence == .offline || s.freshness == .needsReconnect { return "Not heard from recently" }
+        switch s.kind {
+        case .driving: return "Driving"
+        case .charging:
+            if (s.chargePowerKw ?? 0) <= 0.3 { return "Starting to charge…" }
+            if max(s.chargePeakKw ?? 0, s.chargePowerKw ?? 0) >= 50 { return "Fast charging" }
+            return "Charging"
+        case .plugged:
+            if let soc = s.socPct, let limit = s.chargeTargetPct, soc >= limit - 1.5 { return "Plugged in, holding \(Int(limit.rounded()))%" }
+            return "Plugged in"
+        case .asleep: return "Asleep"
+        case .parked: return "Parked"
+        case .unknown: return s.stateLabel
+        }
+    }
+
+    /// How fresh it is, since when it has been in this state and how the level moved over it.
+    static func footer(for s: NowSummary, clock: Date) -> String {
+        switch s.freshness {
+        case .needsReconnect: return "Reconnect your Rivian account on the web to see live data."
+        case .paused: return "Recording is paused for this truck."
+        case .fresh, .stale, .unknown:
+            guard let seen = s.lastSeen, let age = s.ageSec else { return "No data yet" }
+            if s.presence == .offline {
+                return "Last contact \(seen.formatted(date: .omitted, time: .shortened)) (\(NowFormat.ago(age).replacingOccurrences(of: " ago", with: "")) ago)"
+            }
+            var parts = [s.kind == .asleep ? "Asleep · updated \(NowFormat.ago(age))" : "Updated \(NowFormat.ago(age))"]
+            let stateful = [.parked, .plugged, .asleep].contains(s.kind)
+            if stateful, let since = s.since {
+                var text = "since \(since.formatted(date: .omitted, time: .shortened))"
+                if let d = s.socChangeSinceState, abs(d) >= 0.5 { text += " (\(d > 0 ? "+" : "−")\(Int(abs(d).rounded()))%)" }
+                parts.append(text)
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    /// "~42 min", "~5 h 6 m": a time to the charge limit, never more precise than the estimate.
+    static func eta(minutes: Int) -> String {
+        if minutes < 60 { return "~\(max(1, minutes)) min" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "~\(h) h" : "~\(h) h \(m) m"
     }
 
     /// The status in two lines, so a long one never leaves a time orphaned on
@@ -88,15 +244,6 @@ struct NowCard: View {
         return StatusText(headline: head.joined(separator: " · "), detail: detail.isEmpty ? nil : detail.joined(separator: " · "))
     }
 
-    private var statusIcon: String {
-        switch summary.stateLabel {
-        case "Charging": return "bolt.fill"
-        case "Driving": return "steeringwheel"
-        case "Asleep": return "moon.zzz"
-        default: return summary.stateLabel.hasPrefix("Plugged") ? "powerplug" : "parkingsign"
-        }
-    }
-
     /// "+22% this charge", with the peak only when it is clearly above the
     /// current power (a peak of 11.2 next to 11.1 kW is noise).
     static func chargeLine(added: Double, peakKw: Double?, powerKw: Double?) -> String {
@@ -106,65 +253,28 @@ struct NowCard: View {
     }
 }
 
-private struct SoCBar: View {
-    let socPct: Double
-    let targetPct: Double?
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule().fill(tint)
-                    .frame(width: geo.size.width * min(max(socPct, 0), 100) / 100)
-                if let target = targetPct {
-                    Rectangle().fill(.secondary)
-                        .frame(width: 2)
-                        .offset(x: geo.size.width * min(max(target, 0), 100) / 100 - 1)
-                }
-            }
-        }
-        .frame(height: 10)
-        .accessibilityElement()
-        .accessibilityLabel("Charge level \(Int(socPct.rounded())) percent")
-        .accessibilityValue(targetPct.map { "Limit \(Int($0.rounded())) percent" } ?? "")
-    }
-
-    private var tint: Color {
-        switch socPct {
-        case ..<15: return .red
-        case ..<30: return .orange
-        default: return .green
-        }
-    }
+struct NowAlert: Equatable, Identifiable {
+    enum Tone { case rose, amber }
+    let id: String
+    let tone: Tone
+    let text: String
 }
 
-private struct FreshnessLine: View {
-    let summary: NowSummary
-    let clock: Date
+/// A warning under the hero, rose for the battery and amber for the rest, in the web's tones.
+struct NowAlertBanner: View {
+    let alert: NowAlert
+
+    private var edge: Color { alert.tone == .rose ? Theme.criticalBorder : Theme.estimateFill }
+    private var ink: Color { alert.tone == .rose ? Theme.critical : Theme.estimate }
 
     var body: some View {
-        switch summary.freshness {
-        case .needsReconnect:
-            Label("Reconnect your Rivian account on the web to see live data.", systemImage: "exclamationmark.triangle")
-                .font(.footnote).foregroundStyle(NowInk.stale)
-        case .paused:
-            Label("Recording is paused for this truck.", systemImage: "pause.circle")
-                .font(.footnote).foregroundStyle(NowInk.secondary)
-        case .fresh, .stale, .unknown:
-            if let seen = summary.lastSeen {
-                Label(updatedText(seen), systemImage: summary.freshness == .stale ? "clock.badge.exclamationmark" : "clock")
-                    .font(.footnote)
-                    .foregroundStyle(summary.freshness == .stale ? NowInk.stale : NowInk.secondary)
-            } else {
-                Label("No data yet", systemImage: "clock").font(.footnote).foregroundStyle(NowInk.secondary)
-            }
-        }
-    }
-
-    private func updatedText(_ seen: Date) -> String {
-        let rel = RelativeDateTimeFormatter()
-        rel.unitsStyle = .full
-        let ago = rel.localizedString(for: seen, relativeTo: clock)
-        return summary.freshness == .stale ? "Updated \(ago), may be out of date" : "Updated \(ago)"
+        Text(alert.text)
+            .themeText(.value, color: ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
+            .background(edge.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(edge.opacity(0.5), lineWidth: 1))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(alert.text)
     }
 }

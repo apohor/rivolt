@@ -47,6 +47,8 @@ struct VehicleState: Decodable, Equatable {
     let chargerState: String?
     let chargerPowerKw: Double?
     let chargeTargetPct: Double?
+    /// Vehicle speed in km/h; the Now card shows it while driving.
+    let speedKph: Double?
     /// The pack size, to work out the time to the charge limit.
     let batteryCapacityKwh: Double?
     let latitude: Double?

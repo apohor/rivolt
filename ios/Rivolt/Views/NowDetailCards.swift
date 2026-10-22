@@ -46,8 +46,7 @@ struct ChargingDetailCard: View {
                 Text("Waiting for the first reading from the charger.").font(.footnote).foregroundStyle(NowInk.secondary)
             }
         }
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(detail.spoken)
     }
@@ -78,8 +77,7 @@ struct DriveDetailCard: View {
                 }
             }
         }
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(detail.spoken(title: title))
     }

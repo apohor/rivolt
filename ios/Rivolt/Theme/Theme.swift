@@ -27,6 +27,7 @@ enum Theme {
     static let textSecondary = color(ThemeTokens.textSecondary)
     static let textTertiary = color(ThemeTokens.textTertiary)
     static let accent = color(ThemeTokens.accent)
+    static let brandMark = color(ThemeTokens.brandMark)
     static let accentFill = color(ThemeTokens.accentFill)
     static let accentButton = color(ThemeTokens.accentButton)
     static let estimate = color(ThemeTokens.estimate)

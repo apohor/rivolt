@@ -95,4 +95,14 @@ enum ThemeTokens {
     static let tabBarMinHeight: Double = 56
     static let tabBarIcon: Double = 22
     static let tabBarIconStroke: Double = 1.8
+
+    // MARK: Tab bar icons (SVG path data in a 24 x 24 box, stroked)
+    static let iconStroke: Double = 1.8
+    static let iconPaths: [String: [String]] = [
+        "now": ["M4 15a8 8 0 1 1 16 0", "M12 15l4-5", "circle 12 15 1"],
+        "activity": ["circle 5 6 1.5", "circle 5 12 1.5", "circle 5 18 1.5", "M9 6h11M9 12h11M9 18h11"],
+        "money": ["M6 3h12v18l-3-2-3 2-3-2-3 2z", "M9 8h6M9 12h6M9 16h3"],
+        "plan": ["M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z", "circle 12 11 2"],
+        "truck": ["M3 16V8h11v8M14 11h4l3 3v2h-7", "circle 7 17 2", "circle 17 17 2"],
+    ]
 }

@@ -158,9 +158,7 @@ private struct ChartCard<Content: View>: View {
             Text(title).font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
             content
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
     }
 }
 

@@ -30,9 +30,7 @@ struct PlacesCard: View {
             }
             Text("Last \(days) days. Share of the energy added.").font(.caption).foregroundStyle(NowInk.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20))
+        .themeCard(padding: 20)
     }
 
     private func tile(_ r: Row) -> some View {

@@ -44,12 +44,14 @@ struct HomeView: View {
                                 }
                             }
                             threeThings
+                            titleRow
                             // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
                             if summary.freshness != .stale,
                                let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
                                 ChargingDetailCard(detail: charging)
                             }
                             NowCard(vehicle: vehicle, summary: summary)
+                            ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             if summary.freshness != .stale,
                                let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
                                 DriveDetailCard(detail: drive)
@@ -66,48 +68,20 @@ struct HomeView: View {
                             Image(systemName: "exclamationmark.triangle").font(.title)
                             Text(loadError).multilineTextAlignment(.center)
                         }
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                         .padding(.top, 80)
                     } else if vehicles.isEmpty {
                         Text("No vehicles on this account yet. Connect your Rivian account on the web.")
+                            .themeText(.value, color: Theme.textSecondary)
                             .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
                             .padding(.top, 80)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 4 * Theme.unit)
+                .padding(.vertical, 4 * Theme.unit)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle(selected?.name ?? "Rivolt")
-            .toolbar {
-                if vehicles.count > 1 {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            Picker("Vehicle", selection: $selectedID) {
-                                ForEach(vehicles) { v in Text(v.name).tag(v.id) }
-                            }
-                        } label: {
-                            Image(systemName: "car.2")
-                        }
-                        .accessibilityLabel("Switch vehicle")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Refresh") { Task { await load(force: true) } }
-                        if state.notifications.offered {
-                            Button("Notifications") { showNotifications = true }
-                        }
-                        Button("Acknowledgements") { showAcknowledgements = true }
-                        Divider()
-                        Button("Sign out", role: .destructive) {
-                            Task { await state.logout() }
-                        }
-                    } label: {
-                        Image(systemName: "person.crop.circle")
-                    }
-                }
-            }
+            .background(ThemePageBackground().ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
             .refreshable { await load(force: true) }
             .task { await load() }
             // While the screen is up the live reads follow the charge or drive (about every 10 s).
@@ -124,11 +98,56 @@ struct HomeView: View {
                         .padding(.top, 8)
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) { ThemeTopBar { accountMenu } }
             .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
             .sheet(isPresented: $showNotifications) {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
             }
         }
+    }
+
+    /// The account menu at the end of the top bar. Anything that changes it goes through ux (the architect's Settings
+    /// screens are the ones it opens).
+    private var accountMenu: some View {
+        Menu {
+            Button("Refresh") { Task { await load(force: true) } }
+            if state.notifications.offered {
+                Button("Notifications") { showNotifications = true }
+            }
+            Button("Acknowledgements") { showAcknowledgements = true }
+            Divider()
+            Button("Sign out", role: .destructive) {
+                Task { await state.logout() }
+            }
+        } label: {
+            Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
+        }
+        .accessibilityLabel("Account")
+    }
+
+    /// The page title and, with more than one truck, which one is shown.
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Now").themeText(.hero).accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            if vehicles.count > 1 {
+                Menu {
+                    Picker("Vehicle", selection: $selectedID) {
+                        ForEach(vehicles) { v in Text(v.name).tag(v.id) }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(selected?.name ?? "Vehicle").themeText(.value, color: Theme.textPrimary)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+                }
+                .accessibilityLabel("Switch vehicle")
+            }
+        }
+        .padding(.top, 2 * Theme.unit)
     }
 
     private func loadCharts(force: Bool) async {

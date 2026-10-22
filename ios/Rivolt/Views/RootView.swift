@@ -14,7 +14,7 @@ struct RootView: View {
         case .loggedOut:
             LoginView()
         case .loggedIn:
-            HomeView()
+            AppShell()
         }
     }
 }
