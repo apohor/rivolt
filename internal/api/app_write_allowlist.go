@@ -28,6 +28,7 @@ var appWrites = map[string]bool{
 	"POST /api/push/apns/activity/end":    true,
 	"POST /api/push/apns/activity/test":   true,
 	"POST /api/milestones/dismiss":        true, // hide a milestone card
+	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
 	"POST /api/maps/valhalla/route":       true, // routing for the map: computed, nothing stored
 	"POST /api/maps/valhalla/trace_route": true,
 }

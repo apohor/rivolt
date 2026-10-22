@@ -827,12 +827,18 @@ func New(d Deps) http.Handler {
 			// Home electricity cost settings, applied locally to estimate
 			// the price of sessions Rivian reports as free (home AC, L2,
 			// non-RAN public chargers).
+			settingsWriteLimiter := mapsUserLimiter(30)
 			r.Route("/settings/charging", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingSettingsGet(d.Settings.For(uid))(w, r)
 				}))
 				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingSettingsPut(d.Settings.For(uid))(w, r)
+				}))
+				// The home rate only, merged field by field; the one settings write the
+				// iPhone app may make (app_write_allowlist.go). 30 a minute per user.
+				r.With(settingsWriteLimiter.Middleware).Patch("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingSettingsPatch(d.Settings.For(uid))(w, r)
 				}))
 				r.Get("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksGet(d.Settings.For(uid))(w, r)

@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"strconv"
+	"strings"
 )
 
 // Keys for charging cost settings. Kept in the shared app_settings
@@ -113,4 +114,40 @@ func SetChargingConfig(ctx context.Context, s *Store, cfg ChargingConfig) error 
 	}
 	return s.Set(ctx, keyChargingComparisonMPG,
 		strconv.FormatFloat(cfg.ComparisonMPG, 'f', -1, 64))
+}
+
+// MaxHomePricePerKWh is the dearest home rate a patch accepts, per kilowatt hour.
+const MaxHomePricePerKWh = 5.0
+
+// HomeCurrencies are the currencies a patch accepts for the home rate: the set the
+// cost calculator and the lease calculator already offer.
+var HomeCurrencies = []string{"USD", "CAD", "EUR", "GBP", "AUD", "NZD", "CHF", "SEK", "NOK", "DKK"}
+
+// NormalizeHomeCurrency returns c upper-cased when it is one of HomeCurrencies.
+func NormalizeHomeCurrency(c string) (string, bool) {
+	c = strings.ToUpper(strings.TrimSpace(c))
+	for _, ok := range HomeCurrencies {
+		if c == ok {
+			return c, true
+		}
+	}
+	return "", false
+}
+
+// PatchChargingConfig writes only the home-rate fields that are set (nil leaves the
+// stored value alone); the gas price and comparison MPG are never touched. The caller
+// has validated the values.
+func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, currency *string) error {
+	if s == nil {
+		return nil
+	}
+	if pricePerKWh != nil {
+		if err := s.Set(ctx, keyChargingHomePricePerKWh, strconv.FormatFloat(*pricePerKWh, 'f', -1, 64)); err != nil {
+			return err
+		}
+	}
+	if currency != nil {
+		return s.Set(ctx, keyChargingHomeCurrency, *currency)
+	}
+	return nil
 }
