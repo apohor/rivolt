@@ -21,6 +21,8 @@ struct ActivityDrive: Decodable, Equatable, Identifiable {
     /// Absent when there is no rate to price the drive with.
     let estimatedCost: Double?
     let estimatedCurrency: String?
+    /// The rate the estimate used (per kWh), when there was one.
+    let estimatedPricePerKwh: Double?
     /// Only on a merged round trip.
     let roundTripLegs: Int?
     let drivingSeconds: Double?

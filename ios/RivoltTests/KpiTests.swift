@@ -69,7 +69,7 @@ final class KpiLogicTests: XCTestCase {
         }
         func drive(energy: Double) -> ActivityDrive {
             ActivityDrive(id: "d", vehicleId: "v", startedAt: .now, endedAt: .now, distanceMi: 50, energyUsedKwh: energy, startSocPct: 80, endSocPct: 70,
-                          avgSpeedMph: 40, maxSpeedMph: 66, estimatedCost: nil, estimatedCurrency: nil, roundTripLegs: nil, drivingSeconds: nil)
+                          avgSpeedMph: 40, maxSpeedMph: 66, estimatedCost: nil, estimatedCurrency: nil, estimatedPricePerKwh: nil, roundTripLegs: nil, drivingSeconds: nil)
         }
         func charge(kwh: Double) -> ActivityCharge {
             ActivityCharge(id: "c", vehicleId: "v", startedAt: .now, endedAt: .now, energyAddedKwh: kwh, startSocPct: 40, endSocPct: 60, maxPowerKw: 11,

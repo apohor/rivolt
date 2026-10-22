@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var latestDrive: DriveBrief?
     @State private var charts = ChartsModel()
     @State private var month = PeriodMonth(containing: .now, calendar: .current)
+    @Environment(\.tabActive) private var tabActive
     @State private var places = PlacesModel()
     @State private var kpi = KpiModel()
     @State private var recentCharges: [ChargeBrief] = []
@@ -87,7 +88,7 @@ struct HomeView: View {
             .refreshable { await load(force: true) }
             .task { await load() }
             // While the screen is up the live reads follow the charge or drive (about every 10 s).
-            .task(id: selectedID) { await pollLive() }
+            .task(id: "\(selectedID)|\(tabActive)") { if tabActive { await pollLive() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
