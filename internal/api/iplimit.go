@@ -89,11 +89,8 @@ func (l *ipLimiter) MiddlewareN(cost func(*http.Request) int) func(http.Handler)
 	}
 }
 
-// allow checks and decrements the bucket for ip. Lazy-creates a new
-// bucket on first sight and updates lastSeen for the janitor.
-func (l *ipLimiter) allow(ip string) (bool, time.Duration) { return l.allowN(ip, 1) }
-
-// allowN is allow for n tokens at once (n <= 0 is free).
+// allowN checks and decrements n tokens (n <= 0 is free) of the bucket for ip.
+// Lazy-creates a new bucket on first sight and updates lastSeen for the janitor.
 func (l *ipLimiter) allowN(ip string, n int) (bool, time.Duration) {
 	if n <= 0 {
 		return true, 0
