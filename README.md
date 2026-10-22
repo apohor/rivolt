@@ -415,6 +415,16 @@ no VIN or location needed.
   selected install-wide by the operator from the admin UI.
   Hot-swappable; calls go to the chosen provider only when an AI
   feature actually runs (trip analysis, drive recap).
+- **Optional street-level address search** for home and trip
+  locations: set `RIVOLT_PHOTON_BASE_URL` to a
+  [Photon](https://github.com/komoot/photon) geocoder (Helm
+  `maps.photon.baseUrl`). Without it, search is city-level only.
+  Self-hosting Photon keeps searches on your own hardware.
+  komoot's public server, `https://photon.komoot.io`, also works
+  (same `/api/?q=` path), but every search, including a typed home
+  address, then goes to komoot, who ask for light, fair use and
+  guarantee nothing. Setting home by coordinates or from one of
+  your charges needs no geocoder.
 
 ---
 
