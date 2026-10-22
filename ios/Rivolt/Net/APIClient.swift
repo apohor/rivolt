@@ -386,6 +386,19 @@ actor APIClient {
         try await request("GET", "/api/samples?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&limit=\(limit)&vehicle=\(queryValue(vehicleID))")
     }
 
+    // MARK: Charging rates
+
+    /// The home electricity rate and its currency.
+    func chargingRates() async throws -> ChargingRates {
+        try await request("GET", "/api/settings/charging")
+    }
+
+    /// Changes the home rate: only the fields given are sent, and the answer is the rate as the server now has it. The
+    /// app's one settings write (the server refuses any other from the app; a 403 means this server doesn't allow it).
+    func setChargingRates(pricePerKwh: Double?, currency: String?) async throws -> ChargingRates {
+        try await request("PATCH", "/api/settings/charging", body: ChargingRatesPatch(homePricePerKwh: pricePerKwh, homeCurrency: currency))
+    }
+
     /// Valhalla's map matching through our proxy (in-cluster on prod).
     func valhallaTrace(_ body: ValhallaTraceRequest) async throws -> ValhallaTraceResponse {
         try await request("POST", "/api/maps/valhalla/trace_route", body: body)
