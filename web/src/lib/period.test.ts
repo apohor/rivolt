@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
+import { axisDayIndices, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
@@ -60,8 +60,8 @@ describe("labels, stepping, filtering", () => {
     expect(rangeDays(r)).toBe(7);
     expect(filterByRange(items, { start: null, end: null })).toHaveLength(4);
   });
-  it("bars end today for the current period and on the last day for past ones", () => {
-    expect(ymd(barsEndDay(periodRange({ kind: "week", offset: 0 }, NOW), NOW))).toBe("2026-10-14");
+  it("bars end on the period's last day, the current period's too (its days to come are empty)", () => {
+    expect(ymd(barsEndDay(periodRange({ kind: "week", offset: 0 }, NOW), NOW))).toBe("2026-10-18");
     expect(ymd(barsEndDay(periodRange({ kind: "week", offset: -1 }, NOW), NOW))).toBe("2026-10-11");
   });
 });
@@ -134,5 +134,19 @@ describe("earlyMonthFallback", () => {
     expect(earlyMonthFallback({ kind: "year", offset: 0 }, [at(8, 20)], EARLY)).toBeNull();
     expect(earlyMonthFallback(month, [], EARLY)).toBeNull();
     expect(earlyMonthFallback(month, [at(5, 1)], EARLY)).toBeNull();
+  });
+});
+
+describe("axisDayIndices", () => {
+  const days = (y: number, m: number, from: number, n: number) => Array.from({ length: n }, (_, i) => new Date(y, m, from + i));
+  it("labels a month on the 1st, 11th, 21st and its last day", () => {
+    expect(axisDayIndices(days(2026, 9, 1, 31))).toEqual([0, 10, 20, 30]);
+    expect(axisDayIndices(days(2026, 8, 1, 30))).toEqual([0, 10, 20, 29]);
+    expect(axisDayIndices(days(2026, 1, 1, 28))).toEqual([0, 10, 20, 27]);
+  });
+  it("labels every day of a week, drops a last day crowding the 21st, and leaves long spans to the chart", () => {
+    expect(axisDayIndices(days(2026, 9, 12, 7))).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(axisDayIndices(days(2026, 8, 23, 30))).toEqual([8, 18, 28]);
+    expect(axisDayIndices(days(2026, 0, 1, 365))).toBeNull();
   });
 });

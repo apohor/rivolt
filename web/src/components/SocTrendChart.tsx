@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { axisDayIndices, mmdd } from "../lib/period";
 
 // Battery (SoC) trend for the ui_theme_next layer, the same chart as the iPhone's (#895): a linear line with a
 // fading fill down to 0%, one strip below the 0% line marking charging (emerald) and driving (sky), the charge
@@ -20,20 +21,17 @@ export function pctLabel(v: number): string {
   return `${Math.sign(v) * Math.round(Math.abs(v))}%`;
 }
 
-/** The x-axis days: within a month or so, the days of the month ending in 1 (MM-DD, as Miles per day); a week,
- *  every day; longer spans, up to `n` evenly spaced dates. */
+/** The x-axis days, labelled as Miles per day (axisDayIndices: a month on the 1st, 11th, 21st and its last day,
+ *  MM-DD); longer spans, up to `n` evenly spaced dates. */
 export function dayTicks(x0: number, x1: number, n: number): { x: number; label: string }[] {
-  const mmdd = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const span = x1 - x0;
-  if (span <= 32 * DAY) {
-    const out: { x: number; label: string }[] = [];
+  if (x1 - x0 <= 32 * DAY) {
+    const days: Date[] = [];
     const d = new Date(x0);
     d.setHours(0, 0, 0, 0);
     if (d.getTime() < x0) d.setDate(d.getDate() + 1);
-    for (; d.getTime() < x1; d.setDate(d.getDate() + 1)) {
-      if (span <= 8 * DAY || d.getDate() % 10 === 1) out.push({ x: d.getTime(), label: mmdd(d) });
-    }
-    return out;
+    for (; d.getTime() < x1; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+    const picked = axisDayIndices(days);
+    if (picked) return picked.map((i) => ({ x: days[i].getTime(), label: mmdd(days[i]) }));
   }
   const fmt = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return Array.from({ length: n }, (_, i) => x0 + ((x1 - x0) * i) / (n - 1)).map((x) => ({ x, label: fmt(x) }));
