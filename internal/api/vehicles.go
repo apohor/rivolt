@@ -289,6 +289,13 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
 				return
 			}
+			// A user who has not linked a Rivian account has no client session: that is
+			// "no vehicles yet", not a bad gateway (a new signup's first load got a 502).
+			// A linked account whose session died is ErrNeedsReauth, a 401 below.
+			if errors.Is(err, rivian.ErrNotAuthenticated) {
+				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+				return
+			}
 			writeUpstreamError(w, err)
 			return
 		}

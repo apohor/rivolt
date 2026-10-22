@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,3 +50,34 @@ func TestVehiclesCarryFieldSupport(t *testing.T) {
 		}
 	}
 }
+
+// A user who has not linked a Rivian account has a client with no session. Their first load of the app asks for the
+// vehicle list: that is an empty list, not a 502.
+func TestVehiclesOfAnUnlinkedUserIsAnEmptyList(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleVehicles(rivian.NewMock(), nil, nil, nil)(rec, httptest.NewRequest(http.MethodGet, "/api/vehicles", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("unlinked user: %d %q, want 200 []", rec.Code, rec.Body.String())
+	}
+}
+
+// A linked account whose session died still says so (401 with the reason), and a real upstream failure is still a 502.
+func TestVehiclesStillReportRealFailures(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want int
+	}{{rivian.ErrNeedsReauth, http.StatusUnauthorized}, {errors.New("dial tcp: i/o timeout"), http.StatusBadGateway}} {
+		rec := httptest.NewRecorder()
+		handleVehicles(failingVehicles{err: c.err}, nil, nil, nil)(rec, httptest.NewRequest(http.MethodGet, "/api/vehicles", nil))
+		if rec.Code != c.want {
+			t.Errorf("%v: %d, want %d", c.err, rec.Code, c.want)
+		}
+	}
+}
+
+type failingVehicles struct {
+	rivian.Client
+	err error
+}
+
+func (f failingVehicles) Vehicles(context.Context) ([]rivian.Vehicle, error) { return nil, f.err }
