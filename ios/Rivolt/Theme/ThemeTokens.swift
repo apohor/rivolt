@@ -1,0 +1,90 @@
+// Generated from ios/design/tokens.json by ios/design/generate_theme.py. Do not edit by hand:
+// change the web, regenerate tokens.json, then run the script. ThemeTokensTests checks the two agree.
+import Foundation
+
+enum ThemeTokens {
+    /// sRGB as hex with an alpha, as tokens.json carries it.
+    struct Rgba: Equatable {
+        let hex: UInt32
+        let alpha: Double
+        init(_ hex: UInt32, _ alpha: Double = 1) { self.hex = hex; self.alpha = alpha }
+    }
+
+    /// A colour in dark and in light.
+    struct Pair: Equatable {
+        let dark: Rgba
+        let light: Rgba
+    }
+
+    // MARK: Roles (semantic colours)
+    static let background = Pair(dark: Rgba(0x06080C, 1), light: Rgba(0xF6F7FA, 1))
+    static let card = Pair(dark: Rgba(0x0E1115, 1), light: Rgba(0xFCFDFE, 1))
+    static let border = Pair(dark: Rgba(0x1D2127, 1), light: Rgba(0xE1E3E7, 1))
+    static let borderStrong = Pair(dark: Rgba(0x2E3239, 1), light: Rgba(0xD4D4D4, 1))
+    static let textPrimary = Pair(dark: Rgba(0xF5F5F5, 1), light: Rgba(0x171717, 1))
+    static let textBody = Pair(dark: Rgba(0xD4D4D4, 1), light: Rgba(0x404040, 1))
+    static let textSecondary = Pair(dark: Rgba(0xA1A1A1, 1), light: Rgba(0x525252, 1))
+    static let textTertiary = Pair(dark: Rgba(0x929292, 1), light: Rgba(0x636363, 1))
+    static let accent = Pair(dark: Rgba(0x5EE9B5, 1), light: Rgba(0x006A49, 1))
+    static let accentFill = Pair(dark: Rgba(0x00BC7D, 1), light: Rgba(0x007A55, 1))
+    static let accentButton = Pair(dark: Rgba(0x008052, 1), light: Rgba(0x008052, 1))
+    static let estimate = Pair(dark: Rgba(0xFFD230, 1), light: Rgba(0x973C00, 1))
+    static let estimateFill = Pair(dark: Rgba(0xFE9A00, 1), light: Rgba(0xBB4D00, 1))
+    static let critical = Pair(dark: Rgba(0xFFA1AD, 1), light: Rgba(0xC70036, 1))
+    static let criticalBorder = Pair(dark: Rgba(0xFF2056, 1), light: Rgba(0xEC003F, 1))
+    static let drive = Pair(dark: Rgba(0x74D4FF, 1), light: Rgba(0x0069A8, 1))
+    static let edge = Pair(dark: Rgba(0xFFFFFF, 0.07), light: Rgba(0xFFFFFF, 0.9))
+
+    // MARK: Literals (glows, gauge gradients, shadows, chart colours)
+    static let bar = Pair(dark: Rgba(0x06080C, 1), light: Rgba(0xFCFCFC, 1))
+    static let heroTint = Pair(dark: Rgba(0x29D5A5, 0.13), light: Rgba(0x64D6AF, 0.2))
+    static let pageGlow = Pair(dark: Rgba(0x334A62, 0.18), light: Rgba(0xBFE9D8, 0.35))
+    static let heroTintDriving = Pair(dark: Rgba(0x5ABDF2, 0.13), light: Rgba(0x7AC8F5, 0.2))
+    static let cardSheen = Pair(dark: Rgba(0xFFFFFF, 0.03), light: Rgba(0xFFFFFF, 0.7))
+    static let cardShadowNear = Pair(dark: Rgba(0x000000, 0.45), light: Rgba(0x282E38, 0.07))
+    static let cardShadowFar = Pair(dark: Rgba(0x000000, 0.5), light: Rgba(0x262E3D, 0.22))
+    static let glowChargingBorder = Pair(dark: Rgba(0x29D5A5, 0.42), light: Rgba(0x009A70, 0.5))
+    static let glowChargingRing = Pair(dark: Rgba(0x29D5A5, 0.16), light: Rgba(0x009A70, 0.18))
+    static let glowChargingHalo = Pair(dark: Rgba(0x29D5A5, 0.4), light: Rgba(0x009A70, 0.45))
+    static let glowDrivingBorder = Pair(dark: Rgba(0x5ABDF2, 0.42), light: Rgba(0x0E84B7, 0.5))
+    static let glowDrivingRing = Pair(dark: Rgba(0x5ABDF2, 0.16), light: Rgba(0x0E84B7, 0.18))
+    static let glowDrivingHalo = Pair(dark: Rgba(0x5ABDF2, 0.4), light: Rgba(0x0E84B7, 0.45))
+    static let glowGauge = Pair(dark: Rgba(0x29D5A5, 0.6), light: Rgba(0x009A70, 0.5))
+    static let glowSparkLine = Pair(dark: Rgba(0x29D5A5, 0.7), light: Rgba(0x009A70, 0.45))
+    static let glowSparkDot = Pair(dark: Rgba(0x59E7B9, 0.9), light: Rgba(0x009A70, 0.7))
+    static let gaugeOkFrom = Pair(dark: Rgba(0x29D5A5, 1), light: Rgba(0x29D5A5, 1))
+    static let gaugeOkTo = Pair(dark: Rgba(0x00B7B0, 1), light: Rgba(0x00B7B0, 1))
+    static let gaugeCriticalFrom = Pair(dark: Rgba(0xFF6A65, 1), light: Rgba(0xFF6A65, 1))
+    static let gaugeCriticalTo = Pair(dark: Rgba(0xF34E6A, 1), light: Rgba(0xF34E6A, 1))
+    static let gaugeIdleFrom = Pair(dark: Rgba(0x7F8793, 1), light: Rgba(0x7F8793, 1))
+    static let gaugeIdleTo = Pair(dark: Rgba(0x6B727E, 1), light: Rgba(0x6B727E, 1))
+    static let chartMilesBar = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
+    static let chartSocCharge = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
+    static let chartSocDrive = Pair(dark: Rgba(0x38BDF8, 1), light: Rgba(0x38BDF8, 1))
+    static let chartSocLimit = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
+    static let chartIdleAwakeBar = Pair(dark: Rgba(0x6366F1, 1), light: Rgba(0x6366F1, 1))
+    static let chartIdleAwakeTile = Pair(dark: Rgba(0x818CF8, 1), light: Rgba(0x818CF8, 1))
+
+    // MARK: Scalars (points; milliseconds for motion; em for tracking)
+    static let typeCaption: Double = 11
+    static let typeSubline: Double = 12
+    static let typeValue: Double = 14
+    static let typeTitle: Double = 24
+    static let typeHero: Double = 36
+    static let typeLabelSize: Double = 11
+    static let typeLabelTracking: Double = 0.09
+    static let typeLabelWeight: Double = 500
+    static let typeNumberTracking: Double = -0.012
+    static let spaceUnit: Double = 4
+    static let radiusCard: Double = 12
+    static let radiusInner: Double = 8
+    static let motionMs: Double = 200
+    static let gaugeSweep: Double = 240
+    static let gaugeRadius: Double = 52
+    static let gaugeStroke: Double = 7
+    static let gaugeTrackOpacity: Double = 0.14
+    static let gaugeSize: Double = 132
+    static let tabBarMinHeight: Double = 56
+    static let tabBarIcon: Double = 22
+    static let tabBarIconStroke: Double = 1.8
+}

@@ -159,6 +159,9 @@ targets:
     platform: iOS
     sources:
       - path: RivoltTests
+      # The design tokens, so the Theme can be checked against them (ThemeTokensTests).
+      - path: design/tokens.json
+        buildPhase: resources
     dependencies:
       - target: Rivolt
     settings:
