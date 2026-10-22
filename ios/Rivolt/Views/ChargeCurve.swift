@@ -63,20 +63,32 @@ enum ChargeCurve {
     }
 
     /// A battery level that only ticks in whole percents is flat between ticks, so drawn as it comes it is a staircase.
-    /// Each flat run becomes one point at its middle, the first and last points stay where they are, and the line
-    /// between them is a ramp.
-    static func deStair(_ pts: [Pt]) -> [Pt] {
+    /// A short flat run (under `plateau`, ten minutes) becomes one point at its middle, and the line between those points
+    /// is a ramp. A long one is a real plateau (a charge holding at its limit, still plugged in): it keeps its first
+    /// and last points, so it is drawn flat for as long as it lasted. The series' own first and last points stay.
+    static func deStair(_ pts: [Pt], plateau: TimeInterval = 600) -> [Pt] {
         guard pts.count > 2 else { return pts }
-        var out: [Pt] = [pts[0]]
-        var i = 1
-        while i < pts.count - 1 {
+        var out: [Pt] = []
+        var i = 0
+        while i < pts.count {
             var j = i
-            while j + 1 < pts.count - 1, pts[j + 1].value == pts[i].value { j += 1 }
-            let mid = pts[i].at.addingTimeInterval(pts[j].at.timeIntervalSince(pts[i].at) / 2)
-            out.append(Pt(at: mid, value: pts[i].value))
+            while j + 1 < pts.count, pts[j + 1].value == pts[i].value { j += 1 }
+            let span = pts[j].at.timeIntervalSince(pts[i].at)
+            let middle = Pt(at: pts[i].at.addingTimeInterval(span / 2), value: pts[i].value)
+            if span > plateau || (i == 0 && j == pts.count - 1) {
+                out.append(pts[i])
+                if j > i { out.append(pts[j]) }
+            } else if i == 0 {
+                out.append(pts[i])
+                if j > i { out.append(middle) }
+            } else if j == pts.count - 1 {
+                if j > i { out.append(middle) }
+                out.append(pts[j])
+            } else {
+                out.append(middle)
+            }
             i = j + 1
         }
-        out.append(pts[pts.count - 1])
         return out
     }
 

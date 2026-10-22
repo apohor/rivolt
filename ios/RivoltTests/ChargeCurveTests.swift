@@ -96,12 +96,38 @@ final class ChargeCurveTests: XCTestCase {
         var pts: [ChargeCurve.Pt] = []
         for k in 0..<3 { for i in 0..<10 { pts.append(pt(Double(k * 100 + i * 10), 55 + Double(k))) } }
         let ramp = ChargeCurve.deStair(pts)
-        XCTAssertEqual(ramp.count, 5, "the first sample, one point in the middle of each run between, the last sample")
+        XCTAssertEqual(ramp.count, 5, "the first sample, a point in the middle of each run, the last sample")
         XCTAssertEqual(ramp.first, pts.first)
         XCTAssertEqual(ramp.last, pts.last)
         XCTAssertEqual(ramp[2].at, t0.addingTimeInterval(145), "the middle of the 56% run")
         XCTAssertEqual(ramp.map(\.value), [55, 55, 56, 57, 57])
         XCTAssertEqual(ChargeCurve.deStair([pt(0, 1), pt(5, 2)]), [pt(0, 1), pt(5, 2)])
+    }
+
+    func testARealPlateauKeepsItsEndsAndIsDrawnFlat() {
+        // 80% then 81% in short runs, then 85% held an hour while still plugged in (a sample a minute): a plateau at the end.
+        var tail: [ChargeCurve.Pt] = []
+        for i in 0..<20 { tail.append(pt(Double(i) * 10, 80)) }
+        for i in 0..<10 { tail.append(pt(200 + Double(i) * 10, 81)) }
+        for i in 0...60 { tail.append(pt(300 + Double(i) * 60, 85)) }
+        let r = ChargeCurve.deStair(tail)
+        XCTAssertEqual(Array(r.suffix(2)), [pt(300, 85), pt(3_900, 85)], "both ends of the hour, nothing ramping across it")
+        XCTAssertEqual(r.filter { $0.value == 85 }.count, 2)
+        XCTAssertEqual(r.last, tail.last)
+
+        // A plateau in the middle: 69%, 70% for half an hour, 71%.
+        var mid: [ChargeCurve.Pt] = []
+        for i in 0..<10 { mid.append(pt(Double(i) * 10, 69)) }
+        for i in 0...30 { mid.append(pt(100 + Double(i) * 60, 70)) }
+        for i in 0..<10 { mid.append(pt(1_960 + Double(i) * 10, 71)) }
+        let m = ChargeCurve.deStair(mid)
+        XCTAssertEqual(m.filter { $0.value == 70 }, [pt(100, 70), pt(1_900, 70)], "flat between its first and last sample")
+        XCTAssertEqual(m.first, mid.first)
+        XCTAssertEqual(m.last, mid.last)
+        XCTAssertEqual(m.map(\.at), m.map(\.at).sorted(), "still in time order")
+
+        // A flat series is left with its two ends.
+        XCTAssertEqual(ChargeCurve.deStair([pt(0, 50), pt(10, 50), pt(20, 50)]), [pt(0, 50), pt(20, 50)])
     }
 
     func testTheReadoutFindsTheNearestSample() {
