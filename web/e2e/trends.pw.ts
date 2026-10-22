@@ -139,7 +139,8 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(card).not.toContainText(/degradation|battery health|measured/i);
       const svg = card.locator("svg[role='img']");
       const box = await svg.boundingBox();
-      // Tap the first dot: its date and estimate.
+      // Tap the first dot: its date and estimate. (Centre the chart first: on a phone the tab bar covers the bottom.)
+      await svg.evaluate((e) => e.scrollIntoView({ block: "center" }));
       const first = card.locator("[data-cap-dot]").first();
       const c = await first.boundingBox();
       await page.mouse.click(c!.x + c!.width / 2, c!.y + c!.height / 2);

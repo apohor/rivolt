@@ -792,9 +792,17 @@ struct CapacityChart: View {
                 AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                 AxisValueLabel { if let d = v.as(Double.self) { TruckAxisText(TruckLogic.fixed(d, 0)) } }
             } }
-            .chartXAxis { AxisMarks(values: .automatic(desiredCount: xLabels)) { v in
-                AxisValueLabel { if let d = v.as(Date.self) { TruckAxisText(d.formatted(.dateTime.month(.abbreviated).day())) } }
-            } }
+            // The first and last estimates' dates, anchored inside the plot (as the web), and the middle when there's room.
+            .chartXAxis {
+                let first = dots.first?.at ?? .now, last = dots.last?.at ?? .now
+                let marks = xLabels >= 3 ? [first, first.addingTimeInterval(last.timeIntervalSince(first) / 2), last] : [first, last]
+                AxisMarks(values: marks) { v in
+                    AxisValueLabel(anchor: v.index == 0 ? .topLeading : v.index == marks.count - 1 ? .topTrailing : .top, collisionResolution: .disabled) {
+                        if let d = v.as(Date.self) { TruckAxisText(d.formatted(.dateTime.month(.abbreviated).day())) }
+                    }
+                }
+            }
+            .chartXScale(domain: (dots.first?.at ?? .now)...max(dots.last?.at ?? .now, (dots.first?.at ?? .now).addingTimeInterval(86_400)))
             .chartXSelection(value: $selected)
             .accessibilityLabel("Estimated usable capacity over time, kWh: \(dots.count) charge estimates around \(TruckLogic.fixed(median, 0)) kWh")
             CapacityLegend(trend: !runs.isEmpty, median: median, spec: showSpec ? spec : nil)
