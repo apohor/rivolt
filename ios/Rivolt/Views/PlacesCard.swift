@@ -53,8 +53,8 @@ struct PlacesCard: View {
                 Text("\(r.share)%").themeText(.caption).lineLimit(1).minimumScaleFactor(0.8)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(r.bucket.sessions)").themeText(.title)
-                Text(r.bucket.sessions == 1 ? "session" : "sessions").themeText(.caption)
+                Text("\(r.bucket.sessions)").themeText(.title).lineLimit(1).fixedSize()
+                Text(r.bucket.sessions == 1 ? "session" : "sessions").themeText(.caption).lineLimit(1).minimumScaleFactor(0.7)
             }
             Text("\(NowFormat.oneDecimal(r.bucket.energyKwh)) kWh added").themeText(.caption)
                 .fixedSize(horizontal: false, vertical: true)

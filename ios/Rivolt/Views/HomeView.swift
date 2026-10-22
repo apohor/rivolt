@@ -37,8 +37,9 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 Group {
-                    if let vehicle = selected, vehicleState != nil || now != nil {
+                    if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
                         let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+                        let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
                             if let m = extras.current(vehicleID: vehicle.id) {
                                 MilestoneCard(milestone: m, failed: extras.dismissFailed) {
@@ -46,23 +47,25 @@ struct HomeView: View {
                                 }
                             }
                             threeThings
-                            // Detail cards only on fresh data: a stale "Charging" would claim a charge we can't see.
-                            if summary.freshness != .stale,
-                               let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
-                                ChargingDetailCard(detail: charging)
+                            // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
+                            // charge we can't see.
+                            let fresh = summary.freshness != .stale
+                            if haveData {
+                                NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
+                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil)
+                                ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
+                            } else {
+                                // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
+                                NoDataCard(vehicleName: vehicle.name)
                             }
-                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge))
-                            ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
-                            if summary.freshness != .stale,
-                               let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
-                                DriveDetailCard(detail: drive)
-                            }
-                            ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
+                            // The web's order after the tiles: where it charges, then the two charts.
                             if let split = places.split, split.total > 0 {
                                 PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
+                            ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
+                            PageFooter(server: state.serverURL)
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
