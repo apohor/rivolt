@@ -66,7 +66,7 @@ struct ActivityView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 2 * Theme.unit) {
             ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode,
-                           accessibilityName: "View")
+                           accessibilityName: "View", fillsWidth: true)
             if mode != .efficiency {
                 ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
             }

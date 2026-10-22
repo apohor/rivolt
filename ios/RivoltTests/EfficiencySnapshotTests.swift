@@ -9,7 +9,7 @@ final class EfficiencySnapshotTests: XCTestCase {
     private func page(_ shown: EfficiencyModel.Shown) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: .constant(.efficiency),
-                           accessibilityName: "View")
+                           accessibilityName: "View", fillsWidth: true)
             EfficiencyView(shown: shown, monthName: "October 2026")
         }
         .padding(16)

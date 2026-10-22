@@ -11,6 +11,8 @@ struct ThemeSegmented<ID: Hashable>: View {
     @Binding var selection: ID
     /// What the choice is about, read before each option by VoiceOver ("View, Map").
     var accessibilityName: String?
+    /// Options share the full width (a row of its own) instead of hugging their labels.
+    var fillsWidth = false
 
     var body: some View {
         HStack(spacing: 2) {
@@ -21,6 +23,7 @@ struct ThemeSegmented<ID: Hashable>: View {
                         .font(Theme.sans(ThemeTokens.typeValue, on ? .medium : .regular, relativeTo: .body))
                         .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
                         .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
+                        .frame(maxWidth: fillsWidth ? .infinity : nil)
                         .background(on ? Theme.border : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
                         .contentShape(Rectangle())
                 }
