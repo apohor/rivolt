@@ -16,6 +16,7 @@ name: ios
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
@@ -40,6 +41,9 @@ env:
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
 jobs:
+  # The required check. Kept short so a PR hears back fast: build, unit tests
+  # and the Now card renders (uploaded as soon as the tests finish). The slow
+  # simulator screenshots and the Release device build run beside it.
   build-test:
     runs-on: macos-15
     timeout-minutes: 45
@@ -122,11 +126,89 @@ jobs:
             jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload the UI snapshots
+        if: always() && steps.sim.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-snapshots
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload the result bundle
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-xcresult
+          path: ${{ runner.temp }}/ios.xcresult
+          retention-days: 7
+
+  screenshots:
+    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
+    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
+    # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
+    # label before merge, so the App Store basics check runs on it.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Install XcodeGen (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          xcodegen --version
+          xcodegen generate
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          # First available iPhone on the pinned runtime; the device names
+          # change with every Xcode, the runtime is what we pin.
+          udid=$(xcrun simctl list devices available -j | jq -r --arg rt "$SIM_RUNTIME" '
+            .devices | to_entries[]
+            | select(.key | test("SimRuntime\\.iOS-" + ($rt | sub("^iOS "; "") | gsub("\\."; "-")) + "$"))
+            | .value[] | select(.name | startswith("iPhone")) | .udid' | head -n1)
+          if [ -z "$udid" ]; then
+            echo "no iPhone simulator for $SIM_RUNTIME"; xcrun simctl list runtimes; exit 1
+          fi
+          xcrun simctl list devices | grep "$udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Build for the simulator
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project ios/Rivolt.xcodeproj \
+            -scheme Rivolt \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            -quiet
+
       # Fixed screens (launch argument -rivolt-preview <name>: no network, no
       # Keychain, no iOS prompts) in light and dark, for review: nobody has Xcode
       # locally, so this is how the native UI is looked at.
       - name: Screenshots (light and dark)
-        if: always() && steps.sim.outcome == 'success'
         timeout-minutes: 20
         run: |
           set -uo pipefail
@@ -191,11 +273,44 @@ jobs:
           path: ${{ runner.temp }}/shots
           retention-days: 14
 
+
+  appstore:
+    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
+    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
+    # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
+    # label before merge, so the App Store basics check runs on it.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Install XcodeGen (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          xcodegen --version
+          xcodegen generate
+
       # The App Store rejects what a simulator test build never shows (app icon,
       # iPhone-only family): build Release for a device, unsigned, and run the
       # same check ios-testflight.yml runs on the signed archive before upload.
       - name: App Store basics (Release device build, unsigned)
-        if: always() && steps.sim.outcome == 'success'
         run: |
           set -euo pipefail
           xcodebuild build \
@@ -210,20 +325,3 @@ jobs:
           grep -A3 -E '^CompileAssetCatalog' "$RUNNER_TEMP/release.log" | cut -c1-400 || echo "no CompileAssetCatalog step ran"
           ios/check-app-store-basics.sh \
             "$RUNNER_TEMP/release/Build/Products/Release-iphoneos/Rivolt.app" "$RUNNER_TEMP/release"
-
-      - name: Upload the UI snapshots
-        if: always() && steps.sim.outcome == 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: ios-snapshots
-          path: ${{ runner.temp }}/snapshots
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload the result bundle
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: ios-xcresult
-          path: ${{ runner.temp }}/ios.xcresult
-          retention-days: 7
