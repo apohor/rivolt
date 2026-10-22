@@ -65,7 +65,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: days.filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
-                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
+                        AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
                     }
@@ -100,41 +100,10 @@ struct ChartsSection: View {
                 let bands = ChartMath.bands(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], from: range.since, to: range.until)
                 let extremes = ChartMath.highLow(trend)
                 Chart {
-                    ForEach(bands) { b in
-                        RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("High", 100))
-                            .foregroundStyle((b.kind == .charging ? Theme.chartSocCharge : Theme.chartSocDrive).opacity(0.14))
-                    }
-                    ForEach(bands) { b in
-                        RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("Top", 4))
-                            .foregroundStyle(b.kind == .charging ? Theme.chartSocCharge : Theme.chartSocDrive)
-                    }
-                    ForEach(trend) { p in
-                        AreaMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(LinearGradient(colors: [Theme.textPrimary.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom))
-                    }
-                    ForEach(trend) { p in
-                        LineMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    }
-                    if let limit, limit > 0, limit <= 100 {
-                        RuleMark(y: .value("Limit", limit))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                            .foregroundStyle(Theme.chartSocLimit)
-                            .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                                Text("Limit \(Int(limit.rounded()))%").themeText(.caption, color: Theme.chartSocLimit)
-                            }
-                    }
-                    if let e = extremes {
-                        PointMark(x: .value("Time", e.high.at), y: .value("Charge", e.high.pct))
-                            .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                            .annotation(position: .top, spacing: 2) { Text("\(Int(e.high.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
-                        PointMark(x: .value("Time", e.low.at), y: .value("Charge", e.low.pct))
-                            .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                            .annotation(position: .bottom, spacing: 2) { Text("\(Int(e.low.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
-                    }
+                    bandMarks(bands)
+                    trendMarks(trend)
+                    limitMark
+                    extremeMarks(extremes)
                 }
                 .chartXScale(domain: range.since...range.until)
                 .chartYScale(domain: 0...100)
@@ -148,7 +117,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: [days.first ?? range.since, days.last ?? range.since]) { value in
-                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
+                        AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(d.formatted(Date.FormatStyle(timeZone: calendar.timeZone).month(.abbreviated).day())) }
                         }
                     }
@@ -165,6 +134,61 @@ struct ChartsSection: View {
                     .init(label: "High and low", style: .dot(Theme.textPrimary)),
                 ])
             }
+        }
+    }
+
+    private func bandColor(_ kind: ChartMath.Band.Kind) -> Color {
+        kind == .charging ? Theme.chartSocCharge : Theme.chartSocDrive
+    }
+
+    @ChartContentBuilder
+    private func bandMarks(_ bands: [ChartMath.Band]) -> some ChartContent {
+        ForEach(bands) { b in
+            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("High", 100))
+                .foregroundStyle(bandColor(b.kind).opacity(0.14))
+        }
+        ForEach(bands) { b in
+            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", 0), yEnd: .value("Top", 4))
+                .foregroundStyle(bandColor(b.kind))
+        }
+    }
+
+    @ChartContentBuilder
+    private func trendMarks(_ trend: [SocPoint]) -> some ChartContent {
+        ForEach(trend) { p in
+            AreaMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(LinearGradient(colors: [Theme.textPrimary.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom))
+        }
+        ForEach(trend) { p in
+            LineMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Theme.textPrimary)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    @ChartContentBuilder
+    private var limitMark: some ChartContent {
+        if let limit, limit > 0, limit <= 100 {
+            RuleMark(y: .value("Limit", limit))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .foregroundStyle(Theme.chartSocLimit)
+                .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                    Text("Limit \(Int(limit.rounded()))%").themeText(.caption, color: Theme.chartSocLimit)
+                }
+        }
+    }
+
+    @ChartContentBuilder
+    private func extremeMarks(_ extremes: (high: SocPoint, low: SocPoint)?) -> some ChartContent {
+        if let e = extremes {
+            PointMark(x: .value("Time", e.high.at), y: .value("Charge", e.high.pct))
+                .foregroundStyle(Theme.textPrimary).symbolSize(40)
+                .annotation(position: .top, spacing: 2) { Text("\(Int(e.high.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
+            PointMark(x: .value("Time", e.low.at), y: .value("Charge", e.low.pct))
+                .foregroundStyle(Theme.textPrimary).symbolSize(40)
+                .annotation(position: .bottom, spacing: 2) { Text("\(Int(e.low.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
         }
     }
 
@@ -202,7 +226,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: idle.map(\.day).filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
-                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
+                        AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
                     }
