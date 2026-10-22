@@ -221,8 +221,8 @@ struct DriveTimelineCard: View {
         // The sign in words, not colour alone: "Draw" above the zero line, "Regen" below it, at the left edge.
         .overlay(alignment: .leading) {
             VStack(alignment: .leading, spacing: 0) {
-                PanelLabel(text: "Draw ↑", plain: true)
-                PanelLabel(text: "Regen ↓", plain: true)
+                PanelLabel(text: "Draw ↑", halo: true)
+                PanelLabel(text: "Regen ↓", halo: true)
             }
             .offset(y: Self.powerHeight * CGFloat((peak - floor) / (peak + floor)) / 2)
         }
@@ -392,13 +392,25 @@ private extension View {
 private struct PanelLabel: View {
     let text: String
     var plain = false
+    /// On a small halo in the card's colour (as #913's temperature labels), so a trace never runs through it.
+    var halo = false
 
     var body: some View {
+        if halo {
+            label
+                .padding(.horizontal, 0.75 * Theme.unit).padding(.vertical, 0.25 * Theme.unit)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.unit, style: .continuous))
+        } else {
+            label
+                .padding(.horizontal, plain ? 0 : Theme.unit).padding(.vertical, plain ? 0 : 0.5 * Theme.unit)
+                .background(plain ? .clear : Theme.background.opacity(0.7), in: RoundedRectangle(cornerRadius: Theme.unit))
+        }
+    }
+
+    private var label: some View {
         Text(text)
             .font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2))
             .foregroundStyle(Theme.textTertiary)
-            .padding(.horizontal, plain ? 0 : Theme.unit).padding(.vertical, plain ? 0 : 0.5 * Theme.unit)
-            .background(plain ? .clear : Theme.background.opacity(0.7), in: RoundedRectangle(cornerRadius: Theme.unit))
             .accessibilityHidden(true)
     }
 }
