@@ -295,6 +295,44 @@ actor APIClient {
         try await request("GET", "/api/settings/charging/")
     }
 
+    // MARK: Truck (the web's Truck page reads; none carries a coordinate)
+
+    /// Nil when the server has no such endpoint (404/501): the card is left out, as on the web.
+    private func optional<T: Decodable>(_ path: String) async throws -> T? {
+        do { return try await request("GET", path) } catch APIError.server(let status, _) where status == 404 || status == 501 { return nil }
+    }
+
+    /// Battery lost while parked, over 7 and 30 days and per day. Like the web, no zone is sent: the server's days are
+    /// UTC days, as the sleep chart's are.
+    func drain(vehicleID: String) async throws -> DrainSnapshot? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/drain")
+    }
+
+    func packHealth(vehicleID: String) async throws -> PackHealth {
+        try await request("GET", "/api/vehicles/\(pathID(vehicleID))/pack-health")
+    }
+
+    /// `metric` picks km and kWh/100 km; otherwise miles and mi/kWh.
+    func trends(vehicleID: String, metric: Bool) async throws -> TruckTrends? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/trends?units=\(metric ? "metric" : "imperial")")
+    }
+
+    /// The owner's range near `tempC`; `grid` (°C) is the five temperatures offered, so the answer says which have
+    /// enough history.
+    func coldRange(vehicleID: String, tempC: Double, grid: [Double], metric: Bool) async throws -> ColdRange? {
+        let g = grid.map { String($0) }.joined(separator: ",")
+        return try await optional("/api/vehicles/\(pathID(vehicleID))/cold-range?temp_c=\(tempC)&grid=\(queryValue(g))&units=\(metric ? "metric" : "imperial")")
+    }
+
+    /// The lease terms; nil when none are set (404).
+    func leaseTerms(vehicleID: String) async throws -> LeaseTerms? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/lease")
+    }
+
+    func leaseStatus(vehicleID: String) async throws -> LeaseStatus? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/lease/status")
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }

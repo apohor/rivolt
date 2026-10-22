@@ -28,5 +28,11 @@
   "cabin_temp_c": 21,
   "outside_temp_c": 0,
   "cabin_preconditioning_status": "",
-  "power_state": "go"
+  "power_state": "go",
+  "ota_current_version": "2026.34.1",
+  "ota_available_version": "0.0.0",
+  "tire_pressure_fl_bar": 2.9,
+  "tire_pressure_fr_bar": 3.0,
+  "tire_pressure_rl_bar": 2.95,
+  "tire_pressure_rr_bar": 0
 }

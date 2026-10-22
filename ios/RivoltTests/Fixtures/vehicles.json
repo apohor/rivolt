@@ -6,7 +6,13 @@
     "model": "R1T",
     "model_year": 2023,
     "make": "Rivian",
-    "pack_kwh": 135
+    "pack_kwh": 135,
+    "ota": {
+      "current": {
+        "version": "2026.34.1",
+        "release_notes_url": "https://rivian.com/support/software-release-notes/2026-34"
+      }
+    }
   },
   {
     "id": "01-242521065",

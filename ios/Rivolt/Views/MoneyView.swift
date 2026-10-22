@@ -389,8 +389,8 @@ struct MoneyContent: View {
     // MARK: Split
 
     private func splitCard(_ m: LedgerMonth) -> some View {
-        MoneySection(title: "Where the energy came from") {
-            MoneyToggle(options: [(Metric.cost, "$"), (.kwh, "kWh")], selection: $metric, label: "Split by")
+        ActionSection(title: "Where the energy came from") {
+            SmallSwitch(options: [(Metric.cost, "$"), (.kwh, "kWh")], selection: $metric, label: "Split by")
         } content: {
             VStack(alignment: .leading, spacing: 16) {
                 ForEach(MoneyLogic.splitBars(m)) { bar in MoneySplitBar(bar: bar, currency: m.currency, metric: metric) }
@@ -404,8 +404,8 @@ struct MoneyContent: View {
         let ym = MoneyModel.savingsPeriod(savingsWhich, now: now, calendar: calendar)
         let monthTitle = MoneyLogic.monthTitle(ym, calendar: calendar)
         let currency = model.savings?.currency ?? fallback
-        return MoneySection(title: "Off-peak savings") {
-            MoneyToggle(options: [(MoneyModel.Which.last, "Last month"), (.now, "This month so far")], selection: $savingsWhich, label: "Month")
+        return ActionSection(title: "Off-peak savings") {
+            SmallSwitch(options: [(MoneyModel.Which.last, "Last month"), (.now, "This month so far")], selection: $savingsWhich, label: "Month")
         } content: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(monthTitle).themeText(.subline, color: Theme.textTertiary)
@@ -531,8 +531,8 @@ struct MoneyContent: View {
 
 // MARK: - Pieces
 
-/// A titled card like `ThemeSection`, with a control at the end of the header (the web's `Card` actions).
-private struct MoneySection<Actions: View, Content: View>: View {
+/// A titled card like `ThemeSection`, with a control at the end of the header (the web's `Card` actions). Money and Truck.
+struct ActionSection<Actions: View, Content: View>: View {
     let title: String
     @ViewBuilder var actions: Actions
     @ViewBuilder var content: Content
@@ -578,8 +578,8 @@ private struct MoneySmallButtonStyle: ButtonStyle {
     }
 }
 
-/// The web's small two-way switch in a card header ("$ | kWh", "Last month | This month so far").
-private struct MoneyToggle<T: Hashable>: View {
+/// The web's small two-way switch in a card header ("$ | kWh", "Last month | This month so far", "7 days | 30 days").
+struct SmallSwitch<T: Hashable>: View {
     let options: [(T, String)]
     @Binding var selection: T
     let label: String
