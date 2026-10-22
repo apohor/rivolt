@@ -89,6 +89,10 @@ enum ThemeTokens {
     static let chargePin = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
     static let chargeRecorded = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
     static let chargePinInk = Pair(dark: Rgba(0x0A0A0A, 1), light: Rgba(0x0A0A0A, 1))
+    static let activityRoute = Pair(dark: Rgba(0x34D399, 1), light: Rgba(0x34D399, 1))
+    static let chargeFast = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
+    static let chargeL2 = Pair(dark: Rgba(0x06B6D4, 1), light: Rgba(0x06B6D4, 1))
+    static let chargeL1 = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11
@@ -119,6 +123,10 @@ enum ThemeTokens {
     static let tabBarMinHeight: Double = 56
     static let tabBarIcon: Double = 22
     static let tabBarIconStroke: Double = 1.8
+    static let mapRouteWidth: Double = 1.5
+    static let mapRouteOpacity: Double = 0.5
+    static let mapDot: Double = 10
+    static let mapDotRing: Double = 1.5
 
     // MARK: Tab bar icons (SVG path data in a 24 x 24 box, stroked)
     static let iconStroke: Double = 1.8

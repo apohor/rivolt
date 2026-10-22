@@ -62,6 +62,10 @@ enum Theme {
     static let chargePin = color(ThemeTokens.chargePin)
     static let chargeRecorded = color(ThemeTokens.chargeRecorded)
     static let chargePinInk = color(ThemeTokens.chargePinInk)
+    static let activityRoute = color(ThemeTokens.activityRoute)
+    static let chargeFast = color(ThemeTokens.chargeFast)
+    static let chargeL2 = color(ThemeTokens.chargeL2)
+    static let chargeL1 = color(ThemeTokens.chargeL1)
     static let edge = color(ThemeTokens.edge)
 
     // Literals

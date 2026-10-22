@@ -67,6 +67,10 @@ final class ThemeTokensTests: XCTestCase {
             "chargePin": ThemeTokens.chargePin,
             "chargeRecorded": ThemeTokens.chargeRecorded,
             "chargePinInk": ThemeTokens.chargePinInk,
+            "activityRoute": ThemeTokens.activityRoute,
+            "chargeFast": ThemeTokens.chargeFast,
+            "chargeL2": ThemeTokens.chargeL2,
+            "chargeL1": ThemeTokens.chargeL1,
             "bar": ThemeTokens.bar, "heroTint": ThemeTokens.heroTint, "heroTintDriving": ThemeTokens.heroTintDriving, "pageGlow": ThemeTokens.pageGlow,
             "glowDrivingRing": ThemeTokens.glowDrivingRing, "glowSparkDot": ThemeTokens.glowSparkDot, "cardSheen": ThemeTokens.cardSheen,
             "cardShadowNear": ThemeTokens.cardShadowNear, "cardShadowFar": ThemeTokens.cardShadowFar,
@@ -114,6 +118,10 @@ final class ThemeTokensTests: XCTestCase {
         XCTAssertEqual(ThemeTokens.tabBarMinHeight, n("tabBar.minHeight"))
         XCTAssertEqual(ThemeTokens.tabBarIcon, n("tabBar.icon"))
         XCTAssertEqual(ThemeTokens.tabBarIconStroke, n("tabBar.iconStroke"))
+        XCTAssertEqual(ThemeTokens.mapRouteWidth, n("map.routeWidth"))
+        XCTAssertEqual(ThemeTokens.mapRouteOpacity, n("map.routeOpacity"))
+        XCTAssertEqual(ThemeTokens.mapDot, n("map.dot"))
+        XCTAssertEqual(ThemeTokens.mapDotRing, n("map.dotRing"))
         XCTAssertEqual(ThemeTokens.logoSize, n("logo.size"))
         XCTAssertEqual(ThemeTokens.logoViewBox, n("logo.viewBox"))
         XCTAssertEqual(ThemeTokens.logoFrameRadius, n("logo.frameRadius"))

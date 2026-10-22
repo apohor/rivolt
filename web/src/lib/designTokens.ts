@@ -242,6 +242,10 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chargePin: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#f59e0b")', use: "charge map: the charge's pin, the charger square and the dashed link to it" } },
   chargeRecorded: { both: { file: "src/components/DriveMap.tsx", css: "background:#737373;border:1.5px solid #0a0a0a", use: "charge map: the recorded GPS dot once the pin snapped to a charger" } },
   chargePinInk: { both: { file: "src/components/DriveMap.tsx", css: "color:#0a0a0a;font:700 13px", use: "charge map: the bolt on the charger square and the dots' rings" } },
+  activityRoute: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#34d399",', use: "activity map: every drive's route (1.5 px at 50%)" } },
+  chargeFast: { both: { file: "src/components/DriveMap.tsx", css: 'fast: "#f43f5e",', use: "activity map: a DC fast charge's dot" } },
+  chargeL2: { both: { file: "src/components/DriveMap.tsx", css: 'l2: "#06b6d4",', use: "activity map: a level 2 (AC, 3 kW and up) charge's dot" } },
+  chargeL1: { both: { file: "src/components/DriveMap.tsx", css: 'l1: "#a3a3a3",', use: "activity map: a level 1 (under 3 kW) charge's dot" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.
@@ -276,6 +280,10 @@ export const SCALAR: Record<string, { value: number | string; file: string; css:
   "tabBar.minHeight": { value: 56, file: "src/layout/TabShell.tsx", css: "min-h-14", use: "tab height (pt), plus the home-indicator inset" },
   "tabBar.icon": { value: 22, file: "src/layout/TabShell.tsx", css: "width: 22", use: "icon size (pt), 24×24 viewBox" },
   "tabBar.iconStroke": { value: 1.8, file: "src/layout/TabShell.tsx", css: "strokeWidth: 1.8", use: "icon stroke, round caps and joins" },
+  "map.routeWidth": { value: 1.5, file: "src/components/DriveMap.tsx", css: "weight: 1.5,\n        opacity: 0.5,", use: "activity map: every drive's route width (pt)" },
+  "map.routeOpacity": { value: 0.5, file: "src/components/DriveMap.tsx", css: "weight: 1.5,\n        opacity: 0.5,", use: "activity map: every drive's route opacity" },
+  "map.dot": { value: 10, file: "src/components/DriveMap.tsx", css: "width:10px;height:10px;border-radius:9999px;background:${color};border:1.5px", use: "activity map: a charge's or a drive end's dot diameter (pt)" },
+  "map.dotRing": { value: 1.5, file: "src/components/DriveMap.tsx", css: "width:10px;height:10px;border-radius:9999px;background:${color};border:1.5px", use: "activity map: the dark ring around a dot (pt)" },
 };
 
 // The tab bar's own icons (24×24 viewBox, stroked, no fill): SVG path data for SwiftUI Paths.

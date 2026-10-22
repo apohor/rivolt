@@ -347,6 +347,17 @@ actor APIClient {
         try await request("GET", "/api/drives/\(pathID(id))")
     }
 
+    /// Every drive of a truck with its stored route, for the Activity map (the web's Activity map reads the same
+    /// list). Rows are narrowed to `MapDrive`.
+    func mapDrives(vehicleID: String) async throws -> [MapDrive] {
+        try await request("GET", "/api/drives?limit=5000&vehicle_id=\(queryValue(vehicleID))")
+    }
+
+    /// Every charge of a truck, for the Activity map's dots. Rows are narrowed to `MapCharge`.
+    func mapCharges(vehicleID: String) async throws -> [MapCharge] {
+        try await request("GET", "/api/charges?limit=5000&vehicle_id=\(queryValue(vehicleID))")
+    }
+
     /// Where one charge happened, for its map: the charge row narrowed to its position, peak power and network.
     func chargeLocation(id: String) async throws -> ChargeLocation {
         try await request("GET", "/api/charges/\(pathID(id))")

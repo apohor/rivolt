@@ -12,6 +12,13 @@ enum ActivityFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// The Activity screen's two views: the day list, or the month on the map (the web's Activity "Map").
+enum ActivityMode: String, CaseIterable, Identifiable {
+    case list, map
+    var id: String { rawValue }
+    var label: String { self == .list ? "List" : "Map" }
+}
+
 enum ActivityItem: Equatable, Identifiable {
     case drive(ActivityDrive)
     case charge(ActivityCharge)
@@ -46,6 +53,18 @@ struct ChargeCostLine: Equatable {
 
 enum ActivityLogic {
     /// Newest first, grouped by the local day each started.
+    /// The month's item a tap on the map picked: the drive or charge by id, else (a round trip's later leg, which the
+    /// list folds into its first) the drive whose span holds the leg's start.
+    static func item(for pick: ActivityMapPick, in r: ActivityResponse) -> ActivityItem? {
+        switch pick {
+        case .drive(let id, let at):
+            let d = r.drives.first { $0.id == id } ?? r.drives.first { at >= $0.startedAt && at <= $0.endedAt }
+            return d.map(ActivityItem.drive)
+        case .charge(let id):
+            return r.charges.first { $0.id == id }.map(ActivityItem.charge)
+        }
+    }
+
     static func days(_ r: ActivityResponse, filter: ActivityFilter, calendar: Calendar) -> [ActivityDay] {
         var items: [ActivityItem] = []
         if filter != .charges { items += r.drives.map(ActivityItem.drive) }
