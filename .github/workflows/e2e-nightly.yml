@@ -73,11 +73,10 @@ jobs:
       - name: Install Playwright browser
         working-directory: web
         run: |
-          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps ${{ matrix.project }}
-          else
-            npx playwright install --with-deps ${{ matrix.project }}
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
+            npx playwright install ${{ matrix.project }}
           fi
+          ./scripts/pw-system-deps.sh ${{ matrix.project }}
 
       - name: Build web
         working-directory: web
@@ -146,11 +145,10 @@ jobs:
       - name: Install Playwright browser
         working-directory: web
         run: |
-          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps chromium
-          else
-            npx playwright install --with-deps chromium
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
+            npx playwright install chromium
           fi
+          ./scripts/pw-system-deps.sh chromium
 
       - name: Build web
         working-directory: web
