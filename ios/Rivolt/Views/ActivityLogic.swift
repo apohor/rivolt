@@ -201,7 +201,7 @@ extension ActivityLogic {
     static func tiles(_ d: ActivityDrive, metric: Bool) -> [KpiTile] {
         let k = metric ? 1.609344 : 1
         let dist = metric ? "km" : "mi"
-        func f(_ v: Double, _ digits: Int) -> String { v.formatted(.number.precision(.fractionLength(digits))) }
+        func f(_ v: Double, _ digits: Int) -> String { NumberText.fixed(v, digits) }
         var out: [KpiTile] = []
         out.append(KpiTile(id: "distance", label: "Distance", value: f(d.distanceMi * k, 1), unit: dist, hint: nil))
         if let t = duration(d) { out.append(KpiTile(id: "duration", label: "Duration", value: shortDuration(t), unit: "", hint: nil)) }
@@ -228,7 +228,7 @@ extension ActivityLogic {
     }
 
     static func tiles(_ c: ActivityCharge) -> [KpiTile] {
-        func f(_ v: Double, _ digits: Int) -> String { v.formatted(.number.precision(.fractionLength(digits))) }
+        func f(_ v: Double, _ digits: Int) -> String { NumberText.fixed(v, digits) }
         var out: [KpiTile] = []
         if let t = duration(c) { out.append(KpiTile(id: "duration", label: "Duration", value: shortDuration(t), unit: "", hint: nil)) }
         if c.startSocPct > 0, c.endSocPct > 0 {

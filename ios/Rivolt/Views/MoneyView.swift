@@ -27,6 +27,7 @@ struct MoneyView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                VStack(spacing: 0) {
                 Group {
                     if let vehiclesError, model.month == nil {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
@@ -39,6 +40,10 @@ struct MoneyView: View {
                 }
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
+                PageFooter(server: state.serverURL)
+                    .padding(.horizontal, 4 * Theme.unit)
+                    .padding(.bottom, 4 * Theme.unit)
+                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -86,7 +91,7 @@ struct MoneyView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: period.title(calendar: .current), canGoForward: !period.isCurrent(now: .now, calendar: .current),
+            ThemeStepper(title: period.title(calendar: .current), spokenTitle: period.spokenTitle(calendar: .current), canGoForward: !period.isCurrent(now: .now, calendar: .current),
                          previous: { period = period.shifted(by: -1, calendar: .current) },
                          next: { period = period.shifted(by: 1, calendar: .current) })
         }
@@ -537,17 +542,27 @@ struct ActionSection<Actions: View, Content: View>: View {
     @ViewBuilder var actions: Actions
     @ViewBuilder var content: Content
 
+    private var heading: some View {
+        Text(title)
+            .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
+            .foregroundStyle(Theme.textBody)
+            .accessibilityAddTraits(.isHeader)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
-                    .foregroundStyle(Theme.textBody)
-                    .accessibilityAddTraits(.isHeader)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                // The control keeps its full labels; the title wraps first.
-                actions.fixedSize()
+            // One line when the title and the control fit together; the control drops under the title when they don't.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    heading
+                    Spacer(minLength: 8)
+                    actions.fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    heading
+                    actions.fixedSize()
+                }
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
             Rectangle().fill(Theme.border).frame(height: 1)
@@ -601,6 +616,7 @@ struct SmallSwitch<T: Hashable>: View {
         }
         .padding(2)
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
     }

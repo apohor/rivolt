@@ -16,6 +16,7 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
 
     private var offline: Bool { summary.presence == .offline || summary.freshness == .needsReconnect }
     private var charging: Bool { summary.kind == .charging && !offline }
@@ -66,7 +67,7 @@ struct NowCard: View {
     private var gaugeRow: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
         return layout {
-            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
+            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
                         .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
@@ -79,11 +80,11 @@ struct NowCard: View {
                 }
                 if driving, let kph = summary.speedKph {
                     let speed = NowFormat.usesMetric ? kph : kph / 1.609344
-                    figure("Speed", speed.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km/h" : "mph")
+                    figure("Speed", NumberText.fixed(speed, 0), NowFormat.usesMetric ? "km/h" : "mph")
                 }
                 if let km = summary.rangeKm {
                     let range = NowFormat.usesMetric ? km : km / 1.609344
-                    figure("Range", range.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km" : "mi")
+                    figure("Range", NumberText.fixed(range, 0), NowFormat.usesMetric ? "km" : "mi")
                 }
             }
         }
@@ -101,16 +102,16 @@ struct NowCard: View {
 
     // MARK: Charging readout
 
-    private var timeLeft: String? {
-        guard let soc = summary.socPct,
-              let minutes = ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
-        else { return nil }
-        return Self.eta(minutes: minutes)
+    private var timeLeftMinutes: Int? {
+        guard let soc = summary.socPct else { return nil }
+        return ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
     }
+
+    private var timeLeft: String? { timeLeftMinutes.map(Self.eta(minutes:)) }
 
     @ViewBuilder
     private var detailRows: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             if charging { chargingRows }
             if driving { drivingRows }
             if let temp = summary.outsideTempC {
@@ -132,8 +133,8 @@ struct NowCard: View {
 
     @ViewBuilder
     private var chargingRows: some View {
-        VStack(spacing: 8) {
-            if let kw = summary.chargePowerKw { readout("Power", "\(kw.formatted(.number.precision(.fractionLength(kw < 10 ? 1 : 0)))) kW") }
+        VStack(alignment: .leading, spacing: 8) {
+            if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if let t = timeLeft { readout("Time left", "\(t) · est.") }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
@@ -145,10 +146,11 @@ struct NowCard: View {
     }
 
     private func readout(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        return layout {
             Text(label).themeText(.value, color: Theme.textSecondary)
-            Spacer(minLength: 12)
-            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.trailing)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
         }
     }
 
@@ -156,8 +158,9 @@ struct NowCard: View {
 
     private var footer: String { Self.footer(for: summary, clock: clock) }
 
-    private var spoken: String {
-        var parts = ["\(vehicle.name). \(Self.headline(for: summary, place: place))."]
+    /// The card as sentences for VoiceOver: units and symbols as words.
+    var spoken: String {
+        var parts = ["\(vehicle.name). \(SpokenText.words(Self.headline(for: summary, place: place)))."]
         if let soc = summary.socPct {
             parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
         }
@@ -167,9 +170,22 @@ struct NowCard: View {
         if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
         if charging {
             if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
-            if let t = timeLeft { parts.append("About \(t.replacingOccurrences(of: "~", with: "")) left, an estimate.") }
+            if let m = timeLeftMinutes { parts.append("About \(ChartMath.spokenMinutes(Double(m))) left, an estimate.") }
+            if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
+                parts.append("About \(NowFormat.oneDecimal(added / 100 * pack)) kilowatt hours added.")
+            }
+            if let cost = ChargingDetail.make(summary: summary, session: session, charge: nil)?.cost {
+                parts.append("Cost so far, \(NowFormat.spokenCost(cost)).")
+            }
         }
-        parts.append(footer + ".")
+        if driving, let d = liveDrive, d.distanceMi > 0 {
+            parts.append("Trip so far, \(NowFormat.distance(mi: d.distanceMi, spoken: true)).")
+            if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
+        }
+        if let temp = summary.outsideTempC {
+            parts.append("\(Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .wide, usage: .weather))) outside.")
+        }
+        parts.append(SpokenText.words(footer) + ".")
         return parts.joined(separator: " ")
     }
 
@@ -196,7 +212,7 @@ struct NowCard: View {
             out.append(NowAlert(id: "waking", tone: .amber, text: "\(vehicleName) woke up \(n) times in the last 6 hours."))
         }
         if let bar = s.tireMinBar, bar > 0, bar < 2.2 {
-            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(bar.formatted(.number.precision(.fractionLength(1)))) bar."))
+            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(NumberText.fixed(bar, 1)) bar."))
         }
         return Array(out.prefix(2))
     }
@@ -263,7 +279,7 @@ struct NowCard: View {
 
     static func status(for summary: NowSummary) -> StatusText {
         var head = [summary.stateLabel]
-        if let kw = summary.chargePowerKw { head.append(String(format: "%.1f kW", kw)) }
+        if let kw = summary.chargePowerKw { head.append("\(NumberText.fixed(kw, 1)) kW") }
         var detail: [String] = []
         if let target = summary.chargeTargetPct, summary.stateLabel == "Charging" {
             detail.append("to \(Int(target.rounded()))%")
@@ -278,7 +294,7 @@ struct NowCard: View {
     /// current power (a peak of 11.2 next to 11.1 kW is noise).
     static func chargeLine(added: Double, peakKw: Double?, powerKw: Double?) -> String {
         var s = "+\(Int(added.rounded()))% this charge"
-        if let peak = peakKw, peak > (powerKw ?? 0) * 1.1 { s += String(format: " · peak %.1f kW", peak) }
+        if let peak = peakKw, peak > (powerKw ?? 0) * 1.1 { s += " · peak \(NumberText.fixed(peak, 1)) kW" }
         return s
     }
 }

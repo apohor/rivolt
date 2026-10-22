@@ -26,6 +26,7 @@ struct TruckView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                VStack(spacing: 0) {
                 Group {
                     if let v = selected {
                         TruckContent(model: model, vehicle: v, drainKey: $drainKey, temp: temp, pickTemp: { pickedTemp = $0 },
@@ -40,6 +41,10 @@ struct TruckView: View {
                 }
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
+                PageFooter(server: state.serverURL)
+                    .padding(.horizontal, 4 * Theme.unit)
+                    .padding(.bottom, 4 * Theme.unit)
+                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -85,7 +90,7 @@ struct TruckView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: month.title(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
+            ThemeStepper(title: month.title(calendar: .current), spokenTitle: month.spokenTitle(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
                          previous: { month = month.shifted(by: -1, calendar: .current) },
                          next: { month = month.shifted(by: 1, calendar: .current) })
         }

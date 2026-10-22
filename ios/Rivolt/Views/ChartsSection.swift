@@ -53,12 +53,13 @@ struct ChartsSection: View {
                         .foregroundStyle(LinearGradient(colors: [Theme.chartMilesBar, Theme.chartMilesBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
                         .cornerRadius(2)
                 }
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .chartYScale(domain: 0...top)
                 .chartYAxis {
                     AxisMarks(position: .leading, values: [0, top / 2, top]) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                         AxisValueLabel {
-                            if let v = value.as(Double.self) { ChartAxisText(v.formatted(.number.precision(.fractionLength(0)))) }
+                            if let v = value.as(Double.self) { ChartAxisText(NumberText.fixed(v, 0)) }
                         }
                     }
                 }
@@ -105,6 +106,7 @@ struct ChartsSection: View {
                     extremeMarks(extremes)
                 }
                 .chartXScale(domain: range.since...range.until)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .chartYScale(domain: 0...100)
                 .chartYAxis {
                     AxisMarks(position: .leading, values: [0, 50, 100]) { value in

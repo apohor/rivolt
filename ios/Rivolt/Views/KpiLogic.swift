@@ -36,11 +36,11 @@ struct KpiTile: Equatable, Identifiable {
     let unit: String
     let hint: String?
 
-    /// One sentence for VoiceOver.
+    /// One sentence for VoiceOver, with the units and symbols as words.
     var spoken: String {
         var parts = ["\(label), \(value) \(unit)".trimmingCharacters(in: .whitespaces)]
         if let hint { parts.append(hint) }
-        return parts.joined(separator: ". ")
+        return SpokenText.words(parts.joined(separator: ". "))
     }
 }
 
@@ -104,10 +104,10 @@ enum KpiLogic {
     /// A figure with its unit, or a dash for nothing (the web's `num`: zero and non-numbers read as a dash).
     private static func figure(_ v: Double, digits: Int, unit: String) -> (value: String, unit: String) {
         guard v.isFinite, v != 0 else { return ("—", "") }
-        return (v.formatted(.number.precision(.fractionLength(digits))), unit)
+        return (NumberText.fixed(v, digits), unit)
     }
 
-    private static func fixed(_ v: Double, _ digits: Int) -> String { v.formatted(.number.precision(.fractionLength(digits))) }
+    private static func fixed(_ v: Double, _ digits: Int) -> String { NumberText.fixed(v, digits) }
 
     static func tiles(drives d: KpiDriveStats, charges c: KpiChargeStats, since: SinceCharge?, sinceKnown: Bool,
                       ledger: LedgerMonthSpend?, ledgerPending: Bool, metric: Bool, calendar: Calendar = .current) -> [KpiTile] {

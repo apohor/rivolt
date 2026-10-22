@@ -87,7 +87,7 @@ struct ActivityView: View {
         HStack(alignment: .center, spacing: 8) {
             Text("Activity").themeText(.hero).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            ThemeStepper(title: month.title(calendar: calendar), canGoForward: !month.isCurrent(now: .now, calendar: calendar),
+            ThemeStepper(title: month.title(calendar: calendar), spokenTitle: month.spokenTitle(calendar: calendar), canGoForward: !month.isCurrent(now: .now, calendar: calendar),
                          previous: { month = month.shifted(by: -1, calendar: calendar) },
                          next: { month = month.shifted(by: 1, calendar: calendar) })
         }
