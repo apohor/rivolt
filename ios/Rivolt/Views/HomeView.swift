@@ -49,7 +49,7 @@ struct HomeView: View {
                                let charging = ChargingDetail.make(summary: summary, session: session, charge: latestCharge) {
                                 ChargingDetailCard(detail: charging)
                             }
-                            NowCard(vehicle: vehicle, summary: summary, place: summary.kind == .charging ? latestCharge?.placeLabel : nil)
+                            NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge))
                             ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             if summary.freshness != .stale,
                                let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {

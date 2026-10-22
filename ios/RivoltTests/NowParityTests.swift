@@ -67,4 +67,27 @@ final class NowParityTests: XCTestCase {
         XCTAssertEqual(NowFormat.ago(3 * 3600), "3 h ago")
         XCTAssertEqual(NowFormat.ago(50 * 3600), "2 d ago")
     }
+
+    func testThePlaceBelongsToTheCurrentSessionOnly() throws {
+        let st = try Fixture.decode(VehicleState.self, "state")
+        let now = try Fixture.decode(NowSnapshot.self, "now_v1")
+        let started = try XCTUnwrap(now.charge?.startedAt)
+        let sum = NowSummary(state: st, now: now, clock: started.addingTimeInterval(600))
+        XCTAssertEqual(sum.kind, .charging)
+        func row(_ start: Date?) throws -> ChargeBrief {
+            let iso = start.map { "\"StartedAt\":\"\(ISO8601DateFormatter().string(from: $0))\"," } ?? ""
+            let json = "[{\"ID\":\"c\",\(iso)\"EnergyAddedKWh\":1,\"Cost\":0,\"kind\":\"ac\",\"place\":\"home\"}]"
+            return try XCTUnwrap(JSON.decoder().decode([ChargeBrief].self, from: Data(json.utf8)).first)
+        }
+        // This session's own row: the place is its.
+        XCTAssertEqual(ChargingPlace.label(summary: sum, charge: try row(started.addingTimeInterval(120))), "Home")
+        // The previous, finished session was at home; the current one is somewhere else: no place.
+        XCTAssertNil(ChargingPlace.label(summary: sum, charge: try row(started.addingTimeInterval(-86_400))))
+        // A row with no start time can't be tied to the session.
+        XCTAssertNil(ChargingPlace.label(summary: sum, charge: try row(nil)))
+        // No session start from the server: never guess.
+        let noStart = NowSummary(state: st, now: nil, clock: started)
+        XCTAssertNil(ChargingPlace.label(summary: noStart, charge: try row(started)))
+        XCTAssertNil(ChargingPlace.label(summary: sum, charge: nil))
+    }
 }

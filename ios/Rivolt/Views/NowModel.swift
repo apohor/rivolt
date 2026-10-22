@@ -41,6 +41,8 @@ struct NowSummary: Equatable {
     let ageSec: TimeInterval?
     /// Percentage points since the current state began (parked, plugged or asleep only).
     let socChangeSinceState: Double?
+    /// When the charge in progress began, from `/now`; nil when there is none or the server doesn't say.
+    let chargeStartedAt: Date?
     /// From `/now`: failed sleeps in the last 6 hours and the lowest tire pressure.
     let failedSleeps6h: Int?
     let tireMinBar: Double?
@@ -110,6 +112,7 @@ struct NowSummary: Equatable {
         } else {
             socChangeSinceState = nil
         }
+        chargeStartedAt = now?.charge?.startedAt
         failedSleeps6h = now?.failedSleeps6h
         tireMinBar = now?.tirePressureMinBar
         switch now?.connection {
