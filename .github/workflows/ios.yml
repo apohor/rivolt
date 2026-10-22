@@ -307,6 +307,25 @@ jobs:
           xcodegen --version
           xcodegen generate
 
+      # The signed archive takes its entitlements from CODE_SIGN_ENTITLEMENTS in Release; a project.yml mistake that
+      # drops it (ios-v0.2.4: `configs:` nested under `info:`) builds fine unsigned and only fails at upload.
+      - name: Release entitlements are set for the app and both extensions
+        run: |
+          set -euo pipefail
+          for pair in Rivolt=Rivolt/Rivolt.entitlements \
+                      RivoltNotificationService=RivoltNotificationService/RivoltNotificationService.entitlements \
+                      RivoltWidgets=RivoltWidgets/RivoltWidgets.entitlements; do
+            target="${pair%%=*}" want="${pair#*=}"
+            got=$(xcodebuild -showBuildSettings -project ios/Rivolt.xcodeproj -target "$target" -configuration Release 2>/dev/null \
+              | awk -F' = ' '$1 ~ /^ *CODE_SIGN_ENTITLEMENTS$/ {print $2}' || true)
+            if [ "$got" != "$want" ]; then
+              echo "::error::$target Release CODE_SIGN_ENTITLEMENTS is '$got', want '$want'"
+              exit 1
+            fi
+            test -f "ios/$want" || { echo "::error::ios/$want is missing"; exit 1; }
+            echo "$target: $got"
+          done
+
       # The App Store rejects what a simulator test build never shows (app icon,
       # iPhone-only family): build Release for a device, unsigned, and run the
       # same check ios-testflight.yml runs on the signed archive before upload.
