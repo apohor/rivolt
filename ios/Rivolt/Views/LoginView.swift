@@ -173,7 +173,7 @@ struct LoginView: View {
 }
 
 /// The web's secondary button (the sign-in page's "Continue with …"): the card colour, a 1 px border, primary text.
-/// TODO: replace with the Theme's secondary style once ux adds one.
+/// Theme colours and sizes only. Stopgap: replaced by the Theme's secondary style (asked of ux) before parity sign-off.
 private struct OutlinedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -181,7 +181,7 @@ private struct OutlinedButtonStyle: ButtonStyle {
             .foregroundStyle(Theme.textPrimary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 2.5 * Theme.unit)
-            .background(Theme.card.opacity(configuration.isPressed ? 1 : 0.8), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+            .background(configuration.isPressed ? Theme.border : Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
     }
 }
