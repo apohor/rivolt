@@ -137,9 +137,18 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
     dark: { file: "src/index.css", css: "background-color: oklch(13.5% 0.009 262)", use: "top bar and bottom tab bar, fully solid" },
     light: { file: "src/index.css", css: "background-color: oklch(99% 0 0)", use: "top bar and bottom tab bar, fully solid" },
   },
+  // The Now hero's light pool at rest and while charging; heroTintDriving while driving.
   heroTint: {
     dark: { file: "src/index.css", css: "radial-gradient(70% 90% at 14% 0%, oklch(78% 0.15 168 / 0.13), transparent 72%)", use: "light pool behind the Now hero metric" },
     light: { file: "src/index.css", css: "radial-gradient(70% 90% at 14% 0%, oklch(80% 0.12 168 / 0.2), transparent 72%)", use: "light pool behind the Now hero metric" },
+  },
+  pageGlow: {
+    dark: { file: "src/index.css", css: "radial-gradient(120% 60% at 50% -10%, oklch(40% 0.05 250 / 0.18), transparent 70%)", use: "glow at the top of the page (body background, fixed)" },
+    light: { file: "src/index.css", css: "radial-gradient(120% 60% at 50% -10%, oklch(90% 0.05 168 / 0.35), transparent 70%)", use: "glow at the top of the page (body background, fixed)" },
+  },
+  heroTintDriving: {
+    dark: { file: "src/index.css", css: "radial-gradient(70% 90% at 14% 0%, oklch(76% 0.12 235 / 0.13), transparent 72%)", use: "light pool behind the Now hero metric while driving (replaces heroTint)" },
+    light: { file: "src/index.css", css: "radial-gradient(70% 90% at 14% 0%, oklch(80% 0.1 235 / 0.2), transparent 72%)", use: "light pool behind the Now hero metric while driving (replaces heroTint)" },
   },
   cardSheen: {
     dark: { file: "src/index.css", css: "linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%)", use: "faint top-down sheen on cards" },
@@ -170,6 +179,10 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
     dark: { file: "src/index.css", css: "border-color: oklch(76% 0.12 235 / 0.42)", use: "Now hero border while driving" },
     light: { file: "src/index.css", css: "border-color: oklch(58% 0.12 235 / 0.5)", use: "Now hero border while driving" },
   },
+  glowDrivingRing: {
+    dark: { file: "src/index.css", css: "0 0 0 1px oklch(76% 0.12 235 / 0.16)", use: "1px ring outside the hero while driving" },
+    light: { file: "src/index.css", css: "0 0 0 1px oklch(58% 0.12 235 / 0.18)", use: "1px ring outside the hero while driving" },
+  },
   glowDrivingHalo: {
     dark: { file: "src/index.css", css: "0 0 44px -10px oklch(76% 0.12 235 / 0.4)", use: "soft halo around the hero while driving" },
     light: { file: "src/index.css", css: "0 0 32px -12px oklch(58% 0.12 235 / 0.45)", use: "soft halo around the hero while driving" },
@@ -181,6 +194,10 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   glowSparkLine: {
     dark: { file: "src/index.css", css: "drop-shadow(0 0 4px oklch(78% 0.15 168 / 0.7))", use: "charging-power sparkline" },
     light: { file: "src/index.css", css: "drop-shadow(0 0 3px oklch(60% 0.14 168 / 0.45))", use: "charging-power sparkline" },
+  },
+  glowSparkDot: {
+    dark: { file: "src/index.css", css: "drop-shadow(0 0 5px oklch(84% 0.14 168 / 0.9))", use: "charging-power sparkline's last point" },
+    light: { file: "src/index.css", css: "drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.7))", use: "charging-power sparkline's last point" },
   },
   // ArcGauge's three fills, a 2-stop diagonal gradient each (same in both themes).
   gaugeOkFrom: { both: { file: "src/components/ArcGauge.tsx", css: 'stopColor="oklch(78% 0.15 168)"', use: "gauge fill, normal" } },
