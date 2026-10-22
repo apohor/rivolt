@@ -82,24 +82,27 @@ final class SocChartTests: XCTestCase {
     @MainActor
     func testRenderTheRoadTripMonth() throws {
         Theme.registerFonts()
-        let now = try date("2026-10-22T10:00:00Z")
-        let month = PeriodMonth(containing: now, calendar: utc)
-        let charts = ChartsModel(points: try roadTrip(), sleep: [])
-        let page = ChartsSection(model: charts, month: month, limit: 70, now: now, calendar: utc)
-            .padding(16).frame(width: 390).background(ThemePageBackground())
-        for scheme in [ColorScheme.light, .dark] {
-            let renderer = ImageRenderer(content: page.environment(\.colorScheme, scheme).fixedSize(horizontal: false, vertical: true))
-            renderer.scale = 3
-            let image = try XCTUnwrap(renderer.uiImage, "road-trip chart did not render")
-            let png = try XCTUnwrap(image.pngData())
-            let file = "soc-roadtrip-\(scheme == .dark ? "dark" : "light").png"
-            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
-            attachment.name = file
-            attachment.lifetime = .keepAlways
-            add(attachment)
-            if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
-                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
+        // The 22nd: room to the right of now for the limit's value. The 29th: none, so it goes above the segment.
+        for (name, nowISO) in [("soc-roadtrip", "2026-10-22T10:00:00Z"), ("soc-roadtrip-late", "2026-10-29T10:00:00Z")] {
+            let now = try date(nowISO)
+            let month = PeriodMonth(containing: now, calendar: utc)
+            let charts = ChartsModel(points: try roadTrip(), sleep: [])
+            let page = ChartsSection(model: charts, month: month, limit: 70, now: now, calendar: utc)
+                .padding(16).frame(width: 390).background(ThemePageBackground())
+            for scheme in [ColorScheme.light, .dark] {
+                let renderer = ImageRenderer(content: page.environment(\.colorScheme, scheme).fixedSize(horizontal: false, vertical: true))
+                renderer.scale = 3
+                let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
+                let png = try XCTUnwrap(image.pngData())
+                let file = "\(name)-\(scheme == .dark ? "dark" : "light").png"
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = file
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
+                    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                    try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
+                }
             }
         }
     }
