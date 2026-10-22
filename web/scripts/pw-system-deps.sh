@@ -29,9 +29,25 @@ if [ "$project" = "chromium" ]; then
   fi
 fi
 
+# timeout stops npx but not the root apt-get it started: that one keeps the dpkg lock, so the retry would fail at once.
+stop_apt() {
+  sudo pkill -TERM -x apt-get 2>/dev/null || true
+  sudo pkill -TERM -x apt 2>/dev/null || true
+  sleep 3
+  sudo pkill -KILL -x apt-get 2>/dev/null || true
+  sudo dpkg --configure -a 2>/dev/null || true
+}
+
+# The retry goes to Canonical's own archive: the runner's mirror list is what just stalled.
+use_main_archive() {
+  local f=/etc/apt/sources.list.d/ubuntu.sources
+  [ -f "$f" ] && sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' "$f" || true
+}
+
 for attempt in 1 2; do
   if timeout 300 npx playwright install-deps "$project"; then exit 0; fi
   echo "::warning::playwright install-deps $project: attempt $attempt failed or took over 5 minutes (slow apt mirror?)"
+  if [ "$attempt" = 1 ]; then stop_apt; use_main_archive; fi
 done
 echo "::error::playwright install-deps $project failed twice; the apt mirror is probably slow. Re-run the job."
 exit 1
