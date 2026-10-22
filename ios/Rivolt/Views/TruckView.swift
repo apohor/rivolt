@@ -26,7 +26,6 @@ struct TruckView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
                 Group {
                     if let v = selected {
                         TruckContent(model: model, vehicle: v, drainKey: $drainKey, temp: temp, pickTemp: { pickedTemp = $0 },
@@ -41,10 +40,6 @@ struct TruckView: View {
                 }
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
-                PageFooter(server: state.serverURL)
-                    .padding(.horizontal, 4 * Theme.unit)
-                    .padding(.bottom, 4 * Theme.unit)
-                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
