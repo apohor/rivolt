@@ -224,6 +224,18 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 				t.Errorf("%s %s refused for the browser session", c[0], c[1])
 			}
 		}
+		// The reads that are not plain reads: refused for the app's token, open to the browser.
+		for _, p := range []string{"/api/export", "/api/data/backup", "/api/state/veh-x/fresh"} {
+			if w := do(app(http.MethodGet, p, tok.Token)); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), appWriteDenied) {
+				t.Errorf("GET %s with the app token: %d %q, want the refusal", p, w.Code, w.Body.String())
+			}
+			if w := do(browser(http.MethodGet, p, "")); strings.Contains(w.Body.String(), appWriteDenied) {
+				t.Errorf("GET %s refused for the browser session", p)
+			}
+		}
+		if w := do(app(http.MethodGet, "/api/ledger/monthly.csv", tok.Token)); strings.Contains(w.Body.String(), appWriteDenied) {
+			t.Error("the Money tab's CSV was refused for the app token")
+		}
 		for _, c := range [][2]string{
 			{http.MethodPost, "/api/push/apns/test"},
 			{http.MethodPost, "/api/push/apns/register"},
