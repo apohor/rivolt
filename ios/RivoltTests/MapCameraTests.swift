@@ -98,6 +98,7 @@ final class MapCameraTests: XCTestCase {
         let loaded = try styleIn(map)
         XCTAssertNotNil(loaded.source(withIdentifier: MapStyle.chargerSourceID) as? MLNVectorTileSource)
         XCTAssertNotNil(loaded.layer(withIdentifier: MapStyle.chargerProbeLayerID))
+        XCTAssertFalse(MapStyle.chargerSourceID.hasPrefix(ChargeMapView.sourceID), "clear() would remove the archive")
         let points = try XCTUnwrap(loaded.source(withIdentifier: "\(ChargeMapView.sourceID)-points") as? MLNShapeSource)
         XCTAssertEqual((points.shape as? MLNShapeCollectionFeature)?.shapes.count, 1)
         XCTAssertNotNil(loaded.image(forName: ChargeMapView.chargerImage))

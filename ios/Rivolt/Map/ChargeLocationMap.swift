@@ -109,8 +109,10 @@ struct ChargeMapView: UIViewRepresentable {
     var onHealth: (MapHealth) -> Void = { _ in }
     var onPin: (ChargerPin.Pin) -> Void = { _ in }
 
-    static let sourceID = "rivolt-charge"
-    static let chargerImage = "rivolt-charge-charger"
+    /// The prefix of this map's own sources and layers (`clear` removes them); never a prefix of the charger
+    /// archive's ids (MapStyle.chargerSourceID, "rivolt-chargers…"), which the style itself carries.
+    static let sourceID = "rivolt-charge-pin"
+    static let chargerImage = "rivolt-charge-pin-image"
     static let zoom = 16.0
 
     func makeCoordinator() -> Coordinator { Coordinator(location: location, onHealth: onHealth, onPin: onPin) }
