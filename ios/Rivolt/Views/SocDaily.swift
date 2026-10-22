@@ -66,7 +66,7 @@ enum SocDaily {
     }
 }
 
-/// One rounded bar per day from its lowest to its highest level (green on a day the truck charged, a bolt on a fast
+/// One rounded bar per day (60% of the day's slot wide) from its lowest to its highest level (green on a day the truck charged, a bolt on a fast
 /// charge, neutral otherwise), a dot at the end of the day joined by a thin line, a faint tint under 20%, and the charge
 /// limit as a faint step line behind. The high and the low of the month are named under the chart.
 struct SocDailyChart: View {
@@ -157,7 +157,7 @@ struct SocDailyChart: View {
     @ChartContentBuilder
     private var barMarks: some ChartContent {
         ForEach(days) { d in
-            RectangleMark(x: .value("Day", d.day, unit: .day), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 1.5)), width: .fixed(6))
+            RectangleMark(x: .value("Day", d.day, unit: .day), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 1.5)), width: .ratio(0.6))
                 .cornerRadius(3)
                 .foregroundStyle(d.charged ? Theme.chartSocCharge : Theme.textTertiary.opacity(0.5))
         }
