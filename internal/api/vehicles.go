@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,6 +146,21 @@ type packHealthResponse struct {
 	Samples  []packhealth.Sample `json:"samples"`
 }
 
+// packHealthMaxLimit bounds ?limit on pack-health.
+const packHealthMaxLimit = 5000
+
+// newestSamples is the last n of an oldest-first series (all of it when n is 0 or
+// at least its length). It never returns nil.
+func newestSamples(samples []packhealth.Sample, n int) []packhealth.Sample {
+	if n > 0 && len(samples) > n {
+		samples = samples[len(samples)-n:]
+	}
+	if samples == nil {
+		return []packhealth.Sample{}
+	}
+	return samples
+}
+
 // handlePackHealthGet returns the derived effective-pack-capacity
 // time series for a vehicle, plus a headline (current effective
 // kWh + % of nameplate). Time series is oldest-first so the SPA
@@ -153,6 +169,18 @@ type packHealthResponse struct {
 // state.
 func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		// ?limit=N keeps only the newest N samples in the answer (a phone chart does
+		// not need every charge since the truck was bought); the headline is still
+		// worked out from all of them. Without it, every sample, as before.
+		limit := 0
+		if s := r.URL.Query().Get("limit"); s != "" {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 1 || n > packHealthMaxLimit {
+				http.Error(w, "limit must be 1 to "+strconv.Itoa(packHealthMaxLimit), http.StatusBadRequest)
+				return
+			}
+			limit = n
+		}
 		if sqlDB == nil || ph == nil {
 			http.Error(w, "pack-health unavailable", http.StatusServiceUnavailable)
 			return
@@ -231,7 +259,7 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 			reportedPctOfDocumented = reportedKWh / documentedKWh * 100.0
 		}
 		writeJSON(w, http.StatusOK, packHealthResponse{
-			Samples: samples,
+			Samples: newestSamples(samples, limit),
 			Headline: packHealthHeadline{
 				EffectiveKWh:            headlineEffective,
 				NameplateKWh:            nameplateKWh.Float64,
