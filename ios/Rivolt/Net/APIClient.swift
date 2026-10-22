@@ -221,6 +221,11 @@ actor APIClient {
         return f.string(from: date)
     }
 
+    /// Home, Away and Fast counts and energy in `[since, until)`. The server may answer 429 (a per-user limit).
+    func chargeSplit(since: Date, until: Date, vehicleID: String) async throws -> ChargeSplit {
+        try await request("GET", "/api/charge-split?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")
+    }
+
     /// Drives and charges in `[since, until)`: distances and charge levels only.
     func chartPoints(since: Date, until: Date, vehicleID: String) async throws -> ChartPoints {
         try await request("GET", "/api/chart-points?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle_id=\(queryValue(vehicleID))")
