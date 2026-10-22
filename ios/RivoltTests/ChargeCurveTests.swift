@@ -134,6 +134,30 @@ final class ChargeCurveTests: XCTestCase {
         XCTAssertEqual(ChargeCurve.deStair([pt(0, 50), pt(10, 50), pt(20, 50)]), [pt(0, 50), pt(20, 50)])
     }
 
+    func testTheOutsideTemperatureIsASeriesWithoutTheZeroSentinel() {
+        let samples = [
+            ChargeSample(at: t0, batteryLevelPct: 50, chargerPowerKw: 7, packTempAvgC: nil, packTempMinC: nil, packTempMaxC: nil, outsideTempC: 12),
+            ChargeSample(at: t0.addingTimeInterval(60), batteryLevelPct: 51, chargerPowerKw: 7, packTempAvgC: nil, packTempMinC: nil, packTempMaxC: nil, outsideTempC: 0),
+            ChargeSample(at: t0.addingTimeInterval(120), batteryLevelPct: 52, chargerPowerKw: 7, packTempAvgC: nil, packTempMinC: nil, packTempMaxC: nil, outsideTempC: 13),
+            ChargeSample(at: t0.addingTimeInterval(180), batteryLevelPct: 53, chargerPowerKw: 7, packTempAvgC: nil, packTempMinC: nil, packTempMaxC: nil),
+        ]
+        let s = ChargeCurve.series(samples, from: t0, to: t0.addingTimeInterval(180))
+        XCTAssertEqual(s.outsideC.map(\.at), [0, 120].map { t0.addingTimeInterval($0) }, "0 and absent readings are left out")
+        XCTAssertTrue(ChargeCurve.series([sample(0, soc: 50, kw: 7)], from: t0, to: t0).outsideC.isEmpty)
+    }
+
+    func testALabelBelowALineNearTheFloorGoesAboveIt() {
+        XCTAssertTrue(ChargeCurveView.labelAbove(true, y: 0.5), "the pack's labels are above")
+        XCTAssertFalse(ChargeCurveView.labelAbove(false, y: 0.5), "the outside's are below")
+        XCTAssertTrue(ChargeCurveView.labelAbove(false, y: 0.05), "but not onto the time labels")
+    }
+
+    func testThePackSpreadIsStatedNotJudged() {
+        XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: false), "Pack cell temperatures: the hottest and coolest cells were up to 9.0°F apart.")
+        XCTAssertEqual(ChargeCurveView.spreadNote(spreadC: 5, metric: true), "Pack cell temperatures: the hottest and coolest cells were up to 5.0°C apart.")
+        XCTAssertFalse(ChargeCurveView.spreadNote(spreadC: 5, metric: false).contains("imbalance"), "no verdict: a DC charge normally has a spread")
+    }
+
     func testTheReadoutFindsTheNearestSample() {
         let pts = [pt(0, 10), pt(60, 20), pt(120, 30)]
         XCTAssertEqual(ChargeCurve.nearest(pts, to: t0.addingTimeInterval(50)), 20)

@@ -22,7 +22,8 @@ final class ChargeCurveSnapshotTests: XCTestCase {
             let kw = f < 0.06 ? 40 + f / 0.06 * 110 : max(25, 150 - (f - 0.06) * 150)
             let pack = 22 + 19 * f
             out.append(ChargeSample(at: start.addingTimeInterval(t), batteryLevelPct: 18 + 56 * f + (i % 3 == 0 ? 0.4 : 0),
-                                    chargerPowerKw: kw + Double(i % 5) * 2, packTempAvgC: pack, packTempMinC: pack - 2, packTempMaxC: pack + 3))
+                                    chargerPowerKw: kw + Double(i % 5) * 2, packTempAvgC: pack, packTempMinC: pack - 2, packTempMaxC: pack + 3,
+                                    outsideTempC: 9 - 5 * f))
         }
         return (out, start.addingTimeInterval(2_460))
     }
@@ -73,6 +74,10 @@ final class ChargeCurveSnapshotTests: XCTestCase {
             .padding(16).frame(width: 390).background(ThemePageBackground())
         }
         try render("charge-curve-dc", card(dcSeries, 18, 74, 152))
+        // Both temperature overlays on: the pack's dashed violet and the outside temperature's thin blue.
+        try render("charge-curve-dc-overlays", ThemeSection(title: "Charge") {
+            ChargeCurveView(series: dcSeries, startPct: 18, endPct: 74, peakKw: 152, calendar: utc, metric: false, showPack: true, showOutside: true)
+        }.padding(16).frame(width: 390).background(ThemePageBackground()))
         try render("charge-curve-home", card(homeSeries, 55, 85, 7.2))
     }
 

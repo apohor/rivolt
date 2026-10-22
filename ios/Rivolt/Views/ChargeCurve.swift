@@ -13,6 +13,8 @@ enum ChargeCurve {
         var soc: [Pt] = []
         var power: [Pt] = []
         var packAvgC: [Pt] = []
+        /// The truck's own outside-temperature sensor over the session, in °C (a reading of 0 is "not reported").
+        var outsideC: [Pt] = []
         /// The widest gap between the hottest and the coolest cell in any sample, in °C; 0 when not reported.
         var packSpreadC: Double = 0
     }
@@ -104,11 +106,15 @@ enum ChargeCurve {
             guard let v = s.packTempAvgC, v.isFinite, v != 0 else { return nil }
             return Pt(at: s.at, value: v)
         }
+        let outside = window.compactMap { s -> Pt? in
+            guard let v = s.outsideTempC, v.isFinite, v != 0 else { return nil }
+            return Pt(at: s.at, value: v)
+        }
         let spread = window.compactMap { s -> Double? in
             guard let hi = s.packTempMaxC, let lo = s.packTempMinC, hi.isFinite, lo.isFinite, hi > lo else { return nil }
             return hi - lo
         }.max() ?? 0
-        return Series(soc: smooth(deStair(soc), sigma: 30), power: smooth(power, sigma: 45), packAvgC: smooth(pack, sigma: 60), packSpreadC: spread)
+        return Series(soc: smooth(deStair(soc), sigma: 30), power: smooth(power, sigma: 45), packAvgC: smooth(pack, sigma: 60), outsideC: smooth(outside, sigma: 60), packSpreadC: spread)
     }
 
     /// The power axis ceiling, snapped to the common charger classes (a 7 kW home session and a 250 kW pull both look
