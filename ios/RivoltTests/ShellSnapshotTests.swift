@@ -29,13 +29,15 @@ final class ShellSnapshotTests: XCTestCase {
 
     private func vehicle() throws -> Vehicle { try Fixture.decode([Vehicle].self, "vehicles")[0] }
 
-    private func summary(_ kind: String, soc: Double, kph: Double? = nil, power: Double? = nil, target: Double? = 80, age: TimeInterval = 20) -> NowSummary {
-        let at = Date(timeIntervalSince1970: 1_800_000_000)
+    private let at = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// One of the web's Now states as a summary: `age` is how old the newest frame is.
+    private func summary(soc: Double, gear: String = "P", power: String? = nil, kw: Double? = nil, sleep: Bool = false,
+                         kph: Double? = nil, target: Double? = 80, age: TimeInterval = 20, peak: Double? = nil) -> NowSummary {
         let input = NowSummary.Input(
-            socPct: soc, rangeKm: 325, chargeTargetPct: target,
-            gear: kind == "driving" ? "D" : "P", powerState: kind == "asleep" ? "sleep" : "ready",
-            chargerState: kind == "charging" ? "charging_active" : nil, chargerPowerKw: power, at: at, packKwh: 131, speedKph: kph)
-        return NowSummary(input: input, now: nil, clock: at.addingTimeInterval(age))
+            socPct: soc, rangeKm: soc * 3.0, chargeTargetPct: target, gear: gear, powerState: sleep ? "sleep" : "ready",
+            chargerState: power, chargerPowerKw: kw, at: at.addingTimeInterval(-age), packKwh: 131, speedKph: kph)
+        return NowSummary(input: input, now: nil, clock: at)
     }
 
     private func render(_ name: String, _ content: some View) throws {
@@ -58,15 +60,25 @@ final class ShellSnapshotTests: XCTestCase {
         }
     }
 
+    /// The web's eleven Now states (qa's clean set), each as the hero and any warning under it.
     func testRenderTheNowStates() throws {
         let v = try vehicle()
-        let at = Date(timeIntervalSince1970: 1_800_000_000)
-        func card(_ s: NowSummary, age: TimeInterval = 20) -> NowCard { NowCard(vehicle: v, summary: s, clock: at.addingTimeInterval(age)) }
-        try render("shell-now-charging", page(card(summary("charging", soc: 52, power: 7.2))))
-        try render("shell-now-driving", page(card(summary("driving", soc: 58, kph: 88))))
-        try render("shell-now-parked", page(card(summary("parked", soc: 67))))
-        try render("shell-now-asleep", page(card(summary("asleep", soc: 67))))
-        try render("shell-now-stale", page(card(summary("parked", soc: 41, age: 3 * 3600), age: 3 * 3600)))
-        try render("shell-now-low", page(card(summary("parked", soc: 9))))
+        func state(_ name: String, _ s: NowSummary) throws {
+            let alerts = NowCard.alerts(for: s, vehicleName: v.name)
+            try render("shell-now-\(name)", page(VStack(spacing: 16) {
+                NowCard(vehicle: v, summary: s, clock: at)
+                ForEach(alerts) { NowAlertBanner(alert: $0) }
+            }))
+        }
+        try state("asleep", summary(soc: 67, sleep: true, age: 60))
+        try state("awake-parked", summary(soc: 67))
+        try state("charge-complete", summary(soc: 80, power: "charger_connected", kw: 0))
+        try state("charging-fast", summary(soc: 31, power: "charging_active", kw: 142, peak: 150))
+        try state("charging-home", summary(soc: 52, power: "charging_active", kw: 7.2))
+        try state("driving", summary(soc: 58, gear: "D", kph: 88))
+        try state("low-battery", summary(soc: 7))
+        try state("offline", summary(soc: 67, age: 47 * 3600))
+        try state("plugged-idle", summary(soc: 55, power: "charger_connected", kw: 0))
+        try state("stale", summary(soc: 41, age: 5 * 60))
     }
 }

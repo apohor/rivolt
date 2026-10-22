@@ -33,6 +33,17 @@ struct NowSummary: Equatable {
     let packKwh: Double?
     /// Speed in km/h, when the truck reports one.
     let speedKph: Double?
+    /// What the truck is doing, as the server (or `/state`) says; the label above is this in words.
+    let kind: NowSnapshot.State
+    /// The newest frame says the truck is asleep, whatever `kind` reads (a plugged-in truck can sleep).
+    let sleeping: Bool
+    /// How old the newest frame is, at the `clock` the summary was made with.
+    let ageSec: TimeInterval?
+    /// Percentage points since the current state began (parked, plugged or asleep only).
+    let socChangeSinceState: Double?
+    /// From `/now`: failed sleeps in the last 6 hours and the lowest tire pressure.
+    let failedSleeps6h: Int?
+    let tireMinBar: Double?
 
     /// The few fields the card works from. The widget builds this directly from
     /// the fields it decodes (it never decodes a location), the app from a full
@@ -80,6 +91,8 @@ struct NowSummary: Equatable {
         chargeTargetPct = input.flatMap { $0.chargeTargetPct.flatMap { $0 > 0 ? $0 : nil } }
 
         let kind = now?.state ?? NowSummary.inferState(from: input)
+        self.kind = kind
+        sleeping = now?.asleep ?? (input?.powerState == "sleep")
         stateLabel = NowSummary.label(kind, asleep: now?.asleep ?? false)
         since = now?.stateSince
         chargePowerKw = (kind == .charging) ? input?.chargerPowerKw.flatMap { $0 > 0 ? $0 : nil } : nil
@@ -91,6 +104,14 @@ struct NowSummary: Equatable {
         chargePeakKw = now?.charge?.peakKw
 
         lastSeen = [now?.at, input?.at].compactMap { $0 }.max()
+        ageSec = lastSeen.map { max(0, clock.timeIntervalSince($0)) }
+        if let start = now?.socAtStateStart, let soc = input?.socPct, [.parked, .plugged, .asleep].contains(kind) {
+            socChangeSinceState = soc - start
+        } else {
+            socChangeSinceState = nil
+        }
+        failedSleeps6h = now?.failedSleeps6h
+        tireMinBar = now?.tirePressureMinBar
         switch now?.connection {
         case .reauth?: freshness = .needsReconnect
         case .paused?: freshness = .paused
@@ -104,6 +125,23 @@ struct NowSummary: Equatable {
         outsideTempC = now?.ambient?.tempC
         packKwh = input?.packKwh.flatMap { $0 > 0 ? $0 : nil }
         speedKph = (kind == .driving) ? input?.speedKph.flatMap { $0 >= 0 ? $0 : nil } : nil
+    }
+
+    /// How current the newest frame is, by the web's limits (Now's hero): stale past the first, offline past the second.
+    /// Separate from `freshness`, which the widgets use with their own, looser cadence.
+    enum Presence: Equatable { case live, stale, offline }
+
+    var presence: Presence {
+        guard let age = ageSec else { return .offline }
+        let limits: (stale: TimeInterval, offline: TimeInterval)
+        switch kind == .plugged ? (sleeping ? NowSnapshot.State.asleep : .parked) : kind {
+        case .driving: limits = (30, 180)
+        case .charging: limits = (120, 600)
+        case .asleep: limits = (1800, 2700)
+        default: limits = (120, 900)
+        }
+        if age > limits.offline { return .offline }
+        return age > limits.stale ? .stale : .live
     }
 
     /// How old the newest data may be before the card says it may be out of

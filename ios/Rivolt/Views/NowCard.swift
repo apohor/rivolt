@@ -12,10 +12,13 @@ struct NowCard: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var charging: Bool { summary.stateLabel == "Charging" }
-    private var driving: Bool { summary.stateLabel == "Driving" }
-    private var isLive: Bool { summary.freshness == .fresh }
-    private var critical: Bool { (summary.socPct ?? 100) < 15 && summary.socPct != nil }
+    private var offline: Bool { summary.presence == .offline || summary.freshness == .needsReconnect }
+    private var charging: Bool { summary.kind == .charging && !offline }
+    private var driving: Bool { summary.kind == .driving && !offline }
+    private var plugged: Bool { summary.kind == .plugged && !offline }
+    private var isLive: Bool { summary.presence == .live && summary.freshness != .needsReconnect && summary.freshness != .paused }
+    /// Under 10%, as on the web.
+    private var critical: Bool { Self.isCritical(summary) }
 
     private var liveKind: ThemeLive {
         guard isLive else { return .none }
@@ -23,8 +26,8 @@ struct NowCard: View {
     }
 
     private var tone: ThemeGaugeTone {
-        if critical { return .critical }
-        return summary.freshness == .fresh || summary.freshness == .stale ? .ok : .idle
+        if offline { return .idle }
+        return critical ? .critical : .ok
     }
 
     var body: some View {
@@ -45,7 +48,7 @@ struct NowCard: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(vehicle.name).themeText(.label)
-                Text(summary.stateLabel).themeText(.value)
+                Text(Self.headline(for: summary)).themeText(.value)
             }
             Spacer(minLength: 8)
             let pill = Self.pill(for: summary, clock: clock)
@@ -58,15 +61,15 @@ struct NowCard: View {
     private var gaugeRow: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
         return layout {
-            ThemeGauge(value: summary.socPct ?? 0, limit: charging ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
+            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
-                        .themeText(.hero, color: critical ? Theme.critical : summary.socPct == nil ? Theme.textTertiary : nil)
+                        .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
                     Text("%").themeText(.value, color: Theme.textSecondary)
                 }
             }
             VStack(alignment: .leading, spacing: 12) {
-                if charging, let target = summary.chargeTargetPct {
+                if charging || plugged, let target = summary.chargeTargetPct {
                     figure("Charge limit", "\(Int(target.rounded()))", "%")
                 }
                 if driving, let kph = summary.speedKph {
@@ -103,10 +106,10 @@ struct NowCard: View {
     @ViewBuilder
     private var chargingRows: some View {
         VStack(spacing: 8) {
-            if let kw = summary.chargePowerKw { readout("Power", "\(NowFormat.oneDecimal(kw)) kW") }
+            if let kw = summary.chargePowerKw { readout("Power", "\(kw.formatted(.number.precision(.fractionLength(kw < 10 ? 1 : 0)))) kW") }
             if let t = timeLeft { readout("Time left", "\(t) · est.") }
-            if let added = summary.chargeAddedPct {
-                readout("This charge", "+\(Int(added.rounded()))%")
+            if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
+                readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
         }
     }
@@ -121,20 +124,10 @@ struct NowCard: View {
 
     // MARK: Footer
 
-    private var footer: String {
-        switch summary.freshness {
-        case .needsReconnect: return "Reconnect your Rivian account on the web to see live data."
-        case .paused: return "Recording is paused for this truck."
-        case .fresh, .stale, .unknown:
-            guard let seen = summary.lastSeen else { return "No data yet" }
-            let ago = NowFormat.ago(clock.timeIntervalSince(seen))
-            let base = summary.stateLabel == "Asleep" ? "Asleep · updated \(ago)" : "Updated \(ago)"
-            return summary.freshness == .stale ? "\(base), may be out of date" : base
-        }
-    }
+    private var footer: String { Self.footer(for: summary, clock: clock) }
 
     private var spoken: String {
-        var parts = ["\(vehicle.name). \(summary.stateLabel)."]
+        var parts = ["\(vehicle.name). \(Self.headline(for: summary))."]
         if let soc = summary.socPct {
             parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
         }
@@ -155,16 +148,71 @@ struct NowCard: View {
     /// Live while the data is current to within two minutes, Asleep while a sleeping truck's rare frames are expected,
     /// otherwise how long ago it was last seen (amber once it is older than the truck's usual cadence).
     static func pill(for summary: NowSummary, clock: Date) -> (text: String, tone: ThemePill.Tone) {
-        switch summary.freshness {
-        case .needsReconnect: return ("Offline", .neutral)
-        case .paused: return ("Paused", .neutral)
-        case .unknown: return ("No data", .neutral)
-        case .fresh, .stale:
-            guard let seen = summary.lastSeen else { return ("No data", .neutral) }
-            let age = clock.timeIntervalSince(seen)
-            if summary.freshness == .fresh, summary.stateLabel == "Asleep" { return ("Asleep", .neutral) }
-            if summary.freshness == .fresh, age <= 120 { return ("Live", .live) }
-            return ("Last seen \(NowFormat.ago(age))", summary.freshness == .stale ? .stale : .neutral)
+        if summary.freshness == .needsReconnect || summary.presence == .offline { return ("Offline", .neutral) }
+        if summary.freshness == .paused { return ("Paused", .neutral) }
+        guard let age = summary.ageSec else { return ("No data", .neutral) }
+        if summary.presence == .live, summary.kind == .asleep || (summary.kind == .plugged && summary.sleeping) { return ("Asleep", .neutral) }
+        if summary.presence == .live, age <= 120 { return ("Live", .live) }
+        return ("Last seen \(NowFormat.ago(age))", summary.presence == .stale ? .stale : .neutral)
+    }
+
+    /// The warnings under the hero, at most two: a low battery, a truck that keeps waking, a low tire.
+    static func alerts(for s: NowSummary, vehicleName: String) -> [NowAlert] {
+        var out: [NowAlert] = []
+        if isCritical(s), let soc = s.socPct {
+            out.append(NowAlert(id: "critical-soc", tone: .rose, text: "Battery at \(Int(soc.rounded()))%. Plan a charge soon."))
+        }
+        if let n = s.failedSleeps6h, n >= 3 {
+            out.append(NowAlert(id: "waking", tone: .amber, text: "\(vehicleName) woke up \(n) times in the last 6 hours."))
+        }
+        if let bar = s.tireMinBar, bar > 0, bar < 2.2 {
+            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(bar.formatted(.number.precision(.fractionLength(1)))) bar."))
+        }
+        return Array(out.prefix(2))
+    }
+
+    /// Under 10% and still in touch (an offline truck's last level isn't a warning).
+    static func isCritical(_ s: NowSummary) -> Bool {
+        guard let soc = s.socPct, soc > 0, soc < 10 else { return false }
+        return s.presence != .offline
+    }
+
+    /// What the truck is doing, in the web's words.
+    static func headline(for s: NowSummary) -> String {
+        if s.presence == .offline || s.freshness == .needsReconnect { return "Not heard from recently" }
+        switch s.kind {
+        case .driving: return "Driving"
+        case .charging:
+            if (s.chargePowerKw ?? 0) <= 0.3 { return "Starting to charge…" }
+            if max(s.chargePeakKw ?? 0, s.chargePowerKw ?? 0) >= 50 { return "Fast charging" }
+            return "Charging"
+        case .plugged:
+            if let soc = s.socPct, let limit = s.chargeTargetPct, soc >= limit - 1.5 { return "Plugged in, holding \(Int(limit.rounded()))%" }
+            return "Plugged in"
+        case .asleep: return "Asleep"
+        case .parked: return "Parked"
+        case .unknown: return s.stateLabel
+        }
+    }
+
+    /// How fresh it is, since when it has been in this state and how the level moved over it.
+    static func footer(for s: NowSummary, clock: Date) -> String {
+        switch s.freshness {
+        case .needsReconnect: return "Reconnect your Rivian account on the web to see live data."
+        case .paused: return "Recording is paused for this truck."
+        case .fresh, .stale, .unknown:
+            guard let seen = s.lastSeen, let age = s.ageSec else { return "No data yet" }
+            if s.presence == .offline {
+                return "Last contact \(seen.formatted(date: .omitted, time: .shortened)) (\(NowFormat.ago(age).replacingOccurrences(of: " ago", with: "")) ago)"
+            }
+            var parts = [s.kind == .asleep ? "Asleep · updated \(NowFormat.ago(age))" : "Updated \(NowFormat.ago(age))"]
+            let stateful = [.parked, .plugged, .asleep].contains(s.kind)
+            if stateful, let since = s.since {
+                var text = "since \(since.formatted(date: .omitted, time: .shortened))"
+                if let d = s.socChangeSinceState, abs(d) >= 0.5 { text += " (\(d > 0 ? "+" : "−")\(Int(abs(d).rounded()))%)" }
+                parts.append(text)
+            }
+            return parts.joined(separator: " · ")
         }
     }
 
@@ -202,5 +250,31 @@ struct NowCard: View {
         var s = "+\(Int(added.rounded()))% this charge"
         if let peak = peakKw, peak > (powerKw ?? 0) * 1.1 { s += String(format: " · peak %.1f kW", peak) }
         return s
+    }
+}
+
+struct NowAlert: Equatable, Identifiable {
+    enum Tone { case rose, amber }
+    let id: String
+    let tone: Tone
+    let text: String
+}
+
+/// A warning under the hero, rose for the battery and amber for the rest, in the web's tones.
+struct NowAlertBanner: View {
+    let alert: NowAlert
+
+    private var edge: Color { alert.tone == .rose ? Theme.criticalBorder : Theme.estimateFill }
+    private var ink: Color { alert.tone == .rose ? Theme.critical : Theme.estimate }
+
+    var body: some View {
+        Text(alert.text)
+            .themeText(.value, color: ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
+            .background(edge.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(edge.opacity(0.5), lineWidth: 1))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(alert.text)
     }
 }
