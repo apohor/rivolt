@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// One drive or charge: tiles like the web's detail page and, for a drive, its route on our own map (DriveRouteMap:
-/// fetched when shown, in memory only). A charge stays figures only. The back link and the title sit under the same
+/// One drive or charge: tiles like the web's detail page, over our own map: a drive's route (DriveRouteMap) or where
+/// a charge happened (ChargeLocationMap), each fetched when shown and kept in memory only. The back link and the title sit under the same
 /// top bar as every screen.
 struct ActivityDetailView: View {
     let item: ActivityItem
@@ -35,6 +35,7 @@ struct ActivityDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
                 if case .drive(let d) = item { DriveRouteMap(driveID: d.id) }
+                if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
                     : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]

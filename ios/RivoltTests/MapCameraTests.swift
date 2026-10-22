@@ -89,4 +89,31 @@ final class MapCameraTests: XCTestCase {
         XCTAssertGreaterThan(map.zoomLevel, 7)
         XCTAssertEqual(map.centerCoordinate.latitude, 32.84, accuracy: 0.05)
     }
+
+    func testAChargeIsCentredAndItsPinDrawn() throws {
+        let location = ChargeLocation(lat: 32.7767, lon: -96.7970, maxPowerKW: 150, network: "Electrify America")
+        let style = try XCTUnwrap(MapStyle.withChargers(try XCTUnwrap(MapStyle.json(dark: false, server: server)), server: server))
+        let coordinator = ChargeMapView.Coordinator(location: location, onHealth: { _ in })
+        let map = MLNMapView.displayOnly(styleJSON: style, watch: coordinator)
+        let loaded = try styleIn(map)
+        XCTAssertNotNil(loaded.source(withIdentifier: MapStyle.chargerSourceID) as? MLNVectorTileSource)
+        XCTAssertNotNil(loaded.layer(withIdentifier: MapStyle.chargerProbeLayerID))
+        XCTAssertFalse(MapStyle.chargerSourceID.hasPrefix(ChargeMapView.sourceID), "clear() would remove the archive")
+        let points = try XCTUnwrap(loaded.source(withIdentifier: "\(ChargeMapView.sourceID)-points") as? MLNShapeSource)
+        XCTAssertEqual((points.shape as? MLNShapeCollectionFeature)?.shapes.count, 1)
+        XCTAssertNotNil(loaded.image(forName: ChargeMapView.chargerImage))
+
+        layOut(map)
+        XCTAssertEqual(map.zoomLevel, ChargeMapView.zoom, accuracy: 0.01)
+        XCTAssertEqual(map.centerCoordinate.latitude, 32.7767, accuracy: 0.001)
+
+        // Snapped: the recorded fix and the charger, joined by the dashed link.
+        let node = ChargerPin.Node(lat: 32.7780, lon: -96.7965, name: "Electrify America", network: "Electrify America", distanceM: 150)
+        coordinator.apply(.snapped(node, label: "Electrify America"))
+        let shapes = try XCTUnwrap((points.shape as? MLNShapeCollectionFeature)?.shapes as? [MLNPointFeature])
+        XCTAssertEqual(shapes.compactMap { $0.attributes["role"] as? String }, ["recorded", "charger"])
+        XCTAssertEqual(shapes[1].attributes["label"] as? String, "Electrify America")
+        let link = try XCTUnwrap(loaded.source(withIdentifier: "\(ChargeMapView.sourceID)-link") as? MLNShapeSource)
+        XCTAssertNotNil(link.shape as? MLNPolylineFeature)
+    }
 }

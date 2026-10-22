@@ -14,6 +14,28 @@ enum MapStyle {
         return raw.replacingOccurrences(of: serverPlaceholder, with: origin(server))
     }
 
+    static let chargerSourceID = "rivolt-chargers"
+    static let chargerProbeLayerID = "rivolt-chargers-probe"
+
+    /// `style` with the server's charger archive (`/api/maps/tiles/chargers.pmtiles`: NREL AFDC stations and
+    /// Recreation.gov campgrounds) as a source, and a near-invisible layer on it so MapLibre loads its tiles for the
+    /// nearest-charger lookup (a layer MapLibre wouldn't draw at all would leave the source unloaded). Nil when
+    /// `style` isn't a JSON object.
+    static func withChargers(_ style: String, server: URL) -> String? {
+        guard var root = (try? JSONSerialization.jsonObject(with: Data(style.utf8))) as? [String: Any],
+              var sources = root["sources"] as? [String: Any],
+              var layers = root["layers"] as? [[String: Any]] else { return nil }
+        sources[chargerSourceID] = ["type": "vector", "url": "pmtiles://\(origin(server))/api/maps/tiles/chargers.pmtiles"]
+        layers.append([
+            "id": chargerProbeLayerID, "type": "circle", "source": chargerSourceID, "source-layer": "chargers",
+            "paint": ["circle-opacity": 0.01, "circle-radius": 0.5],
+        ])
+        root["sources"] = sources
+        root["layers"] = layers
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// "https://rivolt.dev" (scheme, host and a non-default port; never a path or credentials).
     static func origin(_ server: URL) -> String {
         var c = URLComponents()

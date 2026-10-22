@@ -347,6 +347,11 @@ actor APIClient {
         try await request("GET", "/api/drives/\(pathID(id))")
     }
 
+    /// Where one charge happened, for its map: the charge row narrowed to its position, peak power and network.
+    func chargeLocation(id: String) async throws -> ChargeLocation {
+        try await request("GET", "/api/charges/\(pathID(id))")
+    }
+
     /// The samples of `[since, until)` for one truck (the web's drive-map window: the drive and 10 minutes either side,
     /// at most 2000, downsampled by the server beyond that).
     func driveSamples(since: Date, until: Date, vehicleID: String, limit: Int = 2000) async throws -> [DriveSample] {

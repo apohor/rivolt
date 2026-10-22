@@ -86,6 +86,9 @@ enum ThemeTokens {
     static let routeGap = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
     static let routeStart = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
     static let routeEnd = Pair(dark: Rgba(0xF43F5E, 1), light: Rgba(0xF43F5E, 1))
+    static let chargePin = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
+    static let chargeRecorded = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
+    static let chargePinInk = Pair(dark: Rgba(0x0A0A0A, 1), light: Rgba(0x0A0A0A, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11

@@ -59,6 +59,9 @@ enum Theme {
     static let routeGap = color(ThemeTokens.routeGap)
     static let routeStart = color(ThemeTokens.routeStart)
     static let routeEnd = color(ThemeTokens.routeEnd)
+    static let chargePin = color(ThemeTokens.chargePin)
+    static let chargeRecorded = color(ThemeTokens.chargeRecorded)
+    static let chargePinInk = color(ThemeTokens.chargePinInk)
     static let edge = color(ThemeTokens.edge)
 
     // Literals
