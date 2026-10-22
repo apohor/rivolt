@@ -275,11 +275,17 @@ final class MoneyLogicTests: XCTestCase {
 
     func testToConfirmChargesComeFromTheChargeList() throws {
         let json = """
-        [{"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","PricePerKWh":0.48,"Cost":18.2,"Currency":"USD","network_state":"needs_confirmation",
+        [{"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","Lat":30.2672,"Lon":-97.7431,"PricePerKWh":0.48,"Cost":18.2,"Currency":"USD","network_state":"needs_confirmation",
           "network_evidence":{"candidates":[{"network":"Electrify America"}]}},
          {"ID":"c2","StartedAt":"2026-10-03T10:00:00Z","PricePerKWh":0,"Cost":0,"Currency":"","network_state":"confirmed"}]
         """
         let rows = try JSON.decoder().decode([ConfirmCharge].self, from: Data(json.utf8))
+        // The coordinates in the list are dropped while decoding: the type has nothing that could hold a place.
+        let fields = Mirror(reflecting: rows[0]).children.compactMap(\.label).map { $0.lowercased() }
+        XCTAssertEqual(fields, ["id", "startedat", "priceperkwh", "cost", "currency", "networkstate", "networkevidence"])
+        XCTAssertFalse(fields.contains { $0.contains("lat") || $0.contains("lon") || $0.contains("place") || $0.contains("address") })
+        let evidence = Mirror(reflecting: try XCTUnwrap(rows[0].networkEvidence?.candidates?.first)).children.compactMap(\.label)
+        XCTAssertEqual(evidence, ["network"])
         XCTAssertEqual(rows[0].networkEvidence?.candidates?.first?.network, "Electrify America")
         XCTAssertEqual(rows.filter { MoneyLogic.isOpenNetworkState($0.networkState) }.map(\.id), ["c1"])
     }

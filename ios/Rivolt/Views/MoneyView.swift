@@ -49,8 +49,7 @@ struct MoneyView: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    // The account menu is the shell's (ux); this screen leaves the slot empty.
-                    ThemeTopBar { EmptyView() }
+                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await reload() } }) }
                     titleRow
                 }
             }
