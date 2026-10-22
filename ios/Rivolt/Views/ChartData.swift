@@ -55,6 +55,51 @@ enum ChartMath {
         return now >= since && now < until
     }
 
+    /// A stretch of the charge-limit line: the limit held from `start` to `end`.
+    struct LimitStep: Equatable {
+        let start: Date
+        let end: Date
+        let pct: Double
+    }
+
+    static func validLimit(_ pct: Double?) -> Bool {
+        guard let pct else { return false }
+        return pct.isFinite && pct > 0 && pct <= 100
+    }
+
+    /// The charge limit over `[from, to)` as steps, from the limits stored on the charges (the web's `limitSteps`, the
+    /// same rule): each charge with a limit starts a step at its start, held to the next one with a limit (a charge
+    /// without one carries the step on); nothing before the period's first such charge. After the last charge's end, up
+    /// to now, the live target when known (the current period only), else that charge's limit. Steps end at now, so
+    /// days to come stay empty. Neighbouring steps at the same value are joined.
+    static func limitSteps(_ charges: [ChargePoint], from: Date, to: Date, now: Date, live: Double?) -> [LimitStep] {
+        let end = min(to, now)
+        let set = charges
+            .filter { validLimit($0.chargeLimitPct) && $0.startedAt >= from && $0.startedAt < end }
+            .sorted { $0.startedAt < $1.startedAt }
+        var out: [LimitStep] = []
+        func push(_ start: Date, _ stop: Date, _ pct: Double) {
+            guard stop > start else { return }
+            if let last = out.last, last.pct == pct, last.end >= start {
+                out[out.count - 1] = LimitStep(start: last.start, end: max(last.end, stop), pct: pct)
+            } else {
+                out.append(LimitStep(start: start, end: stop, pct: pct))
+            }
+        }
+        for (i, c) in set.enumerated() {
+            guard let pct = c.chargeLimitPct else { continue }
+            if i + 1 < set.count {
+                push(c.startedAt, set[i + 1].startedAt, pct)
+                continue
+            }
+            let held = min(max(c.endedAt, c.startedAt), end)
+            push(c.startedAt, held, pct)
+            let current = now >= from && now <= to
+            push(held, end, current && validLimit(live) ? (live ?? pct) : pct)
+        }
+        return out
+    }
+
     /// The highest and lowest points of the line, for the two labelled dots; nil with fewer than two points.
     static func highLow(_ trend: [SocPoint]) -> (high: SocPoint, low: SocPoint)? {
         guard trend.count >= 2, let high = trend.max(by: { $0.pct < $1.pct }), let low = trend.min(by: { $0.pct < $1.pct }),

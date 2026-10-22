@@ -27,7 +27,8 @@
       "started_at": "2026-10-19T21:00:00Z",
       "ended_at": "2026-10-20T04:00:00Z",
       "start_soc_pct": 66,
-      "end_soc_pct": 85
+      "end_soc_pct": 85,
+      "charge_limit_pct": 80
     }
   ]
 }
