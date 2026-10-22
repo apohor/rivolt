@@ -1173,6 +1173,10 @@ func New(d Deps) http.Handler {
 				}
 				handleGetCharge(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
+			// The iPhone Money tab's "To confirm" list, coordinate-free (charges_to_confirm.go).
+			r.With(aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargesToConfirm(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
+			}))
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
