@@ -79,6 +79,13 @@ func TestListBetweenVehicleScope(t *testing.T) {
 			t.Fatalf("%s = %d rows, %v; want none", id, len(got), err)
 		}
 	}
+	// Downsampled (what /api/samples serves): another user's or an unknown truck matches nothing either.
+	for _, id := range []string{"rv-nope", "rv-other"} {
+		res, err := store.ListBetweenDownsampledVehicle(ctx, id, since, until, 100)
+		if err != nil || len(res.Samples) != 0 || res.Total != 0 {
+			t.Fatalf("downsampled %s = %d rows (total %d), %v; want none", id, len(res.Samples), res.Total, err)
+		}
+	}
 	// Downsampled: the total and the buckets count only the chosen truck.
 	res, err := store.ListBetweenDownsampledVehicle(ctx, "rv-2", since, until, 100)
 	if err != nil || !res.Reduced || res.Total != n || len(res.Samples) == 0 || len(res.Samples) > 100 || !only(res.Samples, "rv-2") {

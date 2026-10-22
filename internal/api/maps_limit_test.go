@@ -4,6 +4,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -92,6 +93,38 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("upstream saw %q, want %q", got[i], want[i])
 		}
+	}
+}
+
+// The size caps run on the mounted route (public path, through chi): an oversized trace is refused before Valhalla,
+// one at the cap reaches it.
+func TestMapMountsCapTheTrace(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	up := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++; w.WriteHeader(200) })
+	r := chi.NewRouter()
+	r.Mount("/api/maps/valhalla", valhallaMount(up))
+	trace := func(n int) int {
+		var b strings.Builder
+		b.WriteString(`{"shape":[`)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`{"lat":32.7767,"lon":-96.797}`)
+		}
+		b.WriteString(`],"costing":"auto","shape_match":"walk_or_snap"}`)
+		req := httptest.NewRequest("POST", "/api/maps/valhalla/trace_route", strings.NewReader(b.String()))
+		req = req.WithContext(auth.WithUser(req.Context(), uuid.New()))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := trace(maps.MaxTraceShapePoints + 1); code != http.StatusRequestEntityTooLarge || hits != 0 {
+		t.Fatalf("over the cap: %d, upstream hit %d times", code, hits)
+	}
+	if code := trace(maps.MaxTraceShapePoints); code != 200 || hits != 1 {
+		t.Fatalf("at the cap: %d, upstream hit %d times", code, hits)
 	}
 }
 
