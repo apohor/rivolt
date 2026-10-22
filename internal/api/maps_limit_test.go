@@ -45,6 +45,10 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 	var got []string
 	up := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodGet && r.Header.Get("Range") != "" {
+			w.WriteHeader(http.StatusPartialContent) // a range read is a 206; the tile guard refuses a 200
+			return
+		}
 		w.WriteHeader(200)
 	})
 	r := chi.NewRouter()
@@ -64,8 +68,8 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 	}{
 		{"POST", "/api/maps/valhalla/route", 200},
 		{"POST", "/api/maps/valhalla/trace_route", 200},
-		{"GET", "/api/maps/tiles/us.pmtiles", 200},
-		{"GET", "/api/maps/tiles/chargers.pmtiles", 200},
+		{"GET", "/api/maps/tiles/us.pmtiles", 206},
+		{"GET", "/api/maps/tiles/chargers.pmtiles", 206},
 		{"HEAD", "/api/maps/tiles/us.pmtiles", 200},
 		{"GET", "/api/maps/tiles/a/us.pmtiles", 404},
 		{"GET", "/api/maps/tiles/", 404},
@@ -155,6 +159,10 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 		mu.Lock()
 		calls = append(calls, seen{r.URL.RequestURI(), r.Header.Clone()})
 		mu.Unlock()
+		if r.Method == http.MethodGet && r.Header.Get("Range") != "" {
+			w.WriteHeader(http.StatusPartialContent)
+			return
+		}
 		w.WriteHeader(200)
 	}))
 	defer upstream.Close()
@@ -187,8 +195,8 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 	if c := do("POST", "/api/maps/valhalla/route?json=%7B%7D"); c != 200 {
 		t.Fatalf("route = %d", c)
 	}
-	if c := do("GET", "/api/maps/tiles/us.pmtiles"); c != 200 {
-		t.Fatalf("tiles = %d", c)
+	if c := do("GET", "/api/maps/tiles/us.pmtiles"); c != 206 {
+		t.Fatalf("tiles = %d, want the 206 of the range", c)
 	}
 	if c := do("GET", "/api/maps/tiles/a/us.pmtiles"); c != 404 {
 		t.Fatalf("a nested tile path = %d, want 404 from the allowlist", c)
