@@ -177,7 +177,7 @@ struct ChartsSection: View {
     }
 
     /// The limit is what the truck is set to now, not what it was on earlier days (it was changed during the month), so
-    /// it is drawn only on the current month and only over the last day, ending at now, labelled "now".
+    /// it is drawn only on the current month and only over the last two days, ending at now, with the value to its right.
     private func limitShown(range: (since: Date, until: Date)) -> Bool {
         ChartMath.limitVisible(limit, now: now, since: range.since, until: range.until)
     }
@@ -185,11 +185,14 @@ struct ChartsSection: View {
     @ChartContentBuilder
     private func limitMark(range: (since: Date, until: Date)) -> some ChartContent {
         if limitShown(range: range), let limit {
-            RuleMark(xStart: .value("From", max(range.since, now.addingTimeInterval(-86_400))), xEnd: .value("To", now), y: .value("Limit", limit))
+            RuleMark(xStart: .value("From", max(range.since, now.addingTimeInterval(-2 * 86_400))), xEnd: .value("To", now), y: .value("Limit", limit))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 .foregroundStyle(Theme.chartSocLimit)
-                .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                    Text("Limit now \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
+                // Right of the segment, in the days still to come: nothing is drawn there, so it never sits on the line.
+                // In the last days of the month there is no room to the right, so it goes above the segment.
+                .annotation(position: range.until.timeIntervalSince(now) < 4 * 86_400 ? .top : .trailing,
+                            alignment: range.until.timeIntervalSince(now) < 4 * 86_400 ? .trailing : .center, spacing: 4) {
+                    Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
     }
