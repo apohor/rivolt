@@ -2,8 +2,10 @@ package api
 
 import (
 	"github.com/go-chi/chi/v5"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -55,7 +57,11 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 	r.Mount("/api/maps/valhalla", valhallaMount(up))
 	r.Mount("/api/maps/tiles", tilesMount(up))
 	do := func(method, path string) int {
-		req := httptest.NewRequest(method, path, nil)
+		var body io.Reader
+		if method == http.MethodPost {
+			body = strings.NewReader(`{"locations":[]}`)
+		}
+		req := httptest.NewRequest(method, path, body)
 		req.Header.Set("Range", "bytes=0-16383")
 		req = req.WithContext(auth.WithUser(req.Context(), uuid.New()))
 		w := httptest.NewRecorder()
@@ -95,6 +101,38 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 	}
 }
 
+// The size caps run on the mounted route (public path, through chi): an oversized trace is refused before Valhalla,
+// one at the cap reaches it.
+func TestMapMountsCapTheTrace(t *testing.T) {
+	t.Parallel()
+	hits := 0
+	up := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++; w.WriteHeader(200) })
+	r := chi.NewRouter()
+	r.Mount("/api/maps/valhalla", valhallaMount(up))
+	trace := func(n int) int {
+		var b strings.Builder
+		b.WriteString(`{"shape":[`)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`{"lat":32.7767,"lon":-96.797}`)
+		}
+		b.WriteString(`],"costing":"auto","shape_match":"walk_or_snap"}`)
+		req := httptest.NewRequest("POST", "/api/maps/valhalla/trace_route", strings.NewReader(b.String()))
+		req = req.WithContext(auth.WithUser(req.Context(), uuid.New()))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := trace(maps.MaxTraceShapePoints + 1); code != http.StatusRequestEntityTooLarge || hits != 0 {
+		t.Fatalf("over the cap: %d, upstream hit %d times", code, hits)
+	}
+	if code := trace(maps.MaxTraceShapePoints); code != 200 || hits != 1 {
+		t.Fatalf("at the cap: %d, upstream hit %d times", code, hits)
+	}
+}
+
 // Past the per-user ceiling the mounted route answers 429, per user.
 func TestMapMountsLimitPerUser(t *testing.T) {
 	t.Parallel()
@@ -102,7 +140,7 @@ func TestMapMountsLimitPerUser(t *testing.T) {
 	r := chi.NewRouter()
 	r.Mount("/api/maps/valhalla", valhallaMount(up))
 	call := func(uid uuid.UUID) int {
-		req := httptest.NewRequest("POST", "/api/maps/valhalla/route", nil)
+		req := httptest.NewRequest("POST", "/api/maps/valhalla/route", strings.NewReader(`{"locations":[]}`))
 		req = req.WithContext(auth.WithUser(req.Context(), uid))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
@@ -177,7 +215,11 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 	defer front.Close()
 
 	do := func(method, path string) int {
-		req, _ := http.NewRequest(method, front.URL+path, nil)
+		var body io.Reader
+		if method == http.MethodPost {
+			body = strings.NewReader(`{"locations":[]}`)
+		}
+		req, _ := http.NewRequest(method, front.URL+path, body)
 		req.Header.Set("X-Forwarded-For", "198.51.100.7")
 		req.Header.Set("X-Real-Ip", "198.51.100.7")
 		req.Header.Set("Cf-Connecting-Ip", "198.51.100.7")
@@ -192,8 +234,12 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 		return resp.StatusCode
 	}
 	// No user in the context: the limiter keys on the address, which is fine here.
-	if c := do("POST", "/api/maps/valhalla/route?json=%7B%7D"); c != 200 {
+	if c := do("POST", "/api/maps/valhalla/route"); c != 200 {
 		t.Fatalf("route = %d", c)
+	}
+	// Valhalla reads a whole request from ?json=: a query string is refused before the proxy.
+	if c := do("POST", "/api/maps/valhalla/route?json=%7B%7D"); c != 400 {
+		t.Fatalf("route with ?json= = %d, want 400", c)
 	}
 	if c := do("GET", "/api/maps/tiles/us.pmtiles"); c != 206 {
 		t.Fatalf("tiles = %d, want the 206 of the range", c)
@@ -206,7 +252,7 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("upstream saw %d calls, want 2 (the refused path must not reach it): %v", len(calls), calls)
 	}
-	if calls[0].uri != "/route?json=%7B%7D" || calls[1].uri != "/us.pmtiles" {
+	if calls[0].uri != "/route" || calls[1].uri != "/us.pmtiles" {
 		t.Errorf("upstream URIs = %q, %q; want the stripped paths", calls[0].uri, calls[1].uri)
 	}
 	for _, c := range calls {

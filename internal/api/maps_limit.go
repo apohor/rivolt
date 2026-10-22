@@ -37,7 +37,7 @@ func mapsUserLimiter(perMin int) *ipLimiter {
 // the upstream will see ("/route", "/us.pmtiles"), not the public one.
 func valhallaMount(proxy http.Handler) http.Handler {
 	return mapsUserLimiter(mapsValhallaPerMin).Middleware(
-		http.StripPrefix("/api/maps/valhalla", maps.AllowValhalla(proxy)))
+		http.StripPrefix("/api/maps/valhalla", maps.AllowValhalla(maps.LimitValhalla(proxy))))
 }
 
 func tilesMount(proxy http.Handler) http.Handler {
