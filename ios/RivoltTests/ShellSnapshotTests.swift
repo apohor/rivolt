@@ -96,6 +96,7 @@ final class ShellSnapshotTests: XCTestCase {
         let charts = ChartsModel(points: try Fixture.decode(ChartPoints.self, "chart_points"), sleep: try Fixture.decode([DayActivity].self, "sleep_activity"))
         let split = try Fixture.decode(ChargeSplit.self, "charge_split")
         let s = summary(soc: 52, power: "charging_active", kw: 7.2)
+        let live = try Fixture.decode(LiveSession.self, "live_session_home")
         let whole = VStack(spacing: 0) {
             ThemeTopBar { Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary) }
             VStack(spacing: 16) {
@@ -105,7 +106,7 @@ final class ShellSnapshotTests: XCTestCase {
                     Spacer()
                     ThemeStepper(title: month.title(calendar: utc), canGoForward: false, previous: {}, next: {})
                 }
-                NowCard(vehicle: v, summary: s, clock: at, place: "Home", session: try Fixture.decode(LiveSession.self, "live_session_home"))
+                NowCard(vehicle: v, summary: s, clock: at, place: "Home", session: live)
                 KpiGrid(tiles: tiles, idle: idle, idleLoading: false)
                 PlacesCard(split: split, periodTitle: month.title(calendar: utc))
                 ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
