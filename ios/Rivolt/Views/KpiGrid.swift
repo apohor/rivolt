@@ -48,8 +48,7 @@ struct KpiTileView: View {
                 Text(hint).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .themeCard(padding: 3 * Theme.unit)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .themeCard(padding: 3 * Theme.unit, fillHeight: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tile.spoken)
     }
@@ -79,8 +78,7 @@ struct IdleAwakeTileView: View {
                 Text(loading ? "Loading…" : "Collecting data").themeText(.value, color: Theme.textSecondary)
             }
         }
-        .themeCard(padding: 3 * Theme.unit)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .themeCard(padding: 3 * Theme.unit, fillHeight: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
     }

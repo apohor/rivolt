@@ -13,6 +13,8 @@ struct ThemeCard: ViewModifier {
     var live: ThemeLive = .none
     var critical = false
     var padding: CGFloat = 4 * Theme.unit
+    /// Grow to the height a grid row gives (the tiles of a row share the taller one's height).
+    var fillHeight = false
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous) }
 
@@ -30,7 +32,7 @@ struct ThemeCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(hero ? 5 * Theme.unit : padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: fillHeight ? .topLeading : .leading)
             .background {
                 ZStack {
                     // Shadows first and outside the card only, like CSS box-shadow: under a translucent card they
@@ -75,8 +77,8 @@ extension Shape {
 }
 
 extension View {
-    func themeCard(padding: CGFloat = 4 * Theme.unit) -> some View {
-        modifier(ThemeCard(padding: padding))
+    func themeCard(padding: CGFloat = 4 * Theme.unit, fillHeight: Bool = false) -> some View {
+        modifier(ThemeCard(padding: padding, fillHeight: fillHeight))
     }
 
     func themeHero(live: ThemeLive = .none, critical: Bool = false) -> some View {
