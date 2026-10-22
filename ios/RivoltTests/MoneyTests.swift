@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Rivolt
 
@@ -319,6 +320,7 @@ private final class FakeMoney: MoneySource, @unchecked Sendable {
 
     func chargesToConfirm() async throws -> [ConfirmCharge] { [] }
     func chargingRate() async throws -> ChargingRate { ChargingRate(homePricePerKwh: 0.13) }
+    func ledgerCSV(month: String, timeZone: String, vehicleID: String?) async throws -> Data { Data("record\n".utf8) }
 }
 
 @MainActor
@@ -426,41 +428,44 @@ final class MoneyClientTests: XCTestCase {
         return APIClient(baseURL: URL(string: "https://rivolt.example")!, tokens: MoneyNoTokens(), session: URLSession(configuration: config))
     }
 
-    /// The server's to-confirm list: the same keys as the charge list, without coordinates.
-    private let toConfirm = Data("""
-    [{"ID":"c2","StartedAt":"2026-10-03T10:00:00Z","PricePerKWh":0,"Cost":0,"Currency":"USD","network_state":"needs_confirmation",
-      "network_evidence":{"candidates":null}},
-     {"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","PricePerKWh":0.48,"Cost":18.2,"Currency":"USD","network_state":"estimated",
-      "network_evidence":{"candidates":[{"network":"Electrify America"}]}}]
-    """.utf8)
-
     override func setUp() {
         super.setUp()
         MoneyStub.paths = []
     }
 
+    /// The server's own fixture (internal/api decodes it strictly into its type): no coordinates.
     func testToConfirmReadsTheCoordinateFreeList() async throws {
-        let body = toConfirm
+        let body = try Fixture.data("charges_to_confirm")
         MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (200, body) : (500, Data()) }
         let rows = try await client().chargesToConfirm()
         XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
-        XCTAssertEqual(rows.map(\.id), ["c2", "c1"])
-        XCTAssertEqual(rows[1].networkEvidence?.candidates?.first?.network, "Electrify America")
+        XCTAssertEqual(rows.map(\.id), ["chg-confirm-1", "chg-estimated-1", "chg-unpriced-1"])
+        XCTAssertEqual(rows[0].networkEvidence?.candidates?.map(\.network), ["Electrify America", "EVgo"])
+        XCTAssertEqual(rows[2].pricePerKwh, 0)
+        XCTAssertEqual(rows[2].currency, "")
     }
 
-    func testAnOlderServerFallsBackToTheChargeList() async throws {
-        let full = Data("""
-        [{"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","Lat":30.2672,"Lon":-97.7431,"PricePerKWh":0.48,"Cost":18.2,"Currency":"USD",
-          "network_state":"estimated"},
-         {"ID":"c3","StartedAt":"2026-10-04T10:00:00Z","Lat":30.2,"Lon":-97.7,"PricePerKWh":0.13,"Cost":5,"Currency":"USD","network_state":""}]
-        """.utf8)
-        MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (404, Data("404 page not found".utf8)) : (200, full) }
-        let rows = try await client().chargesToConfirm()
-        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm", "/api/charges?limit=5000"])
-        XCTAssertEqual(rows.map(\.id), ["c1"])
+    func testThereIsNoFallbackToTheFullChargeList() async {
+        MoneyStub.respond = { _ in (404, Data("404 page not found".utf8)) }
+        do {
+            _ = try await client().chargesToConfirm()
+            XCTFail("expected the 404")
+        } catch APIError.server(let status, _) {
+            XCTAssertEqual(status, 404)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
     }
 
-    func testARateLimitIsNotAFallback() async {
+    func testTheCSVIsTheWebsDownload() async throws {
+        MoneyStub.respond = { _ in (200, Data("record,month\n".utf8)) }
+        let data = try await client().ledgerCSV(month: "2026-09", timeZone: "America/Chicago", vehicleID: nil)
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "record,month\n")
+        XCTAssertEqual(MoneyStub.paths, ["/api/ledger/monthly.csv?month=2026-09&tz=America/Chicago"])
+    }
+
+    func testARateLimitIsAnError() async {
         MoneyStub.respond = { _ in (429, Data("{\"error\":\"slow down\"}".utf8)) }
         do {
             _ = try await client().chargesToConfirm()
@@ -471,5 +476,71 @@ final class MoneyClientTests: XCTestCase {
             XCTFail("unexpected \(error)")
         }
         XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
+    }
+}
+
+final class MoneyShareTests: XCTestCase {
+    private func month() throws -> LedgerMonth { try Fixture.decode(LedgerMonth.self, "ledger_monthly") }
+
+    func testTheCardWithoutCostCarriesNoMoney() throws {
+        let c = MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago())
+        XCTAssertEqual(c.eyebrow, "September 2026")
+        XCTAssertEqual(c.title, "274 mi")
+        XCTAssertEqual(c.subtitle, "3 drives · 4 charges")
+        XCTAssertEqual(c.stats, [.init(label: "Driven", value: "274 mi"), .init(label: "Energy added", value: "180 kWh"),
+                                 .init(label: "Efficiency", value: "2.46 mi/kWh")])
+        XCTAssertEqual(c.notes, [])
+        let all = ([c.eyebrow, c.title, c.subtitle] + c.stats.flatMap { [$0.label, $0.value] } + c.notes).joined(separator: " ")
+        XCTAssertFalse(all.contains("$"))
+    }
+
+    func testCostAndTheOffPeakShareAreOptIn() throws {
+        let c = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72.4, calendar: chicago())
+        XCTAssertEqual(c.title, "$35.43")
+        XCTAssertEqual(c.subtitle, "180 kWh · 274 mi · $0.129/mi")
+        XCTAssertEqual(c.stats, [.init(label: "Home", value: "$12.02"), .init(label: "Away", value: "$0.00"),
+                                 .init(label: "Fast charging", value: "$23.41"), .init(label: "Home charging off-peak", value: "72%")])
+        XCTAssertEqual(c.notes, ["+ 1 session not yet priced"])
+        XCTAssertEqual(MoneyShareCard.fileName(try month()), "rivolt-month-2026-09.png")
+        // The model has nothing that could carry a place, an id or a truck.
+        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["eyebrow", "title", "subtitle", "stats", "notes"])
+    }
+
+    func testAMonthInProgressSaysSoFar() throws {
+        let m = try edited(LedgerMonth.self, "ledger_monthly") { $0["is_current_month"] = true }
+        XCTAssertEqual(MoneyShareCard.month(m, includeCost: false, offpeakSharePct: nil, calendar: chicago()).eyebrow, "September 2026 so far")
+    }
+
+    @MainActor
+    func testTheCardIsA1080SquarePNG() throws {
+        Theme.registerFonts()
+        let card = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72, calendar: chicago())
+        let png = try XCTUnwrap(MoneyShareCardCanvas.png(card))
+        let image = try XCTUnwrap(UIImage(data: png))
+        XCTAssertEqual(image.size, CGSize(width: 1080, height: 1080))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "money-share-card.png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("money-share-card.png"))
+            let plain = try XCTUnwrap(MoneyShareCardCanvas.png(MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago())))
+            try plain.write(to: URL(fileURLWithPath: dir).appendingPathComponent("money-share-card-plain.png"))
+        }
+    }
+
+    func testTheCSVFileIsRemovedWithItsFolder() throws {
+        let f = try MoneyExportFile.csv(Data("record,month\n".utf8), month: "2026-09")
+        XCTAssertEqual(f.url.lastPathComponent, "rivolt-statement-2026-09.csv")
+        XCTAssertEqual(try String(contentsOf: f.url, encoding: .utf8), "record,month\n")
+        f.remove()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.url.deletingLastPathComponent().path))
+    }
+
+    func testTheOffPeakShareDecodes() throws {
+        let s = try edited(LedgerSavings.self, "ledger_savings") { $0["offpeak_share_pct"] = 64.5 }
+        XCTAssertEqual(s.offpeakSharePct, 64.5)
+        XCTAssertNil(try Fixture.decode(LedgerSavings.self, "ledger_savings").offpeakSharePct)
     }
 }

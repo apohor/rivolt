@@ -8,6 +8,7 @@ protocol MoneySource: Sendable {
     func ledgerSavings(month: String) async throws -> LedgerSavings
     func chargesToConfirm() async throws -> [ConfirmCharge]
     func chargingRate() async throws -> ChargingRate
+    func ledgerCSV(month: String, timeZone: String, vehicleID: String?) async throws -> Data
 }
 
 extension APIClient: MoneySource {}
@@ -164,6 +165,15 @@ final class MoneyModel {
             // The web leaves the card out when it has no answer.
             savingsFailed = savings == nil
         }
+    }
+
+    /// The off-peak share for a month (the share card's optional line), from the same answer as the savings card and its
+    /// cache. Nil when the server has none.
+    func offpeakShare(source: some MoneySource, month ym: String, now: Date = .now) async -> Double? {
+        if let hit = Self.fresh(savingsCache[ym], now: now, force: false) { return hit.offpeakSharePct }
+        guard let v = try? await source.ledgerSavings(month: ym) else { return savingsCache[ym]?.value.offpeakSharePct }
+        savingsCache[ym] = Entry(value: v, at: now)
+        return v.offpeakSharePct
     }
 
     /// The charges to confirm (every month): read only when that list is opened, and only while there are some.

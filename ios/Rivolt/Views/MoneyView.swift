@@ -15,6 +15,10 @@ struct MoneyView: View {
     @State private var filter: MoneyLogic.Filter = .all
     @State private var metric: MoneyContent.Metric = .cost
     @State private var savingsWhich: MoneyModel.Which = .last
+    @State private var showShare = false
+    @State private var exportFile: MoneyExportFile?
+    @State private var csvBusy = false
+    @State private var csvError: String?
 
     private var selected: Vehicle? { vehicles.first { $0.id == selectedID } ?? vehicles.first }
     /// Only an account with more than one truck sends it; otherwise the ledger covers the account.
@@ -28,7 +32,9 @@ struct MoneyView: View {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
                     } else {
                         MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
-                                     noticeHidden: $noticeHidden, serverURL: state.serverURL)
+                                     noticeHidden: $noticeHidden, serverURL: state.serverURL,
+                                     export: MoneyContent.Export(busy: csvBusy, error: csvError,
+                                                                 share: { showShare = true }, csv: { Task { await exportCSV() } }))
                     }
                 }
                 .padding(.horizontal, 4 * Theme.unit)
@@ -45,6 +51,16 @@ struct MoneyView: View {
             .task(id: savingsWhich) { await model.loadSavings(source: state.client, which: savingsWhich) }
             .onChange(of: filter) {
                 if filter == .confirm { Task { await model.loadConfirm(source: state.client) } }
+            }
+            .sheet(isPresented: $showShare) {
+                if let m = model.month {
+                    MoneyShareSheet(month: m) { await model.offpeakShare(source: state.client, month: m.period) }
+                }
+            }
+            // The CSV goes straight to the system share sheet; its temporary file goes when the sheet closes.
+            .sheet(item: $exportFile, onDismiss: { exportFile?.remove() }) { file in
+                MoneyActivitySheet(file: file) { file.remove(); exportFile = nil }
+                    .presentationDetents([.medium, .large])
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
@@ -93,6 +109,20 @@ struct MoneyView: View {
         vehiclesLoaded = true
     }
 
+    /// The month as the web's CSV, cut in the same zone and for the same truck as the page. Read only when asked.
+    private func exportCSV() async {
+        guard let m = model.month, !csvBusy else { return }
+        csvBusy = true
+        csvError = nil
+        defer { csvBusy = false }
+        do {
+            let data = try await state.client.ledgerCSV(month: m.period, timeZone: TimeZone.current.identifier, vehicleID: scope)
+            exportFile = try MoneyExportFile.csv(data, month: m.period)
+        } catch {
+            csvError = "Couldn't make the CSV. \(error.localizedDescription)"
+        }
+    }
+
     private func reload() async {
         await loadVehicles()
         async let m: Void = model.load(source: state.client, vehicleID: scope, period: period, force: true)
@@ -132,6 +162,15 @@ struct MoneyContent: View {
     var now: Date = .now
     var calendar: Calendar = .current
     var usesMetric: Bool = NowFormat.usesMetric
+    /// Share statement and Download CSV; nil draws them disabled (tests).
+    var export: Export?
+
+    struct Export {
+        var busy = false
+        var error: String?
+        let share: () -> Void
+        let csv: () -> Void
+    }
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -223,6 +262,7 @@ struct MoneyContent: View {
                         .themeText(.value, color: d > 0 ? Theme.estimate : Theme.accent)
                 }
             }
+            exportButtons(st)
             Text(st.subline).themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
 
             if let z = st.zero {
@@ -269,6 +309,31 @@ struct MoneyContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .themeCard()
+    }
+
+    /// The web's two small buttons under the headline. Nothing to share or download for an empty month.
+    private func exportButtons(_ st: MoneyStatement) -> some View {
+        let off = st.empty || export == nil
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Button("Share statement") { export?.share() }
+                    .accessibilityHint("An image of your month. No places or addresses; cost only if you add it.")
+                Button { export?.csv() } label: {
+                    HStack(spacing: 6) {
+                        Text("Download CSV")
+                        if export?.busy == true { ProgressView().controlSize(.mini) }
+                    }
+                }
+                .accessibilityHint("This month's totals and sessions as a spreadsheet file.")
+                .disabled(export?.busy == true)
+            }
+            .buttonStyle(MoneySmallButtonStyle())
+            .disabled(off)
+            if let e = export?.error {
+                Text(e).themeText(.subline, color: Theme.critical).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private func zeroNotice(_ z: (sessions: Int, kwh: Double, noRate: Bool)) -> some View {
@@ -491,6 +556,25 @@ private struct MoneySection<Actions: View, Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .themeCard(padding: 0)
+    }
+}
+
+/// The web's small bordered button (Share statement, Download CSV).
+private struct MoneySmallButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Look(configuration: configuration) }
+
+    private struct Look: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .themeText(.subline, color: Theme.textBody)
+                .padding(.horizontal, 2.5 * Theme.unit).padding(.vertical, Theme.unit)
+                .background(configuration.isPressed ? Theme.border : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
+                .opacity(isEnabled ? 1 : 0.4)
+        }
     }
 }
 

@@ -125,6 +125,8 @@ struct LedgerMonth: Decodable, Equatable {
     struct Driving: Decodable, Equatable {
         let drives: Int
         let miles: Double
+        let milesWithEnergy: Double?
+        let kwhUsedKnown: Double?
         let coverage: Double?
         let costPerMile: Double?
     }
@@ -174,12 +176,14 @@ struct LedgerSavings: Decodable, Equatable {
     let ifMovedTotal: Double?
     let needs: String?
     let basis: String?
+    /// Share of home charging by energy that ran in off-peak hours (0 to 100); absent without a schedule, a home rate or
+    /// enough sessions. The share card's optional line.
+    let offpeakSharePct: Double?
 }
 
 /// A charge whose auto-detected network waits for the owner's look (the "To confirm" list, all months), from
-/// `GET /api/charges/to-confirm`, which has no coordinates. An older server's fallback, `GET /api/charges`, carries
-/// them; this type has no field for them, so they are dropped while decoding and never held. Kept in memory only (never
-/// in the App Group or on disk).
+/// `GET /api/charges/to-confirm`, which has no coordinates; nor has this type a field for them. Kept in memory only
+/// (never in the App Group or on disk).
 struct ConfirmCharge: Decodable, Equatable, Identifiable {
     struct Evidence: Decodable, Equatable {
         struct Candidate: Decodable, Equatable { let network: String? }

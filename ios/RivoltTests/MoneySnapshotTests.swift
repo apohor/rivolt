@@ -33,7 +33,7 @@ final class MoneySnapshotTests: XCTestCase {
             .padding(.horizontal, 16).padding(.vertical, 8)
             MoneyContent(model: model, filter: .constant(filter), metric: .constant(.cost), savingsWhich: .constant(.last),
                          noticeHidden: .constant(false), serverURL: URL(string: "https://rivolt.example"), now: now, calendar: cal,
-                         usesMetric: false)
+                         usesMetric: false, export: .init(share: {}, csv: {}))
                 .padding(16)
         }
         .frame(width: 390)
