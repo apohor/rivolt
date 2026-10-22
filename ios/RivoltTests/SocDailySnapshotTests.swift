@@ -2,7 +2,7 @@ import SwiftUI
 import XCTest
 @testable import Rivolt
 
-/// The daily-range design on a month shaped like the owner's October: ordinary days between 55 and 70%, a charge to 97%
+/// The daily-range design on a month shaped like the owner's October: ordinary days between 52 and 70%, charged every third day or so, a charge to 97%
 /// on the 8th, a drive down on the 9th, two quiet days, and the 12th with four cycles (58 → 22 → 73 → 3 → 73 → 17 → 42 →
 /// 12 → 70) on fast chargers.
 @MainActor
@@ -49,9 +49,9 @@ final class SocDailySnapshotTests: XCTestCase {
                 drive(12, 21.75, 22.75, 42, 12)
                 charge(12, 22.8, 23.9, 12, 70, limit: 85, kind: "dcfc"); level = 70
             default:
-                drive(day, 8, 8.5, level, level - 4); level -= 4
-                drive(day, 18, 18.6, level, level - 5); level -= 5
-                if level < 62 {
+                drive(day, 8, 8.5, level, level - 3); level -= 3
+                drive(day, 18, 18.6, level, level - 3); level -= 3
+                if level < 58 {
                     charge(day, 22, 23.9, level, 70, limit: day >= 19 ? 80 : 70, kind: "ac"); level = 70
                 }
             }
