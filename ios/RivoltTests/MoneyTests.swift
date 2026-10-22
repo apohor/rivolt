@@ -428,26 +428,21 @@ final class MoneyClientTests: XCTestCase {
         return APIClient(baseURL: URL(string: "https://rivolt.example")!, tokens: MoneyNoTokens(), session: URLSession(configuration: config))
     }
 
-    /// The server's to-confirm list: the same keys as the charge list, without coordinates.
-    private let toConfirm = Data("""
-    [{"ID":"c2","StartedAt":"2026-10-03T10:00:00Z","PricePerKWh":0,"Cost":0,"Currency":"USD","network_state":"needs_confirmation",
-      "network_evidence":{"candidates":null}},
-     {"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","PricePerKWh":0.48,"Cost":18.2,"Currency":"USD","network_state":"estimated",
-      "network_evidence":{"candidates":[{"network":"Electrify America"}]}}]
-    """.utf8)
-
     override func setUp() {
         super.setUp()
         MoneyStub.paths = []
     }
 
+    /// The server's own fixture (internal/api decodes it strictly into its type): no coordinates.
     func testToConfirmReadsTheCoordinateFreeList() async throws {
-        let body = toConfirm
+        let body = try Fixture.data("charges_to_confirm")
         MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (200, body) : (500, Data()) }
         let rows = try await client().chargesToConfirm()
         XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
-        XCTAssertEqual(rows.map(\.id), ["c2", "c1"])
-        XCTAssertEqual(rows[1].networkEvidence?.candidates?.first?.network, "Electrify America")
+        XCTAssertEqual(rows.map(\.id), ["chg-confirm-1", "chg-estimated-1", "chg-unpriced-1"])
+        XCTAssertEqual(rows[0].networkEvidence?.candidates?.map(\.network), ["Electrify America", "EVgo"])
+        XCTAssertEqual(rows[2].pricePerKwh, 0)
+        XCTAssertEqual(rows[2].currency, "")
     }
 
     func testThereIsNoFallbackToTheFullChargeList() async {
