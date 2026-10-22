@@ -450,16 +450,17 @@ final class MoneyClientTests: XCTestCase {
         XCTAssertEqual(rows[1].networkEvidence?.candidates?.first?.network, "Electrify America")
     }
 
-    func testAnOlderServerFallsBackToTheChargeList() async throws {
-        let full = Data("""
-        [{"ID":"c1","StartedAt":"2026-10-02T10:00:00Z","Lat":30.2672,"Lon":-97.7431,"PricePerKWh":0.48,"Cost":18.2,"Currency":"USD",
-          "network_state":"estimated"},
-         {"ID":"c3","StartedAt":"2026-10-04T10:00:00Z","Lat":30.2,"Lon":-97.7,"PricePerKWh":0.13,"Cost":5,"Currency":"USD","network_state":""}]
-        """.utf8)
-        MoneyStub.respond = { path in path == "/api/charges/to-confirm" ? (404, Data("404 page not found".utf8)) : (200, full) }
-        let rows = try await client().chargesToConfirm()
-        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm", "/api/charges?limit=5000"])
-        XCTAssertEqual(rows.map(\.id), ["c1"])
+    func testThereIsNoFallbackToTheFullChargeList() async {
+        MoneyStub.respond = { _ in (404, Data("404 page not found".utf8)) }
+        do {
+            _ = try await client().chargesToConfirm()
+            XCTFail("expected the 404")
+        } catch APIError.server(let status, _) {
+            XCTAssertEqual(status, 404)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertEqual(MoneyStub.paths, ["/api/charges/to-confirm"])
     }
 
     func testTheCSVIsTheWebsDownload() async throws {
@@ -469,7 +470,7 @@ final class MoneyClientTests: XCTestCase {
         XCTAssertEqual(MoneyStub.paths, ["/api/ledger/monthly.csv?month=2026-09&tz=America/Chicago"])
     }
 
-    func testARateLimitIsNotAFallback() async {
+    func testARateLimitIsAnError() async {
         MoneyStub.respond = { _ in (429, Data("{\"error\":\"slow down\"}".utf8)) }
         do {
             _ = try await client().chargesToConfirm()
