@@ -64,6 +64,10 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"live_drive.json":        &rivian.LiveDrive{},
 		"drives_last.json":       &[]driveResponse{},
 		"charges_last.json":      &[]chargeResponse{},
+		// GET /api/charges/{id}: one charge with its figures (the Session card): a DC fast
+		// charge with a thermal figure and a limit, and a home AC charge with neither.
+		"charge_one.json":    &chargeResponse{},
+		"charge_one_ac.json": &chargeResponse{},
 		// The Truck tab (item G): parked drain, pack health, the monthly trends, the
 		// cold-weather range and the lease status.
 		"drain.json":        &drainResponse{},
