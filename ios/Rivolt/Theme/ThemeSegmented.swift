@@ -11,16 +11,22 @@ struct ThemeSegmented<ID: Hashable>: View {
     @Binding var selection: ID
     /// What the choice is about, read before each option by VoiceOver ("View, Map").
     var accessibilityName: String?
-    /// Options share the full width (a row of its own) instead of hugging their labels.
+    /// Options share the full width (a row of its own) instead of hugging their labels; at accessibility text sizes
+    /// they stack, so a label never breaks inside a word.
     var fillsWidth = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(spacing: 2) {
+        let layout = fillsWidth && typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        layout {
             ForEach(options) { o in
                 let on = o.id == selection
                 Button { selection = o.id } label: {
                     Text(o.label)
                         .font(Theme.sans(ThemeTokens.typeValue, on ? .medium : .regular, relativeTo: .body))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .foregroundStyle(on ? Theme.textPrimary : Theme.textSecondary)
                         .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
                         .frame(maxWidth: fillsWidth ? .infinity : nil)

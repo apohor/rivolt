@@ -99,7 +99,7 @@ struct EfficiencyView: View {
                                 EfficiencyBars(buckets: g.buckets, average: avg, unit: e.efficiencyUnit)
                                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                             }
-                            footnote(e)
+                            footnote(e, rows: typeSize.isAccessibilitySize)
                         }
                     }
                 }
@@ -125,12 +125,17 @@ struct EfficiencyView: View {
         .themeCard()
     }
 
-    private func footnote(_ e: EfficiencyInsights) -> some View {
-        Text("\(e.efficiencyUnit); the number under each label is its drives. Dashed bars: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven, a rough figure.")
+    /// Under each chart, as the web's; the rows already say their drives and "rough".
+    private func footnote(_ e: EfficiencyInsights, rows: Bool) -> some View {
+        Text(rows
+             ? "Rough: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven."
+             : "\(e.efficiencyUnit); the number under each label is its drives. Dashed bars: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven, a rough figure.")
             .themeText(.caption)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 1.5 * Theme.unit)
-            .accessibilityLabel(SpokenText.words("Dashed bars: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven, a rough figure."))
+            .accessibilityLabel(SpokenText.words(rows
+                ? "Rough figures: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven."
+                : "Dashed bars: under \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit) driven, a rough figure."))
     }
 }
 
@@ -243,8 +248,13 @@ struct EfficiencyRows: View {
         let max = EfficiencyLogic.scaleMax(buckets, overall: average)
         let best = EfficiencyLogic.best(buckets)
         VStack(alignment: .leading, spacing: 3 * Theme.unit) {
-            Text("Average \(NumberText.fixed(average, 2)) \(unit)").themeText(.value, color: Theme.chartSocLimit)
-                .accessibilityLabel(SpokenText.words("Average \(NumberText.fixed(average, 2)) \(unit)"))
+            // The average in body text (amber text is too faint on light), marked by the chart's amber dash.
+            HStack(spacing: 1.5 * Theme.unit) {
+                DashedRule().stroke(Theme.chartSocLimit, style: StrokeStyle(lineWidth: 2, dash: [3, 2])).frame(width: 4 * Theme.unit, height: 2)
+                Text("Average \(NumberText.fixed(average, 2)) \(unit)").themeText(.value, color: Theme.textPrimary)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(SpokenText.words("Average \(NumberText.fixed(average, 2)) \(unit)"))
             ForEach(buckets) { b in
                 VStack(alignment: .leading, spacing: Theme.unit) {
                     Text(b.label).themeText(.value, color: Theme.textPrimary)
