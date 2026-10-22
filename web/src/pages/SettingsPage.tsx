@@ -109,6 +109,9 @@ const TABS: { id: TabId; label: string }[] = [
 
 function SettingsPageInner() {
   const location = useLocation();
+  // The tab's cards that load their own data appear after the first frame; watching this root (not the target's
+  // parent, which does not exist yet) is what lets the anchor re-align once the target card has mounted.
+  const rootRef = useRef<HTMLDivElement>(null);
   // In the tab-bar shell the header no longer carries Sign out.
   const shell = useMoneyTabEnabled();
   const nextUi = useUiNext();
@@ -156,8 +159,8 @@ function SettingsPageInner() {
     };
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => align("auto"));
-      const parent = document.getElementById(id)?.parentElement;
-      if (parent) ro.observe(parent);
+      const root = rootRef.current ?? document.getElementById(id)?.parentElement;
+      if (root) ro.observe(root);
     }
     for (const ev of USER_SCROLL_EVENTS) window.addEventListener(ev, stop, { passive: true });
     const timer = window.setTimeout(stop, 4000);
@@ -179,7 +182,7 @@ function SettingsPageInner() {
   }, [tab]);
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       <PageHeader title="Settings" />
 
       <div className="flex flex-wrap gap-1 border-b border-neutral-800 overflow-x-auto">
