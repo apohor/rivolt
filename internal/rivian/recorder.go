@@ -225,6 +225,9 @@ type liveCharge struct {
 	lat        float64
 	lon        float64
 	maxPower   float64 // kW
+	// limitPct is the last charge limit (1 to 100) the truck reported during the
+	// session; 0 until one arrives. Persisted on the charge row.
+	limitPct float64
 
 	endAt      time.Time
 	endSoC     float64
@@ -297,6 +300,14 @@ func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) 
 	}
 	if socUp || stateChanged {
 		c.lastProgressAt = t
+	}
+}
+
+// noteLimit remembers the truck's charge limit if the frame carries a sane one; a
+// frame without one (0, or out of range) leaves the last value alone.
+func (c *liveCharge) noteLimit(pct float64) {
+	if pct >= 1 && pct <= 100 {
+		c.limitPct = pct
 	}
 }
 
@@ -1244,6 +1255,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 			s.charge.endSoC = curr.BatteryLevelPct
 			s.charge.finalState = curr.ChargerState
+			s.charge.noteLimit(curr.ChargeTargetPct)
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
@@ -1274,6 +1286,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		s.charge.noteProgress(curr.At)
+		s.charge.noteLimit(curr.ChargeTargetPct)
 		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1293,6 +1306,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.At.After(s.charge.endAt) {
 			s.charge.endAt = curr.At
 		}
+		s.charge.noteLimit(curr.ChargeTargetPct)
 		s.charge.endSoC = curr.BatteryLevelPct
 		s.charge.finalState = curr.ChargerState
 		m.touchLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -1320,6 +1334,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		s.charge.noteLimit(curr.ChargeTargetPct)
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		s.charge.finalState = curr.ChargerState
 		s.charge.final = true // a rejected charge retries once more at close
@@ -1800,6 +1815,10 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		Source:         "live",
 		ActiveSeconds:  c.activeSeconds,
 	}
+	if c.limitPct > 0 {
+		v := c.limitPct
+		row.ChargeLimitPct = &v
+	}
 	// Parallax-only thermal breakdown. Only set when the live session
 	// has actually reported a thermal_kwh value (>0) — otherwise leave
 	// nil so legacy / non-Parallax paths don't synthesize fake zeros.
@@ -2146,6 +2165,14 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 // resumed mid-way finished with only the energy delivered after the restart
 // (an L2 charge resumed at 83% of a 31 to 90% charge was recorded as 8.7 kWh
 // instead of ~77, and every deploy during a charge did the same on prod).
+// limitFromRow is the charge limit a stored row carries (0 when it has none).
+func limitFromRow(row *charges.Charge) float64 {
+	if row.ChargeLimitPct != nil {
+		return *row.ChargeLimitPct
+	}
+	return 0
+}
+
 func liveChargeFromRow(row *charges.Charge) *liveCharge {
 	return &liveCharge{
 		id:         row.ID,
@@ -2163,6 +2190,7 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 		progressKWh:       row.EnergyAddedKWh,
 		activeSeconds:     row.ActiveSeconds,
 		progressActiveSec: row.ActiveSeconds,
+		limitPct:          limitFromRow(row),
 		// Anchor the stale-session guard at the last advanced frame, not
 		// zero. A zero lastMeaningfulAt makes the guard fall back to
 		// startedAt and abandon any resumed charge older than the gap

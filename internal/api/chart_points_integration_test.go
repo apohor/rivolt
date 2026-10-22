@@ -47,8 +47,13 @@ func TestChartPoints(t *testing.T) {
 	}
 	charge := func(uid uuid.UUID, id, vid string, at time.Time, dur time.Duration, s, e float64) {
 		t.Helper()
-		if err := cf.For(uid).Upsert(ctx, charges.Charge{ID: id, VehicleID: vid, StartedAt: at, EndedAt: at.Add(dur),
-			StartSoCPct: s, EndSoCPct: e, EnergyAddedKWh: 20, FinalState: "charging_complete", Source: "live", Lat: 30.2, Lon: -97.7}); err != nil {
+		c := charges.Charge{ID: id, VehicleID: vid, StartedAt: at, EndedAt: at.Add(dur),
+			StartSoCPct: s, EndSoCPct: e, EnergyAddedKWh: 20, FinalState: "charging_complete", Source: "live", Lat: 30.2, Lon: -97.7}
+		if id == "cp-c1" { // the one charge with a known limit
+			lim := 80.0
+			c.ChargeLimitPct = &lim
+		}
+		if err := cf.For(uid).Upsert(ctx, c); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -90,7 +95,7 @@ func TestChartPoints(t *testing.T) {
 	if len(d0) != 5 || d0["distance_mi"].(float64) != 12 || d0["start_soc_pct"].(float64) != 80 || d0["end_soc_pct"].(float64) != 70 {
 		t.Errorf("first drive = %v", d0)
 	}
-	if c0 := out["charges"][0]; len(c0) != 4 || c0["start_soc_pct"].(float64) != 40 || c0["end_soc_pct"].(float64) != 80 {
+	if c0 := out["charges"][0]; len(c0) != 5 || c0["start_soc_pct"].(float64) != 40 || c0["end_soc_pct"].(float64) != 80 || c0["charge_limit_pct"] != 80.0 {
 		t.Errorf("first charge = %v", c0)
 	}
 	for _, banned := range []string{"lat", "lon", "id", "cost", "place", "network", "polyline", "30.2", "-97.7", "cp-"} {

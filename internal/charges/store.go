@@ -79,6 +79,10 @@ type Charge struct {
 	// recorded before this column existed leave it nil so the UI
 	// can render "—" instead of misleading "0 kWh thermal".
 	ThermalKWh *float64
+	// ChargeLimitPct is the charge limit the truck was set to during the session
+	// (the last reported value, 1 to 100); nil when unknown. A later save that carries
+	// none keeps the stored one.
+	ChargeLimitPct *float64
 	// ActiveSeconds is the wall-clock time the session actually spent
 	// charging (power above the idle floor), as opposed to
 	// EndedAt-StartedAt which spans the whole plugged-in period
@@ -262,8 +266,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			cost_source, network, place,
 			network_state, network_confidence, network_evidence,
 			rivian_charger,
-			estimate_month, estimate_url
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29)
+			estimate_month, estimate_url,
+			charge_limit_pct
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -307,6 +312,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			estimate_url     = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.estimate_url ELSE EXCLUDED.estimate_url END,
 			place            = COALESCE(EXCLUDED.place, charges.place),
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
+			charge_limit_pct = COALESCE(EXCLUDED.charge_limit_pct, charges.charge_limit_pct),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -322,7 +328,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
 		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
 		nullableBool(c.RivianCharger),
-		nullIfEmpty(month), nullIfEmpty(url))
+		nullIfEmpty(month), nullIfEmpty(url),
+		nullableFloatPtr(c.ChargeLimitPct))
 	return err
 }
 
@@ -387,7 +394,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       c.thermal_kwh, c.charge_limit_pct, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
@@ -406,7 +413,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 	var out []Charge
 	for rows.Next() {
 		var c Charge
-		var thermal sql.NullFloat64
+		var thermal, limit sql.NullFloat64
 		var netConf sql.NullFloat64
 		var netEv []byte
 		var recCost sql.NullFloat64
@@ -417,12 +424,13 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 		); err != nil {
 			return nil, err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
+		c.ChargeLimitPct = floatFromNull(limit)
 		c.NetworkConfidence = floatFromNull(netConf)
 		c.NetworkEvidence = netEv
 		c.ReceiptCost = floatFromNull(recCost)
@@ -452,7 +460,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       c.thermal_kwh, c.charge_limit_pct, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
@@ -474,7 +482,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		ORDER BY c.started_at DESC
 		LIMIT 1`, s.userID, rivianVehicleID, vid)
 	var c Charge
-	var thermal sql.NullFloat64
+	var thermal, limit sql.NullFloat64
 	var netConf sql.NullFloat64
 	var netEv []byte
 	var recCost sql.NullFloat64
@@ -485,12 +493,13 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
-		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 	); err != nil {
 		return nil, err
 	}
 	c.ThermalKWh = floatFromNull(thermal)
+	c.ChargeLimitPct = floatFromNull(limit)
 	c.NetworkConfidence = floatFromNull(netConf)
 	c.NetworkEvidence = netEv
 	c.ReceiptCost = floatFromNull(recCost)
@@ -673,7 +682,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       c.thermal_kwh, c.charge_limit_pct, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
@@ -689,7 +698,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 	defer rows.Close()
 	for rows.Next() {
 		var c Charge
-		var thermal sql.NullFloat64
+		var thermal, limit sql.NullFloat64
 		var netConf sql.NullFloat64
 		var netEv []byte
 		var recCost sql.NullFloat64
@@ -700,12 +709,13 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 		); err != nil {
 			return err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
+		c.ChargeLimitPct = floatFromNull(limit)
 		c.NetworkConfidence = floatFromNull(netConf)
 		c.NetworkEvidence = netEv
 		c.ReceiptCost = floatFromNull(recCost)
@@ -911,7 +921,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       c.thermal_kwh, c.charge_limit_pct, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
@@ -927,7 +937,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		return nil, rows.Err()
 	}
 	var c Charge
-	var thermal, netConf sql.NullFloat64
+	var thermal, limit, netConf sql.NullFloat64
 	var netEv []byte
 	var recCost sql.NullFloat64
 	if err := rows.Scan(&c.ID, &c.VehicleID,
@@ -937,12 +947,13 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
-		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
 	); err != nil {
 		return nil, err
 	}
 	c.ThermalKWh = floatFromNull(thermal)
+	c.ChargeLimitPct = floatFromNull(limit)
 	c.NetworkConfidence = floatFromNull(netConf)
 	c.NetworkEvidence = netEv
 	c.ReceiptCost = floatFromNull(recCost)
@@ -1337,6 +1348,9 @@ type ChartCharge struct {
 	EndedAt     time.Time `json:"ended_at"`
 	StartSoCPct float64   `json:"start_soc_pct"`
 	EndSoCPct   float64   `json:"end_soc_pct"`
+	// ChargeLimitPct is the limit the truck was set to for the charge (1 to 100),
+	// null when unknown (older charges are backfilled where the samples still exist).
+	ChargeLimitPct *float64 `json:"charge_limit_pct"`
 }
 
 // MaxChartRows bounds one chart answer (newest rows win when a window holds more).
@@ -1347,7 +1361,7 @@ const MaxChartRows = 5000
 // rivianVehicleID "" means every truck; at most MaxChartRows, the newest if more.
 func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, rivianVehicleID string) ([]ChartCharge, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.started_at, c.ended_at, COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0)
+		SELECT c.started_at, c.ended_at, COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0), c.charge_limit_pct
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -1363,9 +1377,11 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 	var out []ChartCharge
 	for rows.Next() {
 		var c ChartCharge
-		if err := rows.Scan(&c.StartedAt, &c.EndedAt, &c.StartSoCPct, &c.EndSoCPct); err != nil {
+		var limit sql.NullFloat64
+		if err := rows.Scan(&c.StartedAt, &c.EndedAt, &c.StartSoCPct, &c.EndSoCPct, &limit); err != nil {
 			return nil, err
 		}
+		c.ChargeLimitPct = floatFromNull(limit)
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
