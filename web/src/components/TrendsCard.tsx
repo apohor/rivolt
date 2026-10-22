@@ -201,9 +201,11 @@ function CapacityDots({ samples, median, spec }: { samples: CapacitySample[]; me
             data-cap-trend
             points={run.map((p) => `${X(p.x).toFixed(1)},${Y(Math.min(hi, Math.max(lo, p.y))).toFixed(1)}`).join(" ")}
             fill="none"
-            stroke="#34d399"
-            strokeOpacity={0.55}
-            strokeWidth={2}
+            stroke="currentColor"
+            className="text-neutral-300"
+            strokeOpacity={0.6}
+            strokeWidth={2.5}
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
         ))}
@@ -244,7 +246,7 @@ function CapacityDots({ samples, median, spec }: { samples: CapacitySample[]; me
         </span>
         {runs.length > 0 && (
           <span>
-            <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t-2 border-emerald-400/60 align-middle" />
+            <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t-[2.5px] border-neutral-300/60 align-middle" />
             Typical (rolling median)
           </span>
         )}

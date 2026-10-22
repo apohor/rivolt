@@ -767,8 +767,9 @@ struct CapacityChart: View {
                 ForEach(Array(runs.enumerated()), id: \.offset) { i, run in
                     ForEach(Array(run.enumerated()), id: \.offset) { _, p in
                         LineMark(x: .value("Date", p.at), y: .value("kWh", min(domain.upperBound, max(domain.lowerBound, p.kwh))), series: .value("Run", i))
-                            .foregroundStyle(Theme.home.opacity(0.55))
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
+                            // A neutral under the green dots, so "typical" reads apart from them.
+                            .foregroundStyle(Theme.textBody.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                             .interpolationMethod(.linear)
                     }
                 }
@@ -831,7 +832,7 @@ private struct CapacityLegend: View {
             }
             if trend {
                 HStack(spacing: Theme.unit) {
-                    Capsule().fill(Theme.home.opacity(0.55)).frame(width: 4 * Theme.unit, height: 2)
+                    Capsule().fill(Theme.textBody.opacity(0.6)).frame(width: 4 * Theme.unit, height: 2.5)
                     Text("Typical (rolling median)")
                 }
             }
