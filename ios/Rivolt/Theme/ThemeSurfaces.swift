@@ -68,7 +68,7 @@ extension Shape {
             .offset(y: y)
             .mask {
                 Rectangle().fill(.black).padding(-60)
-                    .overlay { fill(.black).padding(60).blendMode(.destinationOut) }
+                    .overlay { fill(.black).blendMode(.destinationOut) }
                     .compositingGroup()
             }
     }
