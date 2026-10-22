@@ -17,107 +17,122 @@ struct NotificationSettingsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    statusRow
-                } footer: {
-                    Text("Apple's push service sees only this phone's push address and a generic “Rivolt update”. The words are fetched from Rivolt over an encrypted connection when it arrives.")
-                }
-
-                // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
-                // what is missing until then.
-                Section {
-                    Button {
-                        Task { await manager.sendTest() }
-                    } label: {
-                        HStack {
-                            Text("Send test notification")
-                            if manager.test == .sending { Spacer(); ProgressView() }
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4 * Theme.unit) {
+                    ThemeSection(title: "This iPhone") {
+                        statusRow
+                        Text("Apple's push service sees only this phone's push address and a generic “Rivolt update”. The words are fetched from Rivolt over an encrypted connection when it arrives.")
+                            .themeText(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .disabled(!manager.isOn || manager.test == .sending)
-                } footer: {
-                    if !manager.isOn {
-                        Text("Turn on notifications for this iPhone first.")
-                    } else {
-                        switch manager.test {
-                        case .sent(let n):
-                            Text("Sent to \(n) iPhone\(n == 1 ? "" : "s"). It should arrive in a moment.")
-                        case .failed(let message):
-                            Text(message).foregroundStyle(.red)
-                        default:
-                            Text("Sends one test to your iPhones signed in to Rivolt.")
-                        }
-                    }
-                }
 
-                if let live, manager.liveOffered, manager.isOn, manager.preferences?.onChargingLive == true {
-                    Section {
+                    // Always here, so it is never missing: it works once notifications are on for this iPhone, and says
+                    // what is missing until then.
+                    ThemeSection(title: "Test") {
                         Button {
-                            Task { await live.sendTest(vehicleID: vehicleID, deviceToken: manager.deviceToken) }
+                            Task { await manager.sendTest() }
                         } label: {
-                            HStack {
-                                Text("Send test Live Activity")
-                                if live.test == .working { Spacer(); ProgressView() }
+                            HStack(spacing: 2 * Theme.unit) {
+                                Text("Send test notification")
+                                if manager.test == .sending { ProgressView().tint(Theme.textSecondary) }
                             }
                         }
-                        .disabled(live.test == .working || !liveActivitiesAllowed)
-                    } footer: {
-                        switch live.test {
-                        case .sent:
-                            Text("Test sent. The Lock Screen card should show 50%, 7.2 kW and 60 min (test numbers), then end in about 20 seconds.")
-                        case .failed(let message):
-                            Text(message).foregroundStyle(.red)
-                        default:
-                            Text("Starts a Live Activity with test numbers and asks the server to update and end it. Lock the phone to see it.")
-                        }
-                    }
-                }
-
-                if let prefs = manager.preferences {
-                    Section {
-                        ForEach(PushKind.allCases.filter { $0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown) }) { kind in
-                            Toggle(isOn: binding(for: kind, in: prefs)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(kind.title)
-                                    if let help = kind.help {
-                                        Text(help)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
+                        .buttonStyle(ThemeSecondaryButtonStyle())
+                        .disabled(!manager.isOn || manager.test == .sending)
+                        Group {
+                            if !manager.isOn {
+                                Text("Turn on notifications for this iPhone first.").themeText(.caption)
+                            } else {
+                                switch manager.test {
+                                case .sent(let n):
+                                    Text("Sent to \(n) iPhone\(n == 1 ? "" : "s"). It should arrive in a moment.").themeText(.caption)
+                                case .failed(let message):
+                                    Text(message).themeText(.caption, color: Theme.critical)
+                                default:
+                                    Text("Sends one test to your iPhones signed in to Rivolt.").themeText(.caption)
                                 }
                             }
                         }
-                    } header: {
-                        Text("Notify me when…")
-                    } footer: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let live, manager.liveOffered, manager.isOn, manager.preferences?.onChargingLive == true {
+                        ThemeSection(title: "Live Activity") {
+                            Button {
+                                Task { await live.sendTest(vehicleID: vehicleID, deviceToken: manager.deviceToken) }
+                            } label: {
+                                HStack(spacing: 2 * Theme.unit) {
+                                    Text("Send test Live Activity")
+                                    if live.test == .working { ProgressView().tint(Theme.textSecondary) }
+                                }
+                            }
+                            .buttonStyle(ThemeSecondaryButtonStyle())
+                            .disabled(live.test == .working || !liveActivitiesAllowed)
+                            Group {
+                                switch live.test {
+                                case .sent:
+                                    Text("Test sent. The Lock Screen card should show 50%, 7.2 kW and 60 min (test numbers), then end in about 20 seconds.").themeText(.caption)
+                                case .failed(let message):
+                                    Text(message).themeText(.caption, color: Theme.critical)
+                                default:
+                                    Text("Starts a Live Activity with test numbers and asks the server to update and end it. Lock the phone to see it.").themeText(.caption)
+                                }
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if let prefs = manager.preferences {
+                        ThemeSection(title: "Notify me when…") {
+                            let kinds = PushKind.allCases.filter { $0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown) }
+                            ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
+                                if index > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
+                                Toggle(isOn: binding(for: kind, in: prefs)) {
+                                    VStack(alignment: .leading, spacing: Theme.unit / 2) {
+                                        Text(kind.title).themeText(.value, color: Theme.textPrimary)
+                                        if let help = kind.help {
+                                            Text(help).themeText(.caption)
+                                        }
+                                    }
+                                }
+                                .tint(Theme.accentFill)
+                            }
                             if manager.liveOffered && prefs.chargingLiveKnown {
-                                Text("Starts when you open Rivolt while the truck is charging, and ends when the charge does.")
+                                Text("Starts when you open Rivolt while the truck is charging, and ends when the charge does.").themeText(.caption)
                                 if !liveActivitiesAllowed {
-                                    Text("Live Activities are turned off for Rivolt in iOS Settings.").foregroundStyle(.orange)
+                                    Text("Live Activities are turned off for Rivolt in iOS Settings.").themeText(.caption, color: Theme.estimate)
                                 }
                             }
                             if let error = manager.switchError {
-                                Text(error).foregroundStyle(.red)
+                                Text(error).themeText(.caption, color: Theme.critical)
                             }
                         }
                     }
-                }
 
-                if manager.isOn {
-                    Section {
-                        Button("Turn off notifications on this iPhone", role: .destructive) {
+                    if manager.isOn {
+                        Button(role: .destructive) {
                             Task { await manager.turnOff() }
+                        } label: {
+                            Text("Turn off notifications on this iPhone")
+                                .font(Theme.sans(ThemeTokens.typeValue, .medium))
+                                .foregroundStyle(Theme.critical)
+                                .frame(maxWidth: .infinity)
                         }
+                        .themeCard()
                     }
                 }
+                .padding(4 * Theme.unit)
             }
+            .themePage()
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Theme.bar, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .font(Theme.sans(ThemeTokens.typeValue, .medium))
+                        .tint(Theme.accent)
                 }
             }
         }
@@ -127,35 +142,42 @@ struct NotificationSettingsView: View {
     private var statusRow: some View {
         switch (manager.authorization, manager.registration) {
         case (.denied, _):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Off in iOS Settings", systemImage: "bell.slash")
-                Text("Turn notifications on for Rivolt in the iOS Settings app to get them.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+                status("Off in iOS Settings", icon: "bell.slash", tint: Theme.textSecondary)
+                Text("Turn notifications on for Rivolt in the iOS Settings app to get them.").themeText(.subline)
                 Button("Open iOS Settings") { openSystemSettings() }
+                    .buttonStyle(ThemeSecondaryButtonStyle())
             }
         case (.notDetermined, _):
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Not turned on", systemImage: "bell")
-                Button("Turn on notifications") { Task { await manager.turnOn() } }
+            VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+                status("Not turned on", icon: "bell", tint: Theme.textSecondary)
+                Button { Task { await manager.turnOn() } } label: {
+                    Text("Turn on notifications").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ThemeButtonStyle())
             }
         case (.authorized, .registered):
-            // The icon is green; the words stay the primary colour (green text on white is too faint).
-            Label {
-                Text("On for this iPhone")
-            } icon: {
-                Image(systemName: "bell.badge").foregroundStyle(.green)
-            }
+            // The icon carries the accent; the words stay primary, as on the web's Live pill text.
+            status("On for this iPhone", icon: "bell.badge", tint: Theme.accent)
         case (.authorized, .failed(let message)):
-            VStack(alignment: .leading, spacing: 8) {
-                Label(message, systemImage: "exclamationmark.triangle")
+            VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+                status(message, icon: "exclamationmark.triangle", tint: Theme.estimate)
                 Button("Try again") { Task { await manager.turnOn() } }
+                    .buttonStyle(ThemeSecondaryButtonStyle())
             }
         case (.authorized, _):
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("Setting up…")
+            HStack(spacing: 2 * Theme.unit) {
+                ProgressView().tint(Theme.textSecondary)
+                Text("Setting up…").themeText(.value, color: Theme.textPrimary)
             }
+        }
+    }
+
+    private func status(_ text: String, icon: String, tint: Color) -> some View {
+        Label {
+            Text(text).themeText(.value, color: Theme.textPrimary)
+        } icon: {
+            Image(systemName: icon).foregroundStyle(tint)
         }
     }
 
@@ -182,21 +204,26 @@ struct NotificationPromptCard: View {
     let manager: NotificationManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Get a notification when charging finishes", systemImage: "bell.badge")
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 3 * Theme.unit) {
+            Label {
+                Text("Get a notification when charging finishes")
+                    .font(Theme.sans(ThemeTokens.typeValue, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+            } icon: {
+                Image(systemName: "bell.badge").foregroundStyle(Theme.accent)
+            }
             Text("Rivolt can tell you when a charge completes. Apple only gets a generic “Rivolt update”; the words are fetched from Rivolt when the notification arrives.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Button("Turn on") { Task { await manager.turnOn() } }
-                    .buttonStyle(.borderedProminent)
+                .themeText(.subline)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 3 * Theme.unit) {
+                Button { Task { await manager.turnOn() } } label: {
+                    Text("Turn on").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ThemeButtonStyle())
                 Button("Not now") { manager.dismissPrompt() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ThemeSecondaryButtonStyle())
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .themeCard()
     }
 }

@@ -48,12 +48,7 @@ struct LoginView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
             HStack(spacing: 2.5 * Theme.unit) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.brandMark)
-                    .frame(width: 28, height: 28)
-                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.brandMark.opacity(ThemeTokens.logoFrameOpacity), lineWidth: 1.5))
-                    .accessibilityHidden(true)
+                ThemeLogo(size: 28)
                 Text("Rivolt").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
             }
             HStack(spacing: 2 * Theme.unit) {
