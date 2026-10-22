@@ -1,0 +1,38 @@
+[
+  {
+    "ID": "chg-confirm-1",
+    "StartedAt": "2026-10-21T17:42:10Z",
+    "PricePerKWh": 0.48,
+    "Cost": 21.6,
+    "Currency": "USD",
+    "network_state": "needs_confirmation",
+    "network_evidence": {
+      "candidates": [
+        { "network": "Electrify America" },
+        { "network": "EVgo" }
+      ]
+    }
+  },
+  {
+    "ID": "chg-estimated-1",
+    "StartedAt": "2026-10-14T12:05:44Z",
+    "PricePerKWh": 0.36,
+    "Cost": 14.04,
+    "Currency": "USD",
+    "network_state": "estimated",
+    "network_evidence": {
+      "candidates": [
+        { "network": "Rivian Adventure Network" }
+      ]
+    }
+  },
+  {
+    "ID": "chg-unpriced-1",
+    "StartedAt": "2026-10-02T19:31:02Z",
+    "PricePerKWh": 0,
+    "Cost": 0,
+    "Currency": "",
+    "network_state": "estimated",
+    "network_evidence": { "candidates": [] }
+  }
+]
