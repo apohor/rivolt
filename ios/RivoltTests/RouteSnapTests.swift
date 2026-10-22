@@ -28,7 +28,7 @@ private func encode(_ pts: [C], precision: Int = 6) -> String {
 }
 
 /// A straight run north from downtown Dallas: `n` points ~111 m apart, 10 s apart, at `mph`.
-private func run(_ n: Int, mph: Double = 30, t0: Double = 1_800_000_000) -> [P] {
+private func straight(_ n: Int, mph: Double = 30, t0: Double = 1_800_000_000) -> [P] {
     (0..<n).map { P(lat: 32.7767 + Double($0) * 0.001, lon: -96.797, t: t0 + Double($0) * 10, s: mph) }
 }
 
@@ -45,7 +45,7 @@ final class RouteSnapLogicTests: XCTestCase {
     }
 
     func testCleaningDropsDuplicatesJumpsAndStopRuns() {
-        var pts = run(6)
+        var pts = straight(6)
         // A repeat, then a single fix 50 km off (impossible both ways).
         pts.insert(pts[1], at: 2)
         pts.insert(P(lat: 33.2, lon: -96.797, t: pts[3].t! + 1, s: 30), at: 3)
@@ -60,15 +60,15 @@ final class RouteSnapLogicTests: XCTestCase {
     }
 
     func testSplittingOnTimeAndDistanceGaps() {
-        let a = run(5)
-        let late = run(5, t0: a.last!.t! + 300).map { P(lat: $0.lat + 0.01, lon: $0.lon, t: $0.t, s: $0.s) }
+        let a = straight(5)
+        let late = straight(5, t0: a.last!.t! + 300).map { P(lat: $0.lat + 0.01, lon: $0.lon, t: $0.t, s: $0.s) }
         let (segs, gaps) = RouteSnap.split(a + late)
         XCTAssertEqual(segs.count, 2)
         XCTAssertEqual(gaps.count, 1)
         XCTAssertEqual(gaps[0].from, C(lat: a.last!.lat, lon: a.last!.lon))
-        XCTAssertEqual(RouteSnap.classify(run(4)), .trivial)
-        XCTAssertEqual(RouteSnap.classify(run(5)), .short)
-        XCTAssertEqual(RouteSnap.classify(run(10)), .normal)
+        XCTAssertEqual(RouteSnap.classify(straight(4)), .trivial)
+        XCTAssertEqual(RouteSnap.classify(straight(5)), .short)
+        XCTAssertEqual(RouteSnap.classify(straight(10)), .normal)
     }
 
     func testPiecesChangeAtEachBucketAndShareTheirEnds() {
@@ -173,13 +173,14 @@ private final class FakeValhalla: RouteSnapSource, @unchecked Sendable {
         lock.withLock { _traces += 1 }
         if failTrace { throw APIError.server(status: 500, message: "no") }
         let snapped = body.shape.map { C(lat: $0.lat, lon: $0.lon + 0.0001) }
-        return ValhallaTraceResponse(matchings: [.init(geometry: encode(snapped))], tracepoints: body.shape.map { _ in .init(matchingsIndex: 0) })
+        let tracepoints: [ValhallaTraceResponse.Tracepoint?] = body.shape.map { _ in ValhallaTraceResponse.Tracepoint(matchingsIndex: 0) }
+        return ValhallaTraceResponse(matchings: [ValhallaTraceResponse.Matching(geometry: encode(snapped))], tracepoints: tracepoints)
     }
 
     func valhallaRoute(_ body: ValhallaRouteRequest) async throws -> ValhallaRouteResponse {
         guard routeOK else { throw APIError.server(status: 400, message: "no route") }
         let pts = body.locations.map { C(lat: $0.lat, lon: $0.lon) }
-        return ValhallaRouteResponse(trip: .init(legs: [.init(shape: encode(pts))]))
+        return ValhallaRouteResponse(trip: ValhallaRouteResponse.Trip(legs: [ValhallaRouteResponse.Trip.Leg(shape: encode(pts))]))
     }
 }
 
@@ -190,33 +191,37 @@ final class RouteSnapSnappingTests: XCTestCase {
 
     func testASnappedRouteCarriesTheSpeedsOfTheNearestSamples() async throws {
         let v = FakeValhalla()
-        let d = try XCTUnwrap(await RouteSnap.snap(path(run(20, mph: 55)), source: v))
+        let snapped = await RouteSnap.snap(path(straight(20, mph: 55)), source: v)
+        let d = try XCTUnwrap(snapped)
         XCTAssertEqual(v.traces, 1)
         XCTAssertFalse(d.pieces.isEmpty)
-        XCTAssertEqual(Set(d.pieces.compactMap(\.speed)), [.to65])
+        XCTAssertEqual(Set(d.pieces.compactMap { $0.speed }), [RouteSnap.Speed.to65])
         XCTAssertTrue(d.hasSpeed)
         // Snapped, not the recorded points.
         XCTAssertEqual(d.pieces[0].coords[0].lon, -96.797 + 0.0001, accuracy: 1e-6)
     }
 
     func testAFailedMatchKeepsTheRecordedLine() async {
-        let snapped = await RouteSnap.snap(path(run(20)), source: FakeValhalla(failTrace: true))
+        let snapped = await RouteSnap.snap(path(straight(20)), source: FakeValhalla(failTrace: true))
         XCTAssertNil(snapped)
     }
 
     func testAShortStretchIsNeverSentToTheMatcher() async {
         let v = FakeValhalla()
-        XCTAssertNil(await RouteSnap.snap(path(run(4)), source: v))
+        let snapped = await RouteSnap.snap(path(straight(4)), source: v)
+        XCTAssertNil(snapped)
         XCTAssertEqual(v.traces, 0)
     }
 
     func testAGapIsRoutedWhenItCanBeAndDashedWhenNot() async throws {
-        let a = run(10)
-        let b = run(10, t0: a.last!.t! + 600).map { P(lat: $0.lat + 0.02, lon: $0.lon, t: $0.t, s: $0.s) }
-        let dashed = try XCTUnwrap(await RouteSnap.snap(path(a + b), source: FakeValhalla()))
+        let a = straight(10)
+        let b = straight(10, t0: a.last!.t! + 600).map { P(lat: $0.lat + 0.02, lon: $0.lon, t: $0.t, s: $0.s) }
+        let unrouted = await RouteSnap.snap(path(a + b), source: FakeValhalla())
+        let dashed = try XCTUnwrap(unrouted)
         XCTAssertEqual(dashed.gaps.count, 1)
         XCTAssertTrue(dashed.routedGaps.isEmpty)
-        let routed = try XCTUnwrap(await RouteSnap.snap(path(a + b), source: FakeValhalla(routeOK: true)))
+        let filled = await RouteSnap.snap(path(a + b), source: FakeValhalla(routeOK: true))
+        let routed = try XCTUnwrap(filled)
         XCTAssertTrue(routed.gaps.isEmpty)
         XCTAssertEqual(routed.routedGaps.count, 1)
     }
