@@ -122,4 +122,32 @@ final class AccessibilitySnapshotTests: XCTestCase {
         .background(ThemePageBackground())
         try render("a11y-money-ax3", page, size: .accessibility3)
     }
+
+    func testTruckAtAnAccessibilitySize() throws {
+        let m = TruckModel(state: try Fixture.decode(VehicleState.self, "state"),
+                           drain: .value(try Fixture.decode(DrainSnapshot.self, "drain")),
+                           pack: .value(try Fixture.decode(PackHealth.self, "pack_health")),
+                           trends: .value(try Fixture.decode(TruckTrends.self, "trends")),
+                           cold: .value(try Fixture.decode(ColdRange.self, "cold_range")),
+                           lease: .value(try Fixture.decode(LeaseStatus.self, "lease_status")),
+                           leaseTerms: try Fixture.decode(LeaseTerms.self, "lease_terms"),
+                           sleep: .value(try Fixture.decode([DayActivity].self, "sleep_activity")))
+        let v = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let now = try XCTUnwrap(JSON.parseDate("2026-10-22T17:00:00Z"))
+        let page = VStack(spacing: 0) {
+            ThemeTopBar { EmptyView() }
+            HStack {
+                Text("Truck").themeText(.hero)
+                Spacer()
+                ThemeStepper(title: "Oct 2026", canGoForward: false, previous: {}, next: {})
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            TruckContent(model: m, vehicle: v, drainKey: .constant(.week), temp: 15.6, pickTemp: { _ in }, r2Dismissed: .constant(false),
+                         month: PeriodMonth(containing: now, calendar: utc), now: now, calendar: utc, metric: false)
+                .padding(16)
+        }
+        .frame(width: 390)
+        .background(ThemePageBackground())
+        try render("a11y-truck-ax3", page, size: .accessibility3)
+    }
 }
