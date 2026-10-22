@@ -91,7 +91,7 @@ struct MoneyView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: period.title(calendar: .current), canGoForward: !period.isCurrent(now: .now, calendar: .current),
+            ThemeStepper(title: period.title(calendar: .current), spokenTitle: period.spokenTitle(calendar: .current), canGoForward: !period.isCurrent(now: .now, calendar: .current),
                          previous: { period = period.shifted(by: -1, calendar: .current) },
                          next: { period = period.shifted(by: 1, calendar: .current) })
         }
