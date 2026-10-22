@@ -65,7 +65,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: days.filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
-                        AxisValueLabel(anchor: .top) {
+                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
                     }
@@ -148,7 +148,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: [days.first ?? range.since, days.last ?? range.since]) { value in
-                        AxisValueLabel(anchor: .top) {
+                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
                             if let d = value.as(Date.self) { ChartAxisText(d.formatted(Date.FormatStyle(timeZone: calendar.timeZone).month(.abbreviated).day())) }
                         }
                     }
@@ -202,7 +202,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: idle.map(\.day).filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
-                        AxisValueLabel(anchor: .top) {
+                        AxisValueLabel(collisionResolution: .disabled, anchor: .top) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
                     }

@@ -45,11 +45,12 @@ struct PlacesCard: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(r.id).themeText(.caption, color: t.ink)
+                    .lineLimit(1).fixedSize()
                     .padding(.horizontal, 2 * Theme.unit).padding(.vertical, Theme.unit / 2)
                     .background(t.fill, in: Capsule())
                     .overlay(Capsule().strokeBorder(t.edge, lineWidth: 1))
                 Spacer(minLength: 4)
-                Text("\(r.share)%").themeText(.caption)
+                Text("\(r.share)%").themeText(.caption).lineLimit(1).minimumScaleFactor(0.8)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(r.bucket.sessions)").themeText(.title)
