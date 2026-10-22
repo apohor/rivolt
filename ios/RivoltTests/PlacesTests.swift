@@ -69,7 +69,7 @@ final class PlacesModelTests: XCTestCase {
         let model = PlacesModel()
         await model.load(source: ok, vehicleID: "a", month: m1)
         let down = FakeSplit(result: .failure(APIError.transport("down")))
-        await model.load(source: down, vehicleID: "a", window: .month)
+        await model.load(source: down, vehicleID: "a", month: m2)
         XCTAssertNil(model.split)
     }
 }
