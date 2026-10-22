@@ -57,7 +57,7 @@ final class ActivityLogicTests: XCTestCase {
         XCTAssertEqual(labels["chg-home-2"], "Home")
         XCTAssertEqual(labels["chg-away-1"], "Away")
         XCTAssertEqual(labels["chg-fast-1"], "Fast")
-        XCTAssertEqual(labels["chg-legacy-1"] ?? "none", "none")
+        XCTAssertNil(try XCTUnwrap(labels["chg-legacy-1"], "the legacy charge is in the fixture"))
     }
 
     func testCostLinesFollowTheLedgersSource() throws {
