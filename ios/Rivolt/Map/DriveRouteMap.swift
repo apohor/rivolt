@@ -1,32 +1,36 @@
 import MapLibre
 import SwiftUI
 
-/// One drive's route on the map: the server's basemap (our own tiles, light or dark with the app) and the recorded
-/// trace in the accent colour, fitted to the screen. Fetched when shown, kept in memory while the screen is open,
-/// gone with it. No location services: the map never shows or asks where the phone is.
+/// One drive's route on the map, as the web draws it: the recorded trace snapped to roads through our own Valhalla,
+/// coloured by speed (mph buckets) over a faint glow, routed gaps solid and unknown ones dashed, with start and end
+/// pins and a speed legend, over our basemap. The recorded line shows at once and is replaced when the snapped one
+/// arrives; without samples it's the stored route, without that the ends. Fetched when shown, held in memory while
+/// the screen is open, gone with it. No location services.
 struct DriveRouteMap: View {
     let driveID: String
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
-    @State private var route: [DriveRoute.Point]?
+    @State private var drawing: RouteSnap.Drawing?
     @State private var failed = false
+    @State private var empty = false
     /// How the basemap is doing once the drive's route arrived.
     @State private var health = MapHealth.ok
 
     var body: some View {
         ZStack {
-            if let route, route.isEmpty {
+            if empty {
                 MapMessage(text: "No route was recorded for this drive.")
-            } else if let route, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+            } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, route: route, onHealth: { health = $0 })
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
+                    .overlay(alignment: .bottomLeading) { if drawing.hasSpeed { SpeedLegend().padding(4) } }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
-            } else if failed || health == .failed || route != nil {
+            } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
                 MapMessage(text: "Map unavailable.")
             } else {
@@ -44,58 +48,187 @@ struct DriveRouteMap: View {
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
         health = .ok
+        let client = state.client
+        let drive: DriveRoute
         do {
-            route = try await state.client.driveRoute(id: driveID).points
+            drive = try await client.driveRoute(id: driveID)
             failed = false
         } catch {
             failed = true
+            return
+        }
+        // The drive's samples (and 10 minutes either side, for the parked pins), as the web's detail page.
+        if let started = drive.startedAt, let ended = drive.endedAt, let vehicle = drive.vehicleID, !vehicle.isEmpty,
+           let samples = try? await client.driveSamples(since: started.addingTimeInterval(-600), until: ended.addingTimeInterval(600), vehicleID: vehicle),
+           let path = RouteSnap.path(drive: drive, samples: samples) {
+            drawing = RouteSnap.raw(path)
+            if let snapped = await RouteSnap.snap(path, source: client), !Task.isCancelled { drawing = snapped }
+            return
+        }
+        // No samples: the stored route (no speeds), else nothing to draw.
+        let stored = drive.points
+        if stored.count >= 2 {
+            drawing = RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: stored, speed: nil)], routedGaps: [], gaps: [],
+                                        start: stored.first, end: stored.last, hasSpeed: false)
+        } else {
+            empty = true
         }
     }
 }
 
-/// MapLibre's view: the style (as JSON, never fetched), the route as one shape source and line layer, no user
-/// location, no rotation or tilt.
+/// The web's speed legend: "mph" and the five buckets' swatches.
+struct SpeedLegend: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            Text("mph").foregroundStyle(Theme.textTertiary)
+            ForEach(RouteSnap.Speed.allCases, id: \.rawValue) { b in
+                HStack(spacing: 3) {
+                    RoundedRectangle(cornerRadius: 2).fill(RouteMapView.color(b)).frame(width: 8, height: 3)
+                    Text(b.label)
+                }
+            }
+        }
+        .font(Theme.sans(ThemeTokens.typeCaption - 2, .regular, relativeTo: .caption2))
+        .foregroundStyle(Theme.textBody)
+        .padding(.horizontal, 5).padding(.vertical, 2)
+        .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
+        .padding(.bottom, 20)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Route coloured by speed in miles per hour")
+    }
+}
+
+/// MapLibre's view of a drawing: a glow, the line in speed buckets, routed and unknown gaps, and the pins. The
+/// sources are updated in place when the snapped drawing replaces the recorded one.
 struct RouteMapView: UIViewRepresentable {
     let styleJSON: String
-    let route: [DriveRoute.Point]
+    let drawing: RouteSnap.Drawing
     var onHealth: (MapHealth) -> Void = { _ in }
 
     static let sourceID = "rivolt-route"
 
-    func makeCoordinator() -> Coordinator { Coordinator(route: route, onHealth: onHealth) }
+    /// A speed bucket's colour (nil: the plain line).
+    static func color(_ b: RouteSnap.Speed?) -> Color {
+        switch b {
+        case .under5?: return Theme.routeSpeedUnder5
+        case .to25?: return Theme.routeSpeed5to25
+        case .to50?: return Theme.routeSpeed25to50
+        case .to65?: return Theme.routeSpeed50to65
+        case .over65?: return Theme.routeSpeed65Plus
+        case nil: return Theme.routeLine
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON)
+        // The speed legend sits bottom-left (as on the web); MapLibre's mark goes top-left.
+        map.logoViewPosition = .topLeft
         map.delegate = context.coordinator
         return map
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
-        context.coordinator.route = route
         if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
+        context.coordinator.update(drawing, on: map)
     }
 
     final class Coordinator: MapLoadWatch {
-        var route: [DriveRoute.Point]
+        private var drawing: RouteSnap.Drawing
+        private var sources: [String: MLNShapeSource] = [:]
 
-        init(route: [DriveRoute.Point], onHealth: @escaping (MapHealth) -> Void) {
-            self.route = route
+        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void) {
+            self.drawing = drawing
             super.init(onHealth: onHealth)
         }
 
+        private static func line(_ coords: [RouteSnap.Coord], attributes: [String: Any] = [:]) -> MLNPolylineFeature {
+            var c = coords.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            let f = MLNPolylineFeature(coordinates: &c, count: UInt(c.count))
+            f.attributes = attributes
+            return f
+        }
+
+        /// The features of each source for a drawing.
+        private static func shapes(_ d: RouteSnap.Drawing) -> [String: MLNShape] {
+            let pieces = d.pieces.map { line($0.coords, attributes: ["b": $0.speed?.rawValue ?? -1]) }
+            let pins: [MLNPointFeature] = [(d.start, "start"), (d.end, "end")].compactMap { c, kind in
+                guard let c else { return nil }
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon)
+                f.attributes = ["kind": kind]
+                return f
+            }
+            return [
+                "pieces": MLNShapeCollectionFeature(shapes: pieces),
+                "routed": MLNShapeCollectionFeature(shapes: d.routedGaps.map { line($0) }),
+                "gaps": MLNShapeCollectionFeature(shapes: d.gaps.map { line([$0.from, $0.to]) }),
+                "pins": MLNShapeCollectionFeature(shapes: pins),
+            ]
+        }
+
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
-            var coords = route.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-            guard coords.count >= 2 else { return }
-            let line = MLNPolylineFeature(coordinates: &coords, count: UInt(coords.count))
-            let source = MLNShapeSource(identifier: RouteMapView.sourceID, shape: line, options: nil)
-            style.addSource(source)
-            let layer = MLNLineStyleLayer(identifier: RouteMapView.sourceID, source: source)
-            layer.lineColor = NSExpression(forConstantValue: UIColor(Theme.accent))
-            layer.lineWidth = NSExpression(forConstantValue: 4)
-            layer.lineCap = NSExpression(forConstantValue: "round")
-            layer.lineJoin = NSExpression(forConstantValue: "round")
-            style.addLayer(layer)
-            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24), animated: false)
+            sources = [:]
+            for (name, shape) in Self.shapes(drawing) {
+                let s = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-\(name)", shape: shape, options: nil)
+                style.addSource(s)
+                sources[name] = s
+            }
+            func lineLayer(_ id: String, _ source: String, color: Color, width: Double, opacity: Double) -> MLNLineStyleLayer {
+                let l = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-\(id)", source: sources[source]!)
+                l.lineColor = NSExpression(forConstantValue: UIColor(color))
+                l.lineWidth = NSExpression(forConstantValue: width)
+                l.lineOpacity = NSExpression(forConstantValue: opacity)
+                l.lineCap = NSExpression(forConstantValue: "round")
+                l.lineJoin = NSExpression(forConstantValue: "round")
+                return l
+            }
+            // The glow under everything recorded, then the gaps, then the line by speed, then the pins.
+            style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18))
+            style.addLayer(lineLayer("routed", "routed", color: Theme.routeGap, width: 2.5, opacity: 0.75))
+            let dashed = lineLayer("gaps", "gaps", color: Theme.routeGap, width: 2, opacity: 0.7)
+            dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
+            dashed.lineCap = NSExpression(forConstantValue: "butt")
+            style.addLayer(dashed)
+            for b in [nil] + RouteSnap.Speed.allCases.map(Optional.some) {
+                let l = lineLayer("speed\(b?.rawValue ?? -1)", "pieces", color: RouteMapView.color(b), width: 3, opacity: 0.95)
+                l.predicate = NSPredicate(format: "b == %d", b?.rawValue ?? -1)
+                style.addLayer(l)
+            }
+            for (kind, color) in [("start", Theme.routeStart), ("end", Theme.routeEnd)] {
+                let c = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-pin-\(kind)", source: sources["pins"]!)
+                c.predicate = NSPredicate(format: "kind == %@", kind)
+                c.circleColor = NSExpression(forConstantValue: UIColor(color))
+                c.circleRadius = NSExpression(forConstantValue: 6)
+                c.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+                c.circleStrokeWidth = NSExpression(forConstantValue: 2)
+                style.addLayer(c)
+            }
+            fit(map)
+        }
+
+        /// The snapped drawing replaces the recorded one in the same sources.
+        func update(_ d: RouteSnap.Drawing, on map: MLNMapView) {
+            guard d != drawing else { return }
+            drawing = d
+            guard !sources.isEmpty else { return }
+            for (name, shape) in Self.shapes(d) { sources[name]?.shape = shape }
+            fit(map)
+        }
+
+        private func fit(_ map: MLNMapView) {
+            var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
+                .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            guard !coords.isEmpty else { return }
+            let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+            // One spot (a frozen fix): centred, as the web does, never a zero-size fit.
+            if (lats.max()! - lats.min()!) < 1e-4 && (lons.max()! - lons.min()!) < 1e-4 {
+                map.setCenter(coords[0], zoomLevel: 15, animated: false)
+                return
+            }
+            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 32, right: 24), animated: false)
         }
     }
 }

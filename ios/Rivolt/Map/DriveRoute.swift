@@ -10,6 +10,9 @@ struct DriveRoute: Decodable, Equatable {
         let lon: Double
     }
 
+    let vehicleID: String?
+    let startedAt: Date?
+    let endedAt: Date?
     let startLat: Double
     let startLon: Double
     let endLat: Double
@@ -18,6 +21,7 @@ struct DriveRoute: Decodable, Equatable {
     let routePolyline: String?
 
     private enum CodingKeys: String, CodingKey {
+        case vehicleID = "VehicleID", startedAt = "StartedAt", endedAt = "EndedAt"
         case startLat = "StartLat", startLon = "StartLon", endLat = "EndLat", endLon = "EndLon", routePolyline = "RoutePolyline"
     }
 

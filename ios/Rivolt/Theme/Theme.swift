@@ -48,6 +48,17 @@ enum Theme {
     static let shareCardValue = color(ThemeTokens.shareCardValue)
     static let shareCardNote = color(ThemeTokens.shareCardNote)
     static let shareCardFooter = color(ThemeTokens.shareCardFooter)
+    /// The drive route on a map (the web's DriveMap), the same in both themes: glow, speed buckets, gaps and pins.
+    static let routeGlow = color(ThemeTokens.routeGlow)
+    static let routeLine = color(ThemeTokens.routeLine)
+    static let routeSpeedUnder5 = color(ThemeTokens.routeSpeedUnder5)
+    static let routeSpeed5to25 = color(ThemeTokens.routeSpeed5to25)
+    static let routeSpeed25to50 = color(ThemeTokens.routeSpeed25to50)
+    static let routeSpeed50to65 = color(ThemeTokens.routeSpeed50to65)
+    static let routeSpeed65Plus = color(ThemeTokens.routeSpeed65Plus)
+    static let routeGap = color(ThemeTokens.routeGap)
+    static let routeStart = color(ThemeTokens.routeStart)
+    static let routeEnd = color(ThemeTokens.routeEnd)
     static let edge = color(ThemeTokens.edge)
 
     // Literals
