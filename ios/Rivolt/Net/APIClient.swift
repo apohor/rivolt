@@ -335,6 +335,13 @@ actor APIClient {
         try await optional("/api/vehicles/\(pathID(vehicleID))/lease/status")
     }
 
+    // MARK: Maps
+
+    /// One drive's route (its recorded trace and ends), for the map on its screen. Held in memory only.
+    func driveRoute(id: String) async throws -> DriveRoute {
+        try await request("GET", "/api/drives/\(pathID(id))")
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }

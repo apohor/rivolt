@@ -325,3 +325,10 @@ jobs:
           grep -A3 -E '^CompileAssetCatalog' "$RUNNER_TEMP/release.log" | cut -c1-400 || echo "no CompileAssetCatalog step ran"
           ios/check-app-store-basics.sh \
             "$RUNNER_TEMP/release/Build/Products/Release-iphoneos/Rivolt.app" "$RUNNER_TEMP/release"
+          # The app's size as built (device, Release, unsigned) and zipped (close to the download), and what the map
+          # renderer takes of it, so a size change shows up in the log.
+          app="$RUNNER_TEMP/release/Build/Products/Release-iphoneos/Rivolt.app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/app.zip"
+          echo "App size: $(du -sk "$app" | cut -f1) KB on disk, $(du -k "$RUNNER_TEMP/app.zip" | cut -f1) KB zipped;" \
+            "MapLibre.framework $(du -sk "$app/Frameworks/MapLibre.framework" 2>/dev/null | cut -f1 || echo 0) KB;" \
+            "map resources $(du -sk "$app/Map" 2>/dev/null | cut -f1 || echo 0) KB"
