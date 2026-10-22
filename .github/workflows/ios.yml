@@ -146,6 +146,9 @@ jobs:
   screenshots:
     # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
     # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
+    # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
+    # label before merge, so the App Store basics check runs on it.
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
     runs-on: macos-15
     timeout-minutes: 45
@@ -274,6 +277,9 @@ jobs:
   appstore:
     # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
     # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
+    # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
+    # label before merge, so the App Store basics check runs on it.
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
     runs-on: macos-15
     timeout-minutes: 30
