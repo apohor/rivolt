@@ -3,6 +3,8 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/sessions"
@@ -36,17 +38,43 @@ var appWrites = map[string]bool{
 // appWriteDenied is the body of the refusal; tests look for it.
 const appWriteDenied = "this action is not available from the iPhone app"
 
-// appWriteAllowlistMW refuses a mutating request from an app session unless it is on
-// appWrites. It runs after authentication has resolved the session.
+// appReadDenied reports whether a GET is one an app session may not make: the three
+// reads that are not plain reads. The app never calls them, and a leaked phone token
+// should not be able to wake the truck (state/{id}/fresh forces a read from Rivian) or pull
+// the whole account in one request (data/backup, export). The path is cleaned first, so
+// a trailing slash or a doubled one is the same route; the router is case-sensitive, so
+// another case is a 404, not a bypass.
+func appReadDenied(p string) bool {
+	p = path.Clean("/" + p)
+	switch p {
+	case "/api/data/backup", "/api/export":
+		return true
+	}
+	seg := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	return len(seg) == 4 && seg[0] == "api" && seg[1] == "state" && seg[3] == "fresh"
+}
+
+// appWriteAllowlistMW keeps an app session to the list: a mutating request is refused
+// unless it is on appWrites, and a GET or HEAD is refused if it is one of the reads
+// appReadDenied names. It runs after authentication has resolved the session.
 func appWriteAllowlistMW(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ref, signedIn := auth.SessionFromContext(r.Context())
+		app := signedIn && ref.Kind == sessions.KindApp
 		switch r.Method {
-		case http.MethodGet, http.MethodHead, http.MethodOptions:
+		case http.MethodGet, http.MethodHead:
+			if app && appReadDenied(r.URL.Path) {
+				slog.WarnContext(r.Context(), "app session read refused", "method", r.Method, "path", r.URL.Path)
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": appWriteDenied})
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		case http.MethodOptions:
 			next.ServeHTTP(w, r)
 			return
 		}
-		ref, ok := auth.SessionFromContext(r.Context())
-		if !ok || ref.Kind != sessions.KindApp || appWrites[r.Method+" "+r.URL.Path] {
+		if !app || appWrites[r.Method+" "+r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}

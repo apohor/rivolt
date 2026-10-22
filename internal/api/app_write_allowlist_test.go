@@ -59,13 +59,31 @@ func TestAppSessionWritesThroughTheRouter(t *testing.T) {
 		}
 		return p
 	}
-	mutating, listed := 0, map[string]bool{}
+	mutating, gets, listed, deniedGets := 0, 0, map[string]bool{}, map[string]bool{}
 	err = chi.Walk(router.(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if !strings.HasPrefix(route, "/api/") {
 			return nil
 		}
 		switch method {
-		case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodConnect, http.MethodTrace:
+		case http.MethodGet:
+			// A read: refused for an app session only if appReadDenied names it, and
+			// never for a browser session or no session.
+			path := pathOf(route)
+			gets++
+			want := appReadDenied(path)
+			if want {
+				deniedGets[path] = true
+			}
+			if rec := send(sessions.KindApp, method, path); denied(rec) != want {
+				t.Errorf("GET %s from an app session: refused=%v, want %v", path, denied(rec), want)
+			}
+			for _, kind := range []string{sessions.KindWeb, ""} {
+				if rec := send(kind, method, path); denied(rec) {
+					t.Errorf("GET %s refused for a %q session", path, kind)
+				}
+			}
+			return nil
+		case http.MethodHead, http.MethodOptions, http.MethodConnect, http.MethodTrace:
 			return nil
 		}
 		mutating++
@@ -98,6 +116,15 @@ func TestAppSessionWritesThroughTheRouter(t *testing.T) {
 	}
 	if mutating < 40 {
 		t.Fatalf("only %d mutating routes walked: the walk is not seeing the router", mutating)
+	}
+	if gets < 40 {
+		t.Fatalf("only %d GET routes walked", gets)
+	}
+	// The three reads the app never makes are real routes of this router.
+	for _, p := range []string{"/api/data/backup", "/api/export", "/api/state/veh-x/fresh"} {
+		if !deniedGets[p] {
+			t.Errorf("GET %s is not a route of the real router (the denylist has gone stale)", p)
+		}
 	}
 	for _, want := range []string{"POST /api/auth/logout", "POST /api/push/apns/register", "POST /api/push/apns/activity/end", "PATCH /api/settings/charging"} {
 		if !listed[want] {
@@ -138,6 +165,21 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"POST", "/api/rivian/logout", 403},
 		{"DELETE", "/api/account", 403},
 		{"GET", "/api/settings/charging", 204},
+		{"GET", "/api/ledger/monthly.csv", 204}, // the Money tab uses it
+		{"GET", "/api/state/veh-x", 204},
+		{"GET", "/api/state/veh-x/fresh", 403},
+		{"GET", "/api/state/veh-x/fresh/", 403},
+		{"HEAD", "/api/state/veh-x/fresh", 403},
+		{"GET", "/api/state//fresh", 204}, // no id: not the route (the router 404s it)
+		{"GET", "/api/export", 403},
+		{"GET", "/api/export/", 403},
+		{"GET", "//api/export", 403},
+		{"GET", "/api/./export", 403},
+		{"GET", "/api/data/backup", 403},
+		{"GET", "/api/data/backup/", 403},
+		{"GET", "/api/data", 204},
+		{"GET", "/api/exports", 204}, // another path, not this one
+		{"GET", "/api/state/veh-x/fresh/extra", 204},
 		{"HEAD", "/api/charges", 204},
 		{"OPTIONS", "/api/charges", 204},
 	} {
