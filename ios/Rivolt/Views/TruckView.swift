@@ -853,12 +853,14 @@ private struct TruckPlacesCard: View {
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
+    /// The basemap couldn't load: the list stays, the map gives way to a line.
+    @State private var mapFailed = false
 
     var body: some View {
         ThemeSection(title: "Where you charge") {
             VStack(alignment: .leading, spacing: 12) {
-                if let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
-                    ChargePlacesMapView(styleJSON: style, places: places)
+                if !mapFailed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+                    ChargePlacesMapView(styleJSON: style, places: places, onFail: { mapFailed = true })
                         .allowsHitTesting(false)
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
@@ -867,6 +869,8 @@ private struct TruckPlacesCard: View {
                         .accessibilityElement()
                         .accessibilityLabel("Map of the places you charge")
                         .onAppear { MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL)) }
+                } else {
+                    MapMessage(text: "Map unavailable.")
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(places.prefix(6)) { p in

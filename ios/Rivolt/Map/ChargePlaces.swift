@@ -50,10 +50,11 @@ struct ChargePlace: Decodable, Equatable, Identifiable {
 struct ChargePlacesMapView: UIViewRepresentable {
     let styleJSON: String
     let places: [ChargePlace]
+    var onFail: () -> Void = {}
 
     static let sourceID = "rivolt-places"
 
-    func makeCoordinator() -> Coordinator { Coordinator(places: places) }
+    func makeCoordinator() -> Coordinator { Coordinator(places: places, onFail: onFail) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON)
@@ -66,12 +67,15 @@ struct ChargePlacesMapView: UIViewRepresentable {
         if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
     }
 
-    final class Coordinator: NSObject, MLNMapViewDelegate {
+    final class Coordinator: MapLoadWatch {
         var places: [ChargePlace]
 
-        init(places: [ChargePlace]) { self.places = places }
+        init(places: [ChargePlace], onFail: @escaping () -> Void) {
+            self.places = places
+            super.init(onFail: onFail)
+        }
 
-        func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) {
+        override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
             guard !places.isEmpty else { return }
             let features: [MLNPointFeature] = places.map { p in
                 let f = MLNPointFeature()

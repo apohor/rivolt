@@ -11,19 +11,23 @@ struct DriveRouteMap: View {
     @Environment(\.colorScheme) private var scheme
     @State private var route: [DriveRoute.Point]?
     @State private var failed = false
+    /// The basemap couldn't load (no tiles, or the map itself failed) after the drive's route arrived.
+    @State private var mapFailed = false
 
     var body: some View {
         ZStack {
-            if let route, !route.isEmpty, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+            if let route, route.isEmpty {
+                MapMessage(text: "No route was recorded for this drive.")
+            } else if let route, !failed, !mapFailed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, route: route, dark: scheme == .dark)
+                RouteMapView(styleJSON: style, route: route, onFail: { mapFailed = true })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
-            } else if failed || route?.isEmpty == true {
-                Text(route?.isEmpty == true ? "No route was recorded for this drive." : "Map unavailable.")
-                    .themeText(.subline, color: Theme.textTertiary)
+            } else if failed || mapFailed || route != nil {
+                // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
+                MapMessage(text: "Map unavailable.")
             } else {
                 ProgressView()
             }
@@ -38,6 +42,7 @@ struct DriveRouteMap: View {
 
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
+        mapFailed = false
         do {
             route = try await state.client.driveRoute(id: driveID).points
             failed = false
@@ -52,11 +57,11 @@ struct DriveRouteMap: View {
 struct RouteMapView: UIViewRepresentable {
     let styleJSON: String
     let route: [DriveRoute.Point]
-    let dark: Bool
+    var onFail: () -> Void = {}
 
     static let sourceID = "rivolt-route"
 
-    func makeCoordinator() -> Coordinator { Coordinator(route: route) }
+    func makeCoordinator() -> Coordinator { Coordinator(route: route, onFail: onFail) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON)
@@ -69,12 +74,15 @@ struct RouteMapView: UIViewRepresentable {
         if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
     }
 
-    final class Coordinator: NSObject, MLNMapViewDelegate {
+    final class Coordinator: MapLoadWatch {
         var route: [DriveRoute.Point]
 
-        init(route: [DriveRoute.Point]) { self.route = route }
+        init(route: [DriveRoute.Point], onFail: @escaping () -> Void) {
+            self.route = route
+            super.init(onFail: onFail)
+        }
 
-        func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) {
+        override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
             var coords = route.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
             guard coords.count >= 2 else { return }
             let line = MLNPolylineFeature(coordinates: &coords, count: UInt(coords.count))
@@ -118,5 +126,47 @@ extension MLNMapView {
         map.attributionButton.isHidden = true
         map.logoViewPosition = .bottomLeft
         return map
+    }
+}
+
+/// A quiet line in a map's place when there is nothing to draw.
+struct MapMessage: View {
+    let text: String
+    var body: some View { Text(text).themeText(.subline, color: Theme.textTertiary) }
+}
+
+/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), and telling the view the basemap
+/// failed, either the map itself (style or connection) or every tile request when it settles with none loaded.
+class MapLoadWatch: NSObject, MLNMapViewDelegate {
+    private let onFail: () -> Void
+    private var tilesLoaded = 0
+    private var tileErrors = 0
+    private var reported = false
+
+    init(onFail: @escaping () -> Void) { self.onFail = onFail }
+
+    func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {}
+
+    func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) { styleLoaded(map, style) }
+
+    func mapViewDidFailLoadingMap(_ map: MLNMapView, withError error: Error) { fail() }
+
+    func mapView(_ map: MLNMapView, tileDidTriggerAction operation: MLNTileOperation, x: Int, y: Int, z: Int, wrap: Int,
+                 overscaledZ: Int, sourceID: String) {
+        switch operation {
+        case .loadFromNetwork, .loadFromCache: tilesLoaded += 1
+        case .error: tileErrors += 1
+        default: break
+        }
+    }
+
+    func mapViewDidBecomeIdle(_ map: MLNMapView) {
+        if tileErrors > 0 && tilesLoaded == 0 { fail() }
+    }
+
+    private func fail() {
+        guard !reported else { return }
+        reported = true
+        DispatchQueue.main.async { self.onFail() }
     }
 }
