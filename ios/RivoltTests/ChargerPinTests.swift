@@ -109,6 +109,26 @@ final class ChargerPinTests: XCTestCase {
         XCTAssertNil(p?.network)
     }
 
+    /// The ledger's network for a charge: its session's, else its receipt's (a top-up in a plug-in with a network).
+    func testTheLedgerNetworkIsTheSessionsElseTheReceipts() throws {
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("ledger_monthly")) as? [String: Any])
+        var receipts = try XCTUnwrap(root["receipts"] as? [[String: Any]])
+        let i = try XCTUnwrap(receipts.firstIndex { $0["receipt_id"] as? String == "rcpt_chg-fast-1" })
+        var sessions = try XCTUnwrap(receipts[i]["sessions"] as? [[String: Any]])
+        var topUp = sessions[0]
+        topUp["charge_id"] = "chg-fast-topup"
+        sessions[0]["network"] = "EVgo"
+        sessions.append(topUp)
+        receipts[i]["sessions"] = sessions
+        receipts[i]["network"] = "Electrify America"
+        root["receipts"] = receipts
+        let month = try JSON.decoder().decode(LedgerMonth.self, from: JSONSerialization.data(withJSONObject: root))
+        XCTAssertEqual(ChargerPin.ledgerNetwork(month, chargeID: "chg-fast-1"), "EVgo")
+        XCTAssertEqual(ChargerPin.ledgerNetwork(month, chargeID: "chg-fast-topup"), "Electrify America")
+        XCTAssertNil(ChargerPin.ledgerNetwork(month, chargeID: "chg-home-1"))
+        XCTAssertNil(ChargerPin.ledgerNetwork(month, chargeID: "not-in-this-month"))
+    }
+
     func testPowerStrings() {
         XCTAssertEqual(ChargerPin.powerKW("150 kW"), 150)
         XCTAssertEqual(ChargerPin.powerKW("22kW"), 22)
@@ -118,7 +138,7 @@ final class ChargerPinTests: XCTestCase {
     }
 
     func testTheChargeLocationDecodesOnlyItsFourFields() throws {
-        let json = #"{"ID":"c1","VehicleID":"veh-fixture","Lat":32.7767,"Lon":-96.797,"MaxPowerKW":148.2,"network":"Electrify America","Cost":12.5,"EnergyAddedKWh":40}"#
+        let json = #"{"ID":"c1","VehicleID":"veh-fixture","Lat":32.7767,"Lon":-96.797,"MaxPowerKW":148.2,"Network":"Electrify America","network_state":null,"Cost":12.5,"EnergyAddedKWh":40}"#
         let c = try JSON.decoder().decode(ChargeLocation.self, from: Data(json.utf8))
         XCTAssertEqual(c, ChargeLocation(lat: 32.7767, lon: -96.797, maxPowerKW: 148.2, network: "Electrify America"))
         XCTAssertTrue(c.isDC)

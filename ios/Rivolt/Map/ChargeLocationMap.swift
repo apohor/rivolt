@@ -11,7 +11,7 @@ struct ChargeLocation: Decodable, Equatable {
     let network: String?
 
     private enum CodingKeys: String, CodingKey {
-        case lat = "Lat", lon = "Lon", maxPowerKW = "MaxPowerKW", network
+        case lat = "Lat", lon = "Lon", maxPowerKW = "MaxPowerKW", network = "Network"
     }
 
     /// The web's rule for "may say DC fast charger": a peak of 30 kW or more.
@@ -23,9 +23,14 @@ struct ChargeLocation: Decodable, Equatable {
 
 /// One charge's place on our own map, as the web's ChargeMap: the recorded position, snapped to the nearest charger
 /// in the server's charger archive when that can't name the wrong network, with the charger's or the network's name.
+/// The network is the ledger's for this charge (the month Money reads), else the charge row's own.
 /// A picture like the drive map: no location services, nothing kept after the screen closes.
 struct ChargeLocationMap: View {
     let chargeID: String
+    /// When the charge started and on which truck: the ledger month that holds it.
+    let startedAt: Date
+    let vehicleID: String
+    var calendar: Calendar = .current
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -64,8 +69,20 @@ struct ChargeLocationMap: View {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
         health = .ok
         pinLabel = nil
+        let client = state.client
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = calendar.timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM"
+        let month = f.string(from: startedAt)
+        async let row = client.chargeLocation(id: chargeID)
+        async let ledger = try? client.ledgerMonth(month: month, timeZone: calendar.timeZone.identifier, vehicleID: vehicleID)
         do {
-            location = try await state.client.chargeLocation(id: chargeID)
+            let r = try await row
+            // The ledger's network wins (DA): a top-up takes its plug-in's.
+            let network = await ledger.flatMap { ChargerPin.ledgerNetwork($0, chargeID: chargeID) } ?? r.network
+            location = ChargeLocation(lat: r.lat, lon: r.lon, maxPowerKW: r.maxPowerKW, network: network)
             failed = false
         } catch {
             failed = true

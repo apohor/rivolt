@@ -35,7 +35,7 @@ struct ActivityDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
                 if case .drive(let d) = item { DriveRouteMap(driveID: d.id) }
-                if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id) }
+                if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
                     : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]

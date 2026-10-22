@@ -113,6 +113,13 @@ enum ChargerPin {
         return .own(label: c.label)
     }
 
+    /// The ledger's network for one charge, as the web's charge page reads it: its session's, else its receipt's (a
+    /// top-up folded into a plug-in whose first session has one). Nil when the month doesn't hold the charge.
+    static func ledgerNetwork(_ month: LedgerMonth, chargeID: String) -> String? {
+        guard let receipt = (month.receipts ?? []).first(where: { $0.sessions.contains { $0.chargeId == chargeID } }) else { return nil }
+        return receipt.sessions.first { $0.chargeId == chargeID }?.network ?? receipt.network
+    }
+
     // MARK: The archive's features (poi.ts)
 
     static let snapRadiusM = 750.0
