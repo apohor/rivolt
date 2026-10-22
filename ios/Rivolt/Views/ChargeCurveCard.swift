@@ -221,6 +221,14 @@ struct ChargeCurveView: View {
         endLabels(pts, range: range, color: Self.packColor, above: true)
     }
 
+    /// A temperature value at a line's end, on a small halo in the card's colour so a line running behind it never
+    /// strikes through the text.
+    private func endLabel(_ text: String, color: Color) -> some View {
+        Text(text).themeText(.caption, color: color)
+            .padding(.horizontal, 3).padding(.vertical, 1)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
     /// A temperature line's two ends named in its colour: its first value at the left of the plot, its last at the
     /// right, above the line (pack) or below it (outside) so the two overlays' labels don't sit on each other.
     @ChartContentBuilder
@@ -229,12 +237,12 @@ struct ChargeCurveView: View {
             PointMark(x: .value("Time", first.at), y: .value("Temperature", ChargeCurve.unit(temp: first.value, range: range)))
                 .symbolSize(0)
                 .annotation(position: above ? .top : .bottom, alignment: .leading, spacing: 2) {
-                    Text("\(NumberText.fixed(first.value, 0))\(tempUnit)").themeText(.caption, color: color)
+                    endLabel("\(NumberText.fixed(first.value, 0))\(tempUnit)", color: color)
                 }
             PointMark(x: .value("Time", last.at), y: .value("Temperature", ChargeCurve.unit(temp: last.value, range: range)))
                 .symbolSize(0)
                 .annotation(position: above ? .top : .bottom, alignment: .trailing, spacing: 2) {
-                    Text("\(NumberText.fixed(last.value, 0))\(tempUnit)").themeText(.caption, color: color)
+                    endLabel("\(NumberText.fixed(last.value, 0))\(tempUnit)", color: color)
                 }
         }
     }
