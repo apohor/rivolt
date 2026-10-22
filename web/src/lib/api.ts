@@ -445,6 +445,8 @@ export type Charge = {
   // where the truck was instead of the nearest public charger. Absent on servers before #906.
   PlaceOverride?: "" | "home" | "away";
   LocationOverride?: "" | "recorded";
+  // What Auto gives this charge from the current home; absent when the home or position is unknown.
+  place_auto?: "home" | "away";
   // Wall-clock seconds the session actually spent charging (charger
   // power above the idle floor), accumulated by the live recorder from
   // the same gated dt that feeds the energy integral. Distinct from

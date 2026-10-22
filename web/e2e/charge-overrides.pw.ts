@@ -56,12 +56,14 @@ for (const v of [
     test(`charge overrides: set by you, pinned where the truck was · ${v.n} ${scheme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: scheme });
       const page = await ctx.newPage();
-      await open(page, { PlaceOverride: "home", place: "home", LocationOverride: "recorded" });
+      await open(page, { PlaceOverride: "home", place: "home", place_auto: "away", LocationOverride: "recorded" });
       await expect(page.getByText("Home · set by you")).toBeVisible();
       const place = page.locator("[data-place-override]");
-      await expect(place.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
-      await expect(place).toContainText("Set by you; kept when your home location changes.");
-      await expect(page.getByRole("checkbox", { name: /Pin where the truck was/ })).toBeChecked();
+      await expect(place.getByRole("radio", { name: "Home" })).toHaveAttribute("aria-checked", "true");
+      await expect(place).toContainText("set by you");
+      await expect(place).toContainText("Kept when your home location changes. Auto: Away.");
+      await expect(page.locator("[data-pinned-line]")).toHaveText("Showing where the truck was recorded.");
+      await expect(page.getByRole("switch", { name: /Pin where the truck was/ })).toBeChecked();
       // The user's own network within 150 m labels the pin, and its rate is offered (not applied).
       await expect(page.locator("[data-own-network-label]")).toBeVisible();
       await expect(page.locator(".rivolt-charger-label").first()).toHaveText("Office garage");
@@ -83,12 +85,12 @@ test("charge overrides: picking a place and the pin writes once each · phone", 
   const page = await ctx.newPage();
   const puts = await open(page, {});
   const place = page.locator("[data-place-override]");
-  await expect(place.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
-  await place.getByRole("button", { name: "Home" }).click();
+  await expect(place.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
+  await place.getByRole("radio", { name: "Home" }).click();
   await expect(page.getByText("Home · set by you")).toBeVisible();
-  await place.getByRole("button", { name: "Auto" }).click();
-  await expect(place.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("checkbox", { name: /Pin where the truck was/ }).check();
+  await place.getByRole("radio", { name: "Auto" }).click();
+  await expect(place.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("switch", { name: /Pin where the truck was/ }).check();
   await expect(page.locator("[data-location-override]")).toContainText("set by you");
   expect(puts.map((p) => `${new URL(p.url).pathname} ${p.body}`)).toEqual([
     '/api/charges/charge-ov/place {"place":"home"}',
@@ -128,6 +130,13 @@ for (const v of [
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-network-invalid-${v.n}-dark.png`), fullPage: false });
     await input.fill("40.5, -100.25");
     await expect(fields).toContainText("Only used to label your own charges near it.");
+    // Clearing the field removes the location.
+    await input.fill("");
+    await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => saved).not.toBeNull();
+    expect((saved as { name: string; lat?: number }[]).find((r) => r.name === "Office garage")?.lat).toBeUndefined();
+    saved = null;
+    await input.fill("40.5, -100.25");
     await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(() => saved).not.toBeNull();
     const rows = saved as { name: string; lat?: number; lon?: number; locDraft?: string }[];

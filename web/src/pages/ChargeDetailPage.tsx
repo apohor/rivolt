@@ -5,7 +5,7 @@ import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { appPath, inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -1651,21 +1651,23 @@ function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
   );
 }
 
-// overrideButton is one option of the small segmented controls below.
-function overrideButton(active: boolean): string {
-  return [
-    "rounded-md px-2.5 py-1 transition-colors disabled:opacity-50",
-    active ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200",
-  ].join(" ");
-}
-
 // PlaceOverrideControl (GitHub #906): the user says whether this charge was at home or away. Their choice is kept
 // through every later re-check of the home location ("set by you"); Auto hands the charge back to the home location.
-// Reversible, so no confirmation. Web only.
-export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "PlaceOverride"> }) {
+// A radio group (arrow keys move and choose); reversible, so no confirmation. The choice shows at once and stays
+// while the charge refetches; a failed save puts the stored one back with an inline error. Web only.
+const PLACE_OPTIONS: { label: string; value: "home" | "away" | null }[] = [
+  { label: "Auto", value: null },
+  { label: "Home", value: "home" },
+  { label: "Away", value: "away" },
+];
+
+export function PlaceOverrideControl({
+  charge,
+}: {
+  charge: Pick<import("../lib/api").Charge, "ID" | "PlaceOverride" | "place_auto">;
+}) {
   const qc = useQueryClient();
   const stored = charge.PlaceOverride === "home" || charge.PlaceOverride === "away" ? charge.PlaceOverride : null;
-  // The choice shows at once and stays while the charge refetches; a failed save puts the stored one back.
   const [chosen, setChosen] = useState<"home" | "away" | null | undefined>(undefined);
   const current = chosen === undefined ? stored : chosen;
   const save = useMutation({
@@ -1676,46 +1678,67 @@ export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/a
       qc.invalidateQueries({ queryKey: ["ledger"] });
     },
   });
-  const shown = current;
-  const opts: { label: string; value: "home" | "away" | null }[] = [
-    { label: "Auto", value: null },
-    { label: "Home", value: "home" },
-    { label: "Away", value: "away" },
-  ];
+  const pick = (v: "home" | "away" | null) => {
+    if (v === current || save.isPending) return;
+    setChosen(v);
+    save.mutate(v);
+  };
+  const idx = PLACE_OPTIONS.findIndex((o) => o.value === current);
+  const labelId = useId();
+  const auto = charge.place_auto === "home" ? "Home" : charge.place_auto === "away" ? "Away" : "unknown (no home set)";
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs" data-place-override>
-      <span className="text-neutral-400" id={`place-${charge.ID}`}>Place</span>
-      <div role="group" aria-labelledby={`place-${charge.ID}`} className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5">
-        {opts.map((o) => (
-          <button
-            key={o.label}
-            type="button"
-            aria-pressed={shown === o.value}
-            disabled={save.isPending}
-            onClick={() => {
-              if (o.value === current) return;
-              setChosen(o.value);
-              save.mutate(o.value);
-            }}
-            className={overrideButton(shown === o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
+    <div className="mt-4 text-xs" data-place-override>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-neutral-400" id={labelId}>Place</span>
+        <div
+          role="radiogroup"
+          aria-labelledby={labelId}
+          aria-busy={save.isPending}
+          className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5"
+          onKeyDown={(e) => {
+            const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+            if (!step) return;
+            e.preventDefault();
+            const next = (idx + step + PLACE_OPTIONS.length) % PLACE_OPTIONS.length;
+            pick(PLACE_OPTIONS[next].value);
+            (e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next])?.focus();
+          }}
+        >
+          {PLACE_OPTIONS.map((o) => (
+            <button
+              key={o.label}
+              type="button"
+              role="radio"
+              aria-checked={current === o.value}
+              tabIndex={current === o.value ? 0 : -1}
+              onClick={() => pick(o.value)}
+              className={[
+                "min-h-11 min-w-11 rounded-md px-3 transition-colors",
+                current === o.value ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200",
+              ].join(" ")}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {current && <span className="text-neutral-300">set by you</span>}
       </div>
-      <span className="text-neutral-500">
-        {current ? "Set by you; kept when your home location changes." : "From your home location."}
-      </span>
-      {save.isError && <span role="alert" className="text-rose-400">Couldn&apos;t save: {String(save.error)}</span>}
+      <p className="mt-1 text-neutral-500" aria-live="polite">
+        {save.isPending
+          ? "Saving…"
+          : current
+            ? `Kept when your home location changes. Auto: ${auto}.`
+            : `Auto: ${auto}, from your home location.`}
+      </p>
+      {save.isError && <p role="alert" className="mt-1 text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
     </div>
   );
 }
 
 // LocationOverrideToggle (GitHub #906): pin this charge where the truck was (its recorded position) instead of the
-// nearest public charger. Reversible; web only.
+// nearest public charger. A switch; same pending and revert behaviour as the place. Web only.
 export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "LocationOverride"> }) {
   const qc = useQueryClient();
-  // As above: the choice shows at once; a failed save puts the stored one back.
   const [chosen, setChosen] = useState<boolean | undefined>(undefined);
   const on = chosen ?? charge.LocationOverride === "recorded";
   const save = useMutation({
@@ -1723,24 +1746,35 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
     onError: () => setChosen(undefined),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["charges"] }),
   });
-  const shown = on;
+  const hintId = useId();
   return (
     <div className="mt-3 text-sm" data-location-override>
-      <label className="flex items-start gap-2">
+      {on && (
+        <p className="mb-2 text-xs text-neutral-300" data-pinned-line>
+          Showing where the truck was recorded.
+        </p>
+      )}
+      <label className="flex min-h-11 items-start gap-2">
         <input
           type="checkbox"
+          role="switch"
+          aria-checked={on}
+          aria-describedby={hintId}
+          aria-busy={save.isPending}
           className="mt-0.5"
-          checked={shown}
-          disabled={save.isPending}
+          checked={on}
           onChange={(e) => {
+            if (save.isPending) return;
             setChosen(e.target.checked);
             save.mutate(e.target.checked);
           }}
         />
         <span>
           <span className="text-neutral-200">Pin where the truck was</span>
-          {on && <span className="ml-2 text-xs text-neutral-500">set by you</span>}
-          <span className="block text-xs text-neutral-500">Instead of the nearest public charger.</span>
+          {on && <span className="ml-2 text-xs text-neutral-300">set by you</span>}
+          <span id={hintId} className="block text-xs text-neutral-500">
+            {save.isPending ? "Saving…" : "Instead of the nearest public charger."}
+          </span>
         </span>
       </label>
       {save.isError && <p role="alert" className="mt-1 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}

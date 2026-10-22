@@ -33,18 +33,20 @@ describe("charge overrides", () => {
 
   it("sets and clears the place", async () => {
     const calls = mockFetch();
-    wrap(<PlaceOverrideControl charge={{ ID: "c 1", PlaceOverride: "" }} />);
-    expect(screen.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("From your home location.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    wrap(<PlaceOverrideControl charge={{ ID: "c 1", PlaceOverride: "", place_auto: "away" }} />);
+    expect(screen.getByRole("radiogroup", { name: "Place" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Auto: Away, from your home location.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Home" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ method: "PUT", url: "/api/charges/c%201/place", body: '{"place":"home"}' });
     cleanup();
 
-    wrap(<PlaceOverrideControl charge={{ ID: "c1", PlaceOverride: "away" }} />);
-    expect(screen.getByText(/Set by you/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Away" })); // already set: no call
-    fireEvent.click(screen.getByRole("button", { name: "Auto" }));
+    wrap(<PlaceOverrideControl charge={{ ID: "c1", PlaceOverride: "away", place_auto: "home" }} />);
+    expect(screen.getByText("set by you")).toBeInTheDocument();
+    expect(screen.getByText("Kept when your home location changes. Auto: Home.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Away" })); // already set: no call
+    fireEvent.click(screen.getByRole("radio", { name: "Auto" }));
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toMatchObject({ method: "PUT", url: "/api/charges/c1/place", body: '{"place":null}' });
   });
@@ -52,7 +54,7 @@ describe("charge overrides", () => {
   it("pins where the truck was", async () => {
     const calls = mockFetch();
     wrap(<LocationOverrideToggle charge={{ ID: "c1", LocationOverride: "" }} />);
-    const box = screen.getByRole("checkbox", { name: /Pin where the truck was/ });
+    const box = screen.getByRole("switch", { name: /Pin where the truck was/ });
     expect(box).not.toBeChecked();
     expect(screen.queryByText("set by you")).toBeNull();
     fireEvent.click(box);
@@ -60,8 +62,23 @@ describe("charge overrides", () => {
     expect(calls[0]).toMatchObject({ method: "PUT", url: "/api/charges/c1/location", body: '{"recorded":true}' });
     cleanup();
     wrap(<LocationOverrideToggle charge={{ ID: "c1", LocationOverride: "recorded" }} />);
-    expect(screen.getByRole("checkbox")).toBeChecked();
+    expect(screen.getByRole("switch")).toBeChecked();
     expect(screen.getByText("set by you")).toBeInTheDocument();
+    expect(screen.getByText("Showing where the truck was recorded.")).toBeInTheDocument();
+    expect(screen.getByRole("switch")).toHaveAccessibleDescription("Instead of the nearest public charger.");
+  });
+
+  it("moves through the places with the arrow keys", async () => {
+    const calls = mockFetch();
+    wrap(<PlaceOverrideControl charge={{ ID: "c1", PlaceOverride: "" }} />);
+    expect(screen.getByRole("radio", { name: "Auto" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("radio", { name: "Home" })).toHaveAttribute("tabindex", "-1");
+    fireEvent.keyDown(screen.getByRole("radio", { name: "Auto" }), { key: "ArrowRight" });
+    expect(screen.getByRole("radio", { name: "Home" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Home" })).toHaveFocus();
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body).toBe('{"place":"home"}');
+    expect(screen.getByText("Auto: unknown (no home set).", { exact: false })).toBeInTheDocument();
   });
 });
 
@@ -82,13 +99,13 @@ describe("charge overrides on a failed save", () => {
         <LocationOverrideToggle charge={{ ID: "c1", LocationOverride: "" }} />
       </>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Away" }));
-    expect(screen.getByRole("button", { name: "Away" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(screen.getByRole("checkbox")).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "Away" }));
+    expect(screen.getByRole("radio", { name: "Away" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("switch"));
+    expect(screen.getByRole("switch")).toBeChecked();
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
-    expect(screen.getByRole("button", { name: "Auto" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch")).not.toBeChecked();
   });
 });
 
@@ -106,6 +123,12 @@ describe("own network locations", () => {
     expect(nearestOwnNetwork(nets, 40.002, -100.0)).toBeNull(); // ~170 m from Depot
     expect(nearestOwnNetwork(nets.slice(2), 40.0, -100.0)).toBeNull(); // a built-in row never labels
     expect(nearestOwnNetwork(nets, 0, 0)).toBeNull();
+    // Equally near: alphabetical.
+    const twins = [
+      { name: "Zeta", price_per_kwh: 0.2, currency: "USD", lat: 40.0, lon: -100.0 },
+      { name: "Alpha", price_per_kwh: 0.2, currency: "USD", lat: 40.0, lon: -100.0 },
+    ];
+    expect(nearestOwnNetwork(twins, 40.0001, -100.0)?.name).toBe("Alpha");
     expect(nearestOwnNetwork(undefined, 40, -100)).toBeNull();
   });
 

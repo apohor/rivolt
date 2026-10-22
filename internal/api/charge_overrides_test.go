@@ -98,3 +98,19 @@ func TestChargeOverrideHandlers(t *testing.T) {
 		}
 	}
 }
+
+// place_auto says what Auto would give, from the current home, next to the user's own place.
+func TestChargePlaceAuto(t *testing.T) {
+	home := func() (float64, float64, bool) { return 40, -100, true }
+	c := charges.Charge{ID: "x", Lat: 40.0001, Lon: -100, PlaceOverride: "away", Place: "away"}
+	if got := decorateCharge(c, settings.ChargingConfig{}, home).PlaceAuto; got != "home" {
+		t.Errorf("near home = %q, want home", got)
+	}
+	c.Lat = 40.1
+	if got := decorateCharge(c, settings.ChargingConfig{}, home).PlaceAuto; got != "away" {
+		t.Errorf("10 km out = %q, want away", got)
+	}
+	if got := decorateCharge(c, settings.ChargingConfig{}, nil).PlaceAuto; got != "" {
+		t.Errorf("no home = %q, want none", got)
+	}
+}
