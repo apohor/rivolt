@@ -140,6 +140,40 @@ actor APIClient {
         let _: Empty = try await request("POST", "/api/push/apns/unregister", body: ApnsTokenBody(token: token))
     }
 
+    // MARK: Milestones and the "Three things" card (the same reads the web's Now page makes)
+
+    private struct MilestoneDismissBody: Encodable {
+        let vehicleId: String
+        let key: String
+        private enum CodingKeys: String, CodingKey { case vehicleId = "vehicle_id", key }
+    }
+
+    /// Newest first, account-wide, from the last 30 days.
+    func milestones() async throws -> [Milestone] {
+        let r: MilestonesResponse = try await request("GET", "/api/milestones")
+        return r.milestones
+    }
+
+    func dismissMilestone(vehicleID: String, key: String) async throws {
+        let _: Empty = try await request("POST", "/api/milestones/dismiss", body: MilestoneDismissBody(vehicleId: vehicleID, key: key))
+    }
+
+    private struct AnyBody: Decodable {}
+
+    /// Whether the truck has lease terms: 404 is the endpoint's answer for "none", and so is 501 on a server without it.
+    func hasLease(vehicleID: String) async throws -> Bool {
+        do {
+            let _: AnyBody = try await request("GET", "/api/vehicles/\(pathID(vehicleID))/lease")
+            return true
+        } catch APIError.server(let status, _) where status == 404 || status == 501 {
+            return false
+        }
+    }
+
+    func statementEmail() async throws -> StatementEmailSetting {
+        try await request("GET", "/api/settings/statement-email")
+    }
+
     // MARK: Now detail reads (the same ones the web's Now page makes)
 
     private func pathID(_ id: String) -> String {
