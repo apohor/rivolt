@@ -16,6 +16,7 @@ name: ios
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
@@ -143,6 +144,9 @@ jobs:
           retention-days: 7
 
   screenshots:
+    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
+    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -268,6 +272,9 @@ jobs:
 
 
   appstore:
+    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
+    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
     runs-on: macos-15
     timeout-minutes: 30
     steps:
