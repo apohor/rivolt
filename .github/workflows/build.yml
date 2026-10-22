@@ -306,7 +306,9 @@ jobs:
       # main-only `playwright-cache` job below (a PR's own cache is readable
       # only from that PR, so per-PR copies never hit and filled the repo's
       # Actions budget); PRs just restore main's. System libraries are not in
-      # the cache, so install-deps runs every time (a few seconds when present).
+      # the cache: web/scripts/pw-system-deps.sh installs them only when the
+      # browser's binary reports a missing one (apt from a slow mirror took up
+      # to 10 minutes of a shard that runs 2-3 minutes of tests).
       - name: Restore Playwright browsers
         id: pw-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -317,11 +319,10 @@ jobs:
       - name: Install Playwright browser
         working-directory: web
         run: |
-          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps ${{ matrix.project }}
-          else
-            npx playwright install --with-deps ${{ matrix.project }}
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
+            npx playwright install ${{ matrix.project }}
           fi
+          ./scripts/pw-system-deps.sh ${{ matrix.project }}
 
       - name: Build web
         working-directory: web
