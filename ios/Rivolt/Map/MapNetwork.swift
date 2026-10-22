@@ -6,7 +6,8 @@ import MapLibre
 /// - The app token goes only on requests to the signed-in server's own origin (the tile archive); a request anywhere
 ///   else (there should be none: the styles name no other host) leaves without it.
 /// - The tile cache is MapLibre's ambient cache, in Caches (Info.plist MLNOfflineStorageDatabasePath, excluded from
-///   backup by MapLibre), capped at 50 MB, and emptied on sign-out. It holds basemap tiles only, never a route.
+///   backup by MapLibre), capped at 50 MB, and emptied on sign-out and on a switch to another server. It holds
+///   basemap tiles only, never a route.
 @MainActor
 enum MapNetwork {
     static let cacheBytes: UInt = 50 * 1024 * 1024
@@ -23,8 +24,8 @@ enum MapNetwork {
         MLNOfflineStorage.shared.setMaximumAmbientCacheSize(cacheBytes, withCompletionHandler: { _ in })
     }
 
-    /// Sign-out: the token is forgotten and the cached tiles go.
-    static func signedOut() {
+    /// Sign-out or another server: the token is forgotten and the cached tiles go.
+    static func reset() {
         auth.set(origin: nil, token: nil)
         MLNOfflineStorage.shared.clearAmbientCache(completionHandler: { _ in })
     }

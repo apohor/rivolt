@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The licences of what the app bundles: the Geist and Geist Mono fonts (SIL Open Font License 1.1, `OFL.txt`), the map
-/// renderer MapLibre Native (BSD 2-Clause, `Map/LICENSE-MapLibre.txt`), the map labels' Noto Sans glyphs (SIL OFL 1.1,
+/// renderer MapLibre Native (BSD 2-Clause, `Map/LICENSE-MapLibre.txt`), the map style from @protomaps/basemaps (BSD
+/// 3-Clause, `Map/LICENSE-protomaps-basemaps.txt`), the map labels' Noto Sans glyphs (SIL OFL 1.1,
 /// `Map/glyphs/OFL.txt`) and the map data's attribution (OpenStreetMap, Protomaps). The licence texts ship in the app as
 /// the licences require.
 struct AcknowledgementsView: View {
@@ -48,6 +49,17 @@ struct AcknowledgementsView: View {
                         .padding(.top, 2 * Theme.unit)
                 }
                 .padding(.horizontal, 4 * Theme.unit)
+                ThemeSection(title: "Protomaps basemap style") {
+                    Text("The map's style comes from @protomaps/basemaps (github.com/protomaps/basemaps), used under the BSD 3-Clause License; its visual design is CC0.")
+                        .themeText(.value)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(Self.mapText("LICENSE-protomaps-basemaps", in: "Map", fallback: "The licence text is at github.com/protomaps/basemaps/blob/main/LICENSE.md."))
+                        .themeText(.caption)
+                        .textSelection(.enabled)
+                        .padding(.top, 2 * Theme.unit)
+                }
+                .padding(.horizontal, 4 * Theme.unit)
+                .padding(.top, 4 * Theme.unit)
                 ThemeSection(title: "Map labels and data") {
                     Text("Map labels use Noto Sans from the Noto Project Authors, via Protomaps, under the SIL Open Font License, Version 1.1. Map data © OpenStreetMap contributors (openstreetmap.org/copyright), in the Protomaps basemap.")
                         .themeText(.value)

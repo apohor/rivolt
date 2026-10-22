@@ -142,9 +142,10 @@ final class AppState {
             verdict = .notRivolt
         }
         if verdict == .ready || verdict == .noAppSignIn {
-            // Another server: the widgets must not keep the old one's truck or numbers.
+            // Another server: the widgets must not keep the old one's truck or numbers, nor the map its tiles.
             WidgetStore().clear()
             WidgetCenter.shared.reloadAllTimelines()
+            MapNetwork.reset()
             serverURL = url
             UserDefaults.standard.set(url.absoluteString, forKey: Self.serverDefaultsKey)
             await client.updateBaseURL(url)
@@ -206,7 +207,7 @@ final class AppState {
         try? tokens.deleteToken(for: serverURL)
         // The widgets forget the truck and its last numbers with the session; the map forgets its token and cached tiles.
         WidgetStore().clear()
-        MapNetwork.signedOut()
+        MapNetwork.reset()
         WidgetCenter.shared.reloadAllTimelines()
         phase = .loggedOut
     }

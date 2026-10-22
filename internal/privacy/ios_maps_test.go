@@ -89,6 +89,10 @@ func TestIOSMapStylesNameOnlyTheServerAndTheBundle(t *testing.T) {
 		}
 		walk(style)
 		m := style.(map[string]any)
+		// The tiles are OpenStreetMap data (ODbL): the source must carry the credit.
+		if !strings.Contains(string(b), "© OpenStreetMap") {
+			t.Errorf("%s: the tile source must credit OpenStreetMap", filepath.Base(f))
+		}
 		if _, ok := m["sprite"]; ok {
 			t.Errorf("%s has a sprite: none is bundled yet", filepath.Base(f))
 		}

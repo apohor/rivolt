@@ -15,9 +15,12 @@ struct DriveRouteMap: View {
     var body: some View {
         ZStack {
             if let route, !route.isEmpty, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+                // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
                 RouteMapView(styleJSON: style, route: route, dark: scheme == .dark)
+                    .allowsHitTesting(false)
                     .accessibilityElement()
-                    .accessibilityLabel("Map of the drive's route")
+                    .accessibilityLabel("Map of the drive route")
+                    .overlay(alignment: .bottomTrailing) { attribution }
             } else if failed || route?.isEmpty == true {
                 Text(route?.isEmpty == true ? "No route was recorded for this drive." : "Map unavailable.")
                     .themeText(.subline, color: Theme.textTertiary)
@@ -31,6 +34,17 @@ struct DriveRouteMap: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .task(id: driveID) { await load() }
+    }
+
+    /// The tiles are OpenStreetMap data (ODbL) through Protomaps: credited on the map, as the web does.
+    private var attribution: some View {
+        Text("© OpenStreetMap · Protomaps")
+            .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .background(Theme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
+            .padding(4)
+            .accessibilityLabel("Map data OpenStreetMap, style Protomaps")
     }
 
     private func load() async {
@@ -61,8 +75,11 @@ struct RouteMapView: UIViewRepresentable {
         map.showsUserLocation = false
         map.isRotateEnabled = false
         map.isPitchEnabled = false
+        map.isScrollEnabled = false
+        map.isZoomEnabled = false
         map.compassView.isHidden = true
-        map.attributionButtonPosition = .bottomRight
+        // The credit is drawn as text over the map (DriveRouteMap), visible without a tap.
+        map.attributionButton.isHidden = true
         map.logoViewPosition = .bottomLeft
         return map
     }

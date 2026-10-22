@@ -43,6 +43,8 @@ final class MapStyleTests: XCTestCase {
             XCTAssertTrue(urls.contains("asset://Map/glyphs/{fontstack}/{range}.pbf"), "\(urls)")
             for u in urls { XCTAssertTrue(MapStyle.isAllowed(u, server: server), u) }
             XCTAssertFalse(json.contains(MapStyle.serverPlaceholder))
+            // The tiles are OpenStreetMap data: the style's source carries the credit.
+            XCTAssertTrue(json.contains("© OpenStreetMap"))
             XCTAssertNotNil(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
         }
     }
