@@ -11,14 +11,18 @@ final class ChargeCurveTests: XCTestCase {
         ChargeSample(at: t0.addingTimeInterval(s), batteryLevelPct: soc, chargerPowerKw: kw, packTempAvgC: pack, packTempMinC: lo, packTempMaxC: hi)
     }
 
-    func testSamplesDecodeOnlyTheSixFieldsAndNeverAPosition() throws {
+    func testSamplesDecodeOnlyTheNineFieldsAndNeverAPosition() throws {
         let json = #"[{"VehicleID":"veh-fixture","At":"2026-10-20T15:01:00Z","Lat":32.775,"Lon":-96.797,"LocationFixAt":"2026-10-20T15:00:58Z","BatteryLevelPct":61.5,"ChargerPowerKW":11.2,"ChargeLimitPct":80,"InsideTempC":21,"OutsideTempC":12,"OdometerMi":12000,"SpeedMph":0,"pack_temp_avg_c":30.5,"pack_temp_min_c":29,"pack_temp_max_c":32,"altitude_m":150}]"#
         let s = try JSON.decoder().decode([ChargeSample].self, from: Data(json.utf8))
         XCTAssertEqual(s[0].batteryLevelPct, 61.5)
         XCTAssertEqual(s[0].chargerPowerKw, 11.2)
         XCTAssertEqual(s[0].packTempAvgC, 30.5)
         XCTAssertEqual(Mirror(reflecting: s[0]).children.compactMap(\.label),
-                       ["at", "batteryLevelPct", "chargerPowerKw", "packTempAvgC", "packTempMinC", "packTempMaxC"])
+                       ["at", "batteryLevelPct", "chargerPowerKw", "packTempAvgC", "packTempMinC", "packTempMaxC",
+                        "chargeLimitPct", "outsideTempC", "insideTempC"])
+        XCTAssertEqual(s[0].chargeLimitPct, 80)
+        XCTAssertEqual(s[0].outsideTempC, 12)
+        XCTAssertEqual(s[0].insideTempC, 21)
         let bare = #"[{"At":"2026-10-20T15:01:00Z","BatteryLevelPct":50,"ChargerPowerKW":0}]"#
         XCTAssertNil(try JSON.decoder().decode([ChargeSample].self, from: Data(bare.utf8))[0].packTempAvgC, "older rows carry no pack temperature")
     }
