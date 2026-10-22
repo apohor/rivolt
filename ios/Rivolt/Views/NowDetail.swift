@@ -145,8 +145,7 @@ enum NowFormat {
 
     /// An amount in a currency code; plain digits when the code isn't a usable one.
     static func money(_ amount: Double, currency: String) -> String {
-        guard currency.count == 3 else { return String(format: "%.2f", amount) }
-        return amount.formatted(.currency(code: currency.uppercased()))
+        NumberText.money(amount, currency)
     }
 
     static func costText(_ c: ChargingDetail.Cost) -> String {
@@ -162,8 +161,8 @@ enum NowFormat {
 
 extension NowFormat {
     /// One decimal, in the phone's number format.
-    static func oneDecimal(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(1))) }
-    static func twoDecimals(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(2))) }
+    static func oneDecimal(_ v: Double) -> String { NumberText.fixed(v, 1) }
+    static func twoDecimals(_ v: Double) -> String { NumberText.fixed(v, 2) }
 
     /// Duration said in words: "1 hour 12 minutes".
     static func spokenDuration(_ seconds: TimeInterval) -> String {
@@ -189,14 +188,15 @@ extension NowFormat {
 
     /// A distance recorded in miles, shown (or said, with `spoken`) the way the phone's units say.
     static func distance(mi: Double, spoken: Bool = false) -> String {
-        Measurement(value: mi, unit: UnitLength.miles)
-            .formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1))))
+        let metric = usesMetric
+        let unit = spoken ? (metric ? "kilometres" : "miles") : (metric ? "km" : "mi")
+        return "\(NumberText.fixed(metric ? mi * 1.609344 : mi, 1)) \(unit)"
     }
 
     static func speed(mph: Double, spoken: Bool = false) -> String {
-        let m = Measurement(value: mph, unit: UnitSpeed.milesPerHour)
-        let shown = usesMetric ? m.converted(to: .kilometersPerHour) : m
-        return shown.formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))))
+        let metric = usesMetric
+        let unit = spoken ? (metric ? "kilometres per hour" : "miles per hour") : (metric ? "km/h" : "mph")
+        return "\(NumberText.fixed(metric ? mph * 1.609344 : mph, 0)) \(unit)"
     }
 
     /// mi/kWh, or km/kWh on a metric phone.

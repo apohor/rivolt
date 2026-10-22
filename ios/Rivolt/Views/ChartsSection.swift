@@ -58,7 +58,7 @@ struct ChartsSection: View {
                     AxisMarks(position: .leading, values: [0, top / 2, top]) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                         AxisValueLabel {
-                            if let v = value.as(Double.self) { ChartAxisText(v.formatted(.number.precision(.fractionLength(0)))) }
+                            if let v = value.as(Double.self) { ChartAxisText(NumberText.fixed(v, 0)) }
                         }
                     }
                 }

@@ -79,11 +79,11 @@ struct NowCard: View {
                 }
                 if driving, let kph = summary.speedKph {
                     let speed = NowFormat.usesMetric ? kph : kph / 1.609344
-                    figure("Speed", speed.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km/h" : "mph")
+                    figure("Speed", NumberText.fixed(speed, 0), NowFormat.usesMetric ? "km/h" : "mph")
                 }
                 if let km = summary.rangeKm {
                     let range = NowFormat.usesMetric ? km : km / 1.609344
-                    figure("Range", range.formatted(.number.precision(.fractionLength(0))), NowFormat.usesMetric ? "km" : "mi")
+                    figure("Range", NumberText.fixed(range, 0), NowFormat.usesMetric ? "km" : "mi")
                 }
             }
         }
@@ -133,7 +133,7 @@ struct NowCard: View {
     @ViewBuilder
     private var chargingRows: some View {
         VStack(spacing: 8) {
-            if let kw = summary.chargePowerKw { readout("Power", "\(kw.formatted(.number.precision(.fractionLength(kw < 10 ? 1 : 0)))) kW") }
+            if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if let t = timeLeft { readout("Time left", "\(t) · est.") }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
@@ -210,7 +210,7 @@ struct NowCard: View {
             out.append(NowAlert(id: "waking", tone: .amber, text: "\(vehicleName) woke up \(n) times in the last 6 hours."))
         }
         if let bar = s.tireMinBar, bar > 0, bar < 2.2 {
-            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(bar.formatted(.number.precision(.fractionLength(1)))) bar."))
+            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(NumberText.fixed(bar, 1)) bar."))
         }
         return Array(out.prefix(2))
     }
@@ -277,7 +277,7 @@ struct NowCard: View {
 
     static func status(for summary: NowSummary) -> StatusText {
         var head = [summary.stateLabel]
-        if let kw = summary.chargePowerKw { head.append(String(format: "%.1f kW", kw)) }
+        if let kw = summary.chargePowerKw { head.append("\(NumberText.fixed(kw, 1)) kW") }
         var detail: [String] = []
         if let target = summary.chargeTargetPct, summary.stateLabel == "Charging" {
             detail.append("to \(Int(target.rounded()))%")
@@ -292,7 +292,7 @@ struct NowCard: View {
     /// current power (a peak of 11.2 next to 11.1 kW is noise).
     static func chargeLine(added: Double, peakKw: Double?, powerKw: Double?) -> String {
         var s = "+\(Int(added.rounded()))% this charge"
-        if let peak = peakKw, peak > (powerKw ?? 0) * 1.1 { s += String(format: " · peak %.1f kW", peak) }
+        if let peak = peakKw, peak > (powerKw ?? 0) * 1.1 { s += " · peak \(NumberText.fixed(peak, 1)) kW" }
         return s
     }
 }
