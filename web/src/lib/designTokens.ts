@@ -247,6 +247,12 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chargeL2: { both: { file: "src/components/DriveMap.tsx", css: 'l2: "#06b6d4",', use: "activity map: a level 2 (AC, 3 kW and up) charge's dot" } },
   chargeL1: { both: { file: "src/components/DriveMap.tsx", css: 'l1: "#a3a3a3",', use: "activity map: a level 1 (under 3 kW) charge's dot" } },
   efficiencyBarEnd: { both: { file: "src/components/EfficiencyBars.tsx", css: ",#059669)", use: "efficiency bars: the bottom of a bar's gradient (its top is mapDrive for the best bucket, routeStart for the rest)" } },
+  timelineDraw: { both: { file: "src/lib/driveTimelineData.ts", css: 'draw: "#ef4444",', use: "drive timeline: modelled power while drawing (above 0)" } },
+  timelineRegen: { both: { file: "src/lib/driveTimelineData.ts", css: 'regen: "#22c55e",', use: "drive timeline: modelled power while recovering (below 0)" } },
+  modeConserve: { both: { file: "src/lib/driveTimelineData.ts", css: 'Conserve: "#22c55e",', use: "drive timeline: Conserve drive mode band" } },
+  modeAllPurpose: { both: { file: "src/lib/driveTimelineData.ts", css: 'AllPurpose: "#f97316",', use: "drive timeline: All-Purpose drive mode band" } },
+  modeSport: { both: { file: "src/lib/driveTimelineData.ts", css: 'Sport: "#ef4444",', use: "drive timeline: Sport drive mode band" } },
+  modeOther: { both: { file: "src/lib/driveTimelineData.ts", css: 'Other: "#a3a3a3",', use: "drive timeline: any other drive mode" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.
@@ -376,6 +382,7 @@ export function buildTokens(src: Sources) {
 }
 
 export const SOURCE_FILES = [
+  "src/lib/driveTimelineData.ts",
   "src/components/EfficiencyBars.tsx",
   "src/index.css",
   "src/styles/next-type.css",

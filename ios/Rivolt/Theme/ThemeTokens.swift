@@ -94,6 +94,12 @@ enum ThemeTokens {
     static let chargeL2 = Pair(dark: Rgba(0x06B6D4, 1), light: Rgba(0x06B6D4, 1))
     static let chargeL1 = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
     static let efficiencyBarEnd = Pair(dark: Rgba(0x059669, 1), light: Rgba(0x059669, 1))
+    static let timelineDraw = Pair(dark: Rgba(0xEF4444, 1), light: Rgba(0xEF4444, 1))
+    static let timelineRegen = Pair(dark: Rgba(0x22C55E, 1), light: Rgba(0x22C55E, 1))
+    static let modeConserve = Pair(dark: Rgba(0x22C55E, 1), light: Rgba(0x22C55E, 1))
+    static let modeAllPurpose = Pair(dark: Rgba(0xF97316, 1), light: Rgba(0xF97316, 1))
+    static let modeSport = Pair(dark: Rgba(0xEF4444, 1), light: Rgba(0xEF4444, 1))
+    static let modeOther = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11

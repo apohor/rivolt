@@ -4,10 +4,10 @@ import SwiftUI
 /// One drive's route on the map, as the web draws it: the recorded trace snapped to roads through our own Valhalla,
 /// coloured by speed (mph buckets) over a faint glow, routed gaps solid and unknown ones dashed, with start and end
 /// pins and a speed legend, over our basemap. The recorded line shows at once and is replaced when the snapped one
-/// arrives; without samples it's the stored route, without that the ends. Fetched when shown, held in memory while
-/// the screen is open, gone with it. No location services.
+/// arrives; without samples it's the stored route, without that the ends. The drive and its samples come from the
+/// screen (DriveDetailModel, shared with the timeline), held in memory while it is open. No location services.
 struct DriveRouteMap: View {
-    let driveID: String
+    let phase: DriveDetailModel.Phase
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -46,7 +46,7 @@ struct DriveRouteMap: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
-        .task(id: driveID) { await load() }
+        .task(id: phase) { await load() }
     }
 
     private func load() async {
@@ -54,18 +54,20 @@ struct DriveRouteMap: View {
         health = .ok
         routeDrawn = false
         let client = state.client
-        let drive: DriveRoute
-        do {
-            drive = try await client.driveRoute(id: driveID)
-            failed = false
-        } catch {
+        let drive: DriveRoute, samples: [DriveSample]?
+        switch phase {
+        case .loading:
+            return
+        case .failed:
             failed = true
             return
+        case .loaded(let d, let s):
+            drive = d
+            samples = s
+            failed = false
         }
         // The drive's samples (and 10 minutes either side, for the parked pins), as the web's detail page.
-        if let started = drive.startedAt, let ended = drive.endedAt, let vehicle = drive.vehicleID, !vehicle.isEmpty,
-           let samples = try? await client.driveSamples(since: started.addingTimeInterval(-600), until: ended.addingTimeInterval(600), vehicleID: vehicle),
-           let path = RouteSnap.path(drive: drive, samples: samples) {
+        if let samples, let path = RouteSnap.path(drive: drive, samples: samples) {
             drawing = RouteSnap.raw(path)
             if let snapped = await RouteSnap.snap(path, source: client), !Task.isCancelled { drawing = snapped }
             return
