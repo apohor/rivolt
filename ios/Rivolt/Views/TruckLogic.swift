@@ -4,7 +4,8 @@ import Foundation
 /// out of the views so they can be tested. Each card says what happened and how much data it rests on; when the data
 /// is thin it says that instead of a number, and it never names a cause.
 enum TruckLogic {
-    static func fixed(_ v: Double, _ digits: Int) -> String { v.formatted(.number.precision(.fractionLength(digits)).grouping(.never)) }
+    /// Like the web's `toFixed`: a half rounds away from zero ("2.25" → "2.3"), not to even.
+    static func fixed(_ v: Double, _ digits: Int) -> String { MoneyLogic.fixed(v, digits) }
     static func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : many }
     static func whole(_ v: Double) -> String { Int(v.rounded()).formatted() }
 

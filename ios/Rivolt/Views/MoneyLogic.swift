@@ -6,14 +6,18 @@ import Foundation
 enum MoneyLogic {
     // MARK: Formatting
 
+    /// Halves round away from zero, like the web's `toFixed` and `Intl.NumberFormat` ("2.25" → "2.3"); the
+    /// formatter's default rounds them to even.
     static func money(_ v: Double, _ currency: String, digits: Int = 2) -> String {
-        guard currency.count == 3 else { return String(format: "%.\(digits)f", v) }
-        return v.formatted(.currency(code: currency.uppercased()).precision(.fractionLength(digits)))
+        guard currency.count == 3 else { return fixed(v, digits) }
+        return v.formatted(.currency(code: currency.uppercased()).precision(.fractionLength(digits)).rounded(rule: .toNearestOrAwayFromZero))
     }
 
     static func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : many }
 
-    static func fixed(_ v: Double, _ digits: Int) -> String { v.formatted(.number.precision(.fractionLength(digits)).grouping(.never)) }
+    static func fixed(_ v: Double, _ digits: Int) -> String {
+        v.formatted(.number.precision(.fractionLength(digits)).grouping(.never).rounded(rule: .toNearestOrAwayFromZero))
+    }
 
     /// The web's `formatDistance`: whole units, and from 100 km / 60 mi up rounded to the nearest 10 km / 5 mi, so it
     /// never gives a precise position away.

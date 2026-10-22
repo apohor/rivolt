@@ -105,6 +105,9 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertFalse(TruckLogic.chipOff(d, 15.6))
         XCTAssertEqual(TruckLogic.band(283, 283, digits: 0, unit: "mi"), "283 mi")
         XCTAssertEqual(TruckLogic.band(2.25, 2.41, digits: 1, unit: "mi/kWh"), "2.3–2.4 mi/kWh")
+        // Halves round up as the web's toFixed does, not to even.
+        XCTAssertEqual(TruckLogic.fixed(0.125, 2), "0.13")
+        XCTAssertEqual(MoneyLogic.money(0.125, "USD"), "$0.13")
         XCTAssertEqual(TruckLogic.temperature(11.7, fahrenheit: true), "53 °F")
     }
 
@@ -283,6 +286,7 @@ final class TruckClientTests: XCTestCase {
         TruckStub.respond = { path in
             if path.hasSuffix("/drain") { return (200, (try? Fixture.data("drain")) ?? Data()) }
             if path.contains("/cold-range") { return (200, (try? Fixture.data("cold_range")) ?? Data()) }
+            if path.contains("/pack-health") { return (200, (try? Fixture.data("pack_health")) ?? Data()) }
             return (404, Data("404 page not found".utf8))
         }
         let c = client()
@@ -294,11 +298,14 @@ final class TruckClientTests: XCTestCase {
         XCTAssertNil(t)
         let l = try await c.leaseTerms(vehicleID: "veh-fixture")
         XCTAssertNil(l)
+        let p = try await c.packHealth(vehicleID: "veh-fixture")
+        XCTAssertEqual(p.samples?.count, 5)
         XCTAssertEqual(TruckStub.paths, [
             "/api/vehicles/veh-fixture/drain",
             "/api/vehicles/veh-fixture/cold-range?temp_c=15.6&grid=-17.8,-6.7,4.4,15.6,26.7&units=imperial",
             "/api/vehicles/veh-fixture/trends?units=metric",
             "/api/vehicles/veh-fixture/lease",
+            "/api/vehicles/veh-fixture/pack-health?limit=30",
         ])
     }
 

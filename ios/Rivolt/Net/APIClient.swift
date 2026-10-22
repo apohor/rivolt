@@ -308,8 +308,10 @@ actor APIClient {
         try await optional("/api/vehicles/\(pathID(vehicleID))/drain")
     }
 
+    /// The headline (over every sample) and the newest 30 samples, all the sparkline draws. An older server ignores
+    /// `limit` and sends every sample.
     func packHealth(vehicleID: String) async throws -> PackHealth {
-        try await request("GET", "/api/vehicles/\(pathID(vehicleID))/pack-health")
+        try await request("GET", "/api/vehicles/\(pathID(vehicleID))/pack-health?limit=30")
     }
 
     /// `metric` picks km and kWh/100 km; otherwise miles and mi/kWh.
