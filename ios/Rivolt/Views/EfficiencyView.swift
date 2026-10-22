@@ -176,7 +176,8 @@ struct EfficiencyBars: View {
                 ForEach(buckets) { b in
                     let l = EfficiencyLogic.split(b.label)
                     VStack(spacing: 0) {
-                        Text(l.main).themeText(.caption, color: Theme.textBody).lineLimit(1)
+                        // Two lines for a long band ("86 °F and above") rather than a cut word.
+                        Text(l.main).themeText(.caption, color: Theme.textBody).lineLimit(2).multilineTextAlignment(.center)
                         if !l.sub.isEmpty { Text(l.sub).themeText(.caption).lineLimit(1) }
                         Text("\(b.drives)").themeText(.caption, color: b.notEnoughData ? Theme.estimate : Theme.textTertiary)
                     }

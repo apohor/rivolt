@@ -37,7 +37,8 @@ final class EfficiencySnapshotTests: XCTestCase {
         ]
         for (name, content) in renders {
             let renderer = ImageRenderer(content: content.fixedSize(horizontal: false, vertical: true))
-            renderer.scale = 3
+            // A page at accessibility text sizes is several screens tall: at 3x its bitmap is past what PNG encoding takes.
+            renderer.scale = name.contains("accessibility") ? 1.5 : 3
             let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
             XCTAssertGreaterThan(image.size.height, 100, name)
             let png = try XCTUnwrap(image.pngData())
