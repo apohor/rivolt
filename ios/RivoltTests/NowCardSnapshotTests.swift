@@ -55,6 +55,11 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("three-things", ThreeThingsCard(rows: [.push, .lease, .statement], webURL: { _ in URL(string: "https://example.invalid") }, onOpenNotifications: {}, onHide: {}))
     }
 
+    func testRenderPlaces() throws {
+        let split = try Fixture.decode(ChargeSplit.self, "charge_split")
+        try snapshot("places", PlacesCard(split: split, days: 30))
+    }
+
     private func snapshot(_ name: String, _ card: some View) throws {
         for scheme in [ColorScheme.light, .dark] {
             let view = card

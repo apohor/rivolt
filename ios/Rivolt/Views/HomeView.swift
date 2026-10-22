@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var latestDrive: DriveBrief?
     @State private var charts = ChartsModel()
     @State private var chartWindow = ChartWindow.week
+    @State private var places = PlacesModel()
 
     private var selected: Vehicle? {
         vehicles.first { $0.id == selectedID } ?? vehicles.first
@@ -53,6 +54,9 @@ struct HomeView: View {
                                 DriveDetailCard(detail: drive)
                             }
                             ChartsSection(model: charts, window: $chartWindow)
+                            if let split = places.split, split.total > 0 {
+                                PlacesCard(split: split, days: chartWindow.days)
+                            }
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
@@ -126,7 +130,9 @@ struct HomeView: View {
 
     private func loadCharts(force: Bool) async {
         guard let id = selected?.id else { return }
-        await charts.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
+        async let c: Void = charts.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
+        async let p: Void = places.load(source: state.client, vehicleID: id, window: chartWindow, force: force)
+        _ = await (c, p)
     }
 
     /// `force` is for a pull or the Refresh button: only then are the charts read again before their cache expires.
