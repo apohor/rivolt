@@ -65,7 +65,7 @@ export function Card({
   area?: string;
 }) {
   return (
-    <section id={id} data-span={span} data-ui-area={area} className="rounded-xl border border-neutral-800 bg-neutral-900/50 scroll-mt-[calc(5rem+env(safe-area-inset-top,0px))]">
+    <section id={id} data-span={span} data-ui-area={area} className="rounded-xl border border-neutral-800 bg-neutral-900/50 scroll-mt-20">
       {(title || actions) && (
         <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-2.5">
           {title && <h2 className="text-sm font-medium text-neutral-200">{title}</h2>}
