@@ -131,24 +131,26 @@ struct ChargeCurveView: View {
         .chartXSelection(value: $cursor)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .chartYAxis {
-            AxisMarks(position: .leading, values: ChargeCurve.socTicks(ax).map { ChargeCurve.unit(soc: $0, ax) }) { value in
+            // One set of gridlines, the battery's; the kW labels stand at the same heights.
+            AxisMarks(position: .leading, values: ax.ticks.map { ChargeCurve.unit(soc: $0, ax) }) { value in
                 AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                 AxisValueLabel {
                     if let v = value.as(Double.self) { AxisText("\(NumberText.fixed(ax.socLo + v * (ax.socHi - ax.socLo), 0))%") }
                 }
             }
             if showPower, hasPower {
-                AxisMarks(position: .trailing, values: ChargeCurve.powerTicks(ax).map { ChargeCurve.unit(power: $0, ax) }) { value in
+                AxisMarks(position: .trailing, values: ax.ticks.map { ChargeCurve.unit(soc: $0, ax) }) { value in
                     AxisValueLabel {
-                        if let v = value.as(Double.self) { AxisText("\(Self.kw(v * ax.powerMax)) kW") }
+                        if let v = value.as(Double.self) { AxisText("\(NumberText.fixed(v * ax.powerMax, 0)) kW") }
                     }
                 }
             }
         }
-        // Three times: the start, the middle and the end. An hourly axis on a long home charge ran its labels together.
+        // Three times: the start, the middle and the end, the first and last kept inside the plot so the last one
+        // doesn't run into the kW labels.
         .chartXAxis {
             AxisMarks(values: [first, first.addingTimeInterval(last.timeIntervalSince(first) / 2), last]) { value in
-                AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
+                AxisValueLabel(anchor: value.index == 0 ? .topLeading : value.index == 2 ? .topTrailing : .top, collisionResolution: .disabled) {
                     if let d = value.as(Date.self) { AxisText(d.formatted(timeStyle)) }
                 }
             }
@@ -205,9 +207,6 @@ struct ChargeCurveView: View {
                 .lineStyle(StrokeStyle(lineWidth: 1))
         }
     }
-
-    /// 12 kW, 12.5 kW: a whole number without a decimal.
-    private static func kw(_ v: Double) -> String { NumberText.fixed(v, v.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1) }
 
     // MARK: Note
 

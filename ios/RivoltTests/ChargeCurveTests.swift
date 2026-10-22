@@ -37,7 +37,7 @@ final class ChargeCurveTests: XCTestCase {
 
     func testThePowerAxisSnapsToTheChargerClasses() {
         XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 7.2, smoothed: []), 12)
-        XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 11.5, smoothed: []), 25, "a peak within 8% of the tier moves up")
+        XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 11.5, smoothed: []), 24, "a peak within 8% of the tier moves up")
         XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 142, smoothed: []), 200)
         XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 0, smoothed: []), 12)
         XCTAssertEqual(ChargeCurve.powerAxisMax(peak: 10, smoothed: [pt(0, 130)]), 200, "the smoothed line can be higher than the row's peak")
@@ -62,30 +62,46 @@ final class ChargeCurveTests: XCTestCase {
         XCTAssertTrue(ChargeCurve.series([], from: t0, to: t0).soc.isEmpty)
     }
 
-    func testTheBatteryAxisFollowsTheSessionOrTheData() {
-        let s = ChargeCurve.Series(soc: [pt(0, 41), pt(60, 80)])
-        XCTAssertEqual(ChargeCurve.axes(s, startPct: 41, endPct: 80, peakKw: 142).socLo, 36)
-        XCTAssertEqual(ChargeCurve.axes(s, startPct: 41, endPct: 80, peakKw: 142).socHi, 85)
-        XCTAssertEqual(ChargeCurve.axes(s, startPct: 41, endPct: 80, peakKw: 142).powerMax, 200)
-        XCTAssertEqual(ChargeCurve.axes(s, startPct: 0, endPct: 0, peakKw: 0).socLo, 41, "unknown levels: the data's own range")
-        XCTAssertEqual(ChargeCurve.axes(s, startPct: 98, endPct: 100, peakKw: 7).socHi, 100)
-        let axes = ChargeCurve.axes(s, startPct: 41, endPct: 80, peakKw: 142)
-        XCTAssertEqual(ChargeCurve.unit(soc: 36, axes), 0)
-        XCTAssertEqual(ChargeCurve.unit(soc: 85, axes), 1)
+    func testTheBatteryAxisIsRoundedOutToWholeTicksThatCoverTheData() {
+        func ax(_ s: ChargeCurve.Series, _ a: Double, _ b: Double, kw: Double = 142) -> ChargeCurve.Axes { ChargeCurve.axes(s, startPct: a, endPct: b, peakKw: kw) }
+        let dc = ChargeCurve.Series(soc: [pt(0, 18), pt(60, 74)])
+        XCTAssertEqual(ax(dc, 18, 74).ticks, [0, 20, 40, 60, 80], "13 to 79 rounds out to 0 to 80, the top and the bottom labelled")
+        let mid = ChargeCurve.Series(soc: [pt(0, 41), pt(60, 80)])
+        XCTAssertEqual(ax(mid, 41, 80).ticks, [20, 40, 60, 80, 100], "36 to 85: the finest step that leaves three or five ticks")
+        let high = ChargeCurve.Series(soc: [pt(0, 88), pt(60, 98)])
+        XCTAssertEqual(ax(high, 88, 98).ticks, [80, 85, 90, 95, 100])
+        let home = ChargeCurve.Series(soc: [pt(0, 55), pt(60, 85)])
+        XCTAssertEqual(ax(home, 55, 85).ticks, [50, 60, 70, 80, 90])
+        for a in [ax(dc, 18, 74), ax(mid, 41, 80), ax(high, 88, 98), ax(home, 55, 85)] {
+            XCTAssertTrue([3, 5].contains(a.ticks.count), "three or five gridlines, so the kW labels are whole numbers")
+        }
+        // The line can run past the row's own levels: the domain covers it.
+        let past = ChargeCurve.Series(soc: [pt(0, 41), pt(60, 83)])
+        XCTAssertGreaterThanOrEqual(ax(past, 41, 70).socHi, 83)
+        XCTAssertEqual(ax(.init(soc: [pt(0, 41), pt(60, 80)]), 0, 0).socLo, 40, "unknown levels: the data's own range")
+        let axes = ax(dc, 18, 74)
+        XCTAssertEqual(ChargeCurve.unit(soc: 0, axes), 0)
+        XCTAssertEqual(ChargeCurve.unit(soc: 80, axes), 1)
         XCTAssertEqual(ChargeCurve.unit(soc: 120, axes), 1, "never drawn outside the plot")
         XCTAssertEqual(ChargeCurve.unit(power: 100, axes), 0.5)
         XCTAssertEqual(ChargeCurve.unit(temp: 20, range: 20...30), 0.05, accuracy: 1e-9)
         XCTAssertEqual(ChargeCurve.unit(temp: 30, range: 20...30), 0.95, accuracy: 1e-9)
+        XCTAssertEqual(ax(dc, 18, 74).powerMax, 200)
+        // The kW labels at the battery gridlines: 0, 50, 100, 150, 200.
+        XCTAssertEqual(axes.ticks.map { ChargeCurve.unit(soc: $0, axes) * axes.powerMax }, [0, 50, 100, 150, 200])
     }
 
-    func testTheAxisTicksAreRoundNumbersInsideTheRange() {
-        func ticks(_ lo: Double, _ hi: Double) -> [Double] { ChargeCurve.socTicks(.init(socLo: lo, socHi: hi, powerMax: 200)) }
-        XCTAssertEqual(ticks(36, 85), [40, 50, 60, 70, 80])
-        XCTAssertEqual(ticks(13, 79), [20, 40, 60])
-        XCTAssertEqual(ticks(50, 90), [50, 60, 70, 80, 90])
-        XCTAssertEqual(ticks(88, 100), [90, 95, 100])
-        XCTAssertEqual(ticks(0, 100), [0, 25, 50, 75, 100])
-        XCTAssertEqual(ChargeCurve.powerTicks(.init(socLo: 0, socHi: 100, powerMax: 25)), [0, 12.5, 25])
+    func testAWholePercentStaircaseBecomesARamp() {
+        // 55% for 10 samples, then 56% for 10, 57% for 10: flat runs, a jump each.
+        var pts: [ChargeCurve.Pt] = []
+        for k in 0..<3 { for i in 0..<10 { pts.append(pt(Double(k * 100 + i * 10), 55 + Double(k))) } }
+        let ramp = ChargeCurve.deStair(pts)
+        XCTAssertEqual(ramp.count, 5, "the first sample, one point in the middle of each run between, the last sample")
+        XCTAssertEqual(ramp.first, pts.first)
+        XCTAssertEqual(ramp.last, pts.last)
+        XCTAssertEqual(ramp[2].at, t0.addingTimeInterval(145), "the middle of the 56% run")
+        XCTAssertEqual(ramp.map(\.value), [55, 55, 56, 57, 57])
+        XCTAssertEqual(ChargeCurve.deStair([pt(0, 1), pt(5, 2)]), [pt(0, 1), pt(5, 2)])
     }
 
     func testTheReadoutFindsTheNearestSample() {

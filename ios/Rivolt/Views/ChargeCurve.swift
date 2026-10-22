@@ -17,11 +17,19 @@ enum ChargeCurve {
         var packSpreadC: Double = 0
     }
 
-    /// The left axis is the battery level over the session's own range; the right one the power, up to a tier.
+    /// The left axis is the battery level over the session's own range, rounded out to whole ticks; the right one the
+    /// power, up to a tier. Both are labelled at the same heights (`ticks`), so one set of gridlines serves both.
     struct Axes: Equatable {
         let socLo: Double
         let socHi: Double
+        let socStep: Double
         let powerMax: Double
+
+        /// The battery values of the gridlines, `socLo` to `socHi` a step apart.
+        var ticks: [Double] {
+            guard socStep > 0, socHi > socLo else { return [socLo, socHi] }
+            return (0...Int(((socHi - socLo) / socStep).rounded())).map { socLo + Double($0) * socStep }
+        }
     }
 
     /// A Gaussian-weighted moving average over a time window (`sigma` seconds, one standard deviation), the web's
@@ -54,6 +62,24 @@ enum ChargeCurve {
         return out
     }
 
+    /// A battery level that only ticks in whole percents is flat between ticks, so drawn as it comes it is a staircase.
+    /// Each flat run becomes one point at its middle, the first and last points stay where they are, and the line
+    /// between them is a ramp.
+    static func deStair(_ pts: [Pt]) -> [Pt] {
+        guard pts.count > 2 else { return pts }
+        var out: [Pt] = [pts[0]]
+        var i = 1
+        while i < pts.count - 1 {
+            var j = i
+            while j + 1 < pts.count - 1, pts[j + 1].value == pts[i].value { j += 1 }
+            let mid = pts[i].at.addingTimeInterval(pts[j].at.timeIntervalSince(pts[i].at) / 2)
+            out.append(Pt(at: mid, value: pts[i].value))
+            i = j + 1
+        }
+        out.append(pts[pts.count - 1])
+        return out
+    }
+
     /// The samples of `[start, end + 60 s]` as three series. A battery level of 0 or less and a power of 0 or less
     /// are "not reported", as on the web, and a temperature of 0 is the missing sentinel.
     static func series(_ samples: [ChargeSample], from start: Date, to end: Date) -> Series {
@@ -70,45 +96,43 @@ enum ChargeCurve {
             guard let hi = s.packTempMaxC, let lo = s.packTempMinC, hi.isFinite, lo.isFinite, hi > lo else { return nil }
             return hi - lo
         }.max() ?? 0
-        return Series(soc: smooth(soc, sigma: 30), power: smooth(power, sigma: 45), packAvgC: smooth(pack, sigma: 60), packSpreadC: spread)
+        return Series(soc: smooth(deStair(soc), sigma: 30), power: smooth(power, sigma: 45), packAvgC: smooth(pack, sigma: 60), packSpreadC: spread)
     }
 
     /// The power axis ceiling, snapped to the common charger classes (a 7 kW home session and a 250 kW pull both look
-    /// right) with a little headroom; `peak` is the session's own maximum.
+    /// right) with a little headroom; `peak` is the session's own maximum. Every tier divides by 4, so the labels at
+    /// three or five gridlines are whole kW (the web's 25 kW tier is 24 here).
     static func powerAxisMax(peak: Double, smoothed: [Pt]) -> Double {
         var top = peak
         for p in smoothed where p.value > top { top = p.value }
         if top <= 0 { return 12 }
-        for tier in [12.0, 25, 60, 120, 200, 300, 400] where top <= tier * 0.92 { return tier }
+        for tier in [12.0, 24, 60, 120, 200, 300, 400] where top <= tier * 0.92 { return tier }
         return (top * 1.2 / 50).rounded(.up) * 50
     }
 
-    /// The battery axis: the session's start and end levels with 5 points of room, or the data's own range when the
-    /// row doesn't say.
+    /// The battery axis: the session's start and end levels with 5 points of room (or the data's own range when the row
+    /// doesn't say), rounded out to whole ticks 5, 10, 20, 25 or 50 apart: the finest step that makes three or five of
+    /// them, so the top and the bottom of the plot are labelled and the kW labels land on whole numbers.
     static func axes(_ series: Series, startPct: Double, endPct: Double, peakKw: Double) -> Axes {
         var lo = startPct > 0 ? max(0, startPct - 5) : (series.soc.map(\.value).min() ?? 0)
         var hi = endPct > 0 ? min(100, endPct + 5) : (series.soc.map(\.value).max() ?? 100)
+        // The line is smoothed from samples and can run past the row's levels: cover it too.
+        if let dataLo = series.soc.map(\.value).min() { lo = min(lo, dataLo) }
+        if let dataHi = series.soc.map(\.value).max() { hi = max(hi, dataHi) }
         if hi - lo < 10 {
             lo = max(0, lo - 5)
             hi = min(100, hi + 5)
         }
         if hi <= lo { lo = 0; hi = 100 }
-        return Axes(socLo: lo, socHi: hi, powerMax: powerAxisMax(peak: peakKw, smoothed: series.power))
-    }
-
-    /// Round values for the battery axis inside its range (5, 10, 20, 25 or 50 points apart: the finest that leaves no
-    /// more than five), so the gridlines read 40, 50, 60 and not the range's own 36 and 85.
-    static func socTicks(_ axes: Axes) -> [Double] {
+        let power = powerAxisMax(peak: peakKw, smoothed: series.power)
         for step in [5.0, 10, 20, 25, 50] {
-            let first = (axes.socLo / step).rounded(.up)
-            let last = (axes.socHi / step).rounded(.down)
-            if last >= first, Int(last - first) + 1 <= 5 { return (Int(first)...Int(last)).map { Double($0) * step } }
+            let bottom = max(0, (lo / step).rounded(.down) * step)
+            let top = min(100, (hi / step).rounded(.up) * step)
+            let intervals = Int(((top - bottom) / step).rounded())
+            if top > bottom, intervals == 2 || intervals == 4 { return Axes(socLo: bottom, socHi: top, socStep: step, powerMax: power) }
         }
-        return [axes.socLo, axes.socHi]
+        return Axes(socLo: 0, socHi: 100, socStep: 25, powerMax: power)
     }
-
-    /// The right axis' labels: nothing, half and the top of the power range.
-    static func powerTicks(_ axes: Axes) -> [Double] { [0, axes.powerMax / 2, axes.powerMax] }
 
     // MARK: Plot space
 
