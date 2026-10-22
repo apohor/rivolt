@@ -165,14 +165,33 @@ final class TruckLogicTests: XCTestCase {
 }
 
 /// A fake server: answers from the fixtures, counts the calls, or fails with the status given.
+/// The model reads its cards concurrently (`async let`), so the fake's methods run at once on the cooperative pool:
+/// everything they touch goes through one lock. (Unguarded, concurrent appends lost calls and crashed the test.)
 private final class FakeTruck: TruckSource, @unchecked Sendable {
-    var calls: [String] = []
-    var fail: Int?
-    var lease = true
+    private let lock = NSLock()
+    private var _calls: [String] = []
+    private var _fail: Int?
+    private var _lease = true
+
+    var calls: [String] {
+        get { lock.withLock { _calls } }
+        set { lock.withLock { _calls = newValue } }
+    }
+    var fail: Int? {
+        get { lock.withLock { _fail } }
+        set { lock.withLock { _fail = newValue } }
+    }
+    var lease: Bool {
+        get { lock.withLock { _lease } }
+        set { lock.withLock { _lease = newValue } }
+    }
 
     private func check(_ name: String) throws {
-        calls.append(name)
-        if let fail { throw APIError.server(status: fail, message: "no") }
+        let f: Int? = lock.withLock {
+            _calls.append(name)
+            return _fail
+        }
+        if let f { throw APIError.server(status: f, message: "no") }
     }
 
     func vehicleState(id: String) async throws -> VehicleState { try check("state"); return try Fixture.decode(VehicleState.self, "state") }

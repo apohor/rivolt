@@ -293,14 +293,26 @@ final class MoneyLogicTests: XCTestCase {
 }
 
 /// A fake ledger: answers from the fixtures, or fails with the status given.
+/// The model reads the month and the summary concurrently, so what the fake's methods touch goes through one lock.
 private final class FakeMoney: MoneySource, @unchecked Sendable {
-    var monthCalls: [(String, String, String?)] = []
-    var summaryCalls = 0
-    var fail: Int?
+    private let lock = NSLock()
+    private var _monthCalls: [(String, String, String?)] = []
+    private var _summaryCalls = 0
+    private var _fail: Int?
+
+    var monthCalls: [(String, String, String?)] { lock.withLock { _monthCalls } }
+    var summaryCalls: Int { lock.withLock { _summaryCalls } }
+    var fail: Int? {
+        get { lock.withLock { _fail } }
+        set { lock.withLock { _fail = newValue } }
+    }
 
     func ledgerMonth(month: String, timeZone: String, vehicleID: String?) async throws -> LedgerMonth {
-        monthCalls.append((month, timeZone, vehicleID))
-        if let fail { throw APIError.server(status: fail, message: "no") }
+        let f: Int? = lock.withLock {
+            _monthCalls.append((month, timeZone, vehicleID))
+            return _fail
+        }
+        if let f { throw APIError.server(status: f, message: "no") }
         return try edited(LedgerMonth.self, "ledger_monthly") { o in
             o["period"] = month
             o["is_current_month"] = month == "2026-10"
@@ -308,8 +320,11 @@ private final class FakeMoney: MoneySource, @unchecked Sendable {
     }
 
     func ledgerSummary(months: Int, timeZone: String, vehicleID: String?) async throws -> LedgerSummary {
-        summaryCalls += 1
-        if let fail { throw APIError.server(status: fail, message: "no") }
+        let f: Int? = lock.withLock {
+            _summaryCalls += 1
+            return _fail
+        }
+        if let f { throw APIError.server(status: f, message: "no") }
         return try Fixture.decode(LedgerSummary.self, "ledger_summary")
     }
 
