@@ -46,6 +46,12 @@ enum EfficiencyLogic {
         buckets.filter { $0.efficiency != nil && !$0.notEnoughData }.max { ($0.efficiency ?? 0) < ($1.efficiency ?? 0) }?.key
     }
 
+    /// A number and its unit never split across lines: a no-break space (U+00A0) between them ("32\u{00A0}°F").
+    static func keepUnits(_ s: String) -> String {
+        s.replacingOccurrences(of: #"(\d)[ \t]+(°[FC]|mph|km/h|mi/kWh|km/kWh|kWh|mi|km)(?![A-Za-z])"#,
+                               with: "$1\u{00A0}$2", options: .regularExpression)
+    }
+
     /// "Highway (55–70 mph)" → "Highway" over "55–70 mph"; "32–50 °F" stays whole.
     static func split(_ label: String) -> (main: String, sub: String) {
         guard let open = label.lastIndex(of: "("), label.hasSuffix(")") else { return (label, "") }
@@ -182,8 +188,8 @@ struct EfficiencyBars: View {
                     let l = EfficiencyLogic.split(b.label)
                     VStack(spacing: 0) {
                         // Two lines for a long band ("86 °F and above") rather than a cut word.
-                        Text(l.main).themeText(.caption, color: Theme.textBody).lineLimit(2).multilineTextAlignment(.center)
-                        if !l.sub.isEmpty { Text(l.sub).themeText(.caption).lineLimit(1) }
+                        Text(EfficiencyLogic.keepUnits(l.main)).themeText(.caption, color: Theme.textBody).lineLimit(2).multilineTextAlignment(.center)
+                        if !l.sub.isEmpty { Text(EfficiencyLogic.keepUnits(l.sub)).themeText(.caption).lineLimit(1) }
                         Text("\(b.drives)").themeText(.caption, color: b.notEnoughData ? Theme.estimate : Theme.textTertiary)
                     }
                     .minimumScaleFactor(0.8)
@@ -257,7 +263,7 @@ struct EfficiencyRows: View {
             .accessibilityLabel(SpokenText.words("Average \(NumberText.fixed(average, 2)) \(unit)"))
             ForEach(buckets) { b in
                 VStack(alignment: .leading, spacing: Theme.unit) {
-                    Text(b.label).themeText(.value, color: Theme.textPrimary)
+                    Text(EfficiencyLogic.keepUnits(b.label)).themeText(.value, color: Theme.textPrimary)
                     if let v = b.efficiency {
                         GeometryReader { geo in
                             Capsule()

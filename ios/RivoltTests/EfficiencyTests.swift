@@ -35,6 +35,19 @@ final class EfficiencyTests: XCTestCase {
                        "Not enough data yet for October 2026: efficiency needs drives with recorded energy, at least 25 mi.")
     }
 
+    /// "Below 32 °F" never leaves "°F" alone on a line: a no-break space joins each number to its unit.
+    func testNumbersKeepTheirUnits() {
+        let nb = "\u{00A0}"
+        XCTAssertEqual(EfficiencyLogic.keepUnits("Below 32 °F"), "Below 32\(nb)°F")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("86 °F and above"), "86\(nb)°F and above")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("0–10 °C"), "0–10\(nb)°C")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("55–70 mph"), "55–70\(nb)mph")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("70 mph and above"), "70\(nb)mph and above")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("89–113 km/h"), "89–113\(nb)km/h")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("All-Purpose"), "All-Purpose")
+        XCTAssertEqual(EfficiencyLogic.keepUnits("2 miles"), "2 miles", "a word that starts like a unit is left alone")
+    }
+
     func testVoiceOverSaysThinBestAndNoData() throws {
         let t = try fixture().byTemperature
         XCTAssertEqual(EfficiencyLogic.spoken(t[0], unit: "mi/kWh", best: false), "Below 32 °F: no data")
