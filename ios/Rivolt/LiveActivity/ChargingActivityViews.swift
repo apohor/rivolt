@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The Lock Screen and banner view of the charging Live Activity, and the pieces the Dynamic Island
 /// reuses, in the web's new look (the Theme layer): the battery arc, the status in the Now pill's tones and the
-/// readouts in Geist Mono, as the web's hero readouts. Read-only: a tap just opens the app. Shared by the widget
+/// power and time-left readouts in the Now card's readout style. Read-only: a tap just opens the app. Shared by the widget
 /// extension and (for CI renders) the app's tests.
 struct ChargingLockScreenView: View {
     let state: ChargingActivityAttributes.ContentState
@@ -17,13 +17,11 @@ struct ChargingLockScreenView: View {
             ChargingGauge(state: state, targetPct: targetPct, isStale: isStale, width: 64)
             VStack(alignment: .leading, spacing: Theme.unit / 2) {
                 ChargingStatus(isStale: isStale, isTest: isTest)
-                Text(ChargingActivityText.power(state))
-                    .font(Theme.mono(22, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
+                // Power and time left in the Now card's readout style (proportional Geist, tabular figures), so the
+                // two agree; Geist Mono is only for the web's hero readout.
+                Text(ChargingActivityText.power(state)).themeText(.value, color: Theme.textPrimary)
                 if let line = ChargingActivityText.untilTarget(state.minutesToTarget, targetPct: targetPct) {
-                    Text(line)
-                        .font(Theme.sans(ThemeTokens.typeSubline))
-                        .foregroundStyle(Theme.textSecondary)
+                    Text(line).themeText(.value, color: Theme.textPrimary)
                 }
             }
             Spacer(minLength: 0)
@@ -100,9 +98,7 @@ struct ChargingIslandTrailing: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: Theme.unit / 2) {
-            Text(ChargingActivityText.power(state))
-                .font(Theme.mono(20, .semibold))
-                .foregroundStyle(Theme.textPrimary)
+            Text(ChargingActivityText.power(state)).themeText(.value, color: Theme.textPrimary)
             ChargingStatus(isStale: isStale)
         }
     }
@@ -115,8 +111,7 @@ struct ChargingIslandBottom: View {
 
     var body: some View {
         Text(ChargingActivityText.untilTarget(state.minutesToTarget, targetPct: targetPct) ?? "Charging")
-            .font(Theme.sans(ThemeTokens.typeSubline))
-            .foregroundStyle(Theme.textSecondary)
+            .themeText(.value, color: Theme.textPrimary)
     }
 }
 
