@@ -50,6 +50,9 @@ export function useHomeRecheck() {
               ? `${ask.would_price_at_home_rate} unpriced home ${ask.would_price_at_home_rate === 1 ? "charge" : "charges"} will be priced at your home rate (+${(ask.total_cost_delta ?? 0).toFixed(2)} ${ask.currency ?? ""}). `
               : "Charges without a price stay unpriced (you can add prices). "}
             You can undo this right after. If you moved, history stays as recorded.
+            {(ask.skipped_overridden ?? 0) > 0
+              ? ` ${ask.skipped_overridden} ${ask.skipped_overridden === 1 ? "charge" : "charges"} you set by hand ${ask.skipped_overridden === 1 ? "stays" : "stay"} as you set ${ask.skipped_overridden === 1 ? "it" : "them"}.`
+              : ""}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button

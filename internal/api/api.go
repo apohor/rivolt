@@ -1171,6 +1171,13 @@ func New(d Deps) http.Handler {
 			r.Post("/charges/apply-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleApplyNetworkRate(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
+			// Per-charge overrides (#906, charge_overrides.go): web only, not on the app write allowlist.
+			r.Put("/charges/{id}/place", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargePlacePut(overriderFor(d, uid), restampSettingsFor(d, uid).home)(w, r)
+			}))
+			r.Put("/charges/{id}/location", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargeLocationPut(overriderFor(d, uid))(w, r)
+			}))
 			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePatchChargePricing(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))

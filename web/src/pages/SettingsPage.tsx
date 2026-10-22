@@ -36,6 +36,7 @@ import { LeasePanel } from "../components/LeasePanel";
 import { OffpeakPanel } from "../components/OffpeakCard";
 import { MembershipTerms } from "../components/MembershipTerms";
 import { useHomeRecheck } from "../components/HomeRecheck";
+import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocation";
 import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
@@ -771,20 +772,30 @@ function ChargingNetworksPanel() {
   // Local draft state mirrors the server list. We seed once on first
   // successful fetch and let the user mutate freely until they hit
   // Save; cancelling is just a page reload.
-  const [rows, setRows] = useState<ChargingNetwork[]>([]);
+  // locDraft is the typed text of a custom row's optional location (#906),
+  // parsed on Save; it is never sent.
+  const [rows, setRows] = useState<(ChargingNetwork & { locDraft?: string })[]>([]);
   const [loaded, setLoaded] = useState(false);
   if (!loaded && q.data) {
     setRows(q.data);
     setLoaded(true);
   }
   const mut = useMutation({
-    mutationFn: () => backend.setChargingNetworks(rows),
+    mutationFn: () =>
+      backend.setChargingNetworks(
+        rows.map(({ locDraft, ...r }) => {
+          if (locDraft === undefined || r.slug) return r;
+          const loc = parseNetworkLocation(locDraft);
+          if (!loc.ok) throw new Error(`${r.name || "A network"}: ${loc.why}`);
+          return { ...r, lat: loc.lat, lon: loc.lon };
+        }),
+      ),
     onSuccess: (saved) => {
       setRows(saved);
       qc.invalidateQueries({ queryKey: ["charging-networks"] });
     },
   });
-  const update = (i: number, patch: Partial<ChargingNetwork>) =>
+  const update = (i: number, patch: Partial<ChargingNetwork & { locDraft?: string }>) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const remove = (i: number) =>
     setRows((prev) => prev.filter((_, idx) => idx !== i));
@@ -958,6 +969,25 @@ function ChargingNetworksPanel() {
                       <p role="alert" className="mt-1 text-rose-300">Couldn&apos;t price them: {apply.error instanceof Error ? apply.error.message : String(apply.error)}</p>
                     )}
                   </div>
+                )}
+
+                {!r.slug && (
+                  <label className="mt-2 flex flex-col text-xs" data-network-location>
+                    <span className="text-[11px] uppercase tracking-wide text-neutral-500">Location (optional)</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={r.locDraft ?? formatNetworkLocation(r)}
+                      onChange={(e) => update(i, { locDraft: e.target.value })}
+                      placeholder="lat, lon"
+                      className="mt-1 w-full rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+                    />
+                    <span className="mt-1 text-neutral-500">
+                      {r.locDraft !== undefined && !parseNetworkLocation(r.locDraft).ok
+                        ? (parseNetworkLocation(r.locDraft) as { why: string }).why
+                        : "Only used to label your own charges near it."}
+                    </span>
+                  </label>
                 )}
 
                 {hasMembership && (

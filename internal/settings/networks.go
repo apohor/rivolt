@@ -3,6 +3,8 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math"
 	"sort"
 	"strings"
 
@@ -49,6 +51,35 @@ type ChargingNetwork struct {
 	// estimates that no network publishes as a price and are not shown or applied as
 	// one. A row the user edited has Seeded false.
 	Seeded bool `json:"seeded,omitempty"`
+	// Lat/Lon are where a network row of the user's own (no built-in Slug) is, when they
+	// gave one (#906): both or neither. Private to this user: only their charge map's
+	// label and the pricing prefill read it. Never in AsOverrides, the chargers archive,
+	// the DCFC Tracker links, demo data or anyone else's price book.
+	Lat *float64 `json:"lat,omitempty"`
+	Lon *float64 `json:"lon,omitempty"`
+}
+
+// ErrNetworkLocationInvalid: a network row's lat/lon is half given, out of range or 0,0.
+var ErrNetworkLocationInvalid = errors.New("network location must be a latitude and a longitude in range")
+
+// ValidateNetworkLocations checks the optional location on each row before a save: both
+// or neither, finite, in range and not 0,0. A built-in network can't carry one (the
+// save drops it).
+func ValidateNetworkLocations(networks []ChargingNetwork) error {
+	for _, n := range networks {
+		if n.Lat == nil && n.Lon == nil {
+			continue
+		}
+		if n.Lat == nil || n.Lon == nil {
+			return ErrNetworkLocationInvalid
+		}
+		lat, lon := *n.Lat, *n.Lon
+		if math.IsNaN(lat) || math.IsInf(lat, 0) || math.IsNaN(lon) || math.IsInf(lon, 0) ||
+			lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat == 0 && lon == 0) {
+			return ErrNetworkLocationInvalid
+		}
+	}
+	return nil
 }
 
 // GetChargingNetworks returns the configured price book. When the
@@ -270,6 +301,10 @@ func normalizeNetworks(in []ChargingNetwork) []ChargingNetwork {
 			MemberPlan:  currentPlanName(strings.TrimSpace(n.MemberPlan)),
 			Slug:        strings.TrimSpace(n.Slug),
 			Preferred:   n.Preferred,
+		}
+		if _, builtin := builtinBySlug(row.Slug); !builtin && ValidateNetworkLocations([]ChargingNetwork{n}) == nil && n.Lat != nil {
+			lat, lon := math.Round(*n.Lat*1e6)/1e6, math.Round(*n.Lon*1e6)/1e6
+			row.Lat, row.Lon = &lat, &lon
 		}
 		// Member price must be positive AND below guest to count -
 		// matches the sanity test in tripadvice/networks_test.go.
