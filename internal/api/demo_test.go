@@ -630,8 +630,9 @@ func TestDemoTileRangeGuard(t *testing.T) {
 	}{
 		{"GET", "", 400},                      // no range: the whole archive
 		{"GET", "bytes=0-16383", 200},         // pmtiles header read
-		{"GET", "bytes=1048576-3145727", 200}, // exactly 2 MiB
-		{"GET", "bytes=0-2097152", 416},       // one byte over
+		{"GET", "bytes=1048576-1572863", 200}, // exactly 512 KiB
+		{"GET", "bytes=0-524288", 416},        // one byte over
+		{"GET", "bytes=0-3145727", 416},       // the old 2 MiB cap is gone
 		{"GET", "bytes=0-", 400},              // open ended
 		{"GET", "bytes=-1024", 200},           // suffix within cap
 		{"GET", "bytes=-9999999", 416},        // suffix over cap
