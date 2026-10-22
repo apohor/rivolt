@@ -238,7 +238,7 @@ func TestAdaptiveRefreshInterval(t *testing.T) {
 // when the master is on and the frame actually carries a fix — the
 // signal the gnss gap-filler uses to tell a live feed from a stalled one.
 func TestNoteVehStateGPS(t *testing.T) {
-	withFix := &State{Latitude: 30.55, Longitude: -97.76}
+	withFix := &State{Latitude: 32.77, Longitude: -96.80}
 	noFix := &State{BatteryLevelPct: 72} // delta with no GPS
 
 	// Master on + fix present → stamped.
