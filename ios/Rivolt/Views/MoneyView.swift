@@ -177,6 +177,7 @@ struct MoneyContent: View {
         let csv: () -> Void
     }
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(spacing: 16) {
@@ -319,8 +320,10 @@ struct MoneyContent: View {
     /// The web's two small buttons under the headline. Nothing to share or download for an empty month.
     private func exportButtons(_ st: MoneyStatement) -> some View {
         let off = st.empty || export == nil
+        // At an accessibility size the two buttons stack rather than share a narrow row.
+        let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            row {
                 Button("Share statement") { export?.share() }
                     .accessibilityHint("An image of your month. No places or addresses; cost only if you add it.")
                 Button { export?.csv() } label: {
@@ -738,21 +741,34 @@ private struct MoneyReceiptRow: View {
     let usesMetric: Bool
     let url: (MoneyLink) -> URL?
     @State private var open = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let r = receipt
         let line = MoneyReceiptLine(r, currency: currency)
         let key = line.chip.key
+        let date = Text(MoneyLogic.dateTime(r.startedAt, calendar: calendar)).themeText(.value, color: Theme.textPrimary)
+        let chip = Text(line.chip.label).themeText(.caption, color: PlaceTone.ink(key))
+            .padding(.horizontal, 1.5 * Theme.unit).padding(.vertical, 1)
+            .overlay(Capsule().strokeBorder(PlaceTone.edge(key), lineWidth: 1))
         HStack(alignment: .top, spacing: 12) {
             Circle().fill(PlaceTone.dot(key)).frame(width: 8, height: 8).padding(.top, 6).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(MoneyLogic.dateTime(r.startedAt, calendar: calendar)).themeText(.value, color: Theme.textPrimary).lineLimit(1)
-                    Text(line.chip.label).themeText(.caption, color: PlaceTone.ink(key))
-                        .padding(.horizontal, 1.5 * Theme.unit).padding(.vertical, 1)
-                        .overlay(Capsule().strokeBorder(PlaceTone.edge(key), lineWidth: 1))
-                    Spacer(minLength: 8)
-                    MoneyValueText(value: line.value)
+                if typeSize.isAccessibilitySize {
+                    // The date gets its own line (never cut short); the place and the figure go under it.
+                    date.fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        chip
+                        Spacer(minLength: 8)
+                        MoneyValueText(value: line.value)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        date.lineLimit(1)
+                        chip
+                        Spacer(minLength: 8)
+                        MoneyValueText(value: line.value)
+                    }
                 }
                 details(r, line).fixedSize(horizontal: false, vertical: true)
                 MoneyFlow(spacing: 12, lineSpacing: 2) {

@@ -145,6 +145,11 @@ struct TruckContent: View {
     var now: Date = .now
     var calendar: Calendar = .current
     var metric: Bool = NowFormat.usesMetric
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// At an accessibility size pairs stack (label over value) and rows become a column, so nothing breaks mid-word.
+    private var stacked: Bool { typeSize.isAccessibilitySize }
+    private var chartHeight: CGFloat { stacked ? 200 : 140 }
 
     private var fahrenheit: Bool { !metric }
 
@@ -205,7 +210,7 @@ struct TruckContent: View {
             VStack(alignment: .leading, spacing: 8) {
                 switch v {
                 case let .ok(p, kwh, sleeps, rewakes, median, used, excluded):
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))) {
                         (Text(TruckLogic.pct(p)).font(Theme.sans(ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
                             + Text(" % / day").font(Theme.sans(ThemeTokens.typeTitle - 4, .regular, relativeTo: .title2)).foregroundStyle(Theme.textTertiary))
                             .monospacedDigit()
@@ -282,11 +287,11 @@ struct TruckContent: View {
                         .background(Theme.estimateFill.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.estimateFill.opacity(0.4), lineWidth: 1))
                 }
-                HStack(alignment: .lastTextBaseline) {
+                (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .lastTextBaseline))) {
                     (Text(st.usedMi.map { TruckLogic.whole(metric ? $0 * 1.609344 : $0) } ?? "—").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
                         + Text(" of \(dist(terms.allowedMilesTotal))").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
                         .monospacedDigit()
-                    Spacer(minLength: 8)
+                    if !stacked { Spacer(minLength: 8) }
                     if let standing {
                         Text(standing.text).themeText(.value, color: standing.tone == .watch ? Theme.estimate : Theme.accent).fontWeight(.medium)
                     }
@@ -313,18 +318,30 @@ struct TruckContent: View {
                         if bar.projected != nil { legendSwatch(Theme.textTertiary.opacity(0.5), "Projected at return") }
                     }
                 }
-                Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
-                    GridRow {
-                        leaseFact("Returns", leaseDate(terms.endDate), ["\(st.daysLeft.formatted()) days left"])
-                        leaseFact("Projected at return", st.projectedTotalMi.map { "\(dist($0)) of lease \(unitWord)" } ?? "—",
-                                  [st.projectedReturnOdometerMi.map { "odometer ~\(dist($0))" },
-                                   st.paceMiPerDay.map { "at \(dist($0)) a day\(st.paceBasis == "last_90_days" ? " (last 90 days)" : st.paceBasis == "lease_to_date" ? " (since the lease began)" : "")" }].compactMap { $0 })
-                    }
-                    GridRow {
+                let returns = leaseFact("Returns", leaseDate(terms.endDate), ["\(st.daysLeft.formatted()) days left"])
+                let projected = leaseFact("Projected at return", st.projectedTotalMi.map { "\(dist($0)) of lease \(unitWord)" } ?? "—",
+                                          [st.projectedReturnOdometerMi.map { "odometer ~\(dist($0))" },
+                                           st.paceMiPerDay.map { "at \(dist($0)) a day\(st.paceBasis == "last_90_days" ? " (last 90 days)" : st.paceBasis == "lease_to_date" ? " (since the lease began)" : "")" }].compactMap { $0 })
+                let budget = leaseFact("\(metric ? "Kilometers" : "Miles") a day to stay within the allowance",
+                                       st.milesPerDayBudget.map { "\(TruckLogic.fixed(metric ? $0 * 1.609344 : $0, 1)) \(metric ? "km" : "mi")" } ?? "—",
+                                       [st.milesPerDayBudget == 0 ? "already over the allowance" : "from today to the end of the lease"])
+                if stacked {
+                    VStack(alignment: .leading, spacing: 12) {
+                        returns
+                        projected
                         overage(st, currency: terms.currency)
-                        leaseFact("\(metric ? "Kilometers" : "Miles") a day to stay within the allowance",
-                                  st.milesPerDayBudget.map { "\(TruckLogic.fixed(metric ? $0 * 1.609344 : $0, 1)) \(metric ? "km" : "mi")" } ?? "—",
-                                  [st.milesPerDayBudget == 0 ? "already over the allowance" : "from today to the end of the lease"])
+                        budget
+                    }
+                } else {
+                    Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
+                        GridRow {
+                            returns
+                            projected
+                        }
+                        GridRow {
+                            overage(st, currency: terms.currency)
+                            budget
+                        }
                     }
                 }
             }
@@ -434,7 +451,7 @@ struct TruckContent: View {
                             AxisValueLabel { if let d = v.as(Double.self) { TruckAxisText(TruckLogic.fixed(d, 1)) } }
                         } }
                         .chartXAxis { AxisMarks { v in AxisValueLabel { if let s = v.as(String.self) { TruckAxisText(s) } } } }
-                        .frame(height: 140)
+                        .frame(height: chartHeight)
                         .accessibilityLabel("Efficiency by month, \(t.efficiencyUnit)")
                         Text("\(t.efficiencyUnit), pack-side. Months under \(TruckLogic.whole(t.minMonthDistance)) \(t.distanceUnit) of driving are left blank. It includes weather and driving style, so cold months usually run lower.")
                             .themeText(.subline, color: Theme.textTertiary)
@@ -454,7 +471,7 @@ struct TruckContent: View {
                         (Text("About \(TruckLogic.fixed(median, 0)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
                             + Text("usable (estimate)").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
                             .monospacedDigit()
-                        CapacityChart(samples: t.capacity?.samples ?? [], median: median, spec: spec).frame(height: 140)
+                        CapacityChart(samples: t.capacity?.samples ?? [], median: median, spec: spec, xLabels: stacked ? 2 : 3).frame(height: chartHeight)
                         Text("Estimated from charges that add at least \(TruckLogic.whole(need))% of battery. It moves a little with temperature and is not a Rivian figure. Charging losses and how the truck reports charge level can shift it by a few percent.\(spec > 0 ? " Rivian's spec for this pack: \(TruckLogic.fixed(spec, 0)) kWh." : "")")
                             .themeText(.subline, color: Theme.textTertiary)
                     }
@@ -543,7 +560,7 @@ struct TruckContent: View {
                     if s.bars.isEmpty {
                         Text("No sleep data yet. This fills in as power-state recording builds up history.").themeText(.subline, color: Theme.textTertiary)
                     } else {
-                        IdleChart(bars: s.bars, calendar: calendar, period: month.spokenTitle(calendar: calendar)).frame(height: 140)
+                        IdleChart(bars: s.bars, calendar: calendar, period: month.spokenTitle(calendar: calendar)).frame(height: chartHeight)
                         Text("Time per day awake while parked and not charging\(s.averageDays > 0 ? ", averaging \(TruckLogic.minutes(s.average ?? 0)) a day over the last \(s.averageDays) full days" : ""). Today is still in progress. Driving and charging are excluded.\(model.sleepCapped ? " Showing the last 90 days of this period." : "")")
                             .themeText(.caption, color: Theme.textTertiary)
                     }
@@ -561,24 +578,34 @@ struct TruckContent: View {
         let sw = model.state.flatMap(TruckLogic.software)
         if tire != nil || sw != nil {
             ThemeSection(title: "Vehicle") {
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                    if let tire {
-                        GridRow {
-                            Text("Lowest tire").themeText(.value, color: Theme.textTertiary)
-                            Text("\(TruckLogic.fixed(tire.bar, 1)) bar · \(TruckLogic.fixed(tire.psi, 0)) psi")
-                                .themeText(.value, color: tire.low ? Theme.estimate : Theme.textPrimary)
-                                .gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                if stacked {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let tire { stackedPair("Lowest tire") { tireText(tire) } }
+                        if let sw {
+                            stackedPair("Software") { versionCell(sw.current, notes: vehicle.ota?.current?.releaseNotesUrl) }
+                            if let a = sw.available {
+                                stackedPair("Update available") { versionCell(a, notes: vehicle.ota?.available?.releaseNotesUrl) }
+                            }
                         }
                     }
-                    if let sw {
-                        GridRow {
-                            Text("Software").themeText(.value, color: Theme.textTertiary)
-                            versionCell(sw.current, notes: vehicle.ota?.current?.releaseNotesUrl)
-                        }
-                        if let a = sw.available {
+                } else {
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                        if let tire {
                             GridRow {
-                                Text("Update available").themeText(.value, color: Theme.textTertiary)
-                                versionCell(a, notes: vehicle.ota?.available?.releaseNotesUrl)
+                                Text("Lowest tire").themeText(.value, color: Theme.textTertiary)
+                                tireText(tire).gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
+                        if let sw {
+                            GridRow {
+                                Text("Software").themeText(.value, color: Theme.textTertiary)
+                                versionCell(sw.current, notes: vehicle.ota?.current?.releaseNotesUrl)
+                            }
+                            if let a = sw.available {
+                                GridRow {
+                                    Text("Update available").themeText(.value, color: Theme.textTertiary)
+                                    versionCell(a, notes: vehicle.ota?.available?.releaseNotesUrl)
+                                }
                             }
                         }
                     }
@@ -587,14 +614,27 @@ struct TruckContent: View {
         }
     }
 
+    private func tireText(_ tire: (bar: Double, psi: Double, low: Bool)) -> some View {
+        Text("\(TruckLogic.fixed(tire.bar, 1)) bar · \(TruckLogic.fixed(tire.psi, 0)) psi")
+            .themeText(.value, color: tire.low ? Theme.estimate : Theme.textPrimary)
+    }
+
+    private func stackedPair<V: View>(_ label: String, @ViewBuilder value: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).themeText(.value, color: Theme.textTertiary)
+            value()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private func versionCell(_ version: String, notes: String?) -> some View {
-        HStack(spacing: 8) {
+        (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))) {
             Text(version).themeText(.value, color: Theme.textPrimary)
             if let u = TruckLogic.notesURL(notes) {
                 Link(destination: u) { Text("Release notes ↗").themeText(.subline, color: Theme.accent) }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: stacked ? .leading : .trailing)
     }
 }
 
@@ -696,6 +736,7 @@ private struct CapacityChart: View {
     let samples: [TruckTrends.Capacity.Sample]
     let median: Double
     let spec: Double
+    var xLabels = 3
 
     var body: some View {
         let ys = samples.map(\.kwhEffective) + [median] + (spec > 0 ? [spec] : [])
@@ -715,7 +756,7 @@ private struct CapacityChart: View {
             AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
             AxisValueLabel { if let d = v.as(Double.self) { TruckAxisText(TruckLogic.fixed(d, 0)) } }
         } }
-        .chartXAxis { AxisMarks(values: .automatic(desiredCount: 3)) { v in
+        .chartXAxis { AxisMarks(values: .automatic(desiredCount: xLabels)) { v in
             AxisValueLabel { if let d = v.as(Date.self) { TruckAxisText(d.formatted(.dateTime.month(.abbreviated).day())) } }
         } }
         .accessibilityLabel("Estimated usable capacity over time, kWh")

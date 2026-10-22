@@ -49,6 +49,13 @@ private final class FakeBackend: LiveActivityBackend {
 }
 
 final class ChargingActivityContentTests: XCTestCase {
+    /// The app's one rounding rule (NumberText): a half rounds away from zero, as the web's toFixed, never to even.
+    func testPowerRoundsAsTheWebDoes() {
+        let s = ChargingActivityAttributes.ContentState(socPct: 50, powerKw: 7.25, minutesToTarget: nil)
+        XCTAssertEqual(ChargingActivityText.power(s), "7.3 kW")
+        XCTAssertTrue(ChargingActivityText.spoken(s, targetPct: nil, isStale: false).contains("7.3 kilowatts"))
+    }
+
     /// ActivityKit decodes a push's content-state with a plain JSONDecoder.
     func testDecodesExactlyTheServersKeys() throws {
         let json = #"{"soc_pct":63,"power_kw":11.1,"minutes_to_target":42}"#

@@ -140,7 +140,7 @@ struct ChargingIslandLevel: View {
 enum ChargingActivityText {
     /// "11.1 kW".
     static func power(_ s: ChargingActivityAttributes.ContentState) -> String {
-        String(format: "%.1f kW", s.powerKw)
+        "\(NumberText.fixed(s.powerKw, 1)) kW"
     }
 
     /// "about 42 min to 80%", or "42 min" without a limit; nil when unknown.
@@ -153,7 +153,7 @@ enum ChargingActivityText {
     }
 
     static func spoken(_ s: ChargingActivityAttributes.ContentState, targetPct: Int?, isStale: Bool) -> String {
-        var parts = ["Charging, \(s.socPct) percent", String(format: "%.1f kilowatts", s.powerKw)]
+        var parts = ["Charging, \(s.socPct) percent", "\(NumberText.fixed(s.powerKw, 1)) kilowatts"]
         if let line = untilTarget(s.minutesToTarget, targetPct: targetPct) { parts.append(line) }
         if isStale { parts.append("may be out of date") }
         return parts.joined(separator: ", ")
