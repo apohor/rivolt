@@ -98,7 +98,8 @@ export function SocTrendChart({
   const extremes = hi && lo && pctLabel(hi.y) !== pctLabel(lo.y) ? { hi, lo } : null;
   // The limit is today's (the live charge target), so it's drawn only on a period that contains now, over the
   // last 24 hours; past periods have none until charges carry the limit in force.
-  const now = Date.now();
+  // (All time ends at the now of its memo, a moment before this one: a few minutes' slack.)
+  const now = Math.min(Date.now(), Math.max(x1, Date.now() - 5 * 60_000));
   const limitShown = limit != null && limit > 0 && limit < 100 && now >= x0 && now <= x1;
   const limitPct = limitShown ? (limit as number) : 0;
   const limitFrom = Math.max(x0, now - DAY);
