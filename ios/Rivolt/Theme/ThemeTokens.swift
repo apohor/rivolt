@@ -33,6 +33,11 @@ enum ThemeTokens {
     static let critical = Pair(dark: Rgba(0xFFA1AD, 1), light: Rgba(0xC70036, 1))
     static let criticalBorder = Pair(dark: Rgba(0xFF2056, 1), light: Rgba(0xEC003F, 1))
     static let drive = Pair(dark: Rgba(0x74D4FF, 1), light: Rgba(0x0069A8, 1))
+    static let home = Pair(dark: Rgba(0x00D492, 1), light: Rgba(0x007A55, 1))
+    static let away = Pair(dark: Rgba(0x00BCFF, 1), light: Rgba(0x0069A8, 1))
+    static let awayFill = Pair(dark: Rgba(0x00A6F4, 1), light: Rgba(0x0084D1, 1))
+    static let fast = Pair(dark: Rgba(0xFFB900, 1), light: Rgba(0x973C00, 1))
+    static let fastFill = Pair(dark: Rgba(0xFE9A00, 1), light: Rgba(0xBB4D00, 1))
     static let edge = Pair(dark: Rgba(0xFFFFFF, 0.07), light: Rgba(0xFFFFFF, 0.9))
     static let brandMark = Pair(dark: Rgba(0x00D492, 1), light: Rgba(0x007A55, 1))
 

@@ -126,6 +126,12 @@ export const ROLES: Record<string, { cssVar: string; use: string }> = {
   critical: { cssVar: "--color-rose-300", use: "low battery figures" },
   criticalBorder: { cssVar: "--color-rose-500", use: "Now hero border when critical, at 50%" },
   drive: { cssVar: "--color-sky-300", use: "drive figures and labels" },
+  // Charging places, as the Money split and receipts and the Activity rail draw them: the dot / icon, then the bar fill.
+  home: { cssVar: "--color-emerald-400", use: "Home dots (Money split legend, receipt rows)" },
+  away: { cssVar: "--color-sky-400", use: "Away dots (Money split legend, receipt rows)" },
+  awayFill: { cssVar: "--color-sky-500", use: "Away bar segment (Money split); Away chip border at 40%" },
+  fast: { cssVar: "--color-amber-400", use: "fast-charge dots and the ⚡ (Money split legend, receipt rows, Activity rail)" },
+  fastFill: { cssVar: "--color-amber-500", use: "Fast bar segment (Money split); Fast chip border at 40%" },
   edge: { cssVar: "--ui-edge", use: "1px top-edge highlight inside cards" },
   brandMark: { cssVar: "--color-emerald-400", use: "the Rivolt logo (Logo.tsx, text-emerald-400 in the header)" },
 };

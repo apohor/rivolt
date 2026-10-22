@@ -253,6 +253,46 @@ actor APIClient {
         try await request("GET", "/api/sleep-activity?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&vehicle=\(queryValue(vehicleID))")
     }
 
+    // MARK: Money (the web's Money page reads: the ledger, the off-peak estimate and the charges to confirm)
+
+    /// `vehicleID` is only sent for an account with more than one truck; without it the server covers all of them.
+    private func ledgerQuery(_ items: [(String, String?)]) -> String {
+        items.compactMap { k, v in v.map { "\(k)=\(queryValue($0))" } }.joined(separator: "&")
+    }
+
+    /// One month's statement, cut in `timeZone`. The server may answer 429 (a per-user limit).
+    func ledgerMonth(month: String, timeZone: String, vehicleID: String?) async throws -> LedgerMonth {
+        try await request("GET", "/api/ledger/monthly?" + ledgerQuery([("month", month), ("tz", timeZone), ("vehicle_id", vehicleID)]))
+    }
+
+    /// The last `months` months, oldest first, and the count of charges to confirm.
+    func ledgerSummary(months: Int, timeZone: String, vehicleID: String?) async throws -> LedgerSummary {
+        try await request("GET", "/api/ledger/summary?" + ledgerQuery([("months", String(months)), ("tz", timeZone), ("vehicle_id", vehicleID)]))
+    }
+
+    /// The off-peak estimate for a month. Like the web, no zone or truck is sent: the server cuts the month in the zone
+    /// the off-peak schedule is read in.
+    func ledgerSavings(month: String) async throws -> LedgerSavings {
+        try await request("GET", "/api/ledger/savings?" + ledgerQuery([("month", month)]))
+    }
+
+    /// Every charge whose auto-detected network is still open (estimated or needing confirmation), newest first, from
+    /// the server's coordinate-free list. A server without it (404/501) answers from the full charge list instead,
+    /// decoded into the same coordinate-free type; drop that fallback once every server has the route.
+    func chargesToConfirm() async throws -> [ConfirmCharge] {
+        let rows: [ConfirmCharge]
+        do {
+            rows = try await request("GET", "/api/charges/to-confirm")
+        } catch APIError.server(let status, _) where status == 404 || status == 501 {
+            rows = try await request("GET", "/api/charges?limit=5000")
+        }
+        return rows.filter { MoneyLogic.isOpenNetworkState($0.networkState) }.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    func chargingRate() async throws -> ChargingRate {
+        try await request("GET", "/api/settings/charging/")
+    }
+
     func vehicles() async throws -> [Vehicle] {
         try await request("GET", "/api/vehicles")
     }

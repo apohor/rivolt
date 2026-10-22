@@ -6,13 +6,14 @@ struct AppShell: View {
     @State private var tab = "now"
 
     private var tabs: [ThemeTabItem] {
-        [ThemeTabItem(id: "now", label: "Now", icon: "now")]
+        [ThemeTabItem(id: "now", label: "Now", icon: "now"), ThemeTabItem(id: "money", label: "Money", icon: "money")]
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Group {
                 switch tab {
+                case "money": MoneyView()
                 default: HomeView()
                 }
             }

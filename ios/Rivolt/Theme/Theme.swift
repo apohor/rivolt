@@ -35,6 +35,12 @@ enum Theme {
     static let critical = color(ThemeTokens.critical)
     static let criticalBorder = color(ThemeTokens.criticalBorder)
     static let drive = color(ThemeTokens.drive)
+    /// Charging places, as the web draws them: the dot or icon, and the bar fill (Money, Activity).
+    static let home = color(ThemeTokens.home)
+    static let away = color(ThemeTokens.away)
+    static let awayFill = color(ThemeTokens.awayFill)
+    static let fast = color(ThemeTokens.fast)
+    static let fastFill = color(ThemeTokens.fastFill)
     static let edge = color(ThemeTokens.edge)
 
     // Literals
