@@ -302,6 +302,15 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
+      # The browser cache is keyed on Playwright's own version (the lockfile entry for
+      # playwright-core), not on the whole lockfile: any unrelated dependency bump
+      # changed the lockfile hash, missed the cache and sent every shard to download
+      # Chromium (280 to 630 s a shard, against 90 to 190 s of tests).
+      - name: Playwright version
+        id: pw-ver
+        working-directory: web
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+
       # The browser download is the slow part. The cache is saved only by the
       # main-only `playwright-cache` job below (a PR's own cache is readable
       # only from that PR, so per-PR copies never hit and filled the repo's
@@ -314,7 +323,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ steps.pw-ver.outputs.version }}
 
       - name: Install Playwright browser
         working-directory: web
@@ -376,12 +385,21 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
+      # Same key as the e2e job's restore: the browser cache is keyed on Playwright's own version (the lockfile entry for
+      # playwright-core), not on the whole lockfile: any unrelated dependency bump
+      # changed the lockfile hash, missed the cache and sent every shard to download
+      # Chromium (280 to 630 s a shard, against 90 to 190 s of tests).
+      - name: Playwright version
+        id: pw-ver
+        working-directory: web
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ steps.pw-ver.outputs.version }}
 
       - name: Download the browser on a miss (saved by the cache post step)
         if: steps.pw-cache.outputs.cache-hit != 'true'
