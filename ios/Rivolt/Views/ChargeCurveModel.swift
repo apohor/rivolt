@@ -21,7 +21,7 @@ final class ChargeCurveModel {
 
     /// The window the web asks for: a minute before the start to a minute after the end; a charge still going (its end
     /// is within 15 minutes of now) runs to now.
-    static func window(for charge: ActivityCharge, now: Date) -> (since: Date, until: Date) {
+    nonisolated static func window(for charge: ActivityCharge, now: Date) -> (since: Date, until: Date) {
         let live = now.timeIntervalSince(charge.endedAt) < 15 * 60
         return (charge.startedAt.addingTimeInterval(-60), (live ? now : charge.endedAt).addingTimeInterval(60))
     }

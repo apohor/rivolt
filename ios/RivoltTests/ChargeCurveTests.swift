@@ -138,12 +138,14 @@ private final class FakeSamples: ChargeSamplesSource, @unchecked Sendable {
     private let result: Result<[ChargeSample], Error>
     private let lock = NSLock()
     private var _calls: [Call] = []
-    var calls: [Call] { lock.lock(); defer { lock.unlock() }; return _calls }
+    var calls: [Call] { lock.withLock { _calls } }
+
+    private func record(_ call: Call) { lock.withLock { _calls.append(call) } }
 
     init(result: Result<[ChargeSample], Error>) { self.result = result }
 
     func chargeSamples(since: Date, until: Date, vehicleID: String, limit: Int) async throws -> [ChargeSample] {
-        lock.lock(); _calls.append(Call(since: since, until: until, vehicleID: vehicleID, limit: limit)); lock.unlock()
+        record(Call(since: since, until: until, vehicleID: vehicleID, limit: limit))
         return try result.get()
     }
 }
