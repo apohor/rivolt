@@ -42,6 +42,7 @@ struct ActivityView: View {
                             }
                         }
                     }
+                    PageFooter()
                 }
                 .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
             }
