@@ -289,6 +289,14 @@ actor APIClient {
         return rows.filter { MoneyLogic.isOpenNetworkState($0.networkState) }.sorted { $0.startedAt > $1.startedAt }
     }
 
+    /// The month's statement as the web's CSV download (the same numbers as `ledgerMonth`): totals, then one line per
+    /// session with its place (home or away), kind, cost and network. No coordinates. Asked for only when the owner
+    /// exports it.
+    func ledgerCSV(month: String, timeZone: String, vehicleID: String?) async throws -> Data {
+        let (data, _) = try await send("GET", "/api/ledger/monthly.csv?" + ledgerQuery([("month", month), ("tz", timeZone), ("vehicle_id", vehicleID)]))
+        return data
+    }
+
     func chargingRate() async throws -> ChargingRate {
         try await request("GET", "/api/settings/charging/")
     }

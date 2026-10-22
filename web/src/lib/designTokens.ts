@@ -220,6 +220,13 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chartSocLimit: { both: { file: "src/components/SocTrendChart.tsx", css: 'stroke="#f59e0b" strokeDasharray="4 3"', use: "charge-level chart: charge-limit line, dashed 4/3" } },
   chartIdleAwakeBar: { both: { file: "src/pages/HomePage.tsx", css: 'color="#6366f1"', use: "idle-awake bars" } },
   chartIdleAwakeTile: { both: { file: "src/components/IdleAwakeTile.tsx", css: 'fill="#818cf8"', use: "idle-awake tile mini bars (last day full, others at 50%)" } },
+  // The share card is a fixed dark 1080 x 1080 image in both themes (lib/shareCard.ts paintShareCard).
+  shareCardBackground: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#0a0a0a"', use: "share card: background" } },
+  shareCardMuted: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#a3a3a3"', use: "share card: eyebrow, subtitle and stat labels" } },
+  shareCardTitle: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#fafafa"', use: "share card: the title figure" } },
+  shareCardValue: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#e5e5e5"', use: "share card: stat values" } },
+  shareCardNote: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#fbbf24"', use: "share card: notes (estimated share, not yet priced)" } },
+  shareCardFooter: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#737373"', use: "share card: footer lines" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.
@@ -355,5 +362,6 @@ export const SOURCE_FILES = [
   "src/pages/HomePage.tsx",
   "src/components/Logo.tsx",
   "src/layout/AppLayout.tsx",
+  "src/lib/shareCard.ts",
   "node_modules/tailwindcss/theme.css",
 ];

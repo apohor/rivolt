@@ -70,6 +70,12 @@ enum ThemeTokens {
     static let chartSocLimit = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
     static let chartIdleAwakeBar = Pair(dark: Rgba(0x6366F1, 1), light: Rgba(0x6366F1, 1))
     static let chartIdleAwakeTile = Pair(dark: Rgba(0x818CF8, 1), light: Rgba(0x818CF8, 1))
+    static let shareCardBackground = Pair(dark: Rgba(0x0A0A0A, 1), light: Rgba(0x0A0A0A, 1))
+    static let shareCardMuted = Pair(dark: Rgba(0xA3A3A3, 1), light: Rgba(0xA3A3A3, 1))
+    static let shareCardTitle = Pair(dark: Rgba(0xFAFAFA, 1), light: Rgba(0xFAFAFA, 1))
+    static let shareCardValue = Pair(dark: Rgba(0xE5E5E5, 1), light: Rgba(0xE5E5E5, 1))
+    static let shareCardNote = Pair(dark: Rgba(0xFBBF24, 1), light: Rgba(0xFBBF24, 1))
+    static let shareCardFooter = Pair(dark: Rgba(0x737373, 1), light: Rgba(0x737373, 1))
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11

@@ -41,6 +41,13 @@ enum Theme {
     static let awayFill = color(ThemeTokens.awayFill)
     static let fast = color(ThemeTokens.fast)
     static let fastFill = color(ThemeTokens.fastFill)
+    /// The share card: a fixed dark image in both themes (the web's paintShareCard).
+    static let shareCardBackground = color(ThemeTokens.shareCardBackground)
+    static let shareCardMuted = color(ThemeTokens.shareCardMuted)
+    static let shareCardTitle = color(ThemeTokens.shareCardTitle)
+    static let shareCardValue = color(ThemeTokens.shareCardValue)
+    static let shareCardNote = color(ThemeTokens.shareCardNote)
+    static let shareCardFooter = color(ThemeTokens.shareCardFooter)
     static let edge = color(ThemeTokens.edge)
 
     // Literals

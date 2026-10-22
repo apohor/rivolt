@@ -125,6 +125,8 @@ struct LedgerMonth: Decodable, Equatable {
     struct Driving: Decodable, Equatable {
         let drives: Int
         let miles: Double
+        let milesWithEnergy: Double?
+        let kwhUsedKnown: Double?
         let coverage: Double?
         let costPerMile: Double?
     }
@@ -174,6 +176,9 @@ struct LedgerSavings: Decodable, Equatable {
     let ifMovedTotal: Double?
     let needs: String?
     let basis: String?
+    /// Share of home charging by energy that ran in off-peak hours (0 to 100); absent without a schedule, a home rate or
+    /// enough sessions. The share card's optional line.
+    let offpeakSharePct: Double?
 }
 
 /// A charge whose auto-detected network waits for the owner's look (the "To confirm" list, all months), from
