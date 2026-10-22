@@ -17,26 +17,28 @@ struct ChargingLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ChargingActivityAttributes.self) { context in
             ChargingLockScreenView(state: context.state, targetPct: context.attributes.targetPct, isStale: context.isStale, isTest: context.attributes.isTest)
+                // The Theme's page colour under the card (the system adds its own material and corners).
+                .activityBackgroundTint(Theme.background)
+                .activitySystemActionForegroundColor(Theme.accent)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text("\(context.state.socPct)%").font(.title.weight(.semibold)).monospacedDigit()
+                    ChargingIslandLeading(state: context.state, targetPct: context.attributes.targetPct, isStale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(String(format: "%.1f kW", context.state.powerKw)).font(.headline).monospacedDigit()
+                    ChargingIslandTrailing(state: context.state, isStale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(ChargingActivityText.untilTarget(context.state.minutesToTarget, targetPct: context.attributes.targetPct) ?? "Charging")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    ChargingIslandBottom(state: context.state, targetPct: context.attributes.targetPct)
                 }
             } compactLeading: {
-                Image(systemName: context.isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+                ChargingIslandIcon(isStale: context.isStale)
             } compactTrailing: {
-                Text("\(context.state.socPct)%").monospacedDigit()
+                ChargingIslandLevel(state: context.state)
             } minimal: {
-                Image(systemName: context.isStale ? "clock.badge.exclamationmark" : "bolt.fill")
+                ChargingIslandIcon(isStale: context.isStale)
             }
+            .keylineTint(Theme.accent)
         }
     }
 }

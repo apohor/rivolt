@@ -240,29 +240,65 @@ final class LiveActivityTestButtonTests: XCTestCase {
 
 @MainActor
 final class LiveActivitySnapshotTests: XCTestCase {
+    private let state = ChargingActivityAttributes.ContentState(socPct: 63, powerKw: 11.1, minutesToTarget: 42)
+
     func testRenderTheLockScreenView() throws {
-        let state = ChargingActivityAttributes.ContentState(socPct: 63, powerKw: 11.1, minutesToTarget: 42)
         for (name, stale) in [("fresh", false), ("stale", true)] {
             for scheme in [ColorScheme.light, .dark] {
                 let view = ChargingLockScreenView(state: state, targetPct: 80, isStale: stale)
                     .frame(width: 360)
-                    .background(scheme == .dark ? Color.black.opacity(0.85) : Color(.secondarySystemBackground))
+                    // The activity's background tint (Theme.background), as on the Lock Screen.
+                    .background(Theme.background)
                     .environment(\.colorScheme, scheme)
-                let renderer = ImageRenderer(content: view)
-                renderer.scale = 3
-                let image = try XCTUnwrap(renderer.uiImage, "live activity \(name) did not render")
-                XCTAssertGreaterThan(image.size.width, 100)
-                let png = try XCTUnwrap(image.pngData())
-                let file = "liveactivity-\(name)-\(scheme == .dark ? "dark" : "light").png"
-                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
-                attachment.name = file
-                attachment.lifetime = .keepAlways
-                add(attachment)
-                if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
-                    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                    try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
-                }
+                try save(view, "liveactivity-\(name)-\(scheme == .dark ? "dark" : "light")")
             }
+        }
+    }
+
+    /// The Dynamic Island's pieces, laid out roughly as the system does, on its black.
+    func testRenderTheDynamicIsland() throws {
+        for (name, stale) in [("fresh", false), ("stale", true)] {
+            let expanded = VStack(spacing: 8) {
+                HStack {
+                    ChargingIslandLeading(state: state, targetPct: 80, isStale: stale)
+                    Spacer()
+                    ChargingIslandTrailing(state: state, isStale: stale)
+                }
+                ChargingIslandBottom(state: state, targetPct: 80)
+            }
+            .padding(16)
+            .frame(width: 370)
+            .background(Color.black, in: RoundedRectangle(cornerRadius: 40))
+            .environment(\.colorScheme, .dark)
+            try save(expanded, "island-expanded-\(name)")
+
+            let compact = HStack {
+                ChargingIslandIcon(isStale: stale)
+                Spacer()
+                ChargingIslandLevel(state: state)
+            }
+            .padding(.horizontal, 14)
+            .frame(width: 250, height: 37)
+            .background(Color.black, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            try save(compact, "island-compact-\(name)")
+        }
+    }
+
+    private func save(_ view: some View, _ name: String) throws {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
+        XCTAssertGreaterThan(image.size.width, 100)
+        let png = try XCTUnwrap(image.pngData())
+        let file = "\(name).png"
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = file
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
         }
     }
 }
