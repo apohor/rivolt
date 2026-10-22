@@ -126,6 +126,12 @@ targets:
     sources:
       - path: RivoltWidgets
       - path: Rivolt/Widget
+      # The Theme layer (web new look) and its fonts, so the widgets look like the app.
+      - path: Rivolt/Theme/Theme.swift
+      - path: Rivolt/Theme/ThemeTokens.swift
+      - path: Rivolt/Views/ThemeGauge.swift
+      - path: Rivolt/Resources/Fonts
+        buildPhase: resources
       - path: Rivolt/Views/NowModel.swift
       - path: Rivolt/Views/NowInk.swift
       - path: Rivolt/LiveActivity/ChargingActivity.swift
