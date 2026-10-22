@@ -189,12 +189,15 @@ struct DriveTimelineCard: View {
         .chartXAxis(.hidden)
         .chartYAxis { AxisMarks(values: [top / 2]) { _ in AxisGridLine().foregroundStyle(Theme.border.opacity(0.55)) } }
         .chartXSelection(value: $cursor)
-        .overlay(alignment: .topLeading) { PanelLabel(text: "Speed · \(speedUnit) · up to \(NumberText.fixed(top, 0))") }
         .frame(height: Self.speedHeight)
+        .panelTitled("Speed · \(speedUnit) · up to \(NumberText.fixed(top, 0))")
     }
 
     private func powerPanel(_ data: DriveTimelineData) -> some View {
-        let peak = Swift.max(10, data.power.map { abs($0.y) }.max() ?? 0)
+        // Draw sets the top; the regen side is at least a quarter of it, so a quiet drive's regen still has room and
+        // the panel isn't half empty.
+        let peak = Swift.max(10, data.power.map(\.y).max() ?? 0)
+        let floor = Swift.max(peak / 4, -(data.power.map(\.y).min() ?? 0))
         let runs = Self.runs(data.power)
         return Chart {
             RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.border).lineStyle(StrokeStyle(lineWidth: 0.5))
@@ -209,14 +212,20 @@ struct DriveTimelineCard: View {
             cursorMark
         }
         .chartXScale(domain: data.start...data.end)
-        .chartYScale(domain: -peak...peak)
+        .chartYScale(domain: -floor...peak)
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartXSelection(value: $cursor)
-        // The sign in words, not colour alone.
-        .overlay(alignment: .topLeading) { PanelLabel(text: "Power · kW · Draw ↑ up to \(NumberText.fixed(peak, 0))") }
-        .overlay(alignment: .bottomLeading) { PanelLabel(text: "Regen ↓") }
+        // The sign in words, not colour alone: "Draw" above the zero line, "Regen" below it, at the right edge.
+        .overlay(alignment: .trailing) {
+            VStack(alignment: .trailing, spacing: 0) {
+                PanelLabel(text: "Draw ↑", plain: true)
+                PanelLabel(text: "Regen ↓", plain: true)
+            }
+            .offset(y: Self.powerHeight * CGFloat((peak - floor) / (peak + floor)) / 2)
+        }
         .frame(height: Self.powerHeight)
+        .panelTitled("Power · kW · up to \(NumberText.fixed(peak, 0)) drawn")
     }
 
     private func batteryPanel(_ data: DriveTimelineData) -> some View {
@@ -243,8 +252,8 @@ struct DriveTimelineCard: View {
             }
         }
         .chartXSelection(value: $cursor)
-        .overlay(alignment: .topLeading) { PanelLabel(text: "Battery · % · \(NumberText.fixed(lo, 0))–\(NumberText.fixed(hi, 0))") }
         .frame(height: Self.batteryHeight + 5 * Theme.unit)
+        .panelTitled("Battery · % · \(NumberText.fixed(lo, 0))–\(NumberText.fixed(hi, 0))")
     }
 
     @ChartContentBuilder
@@ -286,7 +295,10 @@ struct DriveTimelineCard: View {
     @ViewBuilder
     private func mode(_ data: DriveTimelineData) -> some View {
         let modes = data.distinctModes
-        if modes.count > 1 {
+        if modes.count > 1 && typeSize.isAccessibilitySize {
+            // At accessibility sizes the names don't fit in the band: a sentence instead.
+            Text("Drive modes: " + modes.map(\.label).joined(separator: ", then ")).themeText(.value, color: Theme.textPrimary)
+        } else if modes.count > 1 {
             VStack(alignment: .leading, spacing: Theme.unit) {
                 GeometryReader { geo in
                     let span = data.end.timeIntervalSince(data.start) * 1000
@@ -359,7 +371,18 @@ struct DriveTimelineCard: View {
     }
 }
 
-/// A small label inside a panel's plot (the y labels stay inside, so the panels' plots line up).
+private extension View {
+    /// A panel's name and scale on its own line above the plot, left-aligned with the others so the plots line up and
+    /// the label never sits on the line.
+    func panelTitled(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 0.5 * Theme.unit) {
+            PanelLabel(text: text, plain: true)
+            self
+        }
+    }
+}
+
+/// A small label on a panel.
 private struct PanelLabel: View {
     let text: String
     var plain = false

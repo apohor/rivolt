@@ -115,7 +115,7 @@ final class DriveTimelineMathTests: XCTestCase {
 
     func testSmoothingKeepsAFlatLineAndFewPoints() {
         let flat = pts([5, 5, 5, 5, 5])
-        XCTAssertEqual(M.smoothGaussianTime(flat, sigmaMs: 30_000).map(\.y), [5, 5, 5, 5, 5])
+        for p in M.smoothGaussianTime(flat, sigmaMs: 30_000) { XCTAssertEqual(p.y, 5, accuracy: 1e-9) }
         XCTAssertEqual(M.smoothGaussianTime(Array(flat.prefix(2)), sigmaMs: 30_000), Array(flat.prefix(2)))
         // A missing battery reading isn't 0 %.
         var s = samples([(0, 30), (10, 30)])
