@@ -9,7 +9,7 @@ enum ChargingRatesForm {
     static let maxRate = 5.0
     static let maxDecimals = 4
 
-    enum RateError: Equatable {
+    enum RateError: Error, Equatable {
         case notANumber, tooManyDecimals, outOfRange
 
         var message: String {
