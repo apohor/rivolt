@@ -93,18 +93,19 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The server defaults to https://rivolt.dev in code (ServerURL);
         # "Other server" on the sign-in screen changes it.
-    # Keys the build settings can't write (INFOPLIST_KEY_* covers Apple's keys only); merged with the generated ones.
-    info:
-      path: Rivolt/Info.plist
-      properties:
-        # MapLibre's tile cache in Caches (purgeable, not backed up) rather than Application Support.
-        MLNOfflineStorageDatabasePath: "~/Library/Caches/map-tiles/cache.db"
       configs:
         # Push and the shared Keychain group need a signed build (TestFlight):
         # the entitlements apply to Release only, so the unsigned simulator
         # build CI runs keeps working with the Keychain as before.
         Release:
           CODE_SIGN_ENTITLEMENTS: Rivolt/Rivolt.entitlements
+    # Keys the build settings can't write (INFOPLIST_KEY_* covers Apple's keys only); merged with the generated ones.
+    # A sibling of `settings:`: put it between `base:` and `configs:` and the Release entitlements fall under it.
+    info:
+      path: Rivolt/Info.plist
+      properties:
+        # MapLibre's tile cache in Caches (purgeable, not backed up) rather than Application Support.
+        MLNOfflineStorageDatabasePath: "~/Library/Caches/map-tiles/cache.db"
 
   # The Notification Service Extension: swaps the generic APNs alert for the real
   # text, fetched from Rivolt (design §3, DA condition 6). It shares the Keychain

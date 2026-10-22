@@ -307,6 +307,22 @@ jobs:
           xcodegen --version
           xcodegen generate
 
+      # The entitlements apply to Release only, so no simulator build shows them missing: a mis-indented project.yml
+      # (ios-v0.2.4: `configs:` ended up under `info:`) left the app with none, and the TestFlight pre-upload check
+      # refused it. Read each target's Release settings and require its own entitlements file.
+      - name: Release entitlements are set (app and both extensions)
+        run: |
+          set -euo pipefail
+          for pair in "Rivolt:Rivolt/Rivolt.entitlements" \
+                      "RivoltNotificationService:RivoltNotificationService/RivoltNotificationService.entitlements" \
+                      "RivoltWidgets:RivoltWidgets/RivoltWidgets.entitlements"; do
+            target="${pair%%:*}"; want="${pair#*:}"
+            got=$(xcodebuild -showBuildSettings -project ios/Rivolt.xcodeproj -target "$target" -configuration Release 2>/dev/null \
+                  | sed -n 's/^ *CODE_SIGN_ENTITLEMENTS = //p' | head -1)
+            echo "$target Release CODE_SIGN_ENTITLEMENTS: ${got:-<none>}"
+            [ "$got" = "$want" ] || { echo "::error::$target has no Release entitlements (want $want). Check ios/project.yml: configs: belongs under settings:, a sibling of info:."; exit 1; }
+          done
+
       # The App Store rejects what a simulator test build never shows (app icon,
       # iPhone-only family): build Release for a device, unsigned, and run the
       # same check ios-testflight.yml runs on the signed archive before upload.
