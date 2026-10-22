@@ -2049,7 +2049,7 @@ func isChargingCS(s string) bool {
 		// Plugged in, waiting for a scheduled start: no energy flows.
 		// It used to open a live charge that the charging-session feed's
 		// replay of the previous session's total then filled (eleven
-		// 36.8 kWh copies at 0 kW in one night, 01-248088167 Jul 13);
+		// 36.8 kWh copies at 0 kW in one night, 01-000000003 Jul 13);
 		// the real session opens on charging_active.
 		"charging_scheduled":
 		return false

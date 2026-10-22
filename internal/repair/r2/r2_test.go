@@ -80,7 +80,7 @@ func TestTrips(t *testing.T) {
 	}
 }
 
-// The charging fixture's shape (01-247739360, Oct 13): power ramps to
+// The charging fixture's shape (01-000000001, Oct 13): power ramps to
 // 7.4 kW while the gear says R; a 40-min gap starts a new charge; a
 // telemetry gap can't invent energy.
 func TestCharges(t *testing.T) {
@@ -118,7 +118,7 @@ func TestCharges(t *testing.T) {
 }
 
 func TestMakePlan(t *testing.T) {
-	v := Vehicle{ID: uuid.New(), UserID: uuid.New(), RivianID: "01-247739360", Model: "R2", PackKWh: 91.47}
+	v := Vehicle{ID: uuid.New(), UserID: uuid.New(), RivianID: "01-000000001", Model: "R2", PackKWh: 91.47}
 	since, until := at(0), at(86400)
 	live := Existing{ExternalID: "live_x_d_1", Start: at(100), End: at(80000), Source: "live"}
 	trips := []Trip{{Start: at(200), End: at(800), StartOdoMi: 1, EndOdoMi: 5}}
@@ -138,14 +138,14 @@ func TestMakePlan(t *testing.T) {
 			t.Errorf("%s: plan accepted", name)
 		}
 	}
-	if id := ExternalID("01-247739360", "d", at(200)); !strings.HasPrefix(id, "live_01-247739360_d_") {
+	if id := ExternalID("01-000000001", "d", at(200)); !strings.HasPrefix(id, "live_01-000000001_d_") {
 		t.Errorf("external id %q", id)
 	}
 }
 
 // Only an R2: an R1's recorded gear is the better record.
 func TestMakePlanRefusesR1(t *testing.T) {
-	v := Vehicle{ID: uuid.New(), RivianID: "01-2781829100", Model: "R1T"}
+	v := Vehicle{ID: uuid.New(), RivianID: "01-000000002", Model: "R1T"}
 	if _, err := MakePlan(v, at(0), at(10), nil, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "not an R2") {
 		t.Fatalf("R1 accepted: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMakePlanRefusesR1(t *testing.T) {
 
 // The first driving row may already be moving, and the parking row
 // carries the final odometer: both ends fold in, so trip miles match the
-// odometer (01-247739360 Sep 30: 0.62 mi between a ready row and the
+// odometer (01-000000001 Sep 30: 0.62 mi between a ready row and the
 // first go row at 26 mph).
 func TestTripEndsFoldParkedRows(t *testing.T) {
 	trips, _ := Segment(rowsOf([]step{
@@ -192,7 +192,7 @@ func TestPriceCharges(t *testing.T) {
 	}
 }
 
-// The anonymized prod fixture (01-244816997, Oct 15 13:00–13:34): its
+// The anonymized prod fixture (01-000000004, Oct 15 13:00–13:34): its
 // vehicleState rows give one trip of the odometer's 6.2 mi.
 func TestFixtureTrip(t *testing.T) {
 	raw, err := os.ReadFile("../../rivian/testdata/r2_frames.json")

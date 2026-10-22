@@ -2684,7 +2684,7 @@ func (m *StateMonitor) fillBlankPowerState(vehicleID string, f DriveDynamicsFram
 // this gate every Parallax resubscribe (~3 min) replayed the last real
 // gear (a D from repositioning before plugging in) into a car that was
 // fast-charging, and the recorder closed and reopened the charge and a
-// drive on every frame (2026-10-10, 01-2498255104: 462 forced closes,
+// drive on every frame (2026-10-10, 01-000000006: 462 forced closes,
 // 11 charge pieces with running energy totals).
 func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, f DriveDynamicsFrame, fresh bool, vehGear string) {
 	g := gearFromParallax(f.Value)
