@@ -1,9 +1,9 @@
 import Charts
 import SwiftUI
 
-/// The Now page's charts for one month, as the web's: miles per day, the battery (SoC) trend with its charging and
-/// driving bands and the charge limit, and idle-awake time per day. Read-only history from the account's own drives and
-/// charges; no locations.
+/// The Now page's charts for one month, as the web's: miles per day and the battery (SoC) trend with its charging and
+/// driving bands and the charge limit. (Idle-awake time is the tile under the hero; the full per-day chart is on the
+/// web's Truck page.) Read-only history from the account's own drives and charges; no locations.
 struct ChartsSection: View {
     let model: ChartsModel
     let month: PeriodMonth
@@ -21,7 +21,6 @@ struct ChartsSection: View {
         VStack(alignment: .leading, spacing: 16) {
             milesCard
             levelCard
-            idleCard
         }
     }
 
@@ -189,55 +188,6 @@ struct ChartsSection: View {
             PointMark(x: .value("Time", e.low.at), y: .value("Charge", e.low.pct))
                 .foregroundStyle(Theme.textPrimary).symbolSize(40)
                 .annotation(position: .bottom, spacing: 2) { Text("\(Int(e.low.pct.rounded()))%").themeText(.caption, color: Theme.textPrimary) }
-        }
-    }
-
-    // MARK: Idle awake
-
-    private var idle: [DayValue] {
-        ChartMath.idleMinutes(model.sleep ?? [], calendar: calendar)
-    }
-
-    private var idleSpoken: (label: String, value: String) {
-        ChartMath.spokenDaily(title: "Idle-awake time per day", period: period, bars: idle, calendar: calendar) {
-            ChartMath.spokenMinutes($0)
-        }
-    }
-
-    private var idleCard: some View {
-        ThemeSection(title: "Idle-awake time per day (min)") {
-            if idle.isEmpty {
-                ChartEmpty(text: model.sleep == nil && !model.isLoading
-                           ? "Couldn't load this chart."
-                           : "Collecting data. This fills in from when power-state recording started.")
-            } else {
-                Chart(idle) { d in
-                    BarMark(x: .value("Day", d.day, unit: .day), y: .value("Minutes", d.value))
-                        .foregroundStyle(LinearGradient(colors: [Theme.chartIdleAwakeBar, Theme.chartIdleAwakeBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
-                        .cornerRadius(2)
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading) { value in
-                        AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
-                        AxisValueLabel {
-                            if let v = value.as(Double.self) { ChartAxisText(v.formatted(.number.precision(.fractionLength(0)))) }
-                        }
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: idle.map(\.day).filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
-                        AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
-                            if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
-                        }
-                    }
-                }
-                .frame(height: chartHeight)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(idleSpoken.label)
-                .accessibilityValue(idleSpoken.value)
-                Text("Minutes per day the truck was awake while parked and not charging. Driving and charging are left out.")
-                    .themeText(.caption)
-            }
         }
     }
 
