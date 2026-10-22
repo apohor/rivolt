@@ -16,6 +16,8 @@ struct DriveRouteMap: View {
     @State private var empty = false
     /// How the basemap is doing once the drive's route arrived.
     @State private var health = MapHealth.ok
+    /// The route's layers are on the map (the speed legend shows only over a drawn speed route).
+    @State private var routeDrawn = false
 
     var body: some View {
         ZStack {
@@ -23,12 +25,14 @@ struct DriveRouteMap: View {
                 MapMessage(text: "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 })
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
-                    .overlay(alignment: .bottomLeading) { if drawing.hasSpeed { SpeedLegend().padding(4) } }
+                    .overlay(alignment: .bottomLeading) {
+                        if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend().padding(4) }
+                    }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
@@ -48,6 +52,7 @@ struct DriveRouteMap: View {
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
         health = .ok
+        routeDrawn = false
         let client = state.client
         let drive: DriveRoute
         do {
@@ -105,6 +110,8 @@ struct RouteMapView: UIViewRepresentable {
     let styleJSON: String
     let drawing: RouteSnap.Drawing
     var onHealth: (MapHealth) -> Void = { _ in }
+    /// The route's layers went onto the map.
+    var onDrawn: () -> Void = {}
 
     static let sourceID = "rivolt-route"
 
@@ -120,27 +127,25 @@ struct RouteMapView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth) }
+    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView.displayOnly(styleJSON: styleJSON)
-        // The speed legend sits bottom-left (as on the web); MapLibre's mark goes top-left.
-        map.logoViewPosition = .topLeft
-        map.delegate = context.coordinator
-        return map
+        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
-        if map.styleJSON != styleJSON { map.styleJSON = styleJSON }
+        context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.update(drawing, on: map)
     }
 
     final class Coordinator: MapLoadWatch {
         private var drawing: RouteSnap.Drawing
         private var sources: [String: MLNShapeSource] = [:]
+        private let onDrawn: () -> Void
 
-        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void) {
+        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}) {
             self.drawing = drawing
+            self.onDrawn = onDrawn
             super.init(onHealth: onHealth)
         }
 
@@ -170,6 +175,7 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
+            MapLoadWatch.clear(style, prefix: RouteMapView.sourceID)
             sources = [:]
             for (name, shape) in Self.shapes(drawing) {
                 let s = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-\(name)", shape: shape, options: nil)
@@ -207,6 +213,7 @@ struct RouteMapView: UIViewRepresentable {
                 style.addLayer(c)
             }
             fit(map)
+            DispatchQueue.main.async { self.onDrawn() }
         }
 
         /// The snapped drawing replaces the recorded one in the same sources.
@@ -218,7 +225,12 @@ struct RouteMapView: UIViewRepresentable {
             fit(map)
         }
 
+        override func resized(_ map: MLNMapView) { fit(map) }
+
+        /// The camera on the whole drawing. MapLibre ignores a fit while the view has no size, so it's made again
+        /// when the view gets one (`resized`).
         private func fit(_ map: MLNMapView) {
+            guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
                 .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
             guard !coords.isEmpty else { return }
@@ -233,24 +245,29 @@ struct RouteMapView: UIViewRepresentable {
     }
 }
 
-/// The tiles are OpenStreetMap data (ODbL) through Protomaps: credited on every map, as the web does.
+/// The tiles are OpenStreetMap data (ODbL): a small credit in the corner of every map, as the web's. The Protomaps
+/// style and its licence are credited in Acknowledgements (owner's call, Oct 22).
 struct MapAttribution: View {
+    static let text = "© OpenStreetMap"
+
     var body: some View {
-        Text("© OpenStreetMap · Protomaps")
+        Text(Self.text)
             .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
             .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(Theme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
+            .padding(.horizontal, 3).padding(.vertical, 1)
+            .background(Theme.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
             .padding(4)
-            .accessibilityLabel("Map data OpenStreetMap, style Protomaps")
+            .accessibilityLabel("Map data OpenStreetMap")
     }
 }
 
 extension MLNMapView {
     /// A map that is a picture: our style (as JSON, never fetched), no user location, no pan, zoom, rotation or tilt,
-    /// no compass, and the credit drawn by the SwiftUI side (MapAttribution) instead of the info button.
-    static func displayOnly(styleJSON: String) -> MLNMapView {
-        let map = MLNMapView(frame: .zero, styleJSON: styleJSON)
+    /// no compass, the credit drawn by the SwiftUI side (MapAttribution) instead of the info button, and no MapLibre
+    /// mark (its BSD licence asks for the notice in Acknowledgements, not a logo). `watch` is its delegate from the
+    /// start, so it sees the style even when MapLibre loads it inside the initialiser.
+    static func displayOnly(styleJSON: String, watch: MapLoadWatch) -> DisplayMapView {
+        let map = DisplayMapView(frame: .zero, styleJSON: styleJSON)
         map.showsUserLocation = false
         map.isRotateEnabled = false
         map.isPitchEnabled = false
@@ -258,8 +275,23 @@ extension MLNMapView {
         map.isZoomEnabled = false
         map.compassView.isHidden = true
         map.attributionButton.isHidden = true
-        map.logoViewPosition = .bottomLeft
+        map.logoView.isHidden = true
+        watch.attach(map, styleJSON: styleJSON)
         return map
+    }
+}
+
+/// A MapLibre view that says when its size changes: SwiftUI creates it at zero size and lays it out later, and a
+/// camera fit made before that is ignored.
+final class DisplayMapView: MLNMapView {
+    var onResize: ((MLNMapView) -> Void)?
+    private var laidOutSize = CGSize.zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0, bounds.size != laidOutSize else { return }
+        laidOutSize = bounds.size
+        onResize?(self)
     }
 }
 
@@ -318,14 +350,47 @@ struct MapLoadState {
     }
 }
 
-/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), and how the basemap is doing.
+/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), the view's size (`resized`), and
+/// how the basemap is doing.
 class MapLoadWatch: NSObject, MLNMapViewDelegate {
     private let onHealth: (MapHealth) -> Void
     private var state = MapLoadState()
+    /// The style JSON last given to the map (compared here, not with MapLibre's `styleJSON`, which needn't echo it).
+    private var styleJSON: String?
 
     init(onHealth: @escaping (MapHealth) -> Void) { self.onHealth = onHealth }
 
+    /// Adds this map's sources and layers to a style that finished loading. Called again for a new style (light or
+    /// dark), and possibly twice for one, so it starts by clearing its own (`clear`).
     func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {}
+
+    /// The view got or changed its size.
+    func resized(_ map: MLNMapView) {}
+
+    /// Becomes `map`'s delegate. A style given as JSON can finish loading inside MapLibre's initialiser, before
+    /// there was a delegate to tell, and nothing was ever drawn on it (0.2.6: no route, no pins, the camera on the
+    /// whole world): a style already in is handled here.
+    func attach(_ map: DisplayMapView, styleJSON: String) {
+        self.styleJSON = styleJSON
+        map.delegate = self
+        map.onResize = { [weak self] in self?.resized($0) }
+        if let style = map.style { styleLoaded(map, style) }
+    }
+
+    /// Switches the map to `json` when it differs from the last one given (light/dark); true when it did.
+    @discardableResult
+    func setStyle(_ json: String, on map: MLNMapView) -> Bool {
+        guard json != styleJSON else { return false }
+        styleJSON = json
+        map.styleJSON = json
+        return true
+    }
+
+    /// Removes the sources and layers whose identifiers start with `prefix`.
+    static func clear(_ style: MLNStyle, prefix: String) {
+        for layer in style.layers where layer.identifier.hasPrefix(prefix) { style.removeLayer(layer) }
+        for source in style.sources where source.identifier.hasPrefix(prefix) { style.removeSource(source) }
+    }
 
     func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) { styleLoaded(map, style) }
 
