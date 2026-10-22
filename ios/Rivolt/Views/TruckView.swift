@@ -461,7 +461,10 @@ struct TruckContent: View {
                         (Text("About \(TruckLogic.fixed(median, 0)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
                             + Text("usable (estimate)").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
                             .monospacedDigit()
-                        CapacityChart(samples: t.capacity?.samples ?? [], median: median, spec: spec, xLabels: stacked ? 2 : 3).frame(height: chartHeight)
+                        let n = t.capacity?.samples.count ?? 0
+                        Text("from \(n) \(n == 1 ? "charge" : "charges")").themeText(.subline, color: Theme.textTertiary)
+                        CapacityChart(samples: t.capacity?.samples ?? [], median: median, spec: spec, xLabels: stacked ? 2 : 3)
+                            .frame(minHeight: chartHeight)
                         Text("Estimated from charges that add at least \(TruckLogic.whole(need))% of battery. It moves a little with temperature and is not a Rivian figure. Charging losses and how the truck reports charge level can shift it by a few percent.\(spec > 0 ? " Rivian's spec for this pack: \(TruckLogic.fixed(spec, 0)) kWh." : "")")
                             .themeText(.subline, color: Theme.textTertiary)
                     }
@@ -735,36 +738,101 @@ private struct PackSparkline: View {
     }
 }
 
-/// The capacity estimate's samples, its median (dashed) and Rivian's spec (dotted), on a scale that keeps a few kWh of
-/// drift visible.
-private struct CapacityChart: View {
+/// Each charge's capacity estimate as a dot, bigger and stronger the more the charge added; the rolling median where
+/// estimates are dense (never across an empty month); the median dashed and the rated pack dotted when it falls in
+/// range; on the median ±15 % (CapacityMath, the web's rules). A tap shows that charge's date and estimate.
+struct CapacityChart: View {
     let samples: [TruckTrends.Capacity.Sample]
     let median: Double
     let spec: Double
     var xLabels = 3
 
+    @State private var selected: Date?
+
     var body: some View {
-        let ys = samples.map(\.kwhEffective) + [median] + (spec > 0 ? [spec] : [])
-        let lo = ((ys.min() ?? 0) - 2).rounded(.down), hi = ((ys.max() ?? 1) + 2).rounded(.up)
-        Chart {
-            ForEach(Array(samples.enumerated()), id: \.offset) { _, s in
-                LineMark(x: .value("Date", s.at), y: .value("kWh", s.kwhEffective), series: .value("Line", "Estimate"))
-                    .foregroundStyle(Theme.home).lineStyle(StrokeStyle(lineWidth: 1.5))
+        let dots = CapacityMath.dots(samples, median: median)
+        let runs = CapacityMath.trendRuns(samples)
+        let domain = CapacityMath.yDomain(median: median)
+        let showSpec = CapacityMath.specInRange(spec, median: median)
+        let picked = selected.flatMap { CapacityMath.nearest(dots, to: $0) }
+        VStack(alignment: .leading, spacing: Theme.unit) {
+            Text(picked.map(readout) ?? " ")
+                .themeText(.subline, color: Theme.textBody)
+                .accessibilityHidden(picked == nil)
+            Chart {
+                RuleMark(y: .value("Median", median)).foregroundStyle(Theme.textSecondary).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                if showSpec {
+                    RuleMark(y: .value("Rated pack", spec)).foregroundStyle(Theme.textTertiary).lineStyle(StrokeStyle(lineWidth: 1, dash: [1, 3]))
+                }
+                ForEach(Array(runs.enumerated()), id: \.offset) { i, run in
+                    ForEach(Array(run.enumerated()), id: \.offset) { _, p in
+                        LineMark(x: .value("Date", p.at), y: .value("kWh", min(domain.upperBound, max(domain.lowerBound, p.kwh))), series: .value("Run", i))
+                            .foregroundStyle(Theme.home.opacity(0.55))
+                            .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
+                            .interpolationMethod(.linear)
+                    }
+                }
+                ForEach(dots) { d in
+                    PointMark(x: .value("Date", d.at), y: .value("kWh", d.kwh))
+                        .symbol {
+                            Circle()
+                                .fill(d.outside ? Color.clear : Theme.home.opacity(CapacityMath.opacity(d.strength)))
+                                .overlay { if d.outside { Circle().stroke(Theme.home, lineWidth: 1.5) } }
+                                .frame(width: 2 * CapacityMath.radius(d.strength), height: 2 * CapacityMath.radius(d.strength))
+                        }
+                        .accessibilityLabel(d.at.formatted(.dateTime.month(.abbreviated).day().year()))
+                        .accessibilityValue(SpokenText.words(readout(d)))
+                }
+                if let picked {
+                    RuleMark(x: .value("Picked", picked.at)).foregroundStyle(Theme.textTertiary).lineStyle(StrokeStyle(lineWidth: 1))
+                }
             }
-            RuleMark(y: .value("Median", median)).foregroundStyle(Theme.textSecondary).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            if spec > 0 {
-                RuleMark(y: .value("Spec", spec)).foregroundStyle(Theme.textTertiary).lineStyle(StrokeStyle(lineWidth: 1, dash: [1, 3]))
-            }
+            .chartYScale(domain: domain)
+            .chartYAxis { AxisMarks(position: .leading, values: [domain.lowerBound, median.rounded(), domain.upperBound]) { v in
+                AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
+                AxisValueLabel { if let d = v.as(Double.self) { TruckAxisText(TruckLogic.fixed(d, 0)) } }
+            } }
+            .chartXAxis { AxisMarks(values: .automatic(desiredCount: xLabels)) { v in
+                AxisValueLabel { if let d = v.as(Date.self) { TruckAxisText(d.formatted(.dateTime.month(.abbreviated).day())) } }
+            } }
+            .chartXSelection(value: $selected)
+            .accessibilityLabel("Estimated usable capacity over time, kWh: \(dots.count) charge estimates around \(TruckLogic.fixed(median, 0)) kWh")
+            CapacityLegend(trend: !runs.isEmpty, median: median, spec: showSpec ? spec : nil)
         }
-        .chartYScale(domain: lo...hi)
-        .chartYAxis { AxisMarks(position: .leading) { v in
-            AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
-            AxisValueLabel { if let d = v.as(Double.self) { TruckAxisText(TruckLogic.fixed(d, 0)) } }
-        } }
-        .chartXAxis { AxisMarks(values: .automatic(desiredCount: xLabels)) { v in
-            AxisValueLabel { if let d = v.as(Date.self) { TruckAxisText(d.formatted(.dateTime.month(.abbreviated).day())) } }
-        } }
-        .accessibilityLabel("Estimated usable capacity over time, kWh")
+    }
+
+    /// "Oct 3 · about 141 kWh (estimate) · 62 kWh added".
+    private func readout(_ d: CapacityMath.Dot) -> String {
+        var s = "\(d.at.formatted(.dateTime.month(.abbreviated).day())) · about \(TruckLogic.fixed(d.rawKwh, 0)) kWh (estimate)"
+        if let e = d.energyKwh { s += " · \(TruckLogic.fixed(e, 0)) kWh added" }
+        return s
+    }
+}
+
+/// What the marks mean, in words beside each swatch.
+private struct CapacityLegend: View {
+    let trend: Bool
+    let median: Double
+    let spec: Double?
+
+    var body: some View {
+        ThemeFlow(spacing: 3 * Theme.unit, rowSpacing: Theme.unit) {
+            HStack(spacing: Theme.unit) {
+                Circle().fill(Theme.home).frame(width: 2 * Theme.unit, height: 2 * Theme.unit)
+                Text("One charge's estimate (bigger: more added)")
+            }
+            if trend {
+                HStack(spacing: Theme.unit) {
+                    Capsule().fill(Theme.home.opacity(0.55)).frame(width: 4 * Theme.unit, height: 2)
+                    Text("Typical (rolling median)")
+                }
+            }
+            Text("- - Median \(TruckLogic.fixed(median, 0)) kWh")
+            if let spec { Text("··· Rated pack \(TruckLogic.fixed(spec, 0)) kWh") }
+        }
+        .font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2))
+        .foregroundStyle(Theme.textTertiary)
+        .accessibilityElement(children: .combine)
     }
 }
 

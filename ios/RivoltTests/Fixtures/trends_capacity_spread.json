@@ -1,0 +1,166 @@
+{
+  "units": "imperial",
+  "distance_unit": "mi",
+  "efficiency_unit": "mi/kWh",
+  "timezone": "America/Chicago",
+  "months": 12,
+  "min_month_distance": 50,
+  "min_months": 3,
+  "qualifying_months": 3,
+  "efficiency": [
+    {
+      "month": "2026-08",
+      "distance": 612.4,
+      "energy_kwh": 265.1,
+      "efficiency": 2.31,
+      "drives": 41
+    },
+    {
+      "month": "2026-09",
+      "distance": 901.7,
+      "energy_kwh": 376.5,
+      "efficiency": 2.39,
+      "drives": 58
+    },
+    {
+      "month": "2026-10",
+      "distance": 433.0,
+      "energy_kwh": 196.8,
+      "efficiency": 2.2,
+      "drives": 30
+    }
+  ],
+  "capacity": {
+    "samples": [
+      {
+        "at": "2026-01-03T08:00:00Z",
+        "kwh_effective": 141.2,
+        "energy_kwh": 72,
+        "soc_delta_pct": 51
+      },
+      {
+        "at": "2026-01-06T08:00:00Z",
+        "kwh_effective": 134.8,
+        "energy_kwh": 24,
+        "soc_delta_pct": 18
+      },
+      {
+        "at": "2026-01-09T08:00:00Z",
+        "kwh_effective": 139.5,
+        "energy_kwh": 88,
+        "soc_delta_pct": 63
+      },
+      {
+        "at": "2026-01-13T08:00:00Z",
+        "kwh_effective": 145.3,
+        "energy_kwh": 19,
+        "soc_delta_pct": 13
+      },
+      {
+        "at": "2026-01-16T08:00:00Z",
+        "kwh_effective": 137.9,
+        "energy_kwh": 65,
+        "soc_delta_pct": 47
+      },
+      {
+        "at": "2026-01-20T08:00:00Z",
+        "kwh_effective": 136.4,
+        "energy_kwh": 41,
+        "soc_delta_pct": 30
+      },
+      {
+        "at": "2026-01-24T08:00:00Z",
+        "kwh_effective": 140.1,
+        "energy_kwh": 79,
+        "soc_delta_pct": 56
+      },
+      {
+        "at": "2026-01-28T08:00:00Z",
+        "kwh_effective": 128.2,
+        "energy_kwh": 17,
+        "soc_delta_pct": 13
+      },
+      {
+        "at": "2026-05-14T08:00:00Z",
+        "kwh_effective": 126.9,
+        "energy_kwh": 33,
+        "soc_delta_pct": 26
+      },
+      {
+        "at": "2026-09-12T08:00:00Z",
+        "kwh_effective": 138.6,
+        "energy_kwh": 81,
+        "soc_delta_pct": 58
+      },
+      {
+        "at": "2026-09-15T08:00:00Z",
+        "kwh_effective": 144.7,
+        "energy_kwh": 22,
+        "soc_delta_pct": 15
+      },
+      {
+        "at": "2026-09-19T08:00:00Z",
+        "kwh_effective": 137.2,
+        "energy_kwh": 70,
+        "soc_delta_pct": 51
+      },
+      {
+        "at": "2026-09-23T08:00:00Z",
+        "kwh_effective": 135.1,
+        "energy_kwh": 46,
+        "soc_delta_pct": 34
+      },
+      {
+        "at": "2026-09-27T08:00:00Z",
+        "kwh_effective": 139.8,
+        "energy_kwh": 90,
+        "soc_delta_pct": 64
+      },
+      {
+        "at": "2026-10-01T08:00:00Z",
+        "kwh_effective": 125.4,
+        "energy_kwh": 15,
+        "soc_delta_pct": 12
+      },
+      {
+        "at": "2026-10-05T08:00:00Z",
+        "kwh_effective": 138.9,
+        "energy_kwh": 76,
+        "soc_delta_pct": 55
+      },
+      {
+        "at": "2026-10-09T08:00:00Z",
+        "kwh_effective": 141.6,
+        "energy_kwh": 58,
+        "soc_delta_pct": 41
+      },
+      {
+        "at": "2026-10-13T08:00:00Z",
+        "kwh_effective": 136.7,
+        "energy_kwh": 85,
+        "soc_delta_pct": 62
+      },
+      {
+        "at": "2026-10-16T08:00:00Z",
+        "kwh_effective": 143.9,
+        "energy_kwh": 21,
+        "soc_delta_pct": 15
+      },
+      {
+        "at": "2026-10-20T08:00:00Z",
+        "kwh_effective": 138.3,
+        "energy_kwh": 68,
+        "soc_delta_pct": 49
+      }
+    ],
+    "median_kwh": 138.4,
+    "spec_kwh": 141,
+    "reported_kwh": 139,
+    "min_soc_delta_pct": 30,
+    "min_peak_kw": 3,
+    "qualifying_count": 20,
+    "span_days": 290,
+    "min_samples": 5,
+    "min_span_days": 30
+  }
+}

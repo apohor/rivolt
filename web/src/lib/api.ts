@@ -988,7 +988,8 @@ export type TruckTrends = {
   qualifying_months: number;
   efficiency: { month: string; distance: number; energy_kwh: number; efficiency: number | null; drives: number }[];
   capacity: {
-    samples: { at: string; kwh_effective: number }[];
+    // energy_kwh / soc_delta_pct: what the charge added (for weighting the dots); absent on servers before they're sent.
+    samples: { at: string; kwh_effective: number; energy_kwh?: number | null; soc_delta_pct?: number | null }[];
     median_kwh: number | null;
     // The documented figure, only when the trim identified the pack; null means draw no spec line.
     spec_kwh?: number | null;
