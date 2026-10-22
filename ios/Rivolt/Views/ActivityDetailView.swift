@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// One drive or charge, figures only: tiles like the web's detail page, with no map, route or place (DA's rule: nothing
-/// here says where). The back link and the title sit under the same top bar as every screen.
+/// One drive or charge: tiles like the web's detail page and, for a drive, its route on our own map (DriveRouteMap:
+/// fetched when shown, in memory only). A charge stays figures only. The back link and the title sit under the same
+/// top bar as every screen.
 struct ActivityDetailView: View {
     let item: ActivityItem
     var calendar: Calendar = .current
@@ -33,6 +34,7 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
+                if case .drive(let d) = item { DriveRouteMap(driveID: d.id) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
                     : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]

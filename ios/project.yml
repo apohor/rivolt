@@ -47,17 +47,32 @@ settings:
     # when the drive-detail maps need it.
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
 
+# MapLibre Native (BSD-2-Clause), the maps' renderer: a local package whose binaryTarget pins the release zip by
+# URL and SHA-256 (LocalPackages/MapLibreBinary/Package.swift). The app only; never the extensions.
+packages:
+  MapLibreBinary:
+    path: LocalPackages/MapLibreBinary
+
 targets:
   Rivolt:
     type: application
     platform: iOS
     sources:
       - path: Rivolt
+        excludes:
+          - "Resources/Map"
+      # The map styles, glyphs and licence texts keep their folders in the bundle (asset://Map/...): the glyph files
+      # share names across fonts, and a style finds them by path.
+      - path: Rivolt/Resources/Map
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: RivoltNotificationService
         embed: true
       - target: RivoltWidgets
         embed: true
+      - package: MapLibreBinary
+        product: MapLibre
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app
@@ -78,6 +93,12 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The server defaults to https://rivolt.dev in code (ServerURL);
         # "Other server" on the sign-in screen changes it.
+    # Keys the build settings can't write (INFOPLIST_KEY_* covers Apple's keys only); merged with the generated ones.
+    info:
+      path: Rivolt/Info.plist
+      properties:
+        # MapLibre's tile cache in Caches (purgeable, not backed up) rather than Application Support.
+        MLNOfflineStorageDatabasePath: "~/Library/Caches/map-tiles/cache.db"
       configs:
         # Push and the shared Keychain group need a signed build (TestFlight):
         # the entitlements apply to Release only, so the unsigned simulator

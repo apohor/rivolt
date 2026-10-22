@@ -204,8 +204,9 @@ final class AppState {
         await notifications.signedOut()
         try? await client.logout()
         try? tokens.deleteToken(for: serverURL)
-        // The widgets forget the truck and its last numbers with the session.
+        // The widgets forget the truck and its last numbers with the session; the map forgets its token and cached tiles.
         WidgetStore().clear()
+        MapNetwork.signedOut()
         WidgetCenter.shared.reloadAllTimelines()
         phase = .loggedOut
     }
