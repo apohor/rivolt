@@ -18,7 +18,7 @@ struct NowCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
 
-    private var offline: Bool { summary.presence == .offline || summary.freshness == .needsReconnect }
+    private var offline: Bool { summary.presence == .offline }
     private var charging: Bool { summary.kind == .charging && !offline }
     private var driving: Bool { summary.kind == .driving && !offline }
     private var plugged: Bool { summary.kind == .plugged && !offline }
@@ -191,10 +191,11 @@ struct NowCard: View {
 
     // MARK: Pill and wording
 
+    /// The age decides, as on the web's hero; a truck that needs its account reconnected keeps that as the footer line.
     /// Live while the data is current to within two minutes, Asleep while a sleeping truck's rare frames are expected,
     /// otherwise how long ago it was last seen (amber once it is older than the truck's usual cadence).
     static func pill(for summary: NowSummary, clock: Date) -> (text: String, tone: ThemePill.Tone) {
-        if summary.freshness == .needsReconnect || summary.presence == .offline { return ("Offline", .neutral) }
+        if summary.presence == .offline { return ("Offline", .neutral) }
         if summary.freshness == .paused { return ("Paused", .neutral) }
         guard let age = summary.ageSec else { return ("No data", .neutral) }
         if summary.presence == .live, summary.kind == .asleep || (summary.kind == .plugged && summary.sleeping) { return ("Asleep", .neutral) }
@@ -225,7 +226,7 @@ struct NowCard: View {
 
     /// What the truck is doing, in the web's words.
     static func headline(for s: NowSummary, place: String? = nil) -> String {
-        if s.presence == .offline || s.freshness == .needsReconnect { return "Not heard from recently" }
+        if s.presence == .offline { return "Not heard from recently" }
         switch s.kind {
         case .driving: return "Driving"
         case .charging:
