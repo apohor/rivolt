@@ -57,8 +57,8 @@ for (const theme of ["dark", "light"] as const) {
           }
           await expect(page.getByText(/Pack capacity/)).toHaveCount(0);
           await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit now");
-          // The limit is today's: a short segment labelled "Limit now N%", not a line across the period.
-          await expect(page.getByTestId("soc-limit")).toContainText(/^Limit now \d+%$/);
+          // The limit is today's: a two-day segment labelled "Limit N%", not a line across the period.
+          await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);
           const limitW = await page.getByTestId("soc-limit").locator("line").evaluate((l) => Number(l.getAttribute("x2")) - Number(l.getAttribute("x1")));
           expect(limitW).toBeLessThan(box!.width / 2);
           // One strip per stretch below the 0% line, no wash over the plot.

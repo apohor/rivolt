@@ -3,7 +3,7 @@ import { axisDayIndices, mmdd } from "../lib/period";
 
 // Battery (SoC) trend for the ui_theme_next layer, the same chart as the iPhone's (#895): a linear line with a
 // fading fill down to 0%, one strip below the 0% line marking charging (emerald) and driving (sky), the charge
-// limit as a short "Limit now N%" segment ending at now (current period only), the high and low labelled inside
+// limit as a "Limit N%" segment over the last two days to now (current period only), the high and low labelled inside
 // the plot, and a crosshair tooltip.
 type Pt = { x: number; y: number };
 type Span = { x0: number; x1: number };
@@ -102,7 +102,10 @@ export function SocTrendChart({
   const now = Math.min(Date.now(), Math.max(x1, Date.now() - 5 * 60_000));
   const limitShown = limit != null && limit > 0 && limit < 100 && now >= x0 && now <= x1;
   const limitPct = limitShown ? (limit as number) : 0;
-  const limitFrom = Math.max(x0, now - DAY);
+  // The last two days, as the iPhone (#895). Its value sits right of the segment in the days still to come, or
+  // above it in a period's last four days, where there's no room to the right.
+  const limitFrom = Math.max(x0, now - 2 * DAY);
+  const limitLabelAbove = x1 - now < 4 * DAY;
   const ticks = dayTicks(x0, x1, Math.max(2, Math.min(5, Math.floor(iw / 110))));
   const tickAnchor = (x: number): "start" | "middle" | "end" =>
     X(x) - PAD.l < 14 ? "start" : PAD.l + iw - X(x) < 14 ? "end" : "middle";
@@ -157,7 +160,11 @@ export function SocTrendChart({
         {limitShown && (
           <g data-testid="soc-limit" data-draw="limit">
             <line x1={X(limitFrom)} x2={X(now)} y1={Y(limitPct)} y2={Y(limitPct)} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5} />
-            <text x={X(now)} y={Y(limitPct) - 5} textAnchor={X(now) - PAD.l < 80 ? "start" : "end"} className="fill-amber-400 text-[10px]">Limit now {Math.round(limitPct)}%</text>
+            {limitLabelAbove ? (
+              <text x={X(now)} y={Y(limitPct) - 5} textAnchor={X(now) - PAD.l < 80 ? "start" : "end"} className="fill-amber-400 text-[10px]">Limit {Math.round(limitPct)}%</text>
+            ) : (
+              <text x={X(now) + 4} y={Y(limitPct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(limitPct)}%</text>
+            )}
           </g>
         )}
         {extremes && (
