@@ -19,7 +19,7 @@ final class AccessibilitySnapshotTests: XCTestCase {
         Theme.registerFonts()
         for scheme in [ColorScheme.light, .dark] {
             let renderer = ImageRenderer(content: content.environment(\.colorScheme, scheme).environment(\.dynamicTypeSize, size).fixedSize(horizontal: false, vertical: true))
-            renderer.scale = 2
+            renderer.scale = 1  // whole pages at these sizes are thousands of points tall
             let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
             XCTAssertGreaterThan(image.size.height, 200)
             let png = try XCTUnwrap(image.pngData())
@@ -35,7 +35,9 @@ final class AccessibilitySnapshotTests: XCTestCase {
         }
     }
 
-    private func nowPage() throws -> some View {
+    private enum Part { case top, bottom }
+
+    private func nowPage(part: Part) throws -> some View {
         let v = try Fixture.decode([Vehicle].self, "vehicles")[0]
         let now = try XCTUnwrap(JSON.parseDate("2026-10-21T15:00:00Z"))
         let month = PeriodMonth(containing: now, calendar: utc)
@@ -53,17 +55,20 @@ final class AccessibilitySnapshotTests: XCTestCase {
         return VStack(spacing: 0) {
             ThemeTopBar { Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary) }
             VStack(spacing: 16) {
-                ThreeThingsCard(rows: [.push, .lease, .statement], webURL: { _ in server }, onOpenNotifications: {}, onHide: {})
-                HStack(alignment: .center) {
-                    Text("Now").themeText(.hero)
-                    Spacer()
-                    ThemeStepper(title: month.title(calendar: utc), spokenTitle: month.spokenTitle(calendar: utc), canGoForward: false, previous: {}, next: {})
+                if part == .top {
+                    ThreeThingsCard(rows: [.push, .lease, .statement], webURL: { _ in server }, onOpenNotifications: {}, onHide: {})
+                    HStack(alignment: .center) {
+                        Text("Now").themeText(.hero)
+                        Spacer()
+                        ThemeStepper(title: month.title(calendar: utc), spokenTitle: month.spokenTitle(calendar: utc), canGoForward: false, previous: {}, next: {})
+                    }
+                    NowCard(vehicle: v, summary: summary, clock: at, place: "Home", session: live)
+                    KpiGrid(tiles: tiles, idle: IdleAwakeTile.make(sleep: sleep, now: now, calendar: utc), idleLoading: false)
+                } else {
+                    PlacesCard(split: split, periodTitle: month.title(calendar: utc))
+                    ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
+                    PageFooter(server: server)
                 }
-                NowCard(vehicle: v, summary: summary, clock: at, place: "Home", session: live)
-                KpiGrid(tiles: tiles, idle: IdleAwakeTile.make(sleep: sleep, now: now, calendar: utc), idleLoading: false)
-                PlacesCard(split: split, periodTitle: month.title(calendar: utc))
-                ChartsSection(model: charts, month: month, limit: 80, now: now, calendar: utc)
-                PageFooter(server: server)
             }
             .padding(16)
         }
@@ -72,8 +77,10 @@ final class AccessibilitySnapshotTests: XCTestCase {
     }
 
     func testNowAtAccessibilitySizes() throws {
-        try render("a11y-now-ax3", nowPage(), size: .accessibility3)
-        try render("a11y-now-ax5", nowPage(), size: .accessibility5)
+        // The page is split in two: at these sizes it is taller than one image can be.
+        try render("a11y-now-top-ax3", nowPage(part: .top), size: .accessibility3)
+        try render("a11y-now-bottom-ax3", nowPage(part: .bottom), size: .accessibility3)
+        try render("a11y-now-top-ax5", nowPage(part: .top), size: .accessibility5)
     }
 
     func testActivityAtAnAccessibilitySize() throws {

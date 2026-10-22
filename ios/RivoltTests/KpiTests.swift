@@ -136,7 +136,7 @@ final class KpiLogicTests: XCTestCase {
 
     func testTheSpokenTileNamesLabelValueAndHint() {
         let t = KpiTile(id: "miles", label: "Miles", value: "122.3", unit: "mi", hint: "3 drives · avg 40.8 mi")
-        XCTAssertEqual(t.spoken, "Miles, 122.3 mi. 3 drives · avg 40.8 mi")
+        XCTAssertEqual(t.spoken, "Miles, 122.3 miles. 3 drives, avg 40.8 miles")
     }
 }
 

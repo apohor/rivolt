@@ -158,7 +158,7 @@ struct NowCard: View {
 
     /// The card as sentences for VoiceOver: units and symbols as words.
     var spoken: String {
-        var parts = ["\(vehicle.name). \(Self.headline(for: summary, place: place))."]
+        var parts = ["\(vehicle.name). \(SpokenText.words(Self.headline(for: summary, place: place)))."]
         if let soc = summary.socPct {
             parts.append("Charge level \(Int(soc.rounded())) percent" + (charging ? summary.chargeTargetPct.map { ", charge limit \(Int($0.rounded())) percent." } ?? "." : "."))
         }

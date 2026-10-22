@@ -20,7 +20,7 @@ final class NumberTextTests: XCTestCase {
     func testMoneyRoundsTheSameWay() {
         XCTAssertEqual(NumberText.money(0.125, "USD"), "$0.13")
         XCTAssertEqual(NumberText.money(35.425, "USD"), "$35.43")
-        XCTAssertEqual(NumberText.money(2.5, "---"), "2.50", "no usable currency code: plain digits")
+        XCTAssertEqual(NumberText.money(2.5, ""), "2.50", "no usable currency code: plain digits")
     }
 
     func testTheFormattersEveryScreenUsesGoThroughIt() {
