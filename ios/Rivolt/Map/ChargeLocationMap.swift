@@ -4,11 +4,15 @@ import SwiftUI
 /// Where one charge happened: the recorded position, the peak power (DC or not) and the network the server matched, from
 /// the charge's row (`ChargeRow`, read once by the screen and shared with the session card). Held while the charge's
 /// screen is open, never stored.
-struct ChargeLocation: Equatable {
+struct ChargeLocation: Decodable, Equatable {
     let lat: Double
     let lon: Double
     let maxPowerKW: Double?
     let network: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case lat = "Lat", lon = "Lon", maxPowerKW = "MaxPowerKW", network = "Network"
+    }
 
     /// The web's rule for "may say DC fast charger": a peak of 30 kW or more.
     var isDC: Bool { (maxPowerKW ?? 0) >= 30 }
