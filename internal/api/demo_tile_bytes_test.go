@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -8,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/maps"
 )
 
 func TestDemoRangeLen(t *testing.T) {
@@ -133,5 +137,89 @@ func TestDemoTileByteBudgetThroughTheRouter(t *testing.T) {
 	rec := read("bytes=0-524287")
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("third big read: %d Retry-After=%q, want 429 with one", rec.Code, rec.Header().Get("Retry-After"))
+	}
+}
+
+// DA's bypass, through the real router with a real reverse proxy in front of a tile
+// server that behaves like a static file server (a mismatched If-Range is a 200 of
+// the whole file): the public demo's anonymous read is still the 206 of exactly the
+// bytes asked for, and an upstream that answers a range with a 200 is refused.
+func TestDemoTileReadsCannotBeTurnedIntoTheWholeFile(t *testing.T) {
+	demoOnlyEnv(t)
+	file := bytes.Repeat([]byte("0123456789"), 500_000) // 5 MB
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rng := r.Header.Get("Range")
+		if rng == "" || r.Header.Get("If-Range") != "" || r.Header.Get("If-Match") != "" {
+			w.Header().Set("Content-Length", strconv.Itoa(len(file)))
+			_, _ = w.Write(file)
+			return
+		}
+		var a, b int
+		if _, err := fmt.Sscanf(rng, "bytes=%d-%d", &a, &b); err != nil || a > b || b >= len(file) {
+			http.Error(w, "bad range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", a, b, len(file)))
+		w.Header().Set("Content-Length", strconv.Itoa(b-a+1))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(file[a : b+1])
+	}))
+	defer upstream.Close()
+	proxy, err := maps.NewProxy(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := New(Deps{Auth: svc, AuthEnforced: true, TilesProxy: proxy})
+	read := func(hdr map[string]string) (int, int) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "https://demo.rivolt.dev/api/maps/tiles/us.pmtiles", nil)
+		req.RemoteAddr = "203.0.113.88:4000"
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		router.ServeHTTP(rec, req)
+		body, _ := io.ReadAll(rec.Body)
+		return rec.Code, len(body)
+	}
+	if code, n := read(map[string]string{"Range": "bytes=0-9"}); code != http.StatusPartialContent || n != 10 {
+		t.Fatalf("a plain range read: %d with %d bytes, want a 206 of 10", code, n)
+	}
+	for _, h := range []string{"If-Range", "If-Match"} {
+		if code, n := read(map[string]string{"Range": "bytes=0-9", h: `"bogus"`}); code != http.StatusPartialContent || n != 10 {
+			t.Errorf("%s: %d with %d bytes, want a 206 of 10, not the whole file", h, code, n)
+		}
+	}
+}
+
+// An upstream that answers a range read with a 200 (whatever the reason) is refused,
+// and none of its body reaches the visitor.
+func TestDemoTileUpstream200IsRefused(t *testing.T) {
+	demoOnlyEnv(t)
+	whole := bytes.Repeat([]byte("x"), 3<<20)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(whole)))
+		_, _ = w.Write(whole)
+	}))
+	defer upstream.Close()
+	proxy, err := maps.NewProxy(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := New(Deps{Auth: svc, AuthEnforced: true, TilesProxy: proxy})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "https://demo.rivolt.dev/api/maps/tiles/us.pmtiles", nil)
+	req.RemoteAddr = "203.0.113.89:4000"
+	req.Header.Set("Range", "bytes=0-9")
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway || rec.Body.Len() > 100 {
+		t.Errorf("an upstream 200: %d with %d body bytes, want a 502 with none of the file", rec.Code, rec.Body.Len())
 	}
 }

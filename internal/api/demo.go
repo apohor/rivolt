@@ -454,6 +454,11 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 					http.Error(w, fmt.Sprintf("range required (a single bytes range of at most %d KiB)", demoTileMaxRange()>>10), code)
 					return
 				}
+				// A conditional header can turn a range read into the whole file (a
+				// mismatched If-Range makes a server ignore the Range), so none goes on.
+				for _, h := range []string{"If-Range", "If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since"} {
+					r.Header.Del(h)
+				}
 				// Per client (reads, then bytes) before install-wide, for the same
 				// reason as below.
 				tiles.Middleware(tileBytes.MiddlewareN(tileCost)(
