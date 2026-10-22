@@ -50,11 +50,11 @@ struct ChargePlace: Decodable, Equatable, Identifiable {
 struct ChargePlacesMapView: UIViewRepresentable {
     let styleJSON: String
     let places: [ChargePlace]
-    var onFail: () -> Void = {}
+    var onHealth: (MapHealth) -> Void = { _ in }
 
     static let sourceID = "rivolt-places"
 
-    func makeCoordinator() -> Coordinator { Coordinator(places: places, onFail: onFail) }
+    func makeCoordinator() -> Coordinator { Coordinator(places: places, onHealth: onHealth) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON)
@@ -70,9 +70,9 @@ struct ChargePlacesMapView: UIViewRepresentable {
     final class Coordinator: MapLoadWatch {
         var places: [ChargePlace]
 
-        init(places: [ChargePlace], onFail: @escaping () -> Void) {
+        init(places: [ChargePlace], onHealth: @escaping (MapHealth) -> Void) {
             self.places = places
-            super.init(onFail: onFail)
+            super.init(onHealth: onHealth)
         }
 
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {

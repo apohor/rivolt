@@ -11,21 +11,22 @@ struct DriveRouteMap: View {
     @Environment(\.colorScheme) private var scheme
     @State private var route: [DriveRoute.Point]?
     @State private var failed = false
-    /// The basemap couldn't load (no tiles, or the map itself failed) after the drive's route arrived.
-    @State private var mapFailed = false
+    /// How the basemap is doing once the drive's route arrived.
+    @State private var health = MapHealth.ok
 
     var body: some View {
         ZStack {
             if let route, route.isEmpty {
                 MapMessage(text: "No route was recorded for this drive.")
-            } else if let route, !failed, !mapFailed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+            } else if let route, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, route: route, onFail: { mapFailed = true })
+                RouteMapView(styleJSON: style, route: route, onHealth: { health = $0 })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
-            } else if failed || mapFailed || route != nil {
+                    .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+            } else if failed || health == .failed || route != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
                 MapMessage(text: "Map unavailable.")
             } else {
@@ -42,7 +43,7 @@ struct DriveRouteMap: View {
 
     private func load() async {
         MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
-        mapFailed = false
+        health = .ok
         do {
             route = try await state.client.driveRoute(id: driveID).points
             failed = false
@@ -57,11 +58,11 @@ struct DriveRouteMap: View {
 struct RouteMapView: UIViewRepresentable {
     let styleJSON: String
     let route: [DriveRoute.Point]
-    var onFail: () -> Void = {}
+    var onHealth: (MapHealth) -> Void = { _ in }
 
     static let sourceID = "rivolt-route"
 
-    func makeCoordinator() -> Coordinator { Coordinator(route: route, onFail: onFail) }
+    func makeCoordinator() -> Coordinator { Coordinator(route: route, onHealth: onHealth) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON)
@@ -77,9 +78,9 @@ struct RouteMapView: UIViewRepresentable {
     final class Coordinator: MapLoadWatch {
         var route: [DriveRoute.Point]
 
-        init(route: [DriveRoute.Point], onFail: @escaping () -> Void) {
+        init(route: [DriveRoute.Point], onHealth: @escaping (MapHealth) -> Void) {
             self.route = route
-            super.init(onFail: onFail)
+            super.init(onHealth: onHealth)
         }
 
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
@@ -129,44 +130,64 @@ extension MLNMapView {
     }
 }
 
+/// "Map unavailable." over a map whose tiles haven't loaded (it goes when they do).
+struct MapUnavailableOverlay: View {
+    var body: some View {
+        MapMessage(text: "Map unavailable.")
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Theme.card.opacity(0.9), in: RoundedRectangle(cornerRadius: Theme.radiusInner))
+    }
+}
+
 /// A quiet line in a map's place when there is nothing to draw.
 struct MapMessage: View {
     let text: String
     var body: some View { Text(text).themeText(.subline, color: Theme.textTertiary) }
 }
 
-/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), and telling the view the basemap
-/// failed, either the map itself (style or connection) or every tile request when it settles with none loaded.
+/// How a map's basemap is doing, for the line over it.
+enum MapHealth: Equatable {
+    case ok
+    /// Every tile request so far failed: shown over the map, and cleared when a tile arrives (MapLibre retries, so a
+    /// slow connection recovers on its own).
+    case noTiles
+    /// The map itself failed (its style or the connection): for good.
+    case failed
+}
+
+/// What both maps' MapLibre delegates share: the style's arrival (`styleLoaded`), and how the basemap is doing.
 class MapLoadWatch: NSObject, MLNMapViewDelegate {
-    private let onFail: () -> Void
+    private let onHealth: (MapHealth) -> Void
     private var tilesLoaded = 0
     private var tileErrors = 0
-    private var reported = false
+    private var health = MapHealth.ok
 
-    init(onFail: @escaping () -> Void) { self.onFail = onFail }
+    init(onHealth: @escaping (MapHealth) -> Void) { self.onHealth = onHealth }
 
     func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {}
 
     func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) { styleLoaded(map, style) }
 
-    func mapViewDidFailLoadingMap(_ map: MLNMapView, withError error: Error) { fail() }
+    func mapViewDidFailLoadingMap(_ map: MLNMapView, withError error: Error) { report(.failed) }
 
     func mapView(_ map: MLNMapView, tileDidTriggerAction operation: MLNTileOperation, x: Int, y: Int, z: Int, wrap: Int,
                  overscaledZ: Int, sourceID: String) {
         switch operation {
-        case .loadFromNetwork, .loadFromCache: tilesLoaded += 1
+        case .loadFromNetwork, .loadFromCache:
+            tilesLoaded += 1
+            if health == .noTiles { report(.ok) }
         case .error: tileErrors += 1
         default: break
         }
     }
 
     func mapViewDidBecomeIdle(_ map: MLNMapView) {
-        if tileErrors > 0 && tilesLoaded == 0 { fail() }
+        if tileErrors > 0 && tilesLoaded == 0 { report(.noTiles) }
     }
 
-    private func fail() {
-        guard !reported else { return }
-        reported = true
-        DispatchQueue.main.async { self.onFail() }
+    private func report(_ h: MapHealth) {
+        guard health != .failed, h != health else { return }
+        health = h
+        DispatchQueue.main.async { self.onHealth(h) }
     }
 }
