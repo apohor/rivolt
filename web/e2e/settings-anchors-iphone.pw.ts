@@ -62,3 +62,29 @@ for (const c of CASES) {
     await ctx.close();
   });
 }
+
+// A card that loads its own data (here the setup-emails card, hidden until its call answers) is not in the page when
+// the anchor first scrolls. The anchor must still end with it in view once it appears, not leave it below the fold.
+test("iphone: a card that appears late is still scrolled to", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 664 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { uiNext: true });
+  await page.route("**/api/settings/onboarding-email", async (r) => {
+    await new Promise((res) => setTimeout(res, 900));
+    return r.fulfill({ json: { enabled: true } });
+  });
+  await page.goto("/settings#onboarding-email");
+  const card = page.locator("#onboarding-email");
+  await expect(card).toBeVisible();
+  await expect
+    .poll(async () => {
+      const g = await layout(page, "onboarding-email", card);
+      return g.atBottom || g.headingTop - g.stuck < 40;
+    }, { timeout: 8000 })
+    .toBe(true);
+  const g = await layout(page, "onboarding-email", card);
+  expect(g.headingTop, JSON.stringify(g)).toBeGreaterThanOrEqual(g.stuck - 1);
+  expect(g.headingTop, JSON.stringify(g)).toBeLessThan(664);
+  await ctx.close();
+});
