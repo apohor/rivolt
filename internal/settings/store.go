@@ -86,6 +86,36 @@ func (s *Store) Set(ctx context.Context, key, value string) error {
 	return err
 }
 
+// SetMany writes several values of one namespace in a single statement, so the row
+// changes all at once or not at all and a concurrent writer of the same row sees either
+// none or all of them (Set one by one let two writers interleave their keys). Every key
+// must belong to the same namespace.
+func (s *Store) SetMany(ctx context.Context, kv map[string]string) error {
+	if len(kv) == 0 {
+		return nil
+	}
+	ns := ""
+	for k := range kv {
+		if n := namespaceFor(k); ns == "" {
+			ns = n
+		} else if n != ns {
+			return fmt.Errorf("settings: SetMany across namespaces (%s, %s)", ns, n)
+		}
+	}
+	doc, err := json.Marshal(kv)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO user_settings (user_id, namespace, value)
+		VALUES ($1, $2, $3::jsonb)
+		ON CONFLICT (user_id, namespace) DO UPDATE
+			SET value = user_settings.value || EXCLUDED.value,
+			    updated_at = NOW()
+	`, s.userID, ns, string(doc))
+	return err
+}
+
 // Delete removes a key. No-op if absent.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	ns := namespaceFor(key)
