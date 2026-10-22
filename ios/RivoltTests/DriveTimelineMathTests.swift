@@ -19,8 +19,11 @@ final class DriveTimelineMathTests: XCTestCase {
     }
 
     func testPlausibleTotalsOnCleanSamples() {
-        var pts: [(Double, Double)] = (0..<36).map { (Double($0) * 5, 55) }
-        pts += (1...4).map { (180 + Double($0) * 5, 55 - Double($0) * 13.75) }
+        var pts: [(Double, Double)] = (0..<36).map { i -> (Double, Double) in (Double(i) * 5, 55) }
+        for i in 1...4 {
+            let d = Double(i)
+            pts.append((180 + d * 5, 55 - d * 13.75))
+        }
         let pa = analyze(samples(pts), kwh: 1.2)
         XCTAssertGreaterThan(pa.drawKwh, 0)
         XCTAssertLessThanOrEqual(pa.regenKwh, pa.drawKwh)
@@ -28,17 +31,20 @@ final class DriveTimelineMathTests: XCTestCase {
     }
 
     func testNearDuplicateSamplesAreNotIntegrated() {
-        let pts: [(Double, Double)] = (0..<20).map { (Double($0) * 5, 55) }
+        let pts: [(Double, Double)] = (0..<20).map { i -> (Double, Double) in (Double(i) * 5, 55) }
         let clean = analyze(samples(pts), kwh: 0.8)
-        let poisoned = Array(pts.prefix(11)) + [(50.001, 0)] + Array(pts.dropFirst(11))
+        var poisoned: [(Double, Double)] = Array(pts.prefix(11))
+        poisoned.append((50.001, 0))
+        poisoned += Array(pts.dropFirst(11))
         let got = analyze(samples(poisoned), kwh: 0.8)
         XCTAssertLessThanOrEqual(got.regenKwh, got.drawKwh)
         XCTAssertLessThan(got.regenKwh, clean.regenKwh + 0.5)
     }
 
     func testGapsAreNotIntegratedAcross() {
-        let contiguous: [(Double, Double)] = (0..<12).map { (Double($0) * 5, 45) }
-        let gapped = Array(contiguous.prefix(6)) + (6..<12).map { (1200 + Double($0) * 5, 45.0) }
+        let contiguous: [(Double, Double)] = (0..<12).map { i -> (Double, Double) in (Double(i) * 5, 45) }
+        var gapped: [(Double, Double)] = Array(contiguous.prefix(6))
+        for i in 6..<12 { gapped.append((1200 + Double(i) * 5, 45)) }
         let a = analyze(samples(contiguous), kwh: 0.4), b = analyze(samples(gapped), kwh: 0.4)
         XCTAssertLessThan(b.regenKwh, a.regenKwh + 0.05)
         XCTAssertLessThan(b.drawKwh, a.drawKwh * 1.5)
