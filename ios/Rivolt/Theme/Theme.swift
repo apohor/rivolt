@@ -46,7 +46,11 @@ enum Theme {
     static let glowChargingRing = color(ThemeTokens.glowChargingRing)
     static let glowChargingHalo = color(ThemeTokens.glowChargingHalo)
     static let glowDrivingBorder = color(ThemeTokens.glowDrivingBorder)
+    static let glowDrivingRing = color(ThemeTokens.glowDrivingRing)
     static let glowDrivingHalo = color(ThemeTokens.glowDrivingHalo)
+    static let glowSparkDot = color(ThemeTokens.glowSparkDot)
+    static let heroTintDriving = color(ThemeTokens.heroTintDriving)
+    static let pageGlow = color(ThemeTokens.pageGlow)
     static let glowGauge = color(ThemeTokens.glowGauge)
     static let glowSparkLine = color(ThemeTokens.glowSparkLine)
     static let gaugeOk = [color(ThemeTokens.gaugeOkFrom), color(ThemeTokens.gaugeOkTo)]

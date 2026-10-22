@@ -25,7 +25,7 @@ struct ThemeCard: ViewModifier {
         }
     }
 
-    private var tint: Color { live == .driving ? Theme.glowDrivingHalo.opacity(0.325) : Theme.heroTint }
+    private var tint: Color { live == .driving ? Theme.heroTintDriving : Theme.heroTint }
 
     func body(content: Content) -> some View {
         content
@@ -48,6 +48,7 @@ struct ThemeCard: ViewModifier {
             }
             .overlay {
                 if live == .charging { shape.inset(by: -1).stroke(Theme.glowChargingRing, lineWidth: 1) }
+                if live == .driving { shape.inset(by: -1).stroke(Theme.glowDrivingRing, lineWidth: 1) }
             }
             .shadow(color: live == .charging ? Theme.glowChargingHalo : live == .driving ? Theme.glowDrivingHalo : .clear, radius: 16)
             .shadow(color: Theme.cardShadowNear, radius: 1, x: 0, y: 1)
@@ -64,9 +65,29 @@ extension View {
         modifier(ThemeCard(hero: true, live: live, critical: critical))
     }
 
-    /// The page: the web's page colour behind everything.
+    /// The page: the web's page colour with its soft glow at the top, behind everything.
     func themePage() -> some View {
-        background(Theme.background.ignoresSafeArea())
+        background(ThemePageBackground().ignoresSafeArea())
+    }
+}
+
+/// The page colour and the glow pooled at the top centre (`radial-gradient(120% 60% at 50% -10%, glow, transparent 70%)`
+/// on the web): fixed, it doesn't scroll with the content.
+struct ThemePageBackground: View {
+    var body: some View {
+        ZStack {
+            Theme.background
+            Canvas { ctx, size in
+                let center = CGPoint(x: size.width * 0.5, y: size.height * -0.1)
+                let rx = size.width * 1.2, ry = size.height * 0.6
+                var c = ctx
+                c.translateBy(x: center.x, y: center.y)
+                c.scaleBy(x: 1, y: ry / rx)
+                let gradient = Gradient(colors: [Theme.pageGlow, .clear])
+                c.fill(Path(CGRect(x: -rx, y: -rx, width: rx * 2, height: rx * 2)),
+                       with: .radialGradient(gradient, center: .zero, startRadius: 0, endRadius: rx * 0.7))
+            }
+        }
     }
 }
 
