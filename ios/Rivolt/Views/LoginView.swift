@@ -50,9 +50,9 @@ struct LoginView: View {
             HStack(spacing: 2.5 * Theme.unit) {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.brandMark)
                     .frame(width: 28, height: 28)
-                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1.5))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.brandMark.opacity(ThemeTokens.logoFrameOpacity), lineWidth: 1.5))
                     .accessibilityHidden(true)
                 Text("Rivolt").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
             }
