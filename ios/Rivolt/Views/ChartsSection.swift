@@ -54,6 +54,7 @@ struct ChartsSection: View {
                         .cornerRadius(2)
                 }
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .chartXScale(domain: month.range(calendar: calendar).since...month.range(calendar: calendar).until)
                 .chartYScale(domain: 0...top)
                 .chartYAxis {
                     AxisMarks(position: .leading, values: [0, top / 2, top]) { value in
@@ -64,7 +65,7 @@ struct ChartsSection: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: days.filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
+                    AxisMarks(values: month.axisDays(calendar: calendar)) { value in
                         AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }
@@ -121,7 +122,7 @@ struct ChartsSection: View {
                 }
                 .chartXAxis {
                     // The same day labels as Miles per day: 10-01, 10-11, 10-21, 10-31.
-                    AxisMarks(values: days.filter { calendar.component(.day, from: $0) % 10 == 1 }) { value in
+                    AxisMarks(values: month.axisDays(calendar: calendar)) { value in
                         AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
                             if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
                         }

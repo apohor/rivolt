@@ -51,4 +51,25 @@ struct PeriodMonth: Equatable, Hashable {
         }
         return out
     }
+
+    /// Every day of the month, 1st to last: the span both charts draw, so the current month's future days are empty
+    /// room on the right and a past month fills the chart.
+    func allDays(calendar: Calendar) -> [Date] {
+        let (since, until) = range(calendar: calendar)
+        var out: [Date] = []
+        var day = since
+        while day < until {
+            out.append(day)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return out
+    }
+
+    /// The axis labels both charts share: the 1st, 11th, 21st and the last day (10-01, 10-11, 10-21, 10-31).
+    func axisDays(calendar: Calendar) -> [Date] {
+        let all = allDays(calendar: calendar)
+        guard let last = all.last else { return [] }
+        return all.filter { [1, 11, 21].contains(calendar.component(.day, from: $0)) } + [last]
+    }
 }

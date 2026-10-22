@@ -34,6 +34,19 @@ final class SocChartTests: XCTestCase {
         return try JSON.decoder().decode(ChartPoints.self, from: Data(json.utf8))
     }
 
+    func testBothChartsSpanTheWholeMonthAndLabelTheFirstEleventhTwentyFirstAndLastDay() throws {
+        func labels(_ iso: String) throws -> [String] {
+            let m = PeriodMonth(containing: try date(iso), calendar: utc)
+            return m.axisDays(calendar: utc).map { ChartsSection.dayLabel($0, calendar: utc) }
+        }
+        XCTAssertEqual(try labels("2026-10-22T10:00:00Z"), ["10-01", "10-11", "10-21", "10-31"])
+        XCTAssertEqual(try labels("2026-11-03T10:00:00Z"), ["11-01", "11-11", "11-21", "11-30"])
+        XCTAssertEqual(try labels("2026-02-10T10:00:00Z"), ["02-01", "02-11", "02-21", "02-28"])
+        let m = PeriodMonth(containing: try date("2026-10-22T10:00:00Z"), calendar: utc)
+        XCTAssertEqual(m.allDays(calendar: utc).count, 31, "the current month is drawn whole; the days after today stay empty")
+        XCTAssertEqual(m.days(now: try date("2026-10-22T10:00:00Z"), calendar: utc).count, 22, "the data still stops at today")
+    }
+
     func testTheLimitIsDrawnOnlyOnTheCurrentMonthAndOnlyForARealLimit() throws {
         let since = try date("2026-10-01T00:00:00Z"), until = try date("2026-11-01T00:00:00Z")
         let now = try date("2026-10-22T10:00:00Z")
