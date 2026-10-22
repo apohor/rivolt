@@ -2,7 +2,7 @@ import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } from "../lib/ledger";
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
+import { axisDayIndices, barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
@@ -200,7 +200,7 @@ export default function HomePage() {
   // thousands of hairline bars.
   const barDays = useMemo(() => {
     if (next && range.start && range.end) {
-      // Calendar period: bars run from its first day to its last (or today).
+      // Calendar period: bars run from its first day to its last, days to come empty.
       return barDayCount(range.start, barsEndDay(range));
     }
     // "All" in the new look has no start: span the recorded data like the old All window,
@@ -473,6 +473,7 @@ export default function HomePage() {
               height={140}
               formatY={(v) => `${v.toFixed(0)}`}
               formatX={(label) => label.slice(5)}
+              xLabelAt={next ? axisDayIndices(dailyMiles.map((d) => new Date(d.x))) : undefined}
             />
           </Card>
 
@@ -482,7 +483,8 @@ export default function HomePage() {
                 trend={trend}
                 charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime() }))}
                 drives={winDrives.map((d) => ({ x0: new Date(d.StartedAt).getTime(), x1: new Date(d.EndedAt).getTime() }))}
-                domain={range.start ? [range.start.getTime(), Math.min(range.end ? range.end.getTime() : Date.now(), Date.now())] : null}
+                // The whole period, not just up to today: the axis runs to the month's end, as on the iPhone.
+                domain={range.start ? [range.start.getTime(), range.end ? range.end.getTime() : Date.now()] : null}
                 limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
               />
             ) : (

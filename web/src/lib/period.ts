@@ -108,12 +108,28 @@ export function rangeDays(r: PeriodRange): number | null {
   return Math.round((r.end.getTime() - r.start.getTime()) / 86_400_000);
 }
 
-// The last day shown for daily bars: the period's last day, but never later
-// than today (the current period is still in progress).
+// The last day shown for daily bars: the period's last day, today's or not (the current period's days still to
+// come are drawn empty, so the axis is the whole month on the web and the iPhone alike).
 export function barsEndDay(r: PeriodRange, now: Date = new Date()): Date {
   if (!r.end) return now;
-  const last = addDays(r.end, -1);
-  return last > now ? now : last;
+  return addDays(r.end, -1);
+}
+
+// Which of these consecutive days carry an axis label, the same on both day charts (Miles per day, Battery) and on
+// the iPhone: a week, every day; up to a month, the 1st, 11th and 21st and the last day (unless it's within 3 days
+// of the one before); longer spans, null (the chart spaces its own).
+export function axisDayIndices(days: Date[]): number[] | null {
+  if (days.length <= 8) return days.map((_, i) => i);
+  if (days.length > 32) return null;
+  const out = days.flatMap((d, i) => ([1, 11, 21].includes(d.getDate()) ? [i] : []));
+  const last = days.length - 1;
+  if (!out.includes(last) && (out.length === 0 || last - out[out.length - 1] >= 4)) out.push(last);
+  return out;
+}
+
+// "10-31": a day's label on the day charts' axis.
+export function mmdd(d: Date): string {
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function filterByRange<T extends { StartedAt: string }>(items: T[], r: PeriodRange): T[] {

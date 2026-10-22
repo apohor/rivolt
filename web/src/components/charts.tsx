@@ -639,6 +639,7 @@ export function BarChart({
   formatY,
   formatValue,
   formatX,
+  xLabelAt,
   className,
   barGap = 2,
 }: {
@@ -651,6 +652,8 @@ export function BarChart({
   // Per-bar tooltip value; default one decimal.
   formatValue?: (v: number) => string;
   formatX?: (label: string, i: number) => string;
+  // Which bars carry an x label; default the first, middle and last.
+  xLabelAt?: number[] | null;
   className?: string;
   barGap?: number;
 }) {
@@ -759,11 +762,11 @@ export function BarChart({
           </g>
         );
       })}
-      {/* sparse x labels: first, last, middle — edges anchored so they
-          can't overflow the chart bounds. */}
+      {/* sparse x labels: first, last, middle unless told which — edges
+          anchored so they can't overflow the chart bounds. */}
       {data.length > 0 &&
-        [0, Math.floor(data.length / 2), data.length - 1]
-          .filter((v, i, a) => a.indexOf(v) === i)
+        (xLabelAt ?? [0, Math.floor(data.length / 2), data.length - 1])
+          .filter((v, i, a) => v >= 0 && v < data.length && a.indexOf(v) === i)
           .map((i) => {
             const anchor: "start" | "middle" | "end" =
               i === 0 ? "start" : i === data.length - 1 ? "end" : "middle";

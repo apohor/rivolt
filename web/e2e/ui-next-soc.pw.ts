@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next Battery (SoC) trend: bands, limit label, min/max, crosshair.
+// ui_theme_next Battery (SoC) trend (the iPhone's #895 rules): strip under 0%, today's limit, min/max, crosshair.
 // Flag off keeps today's line chart.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -56,7 +56,17 @@ for (const theme of ["dark", "light"] as const) {
             if ((await chart.locator(`[data-draw="${k}"]`).count()) > 0) expect(entries, `drawn ${k} has a legend entry`).toContain(k);
           }
           await expect(page.getByText(/Pack capacity/)).toHaveCount(0);
-          await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit");
+          await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit now");
+          // The limit is today's: a two-day segment labelled "Limit N%", not a line across the period.
+          await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);
+          const limitW = await page.getByTestId("soc-limit").locator("line").evaluate((l) => Number(l.getAttribute("x2")) - Number(l.getAttribute("x1")));
+          expect(limitW).toBeLessThan(box!.width / 2);
+          // One strip per stretch below the 0% line, no wash over the plot.
+          const bands = chart.locator("[data-band]");
+          expect(await chart.locator("[data-band] rect").count()).toBe(await bands.count());
+          const stripTop = await chart.locator("[data-band] rect").first().evaluate((r) => Number(r.getAttribute("y")));
+          const zero = await chart.locator("svg[role='img'] line").first().evaluate((l) => Number(l.getAttribute("y1")));
+          expect(stripTop).toBeGreaterThan(zero);
           // The limit swatch is the same amber as the drawn line.
           const drawn = await page.getByTestId("soc-limit").locator("line").evaluate((l) => getComputedStyle(l).stroke);
           const swatch = await page.getByTestId("legend-limit-swatch").evaluate((l) => getComputedStyle(l).stroke);
