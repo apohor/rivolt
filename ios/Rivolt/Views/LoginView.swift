@@ -4,6 +4,9 @@ import SwiftUI
 /// Sign-in screen. Rivolt signs in through the server's own web sign-in (the
 /// app never asks for a password); the server is rivolt.dev unless the user
 /// chooses another under "Other server", which is checked before it's used.
+///
+/// Looks like the web's sign-in page (new look): one card on the page, the
+/// Rivolt mark, "Sign in" with the beta pill, then the action and the small print.
 struct LoginView: View {
     @Environment(AppState.self) private var state
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
@@ -14,61 +17,127 @@ struct LoginView: View {
     @State private var message: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Button {
-                        Task { await signIn() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isWorking {
-                                ProgressView().tint(.white)
-                            } else {
-                                Text("Sign in").fontWeight(.semibold)
-                            }
-                            Spacer()
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 5 * Theme.unit) {
+                header
+                VStack(alignment: .leading, spacing: 3 * Theme.unit) {
+                    signInButton
+                    if let reason = unavailable?.errorDescription {
+                        Text(reason).themeText(.subline, color: Theme.estimate)
                     }
-                    .disabled(isWorking || unavailable != nil)
-                    // Dimmed when the server can't do app sign-in: no invitation to a tap that can't work.
-                    .listRowBackground(unavailable == nil ? Color.accentColor : Color(.systemGray5))
-                    .foregroundStyle(unavailable == nil ? Color.white : Color.secondary)
-                } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let reason = unavailable?.errorDescription { Text(reason).foregroundStyle(.primary) }
-                        Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                    Text("Server: \(state.serverURL.host ?? state.serverURL.absoluteString)")
+                        .themeText(.caption)
+                    if let message {
+                        Text(message).themeText(.subline, color: Theme.textBody)
                     }
                 }
+                otherServerSection
+                footer
+            }
+            .themeCard(padding: 6 * Theme.unit)
+            .padding(.horizontal, 4 * Theme.unit)
+            .padding(.vertical, 10 * Theme.unit)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .themePage()
+        .task { await state.refreshSignInStatus() }
+    }
 
-                if let message {
-                    Section {
-                        Text(message).font(.footnote)
-                    }
-                }
+    // MARK: Parts
 
-                Section {
-                    DisclosureGroup("Other server", isExpanded: $showOtherServer) {
-                        TextField("https://rivolt.example.com", text: $otherServer)
-                            .textContentType(.URL)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.done)
-                            .onSubmit { Task { await checkServer() } }
-                        Button("Use this server") { Task { await checkServer() } }
-                            .disabled(isWorking || otherServer.isEmpty)
-                    }
-                } footer: {
-                    Text("For a self-hosted Rivolt. Rivolt is unofficial and not affiliated with Rivian.")
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4 * Theme.unit) {
+            HStack(spacing: 2.5 * Theme.unit) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.brandMark)
+                    .frame(width: 28, height: 28)
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.brandMark.opacity(ThemeTokens.logoFrameOpacity), lineWidth: 1.5))
+                    .accessibilityHidden(true)
+                Text("Rivolt").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+            }
+            HStack(spacing: 2 * Theme.unit) {
+                Text("Sign in").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+                ThemePill(text: "BETA", tone: .stale)
+            }
+            .accessibilityElement(children: .combine)
+            Text("Your Rivian companion. Signing in opens your browser, with the account you use on the web; the app never sees your password.")
+                .themeText(.value, color: Theme.textBody)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var signInButton: some View {
+        Button {
+            Task { await signIn() }
+        } label: {
+            ZStack {
+                Text("Sign in").opacity(isWorking ? 0 : 1)
+                if isWorking { ProgressView().tint(.white) }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(ThemeButtonStyle())
+        // Disabled (the Theme's disabled look) when the server can't do app sign-in: no invitation to a tap that can't work.
+        .disabled(isWorking || unavailable != nil)
+    }
+
+    private var otherServerSection: some View {
+        VStack(alignment: .leading, spacing: 3 * Theme.unit) {
+            Button {
+                withAnimation(.easeOut(duration: Theme.motion)) { showOtherServer.toggle() }
+            } label: {
+                HStack(spacing: Theme.unit) {
+                    Text("Other server").themeText(.value, color: Theme.textSecondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(showOtherServer ? 90 : 0))
                 }
             }
-            .navigationTitle("Rivolt")
-            .task { await state.refreshSignInStatus() }
+            .accessibilityValue(showOtherServer ? "Expanded" : "Collapsed")
+
+            if showOtherServer {
+                TextField("https://rivolt.example.com", text: $otherServer)
+                    .font(Theme.sans(ThemeTokens.typeValue))
+                    .foregroundStyle(Theme.textPrimary)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit { Task { await checkServer() } }
+                    .padding(.horizontal, 3 * Theme.unit)
+                    .padding(.vertical, 2.5 * Theme.unit)
+                    .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
+                Button("Use this server") { Task { await checkServer() } }
+                    .buttonStyle(ThemeSecondaryButtonStyle())
+                    .disabled(isWorking || otherServer.isEmpty)
+            }
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 3 * Theme.unit) {
+            Text("For a self-hosted Rivolt, use Other server. Rivolt is unofficial and not affiliated with Rivian.")
+                .themeText(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+            // Only the links are underlined, as on the web; the dot between them isn't.
+            HStack(spacing: 1.5 * Theme.unit) {
+                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy")).underline()
+                Text("·").accessibilityHidden(true)
+                Link("Terms", destination: state.serverURL.appending(path: "terms")).underline()
+            }
+            .font(Theme.sans(ThemeTokens.typeSubline))
+            .foregroundStyle(Theme.textSecondary)
+            .frame(maxWidth: .infinity)
         }
     }
 
     private var unavailable: SignInError? { state.signInStatus.unavailableReason }
+
+    // MARK: Actions
 
     private func signIn() async {
         message = nil

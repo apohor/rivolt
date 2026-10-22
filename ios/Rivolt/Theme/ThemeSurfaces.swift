@@ -140,14 +140,53 @@ struct ThemePill: View {
     }
 }
 
-/// A solid button: the accent button colour with white text and the inner radius.
+/// A solid button: the accent button colour with white text and the inner radius. Disabled, it turns the border
+/// colour with tertiary text, as the web's `disabled:bg-neutral-800 disabled:text-neutral-500`.
 struct ThemeButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.sans(ThemeTokens.typeValue, .medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 4 * Theme.unit)
-            .padding(.vertical, 2.5 * Theme.unit)
-            .background(Theme.accentButton.opacity(configuration.isPressed ? 0.85 : 1), in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+        Solid(configuration: configuration)
+    }
+
+    private struct Solid: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(Theme.sans(ThemeTokens.typeValue, .medium))
+                .foregroundStyle(isEnabled ? Color.white : Theme.textTertiary)
+                .padding(.horizontal, 4 * Theme.unit)
+                .padding(.vertical, 2.5 * Theme.unit)
+                .background(
+                    isEnabled ? Theme.accentButton.opacity(configuration.isPressed ? 0.85 : 1) : Theme.border,
+                    in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous)
+                )
+        }
+    }
+}
+
+/// The web's secondary button (the sign-in page's "Continue with …"): the card colour, a 1 px strong border, primary
+/// text in medium weight, the inner radius; full width. Pressed, the fill deepens to the border colour; disabled, the
+/// whole button fades to half, as the web's `disabled:opacity-50`.
+struct ThemeSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Outlined(configuration: configuration)
+    }
+
+    private struct Outlined: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(Theme.sans(ThemeTokens.typeValue, .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 4 * Theme.unit)
+                .padding(.vertical, 2.5 * Theme.unit)
+                .background(configuration.isPressed ? Theme.border : Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
+                .opacity(isEnabled ? 1 : 0.5)
+        }
     }
 }
