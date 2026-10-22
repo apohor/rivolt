@@ -34,6 +34,7 @@ enum ThemeTokens {
     static let criticalBorder = Pair(dark: Rgba(0xFF2056, 1), light: Rgba(0xEC003F, 1))
     static let drive = Pair(dark: Rgba(0x74D4FF, 1), light: Rgba(0x0069A8, 1))
     static let edge = Pair(dark: Rgba(0xFFFFFF, 0.07), light: Rgba(0xFFFFFF, 0.9))
+    static let brandMark = Pair(dark: Rgba(0x00D492, 1), light: Rgba(0x007A55, 1))
 
     // MARK: Literals (glows, gauge gradients, shadows, chart colours)
     static let bar = Pair(dark: Rgba(0x06080C, 1), light: Rgba(0xFCFCFC, 1))
@@ -84,6 +85,13 @@ enum ThemeTokens {
     static let gaugeStroke: Double = 7
     static let gaugeTrackOpacity: Double = 0.14
     static let gaugeSize: Double = 132
+    static let logoSize: Double = 22
+    static let logoViewBox: Double = 64
+    static let logoFrameRadius: Double = 12
+    static let logoFrameStroke: Double = 3.5
+    static let logoFrameOpacity: Double = 0.9
+    static let logoWordmarkGap: Double = 8
+    static let logoWordmarkTracking: Double = -0.025
     static let tabBarMinHeight: Double = 56
     static let tabBarIcon: Double = 22
     static let tabBarIconStroke: Double = 1.8
