@@ -205,7 +205,7 @@ struct ChartsSection: View {
     }
 
     private var idleCard: some View {
-        ThemeSection(title: "Idle-awake time per day") {
+        ThemeSection(title: "Idle-awake time per day (min)") {
             if idle.isEmpty {
                 ChartEmpty(text: model.sleep == nil && !model.isLoading
                            ? "Couldn't load this chart."
@@ -235,7 +235,7 @@ struct ChartsSection: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(idleSpoken.label)
                 .accessibilityValue(idleSpoken.value)
-                Text("Time per day the truck was awake while parked and not charging. Driving and charging are left out.")
+                Text("Minutes per day the truck was awake while parked and not charging. Driving and charging are left out.")
                     .themeText(.caption)
             }
         }

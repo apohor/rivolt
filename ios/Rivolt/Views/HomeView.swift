@@ -26,6 +26,8 @@ struct HomeView: View {
     @State private var charts = ChartsModel()
     @State private var month = PeriodMonth(containing: .now, calendar: .current)
     @State private var places = PlacesModel()
+    @State private var kpi = KpiModel()
+    @State private var recentCharges: [ChargeBrief] = []
 
     private var selected: Vehicle? {
         vehicles.first { $0.id == selectedID } ?? vehicles.first
@@ -51,6 +53,8 @@ struct HomeView: View {
                             }
                             NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge))
                             ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
+                            KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
+                                    idleLoading: charts.isLoading)
                             if summary.freshness != .stale,
                                let drive = DriveDetail.make(summary: summary, live: liveDrive, last: latestDrive) {
                                 DriveDetailCard(detail: drive)
@@ -86,7 +90,7 @@ struct HomeView: View {
             // While the screen is up the live reads follow the charge or drive (about every 10 s).
             .task(id: selectedID) { await pollLive() }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
-            .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)") { await loadCharts(force: false) }
+            .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
@@ -156,11 +160,25 @@ struct HomeView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 
+    /// When the newest finished charge ended (the one in progress doesn't count), for "Since last charge".
+    private var lastChargeEnd: Date? {
+        KpiLogic.lastFinishedChargeEnd(recentCharges, activeStart: now?.charge?.startedAt)
+    }
+
+    private func kpiTiles(_ summary: NowSummary) -> [KpiTile] {
+        let drives = KpiLogic.drives(kpi.activity?.drives ?? [])
+        let charges = KpiLogic.charges(kpi.activity?.charges ?? [])
+        return KpiLogic.tiles(drives: drives, charges: charges, since: kpi.since, sinceKnown: lastChargeEnd == nil,
+                              ledger: kpi.ledger, ledgerPending: kpi.ledgerPending, metric: NowFormat.usesMetric)
+    }
+
     private func loadCharts(force: Bool) async {
         guard let id = selected?.id else { return }
         async let c: Void = charts.load(source: state.client, vehicleID: id, month: month, force: force)
         async let p: Void = places.load(source: state.client, vehicleID: id, month: month, force: force)
-        _ = await (c, p)
+        async let k: Void = kpi.load(source: state.client, vehicleID: id, month: month, scopeLedger: vehicles.count > 1,
+                                      lastChargeEnd: lastChargeEnd, force: force)
+        _ = await (c, p, k)
     }
 
     /// `force` is for a pull or the Refresh button: only then are the charts read again before their cache expires.
@@ -187,18 +205,20 @@ struct HomeView: View {
             session = nil
             liveDrive = nil
             latestCharge = nil
+            recentCharges = []
             latestDrive = nil
             return
         }
         let client = state.client
         async let st = try? client.vehicleState(id: id)
         async let nw = try? client.vehicleNow(id: id)
-        async let ch = try? client.latestCharge(vehicleID: id)
+        async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
         vehicleState = s
         now = n ?? nil
-        latestCharge = c ?? nil
+        recentCharges = c ?? []
+        latestCharge = recentCharges.first
         latestDrive = d ?? nil
         await loadLive(id: id)
         // The widgets read this truck from this server (never the token: that stays in the Keychain).
