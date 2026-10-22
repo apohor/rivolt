@@ -417,14 +417,15 @@ no VIN or location needed.
   feature actually runs (trip analysis, drive recap).
 - **Optional street-level address search.** Set `RIVOLT_PHOTON_BASE_URL`
   to a [Photon](https://github.com/komoot/photon) geocoder to search home
-  and trip locations by street address; without it, search is city-level
-  only. Self-host Photon (it serves OpenStreetMap data), e.g.
+  and trip locations by street address. Without it, trip and place search
+  is city-level (via Open-Meteo) and the home address field is hidden;
+  home can still be set from a charge's location or by coordinates.
+  Self-host Photon (it serves OpenStreetMap data), e.g.
   `http://photon.photon.svc.cluster.local` in-cluster, or point it at
   komoot's public server `https://photon.komoot.io`, which Rivolt is
   compatible with (it calls `/api/?q=`). With the public server every
   search, including a home address a user types, is sent to komoot, who
-  ask for fair, light use and guarantee nothing. Setting home from a
-  charge's location or by coordinates needs no geocoder.
+  ask for fair, light use and guarantee nothing.
 
 ---
 

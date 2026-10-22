@@ -512,12 +512,14 @@ maps:
     baseUrl: ""
   photon:
     # Optional Photon geocoder for street-level home and trip search
-    # (RIVOLT_PHOTON_BASE_URL). Empty: city-level search via Open-Meteo only.
+    # (RIVOLT_PHOTON_BASE_URL). Without it, trip and place search is city-level
+    # (via Open-Meteo) and the home address field is hidden; home can still be
+    # set from a charge's location or by coordinates.
     # Self-hosted, e.g. "http://photon.photon.svc.cluster.local" (serves
     # OpenStreetMap data). komoot's public server "https://photon.komoot.io"
     # also works (same /api/?q= path), but then every search, including typed
     # home addresses, goes to komoot, who ask for fair, light use and
-    # guarantee nothing. Home by coordinates or from a charge needs no geocoder.
+    # guarantee nothing.
     baseUrl: ""
   tiles:
     baseUrl: ""
