@@ -46,6 +46,14 @@ final class MapStyleTests: XCTestCase {
             // The tiles are OpenStreetMap data: the style's source carries the credit.
             XCTAssertTrue(json.contains("© OpenStreetMap"))
             XCTAssertNotNil(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+
+            // The charge map's style adds the server's charger archive and nothing else.
+            let charge = try XCTUnwrap(MapStyle.withChargers(json, server: server))
+            let chargeURLs = MapStyle.urls(in: charge)
+            XCTAssertTrue(chargeURLs.contains("pmtiles://https://rivolt.example/api/maps/tiles/chargers.pmtiles"), "\(chargeURLs)")
+            XCTAssertEqual(Set(chargeURLs), Set(urls + ["pmtiles://https://rivolt.example/api/maps/tiles/chargers.pmtiles"]))
+            for u in chargeURLs { XCTAssertTrue(MapStyle.isAllowed(u, server: server), u) }
+            XCTAssertFalse(charge.contains("\\/"), "slashes escaped: the URL walk would miss them")
         }
     }
 

@@ -239,6 +239,9 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   routeGap: { both: { file: "src/components/DriveMap.tsx", css: 'color: "#737373",', use: "drive route: routed (solid) and unknown (dashed) gaps" } },
   routeStart: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#10b981")', use: "drive route: the start pin" } },
   routeEnd: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#f43f5e")', use: "drive route: the end pin" } },
+  chargePin: { both: { file: "src/components/DriveMap.tsx", css: 'circleIcon("#f59e0b")', use: "charge map: the charge's pin, the charger square and the dashed link to it" } },
+  chargeRecorded: { both: { file: "src/components/DriveMap.tsx", css: "background:#737373;border:1.5px solid #0a0a0a", use: "charge map: the recorded GPS dot once the pin snapped to a charger" } },
+  chargePinInk: { both: { file: "src/components/DriveMap.tsx", css: "color:#0a0a0a;font:700 13px", use: "charge map: the bolt on the charger square and the dots' rings" } },
 };
 
 // Non-colour values, each with the source fragment that proves it.

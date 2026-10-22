@@ -8,6 +8,10 @@ import SwiftUI
 struct AcknowledgementsView: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// The charger archive behind a charge's map pin (the server's chargers.pmtiles): the U.S. Department of Energy's
+    /// station data (public domain) and Recreation.gov campgrounds (CC BY 4.0, credited as the web does).
+    static let chargerData = "Charging stations on a charge's map come from the Alternative Fuels Data Center of the U.S. Department of Energy (NREL AFDC, afdc.energy.gov), public domain. The charger data also holds campgrounds from Recreation.gov (RIDB, catalog.data.gov/dataset/recreation-information-database-ridb) under CC BY 4.0 (creativecommons.org/licenses/by/4.0), filtered by Rivolt."
+
     /// The licence text from the bundle, or a pointer to where it lives if it is somehow missing.
     /// A licence text bundled under Map/, or a pointer to where it lives.
     static func mapText(_ name: String, in subdirectory: String, bundle: Bundle = .main, fallback: String) -> String {
@@ -70,6 +74,13 @@ struct AcknowledgementsView: View {
                         .padding(.top, 2 * Theme.unit)
                 }
                 .padding(4 * Theme.unit)
+                ThemeSection(title: "Charger data") {
+                    Text(Self.chargerData)
+                        .themeText(.value)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 4 * Theme.unit)
+                .padding(.bottom, 4 * Theme.unit)
             }
             .themePage()
             .navigationTitle("Acknowledgements")
