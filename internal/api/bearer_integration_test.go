@@ -205,6 +205,36 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 		}
 	})
 
+	t.Run("writes: only the app's own", func(t *testing.T) {
+		// A token from the real sign-in is an app session, so the allowlist applies to it.
+		for _, c := range [][2]string{
+			{http.MethodPost, "/api/settings/charging"},
+			{http.MethodPut, "/api/settings/charging"},
+			{http.MethodDelete, "/api/charges/chg-x"},
+			{http.MethodPost, "/api/rivian/logout"},
+			{http.MethodDelete, "/api/auth/sessions/" + uuid.NewString()},
+			{http.MethodPost, "/api/push/subscribe"},
+		} {
+			w := do(app(c[0], c[1], tok.Token))
+			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), appWriteDenied) {
+				t.Errorf("%s %s with the app token: %d %q, want the app-write refusal", c[0], c[1], w.Code, w.Body.String())
+			}
+			// The browser session is not held to the list.
+			if w := do(browser(c[0], c[1], "")); strings.Contains(w.Body.String(), appWriteDenied) {
+				t.Errorf("%s %s refused for the browser session", c[0], c[1])
+			}
+		}
+		for _, c := range [][2]string{
+			{http.MethodPost, "/api/push/apns/test"},
+			{http.MethodPost, "/api/push/apns/register"},
+			{http.MethodPost, "/api/milestones/dismiss"},
+		} {
+			if w := do(app(c[0], c[1], tok.Token)); strings.Contains(w.Body.String(), appWriteDenied) {
+				t.Errorf("%s %s refused for the app token, but the app does this", c[0], c[1])
+			}
+		}
+	})
+
 	t.Run("sign out ends the token", func(t *testing.T) {
 		if w := do(app(http.MethodPost, "/api/auth/logout", tok.Token)); w.Code != http.StatusNoContent {
 			t.Fatalf("logout: %d", w.Code)

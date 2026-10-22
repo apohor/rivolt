@@ -357,6 +357,9 @@ func New(d Deps) http.Handler {
 	// middleware is a no-op — the single-tenant legacy UX stays.
 	if d.Auth != nil {
 		r.Use(d.Auth.Middleware)
+		// An iPhone app session may write only to a short list (app_write_allowlist.go);
+		// it must run once the session is known and before any route.
+		r.Use(appWriteAllowlistMW)
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
