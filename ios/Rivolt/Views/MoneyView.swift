@@ -10,8 +10,7 @@ struct MoneyView: View {
     @State private var vehicles: [Vehicle] = []
     @State private var vehiclesLoaded = false
     @State private var vehiclesError: String?
-    /// The shell's, so its cache outlives a tab switch.
-    let model: MoneyModel
+    @State private var model = MoneyModel()
     @State private var period = PeriodMonth(containing: .now, calendar: .current)
     @State private var filter: MoneyLogic.Filter = .all
     @State private var metric: MoneyContent.Metric = .cost
