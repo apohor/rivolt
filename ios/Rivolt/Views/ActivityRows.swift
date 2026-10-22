@@ -28,7 +28,7 @@ struct ActivityFeedRow: View {
     private var nodeColor: Color {
         switch item {
         case .drive: return Theme.drive
-        case .charge(let c): return ActivityLogic.placeLabel(c) == "Fast" ? Theme.estimateFill : Theme.accentFill
+        case .charge(let c): return ActivityLogic.placeLabel(c) == "Fast" ? Theme.fastFill : Theme.accentFill
         }
     }
 
@@ -104,7 +104,7 @@ private struct ChargeCardContent: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(Theme.estimate)
+                    Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(ActivityLogic.placeLabel(charge) == "Fast" ? Theme.fast : Theme.home)
                     (Text(ActivityLogic.chargeTitle(charge)).foregroundColor(Theme.textPrimary)
                         + Text(ActivityLogic.levelChange(start: charge.startSocPct, end: charge.endSocPct).map { " \($0)" } ?? "").foregroundColor(Theme.textSecondary))
                         .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
