@@ -62,7 +62,7 @@ final class ChargeInsightsTests: XCTestCase {
         XCTAssertEqual(i.socGainedPct, 39)
         XCTAssertEqual(i.socPerHour, 39, accuracy: 1e-9)
         XCTAssertEqual(i.tier.label, "DC standard")
-        XCTAssertEqual(i.costPerKwh, "$0.320/kWh")
+        XCTAssertEqual(ChargeInsights.costPerKwh(c), "$0.320/kWh")
         XCTAssertEqual(i.timeToPeakSec, 0)
         XCTAssertEqual(i.activeSec, 0)
         XCTAssertNil(i.limitPct)
@@ -84,7 +84,8 @@ final class ChargeInsightsTests: XCTestCase {
         let g = ChargeSessionRows.groups(c, i, metric: false)
         XCTAssertEqual(g.map(\.title), ["Session", "Power & timing", "Battery & energy", "Environment"])
         let rows = Dictionary(uniqueKeysWithValues: g.flatMap(\.rows).map { ($0.label, $0.value) })
-        XCTAssertEqual(rows["Where"], "Fast charge")
+        XCTAssertEqual(rows["Type"], "Fast charge")
+        XCTAssertNil(rows["Price per kWh"], "the price per kWh is on the Pricing card only")
         XCTAssertEqual(rows["Peak power"], "142.0 kW")
         XCTAssertEqual(rows["SoC gained"], "39.0% (41% → 80%)")
         XCTAssertEqual(rows["Charge limit"], "80%")
@@ -117,14 +118,117 @@ final class ChargeInsightsTests: XCTestCase {
     }
 
     @MainActor
-    func testTheModelGivesTheRowNumbersEvenWhenTheSamplesCantBeRead() async throws {
+    func testTheCardKeepsTheRowNumbersWhenTheSamplesCantBeRead() async throws {
         let c = try charge()
         let model = ChargeCurveModel()
         await model.load(source: Failing(), charge: c, now: t0.addingTimeInterval(86_400))
         XCTAssertEqual(model.phase, .failed)
-        XCTAssertEqual(model.insights?.socGainedPct, 39)
-        XCTAssertEqual(model.insights?.tier.label, "DC standard")
+        XCTAssertTrue(model.samples.isEmpty)
+        // Without samples the card still has the row's own numbers.
+        let i = ChargeInsights.compute(c, samples: model.samples)
+        XCTAssertEqual(i.socGainedPct, 39)
+        XCTAssertEqual(i.tier.label, "DC standard")
     }
+
+    // MARK: The charge's row (GET /api/charges/{id}, backend's fixtures)
+
+    func testTheChargeRowDecodesTheTenFieldsAndNothingPositionalBeyondTheMaps() throws {
+        let row = try Fixture.decode(ChargeRow.self, "charge_one")
+        XCTAssertEqual(row.milesAdded, 214.5)
+        XCTAssertEqual(row.avgPowerKw, 118.6)
+        XCTAssertEqual(row.maxPowerKW, 187.2)
+        XCTAssertEqual(row.finalState, "charging_complete")
+        XCTAssertEqual(row.source, "live")
+        XCTAssertEqual(row.thermalKwh, 3.2)
+        XCTAssertEqual(row.activeSeconds, 2460)
+        XCTAssertEqual(row.network, "Rivian Adventure Network")
+        XCTAssertEqual(Mirror(reflecting: row).children.compactMap(\.label),
+                       ["lat", "lon", "maxPowerKW", "network", "milesAdded", "avgPowerKw", "finalState", "source", "thermalKwh", "activeSeconds"])
+        let ac = try Fixture.decode(ChargeRow.self, "charge_one_ac")
+        XCTAssertNil(ac.thermalKwh, "null: no thermal figure")
+        XCTAssertEqual(ac.activeSeconds, 19_200)
+        XCTAssertEqual(row.location().network, "Rivian Adventure Network")
+        XCTAssertEqual(row.location(network: "Electrify America").network, "Electrify America", "the ledger's network wins")
+    }
+
+    func testTheRowAddsTheWebsRowsInThePhonesUnits() throws {
+        let row = try Fixture.decode(ChargeRow.self, "charge_one")
+        let c = try charge(maxKw: 187.2, energy: 81.4, soc: (18, 80), cost: 36.63, source: "rivian", network: "Rivian Adventure Network", minutes: 47)
+        let i = ChargeInsights.compute(c, samples: [], row: row)
+        XCTAssertEqual(i.activeSec, 2460, "the row's ActiveSeconds when there are no samples to count")
+        XCTAssertEqual(i.milesAdded, 214.5)
+        XCTAssertEqual(i.miPerKwh ?? 0, 214.5 / 81.4, accuracy: 1e-9)
+        XCTAssertEqual(i.costPerMile, "$0.171/mi")
+        XCTAssertEqual(ChargeInsights.costPerMile(c, miles: 214.5, metric: true), "$0.106/km")
+        XCTAssertEqual(i.finalState, "Charging complete")
+        XCTAssertEqual(i.source, "Recorded live")
+        XCTAssertEqual(i.thermalKwh, 3.2)
+        XCTAssertEqual(i.thermalSharePct ?? 0, 3.2 / 81.4 * 100, accuracy: 1e-9)
+        XCTAssertEqual(ChargeInsights.thermalIntensity(i.thermalSharePct), "Moderate")
+        let rows = Dictionary(uniqueKeysWithValues: ChargeSessionRows.groups(c, i, metric: false).flatMap(\.rows).map { ($0.label, $0) })
+        XCTAssertEqual(rows["Average power"]?.value, "118.6 kW")
+        XCTAssertEqual(rows["Final state"]?.value, "Charging complete")
+        XCTAssertEqual(rows["Source"]?.value, "Recorded live")
+        XCTAssertEqual(rows["Range efficiency"]?.value, "2.64 mi/kWh")
+        XCTAssertEqual(rows["Price per mile"]?.value, "$0.171/mi")
+        XCTAssertEqual(rows["Type"]?.hint, "Rivian Adventure Network", "the network under the type")
+        XCTAssertEqual(rows["BMS energy"]?.value, "3.20 kWh")
+        XCTAssertEqual(rows["Conditioning intensity"]?.value, "Moderate")
+        // A home charge: no thermal group.
+        let ac = try charge(maxKw: 11.5, energy: 58.1, soc: (42, 86), cost: 7.55, source: "home_rate", kind: "ac", place: "home", minutes: 420)
+        let acInsights = ChargeInsights.compute(ac, samples: [], row: try Fixture.decode(ChargeRow.self, "charge_one_ac"))
+        let titles = ChargeSessionRows.groups(ac, acInsights, metric: false).map(\.title)
+        XCTAssertFalse(titles.contains("Thermal management"))
+        XCTAssertEqual(acInsights.activeSec, 19_200)
+    }
+
+    func testAnEstimatedPriceReadsAsOneInEveryRow() throws {
+        let c = try charge(energy: 40, cost: 0, source: "home_rate", estimated: 6.0)
+        XCTAssertEqual(ChargeInsights.costPerMile(c, miles: 100, metric: false), "~$0.060/mi")
+        XCTAssertNil(ChargeInsights.costPerMile(try charge(cost: 0, source: "unknown"), miles: 100, metric: false))
+        XCTAssertNil(ChargeInsights.costPerMile(try charge(cost: 5, source: "rivian"), miles: 0, metric: false))
+    }
+
+    func testTheEndOfASessionAndItsSourceInTheWebsWords() {
+        XCTAssertNil(ChargeInsights.finalState(nil))
+        XCTAssertNil(ChargeInsights.finalState("Charging"), "the last snapshot still charging says nothing about the end")
+        XCTAssertEqual(ChargeInsights.finalState("NoPower"), "No power")
+        XCTAssertEqual(ChargeInsights.finalState("charging_station_err"), "Interrupted")
+        XCTAssertEqual(ChargeInsights.finalState("charging_complete"), "Charging complete")
+        XCTAssertEqual(ChargeInsights.source("electrafi_import"), "Imported from ElectraFi")
+        XCTAssertNil(ChargeInsights.source(""))
+        XCTAssertEqual(ChargeInsights.thermalIntensity(0.4), "Minimal")
+        XCTAssertEqual(ChargeInsights.thermalIntensity(2), "Light")
+        XCTAssertEqual(ChargeInsights.thermalIntensity(7), "Heavy")
+        XCTAssertEqual(ChargeInsights.thermalIntensity(12), "Aggressive")
+        XCTAssertEqual(ChargeInsights.thermalIntensity(nil), "—")
+    }
+
+    @MainActor
+    func testTheRowIsReadOnceAndAFailureIsSaidOnce() async throws {
+        let ok = CountingRows(result: .success(try Fixture.decode(ChargeRow.self, "charge_one")))
+        let model = ChargeRowModel()
+        await model.load(source: ok, id: "chg-fixture-dcfc")
+        XCTAssertEqual(ok.ids, ["chg-fixture-dcfc"], "one read for the map and the session card together")
+        XCTAssertEqual(model.phase.row?.milesAdded, 214.5)
+        let bad = ChargeRowModel()
+        await bad.load(source: CountingRows(result: .failure(URLError(.timedOut))), id: "x")
+        XCTAssertEqual(bad.phase, .failed)
+        XCTAssertNil(bad.phase.row)
+    }
+}
+
+private final class CountingRows: ChargeRowSource, @unchecked Sendable {
+    private let result: Result<ChargeRow, Error>
+    private let lock = NSLock()
+    private var _ids: [String] = []
+    var ids: [String] { lock.withLock { _ids } }
+    init(result: Result<ChargeRow, Error>) { self.result = result }
+    func chargeRow(id: String) async throws -> ChargeRow {
+        record(id)
+        return try result.get()
+    }
+    private func record(_ id: String) { lock.withLock { _ids.append(id) } }
 }
 
 private struct Failing: ChargeSamplesSource {

@@ -369,8 +369,8 @@ actor APIClient {
         try await request("GET", "/api/charges?limit=5000&vehicle_id=\(queryValue(vehicleID))")
     }
 
-    /// Where one charge happened, for its map: the charge row narrowed to its position, peak power and network.
-    func chargeLocation(id: String) async throws -> ChargeLocation {
+    /// One charge's row, read once on its screen: where it happened and the numbers on its session card (ChargeRow).
+    func chargeRow(id: String) async throws -> ChargeRow {
         try await request("GET", "/api/charges/\(pathID(id))")
     }
 
@@ -530,3 +530,4 @@ enum AnyJSON: Encodable {
 
 extension APIClient: ChartsSource {}
 extension APIClient: ChargeSamplesSource {}
+extension APIClient: ChargeRowSource {}

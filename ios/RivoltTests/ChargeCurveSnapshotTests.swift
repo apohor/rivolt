@@ -99,9 +99,10 @@ final class ChargeCurveSnapshotTests: XCTestCase {
         let billed = try charge(#""cost_source_effective":"rivian","kind":"dcfc","place":"away","network":"Rivian Adventure Network","cost":31.2"#)
         let estimate = try charge(#""cost_source_effective":"network_estimate","kind":"dcfc","place":"away","network":"Electrify America","cost":28.4,"cost_source_derived":true"#)
         let unpriced = try charge(#""cost":0,"cost_source_effective":"unknown","kind":"ac","place":"away""#)
+        let row = try Fixture.decode(ChargeRow.self, "charge_one")
         func page(_ c: ActivityCharge, _ withSamples: Bool) -> some View {
             VStack(alignment: .leading, spacing: 12) {
-                ChargeSessionCard(charge: c, insights: ChargeInsights.compute(c, samples: withSamples ? samples : []))
+                ChargeSessionCard(charge: c, insights: ChargeInsights.compute(c, samples: withSamples ? samples : [], row: withSamples ? row : nil))
                 ChargePricingCard(charge: c, serverURL: URL(string: "https://rivolt.dev")!)
             }
             .padding(16).frame(width: 390).background(ThemePageBackground())
