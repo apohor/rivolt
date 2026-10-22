@@ -441,6 +441,10 @@ export type Charge = {
   // The charge limit the truck was set to for the session (1 to 100), stored on the charge (migration 0080);
   // null when unknown. Absent on servers before #897.
   ChargeLimitPct?: number | null;
+  // #906: the user's own home/away for this charge ("set by you"; empty: automatic) and "recorded" when the map pins
+  // where the truck was instead of the nearest public charger. Absent on servers before #906.
+  PlaceOverride?: "" | "home" | "away";
+  LocationOverride?: "" | "recorded";
   // Wall-clock seconds the session actually spent charging (charger
   // power above the idle floor), accumulated by the live recorder from
   // the same gated dt that feeds the energy integral. Distinct from
@@ -511,6 +515,10 @@ export type ChargingNetwork = {
   // preferred = "rank this network high in Rivian's planner".
   // Forwarded as networkPreferences[].preference=1 on plan requests.
   preferred?: boolean;
+  // Where a custom row (no slug) is, when the user gave one (#906): both or neither. Private: only labels the user's
+  // own charges and preselects the pricing prefill; never used to price anything by itself.
+  lat?: number;
+  lon?: number;
 };
 
 // LiveDrive is the in-flight drive snapshot returned by
@@ -1514,6 +1522,12 @@ export const backend = {
   // Re-stamps every charge's recorded place against the currently saved
   // home (contract A15). dryRun counts without writing. Prices are never
   // touched. 409 when no home is saved.
+  // #906: the user's own home/away for one charge (null hands it back to the home location), and whether its map pins
+  // where the truck was. Web only; 204.
+  setChargePlace: (id: string, place: "home" | "away" | null) =>
+    api.put<void>(`/api/charges/${encodeURIComponent(id)}/place`, { place }),
+  setChargeLocation: (id: string, recorded: boolean) =>
+    api.put<void>(`/api/charges/${encodeURIComponent(id)}/location`, { recorded }),
   restampPlace: (dryRun: boolean) =>
     api.post<RestampResult>(`/api/charges/restamp-place${dryRun ? "?dry_run=1" : ""}`, null),
   // Undoes a correction (latest when restampId is omitted). 404 when
@@ -2134,6 +2148,8 @@ export type RestampResult = {
   to_away: number;
   unchanged: number;
   skipped_user_priced: number;
+  // Charges whose place the user set by hand (#906): never re-checked. Absent on older servers.
+  skipped_overridden?: number;
   // A15b: charges that become home AC and unpriced get the home rate.
   // Absent on older servers.
   would_price_at_home_rate?: number;

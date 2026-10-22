@@ -27,6 +27,7 @@ import {
 } from "../lib/format";
 import { formatDistance, formatTemperature, usePreferences, type DistanceUnit } from "../lib/preferences";
 import { chargePlaceLabel } from "../lib/chargePlace";
+import { nearestOwnNetwork } from "../lib/networkLocation";
 import { smoothGaussianTime } from "../lib/smooth";
 
 // nearestY returns the y of the series point closest in time to ms, or
@@ -153,6 +154,14 @@ export default function ChargeDetailPage() {
   // The ledger's network for this charge (RAN, Electrify America, ...):
   // the map labels its pin with it when the snapped node disagrees.
   const knownNetwork = receiptQ.data?.network ?? null;
+  // #906: one of the user's own networks saved near this charge labels its pin.
+  const ownNetsQ = useQuery({
+    queryKey: ["charging-networks"],
+    queryFn: () => backend.getChargingNetworks(),
+    staleTime: 60_000,
+    enabled: !demo,
+  });
+  const ownNetwork = charge ? nearestOwnNetwork(ownNetsQ.data, charge.Lat, charge.Lon) : null;
 
   const deleteCharge = useMutation({
     mutationFn: () => backend.deleteCharge(id!),
@@ -584,6 +593,7 @@ export default function ChargeDetailPage() {
           tempUnit={prefs.temperatureUnit}
           distanceUnit={prefs.distanceUnit}
         />
+        {!demo && <PlaceOverrideControl charge={charge} />}
       </Card>
 
       {Number.isFinite(charge.Lat) && (charge.Lat !== 0 || charge.Lon !== 0) ? (
@@ -600,7 +610,15 @@ export default function ChargeDetailPage() {
             height={260}
             network={knownNetwork}
             dc={charge.MaxPowerKW >= 30}
+            recorded={charge.LocationOverride === "recorded"}
+            ownLabel={ownNetwork?.name ?? null}
           />
+          {ownNetwork && (
+            <p className="mt-2 text-[11px] text-neutral-500" data-own-network-label>
+              Labelled from your network list.
+            </p>
+          )}
+          {!demo && <LocationOverrideToggle charge={charge} />}
           {!demo && <UseAsHome lat={charge.Lat} lon={charge.Lon} />}
         </Card>
       ) : null}
@@ -615,6 +633,7 @@ export default function ChargeDetailPage() {
           mutation={updatePricing}
           confirm={confirmPricing}
           networkName={knownNetwork ?? charge.network_evidence?.candidates?.[0]?.network ?? null}
+          nearbyNetwork={ownNetwork?.name ?? null}
         />
       )}
 
@@ -811,8 +830,11 @@ function SessionInsights({
   const tier = insights.tier;
   // Where: the same label as Now, Activity and Money (lib/chargePlace).
   const place = chargePlaceLabel(charge);
-  const where =
-    place === "Fast"
+  const own = charge.PlaceOverride === "home" ? "Home" : charge.PlaceOverride === "away" ? "Away" : "";
+  const where = own
+    ? // #906: the user's own word, said as theirs.
+      `${place === "Fast" ? `Fast charge · ${own}` : own} · set by you`
+    : place === "Fast"
       ? "Fast charge"
       : place === "Away" && charge.km_from_home != null
         ? `Away · ${formatDistance(charge.km_from_home, distanceUnit)} from home`
@@ -1195,10 +1217,13 @@ function PricingCard({
   mutation,
   confirm,
   networkName,
+  nearbyNetwork,
 }: {
   charge: import("../lib/api").Charge;
   confirm?: { mutate: () => void; isPending: boolean; isError: boolean; error: unknown };
   networkName?: string | null;
+  // #906: the user's own network saved near this charge; its rate is offered, never applied by itself.
+  nearbyNetwork?: string | null;
   // Loose typing so we don't pull react-query types just for this prop.
   mutation: {
     mutate: (body: Parameters<typeof backend.updateChargePricing>[1]) => void;
@@ -1229,6 +1254,20 @@ function PricingCard({
     queryFn: () => backend.getChargingNetworks(),
     staleTime: 60_000,
   });
+
+  // Honour the user's member toggle: when they've marked the network as
+  // active in Settings, prefill the member rate (e.g. $0.36 EA Pass+)
+  // instead of the guest $0.48. Falls back to guest when no member tier
+  // exists or the toggle is off. Fills the form only; Save applies it.
+  const prefill = (n: import("../lib/api").ChargingNetwork) => {
+    const effective =
+      n.member_active && (n.member_price_per_kwh ?? 0) > 0 ? n.member_price_per_kwh! : n.price_per_kwh;
+    setPpk(effective.toFixed(3));
+    setCurrency(n.currency || "USD");
+  };
+  const nearby = nearbyNetwork
+    ? (networks.data ?? []).find((n) => n.name === nearbyNetwork && networkRateSet(n)) ?? null
+    : null;
 
   const energy = charge.EnergyAddedKWh;
   const ppkNum = Number(ppk);
@@ -1283,19 +1322,7 @@ function PricingCard({
               defaultValue=""
               onChange={(e) => {
                 const n = networks.data!.find((x) => x.name === e.target.value);
-                if (n) {
-                  // Honour the user's member toggle: when they've
-                  // marked the network as active in Settings, prefill
-                  // the member rate (e.g. $0.36 EA Pass+) instead of
-                  // the guest $0.48. Falls back to guest when no
-                  // member tier exists or the toggle is off.
-                  const effective =
-                    n.member_active && (n.member_price_per_kwh ?? 0) > 0
-                      ? n.member_price_per_kwh!
-                      : n.price_per_kwh;
-                  setPpk(effective.toFixed(3));
-                  setCurrency(n.currency || "USD");
-                }
+                if (n) prefill(n);
                 // Reset back to placeholder so the same option can
                 // be re-selected later (a no-op nudge for the user).
                 e.target.value = "";
@@ -1330,6 +1357,14 @@ function PricingCard({
                 );
               })}
             </select>
+            {nearby && (
+              <span data-near-own-network className="mt-1 block text-[11px] text-neutral-400">
+                This charge is at {nearby.name} from your network list.{" "}
+                <button type="button" onClick={() => prefill(nearby)} className="underline underline-offset-2 hover:text-neutral-200">
+                  Prefill its rate
+                </button>
+              </span>
+            )}
             {networks.data.some((n) => !networkRateSet(n)) && (
               <span data-testid="rate-unset-hint" className="mt-1 block text-[11px] text-neutral-500">
                 {SET_RATE_FIRST} for the networks marked above.{" "}
@@ -1612,6 +1647,103 @@ function RateNote({ charge }: { charge: import("../lib/api").Charge }) {
           {needs ? `Set your rate${netName ? ` for ${netName}` : ""}` : "Set your rate"}
         </Link>
       </p>
+    </div>
+  );
+}
+
+// overrideButton is one option of the small segmented controls below.
+function overrideButton(active: boolean): string {
+  return [
+    "rounded-md px-2.5 py-1 transition-colors disabled:opacity-50",
+    active ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200",
+  ].join(" ");
+}
+
+// PlaceOverrideControl (GitHub #906): the user says whether this charge was at home or away. Their choice is kept
+// through every later re-check of the home location ("set by you"); Auto hands the charge back to the home location.
+// Reversible, so no confirmation. Web only.
+export function PlaceOverrideControl({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "PlaceOverride"> }) {
+  const qc = useQueryClient();
+  const stored = charge.PlaceOverride === "home" || charge.PlaceOverride === "away" ? charge.PlaceOverride : null;
+  // The choice shows at once and stays while the charge refetches; a failed save puts the stored one back.
+  const [chosen, setChosen] = useState<"home" | "away" | null | undefined>(undefined);
+  const current = chosen === undefined ? stored : chosen;
+  const save = useMutation({
+    mutationFn: (place: "home" | "away" | null) => backend.setChargePlace(charge.ID, place),
+    onError: () => setChosen(undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["charges"] });
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+    },
+  });
+  const shown = current;
+  const opts: { label: string; value: "home" | "away" | null }[] = [
+    { label: "Auto", value: null },
+    { label: "Home", value: "home" },
+    { label: "Away", value: "away" },
+  ];
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs" data-place-override>
+      <span className="text-neutral-400" id={`place-${charge.ID}`}>Place</span>
+      <div role="group" aria-labelledby={`place-${charge.ID}`} className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5">
+        {opts.map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            aria-pressed={shown === o.value}
+            disabled={save.isPending}
+            onClick={() => {
+              if (o.value === current) return;
+              setChosen(o.value);
+              save.mutate(o.value);
+            }}
+            className={overrideButton(shown === o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-neutral-500">
+        {current ? "Set by you; kept when your home location changes." : "From your home location."}
+      </span>
+      {save.isError && <span role="alert" className="text-rose-400">Couldn&apos;t save: {String(save.error)}</span>}
+    </div>
+  );
+}
+
+// LocationOverrideToggle (GitHub #906): pin this charge where the truck was (its recorded position) instead of the
+// nearest public charger. Reversible; web only.
+export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib/api").Charge, "ID" | "LocationOverride"> }) {
+  const qc = useQueryClient();
+  // As above: the choice shows at once; a failed save puts the stored one back.
+  const [chosen, setChosen] = useState<boolean | undefined>(undefined);
+  const on = chosen ?? charge.LocationOverride === "recorded";
+  const save = useMutation({
+    mutationFn: (recorded: boolean) => backend.setChargeLocation(charge.ID, recorded),
+    onError: () => setChosen(undefined),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["charges"] }),
+  });
+  const shown = on;
+  return (
+    <div className="mt-3 text-sm" data-location-override>
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={shown}
+          disabled={save.isPending}
+          onChange={(e) => {
+            setChosen(e.target.checked);
+            save.mutate(e.target.checked);
+          }}
+        />
+        <span>
+          <span className="text-neutral-200">Pin where the truck was</span>
+          {on && <span className="ml-2 text-xs text-neutral-500">set by you</span>}
+          <span className="block text-xs text-neutral-500">Instead of the nearest public charger.</span>
+        </span>
+      </label>
+      {save.isError && <p role="alert" className="mt-1 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
     </div>
   );
 }

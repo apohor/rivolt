@@ -172,6 +172,7 @@ var exportChargeHeader = []string{
 	"counts_in_spend", "flags",
 	"receipt_cost", "receipt_currency", "receipt_txn_id",
 	"estimate_month", "estimate_url",
+	"place_override", "location_override",
 }
 
 var exportReceiptHeader = []string{
@@ -210,6 +211,7 @@ func writeChargesCSV(w io.Writer, e exportData) error {
 			strconv.FormatBool(cl.CountsInSpend), csvText(strings.Join(cl.Flags, ";")),
 			fptr(c.ReceiptCost), csvText(c.ReceiptCurrency), csvText(c.ReceiptTxnID),
 			csvText(c.EstimateMonth), csvText(c.EstimateURL),
+			csvText(c.PlaceOverride), csvText(c.LocationOverride),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -292,7 +294,9 @@ const exportReadme = `Rivolt data export
 
 charges.csv  every charging session, with the stored cost and cost_source,
              plus the ledger's effective_* columns (what the Money tab uses)
-             and receipt_* (what Rivian billed, kept next to our estimate)
+             and receipt_* (what Rivian billed, kept next to our estimate);
+             place_override / location_override are what you set by hand
+             (home or away; "recorded" = where the truck was)
 rivian_receipts.csv  Rivian charging receipts we stored: amount, currency,
              energy, window, vendor, city, charger name (not for home chargers)
 drives.csv   every drive, including the encoded route polyline

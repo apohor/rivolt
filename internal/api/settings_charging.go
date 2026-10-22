@@ -85,6 +85,10 @@ func handleChargingNetworksPut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := settings.ValidateNetworkLocations(nets); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := settings.SetChargingNetworks(r.Context(), store, nets); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

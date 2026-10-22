@@ -1187,7 +1187,16 @@ export function ChargeMap({
   height = 240,
   network,
   dc = false,
+  recorded = false,
+  ownLabel,
 }: {
+  // #906: the user said the charge happened where the truck was: the
+  // recorded position is the pin, never a snap to a public charger.
+  recorded?: boolean;
+  // #906: the name of one of the user's own networks whose saved
+  // location is near this charge: the recorded position is labelled
+  // with it, never snapped.
+  ownLabel?: string | null;
   // The network the ledger recorded for this charge (RAN, Electrify
   // America, ...). When the snapped charger node is a different
   // network's, the pin says this one instead of a wrong brand.
@@ -1203,12 +1212,12 @@ export function ChargeMap({
   // The map is built once per location. A late `network` (the ledger
   // arrives after the page) only re-runs the pin choice through this ref,
   // so the map isn't torn down and rebuilt (that flashed).
-  const pinInputs = useRef({ network, dc });
-  pinInputs.current = { network, dc };
+  const pinInputs = useRef({ network, dc, recorded, ownLabel });
+  pinInputs.current = { network, dc, recorded, ownLabel };
   const rePin = useRef<(() => void) | null>(null);
   useEffect(() => {
     rePin.current?.();
-  }, [network, dc]);
+  }, [network, dc, recorded, ownLabel]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -1260,7 +1269,9 @@ export function ChargeMap({
     // stations.
     let snapped: POI | null | undefined; // undefined until the lookup settles
     const choose = () => {
-      if (cancelled || snapped === undefined) return;
+      const own = (pinInputs.current.ownLabel ?? "").trim();
+      const userPinned = pinInputs.current.recorded || own !== "";
+      if (cancelled || (snapped === undefined && !userPinned)) return;
       const known = (pinInputs.current.network ?? "").trim();
       // Reset to the plain recorded-location pin, then apply the choice.
       if (chargerMarker) {
@@ -1275,16 +1286,28 @@ export function ChargeMap({
       recordedMarker.setZIndexOffset(1000);
       recordedMarker.unbindTooltip();
       recordedMarker.bindTooltip("Charge location", { direction: "top" });
+      // The user's own word beats any snap: their network's name on
+      // the recorded position, or the plain recorded pin.
+      if (own) {
+        labelOwnLocation(own);
+        return;
+      }
+      if (pinInputs.current.recorded) {
+        recordedMarker.unbindTooltip();
+        recordedMarker.bindTooltip("Where the truck was", { direction: "top" });
+        return;
+      }
       if (!snapped && !known) return;
       // Never a wrong brand: the snap is kept only when the snapped
       // node agrees with the ledger's network (or the network is
       // unknown); otherwise the charge's own location is labelled with
       // the known network.
-      const choice = choosePin(snapped, known, pinInputs.current.dc);
+      const choice = choosePin(snapped ?? null, known, pinInputs.current.dc);
       if (choice.snap && snapped) applyChargerSnap(snapped, choice.label);
       else labelOwnLocation(choice.label);
     };
     rePin.current = choose;
+    choose(); // a pin the user chose needs no lookup
     void findNearestCharger(lat, lon, 750).then((poi) => {
       snapped = poi ?? null;
       choose();

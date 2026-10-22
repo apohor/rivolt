@@ -83,6 +83,12 @@ type Charge struct {
 	// (the last reported value, 1 to 100); nil when unknown. A later save that carries
 	// none keeps the stored one.
 	ChargeLimitPct *float64
+	// PlaceOverride is the user's own "home" or "away" for this charge (empty: automatic). When
+	// set, Place holds the same value and nothing re-classifies the row.
+	PlaceOverride string
+	// LocationOverride is "recorded" when the user says the charge happened where the truck was
+	// (Lat/Lon), not at the nearest public charger; maps then never snap. Empty: as recorded.
+	LocationOverride string
 	// ActiveSeconds is the wall-clock time the session actually spent
 	// charging (power above the idle floor), as opposed to
 	// EndedAt-StartedAt which spans the whole plugged-in period
@@ -267,8 +273,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			network_state, network_confidence, network_evidence,
 			rivian_charger,
 			estimate_month, estimate_url,
-			charge_limit_pct
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30)
+			charge_limit_pct,
+			place_override, location_override
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -310,7 +317,10 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			-- source is not an estimate.
 			estimate_month   = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.estimate_month ELSE EXCLUDED.estimate_month END,
 			estimate_url     = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.estimate_url ELSE EXCLUDED.estimate_url END,
-			place            = COALESCE(EXCLUDED.place, charges.place),
+			-- The user's own home/away wins over any re-save (a restore carries it in).
+			place            = COALESCE(EXCLUDED.place_override, charges.place_override, EXCLUDED.place, charges.place),
+			place_override   = COALESCE(EXCLUDED.place_override, charges.place_override),
+			location_override = COALESCE(EXCLUDED.location_override, charges.location_override),
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			charge_limit_pct = COALESCE(EXCLUDED.charge_limit_pct, charges.charge_limit_pct),
 			updated_at       = NOW()`,
@@ -325,12 +335,36 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		storedCost(c), nullIfEmpty(c.Currency), storedPricePerKWh(c),
 		nullableFloatPtr(c.ThermalKWh),
 		nullIfZero(c.ActiveSeconds),
-		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
+		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(storedPlace(c)),
 		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
 		nullableBool(c.RivianCharger),
 		nullIfEmpty(month), nullIfEmpty(url),
-		nullableFloatPtr(c.ChargeLimitPct))
+		nullableFloatPtr(c.ChargeLimitPct),
+		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride))
 	return err
+}
+
+// storedPlace is the user's own place when the row carries one (a restore), else the recorded one.
+func storedPlace(c Charge) string {
+	if placeOverrideArg(c.PlaceOverride) != nil {
+		return c.PlaceOverride
+	}
+	return c.Place
+}
+
+// placeOverrideArg is a valid override or NULL (an unknown value is never stored).
+func placeOverrideArg(v string) any {
+	if v == "home" || v == "away" {
+		return v
+	}
+	return nil
+}
+
+func locationOverrideArg(v string) any {
+	if v == LocationRecorded {
+		return v
+	}
+	return nil
 }
 
 // EstimateURLPrefix is the only place an estimate's report link may point.
@@ -398,7 +432,8 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
-		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -426,6 +461,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
+			&c.PlaceOverride, &c.LocationOverride,
 		); err != nil {
 			return nil, err
 		}
@@ -464,7 +500,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
-		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -495,6 +532,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
+			&c.PlaceOverride, &c.LocationOverride,
 	); err != nil {
 		return nil, err
 	}
@@ -686,7 +724,8 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
-		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -711,6 +750,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
+			&c.PlaceOverride, &c.LocationOverride,
 		); err != nil {
 			return err
 		}
@@ -925,7 +965,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
-		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,'')
+		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -949,6 +990,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
+			&c.PlaceOverride, &c.LocationOverride,
 	); err != nil {
 		return nil, err
 	}
@@ -1066,6 +1108,8 @@ type RestampResult struct {
 	ToAway               int        `json:"to_away"`
 	Unchanged            int        `json:"unchanged"`
 	SkippedUserPriced    int        `json:"skipped_user_priced"`
+	// SkippedOverridden: charges whose home/away the user set by hand, never re-checked.
+	SkippedOverridden int `json:"skipped_overridden"`
 	WouldPriceAtHomeRate int        `json:"would_price_at_home_rate"`
 	TotalCostDelta       float64    `json:"total_cost_delta"`
 	Currency             string     `json:"currency"`
@@ -1109,6 +1153,7 @@ func (s *Store) RestampPlace(ctx context.Context, o RestampOptions) (RestampResu
 		       started_at, ended_at
 		  FROM charges
 		 WHERE user_id = $1
+		   AND place_override IS NULL
 		   AND lat IS NOT NULL AND lon IS NOT NULL AND NOT (lat = 0 AND lon = 0)
 		 ORDER BY started_at
 		   FOR UPDATE`, s.userID)
@@ -1171,6 +1216,11 @@ func (s *Store) RestampPlace(ctx context.Context, o RestampOptions) (RestampResu
 	).Scan(&res.SkippedUserPriced); err != nil {
 		return res, err
 	}
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM charges WHERE user_id = $1 AND place_override IS NOT NULL`, s.userID,
+	).Scan(&res.SkippedOverridden); err != nil {
+		return res, err
+	}
 	if o.DryRun || len(changes) == 0 {
 		return res, nil
 	}
@@ -1180,9 +1230,9 @@ func (s *Store) RestampPlace(ctx context.Context, o RestampOptions) (RestampResu
 			_, err = tx.ExecContext(ctx, `
 				UPDATE charges SET place = $2::text, cost = $3::numeric, price_per_kwh = $4::numeric,
 				       currency = NULLIF($5::text, ''), cost_source = 'home_rate', updated_at = NOW()
-				 WHERE id = $1`, c.id, c.now, c.cost, o.HomeRate, o.Currency)
+				 WHERE id = $1 AND place_override IS NULL`, c.id, c.now, c.cost, o.HomeRate, o.Currency)
 		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1`, c.id, c.now)
+			_, err = tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1 AND place_override IS NULL`, c.id, c.now)
 		}
 		if err != nil {
 			return res, err
@@ -1288,7 +1338,8 @@ func (s *Store) UndoRestamp(ctx context.Context, restampID *uuid.UUID) (UndoResu
 		return res, ErrNoRestamp
 	}
 	for _, e := range entries {
-		if _, err := tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1 AND user_id = $3`,
+		// A row the user has since set by hand keeps their word.
+		if _, err := tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1 AND user_id = $3 AND place_override IS NULL`,
 			e.charge, e.prev, s.userID); err != nil {
 			return res, err
 		}
@@ -1391,4 +1442,72 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, nil
+}
+
+// LocationRecorded is the location override "where the truck was" (the charge's own lat/lon).
+const LocationRecorded = "recorded"
+
+// ErrNoSuchCharge: no charge of this user with that id.
+var ErrNoSuchCharge = errors.New("no such charge")
+
+// SetPlaceOverride records the user's own "home" or "away" for one of their charges (by its external id) and sets
+// place to it; nothing re-classifies the row afterwards. "" clears the override and gives the place back to the
+// home location: "home" within radiusM of (homeLat, homeLon), else "away"; with no home (homeSet false) or no
+// position, no place.
+func (s *Store) SetPlaceOverride(ctx context.Context, externalID, place string, homeSet bool, homeLat, homeLon, radiusM float64) error {
+	var res sql.Result
+	var err error
+	switch place {
+	case "home", "away":
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE charges SET place_override = $3::text, place = $3::text, updated_at = NOW()
+			 WHERE user_id = $1 AND external_id = $2`, s.userID, externalID, place)
+	case "":
+		var lat, lon sql.NullFloat64
+		if err := s.db.QueryRowContext(ctx, `SELECT lat, lon FROM charges WHERE user_id = $1 AND external_id = $2`,
+			s.userID, externalID).Scan(&lat, &lon); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNoSuchCharge
+			}
+			return err
+		}
+		var derived any
+		if homeSet && lat.Valid && lon.Valid && !(lat.Float64 == 0 && lon.Float64 == 0) {
+			derived = "away"
+			if haversineM(homeLat, homeLon, lat.Float64, lon.Float64) <= radiusM {
+				derived = "home"
+			}
+		}
+		res, err = s.db.ExecContext(ctx, `
+			UPDATE charges SET place_override = NULL, place = $3::text, updated_at = NOW()
+			 WHERE user_id = $1 AND external_id = $2`, s.userID, externalID, derived)
+	default:
+		return fmt.Errorf("place must be home, away or empty")
+	}
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoSuchCharge
+	}
+	return nil
+}
+
+// SetLocationOverride says whether one of the user's charges happened where the truck was (recorded true: maps
+// pin its stored lat/lon and never snap to a public charger) or is shown as recorded with the usual snap (false).
+func (s *Store) SetLocationOverride(ctx context.Context, externalID string, recorded bool) error {
+	var v any
+	if recorded {
+		v = LocationRecorded
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges SET location_override = $3::text, updated_at = NOW()
+		 WHERE user_id = $1 AND external_id = $2`, s.userID, externalID, v)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoSuchCharge
+	}
+	return nil
 }
