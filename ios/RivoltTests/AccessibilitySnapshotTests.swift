@@ -78,13 +78,14 @@ final class AccessibilitySnapshotTests: XCTestCase {
 
     func testActivityAtAnAccessibilitySize() throws {
         let r = try Fixture.decode(ActivityResponse.self, "activity")
-        let days = ActivityLogic.days(r, filter: .all, calendar: utc)
+        let cal = utc
+        let days = ActivityLogic.days(r, filter: .all, calendar: cal)
         let feed = VStack(alignment: .leading, spacing: 16) {
             ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: .constant(.all))
             ForEach(days.prefix(4)) { day in
                 VStack(alignment: .leading, spacing: 12) {
-                    ActivityDayHeader(day: day.day, calendar: utc)
-                    VStack(spacing: 0) { ForEach(day.items) { ActivityFeedRow(item: $0, calendar: utc) } }
+                    ActivityDayHeader(day: day.day, calendar: cal)
+                    VStack(spacing: 0) { ForEach(day.items) { ActivityFeedRow(item: $0, calendar: cal) } }
                 }
             }
         }
