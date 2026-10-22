@@ -14,11 +14,22 @@ final class DriveTimelineTests: XCTestCase {
     private func samples(for d: ActivityDrive) -> [DriveSample] {
         let n = Int(d.endedAt.timeIntervalSince(d.startedAt) / 10)
         return (0...n).map { i in
-            let t = Double(i) / Double(n)
-            let speed: Double = t < 0.2 ? 25 + 10 * sin(Double(i) / 3) : t < 0.7 ? 62 + 4 * sin(Double(i) / 5) : t < 0.72 ? 20 : 30 + 8 * sin(Double(i) / 4)
-            return DriveSample(at: d.startedAt.addingTimeInterval(Double(i) * 10), lat: 32.7767 + t * 0.2, lon: -96.797, speedMph: speed,
-                               shiftState: "D", locationFixAt: nil, batteryLevelPct: 85 - 5 * t, altitudeM: 150 + 40 * sin(t * 6),
-                               driveMode: t < 0.5 ? "everyday" : "sport")
+            let x = Double(i)
+            let t: Double = x / Double(n)
+            var speed: Double = 20
+            if t < 0.2 {
+                speed = 25 + 10 * sin(x / 3)
+            } else if t < 0.7 {
+                speed = 62 + 4 * sin(x / 5)
+            } else if t >= 0.72 {
+                speed = 30 + 8 * sin(x / 4)
+            }
+            let at: Date = d.startedAt.addingTimeInterval(x * 10)
+            let battery: Double = 85 - 5 * t
+            let altitude: Double = 150 + 40 * sin(t * 6)
+            let mode: String = t < 0.5 ? "everyday" : "sport"
+            return DriveSample(at: at, lat: 32.7767 + t * 0.2, lon: -96.797, speedMph: speed, shiftState: "D", locationFixAt: nil,
+                               batteryLevelPct: battery, altitudeM: altitude, driveMode: mode)
         }
     }
 
