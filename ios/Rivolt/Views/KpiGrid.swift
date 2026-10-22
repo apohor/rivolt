@@ -8,13 +8,27 @@ struct KpiGrid: View {
     let idleLoading: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// The tiles in the order the web lays them out, the idle tile last.
+    private var cells: [AnyView] {
+        tiles.map { AnyView(KpiTileView(tile: $0)) } + [AnyView(IdleAwakeTileView(tile: idle, loading: idleLoading))]
+    }
+
     var body: some View {
-        let columns = typeSize.isAccessibilitySize
-            ? [GridItem(.flexible())]
-            : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
-        LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(tiles) { KpiTileView(tile: $0) }
-            IdleAwakeTileView(tile: idle, loading: idleLoading)
+        if typeSize.isAccessibilitySize {
+            VStack(spacing: 12) {
+                ForEach(tiles) { KpiTileView(tile: $0) }
+                IdleAwakeTileView(tile: idle, loading: idleLoading)
+            }
+        } else {
+            // A grid, not a lazy one: the two tiles of a row take the height of the taller, as the web's do.
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                ForEach(Array(stride(from: 0, to: cells.count, by: 2)), id: \.self) { i in
+                    GridRow {
+                        cells[i]
+                        if i + 1 < cells.count { cells[i + 1] } else { Color.clear }
+                    }
+                }
+            }
         }
     }
 }
@@ -35,7 +49,7 @@ struct KpiTileView: View {
             }
         }
         .themeCard(padding: 3 * Theme.unit)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tile.spoken)
     }
@@ -66,7 +80,7 @@ struct IdleAwakeTileView: View {
             }
         }
         .themeCard(padding: 3 * Theme.unit)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
     }
