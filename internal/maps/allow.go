@@ -1,6 +1,7 @@
 package maps
 
 import (
+	"errors"
 	"net/http"
 	"path"
 	"strconv"
@@ -33,6 +34,8 @@ func AllowTiles(next http.Handler) http.Handler {
 	})
 }
 
+var errTileRefused = errors.New("maps: tile answer refused")
+
 // MaxTileResponse is the most a single tile read may carry. Real reads are a
 // header, a directory or one tile (the largest in the 19 GB basemap is 344 KiB);
 // 2 MiB leaves room, and anything bigger is an upstream answering something other
@@ -57,8 +60,48 @@ func guardTiles(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// A GET must name one bounded byte range: no Range (the whole file), an open
+		// "bytes=0-" or a range past the cap never reaches the tile server.
+		if code := tileRangeStatus(r.Header.Get("Range")); code != 0 {
+			w.Header().Set("Content-Range", "bytes */*")
+			http.Error(w, "a single bounded bytes range is required", code)
+			return
+		}
 		next.ServeHTTP(&tileGuardWriter{ResponseWriter: w}, r)
 	})
+}
+
+// tileRangeStatus validates a tile GET's Range header: exactly one "bytes=a-b" (or
+// suffix "bytes=-n") of at most MaxTileResponse bytes. It returns the status to refuse
+// with, or 0 when the read may go on.
+func tileRangeStatus(h string) int {
+	spec, ok := strings.CutPrefix(strings.TrimSpace(h), "bytes=")
+	if !ok || spec == "" || strings.Contains(spec, ",") {
+		return http.StatusBadRequest
+	}
+	lo, hi, ok := strings.Cut(spec, "-")
+	if !ok {
+		return http.StatusBadRequest
+	}
+	if lo == "" { // suffix: the last n bytes
+		n, err := strconv.ParseInt(hi, 10, 64)
+		if err != nil || n <= 0 {
+			return http.StatusBadRequest
+		}
+		if n > MaxTileResponse {
+			return http.StatusRequestedRangeNotSatisfiable
+		}
+		return 0
+	}
+	a, err1 := strconv.ParseInt(lo, 10, 64)
+	b, err2 := strconv.ParseInt(hi, 10, 64) // open-ended "a-" has no b: refused
+	if err1 != nil || err2 != nil || a < 0 || b < a {
+		return http.StatusBadRequest
+	}
+	if b-a+1 > MaxTileResponse {
+		return http.StatusRequestedRangeNotSatisfiable
+	}
+	return 0
 }
 
 type tileGuardWriter struct {
@@ -87,6 +130,10 @@ func (g *tileGuardWriter) WriteHeader(code int) {
 		h.Set("X-Content-Type-Options", "nosniff")
 		g.ResponseWriter.WriteHeader(http.StatusBadGateway)
 		_, _ = g.ResponseWriter.Write([]byte("tile server did not answer the byte range\n"))
+		// The visitor gets the whole 502 now: the upstream body is not read on (the
+		// next Write fails), so the proxy closes the connection to the tile server
+		// instead of draining a file into nothing.
+		_ = http.NewResponseController(g.ResponseWriter).Flush()
 		return
 	}
 	g.ResponseWriter.WriteHeader(code)
@@ -97,7 +144,7 @@ func (g *tileGuardWriter) Write(b []byte) (int, error) {
 		g.WriteHeader(http.StatusOK)
 	}
 	if g.refused {
-		return len(b), nil // the upstream body is dropped
+		return 0, errTileRefused // stops the proxy reading the upstream body
 	}
 	// Backstop for a body longer than its headers said: stop the connection
 	// rather than stream more than a tile read may carry.

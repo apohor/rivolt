@@ -3,10 +3,13 @@ package maps
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAllowlists(t *testing.T) {
@@ -38,6 +41,7 @@ func TestAllowlists(t *testing.T) {
 	}
 	for _, c := range cases {
 		req := httptest.NewRequest(c.method, "http://x"+c.path, nil)
+		req.Header.Set("Range", "bytes=0-16383") // a tile GET names one bounded range
 		rec := httptest.NewRecorder()
 		c.h(ok).ServeHTTP(rec, req)
 		if rec.Code != c.want {
@@ -121,11 +125,36 @@ func TestAllowTilesRefusesWholeFileAnswers(t *testing.T) {
 	if rec.Code != http.StatusBadGateway || rec.Body.Len() > 100 {
 		t.Errorf("an oversized 206: %d, %d body bytes", rec.Code, rec.Body.Len())
 	}
-	// No Range at all: the upstream's 200 of the whole file is not passed on.
-	rec = httptest.NewRecorder()
-	AllowTiles(fakeTileServer(big, nil)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/us.pmtiles", nil))
-	if rec.Code != http.StatusBadGateway || rec.Body.Len() > 100 {
-		t.Errorf("no Range: %d, %d body bytes", rec.Code, rec.Body.Len())
+	// No Range at all, an open-ended one, one past the cap, several, and a malformed
+	// one never reach the tile server.
+	for rng, want := range map[string]int{
+		"": http.StatusBadRequest, "bytes=0-": http.StatusBadRequest, "bytes=0-2097152": http.StatusRequestedRangeNotSatisfiable,
+		"bytes=-9999999": http.StatusRequestedRangeNotSatisfiable, "bytes=0-1,5-9": http.StatusBadRequest,
+		"bytes=9-1": http.StatusBadRequest, "items=0-1": http.StatusBadRequest,
+	} {
+		reached := false
+		spy := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true })
+		rec = httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/us.pmtiles", nil)
+		if rng != "" {
+			req.Header.Set("Range", rng)
+		}
+		AllowTiles(spy).ServeHTTP(rec, req)
+		if rec.Code != want || reached {
+			t.Errorf("Range %q: %d (reached upstream: %v), want %d before the upstream", rng, rec.Code, reached, want)
+		}
+	}
+	// The boundary: exactly MaxTileResponse and a suffix read are fine.
+	for _, rng := range []string{"bytes=0-2097151", "bytes=-1024", "bytes=1000-1999"} {
+		reached := false
+		spy := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true; w.WriteHeader(http.StatusPartialContent) })
+		rec = httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/us.pmtiles", nil)
+		req.Header.Set("Range", rng)
+		AllowTiles(spy).ServeHTTP(rec, req)
+		if !reached || rec.Code != http.StatusPartialContent {
+			t.Errorf("Range %q: %d, reached=%v, want let through", rng, rec.Code, reached)
+		}
 	}
 	// HEAD (no body), a good 206 and a 416 pass.
 	rec = httptest.NewRecorder()
@@ -146,5 +175,52 @@ func TestAllowTilesRefusesWholeFileAnswers(t *testing.T) {
 	AllowTiles(fakeTileServer(big, nil)).ServeHTTP(rec, bad)
 	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
 		t.Errorf("unsatisfiable: %d", rec.Code)
+	}
+}
+
+// When the guard refuses an upstream answer it stops reading it: a tile server that
+// streams a huge body is cut off after a few buffers, not drained into the void.
+func TestAllowTilesStopsReadingARefusedBody(t *testing.T) {
+	const total = 400 << 20
+	var sent atomic.Int64
+	done := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(done)
+		w.Header().Set("Content-Length", strconv.Itoa(total))
+		w.WriteHeader(http.StatusOK) // a 200 to a range read, the whole archive
+		chunk := make([]byte, 64<<10)
+		for sent.Load() < total {
+			n, err := w.Write(chunk)
+			sent.Add(int64(n))
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	proxy, err := NewProxy(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(AllowTiles(proxy))
+	defer front.Close()
+	req, _ := http.NewRequest(http.MethodGet, front.URL+"/us.pmtiles", nil)
+	req.Header.Set("Range", "bytes=0-9")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway || len(body) > 100 {
+		t.Errorf("client got %d with %d bytes, want a 502 with a short message", resp.StatusCode, len(body))
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the upstream was still being read 10 s after the refusal")
+	}
+	if got := sent.Load(); got > 64<<20 {
+		t.Errorf("the tile server sent %d MB of a %d MB body before it was cut off, want a few MB at most", got>>20, total>>20)
 	}
 }
