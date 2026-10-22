@@ -20,7 +20,7 @@ struct DriveRouteMap: View {
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .overlay(alignment: .bottomTrailing) { attribution }
+                    .overlay(alignment: .bottomTrailing) { MapAttribution() }
             } else if failed || route?.isEmpty == true {
                 Text(route?.isEmpty == true ? "No route was recorded for this drive." : "Map unavailable.")
                     .themeText(.subline, color: Theme.textTertiary)
@@ -34,17 +34,6 @@ struct DriveRouteMap: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .task(id: driveID) { await load() }
-    }
-
-    /// The tiles are OpenStreetMap data (ODbL) through Protomaps: credited on the map, as the web does.
-    private var attribution: some View {
-        Text("© OpenStreetMap · Protomaps")
-            .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(Theme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
-            .padding(4)
-            .accessibilityLabel("Map data OpenStreetMap, style Protomaps")
     }
 
     private func load() async {
@@ -70,17 +59,8 @@ struct RouteMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(route: route) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView(frame: .zero, styleJSON: styleJSON)
+        let map = MLNMapView.displayOnly(styleJSON: styleJSON)
         map.delegate = context.coordinator
-        map.showsUserLocation = false
-        map.isRotateEnabled = false
-        map.isPitchEnabled = false
-        map.isScrollEnabled = false
-        map.isZoomEnabled = false
-        map.compassView.isHidden = true
-        // The credit is drawn as text over the map (DriveRouteMap), visible without a tap.
-        map.attributionButton.isHidden = true
-        map.logoViewPosition = .bottomLeft
         return map
     }
 
@@ -108,5 +88,35 @@ struct RouteMapView: UIViewRepresentable {
             style.addLayer(layer)
             map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24), animated: false)
         }
+    }
+}
+
+/// The tiles are OpenStreetMap data (ODbL) through Protomaps: credited on every map, as the web does.
+struct MapAttribution: View {
+    var body: some View {
+        Text("© OpenStreetMap · Protomaps")
+            .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .background(Theme.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
+            .padding(4)
+            .accessibilityLabel("Map data OpenStreetMap, style Protomaps")
+    }
+}
+
+extension MLNMapView {
+    /// A map that is a picture: our style (as JSON, never fetched), no user location, no pan, zoom, rotation or tilt,
+    /// no compass, and the credit drawn by the SwiftUI side (MapAttribution) instead of the info button.
+    static func displayOnly(styleJSON: String) -> MLNMapView {
+        let map = MLNMapView(frame: .zero, styleJSON: styleJSON)
+        map.showsUserLocation = false
+        map.isRotateEnabled = false
+        map.isPitchEnabled = false
+        map.isScrollEnabled = false
+        map.isZoomEnabled = false
+        map.compassView.isHidden = true
+        map.attributionButton.isHidden = true
+        map.logoViewPosition = .bottomLeft
+        return map
     }
 }

@@ -74,3 +74,25 @@ final class MapStyleTests: XCTestCase {
         XCTAssertNil(h.header(for: URL(string: "https://rivolt.example/api/maps/tiles/us.pmtiles")))
     }
 }
+
+final class ChargePlaceTests: XCTestCase {
+    func testPlacesAreTheServersClustersWithoutTheirMembers() throws {
+        let places = try Fixture.decode([ChargePlace].self, "charge_clusters")
+        XCTAssertEqual(places.count, 4)
+        // Only the cluster's label, centre and totals are held; the member charge ids are not decoded.
+        XCTAssertEqual(Mirror(reflecting: places[0]).children.compactMap(\.label), ["label", "lat", "lon", "sessions", "energyKwh", "radiusM"])
+        let shown = ChargePlace.shown(places)
+        // The no-fix cluster is left out; the busiest place comes first.
+        XCTAssertEqual(shown.map(\.title), ["Home", "Away", "Fast"])
+        XCTAssertEqual(shown.map(\.key), [.home, .away, .dcfc])
+        XCTAssertEqual(ChargePlace(label: "", lat: 1, lon: 1, sessions: 1, energyKwh: 1, radiusM: 1).title, "Other")
+    }
+
+    func testCirclesGrowWithSessionsWithinBounds() {
+        func r(_ n: Int) -> Double { ChargePlace(label: "Home", lat: 1, lon: 1, sessions: n, energyKwh: 1, radiusM: 1).circleRadius }
+        XCTAssertEqual(r(1), 6)
+        XCTAssertEqual(r(5), 10, accuracy: 1e-9)
+        XCTAssertEqual(r(500), 18)
+        XCTAssertLessThan(r(2), r(10))
+    }
+}

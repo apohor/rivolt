@@ -68,6 +68,8 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"trends.json":       &vehicleTrends{},
 		"cold_range.json":   &coldRange{},
 		"lease_status.json": &vehiclelease.Status{},
+		// The Truck tab's "Where you charge" map: the account's charge clusters (synthetic public points).
+		"charge_clusters.json": &[]chargeClusterResponse{},
 		// Money's "To confirm" list: the open auto-detected networks, without coordinates.
 		"charges_to_confirm.json": &[]toConfirmCharge{},
 	} {

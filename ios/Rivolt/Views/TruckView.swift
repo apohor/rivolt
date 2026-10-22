@@ -156,6 +156,7 @@ struct TruckContent: View {
             packCard
             if let t = model.trends?.value { trendsCard(t) } else if model.trends == .failed { failedCard("Trends for your truck", "Couldn't load trends.") }
             if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") }
+            placesCard
             sleepCard
             vehicleCard
         }
@@ -533,6 +534,21 @@ struct TruckContent: View {
         }
     }
 
+    // MARK: Where you charge
+
+    @ViewBuilder
+    private var placesCard: some View {
+        switch model.places {
+        case .value(let all)?:
+            let places = ChargePlace.shown(all)
+            if !places.isEmpty { TruckPlacesCard(places: places) }
+        case .failed?:
+            failedCard("Where you charge", "Couldn't load your charging places.")
+        default:
+            EmptyView()
+        }
+    }
+
     // MARK: Sleep and idle-awake
 
     private var sleepCard: some View {
@@ -826,6 +842,48 @@ private struct TruckFlow: Layout {
                 x += size.width + spacing
             }
             y += h + lineSpacing
+        }
+    }
+}
+
+/// "Where you charge": every place the account has charged (all trucks, all time) on our own map, the busiest first
+/// in a short list under it. The places come from the server's clustering and stay in memory.
+private struct TruckPlacesCard: View {
+    let places: [ChargePlace]
+
+    @Environment(AppState.self) private var state
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        ThemeSection(title: "Where you charge") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+                    ChargePlacesMapView(styleJSON: style, places: places)
+                        .allowsHitTesting(false)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+                        .overlay(alignment: .bottomTrailing) { MapAttribution() }
+                        .accessibilityElement()
+                        .accessibilityLabel("Map of the places you charge")
+                        .onAppear { MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL)) }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(places.prefix(6)) { p in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Circle().fill(ChargePlacesMapView.color(p.key)).frame(width: 8, height: 8).accessibilityHidden(true)
+                            Text(p.title).themeText(.value, color: Theme.textPrimary)
+                            Spacer(minLength: 8)
+                            Text("\(p.sessions) \(TruckLogic.plural(p.sessions, "session", "sessions")) · \(TruckLogic.whole(p.energyKwh)) kWh")
+                                .themeText(.subline)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+                Text("All trucks, all time. Places are where the charges cluster, labelled the same way as Money.")
+                    .themeText(.caption, color: Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

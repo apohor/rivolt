@@ -337,6 +337,11 @@ actor APIClient {
 
     // MARK: Maps
 
+    /// Where the account charges (all trucks, all time), as the server clusters it: labels, centres and totals.
+    func chargePlaces() async throws -> [ChargePlace] {
+        try await request("GET", "/api/charges/clusters")
+    }
+
     /// One drive's route (its recorded trace and ends), for the map on its screen. Held in memory only.
     func driveRoute(id: String) async throws -> DriveRoute {
         try await request("GET", "/api/drives/\(pathID(id))")

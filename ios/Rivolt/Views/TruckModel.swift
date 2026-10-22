@@ -11,6 +11,7 @@ protocol TruckSource: Sendable {
     func leaseTerms(vehicleID: String) async throws -> LeaseTerms?
     func leaseStatus(vehicleID: String) async throws -> LeaseStatus?
     func sleepActivity(since: Date, until: Date, vehicleID: String) async throws -> [DayActivity]
+    func chargePlaces() async throws -> [ChargePlace]
 }
 
 extension APIClient: TruckSource {}
@@ -43,6 +44,8 @@ final class TruckModel {
     private(set) var leaseTerms: LeaseTerms?
     private(set) var sleep: Card<[DayActivity]>?
     private(set) var sleepCapped = false
+    /// Where the account charges (all trucks, all time); held in memory only.
+    private(set) var places: Card<[ChargePlace]>?
     private(set) var isLoading = false
 
     private struct Entry {
@@ -55,7 +58,8 @@ final class TruckModel {
     @ObservationIgnored private var shownCold: String?
 
     init(state: VehicleState? = nil, drain: Card<DrainSnapshot>? = nil, pack: Card<PackHealth>? = nil, trends: Card<TruckTrends>? = nil,
-         cold: Card<ColdRange>? = nil, lease: Card<LeaseStatus>? = nil, leaseTerms: LeaseTerms? = nil, sleep: Card<[DayActivity]>? = nil) {
+         cold: Card<ColdRange>? = nil, lease: Card<LeaseStatus>? = nil, leaseTerms: LeaseTerms? = nil, sleep: Card<[DayActivity]>? = nil,
+         places: Card<[ChargePlace]>? = nil) {
         self.state = state
         self.drain = drain
         self.pack = pack
@@ -64,6 +68,7 @@ final class TruckModel {
         self.lease = lease
         self.leaseTerms = leaseTerms
         self.sleep = sleep
+        self.places = places
     }
 
     /// The cached answer for `key`, or a fresh read. A read that throws keeps the earlier answer (any age); with none,
@@ -96,8 +101,11 @@ final class TruckModel {
         async let pk: Card<PackHealth> = read("pack|\(v)", now: now, force: force) { try await source.packHealth(vehicleID: v) }
         async let tr: Card<TruckTrends> = read("trends|\(v)|\(metric)", now: now, force: force) { try await source.trends(vehicleID: v, metric: metric) }
         async let lt: Card<LeaseTerms> = read("lease|\(v)", now: now, force: force) { try await source.leaseTerms(vehicleID: v) }
-        let (s, d, p, t, l) = await (st, dr, pk, tr, lt)
+        // The account's places, not the truck's: one key, so switching trucks doesn't read them again.
+        async let pl: Card<[ChargePlace]> = read("places", now: now, force: force) { try await source.chargePlaces() }
+        let (s, d, p, t, l, c) = await (st, dr, pk, tr, lt, pl)
         guard shownTruck == v else { return }
+        places = c
         if let sv = s.value { state = sv }
         drain = d
         pack = p
