@@ -79,7 +79,7 @@ const views: View[] = [
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
   { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /in the Sleep card below/] },
   { name: "truck-drain-thin", path: "/truck", heading: "Truck", opts: { drain: "insufficient" }, text: ["Not enough parked time yet to measure drain."] },
-  { name: "truck", path: "/truck", heading: "Truck", text: ["Battery capacity", "Lowest tire"] },
+  { name: "truck", path: "/truck", heading: "Truck", text: ["Battery capacity", "Front left"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
   { name: "admin-idp", path: "/admin#users", heading: /Sign-in removal failures/, text: ["Delete that account instead"] },
 ];
@@ -146,6 +146,12 @@ for (const view of views) {
           await expect(page.getByRole("status").filter({ hasText: /Rivian|reach its server/ })).toHaveCount(0);
         }
         if (view.name === "truck") {
+          // Tires: four wheels from the last reading, its age always shown, and never "OK" or "unsafe" in our words.
+          const tires = page.locator("[data-tires]");
+          await expect(tires).toContainText("Front left");
+          await expect(tires.locator("[data-tires-age]")).toContainText("As of");
+          await expect(tires).toContainText("Marked low below 32 psi or when Rivian reports it.");
+          await expect(tires).not.toContainText(/unsafe|dangerous|\bOK\b|Normal/);
           // Endpoint absent (404): no drain card at all.
           await expect(page.getByText("Parked drain")).toHaveCount(0);
         }

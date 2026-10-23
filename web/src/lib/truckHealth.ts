@@ -20,6 +20,37 @@ export function lowestTire(s: Pick<VehicleState, "tire_pressure_fl_bar" | "tire_
   return { bar, psi: bar * PSI_PER_BAR, low: bar < LOW_TIRE_BAR };
 }
 
+export type TirePos = "fl" | "fr" | "rl" | "rr";
+export type Wheel = { pos: TirePos; label: string; bar: number | null; psi: number | null; low: boolean; rivianLow: boolean };
+
+// The words Rivian's per-wheel status uses for a low tire, after trimming, lower-casing and turning spaces and hyphens into "_".
+// Any other word (including "normal") makes no claim: the card shows the pressure only and never calls a wheel OK in our words.
+const RIVIAN_LOW_WORDS = new Set(["low", "low_pressure", "very_low", "critically_low", "critical_low", "critical"]);
+export const rivianSaysLow = (status: string | undefined | null): boolean =>
+  RIVIAN_LOW_WORDS.has((status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_"));
+
+type TireFields = Pick<
+  VehicleState,
+  | "tire_pressure_fl_bar" | "tire_pressure_fr_bar" | "tire_pressure_rl_bar" | "tire_pressure_rr_bar"
+  | "tire_pressure_status_fl" | "tire_pressure_status_fr" | "tire_pressure_status_rl" | "tire_pressure_status_rr"
+>;
+
+// The four wheels, front row first as on the truck. A wheel that sent no pressure (0) has no number and is never marked low on the
+// floor; it can still carry Rivian's own word. Null when no wheel has anything to show.
+export function tireWheels(s: TireFields): Wheel[] | null {
+  const rows: [TirePos, string, number, string][] = [
+    ["fl", "Front left", s.tire_pressure_fl_bar, s.tire_pressure_status_fl],
+    ["fr", "Front right", s.tire_pressure_fr_bar, s.tire_pressure_status_fr],
+    ["rl", "Rear left", s.tire_pressure_rl_bar, s.tire_pressure_status_rl],
+    ["rr", "Rear right", s.tire_pressure_rr_bar, s.tire_pressure_status_rr],
+  ];
+  const wheels = rows.map(([pos, label, v, status]): Wheel => {
+    const bar = Number.isFinite(v) && v > 0 ? v : null;
+    return { pos, label, bar, psi: bar == null ? null : bar * PSI_PER_BAR, low: bar != null && bar < LOW_TIRE_BAR, rivianLow: rivianSaysLow(status) };
+  });
+  return wheels.some((w) => w.bar != null) ? wheels : null;
+}
+
 export type SoftwareInfo = { current: string; available: string | null };
 
 export function softwareInfo(s: Pick<VehicleState, "ota_current_version" | "ota_available_version">): SoftwareInfo | null {

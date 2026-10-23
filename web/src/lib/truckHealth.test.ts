@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, sleepSummary, softwareInfo } from "./truckHealth";
+import { lowestTire, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -54,5 +54,29 @@ describe("softwareInfo update line", () => {
   it("shows a real newer version and hides one equal to current", () => {
     expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.40.1" })?.available).toBe("2026.40.1");
     expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.36.0" })?.available).toBeNull();
+  });
+});
+
+describe("tireWheels", () => {
+  const base = { tire_pressure_fl_bar: 2.9, tire_pressure_fr_bar: 2.9, tire_pressure_rl_bar: 2.8, tire_pressure_rr_bar: 2.8, tire_pressure_status_fl: "Normal", tire_pressure_status_fr: "Normal", tire_pressure_status_rl: "Normal", tire_pressure_status_rr: "Normal" };
+  it("lists the four wheels front row first, in psi", () => {
+    const w = tireWheels(base)!;
+    expect(w.map((x) => x.label)).toEqual(["Front left", "Front right", "Rear left", "Rear right"]);
+    expect(Math.round(w[0].psi!)).toBe(42);
+  });
+  it("marks low only below the 32 psi floor or when Rivian says so, never calls a wheel OK", () => {
+    const w = tireWheels({ ...base, tire_pressure_fl_bar: 2.1, tire_pressure_rr_bar: 2.7, tire_pressure_status_rr: "Low" })!;
+    expect(w.map((x) => [x.low, x.rivianLow])).toEqual([[true, false], [false, false], [false, false], [false, true]]);
+    // 38 psi is under a placard but above the floor: the number only, no claim either way.
+    expect(tireWheels({ ...base, tire_pressure_fl_bar: 2.62 })![0]).toMatchObject({ low: false, rivianLow: false });
+  });
+  it("a wheel with no reading has no number and no floor claim; none at all hides the card", () => {
+    const w = tireWheels({ ...base, tire_pressure_fl_bar: 0 })!;
+    expect(w[0]).toMatchObject({ bar: null, psi: null, low: false });
+    expect(tireWheels({ ...base, tire_pressure_fl_bar: 0, tire_pressure_fr_bar: 0, tire_pressure_rl_bar: 0, tire_pressure_rr_bar: 0 })).toBeNull();
+  });
+  it("reads only a fixed list of Rivian's low words", () => {
+    for (const v of ["low", "Low", " LOW ", "critically low", "critical-low"]) expect(rivianSaysLow(v)).toBe(true);
+    for (const v of ["", "Normal", "unknown", "undefined", "high", "lowish"]) expect(rivianSaysLow(v)).toBe(false);
   });
 });
