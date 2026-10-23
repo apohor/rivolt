@@ -145,7 +145,7 @@ for (const scheme of ["dark", "light"] as const) {
     await expect(page.getByRole("switch", { name: "Pin where the truck was" })).toHaveAttribute("aria-checked", "false");
     // The off track settles to the neutral colour (not green).
     await expect(page.getByRole("switch", { name: "Pin where the truck was" })).not.toHaveClass(/bg-emerald/);
-    expect(await page.getByRole("switch", { name: "Pin where the truck was" }).evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0s/);
+    expect(await page.getByRole("switch", { name: "Pin where the truck was" }).evaluate((el) => getComputedStyle(el).transitionProperty)).toBe("none");
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-failed-iphone-${scheme}.png`), fullPage: false });
     await ctx.close();
   });
