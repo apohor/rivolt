@@ -58,25 +58,12 @@ final class SocChartTests: XCTestCase {
         XCTAssertFalse(ChartMath.limitVisible(nil, now: now, since: since, until: until))
     }
 
-    func testAShortDriveStillGetsAVisibleMarkOnTheStrip() throws {
-        let p = try roadTrip()
-        let since = try date("2026-10-01T00:00:00Z"), until = try date("2026-11-01T00:00:00Z")
-        let month = until.timeIntervalSince(since)
-        let plain = ChartMath.bands(drives: p.drives, charges: p.charges, from: since, to: until)
-        let wide = ChartMath.bands(drives: p.drives, charges: p.charges, from: since, to: until, minSpan: month / 100)
-        XCTAssertEqual(plain.count, wide.count)
-        XCTAssertTrue(plain.contains { $0.end.timeIntervalSince($0.start) < month / 100 })
-        XCTAssertTrue(wide.allSatisfy { $0.end.timeIntervalSince($0.start) >= month / 100 - 1 })
-        XCTAssertTrue(wide.allSatisfy { $0.start >= since && $0.end <= until })
-        XCTAssertEqual(plain.first?.start, wide.first?.start)
-    }
-
     func testTheHighAndLowAreTheRoadTripsSwing() throws {
         let p = try roadTrip()
-        let e = try XCTUnwrap(ChartMath.highLow(ChartMath.socTrend(drives: p.drives, charges: p.charges)))
-        XCTAssertEqual(e.high.pct, 97)
-        XCTAssertEqual(e.low.pct, 2.6)
-        XCTAssertEqual(NumberText.fixed(e.low.pct, 0), "3")
+        let e = try XCTUnwrap(SocDaily.extremes(SocDaily.days(drives: p.drives, charges: p.charges, calendar: utc)))
+        XCTAssertEqual(e.high.high, 97)
+        XCTAssertEqual(e.low.low, 2.6)
+        XCTAssertEqual(NumberText.fixed(e.low.low, 0), "3")
     }
 
     @MainActor

@@ -15,8 +15,8 @@ final class SocDailyTests: XCTestCase {
         DrivePoint(startedAt: at(s), endedAt: at(e), distanceMi: 10, startSocPct: a, endSocPct: b)
     }
 
-    private func charge(_ s: String, _ e: String, _ a: Double, _ b: Double, kind: String? = "ac") -> ChargePoint {
-        ChargePoint(startedAt: at(s), endedAt: at(e), startSocPct: a, endSocPct: b, kind: kind)
+    private func charge(_ s: String, _ e: String, _ a: Double, _ b: Double) -> ChargePoint {
+        ChargePoint(startedAt: at(s), endedAt: at(e), startSocPct: a, endSocPct: b)
     }
 
     func testADayWithFourCyclesIsOneBarFromItsLowestToItsHighestAndEndsWhereItEnded() {
@@ -28,10 +28,10 @@ final class SocDailyTests: XCTestCase {
             drive("2026-10-12T21:45:00Z", "2026-10-12T22:45:00Z", 42, 12),
         ]
         let charges = [
-            charge("2026-10-12T07:45:00Z", "2026-10-12T08:35:00Z", 22, 73, kind: "dcfc"),
-            charge("2026-10-12T13:30:00Z", "2026-10-12T14:30:00Z", 3, 73, kind: "dcfc"),
+            charge("2026-10-12T07:45:00Z", "2026-10-12T08:35:00Z", 22, 73),
+            charge("2026-10-12T13:30:00Z", "2026-10-12T14:30:00Z", 3, 73),
             charge("2026-10-12T18:30:00Z", "2026-10-12T21:30:00Z", 17, 42),
-            charge("2026-10-12T22:50:00Z", "2026-10-12T23:50:00Z", 12, 70, kind: "dcfc"),
+            charge("2026-10-12T22:50:00Z", "2026-10-12T23:50:00Z", 12, 70),
         ]
         let days = SocDaily.days(drives: drives, charges: charges, calendar: utc)
         XCTAssertEqual(days.count, 1)
@@ -39,7 +39,6 @@ final class SocDailyTests: XCTestCase {
         XCTAssertEqual(days[0].high, 73)
         XCTAssertEqual(days[0].end, 70)
         XCTAssertTrue(days[0].charged)
-        XCTAssertTrue(days[0].fast)
     }
 
     func testDaysWithoutReadingsAreSkippedAndAChargeFlagsTheDaysItTouches() {
@@ -49,7 +48,6 @@ final class SocDailyTests: XCTestCase {
         let days = SocDaily.days(drives: drives, charges: charges, calendar: utc)
         XCTAssertEqual(days.map(\.day), [at("2026-10-02T00:00:00Z"), at("2026-10-03T00:00:00Z"), at("2026-10-05T00:00:00Z")], "the 4th has no readings")
         XCTAssertEqual(days.map(\.charged), [true, true, false])
-        XCTAssertEqual(days.map(\.fast), [false, false, false])
         XCTAssertEqual(days[0].end, 60, "the last reading of the 2nd is the charge's start")
         XCTAssertEqual(days[1].end, 70)
         XCTAssertEqual(days[1].low, 70)

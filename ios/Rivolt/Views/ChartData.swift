@@ -24,32 +24,8 @@ enum ChartMath {
         return days.map { DayValue(day: $0, value: buckets[$0] ?? 0) }
     }
 
-    /// The stretches the truck was charging or driving, for the bands behind the charge-level line.
-    struct Band: Equatable, Identifiable {
-        enum Kind { case charging, driving }
-        let kind: Kind
-        let start: Date
-        let end: Date
-        var id: String { "\(kind)-\(start.timeIntervalSince1970)" }
-    }
-
-    /// Charging and driving stretches within `[from, to]`, clipped to it; empty or backwards ones are left out.
-    /// `minSpan` widens a shorter stretch (to the right, still inside `to`) so a short drive is a visible mark at month
-    /// scale, as the web's minimum band width does.
-    static func bands(drives: [DrivePoint], charges: [ChargePoint], from: Date, to: Date, minSpan: TimeInterval = 0) -> [Band] {
-        func make(_ kind: Band.Kind, _ s: Date, _ e: Date) -> Band? {
-            let start = max(s, from)
-            guard min(e, to) > start else { return nil }
-            let end = min(max(e, start.addingTimeInterval(minSpan)), to)
-            return Band(kind: kind, start: start, end: end)
-        }
-        let all = charges.compactMap { make(.charging, $0.startedAt, $0.endedAt) } + drives.compactMap { make(.driving, $0.startedAt, $0.endedAt) }
-        return all.sorted { $0.start < $1.start }
-    }
-
-    /// Whether the charge limit is drawn: only a real limit (above 0, below 100) and only on the month that contains
-    /// now. The limit is what the truck is set to today; an earlier month, or the earlier days of this one, may have
-    /// had another (it changes), so a line across them would say something we don't know.
+    /// Whether the charge limit is drawn from today's value: only a real limit (above 0, below 100) and only on the month
+    /// that contains now. The limit is what the truck is set to today; an earlier month may have had another.
     static func limitVisible(_ limit: Double?, now: Date, since: Date, until: Date) -> Bool {
         guard let limit, limit > 0, limit < 100 else { return false }
         return now >= since && now < until
@@ -98,13 +74,6 @@ enum ChartMath {
             push(held, end, current && validLimit(live) ? (live ?? pct) : pct)
         }
         return out
-    }
-
-    /// The highest and lowest points of the line, for the two labelled dots; nil with fewer than two points.
-    static func highLow(_ trend: [SocPoint]) -> (high: SocPoint, low: SocPoint)? {
-        guard trend.count >= 2, let high = trend.max(by: { $0.pct < $1.pct }), let low = trend.min(by: { $0.pct < $1.pct }),
-              high != low else { return nil }
-        return (high, low)
     }
 
     /// Both ends of every drive and charge, oldest first. A reading of 0 or less is "unknown", as on the web.
@@ -168,12 +137,4 @@ enum ChartMath {
         return (label, value)
     }
 
-    /// For the charge-level line: where it starts and ends, and its lowest and highest points.
-    static func spokenLevel(period: String, trend: [SocPoint]) -> (label: String, value: String) {
-        let label = "Charge level, \(period)"
-        guard let first = trend.first, let last = trend.last,
-              let low = trend.min(by: { $0.pct < $1.pct }), let high = trend.max(by: { $0.pct < $1.pct }) else { return (label, "") }
-        func pc(_ v: Double) -> String { "\(Int(v.rounded())) percent" }
-        return (label, "from \(pc(first.pct)) to \(pc(last.pct)), lowest \(pc(low.pct)), highest \(pc(high.pct))")
-    }
 }

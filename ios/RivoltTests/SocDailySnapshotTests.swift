@@ -25,7 +25,7 @@ final class SocDailySnapshotTests: XCTestCase {
             drives.append(DrivePoint(startedAt: t(day, from), endedAt: t(day, to), distanceMi: (a - b) * 2.4, startSocPct: a, endSocPct: b))
         }
         func charge(_ day: Int, _ from: Double, _ to: Double, _ a: Double, _ b: Double, limit: Double, kind: String) {
-            charges.append(ChargePoint(startedAt: t(day, from), endedAt: t(day, to), startSocPct: a, endSocPct: b, chargeLimitPct: limit, kind: kind))
+            charges.append(ChargePoint(startedAt: t(day, from), endedAt: t(day, to), startSocPct: a, endSocPct: b, chargeLimitPct: limit))
         }
         for day in 1...22 {
             switch day {
@@ -85,11 +85,12 @@ final class SocDailySnapshotTests: XCTestCase {
         let pm = PeriodMonth(containing: now, calendar: utc)
         let r = pm.range(calendar: utc)
         let steps = ChartMath.limitSteps(m.charges, from: r.since, to: r.until, now: now, live: 70)
+        let limit = steps.last?.pct
         XCTAssertEqual(SocDaily.extremes(days)?.low.low, 3)
         XCTAssertEqual(SocDaily.extremes(days)?.high.high, 97)
         XCTAssertFalse(steps.isEmpty)
         try render("soc-daily", ThemeSection(title: "Battery (SoC) trend") {
-            SocDailyChart(days: days, steps: steps, month: pm, now: now, calendar: utc)
+            SocDailyChart(days: days, limit: limit, month: pm, now: now, calendar: utc)
                 .padding(4 * Theme.unit)
         }.padding(16).frame(width: 390).background(ThemePageBackground()))
     }

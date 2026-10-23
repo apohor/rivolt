@@ -86,162 +86,25 @@ struct ChartsSection: View {
         return ChartMath.socTrend(drives: points.drives, charges: points.charges)
     }
 
-    private var levelSpoken: (label: String, value: String) {
-        ChartMath.spokenLevel(period: period, trend: trend)
-    }
-
+    /// The battery chart: a soft band of each day's low to high with the end-of-day line over it (SocDailyChart). The limit
+    /// is today's on the current month, else the last known in the month shown.
     private var levelCard: some View {
         ThemeSection(title: "Battery (SoC) trend") {
+            let days = SocDaily.days(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], calendar: calendar)
             if model.points == nil {
                 ChartEmpty(text: model.isLoading ? "Loading…" : "Couldn't load this chart.")
             } else if trend.count < 2 {
                 ChartEmpty(text: "Not enough drives or charges in \(month.title(calendar: calendar)) yet.")
             } else {
-                let range = month.range(calendar: calendar)
-                // At least ~1% of the month wide, so a short drive is still a mark on the strip.
-                let bands = ChartMath.bands(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], from: range.since, to: range.until,
-                                            minSpan: range.until.timeIntervalSince(range.since) / 100)
-                let extremes = ChartMath.highLow(trend)
-                Chart {
-                    bandMarks(bands)
-                    trendMarks(trend)
-                    limitMark(range: range)
-                    extremeMarks(extremes)
-                }
-                .chartXScale(domain: range.since...range.until)
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                // Below 0% is the strip; above 100% is room for the high label.
-                .chartYScale(domain: -12...108)
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: [0, 50, 100]) { value in
-                        AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
-                        AxisValueLabel {
-                            if let v = value.as(Int.self) { ChartAxisText("\(v)%") }
-                        }
-                    }
-                }
-                .chartXAxis {
-                    // The same day labels as Miles per day: 10-01, 10-11, 10-21, 10-31.
-                    AxisMarks(values: month.axisDays(calendar: calendar)) { value in
-                        AxisValueLabel(anchor: .top, collisionResolution: .disabled) {
-                            if let d = value.as(Date.self) { ChartAxisText(Self.dayLabel(d, calendar: calendar)) }
-                        }
-                    }
-                }
-                .frame(height: chartHeight + 20)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(levelSpoken.label)
-                .accessibilityValue(levelSpoken.value)
-                ChartLegend(items: legendItems(range: range))
+                SocDailyChart(days: days, limit: limitValue, month: month, now: now, calendar: calendar)
             }
         }
     }
 
-    private func legendItems(range: (since: Date, until: Date)) -> [ChartLegend.Item] {
-        var items: [ChartLegend.Item] = [
-            .init(label: "Battery %", style: .line(Theme.textPrimary)),
-            .init(label: "Charging", style: .swatch(Theme.chartSocCharge)),
-            .init(label: "Driving", style: .swatch(Theme.chartSocDrive)),
-        ]
-        if !limitSteps(range: range).isEmpty {
-            items.append(.init(label: "Charge limit", style: .dashed(Theme.chartSocLimit)))
-        } else if limitShown(range: range) {
-            items.append(.init(label: "Charge limit now", style: .dashed(Theme.chartSocLimit)))
-        }
-        items.append(.init(label: "High and low", style: .dot(Theme.textPrimary)))
-        return items
-    }
-
-    private func bandColor(_ kind: ChartMath.Band.Kind) -> Color {
-        kind == .charging ? Theme.chartSocCharge : Theme.chartSocDrive
-    }
-
-    /// One thin strip under the 0% line: sky for driving, the accent for charging. No wash over the plot.
-    @ChartContentBuilder
-    private func bandMarks(_ bands: [ChartMath.Band]) -> some ChartContent {
-        ForEach(bands) { b in
-            RectangleMark(xStart: .value("From", b.start), xEnd: .value("To", b.end), yStart: .value("Low", -10), yEnd: .value("Top", -4))
-                .foregroundStyle(bandColor(b.kind))
-        }
-    }
-
-    @ChartContentBuilder
-    private func trendMarks(_ trend: [SocPoint]) -> some ChartContent {
-        ForEach(trend) { p in
-            AreaMark(x: .value("Time", p.at), yStart: .value("Floor", 0), yEnd: .value("Charge", p.pct))
-                .interpolationMethod(.linear)
-                .foregroundStyle(LinearGradient(colors: [Theme.textPrimary.opacity(0.12), .clear], startPoint: .top, endPoint: .bottom))
-        }
-        ForEach(trend) { p in
-            LineMark(x: .value("Time", p.at), y: .value("Charge", p.pct))
-                .interpolationMethod(.linear)
-                .foregroundStyle(Theme.textPrimary)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-        }
-    }
-
-    /// The limit is what the truck is set to now, not what it was on earlier days (it was changed during the month), so
-    /// it is drawn only on the current month and only over the last two days, ending at now, with the value to its right.
-    private func limitShown(range: (since: Date, until: Date)) -> Bool {
-        ChartMath.limitVisible(limit, now: now, since: range.since, until: range.until)
-    }
-
-    private func limitSteps(range: (since: Date, until: Date)) -> [ChartMath.LimitStep] {
-        ChartMath.limitSteps(model.points?.charges ?? [], from: range.since, to: range.until, now: now, live: limit)
-    }
-
-    /// The limit as steps from the charges' stored limits; a server that doesn't send them yet (or a period with none
-    /// known) keeps the short segment of today's limit, on the current month only.
-    @ChartContentBuilder
-    private func limitMark(range: (since: Date, until: Date)) -> some ChartContent {
-        let steps = limitSteps(range: range)
-        if !steps.isEmpty {
-            stepMarks(steps, range: range)
-        } else if limitShown(range: range), let limit {
-            RuleMark(xStart: .value("From", max(range.since, now.addingTimeInterval(-2 * 86_400))), xEnd: .value("To", now), y: .value("Limit", limit))
-                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                .foregroundStyle(Theme.chartSocLimit)
-                .annotation(position: limitLabelAbove(range) ? .top : .trailing, alignment: limitLabelAbove(range) ? .trailing : .center, spacing: 4) {
-                    Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
-                }
-        }
-    }
-
-    /// In the last days of the month there is no room to the right of now, so the value goes above the line.
-    private func limitLabelAbove(_ range: (since: Date, until: Date)) -> Bool {
-        range.until.timeIntervalSince(now) < 4 * 86_400
-    }
-
-    /// One line through the steps (a vertical jump where the limit changes), and, on the current month only, the
-    /// value once, at the line's end at now. A past month shows its steps without a value.
-    @ChartContentBuilder
-    private func stepMarks(_ steps: [ChartMath.LimitStep], range: (since: Date, until: Date)) -> some ChartContent {
-        let points = steps.flatMap { [(at: $0.start, pct: $0.pct), (at: $0.end, pct: $0.pct)] }
-        ForEach(Array(points.enumerated()), id: \.offset) { _, p in
-            LineMark(x: .value("Time", p.at), y: .value("Limit", p.pct), series: .value("Series", "Limit"))
-                .foregroundStyle(Theme.chartSocLimit)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                .interpolationMethod(.linear)
-        }
-        if let last = steps.last, now >= range.since, now <= range.until, now.timeIntervalSince(last.end) < 60 {
-            PointMark(x: .value("Time", last.end), y: .value("Limit", last.pct))
-                .symbolSize(0)
-                .annotation(position: limitLabelAbove(range) ? .top : .trailing, alignment: limitLabelAbove(range) ? .trailing : .center, spacing: 4) {
-                    Text("Limit \(NumberText.fixed(last.pct, 0))%").themeText(.caption, color: Theme.chartSocLimit)
-                }
-        }
-    }
-
-    @ChartContentBuilder
-    private func extremeMarks(_ extremes: (high: SocPoint, low: SocPoint)?) -> some ChartContent {
-        if let e = extremes {
-            PointMark(x: .value("Time", e.high.at), y: .value("Charge", e.high.pct))
-                .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                .annotation(position: .top, spacing: 2) { Text("\(NumberText.fixed(e.high.pct, 0))%").themeText(.caption, color: Theme.textPrimary) }
-            PointMark(x: .value("Time", e.low.at), y: .value("Charge", e.low.pct))
-                .foregroundStyle(Theme.textPrimary).symbolSize(40)
-                .annotation(position: .trailing, spacing: 4) { Text("\(NumberText.fixed(e.low.pct, 0))%").themeText(.caption, color: Theme.textPrimary) }
-        }
+    private var limitValue: Double? {
+        let r = month.range(calendar: calendar)
+        if let last = ChartMath.limitSteps(model.points?.charges ?? [], from: r.since, to: r.until, now: now, live: limit).last { return last.pct }
+        return ChartMath.limitVisible(limit, now: now, since: r.since, until: r.until) ? limit : nil
     }
 
     /// "10-01", the web's day labels.
@@ -265,39 +128,5 @@ private struct ChartEmpty: View {
     var body: some View {
         Text(text).themeText(.subline)
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-    }
-}
-
-/// The key under the battery chart: what each line, band and dot means.
-private struct ChartLegend: View {
-    struct Item: Identifiable {
-        enum Style { case line(Color), swatch(Color), dashed(Color), dot(Color) }
-        let label: String
-        let style: Style
-        var id: String { label }
-    }
-    let items: [Item]
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), alignment: .leading)], alignment: .leading, spacing: 6) {
-            ForEach(items) { item in
-                HStack(spacing: 6) {
-                    mark(item.style)
-                    Text(item.label).themeText(.subline, color: Theme.textBody)
-                }
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private func mark(_ style: Item.Style) -> some View {
-        switch style {
-        case .line(let c): Capsule().fill(c).frame(width: 18, height: 2)
-        case .swatch(let c): RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 14, height: 6)
-        case .dashed(let c): Path { p in p.move(to: .zero); p.addLine(to: CGPoint(x: 18, y: 0)) }
-            .stroke(c, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])).frame(width: 18, height: 2)
-        case .dot(let c): Circle().fill(c).frame(width: 8, height: 8)
-        }
     }
 }

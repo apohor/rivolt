@@ -23,8 +23,6 @@ struct ChargePoint: Decodable, Equatable {
     /// The limit the truck was set to for this charge (1 to 100); null or 0 when unknown, and absent on a server
     /// that predates it.
     var chargeLimitPct: Double? = nil
-    /// "dcfc" for a DC fast charge, "ac" otherwise; absent until the server sends it (the daily chart's bolt needs it).
-    var kind: String? = nil
 }
 
 /// One row of `GET /api/sleep-activity`: a UTC day, in hours.

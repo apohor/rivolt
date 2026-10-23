@@ -13,8 +13,6 @@ enum SocDaily {
         let end: Double
         /// A charge started or ended on this day.
         let charged: Bool
-        /// One of those was a DC fast charge.
-        let fast: Bool
         var id: Date { day }
     }
 
@@ -28,17 +26,14 @@ enum SocDaily {
         var byDay: [Date: [SocPoint]] = [:]
         for p in trend { byDay[calendar.startOfDay(for: p.at), default: []].append(p) }
         var charged: Set<Date> = []
-        var fast: Set<Date> = []
         for c in charges {
-            for d in [calendar.startOfDay(for: c.startedAt), calendar.startOfDay(for: c.endedAt)] {
-                charged.insert(d)
-                if c.kind == "dcfc" { fast.insert(d) }
-            }
+            charged.insert(calendar.startOfDay(for: c.startedAt))
+            charged.insert(calendar.startOfDay(for: c.endedAt))
         }
         return byDay.keys.sorted().compactMap { day in
             guard let pts = byDay[day]?.sorted(by: { $0.at < $1.at }), let last = pts.last,
                   let low = pts.map(\.pct).min(), let high = pts.map(\.pct).max() else { return nil }
-            return Day(day: day, low: low, high: high, end: last.pct, charged: charged.contains(day), fast: fast.contains(day))
+            return Day(day: day, low: low, high: high, end: last.pct, charged: charged.contains(day))
         }
     }
 
@@ -66,27 +61,32 @@ enum SocDaily {
     }
 }
 
-/// One rounded bar per day (60% of the day's slot wide) from its lowest to its highest level (green on a day the truck charged, a bolt on a fast
-/// charge, neutral otherwise), a dot at the end of the day joined by a thin line, a faint tint under 20%, and the charge
-/// limit as a faint step line behind. The high and the low of the month are named under the chart.
+/// The battery level by day, calm: a soft band from each day's lowest to highest level (smoothed between days), one smooth
+/// line over it for where the day ended, only the month's highest and lowest points named, one faint line for the charge
+/// limit named once, a tiny tick on the axis for each day it charged and a barely visible tint under 20%. A road trip reads
+/// as a deep, wide dip in the band. No legend: one short caption says what the marks are.
 struct SocDailyChart: View {
     let days: [SocDaily.Day]
-    let steps: [ChartMath.LimitStep]
+    /// The limit to draw (nil for none): today's on the current month, else the last known in that month.
+    let limit: Double?
     let month: PeriodMonth
     var now: Date = .now
     var calendar: Calendar = .current
 
-    @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 190
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 200
 
     private var range: (since: Date, until: Date) { month.range(calendar: calendar) }
     private var extremes: (high: SocDaily.Day, low: SocDaily.Day)? { SocDaily.extremes(days) }
 
+    /// The middle of a day, where its marks sit.
+    private func center(_ day: Date) -> Date { day.addingTimeInterval(43_200) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             chart
-            captions
-            legend
+            Text("Shaded: each day's low to high · line: end of day · ticks: days it charged")
+                .themeText(.caption, color: Theme.textTertiary)
+                .accessibilityHidden(true)
         }
     }
 
@@ -95,14 +95,13 @@ struct SocDailyChart: View {
         return Chart {
             lowZone(r)
             limitMarks(r)
-            barMarks
-            trendMarks
-            extremeMarks
-            boltMarks
+            bandMarks
+            lineMarks
+            tickMarks
+            extremeMarks(r)
         }
         .chartXScale(domain: r.since...r.until)
-        // 0 to 100 with a little room above for a bolt on a bar that reaches the top.
-        .chartYScale(domain: 0...108)
+        .chartYScale(domain: 0...104)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .chartYAxis {
             AxisMarks(position: .leading, values: [0, 50, 100]) { value in
@@ -128,116 +127,76 @@ struct SocDailyChart: View {
 
     // MARK: Marks
 
+    /// Barely there: under 20% the battery is low, and the eye finds the dips without a shout.
     @ChartContentBuilder
     private func lowZone(_ r: (since: Date, until: Date)) -> some ChartContent {
         RectangleMark(xStart: .value("From", r.since), xEnd: .value("To", r.until), yStart: .value("Low", 0), yEnd: .value("Zone", SocDaily.lowZone))
-            .foregroundStyle(Theme.critical.opacity(0.08))
+            .foregroundStyle(Theme.critical.opacity(0.045))
     }
 
-    /// The limit behind the bars: a faint thin step line, named once at its right end on the current month.
+    /// One faint line at the limit, named once at its right end.
     @ChartContentBuilder
     private func limitMarks(_ r: (since: Date, until: Date)) -> some ChartContent {
-        let points = steps.flatMap { [(at: $0.start, pct: $0.pct), (at: $0.end, pct: $0.pct)] }
-        ForEach(Array(points.enumerated()), id: \.offset) { _, p in
-            LineMark(x: .value("Time", p.at), y: .value("Limit", p.pct), series: .value("Series", "Limit"))
-                .foregroundStyle(Theme.chartSocLimit.opacity(0.45))
+        if let limit {
+            RuleMark(xStart: .value("From", r.since), xEnd: .value("To", r.until), y: .value("Limit", limit))
                 .lineStyle(StrokeStyle(lineWidth: 1))
-                .interpolationMethod(.linear)
-        }
-        if let last = steps.last, now >= r.since, now <= r.until, now.timeIntervalSince(last.end) < 60 {
-            let above = r.until.timeIntervalSince(now) < 4 * 86_400
-            PointMark(x: .value("Time", last.end), y: .value("Limit", last.pct))
+                .foregroundStyle(Theme.chartSocLimit.opacity(0.32))
+            PointMark(x: .value("To", r.until), y: .value("Limit", limit))
                 .symbolSize(0)
-                .annotation(position: above ? .top : .trailing, alignment: above ? .trailing : .center, spacing: 4) {
-                    Text("Limit \(NumberText.fixed(last.pct, 0))%").themeText(.caption, color: Theme.chartSocLimit)
+                .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                    Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
     }
 
+    /// The band: low to high for each day, smoothed so it never overshoots the real lows and highs.
     @ChartContentBuilder
-    private var barMarks: some ChartContent {
+    private var bandMarks: some ChartContent {
         ForEach(days) { d in
-            RectangleMark(x: .value("Day", d.day, unit: .day), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 1.5)), width: .ratio(0.6))
-                .cornerRadius(3)
-                .foregroundStyle(d.charged ? Theme.chartSocCharge : Theme.textTertiary.opacity(0.5))
+            AreaMark(x: .value("Day", center(d.day)), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 0.6)), series: .value("Series", "Band"))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Theme.chartSocCharge.opacity(0.22))
         }
     }
 
-    /// The end-of-day level as a dot on each day, joined by a thin line: the trend.
+    /// Where each day ended, as one smooth line.
     @ChartContentBuilder
-    private var trendMarks: some ChartContent {
+    private var lineMarks: some ChartContent {
         ForEach(days) { d in
-            LineMark(x: .value("Day", d.day, unit: .day), y: .value("End", d.end), series: .value("Series", "Trend"))
-                .foregroundStyle(Theme.textSecondary.opacity(0.7))
-                .lineStyle(StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
-                .interpolationMethod(.linear)
-        }
-        ForEach(days) { d in
-            PointMark(x: .value("Day", d.day, unit: .day), y: .value("End", d.end))
-                .symbolSize(14)
-                .foregroundStyle(Theme.textPrimary)
+            LineMark(x: .value("Day", center(d.day)), y: .value("End", d.end), series: .value("Series", "End"))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Theme.chartSocCharge)
+                .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         }
     }
 
-    /// A larger dot on the month's highest and lowest points, named under the chart.
+    /// A tiny tick on the axis for each day the truck charged.
     @ChartContentBuilder
-    private var extremeMarks: some ChartContent {
-        if let e = extremes {
-            PointMark(x: .value("Day", e.high.day, unit: .day), y: .value("High", e.high.high))
-                .symbolSize(44).foregroundStyle(Theme.textPrimary)
-            PointMark(x: .value("Day", e.low.day, unit: .day), y: .value("Low", e.low.low))
-                .symbolSize(44).foregroundStyle(Theme.textPrimary)
+    private var tickMarks: some ChartContent {
+        ForEach(days.filter(\.charged)) { d in
+            RuleMark(x: .value("Day", center(d.day)), yStart: .value("Floor", 0), yEnd: .value("Tick", 3.2))
+                .lineStyle(StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                .foregroundStyle(Theme.chartSocCharge)
         }
     }
 
+    /// The month's highest and lowest points, named inside the plot ("97% · Oct 9"), on the side with room.
     @ChartContentBuilder
-    private var boltMarks: some ChartContent {
-        ForEach(days.filter(\.fast)) { d in
-            PointMark(x: .value("Day", d.day, unit: .day), y: .value("High", d.high))
-                .symbolSize(0)
-                .annotation(position: .top, spacing: 1) {
-                    Image(systemName: "bolt.fill").font(.system(size: 9)).foregroundStyle(Theme.fast)
-                }
-        }
-    }
-
-    // MARK: Captions and legend
-
-    /// "Highest 97% · Oct 9" and "Lowest 3% · Oct 12", with the dot that marks each on the chart.
-    @ViewBuilder
-    private var captions: some View {
+    private func extremeMarks(_ r: (since: Date, until: Date)) -> some ChartContent {
         if let e = extremes, e.high.high != e.low.low {
-            ThemeFlow(spacing: 16, rowSpacing: 4) {
-                caption("Highest \(NumberText.fixed(e.high.high, 0))% · \(SocDaily.dayLabel(e.high.day, calendar: calendar))")
-                caption("Lowest \(NumberText.fixed(e.low.low, 0))% · \(SocDaily.dayLabel(e.low.day, calendar: calendar))")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            let highRight = center(e.high.day).timeIntervalSince(r.since) < 0.6 * r.until.timeIntervalSince(r.since)
+            let lowRight = center(e.low.day).timeIntervalSince(r.since) < 0.6 * r.until.timeIntervalSince(r.since)
+            PointMark(x: .value("Day", center(e.high.day)), y: .value("High", e.high.high))
+                .symbolSize(40).foregroundStyle(Theme.textPrimary)
+                .annotation(position: highRight ? .trailing : .leading, spacing: 4) { extremeLabel("\(NumberText.fixed(e.high.high, 0))% · \(SocDaily.dayLabel(e.high.day, calendar: calendar))") }
+            PointMark(x: .value("Day", center(e.low.day)), y: .value("Low", e.low.low))
+                .symbolSize(40).foregroundStyle(Theme.textPrimary)
+                .annotation(position: lowRight ? .trailing : .leading, spacing: 4) { extremeLabel("\(NumberText.fixed(e.low.low, 0))% · \(SocDaily.dayLabel(e.low.day, calendar: calendar))") }
         }
     }
 
-    private func caption(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(Theme.textPrimary).frame(width: 7, height: 7).accessibilityHidden(true)
-            Text(text).themeText(.value, color: Theme.textPrimary)
-        }
-    }
-
-    private var legend: some View {
-        ThemeFlow(spacing: 14, rowSpacing: 6) {
-            legendItem("Charged day") { Capsule().fill(Theme.chartSocCharge).frame(width: 6, height: 14) }
-            legendItem("Other day") { Capsule().fill(Theme.textTertiary.opacity(0.5)).frame(width: 6, height: 14) }
-            legendItem("End of day") { Circle().fill(Theme.textPrimary).frame(width: 6, height: 6) }
-            legendItem("Fast charge") { Image(systemName: "bolt.fill").font(.system(size: 10)).foregroundStyle(Theme.fast) }
-            if !steps.isEmpty { legendItem("Charge limit") { Rectangle().fill(Theme.chartSocLimit.opacity(0.6)).frame(width: 14, height: 1) } }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func legendItem<S: View>(_ label: String, @ViewBuilder swatch: () -> S) -> some View {
-        HStack(spacing: 5) {
-            swatch().accessibilityHidden(true)
-            Text(label).themeText(.caption, color: Theme.textTertiary)
-        }
+    private func extremeLabel(_ text: String) -> some View {
+        Text(text).themeText(.caption, color: Theme.textPrimary).fontWeight(.semibold)
     }
 }
 
