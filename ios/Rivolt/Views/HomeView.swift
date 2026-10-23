@@ -26,6 +26,11 @@ struct HomeView: View {
     @State private var charts = ChartsModel()
     @State private var month = PeriodMonth(containing: .now, calendar: .current)
     @Environment(\.tabActive) private var tabActive
+    @Environment(\.scenePhase) private var scenePhase
+    /// When the truck was last read from the server, so "Offline" is said only after a recent read (NowFreshness).
+    @State private var freshness = NowFreshness()
+    /// Bumped by each read so the card's ages move on without waiting for a change in the data.
+    @State private var clockTick = Date()
     @State private var places = PlacesModel()
     @State private var kpi = KpiModel()
     @State private var recentCharges: [ChargeBrief] = []
@@ -39,7 +44,7 @@ struct HomeView: View {
             ScrollView {
                 Group {
                     if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
-                        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+                        let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                         let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
                             if let m = extras.current(vehicleID: vehicle.id) {
@@ -90,8 +95,11 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await load(force: true) }
             .task { await load() }
-            // While the screen is up the live reads follow the charge or drive (about every 10 s).
-            .task(id: "\(selectedID)|\(tabActive)") { if tabActive { await pollLive() } }
+            // While the screen is up and the app is in front, the truck is read again: every 10 s while charging or
+            // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
+            .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }
+            // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
+            .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
@@ -205,6 +213,7 @@ struct HomeView: View {
         let (s, n, c, d) = await (st, nw, ch, dr)
         vehicleState = s
         now = n ?? nil
+        if s != nil || n != nil { freshness.fetched(at: .now) }
         recentCharges = c ?? []
         latestCharge = recentCharges.first
         latestDrive = d ?? nil
@@ -226,19 +235,38 @@ struct HomeView: View {
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
     }
 
+    /// The state and the live reads, from the server now. True when it answered.
+    @discardableResult
+    private func refreshNow() async -> Bool {
+        guard let id = selected?.id else { return false }
+        async let st = try? state.client.vehicleState(id: id)
+        async let nw = try? state.client.vehicleNow(id: id)
+        let (s, n) = await (st, nw)
+        if let s { vehicleState = s }
+        if let n { now = n }
+        let answered = s != nil || n != nil
+        if answered { freshness.fetched(at: .now) }
+        clockTick = .now
+        await loadLive(id: id)
+        return answered
+    }
+
+    /// The newest frame's time when "Offline" is being held back for a re-read; nil when there is nothing to settle.
+    private var recheckKey: Date? {
+        guard selected != nil, vehicleState != nil || now != nil || !isLoading else { return nil }
+        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+        _ = clockTick
+        return freshness.holdsOffline(summary, clock: .now) ? (summary.lastSeen ?? .distantPast) : nil
+    }
+
     private func pollLive() async {
+        // Read first when the last read is old (the tab was away), then on the state's own cadence.
+        if freshness.lastFetchAt.map({ Date.now.timeIntervalSince($0) > NowFreshness.confirmWindow / 3 }) ?? true { await refreshNow() }
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled, let id = selected?.id else { continue }
             let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
-            if kind == .charging || kind == .driving {
-                async let st = try? state.client.vehicleState(id: id)
-                async let nw = try? state.client.vehicleNow(id: id)
-                let (s, n) = await (st, nw)
-                if let s { vehicleState = s }
-                if let n { now = n }
-                await loadLive(id: id)
-            }
+            try? await Task.sleep(for: .seconds(NowRefresh.pollInterval(kind)))
+            guard !Task.isCancelled, selected?.id != nil else { continue }
+            await refreshNow()
         }
     }
 
