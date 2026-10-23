@@ -5,7 +5,8 @@ import "regexp"
 // Observing what vehicleState says about each tire's status, to learn what we cannot read from the code: which words
 // prod trucks send, and whether any ever says low. Nothing is stored. Each wheel on a frame that carries tire data is
 // counted in a bounded class (rivolt_tire_status_total: low, not_low, other, missing: no vehicle, user or raw word as a
-// label), and the first time this process sees a word it has no claim for, it is logged once with no vehicle id. The
+// label), and the first time this monitor (one per user) sees a word it has no claim for, it is logged once, with the user_id every
+// log line of that monitor carries and no vehicle id. The
 // words are Rivian enum strings, not personal data.
 
 // TireObserver is optionally implemented by the SleepObserver (main's metrics adapter): told the class of each wheel's
@@ -17,7 +18,7 @@ type TireObserver interface {
 // tireWordOK limits what is logged as a word: a short plain word, never free text.
 var tireWordOK = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_ -]{0,31}$`)
 
-// tireMaxWords bounds the set of distinct "other" words remembered (and so logged) per process.
+// tireMaxWords bounds the set of distinct "other" words remembered (and so logged) per monitor.
 const tireMaxWords = 32
 
 // observeTires reports one vehicleState push's tire fields. A frame with no tire pressure and no tire status carries no
