@@ -34,6 +34,15 @@ struct ChargeRow: Decodable, Equatable {
     /// The place on the session card is the user's own (any other value reads as automatic).
     var placeSetByYou: Bool { placeOverride == "home" || placeOverride == "away" }
 
+    /// What the user chose, for the pill: "Home" or "Away"; nil when automatic.
+    var placeByYou: String? {
+        switch placeOverride {
+        case "home": return "Home"
+        case "away": return "Away"
+        default: return nil
+        }
+    }
+
     /// The map pins the recorded position and never snaps to a charger.
     var pinnedWhereRecorded: Bool { locationOverride == "recorded" }
 
