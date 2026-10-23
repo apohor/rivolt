@@ -54,4 +54,50 @@ final class NowComfortTests: XCTestCase {
         XCTAssertFalse(c.climateHold)
         XCTAssertEqual(c.preconditioning, .done)
     }
+
+    // MARK: Software update
+
+    private func update(_ status: String?, progress: Double? = 40, available: String? = "2026.38.0") -> NowUpdate? {
+        NowUpdate(status: status, progress: progress, current: "2026.34.1", available: available)
+    }
+
+    func testTheUpdateReadsAFixedListOfTheTrucksWordsAndNothingElse() {
+        XCTAssertEqual(update("Downloading")?.phase, .downloading)
+        XCTAssertEqual(update("ready_to_install")?.phase, .ready)
+        XCTAssertEqual(update("Ready To Install")?.phase, .ready)
+        XCTAssertEqual(update("installing")?.phase, .installing)
+        for v in ["Idle", "", "unknown", "undefined", "awaiting_reboot", "failed"] { XCTAssertNil(update(v), v) }
+        XCTAssertNil(update(nil))
+        XCTAssertNil(update("downloading", available: "0.0.0")?.version, "0.0.0 is no version")
+    }
+
+    func testNoNumberUntilTheProgressScaleIsConfirmed() {
+        XCTAssertNil(NowUpdate.progressMax, "confirm the scale from real frames before showing a percent")
+        XCTAssertNil(update("downloading", progress: 40)?.pct)
+        XCTAssertEqual(update("downloading")?.line(), "2026.38.0 · Downloading")
+        XCTAssertEqual(update("ready_to_install")?.line(), "2026.38.0 · Ready to install")
+        XCTAssertEqual(update("installing")?.line(onNow: true), "Installing software 2026.38.0")
+    }
+
+    func testTheUpdateWordingGivesNoInstructionAndNoEstimate() throws {
+        for v in ["downloading", "ready_to_install", "installing"] {
+            let u = try XCTUnwrap(update(v))
+            for l in [u.line(), u.line(onNow: true)] {
+                XCTAssertNil(l.range(of: #"install now|minutes|about|safe|don't|do not"#, options: [.regularExpression, .caseInsensitive]), l)
+            }
+        }
+    }
+
+    func testOnlyAnInstallOnALiveFrameReachesNow() {
+        func s(_ status: String, age: TimeInterval = 20) -> NowSummary {
+            let input = NowSummary.Input(socPct: 70, rangeKm: 300, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: "charger_disconnected",
+                                         chargerPowerKw: 0, at: t0, update: update(status))
+            return NowSummary(input: input, now: nil, clock: t0.addingTimeInterval(age))
+        }
+        XCTAssertNotNil(s("installing").liveInstall)
+        XCTAssertNil(s("downloading").liveInstall, "only an install shows on Now")
+        XCTAssertNil(s("ready_to_install").liveInstall)
+        XCTAssertNil(s("installing", age: 600).liveInstall, "stale")
+        XCTAssertNil(s("installing", age: 3 * 3600).liveInstall, "offline")
+    }
 }

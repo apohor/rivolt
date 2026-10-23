@@ -51,6 +51,43 @@ export function tireWheels(s: TireFields): Wheel[] | null {
   return wheels.some((w) => w.bar != null) ? wheels : null;
 }
 
+// Software update state from the live feed's otaStatus and otaInstallProgress. A fixed list of the truck's own words, after trimming,
+// lower-casing and turning spaces and hyphens into "_": idle, empty or any other word means no update state and no claim. An R2 has none.
+export type OtaPhase = "downloading" | "ready" | "installing";
+const OTA_WORDS: Record<string, OtaPhase> = {
+  downloading: "downloading",
+  download: "downloading",
+  download_in_progress: "downloading",
+  ready_to_install: "ready",
+  ready_for_install: "ready",
+  installing: "installing",
+  install: "installing",
+  install_in_progress: "installing",
+};
+// The scale of otaInstallProgress: its maximum value (100 for percent, 1 for a fraction). Null until confirmed from real frames, and while
+// it is null no number is shown, only the state: never "4000%" or "0.4%".
+export const OTA_PROGRESS_MAX: number | null = null;
+
+export type OtaUpdate = { phase: OtaPhase; version: string | null; pct: number | null };
+
+export function otaUpdate(s: Pick<VehicleState, "ota_status" | "ota_install_progress" | "ota_current_version" | "ota_available_version">): OtaUpdate | null {
+  const phase = OTA_WORDS[(s.ota_status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")];
+  if (!phase) return null;
+  let pct: number | null = null;
+  const p = s.ota_install_progress;
+  if (OTA_PROGRESS_MAX != null && phase !== "ready" && Number.isFinite(p) && p > 0 && p <= OTA_PROGRESS_MAX) pct = Math.round((p / OTA_PROGRESS_MAX) * 100);
+  return { phase, version: softwareInfo(s)?.available ?? null, pct };
+}
+
+// "2026.38 · Downloading 40%", "Ready to install", "Installing software 2026.38 · 40%" (Now). The truck's state in plain words, never
+// an instruction or an estimate.
+export function otaLine(u: OtaUpdate, where: "truck" | "now" = "truck"): string {
+  const num = u.pct != null ? ` ${u.pct}%` : "";
+  if (where === "now") return `Installing software${u.version ? ` ${u.version}` : ""}${u.pct != null ? ` · ${u.pct}%` : ""}`;
+  const word = u.phase === "downloading" ? `Downloading${num}` : u.phase === "ready" ? "Ready to install" : `Installing${num}`;
+  return u.version ? `${u.version} · ${word}` : word;
+}
+
 export type SoftwareInfo = { current: string; available: string | null };
 
 export function softwareInfo(s: Pick<VehicleState, "ota_current_version" | "ota_available_version">): SoftwareInfo | null {

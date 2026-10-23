@@ -19,6 +19,8 @@ final class TruckSnapshotTests: XCTestCase {
         o["tire_pressure_fl_bar"] = 2.1
         o["tire_pressure_rr_bar"] = 2.7
         o["tire_pressure_status_rr"] = "Low"
+        o["ota_status"] = "Ready_To_Install"
+        o["ota_available_version"] = "2026.38.0"
         return try JSON.decoder().decode(VehicleState.self, from: JSONSerialization.data(withJSONObject: o))
     }
 
@@ -56,7 +58,8 @@ final class TruckSnapshotTests: XCTestCase {
         Theme.registerFonts()
         for scheme in [ColorScheme.light, .dark] {
             let renderer = ImageRenderer(content: content.environment(\.colorScheme, scheme).fixedSize(horizontal: false, vertical: true))
-            renderer.scale = 3
+            // 2x: the page is tall enough that 3x goes past the image size limit and the PNG comes back empty.
+            renderer.scale = 2
             let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
             XCTAssertGreaterThan(image.size.height, 1500)
             let png = try XCTUnwrap(image.pngData())

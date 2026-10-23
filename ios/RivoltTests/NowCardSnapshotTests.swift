@@ -35,6 +35,14 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("now-comfort-stale", card(comfort, age: 600))
     }
 
+    func testRenderInstalling() throws {
+        let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        let input = NowSummary.Input(socPct: 72, rangeKm: 330, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: "charger_disconnected",
+                                     chargerPowerKw: 0, at: at, update: NowUpdate(status: "installing", progress: 40, current: "2026.34.1", available: "2026.38.0"))
+        try snapshot("now-installing", NowCard(vehicle: vehicle, summary: NowSummary(input: input, now: nil, clock: at.addingTimeInterval(15)), clock: at.addingTimeInterval(15)))
+    }
+
     func testRenderCharts() throws {
         let model = ChartsModel(points: try Fixture.decode(ChartPoints.self, "chart_points"),
                                 sleep: try Fixture.decode([DayActivity].self, "sleep_activity"))

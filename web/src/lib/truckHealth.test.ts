@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaLine, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -78,5 +78,30 @@ describe("tireWheels", () => {
   it("reads only a fixed list of Rivian's low words", () => {
     for (const v of ["low", "Low", " LOW ", "critically low", "critical-low"]) expect(rivianSaysLow(v)).toBe(true);
     for (const v of ["", "Normal", "unknown", "undefined", "high", "lowish"]) expect(rivianSaysLow(v)).toBe(false);
+  });
+});
+
+describe("otaUpdate", () => {
+  const base = { ota_status: "Idle", ota_install_progress: 0, ota_current_version: "2026.34.1", ota_available_version: "2026.38.0" };
+  it("reads a fixed list of the truck's own words, and nothing for idle, empty or an unknown word", () => {
+    expect(otaUpdate({ ...base, ota_status: "Downloading" })?.phase).toBe("downloading");
+    expect(otaUpdate({ ...base, ota_status: "ready_to_install" })?.phase).toBe("ready");
+    expect(otaUpdate({ ...base, ota_status: "Ready To Install" })?.phase).toBe("ready");
+    expect(otaUpdate({ ...base, ota_status: "installing" })?.phase).toBe("installing");
+    for (const v of ["Idle", "", "unknown", "undefined", "awaiting_reboot", "failed"]) expect(otaUpdate({ ...base, ota_status: v })).toBeNull();
+  });
+  it("shows no number until the progress scale is confirmed, and never a made-up one", () => {
+    // OTA_PROGRESS_MAX is null for now: the state alone.
+    expect(otaUpdate({ ...base, ota_status: "downloading", ota_install_progress: 40 })).toEqual({ phase: "downloading", version: "2026.38.0", pct: null });
+    expect(otaLine({ phase: "downloading", version: "2026.38.0", pct: null })).toBe("2026.38.0 · Downloading");
+  });
+  it("words the state plainly: no instruction, no estimate", () => {
+    expect(otaLine({ phase: "ready", version: "2026.38.0", pct: null })).toBe("2026.38.0 · Ready to install");
+    expect(otaLine({ phase: "installing", version: "2026.38.0", pct: 40 }, "now")).toBe("Installing software 2026.38.0 · 40%");
+    expect(otaLine({ phase: "installing", version: null, pct: null }, "now")).toBe("Installing software");
+    for (const l of [otaLine({ phase: "ready", version: null, pct: null }), otaLine({ phase: "installing", version: "1", pct: 5 })]) expect(l).not.toMatch(/install now|minutes|about|safe|don't|do not/i);
+  });
+  it("a version of 0.0.0 is no version", () => {
+    expect(otaUpdate({ ...base, ota_status: "downloading", ota_available_version: "0.0.0" })?.version).toBeNull();
   });
 });

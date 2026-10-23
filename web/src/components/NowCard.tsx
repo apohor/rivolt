@@ -23,6 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import { comfortParts } from "../lib/comfort";
+import { otaLine, otaUpdate } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -239,6 +240,9 @@ export default function NowCard({
   const pill = statusPill(view);
   // Only while the frame is live: a stale or offline truck shows none, so an old "Pet mode on" never reads as current.
   const comfort = offline || view.stale ? [] : comfortParts(state, temperatureUnit);
+  // While the truck says it is installing a software update and the frame is live: it explains why the truck may stop answering.
+  const update = offline || view.stale ? null : otaUpdate(state);
+  const installing = update?.phase === "installing" ? update : null;
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
@@ -349,6 +353,11 @@ export default function NowCard({
           ))}
         </dl>
         <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />
+        {installing && (
+          <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
+            {otaLine(installing, "now")}
+          </p>
+        )}
         {comfort.length > 0 && (
           <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
             {comfort.join(" · ")}

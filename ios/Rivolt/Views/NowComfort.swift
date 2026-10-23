@@ -54,3 +54,53 @@ struct NowComfort: Equatable {
     var text: String { parts().joined(separator: " · ") }
     var spokenText: String { parts(spoken: true).joined(separator: ", ") }
 }
+
+/// The truck's software update state for the Truck tab's Vehicle card and, while it installs, the Now card. Read from the live feed's
+/// own words (a fixed list; idle, empty or any other word means none and no claim; an R2 sends none), in plain text: never an
+/// instruction, never an estimate.
+struct NowUpdate: Equatable {
+    enum Phase: Equatable { case downloading, ready, installing }
+
+    let phase: Phase
+    let version: String?
+    /// Whole percent; nil until the progress scale is confirmed from real frames (see `progressMax`), and for "ready".
+    let pct: Int?
+
+    /// The maximum of `otaInstallProgress` (100 for a percent, 1 for a fraction). Nil until confirmed: with it nil no number is shown,
+    /// only the state, never "4000%" or "0.4%".
+    static let progressMax: Double? = nil
+
+    private static let words: [String: Phase] = [
+        "downloading": .downloading, "download": .downloading, "download_in_progress": .downloading,
+        "ready_to_install": .ready, "ready_for_install": .ready,
+        "installing": .installing, "install": .installing, "install_in_progress": .installing,
+    ]
+
+    init?(status: String?, progress: Double?, current: String?, available: String?) {
+        let key = (status ?? "").trimmingCharacters(in: .whitespaces).lowercased().split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).joined(separator: "_")
+        guard let phase = Self.words[key] else { return nil }
+        self.phase = phase
+        if let max = Self.progressMax, phase != .ready, let p = progress, p.isFinite, p > 0, p <= max { pct = Int((p / max * 100).rounded()) } else { pct = nil }
+        let cur = (current ?? "").trimmingCharacters(in: .whitespaces)
+        let avail = (available ?? "").trimmingCharacters(in: .whitespaces)
+        let none = avail.isEmpty || avail.allSatisfy { $0 == "0" || $0 == "." }
+        version = !cur.isEmpty && !none && avail != cur ? avail : nil
+    }
+
+    init?(_ s: VehicleState) {
+        self.init(status: s.otaStatus, progress: s.otaInstallProgress, current: s.otaCurrentVersion, available: s.otaAvailableVersion)
+    }
+
+    /// "2026.38 · Downloading 40%", "Ready to install"; on Now, "Installing software 2026.38 · 40%".
+    func line(onNow: Bool = false) -> String {
+        if onNow { return "Installing software" + (version.map { " \($0)" } ?? "") + (pct.map { " · \($0)%" } ?? "") }
+        let num = pct.map { " \($0)%" } ?? ""
+        let word: String
+        switch phase {
+        case .downloading: word = "Downloading" + num
+        case .ready: word = "Ready to install"
+        case .installing: word = "Installing" + num
+        }
+        return version.map { "\($0) · \(word)" } ?? word
+    }
+}

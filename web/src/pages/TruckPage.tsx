@@ -16,7 +16,7 @@ import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
+import { otaLine, otaUpdate, sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
 import { formatAgo } from "../lib/nowState";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
@@ -76,6 +76,8 @@ export default function TruckPage() {
   const s = stateQ.data;
   const wheels = s ? tireWheels(s) : null;
   const software = s ? softwareInfo(s) : null;
+  const update = s ? otaUpdate(s) : null;
+  const updateAgeSec = s ? Math.max(0, (Date.now() - Date.parse(s.at)) / 1000) : 0;
   const name = vehicle?.name || "Your truck";
 
   if (!selectedID) {
@@ -157,9 +159,18 @@ export default function TruckPage() {
 
       {wheels && s && <TiresCard wheels={wheels} at={s.at} />}
 
-      {software && (
+      {(software || update) && (
         <Card title="Vehicle" span="full">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            {update && (
+              <>
+                <dt className="text-neutral-500">Software update</dt>
+                <dd data-ota-update className="text-right tabular-nums text-neutral-200">
+                  {otaLine(update)}
+                  {updateAgeSec > 120 && <span className="block text-xs text-neutral-500">As of {formatAgo(updateAgeSec)}</span>}
+                </dd>
+              </>
+            )}
             {software && (
               <>
                 <dt className="text-neutral-500">Software</dt>
