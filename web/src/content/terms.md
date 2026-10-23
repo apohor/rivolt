@@ -1,11 +1,11 @@
 # Rivolt Terms of Service
 
-Last updated: October 23, 2026
+Last updated: {DATE}
 
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
 
-These Terms are an agreement between you and Anton Pohorilyi, an individual (not a company) based in Texas, United States, who runs Rivolt ("we", "us"). They apply to the hosted service at rivolt.dev. Self-hosted installs are covered by the MIT license alone (section 9). By creating an account, you agree to these Terms and confirm that you have read the [Privacy Policy](/privacy). How the Terms apply to accounts created before they were published is in section 11.
+These Terms are an agreement between you and ZeroDowntime LLC, a Texas limited liability company, which runs Rivolt ("we", "us"). They apply to the hosted service at rivolt.dev. Self-hosted installs are covered by the MIT license alone (section 9). By creating an account, you agree to these Terms and confirm that you have read the [Privacy Policy](/privacy). How the Terms apply to accounts created before they were published is in section 11.
 
 ## 2. Unofficial access to Rivian: the main risk
 Rivolt reads your vehicle data through Rivian's unofficial, undocumented interfaces, the same ones Rivian's own app uses. Rivian does not offer these interfaces to third parties, has not approved Rivolt, and may change, limit or block access at any time. You accept that:

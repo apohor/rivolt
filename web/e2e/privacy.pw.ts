@@ -25,7 +25,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc).toContainText("We do not sell your data");
       // The operator and publication date are filled in; placeholders and draft furniture are gone,
       // and the Terms reference links to section 2.
-      await expect(doc).toContainText("Anton Pohorilyi");
+      await expect(doc).toContainText("ZeroDowntime LLC, a Texas limited liability company");
       await expect(doc).toContainText("Texas");
       await expect(doc).toContainText(LAST_UPDATED);
       const text = await doc.innerText();
