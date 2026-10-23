@@ -63,7 +63,10 @@ for (const v of [
       await expect(place).toContainText("set by you");
       await expect(place).toContainText("Kept when your home location changes. Auto: Away.");
       await expect(page.locator("[data-pinned-line]")).toHaveText("Showing where the truck was recorded.");
-      await expect(page.getByRole("switch", { name: /Pin where the truck was/ })).toBeChecked();
+      await expect(page.getByRole("switch", { name: "Pin where the truck was" })).toHaveAttribute("aria-checked", "true");
+      // 44 px targets: each place option and the pin row.
+      for (const r of await place.getByRole("radio").all()) expect((await r.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await page.locator("[data-location-override] label").boundingBox())!.height).toBeGreaterThanOrEqual(44);
       // The user's own network within 150 m labels the pin, and its rate is offered (not applied).
       await expect(page.locator("[data-own-network-label]")).toBeVisible();
       await expect(page.locator(".rivolt-charger-label").first()).toHaveText("Office garage");
@@ -90,7 +93,9 @@ test("charge overrides: picking a place and the pin writes once each · phone", 
   await expect(page.getByText("Home · set by you")).toBeVisible();
   await place.getByRole("radio", { name: "Auto" }).click();
   await expect(place.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("switch", { name: /Pin where the truck was/ }).check();
+  // Tapping the row's text flips the switch.
+  await page.locator("[data-location-override] label").getByText("Instead of the nearest public charger.").click();
+  await expect(page.getByRole("switch", { name: "Pin where the truck was" })).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("[data-location-override]")).toContainText("set by you");
   expect(puts.map((p) => `${new URL(p.url).pathname} ${p.body}`)).toEqual([
     '/api/charges/charge-ov/place {"place":"home"}',
@@ -102,6 +107,42 @@ test("charge overrides: picking a place and the pin writes once each · phone", 
   await expect(page.getByLabel("Price per kWh")).toHaveValue("0.220");
   await ctx.close();
 });
+
+// The states between a tap and the server's answer: saving, then (on a failure) the stored
+// value back with an inline error.
+for (const scheme of ["dark", "light"] as const) {
+  test(`charge overrides: saving and failed states · iphone ${scheme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+    const page = await ctx.newPage();
+    await stubApi(page);
+    await page.route("**/api/charges?**", (r) => r.fulfill({ json: [charge({ place_auto: "away" })] }));
+    await page.route("**/api/settings/charging/networks", (r) => r.fulfill({ json: [] }));
+    let release: () => void = () => {};
+    const held = new Promise<void>((res) => (release = res));
+    await page.route("**/api/charges/charge-ov/place", async (r) => {
+      await held;
+      await r.fulfill({ status: 500, body: "boom" });
+    });
+    await page.route("**/api/charges/charge-ov/location", async (r) => {
+      await held;
+      await r.fulfill({ status: 500, body: "boom" });
+    });
+    await page.goto("/charges/charge-ov");
+    const place = page.locator("[data-place-override]");
+    await place.getByRole("radio", { name: "Home" }).click();
+    await page.getByRole("switch", { name: "Pin where the truck was" }).click();
+    await expect(place).toContainText("Saving…");
+    await expect(page.locator("[data-location-override]")).toContainText("Saving…");
+    await place.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, `charge-overrides-saving-iphone-${scheme}.png`), fullPage: false });
+    release();
+    await expect(place.getByRole("alert")).toContainText("Couldn't save");
+    await expect(place.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "Pin where the truck was" })).toHaveAttribute("aria-checked", "false");
+    await page.screenshot({ path: path.join(SHOTS, `charge-overrides-failed-iphone-${scheme}.png`), fullPage: false });
+    await ctx.close();
+  });
+}
 
 for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
@@ -125,7 +166,9 @@ for (const v of [
     const input = fields.getByRole("textbox");
     await expect(input).toHaveValue(`${LAT + 0.0004}, ${LON}`);
     await input.fill("91, 0");
-    await expect(fields).toContainText("Latitude must be between -90 and 90.");
+    await expect(fields.getByRole("alert")).toHaveText("Latitude must be between -90 and 90.");
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(fields).toContainText("Only used to label your own charges near it.");
     await fields.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-network-invalid-${v.n}-dark.png`), fullPage: false });
     await input.fill("40.5, -100.25");

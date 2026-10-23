@@ -1721,7 +1721,7 @@ export function PlaceOverrideControl({
             </button>
           ))}
         </div>
-        {current && <span className="text-neutral-300">set by you</span>}
+        {current && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-[12px] leading-none text-neutral-100" data-set-by-you>set by you</span>}
       </div>
       <p className="mt-1 text-neutral-500" aria-live="polite">
         {save.isPending
@@ -1747,6 +1747,13 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
     onSuccess: () => qc.invalidateQueries({ queryKey: ["charges"] }),
   });
   const hintId = useId();
+  const labelId = useId();
+  const switchId = useId();
+  const toggle = () => {
+    if (save.isPending) return;
+    setChosen(!on);
+    save.mutate(!on);
+  };
   return (
     <div className="mt-3 text-sm" data-location-override>
       {on && (
@@ -1754,29 +1761,37 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
           Showing where the truck was recorded.
         </p>
       )}
-      <label className="flex min-h-11 items-start gap-2">
-        <input
-          type="checkbox"
+      {/* The whole row is the target (at least 44 px): the label clicks the switch. */}
+      <div className="flex min-h-11 items-center gap-3">
+        <button
+          id={switchId}
+          type="button"
           role="switch"
           aria-checked={on}
+          aria-labelledby={labelId}
           aria-describedby={hintId}
           aria-busy={save.isPending}
-          className="mt-0.5"
-          checked={on}
-          onChange={(e) => {
-            if (save.isPending) return;
-            setChosen(e.target.checked);
-            save.mutate(e.target.checked);
-          }}
-        />
-        <span>
-          <span className="text-neutral-200">Pin where the truck was</span>
-          {on && <span className="ml-2 text-xs text-neutral-300">set by you</span>}
-          <span id={hintId} className="block text-xs text-neutral-500">
+          onClick={toggle}
+          className={[
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+            on ? "border-emerald-600 bg-emerald-600" : "border-neutral-600 bg-neutral-800",
+          ].join(" ")}
+        >
+          <span
+            aria-hidden
+            className={["inline-block h-5 w-5 rounded-full bg-white shadow transition-transform", on ? "translate-x-5" : "translate-x-0.5"].join(" ")}
+          />
+        </button>
+        <label htmlFor={switchId} className="flex min-h-11 flex-1 cursor-pointer flex-col justify-center">
+          <span className="flex flex-wrap items-center gap-2">
+            <span id={labelId} className="text-neutral-200">Pin where the truck was</span>
+            {on && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-[12px] leading-none text-neutral-100" data-set-by-you>set by you</span>}
+          </span>
+          <span id={hintId} className="text-xs text-neutral-500">
             {save.isPending ? "Saving…" : "Instead of the nearest public charger."}
           </span>
-        </span>
-      </label>
+        </label>
+      </div>
       {save.isError && <p role="alert" className="mt-1 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
     </div>
   );

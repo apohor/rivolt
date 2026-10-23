@@ -43,7 +43,7 @@ describe("charge overrides", () => {
     cleanup();
 
     wrap(<PlaceOverrideControl charge={{ ID: "c1", PlaceOverride: "away", place_auto: "home" }} />);
-    expect(screen.getByText("set by you")).toBeInTheDocument();
+    expect(screen.getByText("set by you", { selector: "[data-set-by-you]" })).toBeInTheDocument();
     expect(screen.getByText("Kept when your home location changes. Auto: Home.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Away" })); // already set: no call
     fireEvent.click(screen.getByRole("radio", { name: "Auto" }));
@@ -63,7 +63,7 @@ describe("charge overrides", () => {
     cleanup();
     wrap(<LocationOverrideToggle charge={{ ID: "c1", LocationOverride: "recorded" }} />);
     expect(screen.getByRole("switch")).toBeChecked();
-    expect(screen.getByText("set by you")).toBeInTheDocument();
+    expect(screen.getByText("set by you", { selector: "[data-set-by-you]" })).toBeInTheDocument();
     expect(screen.getByText("Showing where the truck was recorded.")).toBeInTheDocument();
     expect(screen.getByRole("switch")).toHaveAccessibleDescription("Instead of the nearest public charger.");
   });

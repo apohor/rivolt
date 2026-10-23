@@ -1334,7 +1334,8 @@ export function ChargeMap({
       recordedMarker.bindTooltip(escapeHTML(label), {
         direction: "top",
         permanent: true,
-        offset: [0, -10],
+        // Clear of the 22 px pin: the bubble sits above it, never on it.
+        offset: [0, -16],
         className: "rivolt-charger-label",
       });
     }
@@ -1398,7 +1399,7 @@ export function ChargeMap({
         .bindTooltip(escapeHTML(labelText), {
           direction: "top",
           permanent: true,
-          offset: [0, -10],
+          offset: [0, -16],
           className: "rivolt-charger-label",
         })
         .bindPopup(
