@@ -43,11 +43,11 @@ final class NowRefreshTests: XCTestCase {
         XCTAssertEqual(raw.presence, .offline, "what the old card said, with a frame the server had refreshed long ago")
         XCTAssertTrue(freshness.holdsOffline(raw, clock: late), "the last read is 16 minutes old: ask again before saying Offline")
         XCTAssertEqual(freshness.shown(raw, clock: late).presence, .stale)
-        // The re-read: the server has a frame from two minutes ago.
+        // The re-read: the server has a frame from two and a half minutes ago.
         freshness.fetched(at: late)
-        let reread = parked(at: late.addingTimeInterval(-120), clock: late)
+        let reread = parked(at: late.addingTimeInterval(-150), clock: late)
         XCTAssertFalse(freshness.holdsOffline(reread, clock: late))
-        XCTAssertEqual(freshness.shown(reread, clock: late).presence, .stale, "two minutes old: stale by the web's limit, not offline")
+        XCTAssertEqual(freshness.shown(reread, clock: late).presence, .stale, "past the web's two-minute limit: stale, not offline")
         let fresher = parked(at: late.addingTimeInterval(-3), clock: late)
         XCTAssertEqual(freshness.shown(fresher, clock: late).presence, .live)
     }
