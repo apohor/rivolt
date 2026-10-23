@@ -1,0 +1,142 @@
+# Keeps the two ways of building the image in step. The root Dockerfile is what self-hosters and local builds use;
+# build.yml's `bin` and `image` jobs assemble the published image from a prebuilt binary (.github/ci/Dockerfile).
+# Not part of build.yml, so it stays off that workflow's critical path and its required checks.
+#
+#   versions     (cheap, always when this runs): the Go in the Dockerfile's builder image is go.mod's `toolchain`
+#                (the official golang image sets GOTOOLCHAIN=local, so the toolchain line does not pull a newer Go
+#                there, and a Dockerfile left behind builds with an older standard library than the one govulncheck
+#                scans), and the `go build` flags of the Dockerfile and of build.yml's bin job are the same.
+#   equivalence  (only when the Dockerfile, go.mod, .github/ci or this file changed): builds both images and diffs
+#                them: the container config (minus labels), the platform and the filesystem listing (modes, owners,
+#                paths). The binary inside is built from a stub SPA, since only the image's shape is compared.
+name: dockerfile-sync
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - go.mod
+      - .github/ci/**
+      - .github/workflows/build.yml
+      - .github/workflows/dockerfile-sync.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - go.mod
+      - .github/ci/**
+      - .github/workflows/build.yml
+      - .github/workflows/dockerfile-sync.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dockerfile-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versions:
+    name: versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: The Dockerfile's Go is go.mod's toolchain
+        run: |
+          set -euo pipefail
+          tool=$(sed -n 's/^toolchain go\(.*\)$/\1/p' go.mod)
+          [ -n "$tool" ] || { echo "::error::go.mod has no toolchain line"; exit 1; }
+          img=$(sed -n 's/^FROM .*golang:\([0-9][0-9.]*\)-.* AS build$/\1/p' Dockerfile)
+          [ -n "$img" ] || { echo "::error::could not read the golang version from the Dockerfile's builder stage"; exit 1; }
+          echo "go.mod toolchain: $tool; Dockerfile builder: $img"
+          if [ "$tool" != "$img" ]; then
+            echo "::error file=Dockerfile::the builder image is golang:$img but go.mod's toolchain is go$tool; bump them together"
+            exit 1
+          fi
+
+      - name: The Dockerfile and the bin job build the same way
+        run: |
+          set -euo pipefail
+          flags() { grep -oE 'go build -trimpath -ldflags="[^"]*"' "$1" | head -1; }
+          a=$(flags Dockerfile); b=$(flags .github/workflows/build.yml)
+          [ -n "$a" ] && [ -n "$b" ] || { echo "::error::could not find the go build line in Dockerfile and build.yml"; exit 1; }
+          echo "Dockerfile: $a"; echo "build.yml:  $b"
+          [ "$a" = "$b" ] || { echo "::error::the go build flags differ between the Dockerfile and build.yml's bin job"; exit 1; }
+          grep -q 'CGO_ENABLED=0' Dockerfile && grep -q 'CGO_ENABLED: "0"' .github/workflows/build.yml \
+            || { echo "::error::CGO_ENABLED=0 is not set in both"; exit 1; }
+
+  equivalence:
+    name: equivalence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # Only the image's shape can drift with these files; a change to build.yml alone (checked by `versions`) does not need two image builds.
+      - name: Did the images' inputs change?
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then range="$BASE...$HEAD_SHA"; else range="$BASE $HEAD_SHA"; fi
+          files=$(git diff --name-only $range || true)
+          echo "$files"
+          if echo "$files" | grep -qE '^(Dockerfile|go\.mod|\.github/ci/|\.github/workflows/dockerfile-sync\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "no image input changed; skipping the two builds"
+          fi
+
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - if: steps.changed.outputs.run == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      # The root Dockerfile, as a self-hoster builds it.
+      - name: Build the root Dockerfile
+        if: steps.changed.outputs.run == 'true'
+        run: docker buildx build --load -t rivolt-root:sync --build-arg VERSION=v0.0.0-sync -f Dockerfile .
+
+      # The CI assembly, around a binary built with the same command as build.yml's bin job (from a stub SPA).
+      - name: Build the CI image
+        if: steps.changed.outputs.run == 'true'
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          mkdir -p internal/web/dist image-ctx/data
+          touch internal/web/dist/index.html
+          chmod 0755 image-ctx/data
+          go build -trimpath -ldflags="-s -w -X main.version=v0.0.0-sync" -o image-ctx/rivolt ./cmd/rivolt
+          chmod 0755 image-ctx/rivolt
+          docker buildx build --load -t rivolt-ci:sync -f .github/ci/Dockerfile image-ctx
+
+      - name: The two images are the same shape
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          for t in root ci; do
+            docker inspect rivolt-$t:sync --format '{{json .Config}}' \
+              | jq -S 'del(.Labels, .Image, .Hostname, .Domainname, .AttachStdin, .AttachStdout, .AttachStderr, .OpenStdin, .StdinOnce, .Tty)' > cfg-$t.json
+            docker inspect rivolt-$t:sync --format '{{.Architecture}} {{.Os}}' > plat-$t.txt
+            cid=$(docker create rivolt-$t:sync)
+            docker export "$cid" | tar -tvf - | sed -E 's/ [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+ / DATE /' | awk '{ $3=""; print }' | sort -k5 > fs-$t.txt
+            docker container remove "$cid" >/dev/null
+          done
+          echo "container config:"; cat cfg-ci.json
+          rc=0
+          diff cfg-root.json cfg-ci.json || { echo "::error::the container config differs between the root Dockerfile and .github/ci/Dockerfile"; rc=1; }
+          diff plat-root.txt plat-ci.txt || { echo "::error::the platform differs"; rc=1; }
+          diff fs-root.txt fs-ci.txt || { echo "::error::the filesystem (modes, owners, paths) differs"; rc=1; }
+          exit $rc
