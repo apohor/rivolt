@@ -159,6 +159,89 @@ func (s *Service) DeliverPlugInReminder(ctx context.Context, store *Store, soc, 
 	return ok, nil
 }
 
+// LeftOpenPayload is the left-open alert. The text is fixed apart from the vehicle's model (never the user's own
+// nickname for it: it shows on the lock screen) and which closures are open (a door, the frunk, the liftgate, the
+// tailgate, the tonneau). It names no place and says nothing about the truck being safe or unsafe: a missing alert
+// is never a promise that nothing is open. The tap opens the app.
+func LeftOpenPayload(model string, kinds []string, minutes int) Payload {
+	what := "something"
+	if len(kinds) > 0 {
+		what = JoinClosures(kinds)
+	}
+	truck := "your vehicle"
+	if m := strings.TrimSpace(model); m != "" {
+		truck = "your " + m
+	}
+	return Payload{
+		Title: "Left open",
+		Body:  fmt.Sprintf("%s on %s has been open for %d minutes.", capitalize(what), truck, minutes),
+		Tag:   "rivolt-left-open",
+		URL:   "/",
+		Kind:  "left_open",
+	}
+}
+
+// closureWords are the closures the alert names, in the order they are listed.
+var closureWords = []struct{ kind, words string }{
+	{"frunk", "the frunk"}, {"door", "a door"}, {"liftgate", "the liftgate"}, {"tailgate", "the tailgate"}, {"tonneau", "the tonneau"},
+}
+
+// JoinClosures names the open closures: "the frunk", "the frunk and a door" (in the order of closureWords).
+// Unknown kinds are ignored; with none left it is "something".
+func JoinClosures(kinds []string) string {
+	have := map[string]bool{}
+	for _, k := range kinds {
+		have[k] = true
+	}
+	var parts []string
+	for _, c := range closureWords {
+		if have[c.kind] {
+			parts = append(parts, c.words)
+		}
+	}
+	switch len(parts) {
+	case 0:
+		return "something"
+	case 1:
+		return parts[0]
+	default:
+		return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+}
+
+// DeliverLeftOpen sends the left-open alert to every device of the store's user that has it on, and waits. It reports
+// how many sends succeeded; an error means none did.
+func (s *Service) DeliverLeftOpen(ctx context.Context, store *Store, model string, kinds []string, minutes int) (int, error) {
+	if s == nil || store == nil {
+		return 0, errors.New("push: not configured")
+	}
+	subs, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	p := LeftOpenPayload(model, kinds, minutes)
+	var ok int
+	var last error
+	for _, sub := range subs {
+		if !selectLeftOpen(sub) {
+			continue
+		}
+		if err := s.sendOne(ctx, store, sub, p); err != nil {
+			last = err
+			continue
+		}
+		ok++
+	}
+	ok += s.fanAPNs(ctx, store, p)
+	if ok == 0 {
+		if last == nil {
+			last = errors.New("push: no device has the left-open alert on")
+		}
+		return 0, last
+	}
+	return ok, nil
+}
+
 // DeliverMilestone sends a milestone push to every subscription of the store's
 // user that has milestones on, and waits. It reports how many sends succeeded;
 // an error means none did.
@@ -275,6 +358,7 @@ func selectChargingDone(s Subscription) bool   { return s.OnChargingDone }
 func selectPlugInReminder(s Subscription) bool { return s.OnPlugInReminder }
 func selectAnomaly(s Subscription) bool        { return s.OnAnomaly }
 func selectSoftwareUpdate(s Subscription) bool { return s.OnSoftwareUpdate }
+func selectLeftOpen(s Subscription) bool       { return s.OnLeftOpen }
 
 // broadcast fans a payload out to every stored subscription matching
 // the selector. Each send is independent: one bad subscription can't

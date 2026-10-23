@@ -92,6 +92,18 @@ func (s *Store) SetAPNsOptIns(ctx context.Context, token string, plugIn, milesto
 	return n == 1, err
 }
 
+// SetAPNsLeftOpen sets the left-open switch (off until the user's own control turns it on) on one of the user's
+// devices. Reports whether the token is the user's.
+func (s *Store) SetAPNsLeftOpen(ctx context.Context, token string, on bool) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE push_apns_devices SET on_left_open = $3 WHERE user_id = $1 AND token = $2`, s.userID, token, on)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // DeleteAPNsDevice removes one of the user's devices by token. No-op if absent.
 func (s *Store) DeleteAPNsDevice(ctx context.Context, token string) error {
 	_, err := s.db.ExecContext(ctx,
@@ -115,7 +127,7 @@ func (s *Store) touchAPNsDevice(ctx context.Context, id uuid.UUID) {
 func (s *Store) ListLiveAPNsDevices(ctx context.Context) ([]APNsDevice, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.session_id, d.token, d.env, d.bundle_id,
-		       d.on_charging_done, d.on_plug_in_reminder, d.on_anomaly, d.on_software_update, d.on_milestones,
+		       d.on_charging_done, d.on_plug_in_reminder, d.on_anomaly, d.on_software_update, d.on_milestones, d.on_left_open,
 		       d.created_at, d.last_ok_at
 		  FROM push_apns_devices d
 		  JOIN sessions s ON s.id = d.session_id
@@ -130,7 +142,7 @@ func (s *Store) ListLiveAPNsDevices(ctx context.Context) ([]APNsDevice, error) {
 		var d APNsDevice
 		var last sql.NullTime
 		if err := rows.Scan(&d.ID, &d.SessionID, &d.Token, &d.Env, &d.BundleID,
-			&d.Prefs.OnChargingDone, &d.Prefs.OnPlugInReminder, &d.Prefs.OnAnomaly, &d.Prefs.OnSoftwareUpdate, &d.Prefs.OnMilestones,
+			&d.Prefs.OnChargingDone, &d.Prefs.OnPlugInReminder, &d.Prefs.OnAnomaly, &d.Prefs.OnSoftwareUpdate, &d.Prefs.OnMilestones, &d.Prefs.OnLeftOpen,
 			&d.CreatedAt, &last); err != nil {
 			return nil, err
 		}
@@ -156,7 +168,7 @@ type APNsExportRow struct {
 func (s *Store) ExportAPNsDevices(ctx context.Context) ([]APNsExportRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT bundle_id, env, created_at, last_ok_at,
-		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones
+		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones, on_left_open
 		  FROM push_apns_devices WHERE user_id = $1 ORDER BY created_at`, s.userID)
 	if err != nil {
 		return nil, err
@@ -167,7 +179,7 @@ func (s *Store) ExportAPNsDevices(ctx context.Context) ([]APNsExportRow, error) 
 		var r APNsExportRow
 		var last sql.NullTime
 		if err := rows.Scan(&r.BundleID, &r.Env, &r.CreatedAt, &last,
-			&r.Prefs.OnChargingDone, &r.Prefs.OnPlugInReminder, &r.Prefs.OnAnomaly, &r.Prefs.OnSoftwareUpdate, &r.Prefs.OnMilestones); err != nil {
+			&r.Prefs.OnChargingDone, &r.Prefs.OnPlugInReminder, &r.Prefs.OnAnomaly, &r.Prefs.OnSoftwareUpdate, &r.Prefs.OnMilestones, &r.Prefs.OnLeftOpen); err != nil {
 			return nil, err
 		}
 		if last.Valid {
@@ -255,9 +267,9 @@ func PurgeNotifications(ctx context.Context, db *sql.DB) (int64, error) {
 func (s *Store) APNsPrefs(ctx context.Context, token string) (Preferences, bool, error) {
 	var p Preferences
 	err := s.db.QueryRowContext(ctx, `
-		SELECT on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones
+		SELECT on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones, on_left_open
 		FROM push_apns_devices WHERE user_id = $1 AND token = $2`, s.userID, token).
-		Scan(&p.OnChargingDone, &p.OnPlugInReminder, &p.OnAnomaly, &p.OnSoftwareUpdate, &p.OnMilestones)
+		Scan(&p.OnChargingDone, &p.OnPlugInReminder, &p.OnAnomaly, &p.OnSoftwareUpdate, &p.OnMilestones, &p.OnLeftOpen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Preferences{}, false, nil
 	}

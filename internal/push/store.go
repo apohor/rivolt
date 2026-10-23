@@ -24,9 +24,11 @@ type Subscription struct {
 	OnSoftwareUpdate bool
 	// OnMilestones is the opt-in push for milestone moments (default off).
 	OnMilestones bool
-	UserAgent    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// OnLeftOpen is the opt-in push for a door, the frunk, the liftgate, the tailgate or the tonneau left open (default off).
+	OnLeftOpen bool
+	UserAgent  string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Preferences captures the per-subscription event filters.
@@ -36,6 +38,7 @@ type Preferences struct {
 	OnAnomaly        bool `json:"on_anomaly"`
 	OnSoftwareUpdate bool `json:"on_software_update"`
 	OnMilestones     bool `json:"on_milestones"`
+	OnLeftOpen       bool `json:"on_left_open"`
 }
 
 // VAPID is the server identity used to sign outbound push requests.
@@ -111,6 +114,19 @@ func (s *Store) SetOptIns(ctx context.Context, endpoint string, plugIn, mileston
 	return n == 1, err
 }
 
+// SetLeftOpen sets the left-open switch (off until the user's own control turns it on) on one of the user's
+// subscriptions. Reports whether the endpoint is the user's.
+func (s *Store) SetLeftOpen(ctx context.Context, endpoint string, on bool) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE push_subscriptions SET on_left_open = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND endpoint = $2`, s.userID, endpoint, on)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // Delete removes a subscription. No-op if absent.
 func (s *Store) Delete(ctx context.Context, endpoint string) error {
 	_, err := s.db.ExecContext(ctx,
@@ -123,7 +139,7 @@ func (s *Store) Delete(ctx context.Context, endpoint string) error {
 func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT endpoint, p256dh, auth,
-		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
+		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones, on_left_open,
 		       COALESCE(user_agent, ''), created_at, updated_at
 		FROM push_subscriptions
 		WHERE user_id = $1
@@ -136,7 +152,7 @@ func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 	for rows.Next() {
 		var v Subscription
 		if err := rows.Scan(&v.Endpoint, &v.P256dh, &v.Auth,
-			&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones,
+			&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones, &v.OnLeftOpen,
 			&v.UserAgent, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -151,11 +167,11 @@ func (s *Store) Get(ctx context.Context, endpoint string) (*Subscription, error)
 	var v Subscription
 	err := s.db.QueryRowContext(ctx, `
 		SELECT endpoint, p256dh, auth,
-		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
+		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones, on_left_open,
 		       COALESCE(user_agent, ''), created_at, updated_at
 		FROM push_subscriptions
 		WHERE user_id = $1 AND endpoint = $2`, s.userID, endpoint).Scan(&v.Endpoint, &v.P256dh, &v.Auth,
-		&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones,
+		&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones, &v.OnLeftOpen,
 		&v.UserAgent, &v.CreatedAt, &v.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -166,7 +182,7 @@ func (s *Store) Get(ctx context.Context, endpoint string) (*Subscription, error)
 	return &v, nil
 }
 
-// SwitchOffAll turns one opt-in kind (plug_in_reminder or milestones) off on
+// SwitchOffAll turns one opt-in kind (plug_in_reminder, milestones or left_open) off on
 // every one of the user's subscriptions and reports how many changed.
 func (s *Store) SwitchOffAll(ctx context.Context, kind string) (int64, error) {
 	var col string
@@ -175,6 +191,8 @@ func (s *Store) SwitchOffAll(ctx context.Context, kind string) (int64, error) {
 		col = "on_plug_in_reminder"
 	case "milestones":
 		col = "on_milestones"
+	case "left_open":
+		col = "on_left_open"
 	default:
 		return 0, fmt.Errorf("push: unknown kind %q", kind)
 	}

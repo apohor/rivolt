@@ -66,7 +66,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 
 		// Charging-done, anomaly and software-update default to on: what a
 		// subscriber almost certainly expected when they tapped "Enable
-		// notifications". The plug-in reminder and milestones are opt-in only.
+		// notifications". The plug-in reminder, milestones and the left-open alert are opt-in only.
 		prefs := push.Preferences{OnChargingDone: true, OnAnomaly: true, OnSoftwareUpdate: true}
 		if len(body.Preferences) > 0 && string(body.Preferences) != "null" {
 			// Decode over the defaults so a client that predates a toggle
@@ -77,11 +77,11 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			}
 		}
 
-		// The plug-in reminder and milestones are opt-in and are NOT taken from
+		// The plug-in reminder, milestones and the left-open alert are opt-in and are NOT taken from
 		// here, whatever the client posts (an old Settings tab or pod would
 		// post its stale local defaults): the stored values stay as they are
 		// and only POST /api/push/optin changes them.
-		prefs.OnPlugInReminder, prefs.OnMilestones = false, false
+		prefs.OnPlugInReminder, prefs.OnMilestones, prefs.OnLeftOpen = false, false, false
 		sub := push.Subscription{
 			Endpoint:         body.Endpoint,
 			P256dh:           body.Keys.P256dh,
@@ -111,6 +111,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			"on_anomaly", prefs.OnAnomaly,
 			"on_software_update", prefs.OnSoftwareUpdate,
 			"on_milestones", prefs.OnMilestones,
+			"on_left_open", prefs.OnLeftOpen,
 		)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":          true,
@@ -206,11 +207,12 @@ func handlePushDevice(store *push.Store) http.HandlerFunc {
 			OnAnomaly:        sub.OnAnomaly,
 			OnSoftwareUpdate: sub.OnSoftwareUpdate,
 			OnMilestones:     sub.OnMilestones,
+			OnLeftOpen:       sub.OnLeftOpen,
 		}})
 	}
 }
 
-// handlePushOff: POST /api/push/off {"kind":"plug_in_reminder"|"milestones"} is
+// handlePushOff: POST /api/push/off {"kind":"plug_in_reminder"|"milestones"|"left_open"} is
 // the one-tap stop: it turns that switch off on every device of the account, not
 // only the one in hand. Never an admin's act while viewing as the user.
 func handlePushOff(store *push.Store) http.HandlerFunc {
@@ -223,8 +225,8 @@ func handlePushOff(store *push.Store) http.HandlerFunc {
 			Kind string `json:"kind"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil ||
-			(body.Kind != "plug_in_reminder" && body.Kind != "milestones") {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind must be plug_in_reminder or milestones"})
+			(body.Kind != "plug_in_reminder" && body.Kind != "milestones" && body.Kind != "left_open") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind must be plug_in_reminder, milestones or left_open"})
 			return
 		}
 		n, err := store.SwitchOffAll(r.Context(), body.Kind)
@@ -252,13 +254,23 @@ func handlePushOptIn(store *push.Store) http.HandlerFunc {
 			Endpoint         string `json:"endpoint"`
 			OnPlugInReminder *bool  `json:"on_plug_in_reminder"`
 			OnMilestones     *bool  `json:"on_milestones"`
+			OnLeftOpen       *bool  `json:"on_left_open"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Endpoint == "" ||
-			(body.OnPlugInReminder == nil && body.OnMilestones == nil) {
+			(body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnLeftOpen == nil) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "endpoint and at least one switch required"})
 			return
 		}
-		found, err := store.SetOptIns(r.Context(), body.Endpoint, body.OnPlugInReminder, body.OnMilestones)
+		var found bool
+		var err error
+		if body.OnPlugInReminder != nil || body.OnMilestones != nil {
+			found, err = store.SetOptIns(r.Context(), body.Endpoint, body.OnPlugInReminder, body.OnMilestones)
+		}
+		if err == nil && body.OnLeftOpen != nil {
+			var f2 bool
+			f2, err = store.SetLeftOpen(r.Context(), body.Endpoint, *body.OnLeftOpen)
+			found = found || f2
+		}
 		if err != nil {
 			slog.ErrorContext(r.Context(), "push optin", "err", err.Error())
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
