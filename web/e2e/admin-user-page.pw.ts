@@ -27,9 +27,9 @@ const DETAIL = {
   signup_request: { requested_at: ago(31 * D), decided_at: ago(30 * D), status: "approved", message: "I have an R1S" },
 };
 
-async function open(page: Page, url: string, uiNext = true) {
+async function open(page: Page, url: string) {
   const calls: string[] = [];
-  await stubApi(page, { uiNext });
+  await stubApi(page);
   await page.route("**/api/admin/users", (r) => r.fulfill({ json: { users: USERS } }));
   await page.route("**/api/admin/users/*", (r) => {
     const id = new URL(r.request().url()).pathname.split("/").pop();
@@ -160,27 +160,3 @@ test("the last admin can be neither demoted, disabled nor deleted", async ({ pag
   await expect(acts.getByRole("button", { name: /Delete user/ })).toBeDisabled();
 });
 
-// Self-hosters may have the new look off: the list and the user page must render the same on any host.
-for (const w of [390, 1280] as const) {
-  test(`new look off: the list and the user page render and pass axe · ${w}px`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
-    const page = await ctx.newPage();
-    await open(page, "/admin/users", false);
-    await expect(page.locator("html")).not.toHaveAttribute("data-ui", "next");
-    await expect(page.locator("[data-admin-users]")).toBeVisible();
-    await expect(page.locator("[data-user-row=u3]")).toContainText("Needs re-auth");
-    await expect(page.locator("[data-no-data-alert]")).toHaveCount(1);
-    let ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
-    expect(ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
-    await page.getByRole("link", { name: "Open Quiet" }).click();
-    await expect(page).toHaveURL(/\/admin\/users\/u2$/);
-    await expect(onPage(page, "u2").getByRole("heading", { name: "Quiet", level: 1 })).toBeVisible();
-    await expect(onPage(page, "u2").locator("[data-user-actions]")).toBeVisible();
-    await expect(onPage(page, "u2").locator("[data-user-audit]")).toBeVisible();
-    ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
-    expect(ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
-    await page.screenshot({ path: path.join(SHOTS, `admin-user-page-flagoff-${w}.png`), fullPage: true });
-    await ctx.close();
-  });
-}

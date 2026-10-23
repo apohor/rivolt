@@ -11,17 +11,15 @@ describe("applyTheme", () => {
   });
 });
 
-import { cacheShellFlag, FLAG_CACHE_KEY } from "./theme";
+import { APP_SEEN_KEY, rememberAppSeen } from "./theme";
 
-describe("cacheShellFlag", () => {
-  it("stores the flag and clears the theme when off", () => {
+describe("rememberAppSeen", () => {
+  it("marks the device for theme-init.js and leaves the theme alone", () => {
+    window.localStorage.removeItem(APP_SEEN_KEY);
     document.documentElement.setAttribute("data-theme", "light");
-    cacheShellFlag(true);
-    expect(window.localStorage.getItem(FLAG_CACHE_KEY)).toBe("1");
+    rememberAppSeen();
+    expect(window.localStorage.getItem(APP_SEEN_KEY)).toBe("1");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    cacheShellFlag(false);
-    expect(window.localStorage.getItem(FLAG_CACHE_KEY)).toBe("0");
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 });
 

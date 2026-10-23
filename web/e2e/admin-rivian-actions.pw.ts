@@ -13,8 +13,8 @@ const USERS = [
   { ...base, id: "u1", username: "ann@example.com", email: "ann@example.com", display_name: "Ann", role: "user", needs_reauth: true, needs_reauth_at: ago(H), created_at: ago(40 * H * 24) },
 ];
 
-async function open(page: Page, rivianActions: boolean | "absent", nextUi: boolean) {
-  await stubApi(page, { uiNext: nextUi });
+async function open(page: Page, rivianActions: boolean | "absent") {
+  await stubApi(page);
   await page.route("**/api/config", (r) =>
     r.fulfill({ json: { features: { trip_planner_enabled: true, signup_enabled: true, ...(rivianActions === "absent" ? {} : { rivian_actions: rivianActions }) }, tiles: { url: "", chargers_url: "" }, valhalla: { path: "" }, impersonation: { disabled: true } } }),
   );
@@ -29,7 +29,7 @@ for (const w of [390, 1280] as const) {
   test(`rivian_actions=false hides Sync and Refresh in the list and on the user page · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
     const page = await ctx.newPage();
-    await open(page, false, true);
+    await open(page, false);
     // The user's page: the note, no Rivian actions, the rest still there.
     await expect(page.locator("[data-rivian-actions-note]")).toHaveText("Rivian actions run on rivolt.dev only");
     await expect(page.getByRole("button", { name: "Sync Rivian" })).toHaveCount(0);
@@ -49,7 +49,7 @@ for (const w of [390, 1280] as const) {
 
 for (const v of [true, "absent"] as const) {
   test(`rivian_actions ${v === "absent" ? "absent (older server)" : "true"} keeps them`, async ({ page }) => {
-    await open(page, v, true);
+    await open(page, v);
     await expect(page.getByRole("button", { name: "Sync Rivian" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh session" })).toBeVisible();
     await expect(page.locator("[data-rivian-actions-note]")).toHaveCount(0);

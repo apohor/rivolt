@@ -1,9 +1,8 @@
 import { Link, NavLink } from "react-router-dom";
 import type { TabDef, TabKey } from "./tabs";
 
-// Chrome for the money_tab_enabled shell: a bottom tab bar on mobile,
-// a left rail on desktop, and a segmented sub-nav for tabs that group
-// several routes. Rendered by AppLayout only when the flag is on.
+// Chrome for the app shell: a bottom tab bar on mobile, a left rail on
+// desktop, and a segmented sub-nav for tabs that group several routes.
 
 // Simple 24px stroke icons, inline so the shell adds no dependency.
 function TabIcon({ tab }: { tab: TabKey }) {

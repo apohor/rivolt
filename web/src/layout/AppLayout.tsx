@@ -1,5 +1,5 @@
 import { useRefreshListsWhenSessionCloses } from "../lib/activityLists";
-import { useSystemTheme } from "../lib/theme";
+import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
 import { useApplyUiNext } from "../lib/uiNext";
 import { useEffect } from "react";
@@ -7,14 +7,12 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useAdminOnly, useTripPlannerEnabled } from "../lib/config";
-import { useMoneyTabEnabled } from "../lib/ledger";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import { useImpersonationTarget } from "../lib/impersonation";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import { AdminOnlyShell } from "./AdminOnlyShell";
 import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
-import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
@@ -28,84 +26,6 @@ function prefetchRoute(to: string) {
   const key = navPrefetch[to];
   if (key) void pageLoaders[key]();
 }
-
-const nav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/", label: "Overview", end: true },
-  { to: "/live", label: "Live" },
-  { to: "/drives", label: "Drives" },
-  { to: "/charges", label: "Charges" },
-  { to: "/settings", label: "Settings" },
-];
-
-// Plan is gated on the trip-planner feature flag; spliced in
-// before Settings when enabled so the nav order reads
-// Overview → Live → Drives → Charges → Plan → Settings.
-const planNavItem: { to: string; label: string; end?: boolean } = {
-  to: "/trips/plan",
-  label: "Plan",
-};
-
-// adminNav is appended to nav at render-time when whoami() reports
-// role === "admin". Kept as a separate const so the role check
-// lives in exactly one place.
-const adminNav: { to: string; label: string; end?: boolean }[] = [
-  { to: "/admin", label: "Admin" },
-];
-
-// StatusPill reflects the Rivian connection state, since that's what
-// the user actually cares about from the header. Five states:
-//   - backend unreachable   → red "offline"
-//   - backend ok, no live   → neutral "no rivian" (stub build)
-//   - backend ok, signed-out → neutral "not connected"
-//   - signed in, MFA pending → amber "mfa pending"
-//   - fully authenticated    → green "connected"
-// The backend's own health is implicit: if we can't even reach it we
-// go red; in every other case the backend is fine so we don't clutter
-// the header saying so.
-function StatusPill() {
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => backend.health(),
-    refetchInterval: 15_000,
-  });
-  const rivian = useQuery({
-    queryKey: ["rivian", "status"],
-    queryFn: () => backend.rivianStatus(),
-    refetchInterval: 15_000,
-    enabled: !!health.data?.ok,
-  });
-
-  let label = "checking…";
-  let tone = "bg-neutral-800 text-neutral-400 border-neutral-700";
-  let title: string | undefined;
-
-  if (health.isError) {
-    label = "offline";
-    tone = "bg-rose-900/40 text-rose-300 border-rose-800";
-  } else if (health.data?.ok) {
-    title = `Rivolt ${health.data.version}`;
-    if (!rivian.data) {
-      // Backend is up; rivian status still in flight — keep neutral.
-    } else if (!rivian.data.enabled) {
-      label = "no rivian";
-    } else if (rivian.data.mfa_pending) {
-      label = "mfa pending";
-      tone = "bg-amber-900/40 text-amber-300 border-amber-800";
-    } else if (rivian.data.authenticated) {
-      label = "connected";
-      tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
-      if (rivian.data.email) title = `${rivian.data.email} · ${title}`;
-    } else {
-      label = "not connected";
-    }
-  }
-  return (
-    <span className={`rounded-full border px-3 py-1 text-xs ${tone}`} title={title}>
-      {label}
-    </span>
-  );
-}
-
 
 function UserLayout() {
   const navigate = useNavigate();
@@ -132,73 +52,21 @@ function UserLayout() {
   }, [me.data, navigate, location.pathname, impersonating]);
 
   const tripPlannerEnabled = useTripPlannerEnabled();
-  const baseNav = tripPlannerEnabled
-    ? [...nav.slice(0, -1), planNavItem, nav[nav.length - 1]]
-    : nav;
-  // v1 limitation: Live's data comes from the backend's per-user
-  // Rivian WebSocket subscription cache, which a future real-time
-  // push to the browser would need its own connection for — and a
-  // browser-native WebSocket can't carry the X-Rivolt-Impersonate
-  // header the way a fetch() can. Hiding the nav entry (and the
-  // route itself — see LivePage) keeps the impersonated view
-  // honest rather than risking it silently falling back to the
-  // admin's own live data. See the PR description for more detail.
-  const withoutLive = impersonating
-    ? baseNav.filter((n) => n.to !== "/live")
-    : baseNav;
-  const navItems = me.data?.role === "admin" ? [...withoutLive, ...adminNav] : withoutLive;
-
-  // money_tab_enabled swaps the top nav for the tab-bar shell. Flag
-  // off (the default, and the fallback until /api/config resolves)
-  // renders exactly the layout below, unchanged.
-  const moneyTabEnabled = useMoneyTabEnabled();
-  useSystemTheme(moneyTabEnabled);
+  useSystemTheme(true);
   useApplyUiNext();
-  if (moneyTabEnabled) {
-    const tabs = buildTabs({
-      tripPlannerEnabled,
-      isAdmin: me.data?.role === "admin",
-      liveAvailable: !impersonating,
-    });
-    const current = activeTab(tabs, location.pathname);
-    return (
-      <div className="min-h-full flex flex-col">
-        <ImpersonationBanner />
-        <IOSInstallBanner />
-        <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-            <NavLink
-              to="/"
-              className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
-            >
-              <Logo size={22} className="text-emerald-400" />
-              <span>Rivolt</span>
-            </NavLink>
-          </div>
-        </header>
-        <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
-          <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
-          {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
-          <main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
-            <DegradedBanner />
-            <SubNav tab={current} onPrefetch={prefetchRoute} />
-            <Outlet />
-          </main>
-        </div>
-        <div className="pb-16 md:pb-0">
-          <Footer />
-        </div>
-        <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
-      </div>
-    );
-  }
-
+  useEffect(rememberAppSeen, []);
+  const tabs = buildTabs({
+    tripPlannerEnabled,
+    isAdmin: me.data?.role === "admin",
+    liveAvailable: !impersonating,
+  });
+  const current = activeTab(tabs, location.pathname);
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
       <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <NavLink
             to="/"
             className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
@@ -206,47 +74,21 @@ function UserLayout() {
             <Logo size={22} className="text-emerald-400" />
             <span>Rivolt</span>
           </NavLink>
-          <div className="ml-auto sm:order-last sm:ml-0 flex items-center gap-2">
-            <StatusPill />
-            <SignOutButton />
-          </div>
-          {/* Horizontally scrollable on mobile so no tab (e.g. Admin) is
-              clipped; edge-bleed (-mx-4 px-4) lets it scroll under the
-              header padding, and the scrollbar is hidden. Wraps to a
-              static row from sm up. */}
-          <nav
-            className="order-last w-full overflow-x-auto -mx-4 px-4 sm:order-0 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
-            style={{ scrollbarWidth: "none" }}
-            aria-label="Primary"
-          >
-            <ul className="flex flex-nowrap items-center gap-0.5 sm:gap-1">
-              {navItems.map((n) => (
-                <li key={n.to} className="shrink-0">
-                  <NavLink
-                    to={n.to}
-                    end={n.end}
-                    onMouseEnter={() => prefetchRoute(n.to)}
-                    onFocus={() => prefetchRoute(n.to)}
-                    className={({ isActive }) =>
-                      `block whitespace-nowrap rounded-md px-2 py-1.5 text-sm transition-colors sm:px-3 ${
-                        isActive
-                          ? "bg-neutral-800 text-neutral-100"
-                          : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900"
-                      }`
-                    }
-                  >
-                    {n.label}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </nav>
         </div>
       </header>
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 md:py-5 lg:py-6">
-        <Outlet />
-      </main>
-      <Footer />
+      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
+        <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
+        {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
+        <main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
+          <DegradedBanner />
+          <SubNav tab={current} onPrefetch={prefetchRoute} />
+          <Outlet />
+        </main>
+      </div>
+      <div className="pb-16 md:pb-0">
+        <Footer />
+      </div>
+      <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
     </div>
   );
 }

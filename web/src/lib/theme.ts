@@ -1,22 +1,23 @@
-// Theme: System (default) / Light / Dark, only inside the
-// money_tab_enabled shell. With the flag off the attribute is never
-// set, so the app stays dark exactly as before.
+// Theme: System (default) / Light / Dark, inside the signed-in app and
+// on the public pages that follow the device theme. Anywhere else the
+// attribute is never set, so the page stays dark.
 
 import { useCallback, useEffect, useState } from "react";
 
-// The shell flag resolves after first paint, which would flash dark ->
-// light on every load. The last resolved value is cached and index.html
-// applies the theme from it before React mounts. Storage may throw
-// (private windows, blocked site data): fall back to dark.
-export const FLAG_CACHE_KEY = "rivolt.money_tab_enabled";
+// The signed-in app applies the theme after first paint, which would flash
+// dark -> light on every load. The app marks this device once it has shown
+// the app, and theme-init.js applies the theme from that mark before React
+// mounts. The key keeps its old name so devices that already have it keep
+// the early theme. Storage may throw (private windows, blocked site data):
+// then the page starts dark.
+export const APP_SEEN_KEY = "rivolt.money_tab_enabled";
 
-export function cacheShellFlag(enabled: boolean) {
+export function rememberAppSeen() {
   try {
-    window.localStorage.setItem(FLAG_CACHE_KEY, enabled ? "1" : "0");
+    window.localStorage.setItem(APP_SEEN_KEY, "1");
   } catch {
     /* ignore */
   }
-  if (!enabled) applyTheme(false);
 }
 
 const DARK_THEME_COLOR = "#0a0a0a";
@@ -71,8 +72,8 @@ export function useThemeChoice(): [ThemeChoice, (c: ThemeChoice) => void] {
   return [choice, set];
 }
 
-// useSystemTheme applies the theme inside the shell: the stored choice,
-// following the OS only while the choice is System. Flag off: never set.
+// useSystemTheme applies the theme: the stored choice, following the OS
+// only while the choice is System. Not enabled: never set.
 export function useSystemTheme(enabled: boolean) {
   const [choice] = useThemeChoice();
   useEffect(() => {

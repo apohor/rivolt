@@ -15,7 +15,6 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/demo"
-	"github.com/apohor/rivolt/internal/flags"
 )
 
 // Public read-only demo (B7b). When demo.Enabled (RIVOLT_DEMO=true on a
@@ -503,19 +502,6 @@ func handleDemoInfo(w http.ResponseWriter, _ *http.Request) {
 		"vehicle_id": demo.VehicleID(),
 		"home_label": demo.HomeLabel,
 	})
-}
-
-// moneyTabEnabledOrDemo is moneyTabEnabled plus the demo user while
-// the demo is on, so the anonymous demo sees the Money tab without a
-// per-user flag write.
-func moneyTabEnabledOrDemo(store *flags.Store) func(string) bool {
-	base := moneyTabEnabled(store)
-	return func(userID string) bool {
-		if demo.Enabled() && userID == demo.UserID().String() {
-			return true
-		}
-		return base(userID)
-	}
 }
 
 // demoRateGlobalPerMin caps the whole anonymous demo regardless of

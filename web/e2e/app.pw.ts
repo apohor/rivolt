@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { stubApi, type NowScenario, type StubOptions } from "./stub";
 import { e2eNow } from "./clock";
 
-// Smoke + screenshot harness. Every page is stubbed with fake data,
-// the money_tab_enabled shell is on, and each view is captured on a
+// Smoke + screenshot harness. Every page is stubbed with fake data
+// and each view is captured on a
 // phone and a desktop viewport in dark and light. PNGs go to
 // e2e/__screenshots__ (git-ignored).
 

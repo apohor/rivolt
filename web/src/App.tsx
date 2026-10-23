@@ -10,7 +10,6 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import { useAdminOnly, useDemoOnly, useTripPlannerEnabled } from "./lib/config";
-import { useMoneyTabEnabled } from "./lib/ledger";
 import { pageLoaders } from "./lib/pageLoaders";
 
 // Route pages are split into their own chunks so the initial bundle
@@ -59,26 +58,6 @@ export function adminSitePath(p: string): boolean {
 function TripPlanGuard() {
   const enabled = useTripPlannerEnabled();
   return enabled ? <TripPlanPage /> : <NotFoundPage />;
-}
-
-// MoneyGuard mirrors TripPlanGuard for the money_tab_enabled flag:
-// with the flag off, /money is indistinguishable from a route that
-// never existed.
-function MoneyGuard() {
-  const enabled = useMoneyTabEnabled();
-  return enabled ? <MoneyPage /> : <NotFoundPage />;
-}
-
-// TruckGuard: the Truck health tab ships with the money_tab_enabled shell.
-function TruckGuard() {
-  const enabled = useMoneyTabEnabled();
-  return enabled ? <TruckPage /> : <NotFoundPage />;
-}
-
-// ActivityGuard: the Activity feed ships with the money_tab_enabled shell.
-function ActivityGuard() {
-  const enabled = useMoneyTabEnabled();
-  return enabled ? <ActivityPage /> : <NotFoundPage />;
 }
 
 export default function App() {
@@ -174,9 +153,9 @@ export default function App() {
         <Route path="charges/:id" element={<ChargeDetailPage />} />
         <Route path="live" element={<LivePage />} />
         <Route path="trips/plan" element={<TripPlanGuard />} />
-        <Route path="money" element={<MoneyGuard />} />
-        <Route path="truck" element={<TruckGuard />} />
-        <Route path="activity" element={<ActivityGuard />} />
+        <Route path="money" element={<MoneyPage />} />
+        <Route path="truck" element={<TruckPage />} />
+        <Route path="activity" element={<ActivityPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="admin/users" element={<AdminPage />} />

@@ -1,5 +1,5 @@
-// Applies the chosen theme before first paint, only for users whose
-// money_tab_enabled shell was on last time (cached by src/lib/theme.ts),
+// Applies the chosen theme before first paint, only on devices that have
+// shown the signed-in app before (marked by src/lib/theme.ts rememberAppSeen),
 // and on the public /demo, /privacy, /terms, /lease-calculator and /charging-cost (public pages that follow the device theme).
 // rivolt.theme is system (default) | light | dark. Anything else,
 // including blocked storage, stays dark. Kept as a static same-origin

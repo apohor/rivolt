@@ -107,7 +107,7 @@ func connectionState(replay, paused, needsReauth bool) string {
 }
 
 // handle serves GET /api/vehicles/{vehicleID}/now. The route is
-// vehicleScoped (ownership) and behind requireMoneyTabMW.
+// vehicleScoped (ownership).
 func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "vehicleID"))
 	if id == "" {

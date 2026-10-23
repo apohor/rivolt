@@ -659,15 +659,13 @@ is enabled; the public demo at `demo.rivolt.dev` serves the same tabs under
 `/demo` against the sample truck, read-only. Routes are unchanged underneath
 (`/drives/:id`, `/charges/:id`, ...), so deep links keep working.
 
-- **The new look is a flag, not a fork.** `ui_theme_next` lives in the
-  `flags` table with the same `{"all": bool, "users": [uuid, ...]}` shape as
-  `money_tab_enabled`, and reaches the client on `GET /api/ledger/enabled`.
-  It is `all: true` on prod since v0.36.0. **Rollback** is a psql update to
-  `{"users": [...]}` (an empty list turns it off for everyone). Everything
-  visual hangs off `html[data-ui='next']` or `useUiNext()`, so flag-off is the
-  old UI unchanged. A `?ui=next|off|reset` per-device override exists for
-  comparing looks, honoured only on `preview.rivolt.dev` and localhost, never
-  on prod or the demo (`web/src/lib/uiNext.ts`).
+- **One look, no flags.** The old UI, its `ui_theme_next` flag and the
+  per-user `money_tab_enabled` gate are gone (Oct 2026): every signed-in user
+  gets the tab shell and the Money, Activity, Truck and Plan vs actual
+  routes. `GET /api/ledger/enabled` still answers
+  `{"enabled": true, "ui_theme_next": true}` for tabs running an older
+  bundle. The look's CSS still hangs off `html[data-ui='next']`, set by every
+  shell (`useApplyUiNext` in `web/src/lib/uiNext.ts`).
 - **Styles** are split per area under `web/src/styles/`: `next-type.css` (the
   shared 11/12/14/24/36 type scale), `next-plan.css` (planner), `next-activity.css`
   (Activity tables); the rest is in `index.css`.

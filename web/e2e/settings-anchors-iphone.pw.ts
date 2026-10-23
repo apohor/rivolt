@@ -34,7 +34,7 @@ for (const c of CASES) {
   test(`iphone: ${c.path} lands on the card with its control in view`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await stubApi(page, { uiNext: true });
+    await stubApi(page);
     // The Lease card waits for the owned vehicles and the (absent) lease before it shows its form.
     await page.route("**/api/vehicles/owned", (r) =>
       r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }),
@@ -69,7 +69,7 @@ test("iphone: a card that appears late is still scrolled to (5 loads)", async ({
   for (let load = 0; load < 5; load++) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 664 }, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await stubApi(page, { uiNext: true });
+    await stubApi(page);
     await page.route("**/api/settings/onboarding-email", async (r) => {
       await new Promise((res) => setTimeout(res, 300 + load * 250));
       return r.fulfill({ json: { enabled: true } });

@@ -38,7 +38,7 @@ import { detailPath } from "../lib/demo";
 
 // Money: the monthly charging statement (ux-slice-spec §4, ledger
 // contract v1). Every total comes from the server; the page only
-// formats and explains. Gated by money_tab_enabled (see App.tsx).
+// formats and explains.
 
 type ReceiptFilter = "all" | "home" | "away" | "dcfc" | "confirm";
 

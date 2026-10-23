@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,10 +32,7 @@ func TestFlagsGet_ListsEveryFlagState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetMoneyTab(ctx, flags.MoneyTabState{All: true}, "admin"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetStatementEmail(ctx, flags.MoneyTabState{Users: []string{"u-1", "u-2"}}, "admin"); err != nil {
+	if err := store.SetStatementEmail(ctx, flags.AudienceState{Users: []string{"u-1", "u-2"}}, "admin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetAICallCap(ctx, 40, "admin"); err != nil {
@@ -48,8 +46,7 @@ func TestFlagsGet_ListsEveryFlagState(t *testing.T) {
 	}
 	var got struct {
 		KillSwitch     *flags.KillSwitchState `json:"kill_switch"`
-		MoneyTab       *flags.MoneyTabState   `json:"money_tab"`
-		StatementEmail *flags.MoneyTabState   `json:"statement_email"`
+		StatementEmail *flags.AudienceState   `json:"statement_email"`
 		AICallCap      *flags.AICallCapState  `json:"ai_call_cap"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -58,8 +55,8 @@ func TestFlagsGet_ListsEveryFlagState(t *testing.T) {
 	if got.KillSwitch == nil {
 		t.Error("kill_switch missing")
 	}
-	if got.MoneyTab == nil || !got.MoneyTab.All {
-		t.Errorf("money_tab = %+v, want all", got.MoneyTab)
+	if strings.Contains(rec.Body.String(), `"money_tab"`) {
+		t.Errorf("the retired money_tab flag is still reported: %s", rec.Body.String())
 	}
 	if got.StatementEmail == nil || got.StatementEmail.All || len(got.StatementEmail.Users) != 2 {
 		t.Errorf("statement_email = %+v, want users u-1, u-2", got.StatementEmail)

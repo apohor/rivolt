@@ -7,15 +7,14 @@ afterEach(cleanup);
 
 describe("parsePlanTab", () => {
   it("defaults to the planner and ignores unknown values", () => {
-    expect(parsePlanTab(null, true)).toBe("planner");
-    expect(parsePlanTab("", true)).toBe("planner");
-    expect(parsePlanTab("nonsense", true)).toBe("planner");
-    expect(parsePlanTab("PLANNER", true)).toBe("planner");
+    expect(parsePlanTab(null)).toBe("planner");
+    expect(parsePlanTab("")).toBe("planner");
+    expect(parsePlanTab("nonsense")).toBe("planner");
+    expect(parsePlanTab("PLANNER")).toBe("planner");
   });
-  it("accepts saved always and pva only with the Money shell", () => {
-    expect(parsePlanTab("saved", false)).toBe("saved");
-    expect(parsePlanTab("pva", true)).toBe("pva");
-    expect(parsePlanTab("pva", false)).toBe("planner");
+  it("accepts saved and pva", () => {
+    expect(parsePlanTab("saved")).toBe("saved");
+    expect(parsePlanTab("pva")).toBe("pva");
   });
 });
 
@@ -69,7 +68,7 @@ describe("PlanTabs", () => {
   it("arrow keys select and focus the next tab; Home/End jump", () => {
     const seen: PlanTab[] = [];
     function Host() {
-      const [tab, setTab] = usePlanTab(true);
+      const [tab, setTab] = usePlanTab();
       seen.push(tab);
       return <PlanTabs tabs={[...TABS]} value={tab} onChange={setTab} />;
     }
@@ -92,8 +91,8 @@ describe("PlanTabs", () => {
 });
 
 describe("usePlanTab", () => {
-  function Probe({ pva }: { pva: boolean }) {
-    const [tab, setTab] = usePlanTab(pva);
+  function Probe() {
+    const [tab, setTab] = usePlanTab();
     const loc = useLocation();
     return (
       <div>
@@ -107,7 +106,7 @@ describe("usePlanTab", () => {
   it("reads ?tab=, writes it, keeps other params, and drops it for the planner", () => {
     render(
       <MemoryRouter initialEntries={["/plan?trip=abc&tab=pva"]}>
-        <Probe pva />
+        <Probe />
       </MemoryRouter>,
     );
     expect(screen.getByTestId("tab")).toHaveTextContent("pva");
@@ -117,13 +116,5 @@ describe("usePlanTab", () => {
     fireEvent.click(screen.getByText("planner"));
     expect(screen.getByTestId("tab")).toHaveTextContent("planner");
     expect(screen.getByTestId("search")).toHaveTextContent("?trip=abc");
-  });
-  it("falls back to the planner for pva without the Money shell", () => {
-    render(
-      <MemoryRouter initialEntries={["/plan?tab=pva"]}>
-        <Probe pva={false} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId("tab")).toHaveTextContent("planner");
   });
 });

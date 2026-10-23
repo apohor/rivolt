@@ -4,7 +4,6 @@ import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { appPath, inDemo, listPath } from "../lib/demo";
-import { useMoneyTabEnabled } from "../lib/ledger";
 import { useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -132,13 +131,12 @@ export default function ChargeDetailPage() {
   // The Money tab prices a plug-in as one receipt (a session plus the
   // top-ups folded into it), so its figure can legitimately differ from
   // this one session's. Say so instead of leaving two numbers to explain.
-  const moneyOn = useMoneyTabEnabled();
   const receiptMonth = charge
     ? new Date(charge.StartedAt).toLocaleDateString("en-CA", { timeZone: displayTimeZone() }).slice(0, 7)
     : null;
   const receiptQ = useQuery({
     queryKey: ["ledger", "receipt-of", receiptMonth, charge?.ID],
-    enabled: moneyOn && !!charge && !!receiptMonth,
+    enabled: !!charge && !!receiptMonth,
     staleTime: 60_000,
     retry: 0,
     queryFn: async (): Promise<{ receipt: Receipt; network: string | null } | null> => {
@@ -1244,8 +1242,6 @@ function PricingCard({
         : 0;
   const [ppk, setPpk] = useState(seed > 0 ? seed.toFixed(3) : "");
   const [currency, setCurrency] = useState(charge.Currency || "USD");
-  // Explicit Free ships with the money_tab_enabled flag.
-  const freeEnabled = useMoneyTabEnabled();
 
   // Network price book — the user-managed list from
   // /api/settings/charging/networks. Failure is non-fatal: the
@@ -1409,7 +1405,6 @@ function PricingCard({
               ? `≈ ${formatMoney(previewCost, currency || "USD")} over ${energy.toFixed(1)} kWh`
               : `Energy: ${energy.toFixed(1)} kWh`}
           </p>
-          {freeEnabled && (
           <button
             type="button"
             disabled={mutation.isPending}
@@ -1424,7 +1419,6 @@ function PricingCard({
           >
             Mark as free
           </button>
-          )}
           <button
             type="submit"
             disabled={mutation.isPending}
@@ -1814,7 +1808,6 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
 // only if the user says the old home was wrong (the same prompt as Settings). Web only.
 export function UseAsHome({ lat, lon }: { lat: number; lon: number }) {
   const qc = useQueryClient();
-  const shell = useMoneyTabEnabled();
   const recheck = useHomeRecheck();
   const [confirm, setConfirm] = useState(false);
   const save = useMutation({
@@ -1822,7 +1815,7 @@ export function UseAsHome({ lat, lon }: { lat: number; lon: number }) {
     onSuccess: (data) => {
       qc.setQueryData(["settings", "homeLocation"], data);
       setConfirm(false);
-      if (shell) recheck.start();
+      recheck.start();
     },
   });
   return (

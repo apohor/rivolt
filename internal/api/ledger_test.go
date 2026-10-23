@@ -24,12 +24,11 @@ import (
 func ledgerFloat(v float64) *float64 { return &v }
 
 // ledgerRouter mounts the ledger routes the way api.go does, with the
-// flag gate and data seams replaced by in-memory fakes.
-func ledgerRouter(enabled map[string]bool, la ledgerAPI) http.Handler {
+// data seams replaced by in-memory fakes.
+func ledgerRouter(la ledgerAPI) http.Handler {
 	r := chi.NewRouter()
 	r.Route("/api/ledger", func(r chi.Router) {
-		r.Use(requireMoneyTabMW(func(uid string) bool { return enabled[uid] }))
-		r.Get("/enabled", handleLedgerEnabled())
+		r.Get("/enabled", withUser(handleLedgerEnabled))
 		r.Get("/monthly", withUser(la.monthly))
 		r.Get("/summary", withUser(la.summary))
 		r.Get("/trips", withUser(la.trips))
@@ -76,23 +75,19 @@ func ledgerGET(t *testing.T, h http.Handler, uid uuid.UUID, url string) *httptes
 	return rec
 }
 
-func TestLedger_FlagGate(t *testing.T) {
-	on, off := uuid.New(), uuid.New()
+func TestLedger_SignedInOnly(t *testing.T) {
 	data := &fakeLedgerData{}
-	h := ledgerRouter(map[string]bool{on.String(): true}, data.api(time.Now()))
+	h := ledgerRouter(data.api(time.Now()))
 
 	for _, path := range []string{"/api/ledger/enabled", "/api/ledger/monthly?month=2026-10", "/api/ledger/summary"} {
-		if rec := ledgerGET(t, h, off, path); rec.Code != http.StatusNotFound {
-			t.Errorf("%s with flag off = %d, want 404", path, rec.Code)
-		}
-		if rec := ledgerGET(t, h, uuid.Nil, path); rec.Code != http.StatusNotFound {
-			t.Errorf("%s unauthenticated = %d, want 404", path, rec.Code)
+		if rec := ledgerGET(t, h, uuid.Nil, path); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s unauthenticated = %d, want 401", path, rec.Code)
 		}
 	}
 	if data.loadHits != 0 {
-		t.Errorf("gated requests reached the loader %d times", data.loadHits)
+		t.Errorf("unauthenticated requests reached the loader %d times", data.loadHits)
 	}
-	rec := ledgerGET(t, h, on, "/api/ledger/enabled")
+	rec := ledgerGET(t, h, uuid.New(), "/api/ledger/enabled")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"enabled":true`) {
 		t.Errorf("enabled probe = %d %s", rec.Code, rec.Body.String())
 	}
@@ -101,7 +96,7 @@ func TestLedger_FlagGate(t *testing.T) {
 func TestLedger_MonthlyValidation(t *testing.T) {
 	uid := uuid.New()
 	data := &fakeLedgerData{owned: map[string]bool{"veh-mine": true}}
-	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Now()))
+	h := ledgerRouter(data.api(time.Now()))
 	cases := map[string]int{
 		"/api/ledger/monthly":                                   http.StatusBadRequest,
 		"/api/ledger/monthly?month=2026-13":                     http.StatusBadRequest,
@@ -131,7 +126,7 @@ func TestLedger_MonthlyResponse(t *testing.T) {
 			Currency: "USD", Source: "live", FinalState: "charging_complete",
 		}},
 	}
-	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
+	h := ledgerRouter(data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
 
 	rec := ledgerGET(t, h, uid, "/api/ledger/monthly?month=2026-09&tz=America/Chicago&vehicle_id=veh-1")
 	if rec.Code != http.StatusOK {
@@ -168,7 +163,7 @@ func TestLedger_MonthlyResponse(t *testing.T) {
 func TestLedger_Summary(t *testing.T) {
 	uid := uuid.New()
 	data := &fakeLedgerData{}
-	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
+	h := ledgerRouter(data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
 	rec := ledgerGET(t, h, uid, "/api/ledger/summary?months=3")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
@@ -192,25 +187,16 @@ func TestLedger_Summary(t *testing.T) {
 func TestLedger_LoadErrorIs500(t *testing.T) {
 	uid := uuid.New()
 	data := &fakeLedgerData{loadErr: errors.New("db down")}
-	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Now()))
+	h := ledgerRouter(data.api(time.Now()))
 	if rec := ledgerGET(t, h, uid, "/api/ledger/monthly?month=2026-10"); rec.Code != http.StatusInternalServerError {
 		t.Errorf("load error = %d, want 500", rec.Code)
-	}
-}
-
-func TestLedger_MoneyTabPutValidates(t *testing.T) {
-	h := handleFlagsMoneyTabPut(nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"users":["x"]}`)))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("nil store = %d, want 503", rec.Code)
 	}
 }
 
 func TestLedger_TripsValidation(t *testing.T) {
 	uid := uuid.New()
 	data := &fakeLedgerData{}
-	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
+	h := ledgerRouter(data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
 	cases := map[string]int{
 		"/api/ledger/trips": http.StatusOK,
 		"/api/ledger/trips?from=2026-09-01&to=2026-10-01&tz=America/Chicago": http.StatusOK,
@@ -222,9 +208,6 @@ func TestLedger_TripsValidation(t *testing.T) {
 		if rec := ledgerGET(t, h, uid, path); rec.Code != want {
 			t.Errorf("%s = %d, want %d (%s)", path, rec.Code, want, strings.TrimSpace(rec.Body.String()))
 		}
-	}
-	if rec := ledgerGET(t, h, uuid.New(), "/api/ledger/trips"); rec.Code != http.StatusNotFound {
-		t.Errorf("flag off = %d, want 404", rec.Code)
 	}
 	rec := ledgerGET(t, h, uid, "/api/ledger/trips?from=2026-09-01&to=2026-10-01")
 	if !strings.Contains(rec.Body.String(), `"trips":[]`) || !strings.Contains(rec.Body.String(), `"version":1`) {
@@ -240,7 +223,7 @@ func TestLedgerEnabled_AlwaysTheCurrentLook(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/ledger/enabled", nil)
 	req = req.WithContext(auth.WithUser(req.Context(), uuid.New()))
 	rec := httptest.NewRecorder()
-	handleLedgerEnabled()(rec, req)
+	withUser(handleLedgerEnabled)(rec, req)
 	var got map[string]bool
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 || !got["enabled"] || !got["ui_theme_next"] {
 		t.Fatalf("status %d body %s: %v", rec.Code, rec.Body, err)
@@ -261,7 +244,7 @@ func TestLedger_BilledFieldsFollowTheReceiptsFlag(t *testing.T) {
 	data := &fakeLedgerData{charges: []ledger.Charge{c}}
 	la := data.api(time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC))
 	la.billed = func(uid uuid.UUID) bool { return uid == withReceipts }
-	h := ledgerRouter(map[string]bool{withReceipts.String(): true, without.String(): true}, la)
+	h := ledgerRouter(la)
 
 	body := func(uid uuid.UUID, url string) string {
 		rec := ledgerGET(t, h, uid, url)

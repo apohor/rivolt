@@ -31,7 +31,7 @@ import {
 
 // Activity v1 (ux-report S3): one day-grouped feed of drives and
 // charges as cards. Auto-trips and plan-vs-actual wait on a backend
-// trips contract. Gated by money_tab_enabled (see App.tsx).
+// trips contract.
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },

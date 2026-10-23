@@ -13,7 +13,7 @@ export const AUDIT_ACTIONS: { id: string; label: string }[] = [
   { id: "signup_request.reject", label: "Reject signup" },
   { id: "flag.kill_switch", label: "Kill switch" },
   { id: "flag.trip_planner", label: "Trip planner flag" },
-  { id: "flag.money_tab", label: "Money tab flag" },
+  { id: "flag.money_tab", label: "Money tab flag" }, // retired; kept so old entries read right
   { id: "flag.statement_email", label: "Statement email flag" },
   { id: "flag.signup_cap", label: "Signup cap" },
   { id: "flag.ai_call_cap", label: "AI call cap" },

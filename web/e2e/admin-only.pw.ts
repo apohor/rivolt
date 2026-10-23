@@ -94,12 +94,12 @@ test("viewing as a user: the user pages render as on rivolt.dev", async ({ page 
   await expect(page).toHaveURL(/\/$/); // not sent to /admin
   await expect(page.locator("[data-admin-only-shell]")).toHaveCount(0);
   await expect(page.getByText("Viewing as")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Drives" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Activity/ }).first()).toBeVisible(); // the tab shell
 });
 
 test("without the flag (an older server, or rivolt.dev) nothing changes", async ({ page }) => {
   await open(page, { adminOnly: "absent" });
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-admin-only-shell]")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Drives" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Activity/ }).first()).toBeVisible(); // the tab shell
 });

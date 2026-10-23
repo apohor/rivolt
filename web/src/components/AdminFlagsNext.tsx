@@ -149,9 +149,6 @@ export function FlagsNext() {
               )}
             </div>
           </li>
-          {f.money_tab && (
-            <AudienceFlagRow flag="money_tab" title="Money tab" feature="the Money tab" auditAction="flag.money_tab" value={f.money_tab} description="Who sees the Money tab (and the Truck and Activity tabs that come with it)." />
-          )}
           {f.statement_email && (
             <AudienceFlagRow flag="statement_email" title="Monthly statement email" feature="the monthly statement email" auditAction="flag.statement_email" value={f.statement_email} description="Who can be sent the monthly statement." note="Each user must also opt in under Settings, Notifications." />
           )}

@@ -17,7 +17,7 @@ for (const v of [
     test(`truck summary line · ${v.n} ${scheme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: scheme });
       const page = await ctx.newPage();
-      await stubApi(page, { drain: "ok", uiNext: true });
+      await stubApi(page, { drain: "ok" });
       await page.goto("/truck");
       const line = page.getByRole("region", { name: "Truck summary" });
       await expect(line.getByRole("button", { name: /^Pack (about )?\d+(\.\d)? kWh usable/ })).toBeVisible();

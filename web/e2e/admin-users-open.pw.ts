@@ -11,7 +11,7 @@ const USERS = Array.from({ length: 16 }, (_, i) => mk(i));
 
 async function open(page: Page) {
   const writes: string[] = [];
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/config", (r) =>
     r.fulfill({ json: { features: { trip_planner_enabled: true, signup_enabled: true, admin_only: true, rivian_actions: false }, tiles: { url: "", chargers_url: "" }, valhalla: { path: "" }, impersonation: { disabled: true } } }),
   );

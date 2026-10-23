@@ -13,7 +13,6 @@ import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
-import { useMoneyTabEnabled } from "../lib/ledger";
 import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
@@ -34,9 +33,8 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 // anywhere else.
 
 export default function TripPlanPage() {
-  const moneyShell = useMoneyTabEnabled();
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
-  const [planTab, setPlanTab] = usePlanTab(moneyShell);
+  const [planTab, setPlanTab] = usePlanTab();
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -300,7 +298,7 @@ export default function TripPlanPage() {
   );
   const pvaEl = (
     <>
-      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
+      <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />
     </>
   );
   // The trip being shown, named for a Save that is one tap on the result.
@@ -600,7 +598,7 @@ export default function TripPlanPage() {
   const tabs: PlanTabSpec[] = [
     { id: "planner", label: "Planner" },
     { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
-    ...(moneyShell ? [{ id: "pva" as const, label: "Plan vs actual" }] : []),
+    { id: "pva", label: "Plan vs actual" },
   ];
   return (
     <div data-plan-next>

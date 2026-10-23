@@ -29,7 +29,7 @@ const ALL = [
 
 async function open(page: Page, o: { pageSize?: number } = {}) {
   const seen: string[] = [];
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/admin/users", (r) => r.fulfill({ json: { users: [ADMIN, USER] } }));
   await page.route("**/api/admin/users/*", (r) =>
     r.request().method() === "GET"

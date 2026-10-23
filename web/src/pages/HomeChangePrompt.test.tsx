@@ -12,7 +12,7 @@ const NEW = { set: true, latitude: 41, longitude: -100, label: "Home", source: "
 let homeGet: object = OLD;
 const bodies: { url: string; body: string }[] = [];
 
-function mockFetch(dry: object, flag = true) {
+function mockFetch(dry: object) {
   const calls: string[] = [];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -20,11 +20,6 @@ function mockFetch(dry: object, flag = true) {
     bodies.push({ url, body: String(init?.body ?? "") });
     const j = (body: unknown) =>
       ({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify(body) }) as unknown as Response;
-    if (url.startsWith("/api/ledger/enabled")) {
-      return flag
-        ? j({ enabled: true })
-        : ({ ok: false, status: 404, headers: { get: () => "application/json" }, text: async () => "{}" } as unknown as Response);
-    }
     if (url.startsWith("/api/settings/home-location/search")) return j([{ name: "1 Main Street", latitude: 41, longitude: -100, admin1: "Texas", country: "United States" }]);
     if (url.startsWith("/api/settings/home-location/restore")) return j(OLD);
     if (url.startsWith("/api/settings/home-location")) return j(init?.method === "PUT" ? NEW : homeGet);
@@ -54,11 +49,7 @@ async function pickNewHome() {
   fireEvent.click(screen.getByRole("button", { name: "Save coordinates" }));
 }
 
-import { _resetMoneyTabFlagForTests } from "../lib/ledger";
-
 describe("home change prompt", () => {
-  beforeEach(() => _resetMoneyTabFlagForTests());
-
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -94,7 +85,6 @@ describe("home change prompt", () => {
 });
 
 describe("pricing and undo (A15b)", () => {
-  beforeEach(() => _resetMoneyTabFlagForTests());
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -115,26 +105,8 @@ describe("pricing and undo (A15b)", () => {
   });
 });
 
-describe("flag gate", () => {
-  beforeEach(() => _resetMoneyTabFlagForTests());
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
-  it("never prompts or re-stamps with money_tab_enabled off", async () => {
-    const calls = mockFetch({ dry_run: true, changed: 4, to_home: 3, to_away: 1, unchanged: 9, skipped_user_priced: 0 }, false);
-    renderPanel();
-    await pickNewHome();
-    await vi.waitFor(() => expect(calls.some((c) => c.startsWith("PUT /api/settings/home-location"))).toBe(true));
-    await new Promise((r) => setTimeout(r, 200));
-    expect(calls.some((c) => c.includes("restamp-place"))).toBe(false);
-    expect(screen.queryByText("Was the old location wrong, or did you move?")).toBeNull();
-  });
-});
-
 describe("precise home (#906)", () => {
   beforeEach(() => {
-    _resetMoneyTabFlagForTests();
     homeGet = OLD;
     bodies.length = 0;
   });
@@ -245,9 +217,6 @@ describe("precise home (#906)", () => {
         </QueryClientProvider>
       </MemoryRouter>,
     );
-    // The page has read the money flag before anyone taps (the re-check prompt ships with it).
-    await vi.waitFor(() => expect(calls.some((c) => c.startsWith("GET /api/ledger/enabled"))).toBe(true));
-    await new Promise((r) => setTimeout(r, 50));
     fireEvent.click(screen.getByRole("button", { name: "Use this charge's location as home" }));
     expect(calls.some((c) => c.startsWith("PUT"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Set as home" }));

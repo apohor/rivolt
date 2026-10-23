@@ -9,8 +9,6 @@
 
 import { hasOpenNetworkState, type NetworkState } from "./autoNetwork";
 import { DEMO_TZ, inDemo } from "./demo";
-import { cacheShellFlag } from "./theme";
-import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 
 export const LEDGER_CONTRACT_VERSION = 1;
@@ -242,49 +240,6 @@ export type LedgerSummary = {
 export type Sourced<T> = { data: T; source: "api" | "fixture" };
 
 // ---- feature flag (contract §1) -------------------------------------
-
-// money_tab_enabled is a per-user flag, so it can't ride on the
-// install-wide /api/config the trip-planner flag uses. Discovery is
-// GET /api/ledger/enabled (200 → on, 404 → off). Same hook shape as
-// useTripPlannerEnabled: one fetch per page load, module-cached,
-// fail-closed (false) until it resolves, re-render when it does.
-let flagCache: boolean | null = null;
-let flagInflight: Promise<boolean> | null = null;
-
-export function loadMoneyTabEnabled(): Promise<boolean> {
-  if (!flagInflight) {
-    flagInflight = api
-      .get<{ enabled?: boolean; ui_theme_next?: boolean }>("/api/ledger/enabled")
-      .then((r) => !!r?.enabled)
-      .catch(() => false)
-      .then((v) => {
-        flagCache = v;
-        cacheShellFlag(v);
-        return v;
-      });
-  }
-  return flagInflight;
-}
-
-export function useMoneyTabEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(flagCache ?? false);
-  useEffect(() => {
-    let cancelled = false;
-    loadMoneyTabEnabled().then((v) => {
-      if (!cancelled) setEnabled(v);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return enabled;
-}
-
-// Test-only: reset the module cache between cases.
-export function _resetMoneyTabFlagForTests() {
-  flagCache = null;
-  flagInflight = null;
-}
 
 // ---- fetchers -------------------------------------------------------
 
