@@ -55,11 +55,17 @@ extension NowSummary {
 enum NowReads {
     private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
 
-    static func logged<T>(_ what: String, _ read: () async throws -> T) async -> T? {
+    /// `record` gets the read's outcome as a fixed class (see `ConnectionDiagnostics.Outcome`) for the Connection details
+    /// screen; it never sees the error.
+    static func logged<T>(_ what: String, record: (@MainActor (ConnectionDiagnostics.Outcome) -> Void)? = nil,
+                          _ read: () async throws -> T) async -> T? {
         do {
-            return try await read()
+            let value = try await read()
+            await record?(.ok)
+            return value
         } catch {
             log.error("\(what, privacy: .public) read failed: \(describe(error), privacy: .public)")
+            await record?(ConnectionDiagnostics.Outcome(error))
             return nil
         }
     }

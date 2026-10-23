@@ -14,6 +14,7 @@ struct AccountMenu: View {
     @State private var showNotifications = false
     @State private var showAcknowledgements = false
     @State private var showRates = false
+    @State private var showConnection = false
 
     var body: some View {
         Menu {
@@ -29,6 +30,7 @@ struct AccountMenu: View {
             }
             Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
             Link("Terms", destination: state.serverURL.appending(path: "terms"))
+            Button("Connection details") { showConnection = true }
             Button("Acknowledgements") { showAcknowledgements = true }
             Divider()
             Button("Sign out", role: .destructive) {
@@ -40,6 +42,7 @@ struct AccountMenu: View {
         .accessibilityLabel("Account")
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
         .sheet(isPresented: $showRates) { ChargingRatesView() }
+        .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
                                      live: state.liveActivity, vehicleID: vehicleID)
