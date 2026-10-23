@@ -57,9 +57,9 @@ final class TripMilestoneShareTests: XCTestCase {
     func testTheMilestoneCardIsTheServersWordsAndTheMonth() throws {
         let m = try milestone()
         let c = MoneyShareCard.milestone(m, calendar: chicago())
-        XCTAssertEqual(c.eyebrow, "Milestone")
+        XCTAssertEqual(c.eyebrow, "Milestone · October 2026")
         XCTAssertEqual(c.title, m.title)
-        XCTAssertEqual(c.subtitle, "\(m.body) · October 2026")
+        XCTAssertEqual(c.subtitle, m.body)
         XCTAssertEqual(c.stats, [])
     }
 
@@ -70,7 +70,8 @@ final class TripMilestoneShareTests: XCTestCase {
         let m = Milestone(vehicleId: "v", key: "k", kind: "kwh_1000", achievedAt: try milestone().achievedAt, title: "1,000 kWh charged at home",
                           body: "About $142 at your home rate.")
         let c = MoneyShareCard.milestone(m, calendar: chicago())
-        XCTAssertEqual(c.subtitle, "October 2026")
+        XCTAssertEqual(c.eyebrow, "Milestone · October 2026")
+        XCTAssertEqual(c.subtitle, "")
         XCTAssertFalse(text(c).contains("$"))
     }
 
