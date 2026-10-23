@@ -81,7 +81,7 @@ test("no lease: the Truck card is hidden; flag off: hidden too", async ({ browse
     await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
     await mock(page, terms, status);
     await page.goto("/truck");
-    await expect(page.getByText("Pack capacity")).toBeVisible();
+    await expect(page.getByText("Battery capacity")).toBeVisible();
     await expect(page.locator("[data-lease-state]")).toHaveCount(0);
     await ctx.close();
   }

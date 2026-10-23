@@ -54,7 +54,7 @@ final class CapacityChartTests: XCTestCase {
         let t = try spread()
         let c = try XCTUnwrap(t.capacity)
         let view = VStack(alignment: .leading, spacing: 6) {
-            Text("Estimated usable capacity (from your charges)").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
+            Text("Battery capacity").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
             (Text("About \(TruckLogic.fixed(c.medianKwh ?? 0, 0)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
                 + Text("usable (estimate)").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
             Text("from \(c.samples.count) charges").themeText(.subline, color: Theme.textTertiary)

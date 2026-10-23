@@ -45,7 +45,7 @@ for (const v of VIEWS) {
       await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
       await stubApi(page, { drain: "ok" });
       await page.goto("/truck");
-      await expect(page.getByText("Pack capacity")).toBeVisible();
+      await expect(page.getByText("Battery capacity")).toBeVisible();
       await page.waitForTimeout(900);
       await page.screenshot({ path: path.join(SHOTS, `uinext-truck-${v.name}-${state}.png`), fullPage: v.name === "iphone" });
       await ctx.close();

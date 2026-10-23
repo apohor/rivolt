@@ -31,7 +31,7 @@ async function open(page: Page, answer: (t: number) => { status?: number; body: 
     return r.fulfill({ status: a.status ?? 200, contentType: "application/json", body: JSON.stringify(a.body) });
   });
   await page.goto("/truck");
-  await expect(page.getByText("Pack capacity").first()).toBeVisible();
+  await expect(page.getByText("Battery capacity").first()).toBeVisible();
   return asked;
 }
 

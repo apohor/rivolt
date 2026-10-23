@@ -381,43 +381,46 @@ struct TruckContent: View {
         }
     }
 
-    // MARK: Pack capacity
+    // MARK: Battery capacity
 
+    /// "Battery capacity": what the truck reports (or our estimate when it sends none), the other figure on one labelled
+    /// line, Rivian's spec when it is a usable figure, and our estimate's history as dots. Plain figures: no score, no
+    /// comparison with the spec, no "degradation".
     @ViewBuilder
     private var packCard: some View {
-        ThemeSection(title: "Pack capacity") {
-            switch model.pack {
-            case nil:
+        ThemeSection(title: "Battery capacity") {
+            if model.pack == nil && model.trends == nil {
                 ProgressView().frame(maxWidth: .infinity)
-            case .failed?, .missing?:
-                Text("Couldn't load pack-health data.").themeText(.subline, color: Theme.textTertiary)
-            case .value(let p)?:
-                let v = TruckLogic.pack(p)
-                VStack(alignment: .leading, spacing: 8) {
-                    switch v.head {
-                    case let .reported(kwh, spec):
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(TruckLogic.fixed(kwh, 1)) kWh").themeText(.title)
-                            Text("usable, as your truck reports it").themeText(.subline)
-                        }
-                        if spec > 0 { Text("Rivian's spec for this pack: \(TruckLogic.fixed(spec, 0)) kWh").themeText(.subline, color: Theme.textTertiary) }
-                    case let .estimate(kwh, spec):
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(kwh.map { "\(TruckLogic.fixed($0, 0)) kWh" } ?? "—").themeText(.title)
-                            Text(spec > 0 ? "estimate · Rivian's spec: \(TruckLogic.fixed(spec, 0)) kWh" : "estimate").themeText(.subline)
-                        }
-                    case .none:
+            } else if model.pack?.value == nil && model.trends?.value == nil {
+                Text("Couldn't load battery capacity.").themeText(.subline, color: Theme.textTertiary)
+            } else {
+                let b = TruckLogic.battery(pack: model.pack?.value, trends: model.trends?.value)
+                VStack(alignment: .leading, spacing: 6) {
+                    switch b.head {
+                    case let .reported(kwh)?:
+                        (Text("\(TruckLogic.fixed(kwh, 1)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
+                            + Text("usable, as your truck reports it").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
+                            .monospacedDigit()
+                    case let .estimate(kwh)?:
+                        (Text("About \(TruckLogic.fixed(kwh, 0)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
+                            + Text("usable (estimate)").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
+                            .monospacedDigit()
+                        Text("from \(b.charges) \(b.charges == 1 ? "charge" : "charges")").themeText(.subline, color: Theme.textTertiary)
+                    case nil:
                         EmptyView()
                     }
-                    if !(p.samples ?? []).isEmpty {
-                        if v.trend.count >= 2 {
-                            PackSparkline(samples: v.trend).frame(height: 56)
-                        } else {
-                            Text("Need at least two samples to draw a trend.").themeText(.caption, color: Theme.textTertiary)
-                        }
+                    if let line = b.estimateLine { Text(line).themeText(.value, color: Theme.textSecondary) }
+                    if b.spec > 0 { Text("Rivian's spec for this pack: \(TruckLogic.fixed(b.spec, 0)) kWh").themeText(.subline, color: Theme.textTertiary) }
+                    if let median = b.estimateKwh {
+                        CapacityChart(samples: model.trends?.value?.capacity?.samples ?? [], median: median, spec: b.spec, xLabels: stacked ? 2 : 3)
+                            .frame(minHeight: chartHeight)
+                        Text("Our estimate comes from charges that add at least \(TruckLogic.whole(b.need))% of battery. It moves a little with temperature and is not a Rivian figure. Charging losses and how the truck reports charge level can shift it by a few percent.")
+                            .themeText(.subline, color: Theme.textTertiary)
                     }
-                    Text(v.note).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    if let p = b.progress { Text(p).themeText(.value, color: Theme.textSecondary) }
+                    if b.untracked { Text("Our estimate can't be tracked on this truck yet.").themeText(.value, color: Theme.textSecondary) }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -426,6 +429,7 @@ struct TruckContent: View {
 
     private func trendsCard(_ t: TruckTrends) -> some View {
         ThemeSection(title: "Trends for your truck") {
+            // Efficiency only: the capacity estimate's history is in Battery capacity.
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Efficiency by month").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
@@ -448,25 +452,6 @@ struct TruckContent: View {
                     } else {
                         Text("Not enough driving yet for a trend: \(t.qualifyingMonths) of \(t.minMonths) months with at least \(TruckLogic.whole(t.minMonthDistance)) \(t.distanceUnit). This fills in as you drive.")
                             .themeText(.value, color: Theme.textSecondary)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Estimated usable capacity (from your charges)").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
-                    switch TruckLogic.capacity(t) {
-                    case .untracked:
-                        Text("Battery capacity can't be tracked on this truck yet.").themeText(.value, color: Theme.textSecondary)
-                    case .sparse(let s):
-                        Text(s).themeText(.value, color: Theme.textSecondary)
-                    case let .ok(median, spec, need):
-                        (Text("About \(TruckLogic.fixed(median, 0)) kWh ").font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title)).foregroundStyle(Theme.textPrimary)
-                            + Text("usable (estimate)").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textSecondary))
-                            .monospacedDigit()
-                        let n = t.capacity?.samples.count ?? 0
-                        Text("from \(n) \(n == 1 ? "charge" : "charges")").themeText(.subline, color: Theme.textTertiary)
-                        CapacityChart(samples: t.capacity?.samples ?? [], median: median, spec: spec, xLabels: stacked ? 2 : 3)
-                            .frame(minHeight: chartHeight)
-                        Text("Estimated from charges that add at least \(TruckLogic.whole(need))% of battery. It moves a little with temperature and is not a Rivian figure. Charging losses and how the truck reports charge level can shift it by a few percent.\(spec > 0 ? " Rivian's spec for this pack: \(TruckLogic.fixed(spec, 0)) kWh." : "")")
-                            .themeText(.subline, color: Theme.textTertiary)
                     }
                 }
             }

@@ -10,7 +10,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const PAGES = [
   { name: "now-charging", url: "/", scenario: "charging", ready: (p: import("@playwright/test").Page) => expect(p.getByRole("region", { name: "Now" })).toBeVisible() },
-  { name: "truck", url: "/truck", scenario: "parked", ready: (p: import("@playwright/test").Page) => expect(p.getByText("Pack capacity")).toBeVisible() },
+  { name: "truck", url: "/truck", scenario: "parked", ready: (p: import("@playwright/test").Page) => expect(p.getByText("Battery capacity")).toBeVisible() },
   { name: "money", url: "/money", scenario: "parked", ready: (p: import("@playwright/test").Page) => expect(p.getByRole("region", { name: "Statement" })).toBeVisible() },
   { name: "activity", url: "/activity", scenario: "parked", ready: (p: import("@playwright/test").Page) => expect(p.getByRole("heading", { name: "Activity" }).first()).toBeVisible() },
 ] as const;

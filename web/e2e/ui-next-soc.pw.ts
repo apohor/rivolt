@@ -60,7 +60,7 @@ for (const theme of ["dark", "light"] as const) {
           await expect(page.getByTestId("soc-tip")).toContainText(/ended \d+%/);
           // The plot is named for a screen reader in one sentence.
           await expect(svg).toHaveAttribute("aria-label", /^Battery level by day\./);
-          await expect(page.getByText(/Pack capacity/)).toHaveCount(0);
+          await expect(page.getByText(/Battery capacity/)).toHaveCount(0);
         }
         await chart(page).screenshot({ path: path.join(SHOTS, `soc-${v.name}-${theme}-${state}.png`) }).catch(() => {});
         if (state === "on") {

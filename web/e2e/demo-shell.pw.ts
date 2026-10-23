@@ -43,7 +43,7 @@ const ROUTES = [
   { name: "activity", url: "/demo/activity", text: /Drives and charges/ },
   { name: "money", url: "/demo/money", text: /What charging actually cost/ },
   { name: "plan", url: "/demo/trips/plan", text: /./ },
-  { name: "truck", url: "/demo/truck", text: /Pack capacity/ },
+  { name: "truck", url: "/demo/truck", text: /Battery capacity/ },
   { name: "settings", url: "/demo/settings", text: /./ },
 ];
 
