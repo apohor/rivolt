@@ -49,8 +49,9 @@ extension NowSummary {
     }
 }
 
-/// The two reads behind the Now card, with the reason written to the log when one fails (a decoding error names the field;
-/// it carries no coordinates or account data). A failed read leaves the card on what it already had.
+/// The two reads behind the Now card, with the reason written to the log when one fails. What is logged is a fixed
+/// class ("HTTP 503", "timed out", "no network", "unreadable: at") and, for a decoding error, only the field path: never
+/// an error's own description, which can carry the request's URL, the server host or the underlying text.
 enum NowReads {
     private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
 
@@ -58,8 +59,50 @@ enum NowReads {
         do {
             return try await read()
         } catch {
-            log.error("\(what, privacy: .public) read failed: \(String(describing: error), privacy: .public)")
+            log.error("\(what, privacy: .public) read failed: \(describe(error), privacy: .public)")
             return nil
         }
+    }
+
+    /// An error as one of a few fixed phrases, safe to log in the clear.
+    static func describe(_ error: Error) -> String {
+        switch error {
+        case APIError.server(let status, _): return "HTTP \(status)"
+        case APIError.decoding(let inner): return describe(inner)
+        case APIError.badURL: return "bad URL"
+        case APIError.transport: return "no answer"
+        case let decoding as DecodingError: return "unreadable: \(decodingKind(decoding)) \(path(decoding))"
+        case let url as URLError:
+            switch url.code {
+            case .timedOut: return "timed out"
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff: return "no network"
+            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .secureConnectionFailed, .serverCertificateUntrusted: return "can't reach the server"
+            case .cancelled: return "cancelled"
+            default: return "network error"
+            }
+        default: return "failed"
+        }
+    }
+
+    private static func decodingKind(_ e: DecodingError) -> String {
+        switch e {
+        case .keyNotFound: return "missing"
+        case .typeMismatch: return "wrong type"
+        case .valueNotFound: return "empty"
+        case .dataCorrupted: return "corrupt"
+        @unknown default: return "unknown"
+        }
+    }
+
+    /// The coding path of a decoding error ("at", "charge.startedAt"): the app's own field names, no values.
+    static func path(_ e: DecodingError) -> String {
+        let keys: [CodingKey]
+        switch e {
+        case .keyNotFound(let key, let ctx): keys = ctx.codingPath + [key]
+        case .typeMismatch(_, let ctx), .valueNotFound(_, let ctx), .dataCorrupted(let ctx): keys = ctx.codingPath
+        @unknown default: keys = []
+        }
+        let joined = keys.map(\.stringValue).joined(separator: ".")
+        return joined.isEmpty ? "(root)" : joined
     }
 }

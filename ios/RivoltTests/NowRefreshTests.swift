@@ -122,4 +122,43 @@ final class NowRefreshTests: XCTestCase {
         XCTAssertEqual(NowSummary(state: st, now: nw, clock: at.addingTimeInterval(300)).presence, .stale)
         XCTAssertEqual(NowSummary(state: st, now: nw, clock: at.addingTimeInterval(901)).presence, .offline, "the web's limit for a parked truck")
     }
+
+    // MARK: What is logged
+
+    func testALoggedErrorIsAFixedPhraseNeverTheErrorsOwnText() {
+        let url = URL(string: "https://rivolt.example.org/api/state/veh-123456")!
+        let urlError = URLError(.timedOut, userInfo: [NSURLErrorFailingURLErrorKey: url, NSLocalizedDescriptionKey: "The request to \(url) timed out."])
+        XCTAssertTrue(String(describing: urlError).contains("veh-123456"), "the raw description carries the URL: that is why it is not logged")
+        let line = NowReads.describe(urlError)
+        XCTAssertEqual(line, "timed out")
+        XCTAssertFalse(line.contains("veh-123456") || line.contains("rivolt.example.org") || line.contains("http"))
+        XCTAssertEqual(NowReads.describe(URLError(.notConnectedToInternet)), "no network")
+        XCTAssertEqual(NowReads.describe(URLError(.cannotFindHost)), "can't reach the server")
+        XCTAssertEqual(NowReads.describe(URLError(.badServerResponse)), "network error")
+        XCTAssertEqual(NowReads.describe(APIError.server(status: 503, message: "boom for veh-123456")), "HTTP 503", "a server's message body is not logged")
+        XCTAssertEqual(NowReads.describe(APIError.transport("https://rivolt.example.org/api/state/veh-123456 failed")), "no answer")
+        XCTAssertEqual(NowReads.describe(APIError.badURL), "bad URL")
+        XCTAssertEqual(NowReads.describe(NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "secret"])), "failed")
+    }
+
+    func testADecodingErrorIsLoggedAsItsKindAndFieldPathOnly() throws {
+        let json = #"{"at":"2026-10-23T14:07:45Z","connection":"live","state":"parked","failed_sleeps_6h":0}"#   // no "version"
+        do {
+            _ = try JSON.decoder().decode(NowSnapshot.self, from: Data(json.utf8))
+            XCTFail("expected a decoding error")
+        } catch {
+            let line = NowReads.describe(APIError.decoding(error))
+            XCTAssertEqual(line, "unreadable: missing version")
+            XCTAssertFalse(line.contains("2026-10-23"), "no values from the payload")
+        }
+        let bad = #"{"version":1,"at":"not a date","connection":"live","state":"parked","failed_sleeps_6h":0}"#
+        do {
+            _ = try JSON.decoder().decode(NowSnapshot.self, from: Data(bad.utf8))
+            XCTFail("expected a decoding error")
+        } catch {
+            let line = NowReads.describe(error)
+            XCTAssertEqual(line, "unreadable: corrupt at")
+            XCTAssertFalse(line.contains("not a date"), "the offending value is not logged")
+        }
+    }
 }
