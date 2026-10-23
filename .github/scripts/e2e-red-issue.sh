@@ -5,10 +5,28 @@
 #
 # Env: RESULT (success or failure), KIND (which run, as it reads in the comment), RUN_ID, RUN_URL, TITLE,
 # ARTIFACTS (the artifact names to point at), GH_TOKEN, GH_REPO.
+#
+# RESULT=flaky (with TITLE "e2e flaky on main" and FLAKY, the "- spec › test" lines): tests that passed
+# only on a retry. Nothing when FLAKY is empty; otherwise a comment on the open issue, or a new one. A
+# retry hides a flake from the red/green result, so this is where the real flake rate shows.
 set -euo pipefail
+
+if [ "$RESULT" = "flaky" ] && [ -z "${FLAKY:-}" ]; then exit 0; fi
 
 open=$(gh issue list --state open --label ci --search "\"$TITLE\" in:title" --json number,title \
   --jq "[.[] | select(.title == env.TITLE)][0].number // empty")
+
+if [ "$RESULT" = "flaky" ]; then
+  body=$(printf 'The %s e2e run on main passed, but these tests passed only on a retry: %s\n\n%s\n\nThe artifacts (%s) hold the report, with the first attempt'"'"'s error, for 7 days.' \
+    "$KIND" "$RUN_URL" "$FLAKY" "$ARTIFACTS")
+  if [ -n "$open" ]; then
+    gh issue comment "$open" --body "$body"
+  else
+    gh label create ci --color B60205 --description "CI health" 2>/dev/null || true
+    gh issue create --title "$TITLE" --label ci --body "$body"
+  fi
+  exit 0
+fi
 
 if [ "$RESULT" = "success" ]; then
   [ -n "$open" ] || exit 0

@@ -8,3 +8,5 @@ e2e/__screenshots__/
 e2e/__results__/
 test-results/
 playwright-report/
+e2e-results/
+e2e-timings/

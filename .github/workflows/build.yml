@@ -284,9 +284,10 @@ jobs:
       fail-fast: false
       matrix:
         # One suite: every spec, with the new look (the only one users get).
-        # PRs: chromium, three shards balanced by test time (web/scripts/e2e-shard.mjs).
-        # Main pushes and a manual run: WebKit (the iPhone Safari engine; the phone
-        # specs only, see web/playwright.config.ts), two shards. WebKit left the PR
+        # PRs: chromium, three shards. Main pushes and a manual run: WebKit (the iPhone
+        # Safari engine; the phone specs only, see web/playwright.config.ts), two shards.
+        # Both are balanced by each spec's test time from main's newest runs
+        # (web/scripts/e2e-shard.mjs; e2e-report and the nightly run save the timings). WebKit left the PR
         # path for speed (the owner, Oct 23); keep it on main: a WebKit failure turns
         # that main build red, tag-validate refuses a tag whose SHA has no green main
         # build, bump-preview waits for e2e-ok (so preview only gets SHAs that can be
@@ -357,19 +358,41 @@ jobs:
         working-directory: web
         run: npm run build
 
+      # Per-spec test seconds for this browser from main's newest run (saved by e2e-report on main pushes
+      # and by the nightly run), so the split follows the suite as it is. Missing: the committed snapshot.
+      - name: Restore spec timings
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-${{ matrix.project }}-none
+          restore-keys: e2e-timings-${{ matrix.project }}-
+
       - name: Playwright (${{ matrix.suite }}, ${{ matrix.project }})
         working-directory: web
         env:
           CI: "true"
           E2E_WEBKIT: "1"
+          E2E_PROJECT: ${{ matrix.project }}
+          E2E_TIMINGS: e2e-timings/${{ matrix.project }}.json
         run: |
-          if [ "${{ matrix.project }}" = "chromium" ]; then
-            # Balanced by duration: this shard's spec files, from e2e/shard-timings.json.
-            node scripts/e2e-shard.mjs --check ${{ matrix.total }}
-            npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=chromium
-          else
-            npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
-          fi
+          # Balanced by duration: this shard's spec files (scripts/e2e-shard.mjs). A WebKit shard can hold specs
+          # with no phone test, hence --pass-with-no-tests; --check fails unless every spec is in one shard.
+          node scripts/e2e-shard.mjs --check ${{ matrix.total }}
+          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} --pass-with-no-tests
+
+      - name: Summary (flaky tests)
+        if: always()
+        working-directory: web
+        run: node scripts/e2e-timings.mjs summary e2e-results/results.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the JSON report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-results-${{ matrix.project }}-${{ matrix.shard }}
+          path: web/e2e-results/results.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload report and screenshots
         if: always()
@@ -455,7 +478,9 @@ jobs:
 
   # A failed WebKit shard on main (a push, or a manual run on main) opens or
   # comments on the "e2e red on main" issue, as the nightly run does; the next
-  # green main run says so once. Shared with e2e-nightly.yml.
+  # green main run says so once. Tests that passed only on a retry go to the
+  # "e2e flaky on main" issue. Shared with e2e-nightly.yml. It also saves this
+  # run's per-spec WebKit timings for the next runs' shard split.
   e2e-report:
     name: e2e-report
     needs: e2e
@@ -463,25 +488,52 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # an issue-tracker blip must never turn main red
     permissions:
-      contents: read   # checks out .github/scripts
-      actions: read
+      contents: read   # checks out .github/scripts and web/scripts
+      actions: read    # reads the run's jobs
       issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      KIND: ${{ github.event_name == 'push' && 'main push (WebKit)' || 'manual run on main (WebKit)' }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      ARTIFACTS: e2e-all-webkit-*
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            web/scripts
+            web/e2e
 
       - name: Open, update or clear the issue
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
           RESULT: ${{ needs.e2e.result }}
-          KIND: ${{ github.event_name == 'push' && 'main push (WebKit)' || 'manual run on main (WebKit)' }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TITLE: e2e red on main
-          ARTIFACTS: e2e-all-webkit-*
         run: bash .github/scripts/e2e-red-issue.sh
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: e2e-results-webkit-*
+          path: results
+
+      - name: Flaky tests and timings
+        id: merge
+        run: |
+          reports=$(ls results/*/results.json 2>/dev/null || true)
+          flaky=$(node web/scripts/e2e-timings.mjs flaky $reports)
+          RESULT=flaky TITLE="e2e flaky on main" FLAKY="$flaky" bash .github/scripts/e2e-red-issue.sh
+          mkdir -p web/e2e-timings
+          # Both shards' reports, or nothing (a missing shard would read as zeros).
+          node web/scripts/e2e-timings.mjs merge web/e2e-timings/webkit.json 2 $reports
+          [ -f web/e2e-timings/webkit.json ] && echo "save=true" >> "$GITHUB_OUTPUT" || true
+
+      - name: Save the WebKit timings for the next runs
+        if: steps.merge.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-webkit-${{ github.run_id }}
 
   go:
     name: go
@@ -713,7 +765,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for prefix in go-unit-Linux- go-integration-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit-; do
+          for prefix in go-unit-Linux- go-integration-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
             ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
             kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
