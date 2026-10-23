@@ -284,12 +284,16 @@ jobs:
       fail-fast: false
       matrix:
         # One suite: every spec, with the new look (the only one users get).
-        # PRs: chromium, three shards. Main and a manual run: WebKit (the iPhone
-        # Safari engine; the phone specs only, see web/playwright.config.ts), one
-        # shard. WebKit left the PR path for speed (the owner, Oct 23): it was the
-        # slowest e2e job. Safari is still checked on every main push, nightly
-        # (e2e-nightly.yml), and by the pre-release iPhone WebKit gate at tag.
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"suite":"all","project":"chromium","shard":1,"total":3},{"suite":"all","project":"chromium","shard":2,"total":3},{"suite":"all","project":"chromium","shard":3,"total":3}]' || '[{"suite":"all","project":"webkit","shard":1,"total":1}]') }}
+        # PRs: chromium, three shards balanced by test time (web/scripts/e2e-shard.mjs).
+        # Main pushes and a manual run: WebKit (the iPhone Safari engine; the phone
+        # specs only, see web/playwright.config.ts), two shards. WebKit left the PR
+        # path for speed (the owner, Oct 23); keep it on main: a WebKit failure turns
+        # that main build red, and tag-validate refuses a tag whose SHA has no green
+        # main build, so a Safari regression can land on main but can't ship. Nothing
+        # in the release path (publish, bump-preview) needs this job, so a green run
+        # never waits on it. Also nightly (e2e-nightly.yml) and the pre-release iPhone
+        # WebKit gate at tag.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"suite":"all","project":"chromium","shard":1,"total":3},{"suite":"all","project":"chromium","shard":2,"total":3},{"suite":"all","project":"chromium","shard":3,"total":3}]' || '[{"suite":"all","project":"webkit","shard":1,"total":2},{"suite":"all","project":"webkit","shard":2,"total":2}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -357,7 +361,14 @@ jobs:
         env:
           CI: "true"
           E2E_WEBKIT: "1"
-        run: npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+        run: |
+          if [ "${{ matrix.project }}" = "chromium" ]; then
+            # Balanced by duration: this shard's spec files, from e2e/shard-timings.json.
+            node scripts/e2e-shard.mjs --check ${{ matrix.total }}
+            npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=chromium
+          else
+            npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+          fi
 
       - name: Upload report and screenshots
         if: always()
