@@ -320,8 +320,25 @@ final class PushPreferencesTests: XCTestCase {
         XCTAssertTrue(help.contains("Not windows") && help.contains("can be missed if the truck is offline") && help.contains("Off until you turn it on"), help)
     }
 
+    func testTireLowIsOptInAndHiddenUntilTheServerSendsIt() throws {
+        let old = try decode(#"{"on_charging_done":true}"#)
+        XCTAssertFalse(old.onTireLow)
+        XCTAssertFalse(old.tireLowKnown)
+        let off = try decode(#"{"on_tire_low":false}"#)
+        XCTAssertFalse(off.onTireLow)
+        XCTAssertTrue(off.tireLowKnown)
+        XCTAssertTrue(try decode(#"{"on_tire_low":true}"#).onTireLow)
+        // The help states the boundary: it repeats the truck, is no replacement for the truck's own warning, can be
+        // missed, and is off until turned on. It promises nothing and gives no number or advice.
+        let help = try XCTUnwrap(PushKind.tireLow.help)
+        XCTAssertTrue(help.contains("repeats what the truck reports") && help.contains("doesn't replace the truck's own warning")
+                      && help.contains("can be missed if the truck is offline or asleep") && help.contains("Off until you turn it on"), help)
+        XCTAssertEqual(PushKind.tireLow.title, "Low tire pressure")
+        XCTAssertEqual(PushKind.tireLow.wireKey, "on_tire_low")
+    }
+
     func testEveryKindHasItsWebWordingAndWireKey() {
-        XCTAssertEqual(PushKind.allCases.count, 7)
+        XCTAssertEqual(PushKind.allCases.count, 8)
         XCTAssertEqual(PushKind.chargingDone.title, "Charging session completes")
         XCTAssertEqual(PushKind.plugInReminder.wireKey, "on_plug_in_reminder")
         XCTAssertEqual(PushKind.leftOpen.wireKey, "on_left_open")
@@ -332,6 +349,7 @@ final class PushPreferencesTests: XCTestCase {
         XCTAssertEqual(p.onChargingDone, false)
         XCTAssertEqual(p.onMilestones, true)
         XCTAssertEqual(p.onLeftOpen, true)
+        XCTAssertEqual(p.onTireLow, true)
     }
 }
 
