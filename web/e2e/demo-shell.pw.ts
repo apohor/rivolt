@@ -40,8 +40,8 @@ function watch(page: Page) {
 
 const ROUTES = [
   { name: "now", url: "/demo", text: /Sample truck\./ },
-  { name: "activity", url: "/demo/activity", text: /Drives and charges/ },
-  { name: "money", url: "/demo/money", text: /What charging actually cost/ },
+  { name: "activity", url: "/demo/activity", text: /Drives and charges/, heading: "Activity" },
+  { name: "money", url: "/demo/money", text: /What charging actually cost/, heading: "Money" },
   { name: "plan", url: "/demo/trips/plan", text: /./ },
   { name: "truck", url: "/demo/truck", text: /Pack capacity/ },
   { name: "settings", url: "/demo/settings", text: /./ },
@@ -73,8 +73,9 @@ for (const [vpName, vp] of [
       const bad = watch(page);
       for (const r of ROUTES) {
         await page.goto(r.url);
-        // On a phone the Activity page has no "Drives and charges" line; its heading says where we are.
-        await expect(vpName === "iphone" && r.name === "activity" ? page.getByRole("heading", { name: "Activity" }).first() : page.getByText(r.text).first()).toBeVisible();
+        // On a phone the pages drop their subtitle line; the heading says where we are.
+        const heading = "heading" in r ? r.heading : undefined;
+        await expect(vpName === "iphone" && heading ? page.getByRole("heading", { name: heading }).first() : page.getByText(r.text).first()).toBeVisible();
         await page.waitForTimeout(900);
         await page.screenshot({ path: path.join(SHOTS, `demo-${r.name}-${vpName}-${theme}.png`), fullPage: vpName === "desktop" ? false : false });
       }

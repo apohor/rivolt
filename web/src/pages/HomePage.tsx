@@ -283,11 +283,6 @@ export default function HomePage() {
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
       {historyEmpty && next && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
-      {!historyEmpty && next && activeVehicleID && drives.isSuccess && charges.isSuccess && (
-        <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
-      )}
-      {next && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
-      {!historyEmpty && next && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) && <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} />}
       {historyEmpty && <ElectraFiImportHint />}
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
@@ -335,6 +330,13 @@ export default function HomePage() {
         />
       )}
       {early && <EarlyMonthNote />}
+      {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
+          it, so they never push it down (the iPhone does the same). */}
+      {!historyEmpty && next && activeVehicleID && drives.isSuccess && charges.isSuccess && (
+        <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
+      )}
+      {next && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
+      {!historyEmpty && next && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) && <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} />}
 
       {shellEnabled && !next && (
         <ScopeBar
