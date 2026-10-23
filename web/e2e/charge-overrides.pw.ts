@@ -160,9 +160,13 @@ for (const v of [
     const page = await ctx.newPage();
     await stubApi(page);
     let saved: unknown = null;
-    await page.route("**/api/settings/charging/networks", (r) => {
+    // A save can be held open until the test lets it answer (see the clearing step).
+    let gate: Promise<void> = Promise.resolve();
+    let open = () => {};
+    await page.route("**/api/settings/charging/networks", async (r) => {
       if (r.request().method() === "PUT") {
         saved = JSON.parse(r.request().postData() ?? "null");
+        await gate;
         return r.fulfill({ json: saved });
       }
       return r.fulfill({ json: NETWORKS });
@@ -180,14 +184,19 @@ for (const v of [
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-network-invalid-${v.n}-dark.png`), fullPage: false });
     await input.fill("40.5, -100.25");
     await expect(fields).toContainText("Only used to label your own charges near it.");
-    // Clearing the field removes the location.
+    // Clearing the field removes the location. The page re-seeds its rows from the answer when
+    // the save settles, so typing before that would be overwritten: hold the answer until the
+    // save is seen in flight (Save disabled), then let it through and wait for Save to be enabled,
+    // which is after the rows are re-seeded.
+    const submit = page.locator("#networks button[type=submit]");
+    gate = new Promise<void>((res) => (open = res));
     await input.fill("");
-    await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
+    await submit.click();
     await expect.poll(() => saved).not.toBeNull();
     expect((saved as { name: string; lat?: number }[]).find((r) => r.name === "Office garage")?.lat).toBeUndefined();
-    // The stub has the request, but the page re-seeds its rows from the answer when the save
-    // settles; typing before that would be overwritten. Wait for Save to be idle again.
-    await expect(page.locator("#networks button[type=submit]")).toHaveText("Save");
+    await expect(submit).toBeDisabled();
+    open();
+    await expect(submit).toBeEnabled();
     saved = null;
     await input.fill("40.5, -100.25");
     await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
