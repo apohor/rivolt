@@ -12,6 +12,12 @@ export function driveDurationSeconds(d: Drive): number {
     : durationSeconds(d.StartedAt, d.EndedAt);
 }
 
+// driveHasTrailer is whether a trailer was connected on the drive: the user's own correction when they made one, else what
+// the truck reported, else null (never known). The connector, not the load: say "trailer", never "towing".
+export function driveHasTrailer(d: Pick<Drive, "Trailer" | "TrailerOverride">): boolean | null {
+  return d.TrailerOverride ?? d.Trailer ?? null;
+}
+
 // collapseRoundTrips merges chains of consecutive drives that form a
 // closed loop into a single row. A chain [D1 … Dn] qualifies when:
 //   - every consecutive gap (Di.EndedAt → Di+1.StartedAt) ≤ maxGapMinutes, and
@@ -148,6 +154,10 @@ function mergeChain(chain: Drive[]): Drive {
     estimated_currency: cur,
     estimated_price_per_kwh: rate,
     round_trip_legs: chain.length,
+    // A round trip had a trailer when any leg did, and none when some leg is known to have had none. The legs are
+    // corrected one by one, so the merged row carries no correction of its own.
+    Trailer: chain.some((d) => driveHasTrailer(d) === true) ? true : chain.some((d) => driveHasTrailer(d) === false) ? false : null,
+    TrailerOverride: null,
   };
 }
 

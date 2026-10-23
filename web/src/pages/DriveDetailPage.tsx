@@ -22,7 +22,8 @@ import {
   num,
   pct,
 } from "../lib/format";
-import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
+import { collapseRoundTrips, driveDurationSeconds, driveHasTrailer } from "../lib/drives";
+import { TrailerControl } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
 import { useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
@@ -443,6 +444,12 @@ export default function DriveDetailPage() {
         }
       />
 
+      {driveHasTrailer(drive) === true && (
+        <p data-drive-trailer className="text-xs text-neutral-400">
+          Trailer connected. This drive is left out of the efficiency figures.
+        </p>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Distance" value={num(drive.DistanceMi, 1, "mi")} />
         <Stat label="Duration" value={formatDuration(duration)} />
@@ -594,6 +601,8 @@ export default function DriveDetailPage() {
           detail={String(samples.error)}
         />
       ) : null}
+
+      {drive && !demo && (drive.round_trip_legs ?? 1) <= 1 ? <TrailerControl drive={drive} /> : null}
 
       {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>

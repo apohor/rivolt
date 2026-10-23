@@ -46,6 +46,19 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
   );
 }
 
+// The drives with a trailer over the window as one figure: ", which ran 1.40 mi/kWh over 120 mi", or nothing when it is thin.
+function trailerSummary(t: TruckTrends): string {
+  let miles = 0;
+  let kwh = 0;
+  for (const r of t.efficiency) {
+    if (r.trailer) {
+      miles += r.trailer.distance;
+      kwh += r.trailer.energy_kwh;
+    }
+  }
+  return kwh > 0 ? `, which ran ${(miles / kwh).toFixed(2)} ${t.efficiency_unit} over ${Math.round(miles).toLocaleString()} ${t.distance_unit}` : "";
+}
+
 function EfficiencyTrend({ t }: { t: TruckTrends }) {
   const rows = t.efficiency;
   const enough = t.qualifying_months >= t.min_months;
@@ -66,6 +79,12 @@ function EfficiencyTrend({ t }: { t: TruckTrends }) {
           <p className="mt-1 text-xs text-neutral-500">
             {t.efficiency_unit}, pack-side. Months under {t.min_month_distance} {t.distance_unit} of driving are left blank. It includes weather and driving style, so cold months usually run lower.
           </p>
+          {(t.excluded_trailer_drives ?? 0) > 0 && (
+            <p data-trend-trailer className="mt-1 text-xs text-neutral-500">
+              Excludes {t.excluded_trailer_drives} {t.excluded_trailer_drives === 1 ? "drive" : "drives"} with a trailer
+              {trailerSummary(t)}.
+            </p>
+          )}
         </>
       ) : (
         <p data-trend-state="sparse" className={`mt-1 ${note}`}>

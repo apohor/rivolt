@@ -1,6 +1,7 @@
 // Aggregation helpers for drives/charges. Pure functions — easy to
 // unit-test later and keep UI components thin.
 
+import { driveHasTrailer } from "./drives";
 import type { Drive, Charge } from "./api";
 
 export type WindowKey = "7d" | "30d" | "90d" | "365d" | "all";
@@ -43,6 +44,10 @@ export type DriveStats = {
   energyUsedKWh: number;
   milesForEnergy: number;
   miPerKWh: number;
+  // Drives with a trailer connected are left out of the efficiency figures above (energy, milesForEnergy, miPerKWh,
+  // milesPerPct) so that a trailer does not drag the truck's own number; count, miles, avg trip and cost still
+  // include them. How many were left out, for the "Excludes N drives with a trailer" note.
+  trailerExcluded: number;
   avgTripMi: number;
   longestMi: number;
   maxSpeedMph: number;
@@ -58,11 +63,16 @@ export type DriveStats = {
 export function driveStats(drives: Drive[]): DriveStats {
   const count = drives.length;
   const miles = sum(drives.map((d) => d.DistanceMi || 0));
+  const towing = drives.filter((d) => driveHasTrailer(d) === true);
+  const plain = drives.filter((d) => driveHasTrailer(d) !== true);
   const socUsedPct = sum(
     drives.map((d) => Math.max(0, (d.StartSoCPct || 0) - (d.EndSoCPct || 0))),
   );
-  const milesPerPct = socUsedPct > 0 ? miles / socUsedPct : 0;
-  const withEnergy = drives.filter(
+  const plainSocUsedPct = sum(
+    plain.map((d) => Math.max(0, (d.StartSoCPct || 0) - (d.EndSoCPct || 0))),
+  );
+  const milesPerPct = plainSocUsedPct > 0 ? sum(plain.map((d) => d.DistanceMi || 0)) / plainSocUsedPct : 0;
+  const withEnergy = plain.filter(
     (d) => (d.EnergyUsedKWh || 0) > 0 && (d.DistanceMi || 0) > 0,
   );
   const energyUsedKWh = sum(withEnergy.map((d) => d.EnergyUsedKWh));
@@ -89,6 +99,7 @@ export function driveStats(drives: Drive[]): DriveStats {
     energyUsedKWh,
     milesForEnergy,
     miPerKWh,
+    trailerExcluded: towing.length,
     avgTripMi,
     longestMi,
     maxSpeedMph,

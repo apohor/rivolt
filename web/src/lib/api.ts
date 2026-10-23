@@ -340,6 +340,11 @@ export type Drive = {
   // and on imports where --pack-kwh wasn't set.
   EnergyUsedKWh: number;
   Source: string;
+  // Whether a trailer was connected (the connector, not the load: a bike rack with lights plugged in can read as one).
+  // Trailer is what the truck reported (null when it never did); TrailerOverride is the user's own correction (null when
+  // they made none). The effective value is TrailerOverride ?? Trailer: see driveHasTrailer in lib/drives.ts.
+  Trailer?: boolean | null;
+  TrailerOverride?: boolean | null;
   // Encoded GPS trace for the drive (Google polyline algorithm,
   // precision 5). Set by the live recorder going forward; legacy
   // ElectraFi imports and any drive that closed before migration
@@ -989,7 +994,18 @@ export type TruckTrends = {
   min_month_distance: number;
   min_months: number;
   qualifying_months: number;
-  efficiency: { month: string; distance: number; energy_kwh: number; efficiency: number | null; drives: number }[];
+  // Distance, energy, efficiency and drives are the drives without a trailer; trailer, when the month has such drives, is their
+  // figure on its own (they are left out of the headline so that a trailer does not drag the truck's own number).
+  efficiency: {
+    month: string;
+    distance: number;
+    energy_kwh: number;
+    efficiency: number | null;
+    drives: number;
+    trailer?: { drives: number; distance: number; energy_kwh: number; efficiency: number | null };
+  }[];
+  // The drives over the window left out of those points because a trailer was connected.
+  excluded_trailer_drives?: number;
   capacity: {
     // energy_kwh / soc_delta_pct: what the charge added (for weighting the dots); absent on servers before they're sent.
     samples: { at: string; kwh_effective: number; energy_kwh?: number | null; soc_delta_pct?: number | null }[];
@@ -1024,10 +1040,12 @@ export type EfficiencyInsights = {
   efficiency_unit: string;
   min_bucket_distance: number;
   total: EfficiencyBucket;
+  // The drives with a trailer connected, which the total and every breakdown leave out; drives is 0 when there are none.
+  with_trailer?: EfficiencyBucket;
   by_temperature: EfficiencyBucket[];
   by_speed: EfficiencyBucket[];
   by_drive_mode: EfficiencyBucket[];
-  excluded?: { no_energy?: number; duplicates?: number; no_temperature?: number; no_drive_mode?: number };
+  excluded?: { no_energy?: number; duplicates?: number; no_temperature?: number; no_drive_mode?: number; trailer?: number };
 };
 
 // Lease tracker: the terms the owner enters and the figures the server computes from them and
@@ -1579,6 +1597,9 @@ export const backend = {
   allDrives: (o: { slim?: boolean } = {}) => api.get<Drive[]>(`/api/drives?limit=5000${o.slim ? "&slim=1" : ""}`),
   // One drive with its route polyline and cost estimate. 404 for an unknown id or someone else's drive.
   drive: (id: string) => api.get<Drive>(`/api/drives/${encodeURIComponent(id)}`),
+  // The user's own correction of whether a trailer was connected on a drive: true, false, or null to go back to what the truck reported.
+  driveTrailer: (id: string, trailer: boolean | null) =>
+    api.patch<{ trailer_override: boolean | null }>(`/api/drives/${encodeURIComponent(id)}/trailer`, { trailer }),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
   recentCharges: (n: number) => api.get<Charge[]>(`/api/charges?limit=${n}`),
   // Per-day asleep/awake hours for the overview sleep graph. `since`
