@@ -55,7 +55,6 @@ test("a drive offers Share trip, with a generic file name and no request", async
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", acceptDownloads: true });
   const page = await ctx.newPage();
   // The new look's sticky page header is its own stacking context, which is where the nav used to cover the sheet.
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
   await expect(page.getByRole("button", { name: "Share trip" })).toBeVisible();
@@ -82,7 +81,6 @@ test("a drive offers Share trip, with a generic file name and no request", async
 test("a milestone offers Share, with no cost toggle (never a dollar figure) and a generic name", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", acceptDownloads: true });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/milestones", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ milestones: [{ vehicle_id: VEHICLE_ID, key: "miles_1000", kind: "miles_1000", achieved_at: "2026-10-17T12:00:00Z", title: "1,000 miles", body: "1,000 miles recorded in Rivolt: 2.50 mi/kWh, $0.04/mi" }] }) }),

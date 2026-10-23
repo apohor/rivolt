@@ -18,7 +18,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await stubApi(page);
@@ -53,7 +52,6 @@ for (const theme of ["dark", "light"] as const) {
 test("route bar options at 390px: stacked, no overlap, labels on one line, no duplicate SoC input", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.goto("/trips/plan");
   await page.locator("[data-plan-more-toggle]").click();
@@ -104,7 +102,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await stubApi(page);

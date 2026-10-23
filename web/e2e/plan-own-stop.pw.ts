@@ -13,7 +13,6 @@ const pt = (label: string, lat: number, lon: number) => ({ lat, lon, label });
 const INPUTS = { origin: pt("Pasadena", 34.15, -118.14), destination: pt("Mammoth Lakes", 37.65, -118.97), extra_stops: [], overnight_flags: [] };
 
 async function open(page: import("@playwright/test").Page, more?: () => Promise<void>) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   // Routes go after the stub (its catch-all would override earlier ones).
   await more?.();

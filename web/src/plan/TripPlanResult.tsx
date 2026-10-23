@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useUiNext } from "../lib/uiNext";
 import { inDemo } from "../lib/demo";
 import { type TripAdvice, type TripPlan } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
@@ -42,7 +41,6 @@ export function TripPlanResult({
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
-  const nextUi = useUiNext();
   const [active, setActive] = useState(0);
   const planKey = plan.Routes.length;
   useEffect(() => setActive(0), [plan, planKey]);
@@ -58,13 +56,12 @@ export function TripPlanResult({
     );
   }
   return (
-    <div className="space-y-4" data-plan-contents={nextUi ? "" : undefined}>
+    <div className="space-y-4" data-plan-contents="">
       {/* AI analysis costs money: never offered in the public demo. */}
       {!inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} aiOff={aiOff} error={adviceError} />}
       <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
-      {nextUi ? (
-        (() => {
+      {(() => {
           const i = Math.min(active, plan.Routes.length - 1);
           const route = plan.Routes[i];
           return (
@@ -93,27 +90,7 @@ export function TripPlanResult({
             <OvernightSuggestions route={route} day={1} onUse={onAddOvernight} />
             </>
           );
-        })()
-      ) : (
-      plan.Routes.map((route, i) => (
-        <RouteCard
-          key={i}
-          route={route}
-          index={i}
-          allRoutes={plan.Routes}
-          originLabel={originLabel}
-          destLabel={destLabel}
-          onAddStop={onAddStop}
-          onAddOvernight={onAddOvernight}
-          onPreviewStop={onPreviewStop}
-          departureAt={departureAt}
-          defaultCollapsed={i > 0}
-          cost={plan.costs?.[i]}
-          primaryCost={plan.costs?.[0]}
-          adjustment={i === 0 ? plan.weather_adjustment : undefined}
-        />
-      ))
-      )}
+        })()}
       {plan.SoCBelowLimit && (
         <ErrorBox
           title="SoC below limit"

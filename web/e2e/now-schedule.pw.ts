@@ -37,7 +37,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme, timezoneId: TZ, locale: "en-US" });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await open(page, [sched()]);
@@ -70,7 +69,6 @@ for (const [name, schedules, charging] of NONE) {
   test(`no schedule line: ${name}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: TZ, locale: "en-US" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await open(page, schedules, charging);
     await expect(page.getByTestId("now-schedule")).toHaveCount(0);
     await ctx.close();

@@ -3,8 +3,6 @@ import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } fro
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { axisDayIndices, barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
-import { useUiNext } from "../lib/uiNext";
-import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
@@ -20,21 +18,16 @@ import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type Charge, type ChargeCluster } from "../lib/api";
 import { chargePlaceLabels, type ChargePlaceLabel } from "../lib/chargePlace";
 import { Card, ErrorBox, PageHeader } from "../components/ui";
-import { BarChart, LineChart } from "../components/charts";
+import { BarChart } from "../components/charts";
 import { IdleAwakeTile } from "../components/IdleAwakeTile";
 import { appPath } from "../lib/demo";
-import { PackHealthStat } from "../components/PackHealthCard";
-import {
-  num,
-  pct,
-} from "../lib/format";
+import { num } from "../lib/format";
 import {
   chargeStats,
   driveStats,
   milesPerDay,
   shareByEnergy,
   socTrend,
-  windowStart,
   WINDOW_OPTIONS,
   type WindowKey,
 } from "../lib/analytics";
@@ -49,14 +42,9 @@ import NowCard from "../components/NowCard";
 export default function HomePage() {
   const shellEnabled = useMoneyTabEnabled();
   const [win, setWin] = useState<WindowKey>("30d");
-  // ui_theme_next: calendar scope (Week/Month/Year/All/Custom) replaces the
-  // rolling windows; off keeps today's window picker exactly.
-  const next = useUiNext();
+  // The calendar scope (Week/Month/Year/All/Custom).
   const [period, setPeriod] = usePeriod();
-  const baseRange = useMemo(
-    () => (next ? periodRange(period) : { start: windowStart(win), end: null }),
-    [next, period, win],
-  );
+  const baseRange = useMemo(() => periodRange(period), [period]);
   const {
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -69,7 +57,7 @@ export default function HomePage() {
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);
   // Early in the month, with nothing recorded in it yet, follow the last 30 days instead (and say so).
-  const early = useMemo(() => (next ? earlyMonthFallback(period, [...all, ...allC]) : null), [next, period, all, allC]);
+  const early = useMemo(() => earlyMonthFallback(period, [...all, ...allC]), [period, all, allC]);
   const range = early ? early.range : baseRange;
   // The period the page is following: the chosen one, or the last 30 days.
   const scope: Period = early ? early.period : period;
@@ -134,10 +122,7 @@ export default function HomePage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
-  const liveSoC = liveState.data?.battery_level_pct ?? 0;
-  const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
-  // ui_theme_next: the hero gauge already shows the battery %, so the first KPI
+  // The hero gauge already shows the battery %, so the first KPI
   // tile reads "Since last charge" (miles driven since the latest finished charge).
   const sinceCharge = useMemo(() => {
     const ends = allC.filter((c) => !isActiveCharge(c)).map((c) => new Date(c.EndedAt).getTime()).filter(Number.isFinite);
@@ -146,14 +131,13 @@ export default function HomePage() {
     const ds = all.filter((d) => new Date(d.StartedAt).getTime() > last);
     return { miles: ds.reduce((n, d) => n + (d.DistanceMi || 0), 0), drives: ds.length, since: last };
   }, [all, allC]);
-  const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
   // ui_theme_next Cost tile: the period's charging spend, the same number Money shows. A single
   // month comes from the ledger month; a year or All sums the ledger months inside it; a week
   // or custom range (not whole months) falls back to the charges in the window.
   // Same vehicle scoping as Money: only filter when there is more than one truck.
   const ledgerVehicle = (vehicles.data?.length ?? 0) > 1 ? (activeVehicleID ?? undefined) : undefined;
-  const periodMonth = next && scope.kind === "month" && range.start ? toYmd(range.start).slice(0, 7) : null;
+  const periodMonth = scope.kind === "month" && range.start ? toYmd(range.start).slice(0, 7) : null;
   const spendMonthQ = useQuery({
     queryKey: ["ledger", "now-cost", "month", periodMonth, ledgerVehicle ?? ""],
     queryFn: ({ signal }) => fetchLedgerMonth(periodMonth as string, { vehicleID: ledgerVehicle, signal }),
@@ -162,7 +146,7 @@ export default function HomePage() {
     staleTime: 60_000,
     retry: 0,
   });
-  const wholeMonths = next && (scope.kind === "year" || scope.kind === "all");
+  const wholeMonths = scope.kind === "year" || scope.kind === "all";
   const spendSummaryQ = useQuery({
     queryKey: ["ledger", "now-cost", "summary", ledgerVehicle ?? ""],
     queryFn: ({ signal }) => fetchLedgerSummary({ months: 24, vehicleID: ledgerVehicle, signal }),
@@ -172,7 +156,6 @@ export default function HomePage() {
     retry: 0,
   });
   const chargingSpend = useMemo(() => {
-    if (!next) return null;
     const fallback = { total: cs.cost, currency: cs.currency || "USD" };
     if (periodMonth) {
       const r = spendMonthQ.data;
@@ -192,20 +175,20 @@ export default function HomePage() {
       return spendSummaryQ.isPending ? null : fallback;
     }
     return fallback;
-  }, [next, cs.cost, cs.currency, periodMonth, wholeMonths, spendMonthQ.data, spendMonthQ.isPending, spendSummaryQ.data, spendSummaryQ.isPending, range]);
+  }, [cs.cost, cs.currency, periodMonth, wholeMonths, spendMonthQ.data, spendMonthQ.isPending, spendSummaryQ.data, spendSummaryQ.isPending, range]);
 
   // Daily-bar count follows the window picker rather than pinning at 60.
   // 7/30/90/365 map to their day counts; "all" spans from the earliest
   // record to today, capped at ~2y so a multi-year corpus doesn't render
   // thousands of hairline bars.
   const barDays = useMemo(() => {
-    if (next && range.start && range.end) {
+    if (range.start && range.end) {
       // Calendar period: bars run from its first day to its last, days to come empty.
       return barDayCount(range.start, barsEndDay(range));
     }
     // "All" in the new look has no start: span the recorded data like the old All window,
     // not the (unrelated) rolling window state.
-    const allSpan = next && !range.start;
+    const allSpan = !range.start;
     if (!allSpan && win === "7d") return 7;
     if (!allSpan && win === "30d") return 30;
     if (!allSpan && win === "90d") return 90;
@@ -217,10 +200,10 @@ export default function HomePage() {
     const spanDays =
       Math.ceil((Date.now() - Math.min(...times)) / 86_400_000) + 1;
     return Math.min(Math.max(spanDays, 7), 730);
-  }, [next, range, win, winDrives, winCharges]);
+  }, [range, win, winDrives, winCharges]);
   const dailyMiles = useMemo(
-    () => milesPerDay(winDrives, barDays, next && range.end ? barsEndDay(range) : undefined),
-    [winDrives, barDays, next, range],
+    () => milesPerDay(winDrives, barDays, range.end ? barsEndDay(range) : undefined),
+    [winDrives, barDays, range],
   );
   const trend = useMemo(
     () => socTrend(winDrives, winCharges),
@@ -231,7 +214,7 @@ export default function HomePage() {
   // power_state (migration 0038). Only has data from when recording
   // started, so it fills forward. `since` follows the window picker;
   // "all" falls back to a wide 2-year lookback.
-  const sleepWin = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
+  const sleepWin = useMemo(() => sleepWindow(range), [range]);
   const sleepSince = useMemo(
     () => sleepWin?.since ?? (range.start ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
     [sleepWin, range],
@@ -242,20 +225,6 @@ export default function HomePage() {
     queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined, sleepUntil),
     staleTime: 5 * 60_000,
   });
-  // Track IDLE-AWAKE minutes/day: the car awake while parked and not
-  // charging — staying awake for no obvious reason (vampire drain).
-  // Driving and active charging are excluded as expected awake time, and
-  // sleep (~20 h/day) is a flat non-signal — so this isolates the small,
-  // variable, minute-scale quantity actually worth watching.
-  const sleepBars = useMemo(
-    () =>
-      (sleepActivity.data ?? []).map((d) => ({
-        label: d.day.slice(0, 10),
-        value: d.idle_awake_h * 60,
-        x: new Date(d.day).getTime(),
-      })),
-    [sleepActivity.data],
-  );
   // Failed sleeps over the last two days (today is partial, so one day
   // alone under-reads). A few a day is noise; past that the car can't
   // stay asleep, which is what usually drives idle-awake up.
@@ -282,7 +251,7 @@ export default function HomePage() {
         inline
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
-      {historyEmpty && next && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
+      {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
@@ -301,8 +270,7 @@ export default function HomePage() {
       />
       )}
 
-      {shellEnabled && !next && <h1 className="sr-only">Now</h1>}
-      {shellEnabled && next && (
+      {shellEnabled && (
         <PageHeader
           title="Now"
           actions={
@@ -332,23 +300,12 @@ export default function HomePage() {
       {early && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
           it, so they never push it down (the iPhone does the same). */}
-      {!historyEmpty && next && activeVehicleID && drives.isSuccess && charges.isSuccess && (
+      {!historyEmpty && activeVehicleID && drives.isSuccess && charges.isSuccess && (
         <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
       )}
-      {next && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
-      {!historyEmpty && next && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) && <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} />}
+      {!inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
+      {!historyEmpty && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) && <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} />}
 
-      {shellEnabled && !next && (
-        <ScopeBar
-          win={win}
-          onWinChange={setWin}
-          period={next ? period : null}
-          onPeriodChange={setPeriod}
-          vehicles={vehicles.data ?? []}
-          selectedVehicleID={activeVehicleID}
-          onSelectVehicle={selectVehicle}
-        />
-      )}
 
       {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
           at the top of the data area now — it's the highest-signal
@@ -365,7 +322,6 @@ export default function HomePage() {
       ) : (
         <>
           <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            {next ? (
               <Stat
                 label="Since last charge"
                 value={sinceCharge ? num(sinceCharge.miles, 1, "mi") : "—"}
@@ -375,9 +331,6 @@ export default function HomePage() {
                     : "no finished charges yet"
                 }
               />
-            ) : (
-              <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
-            )}
             <Stat
               label="Miles"
               value={num(ds.miles, 1, "mi")}
@@ -407,7 +360,6 @@ export default function HomePage() {
                     : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
               }
             />
-            {next ? (
               <Stat
                 label="Charging cost"
                 value={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
@@ -419,33 +371,10 @@ export default function HomePage() {
                     : "no priced charges yet"
                 }
               />
-            ) : (
-            <Stat
-              label="Cost"
-              value={
-                ds.cost > 0
-                  ? `~${formatMoney(ds.cost, ds.currency || "USD")}`
-                  : cs.cost > 0
-                    ? `~${formatMoney(cs.cost, cs.currency || "USD")}`
-                    : "—"
-              }
-              hint={
-                ds.cost > 0 && ds.miles > 0
-                  ? `${(ds.cost / ds.miles).toFixed(3)}${ds.currency ? ` ${ds.currency}` : ""}/mi · driving`
-                  : cs.cost > 0
-                    ? `charging spend · ${cs.count} sessions`
-                    : "no priced charges yet"
-              }
-            />
-            )}
-            {next ? (
               <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
-            ) : (
-              activeVehicleID && <PackHealthStat vehicleID={activeVehicleID} />
-            )}
           </div>
 
-          {next && sleepTrouble && (
+          {sleepTrouble && (
             <div role="status">
             <Link
               to={`${appPath("/truck")}#sleep`}
@@ -466,7 +395,7 @@ export default function HomePage() {
 
           <Card
             title={`Miles per day · ${
-              next ? periodLabel(scope) : win === "all" ? "all time" : `last ${barDays} days`
+              periodLabel(scope)
             }`}
           >
             <BarChart
@@ -475,12 +404,11 @@ export default function HomePage() {
               height={140}
               formatY={(v) => `${v.toFixed(0)}`}
               formatX={(label) => label.slice(5)}
-              xLabelAt={next ? axisDayIndices(dailyMiles.map((d) => new Date(d.x))) : undefined}
+              xLabelAt={axisDayIndices(dailyMiles.map((d) => new Date(d.x)))}
             />
           </Card>
 
           <Card title="Battery (SoC) trend">
-            {next ? (
               <SocTrendChart
                 trend={trend}
                 charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime(), limit: c.ChargeLimitPct }))}
@@ -488,71 +416,8 @@ export default function HomePage() {
                 domain={range.start ? [range.start.getTime(), range.end ? range.end.getTime() : Date.now()] : null}
                 limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
               />
-            ) : (
-            <LineChart
-              ariaLabel="Battery state of charge over time"
-              series={[
-                {
-                  points: trend,
-                  color: "#10b981",
-                  area: true,
-                  strokeWidth: 1.5,
-                  // Monotone cubic interpolation reads as a clean
-                  // arc through the daily / weekly points; Fritsch–
-                  // Carlson prevents the spline from overshooting
-                  // beyond local SoC peaks (no >100% bumps).
-                  curve: "monotone",
-                  label: "SoC",
-                },
-              ]}
-              height={160}
-              yDomain={[0, 100]}
-              formatY={(v) => `${v.toFixed(0)}%`}
-              formatX={(x) =>
-                new Date(x).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })
-              }
-            />
-            )}
           </Card>
 
-          {!next && (
-          <Card title="Idle-awake time per day">
-            {sleepTrouble && (
-              <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
-                <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
-                {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two
-                days ended within a minute. Something keeps waking the car, which
-                drives the idle-awake time below up.
-              </div>
-            )}
-            {sleepBars.length > 0 ? (
-              <>
-                <BarChart
-                  ariaLabel="Idle-awake time per day"
-                  data={sleepBars}
-                  height={140}
-                  color="#6366f1"
-                  formatY={formatMinutesShort}
-                  formatValue={formatMinutes}
-                  formatX={(label) => String(label).slice(5)}
-                />
-                <p className="mt-2 text-[11px] text-neutral-500">
-                  Time per day the car was <span className="text-indigo-300">awake while
-                  parked and not charging</span> — staying awake for no obvious reason.
-                  This is the vampire-drain signal; driving and charging are excluded.
-                </p>
-              </>
-            ) : (
-              <p className="text-xs text-neutral-500">
-                Collecting data — this graph fills in from when power-state
-                recording started (it wasn&apos;t stored historically).
-              </p>
-            )}
-          </Card>
-          )}
         </>
       )}
     </div>
@@ -568,9 +433,8 @@ function Stat({
   value: string;
   hint?: string;
 }) {
-  const next = useUiNext();
-  // ui_theme_next: "2.30 mi/kWh" keeps one line, the unit a 12px suffix.
-  const m = next ? value.match(/^(\S+) (\S+)$/) : null;
+  // "2.30 mi/kWh" keeps one line, the unit a 12px suffix.
+  const m = value.match(/^(\S+) (\S+)$/);
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
@@ -635,7 +499,6 @@ function locationSplit(
 // the same concept: Home and Away are AC charges by place, Fast is a
 // DC fast charge wherever it was (the ledger's rules, as on Money).
 function LocationSplit({ split }: { split: LocationSplitBuckets }) {
-  const next = useUiNext();
   const rows: {
     label: ChargePlaceLabel;
     tone: string;
@@ -667,11 +530,7 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
   return (
     <div className="grid grid-cols-3 gap-3">
       {rows.map((r, idx) => {
-        const sharePct = next
-          ? kwhShares[idx]
-          : split.total > 0
-            ? (r.sessions / split.total) * 100
-            : 0;
+        const sharePct = kwhShares[idx];
         return (
           <div
             key={r.label}

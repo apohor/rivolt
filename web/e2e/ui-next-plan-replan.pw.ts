@@ -74,7 +74,6 @@ for (const v of [
   test(`re-plan from here mid-drive: asks first, drops passed vias, plans from the truck · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark", timezoneId: "America/Chicago" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     const reqs = await open(
       page,
@@ -115,7 +114,6 @@ for (const v of [
 test("re-plan on the night: plans the next day from its departure with the projected charge, keeping day 1", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const reqs = await open(
     page,
@@ -141,7 +139,6 @@ test("re-plan on the night: plans the next day from its departure with the proje
 test("no recent reading: the button is off with the reason, and a refusal shows the server's words", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await open(page, { state: "active", current_day: 1, phase: "driving", position: null });
   const panel = page.locator("[data-replan]");
@@ -152,7 +149,6 @@ test("no recent reading: the button is off with the reason, and a refusal shows 
 
   const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page2 = await ctx2.newPage();
-  await page2.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page2);
   await open(page2, { state: "active", current_day: 1, phase: "driving", position: POSITION }, { status: 409, body: { error: "Your truck's position isn't available right now. Try again once it's awake.", class: "no_position" } });
   await page2.locator("[data-replan]").getByRole("button", { name: "Re-plan from here" }).click();
@@ -164,7 +160,6 @@ test("no recent reading: the button is off with the reason, and a refusal shows 
 test("a trip that is not under way has no re-plan", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await open(page, { state: "before", current_day: null, position: POSITION });
   await expect(page.locator("[data-day-card]")).toHaveCount(3);

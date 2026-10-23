@@ -3,10 +3,9 @@ import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useUiNext } from "../lib/uiNext";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
-import { planErrorCopy, relabelIfHome, type DriveMode, type Selection } from "../plan/plannerHelpers";
+import { planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
 import { RouteBar } from "../plan/RouteBarPanel";
 import { countNonDefaultOptions, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
@@ -16,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
-import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, ErrorBoundary, ErrorBox, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
 import { AvoidToggles } from "../plan/AvoidToggles";
@@ -35,7 +34,6 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 // anywhere else.
 
 export default function TripPlanPage() {
-  const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
@@ -45,7 +43,7 @@ export default function TripPlanPage() {
   // (a multi-day trip under a tall form); a map or a result beside the form is already in sight. Smooth unless
   // the user prefers reduced motion; focus is not moved (the results announcement keeps it).
   useEffect(() => {
-    if (!nextUi || !resultKey || planTab !== "planner") return;
+    if (!resultKey || planTab !== "planner") return;
     const wide = window.innerWidth >= 1024;
     let r2 = 0;
     const r1 = requestAnimationFrame(() => {
@@ -64,29 +62,9 @@ export default function TripPlanPage() {
       cancelAnimationFrame(r1);
       cancelAnimationFrame(r2);
     };
-  }, [nextUi, resultKey, planTab]);
-  // The form's pieces. The classic form (flag off) lays them out in its
-  // original order; the map-first route bar (ui_theme_next) takes the same
-  // elements into RouteBar's structure, so both modes share one set of fields.
+  }, [resultKey, planTab]);
+  // The form's pieces, laid out by the map-first route bar (RouteBar).
   const departureEl = <DeparturePicker value={departureAt} onChange={setDepartureAt} />;
-  const socNumberEl = (
-<label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Starting SoC %</span>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={startingSoc}
-                onChange={(e) => setStartingSoc(e.target.value)}
-                placeholder={
-                  typeof stateQuery.data?.battery_level_pct === "number"
-                    ? String(Math.round(stateQuery.data.battery_level_pct))
-                    : "auto"
-                }
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-hidden"
-              />
-            </label>
-  );
   const targetSocEl = (
 <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Target arrival SoC %</span>
@@ -100,7 +78,7 @@ export default function TripPlanPage() {
               />
             </label>
   );
-  const driveModeEl = nextUi ? (
+  const driveModeEl = (
               <div role="radiogroup" aria-label="Drive mode" className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-400">Drive mode</span>
                 <div className="flex gap-1.5">
@@ -118,18 +96,6 @@ export default function TripPlanPage() {
                   ))}
                 </div>
               </div>
-            ) : (
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Drive mode</span>
-              <select
-                value={driveMode}
-                onChange={(e) => setDriveMode(e.target.value as DriveMode)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
-              >
-                <option value="EVERYDAY">All-Purpose</option>
-                <option value="DISTANCE">Conserve</option>
-              </select>
-            </label>
             );
   const adapterEl = vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) ? (
 
@@ -289,14 +255,13 @@ export default function TripPlanPage() {
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <FormShell next={nextUi} hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
+      <FormShell hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
           </p>
         )}
         <form onSubmit={onSubmit} className="space-y-4" data-plan-form>
-          {nextUi ? (
             <RouteBar
               from={fromEl}
               to={toEl}
@@ -328,26 +293,6 @@ export default function TripPlanPage() {
                 </div>
               }
             />
-          ) : (
-            <>
-              {departureEl}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
-                {socNumberEl}
-                {targetSocEl}
-                {driveModeEl}
-                {adapterEl}
-              </div>
-              {fromEl}
-              {viaEl}
-              {overnightsEl}
-              {toEl}
-              <div className="flex items-center gap-3" data-plan-submit>
-                {planButtonEl}
-                {planSpinnerEl}
-                {planTipEl}
-              </div>
-            </>
-          )}
         </form>
       </FormShell>
       )}
@@ -418,7 +363,7 @@ export default function TripPlanPage() {
               }
             />
           )}
-          {multidaySnapshot && !multidaySnapshot.replan && !(nextUi && inDemo()) && (
+          {multidaySnapshot && !multidaySnapshot.replan && !inDemo() && (
             <SnapshotBanner
               name={multidaySnapshot.name}
               updatedAt={multidaySnapshot.updatedAt}
@@ -482,7 +427,7 @@ export default function TripPlanPage() {
               </div>
             )}
           >
-            {loadedSnapshot && !(nextUi && inDemo()) && (
+            {loadedSnapshot && !inDemo() && (
               <SnapshotBanner
                 name={loadedSnapshot.name}
                 updatedAt={loadedSnapshot.updatedAt}
@@ -652,58 +597,41 @@ export default function TripPlanPage() {
     </>
   );
 
-  if (nextUi) {
-    const tabs: PlanTabSpec[] = [
-      { id: "planner", label: "Planner" },
-      { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
-      ...(moneyShell ? [{ id: "pva" as const, label: "Plan vs actual" }] : []),
-    ];
-    return (
-      <div data-plan-next>
-        <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
-          <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
-        </div>
-        <PlanTabPanel tab="planner" active={planTab === "planner"}>
-          {/* One selected stop for the whole result: the itinerary, the map and
-              anything that follows the selection. A new plan clears it. */}
-          <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
-          <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
-            {formEl}
-            {resultEl}
-            {!hasResult && (
-              <div data-plan-area="map" data-empty="true" aria-hidden>
-                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
-                  {planMutation.isPending || multidayMutation.isPending ? "Planning your route…" : "Your route and charging stops appear here."}
-                </div>
-              </div>
-            )}
-          </div>
-          </PlanSelectionProvider>
-        </PlanTabPanel>
-        <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
-          {savedEl}
-        </PlanTabPanel>
-        <PlanTabPanel tab="pva" active={planTab === "pva"} className="space-y-6">
-          {pvaEl}
-        </PlanTabPanel>
-      </div>
-    );
-  }
-
+  const tabs: PlanTabSpec[] = [
+    { id: "planner", label: "Planner" },
+    { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
+    ...(moneyShell ? [{ id: "pva" as const, label: "Plan vs actual" }] : []),
+  ];
   return (
-    <div className="space-y-6" data-ui-grid="plan">
+    <div data-plan-next>
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
-      <PageHeader
-        title="Trip planner"
-        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
-      />
-
-      {formEl}
-      {pvaEl}
-      {savedEl}
-      {resultEl}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
+        <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
+      </div>
+      <PlanTabPanel tab="planner" active={planTab === "planner"}>
+        {/* One selected stop for the whole result: the itinerary, the map and
+            anything that follows the selection. A new plan clears it. */}
+        <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
+        <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
+          {formEl}
+          {resultEl}
+          {!hasResult && (
+            <div data-plan-area="map" data-empty="true" aria-hidden>
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
+                {planMutation.isPending || multidayMutation.isPending ? "Planning your route…" : "Your route and charging stops appear here."}
+              </div>
+            </div>
+          )}
+        </div>
+        </PlanSelectionProvider>
+      </PlanTabPanel>
+      <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
+        {savedEl}
+      </PlanTabPanel>
+      <PlanTabPanel tab="pva" active={planTab === "pva"} className="space-y-6">
+        {pvaEl}
+      </PlanTabPanel>
     </div>
   );
 }
@@ -774,9 +702,8 @@ function SnapshotBanner({
 // other trip needs the visitor's own Rivian.
 // FormShell: the classic card, or in ui_theme_next the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
-function FormShell({ next, hasResult, resultKey, summary, children }: { next: boolean; hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
+function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
   const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);
-  if (!next) return <Card title="Plan a trip" area="p-form">{children}</Card>;
   return (
     <div data-plan-bar data-collapsed={collapsed ? "true" : undefined}>
       {hasResult && (
@@ -834,76 +761,32 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     if (p) void open(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetParam, list.data]);
-  const next = useUiNext();
-  if (next) {
-    return (
-      <div data-plan-bar>
-        <p className="ui-label mb-2">Sample trips</p>
-        {list.isLoading ? (
-          <Spinner />
-        ) : (
-          <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
-            {trips.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  onClick={() => open(p)}
-                  disabled={busy != null}
-                  aria-pressed={p.id === activeId}
-                  className={`rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-60 ${
-                    p.id === activeId ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
-                  }`}
-                >
-                  <span className="flex flex-wrap items-center gap-x-2 text-neutral-100">
-                    {p.name}
-                    {tripTag(p.inputs) && (
-                      <span className="rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>
-                    )}
-                  </span>
-                  <span className="block text-xs text-neutral-500">
-                    {tripSubtitle(p.inputs)} · {Math.round(p.summary.distance_mi)} mi
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
-        <div className="mt-2">
-          <ConnectHint what="plan any trip, with your truck's pack and charge level" />
-        </div>
-      </div>
-    );
-  }
   return (
-    <Card title="Try a sample trip" area="p-form">
+    <div data-plan-bar>
+      <p className="ui-label mb-2">Sample trips</p>
       {list.isLoading ? (
         <Spinner />
-      ) : trips.length === 0 ? (
-        <p className="text-xs text-neutral-500">No sample trips available right now.</p>
       ) : (
-        <ul className="space-y-1.5" data-testid="demo-presets">
+        <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
           {trips.map((p) => (
             <li key={p.id}>
               <button
                 type="button"
                 onClick={() => open(p)}
                 disabled={busy != null}
-                className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm disabled:opacity-60 ${
-                  p.id === activeId ? "border-emerald-700/60 bg-emerald-950/30" : "border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900"
+                aria-pressed={p.id === activeId}
+                className={`rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                  p.id === activeId ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
                 }`}
               >
-                <span className="min-w-0">
-                  <span className="block truncate text-neutral-100">
-                    {p.name}
-                    {tripTag(p.inputs) && <span className="ml-2 rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>}
-                  </span>
-                  <span className="block text-xs text-neutral-500">{tripSubtitle(p.inputs)}</span>
+                <span className="flex flex-wrap items-center gap-x-2 text-neutral-100">
+                  {p.name}
+                  {tripTag(p.inputs) && (
+                    <span className="rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>
+                  )}
                 </span>
-                <span className="shrink-0 text-right text-xs tabular-nums text-neutral-400">
-                  {Math.round(p.summary.distance_mi)} mi · {p.summary.charge_stops} {p.summary.charge_stops === 1 ? "stop" : "stops"}
-                  <br />
-                  arrive {Math.round(p.summary.arrival_soc_pct)}%
+                <span className="block text-xs text-neutral-500">
+                  {tripSubtitle(p.inputs)} · {Math.round(p.summary.distance_mi)} mi
                 </span>
               </button>
             </li>
@@ -911,10 +794,10 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
         </ul>
       )}
       {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
-      <div className="mt-3">
+      <div className="mt-2">
         <ConnectHint what="plan any trip, with your truck's pack and charge level" />
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -1050,7 +933,6 @@ function DeparturePicker({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const next = useUiNext();
   const [date, time] = value.split("T");
   const setDate = (d: string) => onChange(d ? `${d}T${time || "08:00"}` : "");
   const setTime = (t: string) => onChange(date ? `${date}T${t}` : "");
@@ -1073,53 +955,20 @@ function DeparturePicker({
       },
     },
   ];
-  if (next) {
-    // One compact chip row: Now, quick picks, then the exact date and time.
-    return (
-      <div data-plan-when-inner role="group" aria-label="Departure">
-        <span className="ui-label">Departure</span>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <button type="button" aria-pressed={!value} data-plan-chip onClick={() => onChange("")}>Now</button>
-          {presets.map((p) => (
-            <button key={p.label} type="button" data-plan-chip onClick={() => onChange(p.build())}>
-              {p.label}
-            </button>
-          ))}
-          <DatePopover value={date || ""} onChange={setDate} />
-          <TimePopover value={time || ""} onChange={setTime} />
-        </div>
-      </div>
-    );
-  }
+  // One compact chip row: Now, quick picks, then the exact date and time.
   return (
-    <div className="flex flex-col gap-1 text-sm">
-      <span className="text-neutral-400">Departure</span>
-      <div className="flex flex-wrap items-center gap-2">
-        <DatePopover value={date || ""} onChange={setDate} />
-        <TimePopover value={time || ""} onChange={setTime} />
+    <div data-plan-when-inner role="group" aria-label="Departure">
+      <span className="ui-label">Departure</span>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <button type="button" aria-pressed={!value} data-plan-chip onClick={() => onChange("")}>Now</button>
         {presets.map((p) => (
-          <button
-            key={p.label}
-            type="button"
-            onClick={() => onChange(p.build())}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-neutral-100"
-          >
+          <button key={p.label} type="button" data-plan-chip onClick={() => onChange(p.build())}>
             {p.label}
           </button>
         ))}
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-500 hover:text-neutral-300"
-          >
-            Clear
-          </button>
-        )}
+        <DatePopover value={date || ""} onChange={setDate} />
+        <TimePopover value={time || ""} onChange={setTime} />
       </div>
-      <span className="text-xs text-neutral-600">
-        {value ? "Departure shifted; route times update accordingly" : "Depart now"}
-      </span>
     </div>
   );
 }
@@ -1383,123 +1232,41 @@ function LocationField({
   presets: { label: string; lat: number; lon: number }[];
   onSaveAsFavorite?: (s: { lat: number; lon: number; label: string }) => void;
 }) {
-  const next = useUiNext();
-  if (next) {
-    // One compact row: a coloured node, the place (or the search), presets below.
-    return (
-      <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
-        <span data-plan-dot aria-hidden />
-        <div data-plan-field-main>
-          {value ? (
-            <div className="flex items-center justify-between gap-2">
-              <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
-              <span className="flex shrink-0 items-center gap-3 text-xs">
-                {onSaveAsFavorite && value.label !== "Home" && (
-                  <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
-                    ☆ save place
-                  </button>
-                )}
-                <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${heading}`} className="text-neutral-400 hover:text-neutral-200">
-                  clear
-                </button>
-              </span>
-            </div>
-          ) : (
-            <LocationSearch
-              placeholder={`${heading} — city or address`}
-              onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) })}
-            />
-          )}
-          {!value && presets.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {presets.map((p) => (
-                <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
-                  {p.label === "Home" ? "🏠 " : ""}{p.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // One compact row: a coloured node, the place (or the search), presets below.
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-sm">
-          <span className="text-neutral-400">{heading}: </span>
-          {value ? (
-            value.label === "Home" ? (
-              <span className="rounded-sm border border-emerald-700 bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">
-                🏠 Home
-              </span>
-            ) : (
-              <span className="text-neutral-100">{value.label}</span>
-            )
-          ) : (
-            <span className="text-neutral-500">— pick a place —</span>
-          )}
-        </div>
-        {value && (
-          <div className="flex items-center gap-3 text-xs">
-            {onSaveAsFavorite && value.label !== "Home" && (
-              <button
-                type="button"
-                onClick={() => onSaveAsFavorite(value)}
-                className="text-amber-400 hover:text-amber-200"
-                title="Save this place as a one-tap preset"
-                aria-label={`Save place: ${value.label}, as a favorite`}
-              >
-                ☆ save place
+    <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
+      <span data-plan-dot aria-hidden />
+      <div data-plan-field-main>
+        {value ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
+            <span className="flex shrink-0 items-center gap-3 text-xs">
+              {onSaveAsFavorite && value.label !== "Home" && (
+                <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
+                  ☆ save place
+                </button>
+              )}
+              <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${heading}`} className="text-neutral-400 hover:text-neutral-200">
+                clear
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onChange(null)}
-              className="text-neutral-500 hover:text-neutral-300"
-            >
-              clear
-            </button>
+            </span>
+          </div>
+        ) : (
+          <LocationSearch
+            placeholder={`${heading} — city or address`}
+            onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) })}
+          />
+        )}
+        {!value && presets.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {presets.map((p) => (
+              <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
+                {p.label === "Home" ? "🏠 " : ""}{p.label}
+              </button>
+            ))}
           </div>
         )}
       </div>
-      <div className="mt-3">
-        <LocationSearch
-          placeholder="Type a city — Austin, Dallas, Big Bend…"
-          onSelect={(r) =>
-            onChange({
-              lat: r.latitude,
-              lon: r.longitude,
-              label: formatGeocode(r),
-            })
-          }
-        />
-      </div>
-      {presets.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {presets.map((p) => {
-            // Highlight Home so it stands out from regional
-            // presets (TX cities etc.) — Home is the one a user
-            // taps most often, so it earns an emerald outline
-            // instead of the muted neutral chip.
-            const isHome = p.label === "Home";
-            return (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}
-                className={
-                  isHome
-                    ? "rounded-md border border-emerald-700 bg-emerald-950/40 px-2 py-1 text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950"
-                    : "rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
-                }
-              >
-                {isHome ? "🏠 " : ""}{p.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

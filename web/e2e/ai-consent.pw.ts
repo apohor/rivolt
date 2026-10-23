@@ -8,7 +8,6 @@ const INPUTS = { origin: pt("Chicago", 41.88, -87.63), destination: pt("Denver",
 const j = (b: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(b) });
 
 async function open(page: Page, o: { enabled: boolean; adviceStatus?: number }) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const puts: Record<string, unknown>[] = [];
   const advice: unknown[] = [];

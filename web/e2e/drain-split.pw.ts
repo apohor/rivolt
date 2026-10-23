@@ -15,7 +15,6 @@ for (const v of [
   test(`the drain card says when the loss happened · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page, { drain: "ok" });
     await page.goto("/truck");
     const split = page.locator("[data-drain-split='ok']");

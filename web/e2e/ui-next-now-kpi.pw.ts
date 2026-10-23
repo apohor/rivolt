@@ -9,7 +9,6 @@ for (const w of [390, 1280, 1440] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
         // All time, not "this month": in a month's first minutes the month has no
         // drives yet, so the efficiency tile is honestly empty (nightly at 00:15 UTC).
@@ -36,10 +35,3 @@ for (const w of [390, 1280, 1440] as const) {
   }
 }
 
-test("flag off: the efficiency value is unchanged plain text", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "off"));
-  await stubApi(page, { scenario: "parked", drain: "ok" });
-  await page.goto("/");
-  await expect(page.getByText(/2\.50 mi\/kWh/)).toBeVisible();
-  await expect(page.locator("[data-ui-area='kpi'] .whitespace-nowrap")).toHaveCount(0);
-});

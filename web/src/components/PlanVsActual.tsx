@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { inDemo } from "../lib/demo";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useUiNext } from "../lib/uiNext";
 import { backend, isPvaMulti, type PlanVsActual as Pva, type PlanVsActualMulti, type SavedTrip } from "../lib/api";
 import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Row } from "../lib/planVsActual";
 import { Card } from "./ui";
@@ -12,20 +11,8 @@ import { Card } from "./ui";
 // shows no difference; a metric with an unknown side shows none.
 
 export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
-  const next = useUiNext();
   if (trips.length === 0) return null;
-  if (next) return <NextSection trips={trips} highlightId={highlightId} />;
-  return (
-    <Card title="Plan vs actual" area="p-pva">
-      <ul className="space-y-4">
-        {trips.map((t) => (
-          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined} className={t.id === highlightId ? "rounded-lg ring-1 ring-emerald-700/60" : undefined}>
-            <TripCompare trip={t} />
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
+  return <NextSection trips={trips} highlightId={highlightId} />;
 }
 
 // ui_theme_next: the latest matched trip as a compact bar comparison, unmatched
@@ -250,7 +237,6 @@ function matchLabel(band: string): string {
 
 function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
   const [showStops, setShowStops] = useState(false);
-  const next = useUiNext();
   const c = d.comparison!;
   const rs = rows(c);
   const cand = topCandidate(d);
@@ -263,18 +249,7 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
         {cand && preview ? ` · ${matchLabel(cand.band)}` : ""}
       </p>
       {costHeader(c) && <p className="mt-2 text-sm font-medium text-neutral-100">{costHeader(c)}</p>}
-      {next ? (
-        <BarRows rs={rs} currencyHint={c.currency} />
-      ) : (
-      <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-2 text-sm">
-        <div />
-        <div className="text-right text-[11px] uppercase tracking-wide text-neutral-500">Planned</div>
-        <div className="text-right text-[11px] uppercase tracking-wide text-neutral-500">Actual</div>
-        {rs.map((r) => (
-          <RowView key={r.key} r={r} currencyHint={c.currency} />
-        ))}
-      </div>
-      )}
+      <BarRows rs={rs} currencyHint={c.currency} />
       {incomplete && (
         <p className="mt-3 text-xs text-amber-300">
           Some fast charging on this trip isn&apos;t priced yet, so the actual cost isn&apos;t shown. Add the prices
@@ -309,44 +284,6 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
   );
 }
 
-function RowView({ r, currencyHint }: { r: Row; currencyHint: string }) {
-  const tone =
-    r.tone === "good" ? "text-emerald-300" : r.tone === "watch" ? "text-amber-300" : "text-neutral-400";
-  return (
-    <>
-      <div className="text-neutral-300">
-        {r.label}
-        {r.deltaText && <span className={`block text-xs tabular-nums ${tone}`}>{r.deltaText}</span>}
-      </div>
-      <div className="text-right tabular-nums text-neutral-400">{r.planned ?? "—"}</div>
-      <div
-        className={`text-right tabular-nums text-neutral-100 ${r.estimated ? "underline decoration-dotted underline-offset-4" : ""}`}
-        title={r.estimated ? "Includes charging priced from a network rate, not billed" : undefined}
-      >
-        {r.incomplete ? (
-          <span className="text-xs text-neutral-400">
-            so far{" "}
-            {new Intl.NumberFormat(undefined, { style: "currency", currency: currencyHint || "USD" }).format(r.incomplete.known)}
-            , {r.incomplete.unpriced} not priced yet
-          </span>
-        ) : (
-          (r.actual ?? "—")
-        )}
-      </div>
-      {r.reasons.length > 0 && (
-        <div className="col-span-3 -mt-1 text-xs text-neutral-500">
-          {r.reasons.length > 1 ? "Mostly because " : ""}
-          {r.reasons.map((x, i) => (
-            <span key={i}>
-              {i > 0 ? " Also: " : ""}
-              {x}
-            </span>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
 
 // Planned vs actual as paired bars per metric; deltas coloured by tone. A metric
 // with an unknown side (or an incomplete cost) falls back to the text row.

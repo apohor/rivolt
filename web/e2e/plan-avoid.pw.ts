@@ -16,7 +16,6 @@ const SAVED = (extra: object) => [
 ];
 
 async function open(page: Page, inputs: object) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/trips/saved", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SAVED(inputs)) }));
   await page.goto("/trips/plan");

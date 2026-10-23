@@ -7,7 +7,6 @@ import { stubApi } from "./stub";
 test("drive and charge detail ask the samples endpoint for at most 2,000 rows", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const limits: string[] = [];
   page.on("request", (r) => {

@@ -193,25 +193,12 @@ func stamp(m *ledger.Monthly, p ledgerParams) {
 }
 
 // handleLedgerEnabled answers the SPA's "show the Money tab?" probe.
-// Reached only when requireMoneyTabMW let the request through. The
-// reply also carries the user's other per-user UI flags that ride on this
-// probe: ui_theme_next says whether the "next" theme is on for them
-// (false when the flag store is absent or the flag is off).
-func handleLedgerEnabled(uiThemeNext func(userID string) bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		next := false
-		if uid, ok := auth.UserFromContext(r.Context()); ok && uiThemeNext != nil {
-			next = uiThemeNext(uid.String())
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "ui_theme_next": next})
-	}
-}
-
-// uiThemeNextEnabled adapts the flags store for handleLedgerEnabled. A
-// nil store (no DB) keeps the theme off.
-func uiThemeNextEnabled(store *flags.Store) func(string) bool {
-	return func(userID string) bool {
-		return store != nil && store.UIThemeNext().Enabled(userID)
+// Reached only when requireMoneyTabMW let the request through.
+// ui_theme_next is always true now (the old look is gone): it stays in the
+// reply only so a tab still running an older bundle keeps the current look.
+func handleLedgerEnabled() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "ui_theme_next": true})
 	}
 }
 

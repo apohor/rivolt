@@ -13,7 +13,6 @@ type Body = Record<string, unknown>;
 
 async function open(page: Page, opts: { off?: number; putStatus?: number; home?: boolean } = {}) {
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     // A device that is already subscribed: the panel reads its switches back from the server.
     const sub = { endpoint: "https://push.test/device-1", toJSON: () => ({ endpoint: "https://push.test/device-1", keys: { p256dh: "a", auth: "b" } }), unsubscribe: async () => true };
     const reg = { pushManager: { getSubscription: async () => sub, subscribe: async () => sub } };

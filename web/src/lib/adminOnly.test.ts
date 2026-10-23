@@ -15,25 +15,22 @@ async function load(features: Record<string, unknown> | null) {
   vi.resetModules();
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(features === null ? {} : { features }), { status: 200 })));
   const config = await import("./config");
-  const ui = await import("./uiNext");
   const cfg = await config.ensureConfig();
-  return { cfg, ui };
+  return { cfg };
 }
 
 describe("features.admin_only", () => {
   beforeEach(() => vi.resetModules());
   afterEach(() => vi.unstubAllGlobals());
 
-  it("true: the admin site, with the new look forced on (no ledger call needed)", async () => {
-    const { cfg, ui } = await load({ admin_only: true });
+  it("true: the admin site", async () => {
+    const { cfg } = await load({ admin_only: true });
     expect(cfg.features.adminOnly).toBe(true);
-    expect(ui.uiNextEnabled("admin.rivolt.dev")).toBe(true);
   });
-  it("absent or false: today's behaviour, the new look left to the server flag", async () => {
+  it("absent or false: not the admin site", async () => {
     for (const f of [{}, { admin_only: false }, null]) {
-      const { cfg, ui } = await load(f as Record<string, unknown> | null);
+      const { cfg } = await load(f as Record<string, unknown> | null);
       expect(cfg.features.adminOnly).toBe(false);
-      expect(ui.uiNextEnabled("rivolt.dev")).toBe(false);
     }
   });
 });

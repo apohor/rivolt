@@ -66,7 +66,6 @@ const CANDIDATES = {
 const CAMP_POI = { lat: 37.59, lon: -118.86, name: "Convict Lake Campground", isDCFC: false, isL2: false, facilityType: "CAMPGROUND", hookupAmps: 50, electricSites: 12, sites: 88, ridbID: "ridb/232447", asof: "2026-10-20" };
 
 async function open(page: Page, asked: { kinds?: string[] }[]) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/trips/overnight-candidates", (r) => {
     asked.push(r.request().postDataJSON());

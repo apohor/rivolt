@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
+import { backend, type AdminUserRow } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { useUserActions } from "../components/admin/useUserActions";
@@ -10,7 +10,6 @@ import { UsersList } from "../components/admin/UsersList";
 import AddUser from "../components/admin/AddUser";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
-import { useUiNext } from "../lib/uiNext";
 import { AuditNext } from "../components/AdminAuditNext";
 import { HomeNext } from "../components/AdminHomeNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
@@ -70,7 +69,6 @@ function isAdminTab(s: string): s is AdminTab {
 }
 
 function AdminTabs({ currentUserID }: { currentUserID: string }) {
-  const nextUi = useUiNext();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   // /admin/users and /admin/users/:id are real routes (deep links, a working back button); every other
@@ -83,7 +81,7 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
   })();
   // Until a tab is chosen (or deep-linked) the first one shows: Home in the new look, Signups before.
   const [picked, setTab] = useState<AdminTab | null>(initial);
-  const tab: AdminTab = onUsersRoute ? "users" : picked ?? (nextUi ? "home" : "signups");
+  const tab: AdminTab = onUsersRoute ? "users" : picked ?? "home";
   // Keep the hash in sync so a reload restores the active tab and
   // a deep link (`/admin#ai`) opens the right pane. Listen for
   // hashchange too — the back button moves between tabs cleanly.
@@ -103,12 +101,12 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
 
   // Home and Audit exist only in the new look (the flag arrives after first render, so a #home or
   // #audit deep link keeps its hash and shows once it is on; with it off the first tab shows instead).
-  const view: AdminTab = (tab === "audit" || tab === "home") && !nextUi ? "signups" : tab;
+  const view: AdminTab = tab;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1 border-b border-neutral-800">
-        {ADMIN_TABS.filter((t) => (t.id !== "audit" && t.id !== "home") || nextUi).map((t) => {
+        {ADMIN_TABS.map((t) => {
           const active = t.id === tab;
           return (
             <button
@@ -141,27 +139,13 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           <IdpFailuresPanel />
         </div>
       )}
-      {view === "signups" && (nextUi ? <SignupsNext /> : (
-        <Card title="Signup requests">
-          <SignupRequestsPanel />
-        </Card>
-      ))}
+      {view === "signups" && <SignupsNext />}
       {view === "ai" && (
         <Card title="AI providers">
           <AIProvidersPanel />
         </Card>
       )}
-      {view === "operations" && nextUi && <FlagsNext />}
-      {view === "operations" && !nextUi && (
-        <div className="space-y-4">
-          <Card title="Feature flags">
-            <FeatureFlagsPanel />
-          </Card>
-          <Card title="Signup cap">
-            <SignupCapPanel />
-          </Card>
-        </div>
-      )}
+      {view === "operations" && <FlagsNext />}
       {view === "audit" && <AuditNext />}
       {view === "tuning" && (
         <div className="space-y-4">
@@ -177,201 +161,6 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
   );
 }
 
-// FeatureFlagsPanel exposes the install-wide operational flags
-// (Rivian-upstream kill switch + trip-planner feature flag) so the
-// operator can flip them without psql or a deploy. Both are polled
-// server-side at ~10s; the local pod sees the flip immediately, peers
-// catch up on their next refresh.
-function FeatureFlagsPanel() {
-  const qc = useQueryClient();
-  const flagsQ = useQuery({
-    queryKey: ["admin", "flags"],
-    queryFn: backend.adminFlagsGet,
-  });
-
-  const [reason, setReason] = useState("");
-
-  const killMut = useMutation({
-    mutationFn: ({ paused, reason }: { paused: boolean; reason: string }) =>
-      backend.adminFlagsKillPut(paused, reason),
-    onSuccess: (data) => {
-      // Merge into the cached AdminFlagsState rather than overwriting
-      // — the kill-switch PUT only echoes its own field on the wire.
-      qc.setQueryData(["admin", "flags"], (prev: typeof data | undefined) => ({
-        kill_switch: data.kill_switch,
-        trip_planner: prev?.trip_planner ?? { enabled: false },
-      }));
-    },
-  });
-  const plannerMut = useMutation({
-    mutationFn: (enabled: boolean) => backend.adminFlagsTripPlannerPut(enabled),
-    onSuccess: (data) => {
-      qc.setQueryData(["admin", "flags"], (prev: AdminFlagsState | undefined) => ({
-        kill_switch: prev?.kill_switch ?? { paused: false },
-        trip_planner: data.trip_planner,
-      }));
-    },
-  });
-
-  if (flagsQ.isLoading) return <Spinner />;
-  if (flagsQ.isError)
-    return (
-      <ErrorBox title="Failed to load flags" detail={(flagsQ.error as Error).message} />
-    );
-  const f = flagsQ.data!;
-
-  return (
-    <div className="space-y-4 text-sm">
-      <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <div className="text-neutral-100">Rivian upstream kill switch</div>
-          <p className="text-xs text-neutral-500">
-            Pauses every outbound Rivian call across all users.{" "}
-            {f.kill_switch.paused
-              ? `Currently PAUSED${f.kill_switch.reason ? ` — ${f.kill_switch.reason}` : ""}.`
-              : "Upstream calls flowing normally."}
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={killMut.isPending}
-          onClick={() =>
-            killMut.mutate({
-              paused: !f.kill_switch.paused,
-              reason: f.kill_switch.paused ? "" : reason,
-            })
-          }
-          className={`shrink-0 rounded-md border px-3 py-1.5 text-xs ${
-            f.kill_switch.paused
-              ? "border-emerald-700 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-900/60"
-              : "border-rose-700 bg-rose-900/40 text-rose-200 hover:bg-rose-900/60"
-          } disabled:opacity-50`}
-        >
-          {f.kill_switch.paused ? "Resume" : "Pause"}
-        </button>
-      </div>
-      {!f.kill_switch.paused && (
-        <input
-          type="text"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Reason (recorded with the pause for future operators)"
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-hidden"
-        />
-      )}
-
-      <div className="border-t border-neutral-800 pt-3 flex items-baseline justify-between gap-3">
-        <div>
-          <div className="text-neutral-100">Trip planner</div>
-          <p className="text-xs text-neutral-500">
-            When off, the Plan nav link is hidden and /api/trips/* + the
-            planner settings 404. Useful while the feature is still
-            iterating.
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={plannerMut.isPending}
-          onClick={() => plannerMut.mutate(!f.trip_planner.enabled)}
-          className={`shrink-0 rounded-md border px-3 py-1.5 text-xs ${
-            f.trip_planner.enabled
-              ? "border-rose-700 bg-rose-900/40 text-rose-200 hover:bg-rose-900/60"
-              : "border-emerald-700 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-900/60"
-          } disabled:opacity-50`}
-        >
-          {f.trip_planner.enabled ? "Disable" : "Enable"}
-        </button>
-      </div>
-
-      {(killMut.isError || plannerMut.isError) && (
-        <p className="text-xs text-rose-400">
-          Save failed:{" "}
-          {String(
-            (killMut.error as Error)?.message ??
-              (plannerMut.error as Error)?.message,
-          )}
-        </p>
-      )}
-    </div>
-  );
-}
-
-
-// SignupCapPanel gates new OAuth signups by total account count.
-// Existing users signing back in are always exempt; the limit only
-// caps new-row creation in the OIDC callback. Limit=0 fail-closes
-// every new signup, which is correct when the operator wants to
-// stop letting people in.
-function SignupCapPanel() {
-  const qc = useQueryClient();
-  const capQ = useQuery({
-    queryKey: ["admin", "signup-cap"],
-    queryFn: backend.adminSignupCapGet,
-  });
-  const [draft, setDraft] = useState<string>("");
-  const saveMut = useMutation({
-    mutationFn: (limit: number) => backend.adminSignupCapPut(limit),
-    onSuccess: (data) => {
-      qc.setQueryData(["admin", "signup-cap"], data);
-      setDraft("");
-    },
-  });
-
-  if (capQ.isLoading) return <Spinner />;
-  if (capQ.isError)
-    return (
-      <ErrorBox
-        title="Failed to load signup cap"
-        detail={(capQ.error as Error).message}
-      />
-    );
-  const c = capQ.data!;
-  const current = c.signup_cap.limit;
-  const used = c.used;
-  const headroom = Math.max(0, current - used);
-  const parsed = draft.trim() === "" ? null : Number(draft);
-  const valid = parsed !== null && Number.isFinite(parsed) && parsed >= 0 && Number.isInteger(parsed);
-
-  return (
-    <div className="space-y-3 text-sm">
-      <div>
-        <div className="text-neutral-100">
-          {used} of {current} seats used
-          {headroom === 0 && current > 0 ? " (full)" : ""}
-        </div>
-        <p className="text-xs text-neutral-500">
-          New OAuth signups are blocked once total accounts reach the
-          limit; users already on the system can always sign back in.
-          A limit of 0 stops every new signup. Effective within ~10s.
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min={0}
-          inputMode="numeric"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={String(current)}
-          className="w-32 rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-hidden"
-        />
-        <button
-          type="button"
-          disabled={!valid || saveMut.isPending || parsed === current}
-          onClick={() => valid && saveMut.mutate(parsed)}
-          className="shrink-0 rounded-md border border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-900/60 disabled:opacity-50"
-        >
-          {saveMut.isPending ? "Saving…" : "Save"}
-        </button>
-      </div>
-      {saveMut.isError && (
-        <p className="text-xs text-rose-400">
-          Save failed: {String((saveMut.error as Error)?.message)}
-        </p>
-      )}
-    </div>
-  );
-}
 
 // The Users tab: the list, with each user's status and quick actions. A click (or the name link)
 // opens /admin/users/:id, the user's own page.
@@ -478,195 +267,5 @@ export function IdpFailuresPanel() {
         </ul>
       )}
     </Card>
-  );
-}
-
-function SignupRequestsPanel() {
-  const qc = useQueryClient();
-  const [filter, setFilter] = useState<"pending" | "approved" | "rejected" | "">("pending");
-  const [lastApproved, setLastApproved] = useState<{
-    email: string;
-    link: string;
-    sent: boolean;
-  } | null>(null);
-
-  const list = useQuery({
-    queryKey: ["admin", "signup-requests", filter],
-    queryFn: () => backend.adminListSignupRequests(filter),
-  });
-
-  const approve = useMutation({
-    mutationFn: (id: string) => backend.adminApproveSignupRequest(id),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["admin", "signup-requests"] });
-      if (data.link) {
-        setLastApproved({
-          email: data.request.email,
-          link: data.link,
-          sent: data.email_sent,
-        });
-      }
-    },
-  });
-
-  const reject = useMutation({
-    mutationFn: (id: string) => backend.adminRejectSignupRequest(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "signup-requests"] }),
-  });
-
-  return (
-    <div className="space-y-4">
-      {/* Filter row */}
-      <div className="flex items-center gap-2">
-        {(["pending", "approved", "rejected", ""] as const).map((s) => (
-          <button
-            key={s || "all"}
-            type="button"
-            onClick={() => setFilter(s)}
-            className={`rounded-md px-2 py-1 text-xs ${
-              filter === s
-                ? "bg-emerald-700 text-white"
-                : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
-            }`}
-          >
-            {s || "all"}
-          </button>
-        ))}
-      </div>
-
-      {/* Latest-approval banner — shown until the next action so the
-          admin can copy the magic link if the email didn't go through. */}
-      {lastApproved && (
-        <div className="rounded-md border border-emerald-900 bg-emerald-950/40 p-3 text-xs">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-emerald-400">
-              Approved {lastApproved.email}
-              {lastApproved.sent ? " — email sent" : " — email failed, copy the link below"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setLastApproved(null)}
-              className="text-[10px] text-neutral-500 hover:text-neutral-300"
-            >
-              dismiss
-            </button>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <code className="break-all font-mono text-emerald-300">{lastApproved.link}</code>
-            <button
-              type="button"
-              onClick={() => navigator.clipboard.writeText(lastApproved.link)}
-              className="text-[10px] text-neutral-500 hover:text-neutral-300"
-            >
-              copy
-            </button>
-          </div>
-        </div>
-      )}
-
-      {list.isLoading && <p className="text-sm text-neutral-500">Loading…</p>}
-      {list.isError && <ErrorBox title="Failed to load signup requests" />}
-      {list.data && (
-        <SignupRequestsTable
-          rows={list.data.requests}
-          onApprove={(id) => approve.mutate(id)}
-          onReject={(id) => reject.mutate(id)}
-          pending={approve.isPending || reject.isPending}
-        />
-      )}
-      {(approve.error || reject.error) && (
-        <p className="mt-2 text-xs text-red-400">
-          {String(approve.error ?? reject.error)}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SignupRequestsTable({
-  rows,
-  onApprove,
-  onReject,
-  pending,
-}: {
-  rows: SignupRequest[];
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
-  pending: boolean;
-}) {
-  if (rows.length === 0) {
-    return <p className="text-sm text-neutral-500">No signup requests in this view.</p>;
-  }
-  return (
-    <table className="w-full table-fixed text-xs">
-      <thead className="text-left text-neutral-500">
-        <tr>
-          <th className="w-1/4 py-1.5">Email</th>
-          <th className="py-1.5">Message</th>
-          <th className="w-24 py-1.5">Requested</th>
-          <th className="w-20 py-1.5">Status</th>
-          <th className="w-32 py-1.5 text-right">Actions</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-neutral-900 text-neutral-300">
-        {rows.map((r) => (
-          <tr key={r.id} className="align-top">
-            <td className="break-all py-1.5 font-mono">{r.email}</td>
-            <td className="whitespace-pre-wrap py-1.5 text-neutral-400">
-              {r.message || <span className="text-neutral-600">—</span>}
-            </td>
-            <td className="py-1.5 text-neutral-500">
-              {new Date(r.requested_at).toLocaleDateString()}
-            </td>
-            <td className="py-1.5">
-              <span
-                className={
-                  r.status === "approved"
-                    ? "text-emerald-400"
-                    : r.status === "rejected"
-                      ? "text-rose-400"
-                      : "text-amber-400"
-                }
-              >
-                {r.status}
-              </span>
-              {r.signup_token && (
-                <div className="mt-0.5 text-[10px] text-neutral-500">
-                  {r.token_used_at
-                    ? "token redeemed"
-                    : r.token_expires_at && new Date(r.token_expires_at) < new Date()
-                      ? "token expired"
-                      : "token pending"}
-                </div>
-              )}
-            </td>
-            <td className="py-1.5 text-right">
-              {r.status === "pending" ? (
-                <div className="flex justify-end gap-1">
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => onApprove(r.id)}
-                    className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => onReject(r.id)}
-                    className="rounded-md bg-neutral-800 px-2 py-1 text-[10px] font-medium text-neutral-300 hover:bg-neutral-700 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
-              ) : (
-                <span className="text-[10px] text-neutral-600">decided</span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

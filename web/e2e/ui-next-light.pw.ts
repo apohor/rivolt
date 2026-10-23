@@ -20,26 +20,21 @@ for (const pg of PAGES) {
     { name: "iphone", vp: { width: 390, height: 844 } },
     { name: "desktop", vp: { width: 1280, height: 900 } },
   ] as const) {
-    for (const state of ["off", "on"] as const) {
+    {
+      const state = "on";
       test(`light ${state}: ${pg.name} · ${v.name}`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "light" });
         const page = await ctx.newPage();
-        await page.addInitScript((s) => {
-          localStorage.setItem("rivolt.ui.next", s);
-          localStorage.setItem("rivolt.theme", "light");
-        }, state);
+        await page.addInitScript(() => localStorage.setItem("rivolt.theme", "light"));
         await stubApi(page, { scenario: pg.scenario, drain: "ok" });
         await page.goto(pg.url);
         await pg.ready(page);
         await page.waitForTimeout(800);
         await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-        if (state === "off") await expect(page.locator("html")).not.toHaveAttribute("data-ui", "next");
-        await page.screenshot({ path: path.join(SHOTS, `uinext-light-${pg.name}-${v.name}-${state === "on" ? "next" : "off"}.png`) });
-        if (state === "on") {
-          const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
-          const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
-          expect(summary, summary.join("\n")).toEqual([]);
-        }
+        await page.screenshot({ path: path.join(SHOTS, `uinext-light-${pg.name}-${v.name}-next.png`) });
+        const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+        const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+        expect(summary, summary.join("\n")).toEqual([]);
         await ctx.close();
       });
     }
@@ -53,7 +48,6 @@ for (const theme of ["dark", "light"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: theme });
     const page = await ctx.newPage();
     await page.addInitScript((t) => {
-      localStorage.setItem("rivolt.ui.next", "on");
       localStorage.setItem("rivolt.theme", t);
     }, theme);
     await stubApi(page, { scenario: "charging" });

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useUiNext } from "../lib/uiNext";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
@@ -69,9 +68,8 @@ export function RouteCard({
   chooser?: React.ReactNode;
 }) {
   const { distanceUnit } = usePreferences();
-  const uiNext = useUiNext();
-  // Map-first layout is for the primary route; alternatives keep the classic card.
-  const next = uiNext && !stacked && (index === 0 || forceNext);
+  // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
+  const next = !stacked && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the

@@ -9,7 +9,6 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { useUiNext } from "../lib/uiNext";
 
 type Point = { x: number; y: number };
 
@@ -114,7 +113,6 @@ export function LineChart({
   };
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
-  const next = useUiNext();
   const uid = useId().replace(/:/g, "");
   const svgRef = useRef<SVGSVGElement | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
@@ -444,26 +442,18 @@ export function LineChart({
         return (
           <g key={i}>
             {s.area && proj.length > 1 ? (
-              next ? (
-                <>
-                  <defs>
-                    <linearGradient id={`${uid}-a${i}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={color} stopOpacity={0.34} />
-                      <stop offset="100%" stopColor={color} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
-                    fill={`url(#${uid}-a${i})`}
-                  />
-                </>
-              ) : (
+              <>
+                <defs>
+                  <linearGradient id={`${uid}-a${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={0.34} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <path
                   d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
-                  fill={color}
-                  opacity={0.15}
+                  fill={`url(#${uid}-a${i})`}
                 />
-              )
+              </>
             ) : null}
             <path
               d={path}
@@ -658,7 +648,6 @@ export function BarChart({
   barGap?: number;
 }) {
   const width = 1000;
-  const next = useUiNext();
   const uid = useId().replace(/:/g, "");
   // Hooks must run before any early return (Rules of Hooks).
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -732,33 +721,23 @@ export function BarChart({
           </g>
         </g>
       ))}
-      {next && (
-        <defs>
-          <linearGradient id={`${uid}-bar`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.95} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.3} />
-          </linearGradient>
-        </defs>
-      )}
+      <defs>
+        <linearGradient id={`${uid}-bar`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.95} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.3} />
+        </linearGradient>
+      </defs>
       {data.map((d, i) => {
         const h = (d.value / max) * innerH;
         const x = padL + i * (innerW / data.length) + barGap / 2;
         const y = padT + innerH - h;
         return (
           <g key={i}>
-            {next ? (
-              <path data-bar style={{ color }} d={roundedTopBar(x, y, barW, h)} fill={`url(#${uid}-bar)`}>
-                <title>
-                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
-                </title>
-              </path>
-            ) : (
-              <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.85} rx={1.5}>
-                <title>
-                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
-                </title>
-              </rect>
-            )}
+            <path data-bar style={{ color }} d={roundedTopBar(x, y, barW, h)} fill={`url(#${uid}-bar)`}>
+              <title>
+                {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
+              </title>
+            </path>
           </g>
         );
       })}

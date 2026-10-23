@@ -21,7 +21,6 @@ for (const scheme of ["dark", "light"] as const) {
   test(`phone: the last card clears the sheet's peek · ${scheme}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     await page.route("**/api/trips/overnight-candidates", (r) => r.fulfill({ json: CANDIDATES }));
     await page.route("**/api/geocode*", (r) => r.fulfill({ json: [{ name: new URL(r.request().url()).searchParams.get("q") ?? "", admin1: "US", country: "", latitude: 41.26, longitude: -95 }] }));

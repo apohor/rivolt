@@ -65,7 +65,6 @@ for (const s of SHOTS) {
         const page = await ctx.newPage();
         await page.clock.setFixedTime(FIXED);
         await page.addInitScript((c) => {
-          localStorage.setItem("rivolt.ui.next", "on");
           localStorage.setItem("rivolt.theme", c);
         }, scheme);
         await stubApi(page, s.demo ? { demo: true, signedIn: false } : {});

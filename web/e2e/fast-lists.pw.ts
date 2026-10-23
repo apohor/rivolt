@@ -71,7 +71,6 @@ const BLANK_STATE = {
 // refetch them while a session is under way.
 
 async function counted(page: Page, scenario: "parked" | "charging" = "parked") {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario });
   const calls: { path: string; limit: string }[] = [];
   page.on("request", (r) => {

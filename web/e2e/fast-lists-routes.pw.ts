@@ -5,7 +5,6 @@ import { stubApi } from "./stub";
 // with one drive (its own page).
 
 async function seen(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const calls: { path: string; slim: boolean }[] = [];
   page.on("request", (r) => {

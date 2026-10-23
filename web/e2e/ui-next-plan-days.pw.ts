@@ -77,7 +77,6 @@ for (const v of [
   test(`3-day plan: dates, own times, Simulated, vias sent · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark", timezoneId: "America/Chicago" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     const night2 = () => page.locator("[data-overnight-stop]").nth(1);
     const reqs = await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" }, async () => {
@@ -124,7 +123,6 @@ for (const v of [
   test(`failed day: the days so far stay, with a plain banner · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "light" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     await plan(page, { days: DAYS.slice(0, 2), total: TOTAL, failed_day: 3, error: "no route found", tz: "UTC" }).catch(() => {});
     await expect(page.getByRole("alert")).toContainText("Planned through day 2");
@@ -143,7 +141,6 @@ for (const v of [
 test("add an overnight from the route bar: the hint, the row, then a 2-day plan", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const reqs: MultidayBody[] = [];
   await page.route("**/api/trips/plan-multiday", (r) => {
@@ -185,7 +182,6 @@ test("add an overnight from the route bar: the hint, the row, then a 2-day plan"
 test("a long day suggests hotels with a listed charger; Use makes one the night with its kW", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const asked: { path?: unknown[]; budget_hours?: number }[] = [];
   await page.route("**/api/trips/overnight-candidates", (r) => {
@@ -232,7 +228,6 @@ for (const v of [
 test(`a saved multi-day trip keeps its days and reopens with no planner call · ${v.n}`, async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark", timezoneId: "America/Chicago" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   let saved: { plan?: { kind?: string; request?: { tz?: string; days?: unknown[] }; days?: unknown[]; total?: unknown } } | null = null;
   await page.route("**/api/trips/saved/st-days", (r) => {
@@ -254,7 +249,6 @@ test(`a saved multi-day trip keeps its days and reopens with no planner call · 
 
   // Reopen it fresh: the days come from the snapshot and the planner is not called.
   const page2 = await ctx.newPage();
-  await page2.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page2);
   let planCalls = 0;
   await page2.route("**/api/trips/plan-multiday", (r) => {

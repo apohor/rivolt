@@ -19,7 +19,6 @@ const R2 = {
 };
 
 async function withR2(page: Page, vehicle: object = R2) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/vehicles", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([vehicle]) }));
 }

@@ -28,7 +28,6 @@ const day = (i: number) => ({
 type Saved = { name: string; inputs: Record<string, unknown>; plan?: Record<string, unknown> };
 
 async function fresh(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const created: Saved[] = [];
   const list: { id: string; name: string }[] = [];

@@ -52,7 +52,6 @@ for (const v of [
   test(`demo multi-day sample trip: two days and the hotel night, no planner call · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page, { demo: true, signedIn: false });
     const calls: string[] = [];
     await page.route(/\/api\/(trips\/plan|trips\/overnight-candidates|trips\/saved\/[^/]+\/active)/, (r) => {

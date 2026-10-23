@@ -1,5 +1,4 @@
 import { chargesAllQuery } from "../lib/activityLists";
-import { useUiNext } from "../lib/uiNext";
 import { appPath, inDemo } from "../lib/demo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -234,8 +233,7 @@ function Statement({
   const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
   // New look: a month in progress is compared with the same days of the previous month, and a
   // previous month that only has part of its days of data is not compared at all.
-  const next = useUiNext();
-  const sameDay = next && m.is_current_month && !!prev;
+  const sameDay = m.is_current_month && !!prev;
   const dayN = new Date().getDate();
   const prevFullQ = useQuery({
     queryKey: ["ledger", "monthly", prev?.period ?? "", "same-day"],
@@ -245,7 +243,7 @@ function Statement({
     retry: 0,
   });
   const prevPartial =
-    next && !!prev && prev.first_activity_at != null && new Date(prev.first_activity_at).getTime() - new Date(prev.range.start).getTime() > 2 * 86_400_000;
+    !!prev && prev.first_activity_at != null && new Date(prev.first_activity_at).getTime() - new Date(prev.range.start).getTime() > 2 * 86_400_000;
   const prevBase = sameDay
     ? prevFullQ.data?.source === "api"
       ? spendThroughDay(prevFullQ.data.data, dayN)

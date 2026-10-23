@@ -15,12 +15,12 @@ const VIEWS = [
 ] as const;
 
 for (const v of VIEWS) {
-  for (const state of ["off", "next"] as const) {
+  {
+    const state = "next";
     for (const scenario of ["parked", "charging"] as const) {
       test(`ui ${state}: now (${scenario}) · ${v.name} · dark`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
         const page = await ctx.newPage();
-        await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s === "next" ? "on" : "off"), state);
         await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
         await stubApi(page, { scenario });
         // A charging session collects a power reading per poll: let three polls pass.
@@ -31,8 +31,7 @@ for (const v of VIEWS) {
           for (let i = 0; i < 4; i++) await page.clock.runFor(16_000);
         }
         await page.waitForTimeout(900);
-        if (scenario === "charging" && state === "next") await expect(page.locator(".ui-spark")).toBeVisible();
-        if (state === "off") await expect(page.locator("html")).not.toHaveAttribute("data-ui", "next");
+        if (scenario === "charging") await expect(page.locator(".ui-spark")).toBeVisible();
         else await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
         await page.screenshot({ path: path.join(SHOTS, `uinext-now-${scenario}-${v.name}-${state}.png`) });
         await ctx.close();
@@ -41,7 +40,6 @@ for (const v of VIEWS) {
     test(`ui ${state}: truck · ${v.name} · dark`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
       const page = await ctx.newPage();
-      await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s === "next" ? "on" : "off"), state);
       await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
       await stubApi(page, { drain: "ok" });
       await page.goto("/truck");
@@ -64,7 +62,6 @@ for (const [name, url, scenario] of [
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
     const page = await ctx.newPage();
     await page.addInitScript(() => {
-      localStorage.setItem("rivolt.ui.next", "on");
       localStorage.setItem("rivolt.theme", "dark");
     });
     await stubApi(page, { scenario, drain: "ok" });

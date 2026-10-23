@@ -21,7 +21,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await stubApi(page, { scenario: pg.scenario, drain: "ok" });

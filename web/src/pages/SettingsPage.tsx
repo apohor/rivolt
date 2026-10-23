@@ -4,7 +4,6 @@ import { useAIConsent } from "../lib/aiConsent";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
 import { R2CheckedSettings } from "../components/R2Checked";
 import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
-import { useUiNext } from "../lib/uiNext";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { inDemo } from "../lib/demo";
 import DemoSettings from "./DemoSettings";
@@ -114,7 +113,6 @@ function SettingsPageInner() {
   const rootRef = useRef<HTMLDivElement>(null);
   // In the tab-bar shell the header no longer carries Sign out.
   const shell = useMoneyTabEnabled();
-  const nextUi = useUiNext();
 
   // Tab state. Priority: ?tab=… query param > hash → owning tab >
   // default "account". Query param wins so a bookmark like
@@ -224,11 +222,9 @@ function SettingsPageInner() {
             <VehicleProfilePanel />
           </Card>
           <R2CheckedSettings />
-          {nextUi && (
-            <Card title="Lease" id="lease">
-              <LeasePanel />
-            </Card>
-          )}
+          <Card title="Lease" id="lease">
+            <LeasePanel />
+          </Card>
           <Card title="Display" id="display">
             <DisplayPreferences />
           </Card>

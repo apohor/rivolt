@@ -4,9 +4,8 @@ import { e2eNow } from "./clock";
 
 // A deploy while a tab is open: the next health check reports a new version, the
 // bar appears (both looks, flag-independent), and Reload reloads the page.
-for (const ui of ["off", "on"] as const) {
+for (const ui of ["on"] as const) {
   test(`new version bar and reload · ui ${ui}`, async ({ page }) => {
-    await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
     await stubApi(page);
     let version = "v1.0.0";
     await page.route("**/api/health", (r) =>

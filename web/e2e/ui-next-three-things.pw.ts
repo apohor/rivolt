@@ -12,7 +12,6 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 type Opts = { subs?: number; pushOn?: boolean; lease?: boolean; statement?: { available: boolean; enabled: boolean } | null; ua?: string };
 
 async function open(page: Page, o: Opts = {}) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const events: { name: string; props?: Record<string, unknown> }[] = [];
   const j = (b: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(b) });

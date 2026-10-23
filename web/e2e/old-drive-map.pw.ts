@@ -41,7 +41,6 @@ const charge = (id: string, days: number) => ({
 });
 
 async function open(page: Page, path: string) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
   const all = [drive("old-route", 200, ROUTE), drive("old-bare", 200, ""), drive("new-bare", 1, "")];
