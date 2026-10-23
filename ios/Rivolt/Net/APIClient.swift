@@ -544,3 +544,4 @@ enum AnyJSON: Encodable {
 extension APIClient: ChartsSource {}
 extension APIClient: ChargeSamplesSource {}
 extension APIClient: ChargeRowSource {}
+extension APIClient: ChargingRatesSource {}
