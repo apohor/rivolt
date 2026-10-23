@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, otaLine, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaLine, sleepHealthLines, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -103,5 +103,31 @@ describe("otaUpdate", () => {
   });
   it("a version of 0.0.0 is no version", () => {
     expect(otaUpdate({ ...base, ota_status: "downloading", ota_available_version: "0.0.0" })?.version).toBeNull();
+  });
+});
+
+describe("sleepHealthLines", () => {
+  const week = { days: 7, sleeps: 30, failed_sleeps: 9 };
+  it("says how many more, what a short sleep is and what it is compared with", () => {
+    const l = sleepHealthLines({ version: 1, state: "more", this_week: week, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
+    expect(l.headline).toBe("Woke 4 more times than usual this week.");
+    expect(l.detail).toBe("9 short sleeps (under a minute) this week; about 5 in a usual week.");
+    expect(l.basis).toBe("Compared with this truck's own last 30 days.");
+  });
+  it("a normal week is 'nothing unusual', never 'slept normally'", () => {
+    const l = sleepHealthLines({ version: 1, state: "normal", this_week: { ...week, failed_sleeps: 1 }, baseline_days: 30, usual_failed_sleeps: 0.2 });
+    expect(l.headline).toBe("Nothing unusual this week.");
+    expect(l.detail).toBe("1 short sleep (under a minute) this week; almost none in a usual week.");
+  });
+  it("without enough history it says so and gives no number", () => {
+    const l = sleepHealthLines({ version: 1, state: "not_enough_data", this_week: { days: 2, sleeps: 3, failed_sleeps: 3 }, baseline_days: 4 });
+    expect(l.headline).toMatch(/Not enough history/);
+    expect(l.detail).toBeNull();
+  });
+  it("never offers a cause or a verdict on the truck", () => {
+    for (const s of ["more", "normal", "not_enough_data"] as const) {
+      const l = sleepHealthLines({ version: 1, state: s, this_week: week, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
+      expect(`${l.headline} ${l.detail ?? ""} ${l.basis}`).not.toMatch(/slept normally|because|caused|key|app|fault|fine|healthy|problem/i);
+    }
   });
 });

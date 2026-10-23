@@ -2,7 +2,7 @@
 // doesn't provide returns null so the page hides it (NQ15): no "—"
 // placeholders for tires, versions or 12V the vehicle never reports.
 
-import type { DayActivity, VehicleState } from "./api";
+import type { DayActivity, SleepHealth, VehicleState } from "./api";
 
 const PSI_PER_BAR = 14.5038;
 export const LOW_TIRE_BAR = 2.2;
@@ -126,4 +126,21 @@ export function sleepSummary(days: DayActivity[], troubleThreshold = 3, now: Dat
     avgIdleMinutes: avg,
     avgDays: done.length,
   };
+}
+
+// Sleep health in words: the verdict, what a short sleep is with this week's numbers, and what it is compared with. Neutral on purpose:
+// it never says why the truck woke (Rivolt's own requests, a phone key nearby or a fault can each do it) and never says the truck is fine.
+export type SleepHealthLines = { headline: string; detail: string | null; basis: string };
+export function sleepHealthLines(h: SleepHealth): SleepHealthLines {
+  const basis = "Compared with this truck's own last 30 days.";
+  if (h.state === "not_enough_data") return { headline: "Not enough history yet to say how this week compares.", detail: null, basis };
+  const n = h.this_week.failed_sleeps;
+  const usual = h.usual_failed_sleeps ?? 0;
+  const usualText = usual < 0.5 ? "almost none in a usual week" : `about ${Math.round(usual)} in a usual week`;
+  const detail = `${n} short ${n === 1 ? "sleep" : "sleeps"} (under a minute) this week; ${usualText}.`;
+  if (h.state === "more") {
+    const by = h.more_by ?? 0;
+    return { headline: `Woke ${by} more ${by === 1 ? "time" : "times"} than usual this week.`, detail, basis };
+  }
+  return { headline: "Nothing unusual this week.", detail, basis };
 }

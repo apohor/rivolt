@@ -301,6 +301,10 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         charge: scenario === "charging" ? { started_at: iso(3_600_000), soc_start: 40, peak_kw: 11 } : null,
       });
     }
+    // This week's short sleeps against the truck's own last 30 days: 9 against a usual 5.
+    if (p === `/api/vehicles/${VEHICLE_ID}/sleep-health`) {
+      return json(route, { version: 1, state: "more", this_week: { days: 7, sleeps: 30, failed_sleeps: 9 }, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
+    }
     if (p === `/api/vehicles/${VEHICLE_ID}/drain`) {
       if (drain === "absent") return json(route, { error: "not stubbed" }, 404);
       const ok = drain === "ok";

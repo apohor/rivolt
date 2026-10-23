@@ -16,7 +16,7 @@ import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { otaLine, otaUpdate, sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
+import { otaLine, otaUpdate, sleepHealthLines, sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
 import { formatAgo } from "../lib/nowState";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
@@ -67,6 +67,15 @@ export default function TruckPage() {
   });
 
   const sleep = useMemo(() => sleepSummary(sleepQ.data ?? []), [sleepQ.data]);
+  // This week against the truck's own last 30 days (the server decides; hidden when it has no endpoint or fails).
+  const healthQ = useQuery({
+    queryKey: ["sleepHealth", selectedID ?? ""],
+    queryFn: () => backend.vehicleSleepHealth(selectedID ?? ""),
+    enabled: !!selectedID,
+    staleTime: 30 * 60_000,
+    retry: 0,
+  });
+  const health = healthQ.data ? sleepHealthLines(healthQ.data) : null;
   // Deep link from Now's idle-awake tile (#sleep): scroll once the card exists.
   useEffect(() => {
     if (window.location.hash === "#sleep" && selectedID) {
@@ -121,6 +130,13 @@ export default function TruckPage() {
       {selectedID && <ColdRangeCard vehicleID={selectedID} />}
 
       <Card id="sleep" title="Sleep and idle-awake" span="full">
+        {health && (
+          <div data-sleep-health className="mb-3 text-sm">
+            <p className="text-neutral-100">{health.headline}</p>
+            {health.detail && <p className="mt-0.5 text-xs text-neutral-400">{health.detail}</p>}
+            <p className="mt-0.5 text-xs text-neutral-500">{health.basis}</p>
+          </div>
+        )}
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.

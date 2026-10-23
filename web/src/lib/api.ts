@@ -380,6 +380,16 @@ export type PackHealthSample = {
 // GET /api/sleep-activity. idle_awake_h is the car awake while parked and
 // not charging — the vampire-drain signal. Populated forward from the
 // deploy that began persisting power_state.
+// GET /api/vehicles/{id}/sleep-health: numbers and a state; the words are the client's (lib/truckHealth sleepHealthLines).
+export type SleepHealth = {
+  version: number;
+  state: "normal" | "more" | "not_enough_data";
+  this_week: { days: number; sleeps: number; failed_sleeps: number };
+  baseline_days: number;
+  usual_failed_sleeps?: number;
+  more_by?: number;
+};
+
 export type DayActivity = {
   day: string; // RFC3339 (UTC day start)
   asleep_h: number;
@@ -1186,6 +1196,15 @@ export const backend = {
   vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
     try {
       return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // sleepHealth: this week's short sleeps against the truck's own last 30 days; null when the endpoint is absent (an older server).
+  vehicleSleepHealth: async (vehicleID: string): Promise<SleepHealth | null> => {
+    try {
+      return await api.get<SleepHealth>(`/api/vehicles/${encodeURIComponent(vehicleID)}/sleep-health`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
