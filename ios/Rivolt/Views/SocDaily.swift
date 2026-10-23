@@ -84,7 +84,7 @@ struct SocDailyChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             chart
-            Text("Shaded: each day's low to high · line: end of day · ticks: days it charged")
+            Text("Band: each day's range · line: end of day · ticks: charged")
                 .themeText(.caption, color: Theme.textTertiary)
                 .accessibilityHidden(true)
         }
@@ -191,7 +191,8 @@ struct SocDailyChart: View {
                 .annotation(position: highRight ? .trailing : .leading, spacing: 4) { extremeLabel("\(NumberText.fixed(e.high.high, 0))% · \(SocDaily.dayLabel(e.high.day, calendar: calendar))") }
             PointMark(x: .value("Day", center(e.low.day)), y: .value("Low", e.low.low))
                 .symbolSize(40).foregroundStyle(Theme.textPrimary)
-                .annotation(position: lowRight ? .trailing : .leading, spacing: 4) { extremeLabel("\(NumberText.fixed(e.low.low, 0))% · \(SocDaily.dayLabel(e.low.day, calendar: calendar))") }
+                // A low near the floor is lifted off the charging ticks.
+                .annotation(position: e.low.low < 12 ? (lowRight ? .topTrailing : .topLeading) : (lowRight ? .trailing : .leading), spacing: 4) { extremeLabel("\(NumberText.fixed(e.low.low, 0))% · \(SocDaily.dayLabel(e.low.day, calendar: calendar))") }
         }
     }
 
