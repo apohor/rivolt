@@ -60,6 +60,19 @@ export type DriveStats = {
   currency: string;
 };
 
+// The Efficiency tile's note about trailer drives, with its leading " · ", or "" for none. The pack-side and miles-per-percent
+// figures leave them out; the wall-to-wheel figure (all miles over the energy charged) cannot be split by drive, so it includes
+// them and says so; with no figure the note would say nothing.
+export function efficiencyTrailerNote(ds: Pick<DriveStats, "trailerExcluded" | "miPerKWh" | "miles" | "milesPerPct">, chargedKWh: number): string {
+  const n = ds.trailerExcluded;
+  if (n <= 0) return "";
+  const drives = n === 1 ? "drive" : "drives";
+  if (ds.miPerKWh > 0) return ` · excludes ${n} ${drives} with a trailer`;
+  if (chargedKWh > 0 && ds.miles > 0) return ` · includes ${n} ${drives} with a trailer`;
+  if (ds.milesPerPct > 0) return ` · excludes ${n} ${drives} with a trailer`;
+  return "";
+}
+
 export function driveStats(drives: Drive[]): DriveStats {
   const count = drives.length;
   const miles = sum(drives.map((d) => d.DistanceMi || 0));

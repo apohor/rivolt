@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Drive } from "./api";
 import { collapseRoundTrips, driveHasTrailer } from "./drives";
-import { driveStats } from "./analytics";
+import { driveStats, efficiencyTrailerNote } from "./analytics";
 import { choiceOf, overrideOf } from "../components/TrailerControl";
 
 let seq = 0;
@@ -76,5 +76,23 @@ describe("TrailerControl choices", () => {
     expect(choiceOf(undefined)).toBe("auto");
     expect(choiceOf(true)).toBe("yes");
     expect(choiceOf(false)).toBe("no");
+  });
+});
+
+describe("the Efficiency tile's trailer note", () => {
+  const towing = [drive({}), drive({ Trailer: true })];
+  it("says excludes where the figure leaves them out", () => {
+    expect(efficiencyTrailerNote(driveStats(towing), 30)).toBe(" · excludes 1 drive with a trailer");
+  });
+  it("says includes on the wall-to-wheel figure, which cannot be split by drive", () => {
+    const noEnergy = [drive({ EnergyUsedKWh: 0 }), drive({ Trailer: true, EnergyUsedKWh: 0 })];
+    const ds = driveStats(noEnergy);
+    expect(ds.miPerKWh).toBe(0);
+    expect(efficiencyTrailerNote(ds, 30)).toBe(" · includes 1 drive with a trailer");
+  });
+  it("says nothing when there is no figure, or no trailer", () => {
+    const bare = driveStats([drive({ EnergyUsedKWh: 0, StartSoCPct: 70, EndSoCPct: 70, Trailer: true })]);
+    expect(efficiencyTrailerNote(bare, 0)).toBe("");
+    expect(efficiencyTrailerNote(driveStats([drive({})]), 30)).toBe("");
   });
 });

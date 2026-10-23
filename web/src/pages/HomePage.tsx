@@ -25,6 +25,7 @@ import { num } from "../lib/format";
 import {
   chargeStats,
   driveStats,
+  efficiencyTrailerNote,
   milesPerDay,
   shareByEnergy,
   socTrend,
@@ -336,7 +337,7 @@ export default function HomePage() {
                   : cs.energyKWh > 0 && ds.miles > 0
                     ? `wall-to-wheel · ${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
                     : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`) +
-                (ds.trailerExcluded > 0 ? ` · excludes ${ds.trailerExcluded} ${ds.trailerExcluded === 1 ? "drive" : "drives"} with a trailer` : "")
+                efficiencyTrailerNote(ds, cs.energyKWh)
               }
             />
               <Stat
