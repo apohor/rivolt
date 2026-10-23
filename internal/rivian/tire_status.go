@@ -28,6 +28,9 @@ func tireWord(s string) string {
 // TireStatusLow reports whether Rivian's own per-wheel status is one of its low words.
 func TireStatusLow(status string) bool { return tireLowWords[tireWord(status)] }
 
+// TireStatusNotLow reports whether Rivian's own per-wheel status is one of the words seen to say the tire is fine.
+func TireStatusNotLow(status string) bool { return tireNotLowWords[tireWord(status)] }
+
 // Tire status classes, the whole label vocabulary of rivolt_tire_status_total.
 const (
 	tireClassLow     = "low"
