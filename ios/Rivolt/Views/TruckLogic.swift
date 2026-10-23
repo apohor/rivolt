@@ -134,8 +134,8 @@ enum TruckLogic {
     /// The one line at the top of Truck (the scroll audit's "health headline"): the pack's usable capacity and the 7-day
     /// parked drain, each exactly as its card below shows it (the same helpers, rounding and words), dropped when its card
     /// has no figure; nil when neither has. Plain figures: no score, colour, comparison with the spec or "degradation".
-    static func summary(pack: PackHealth?, drain: DrainSnapshot?) -> String? {
-        let parts = summaryParts(pack: pack, drain: drain)
+    static func summary(pack: PackHealth?, trends: TruckTrends? = nil, drain: DrainSnapshot?) -> String? {
+        let parts = summaryParts(pack: pack, trends: trends, drain: drain)
         guard !parts.isEmpty else { return nil }
         return parts.enumerated().map { $0.offset == 0 ? $0.element.text : $0.element.text.prefix(1).lowercased() + $0.element.text.dropFirst() }
             .joined(separator: " · ")
@@ -148,14 +148,13 @@ enum TruckLogic {
         let text: String
     }
 
-    static func summaryParts(pack: PackHealth?, drain: DrainSnapshot?) -> [SummaryPart] {
+    static func summaryParts(pack: PackHealth?, trends: TruckTrends? = nil, drain: DrainSnapshot?) -> [SummaryPart] {
         var parts: [SummaryPart] = []
-        if let pack {
-            switch Self.pack(pack).head {
-            case let .reported(kwh, _): parts.append(SummaryPart(id: "pack", text: "Pack \(fixed(kwh, 1)) kWh usable, as your truck reports it"))
-            case let .estimate(kwh?, _): parts.append(SummaryPart(id: "pack", text: "Pack about \(fixed(kwh, 0)) kWh usable (estimate)"))
-            case .estimate(nil, _), .none: break
-            }
+        // The Battery capacity card's headline: the truck's own figure, else our estimate (the trends median).
+        switch battery(pack: pack, trends: trends).head {
+        case let .reported(kwh)?: parts.append(SummaryPart(id: "pack", text: "Pack \(fixed(kwh, 1)) kWh usable, as your truck reports it"))
+        case let .estimate(kwh)?: parts.append(SummaryPart(id: "pack", text: "Pack about \(fixed(kwh, 0)) kWh usable (estimate)"))
+        case nil: break
         }
         if let drain, case let .ok(p, _, _, _, _, _, _) = drainView(window(drain, .week), .week) {
             parts.append(SummaryPart(id: "drain", text: "Parked drain \(pct(p))% a day (last 7 days)"))

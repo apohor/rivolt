@@ -169,7 +169,7 @@ struct TruckContent: View {
     /// Each half a 44 pt target that shows its card; side by side when both fit whole, else one per row.
     @ViewBuilder
     private var summaryLine: some View {
-        let parts = TruckLogic.summaryParts(pack: model.pack?.value, drain: model.drain?.value)
+        let parts = TruckLogic.summaryParts(pack: model.pack?.value, trends: model.trends?.value, drain: model.drain?.value)
         if !parts.isEmpty {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 0) {
@@ -199,7 +199,7 @@ struct TruckContent: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(SpokenText.words(p.text))
-        .accessibilityHint(p.id == "pack" ? "Shows Pack capacity" : "Shows Parked drain")
+        .accessibilityHint(p.id == "pack" ? "Shows Battery capacity" : "Shows Parked drain")
     }
 
     private func failedCard(_ title: String, _ text: String) -> some View {
@@ -793,7 +793,11 @@ struct CapacityChart: View {
             Chart {
                 RuleMark(y: .value("Median", median)).foregroundStyle(Theme.textSecondary).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 if showSpec {
-                    RuleMark(y: .value("Rated pack", spec)).foregroundStyle(Theme.textTertiary).lineStyle(StrokeStyle(lineWidth: 1, dash: [1, 3]))
+                    // Labelled at its end, so the dots read as our estimate, not as a gap to it.
+                    RuleMark(y: .value("Rivian spec", spec)).foregroundStyle(Theme.textTertiary).lineStyle(StrokeStyle(lineWidth: 1, dash: [1, 3]))
+                        .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                            Text("Rivian spec").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary)
+                        }
                 }
                 ForEach(Array(runs.enumerated()), id: \.offset) { i, run in
                     ForEach(Array(run.enumerated()), id: \.offset) { _, p in
@@ -854,21 +858,24 @@ private struct CapacityLegend: View {
     let trend: Bool
     let median: Double
     let spec: Double?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        ThemeFlow(spacing: 3 * Theme.unit, rowSpacing: Theme.unit) {
-            HStack(spacing: Theme.unit) {
+        // At accessibility sizes one entry per row, each wrapping (in a flow row the first entry was wider than the
+        // screen and clipped).
+        (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.unit)) : AnyLayout(ThemeFlow(spacing: 3 * Theme.unit, rowSpacing: Theme.unit))) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.unit) {
                 Circle().fill(Theme.home).frame(width: 2 * Theme.unit, height: 2 * Theme.unit)
-                Text("One charge's estimate (bigger: more added)")
+                Text("One charge's estimate (bigger: more added)").fixedSize(horizontal: false, vertical: true)
             }
             if trend {
-                HStack(spacing: Theme.unit) {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.unit) {
                     Capsule().fill(Theme.textBody.opacity(0.6)).frame(width: 4 * Theme.unit, height: 2.5)
-                    Text("Typical (rolling median)")
+                    Text("Typical (rolling median)").fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text("- - Median \(TruckLogic.fixed(median, 0)) kWh")
-            if let spec { Text("··· Rated pack \(TruckLogic.fixed(spec, 0)) kWh") }
+            Text("- - Median \(TruckLogic.fixed(median, 0)) kWh").fixedSize(horizontal: false, vertical: true)
+            if let spec { Text("··· Rivian spec \(TruckLogic.fixed(spec, 0)) kWh").fixedSize(horizontal: false, vertical: true) }
         }
         .font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2))
         .foregroundStyle(Theme.textTertiary)

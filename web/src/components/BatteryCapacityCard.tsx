@@ -144,7 +144,13 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
           </g>
         ))}
         {showSpec && (
-          <line data-cap-spec x1={PAD.l} x2={PAD.l + iw} y1={Y(spec)} y2={Y(spec)} stroke="#737373" strokeDasharray="1 3" strokeWidth={1} />
+          <>
+            <line data-cap-spec x1={PAD.l} x2={PAD.l + iw} y1={Y(spec)} y2={Y(spec)} stroke="#737373" strokeDasharray="1 3" strokeWidth={1} />
+            {/* Labelled at its end, so the dots read as our estimate, not as a gap to it. */}
+            <text data-cap-spec-label x={PAD.l + iw} y={Y(spec) - 3} textAnchor="end" className="fill-neutral-500 text-[10px]">
+              Rivian spec
+            </text>
+          </>
         )}
         <line data-cap-median x1={PAD.l} x2={PAD.l + iw} y1={Y(median)} y2={Y(median)} stroke="#a3a3a3" strokeDasharray="4 3" strokeWidth={1} />
         {runs.map((run, i) => (
@@ -209,7 +215,7 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
         {showSpec && (
           <span>
             <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t border-dotted border-neutral-500 align-middle" />
-            Rated pack {spec.toFixed(0)} kWh
+            Rivian spec {spec.toFixed(0)} kWh
           </span>
         )}
       </p>

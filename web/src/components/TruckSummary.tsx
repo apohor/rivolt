@@ -1,11 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
+import { usePreferences } from "../lib/preferences";
 import { summaryParts } from "../lib/truckSummary";
 
 // TruckSummary: the line at the top of Truck, built from the Pack capacity and Parked drain
 // cards' own data (the same queries, so no extra request). Each half is a 44 px target that
 // scrolls to its card; nothing at all when neither card has a figure.
 export function TruckSummary({ vehicleID }: { vehicleID: string }) {
+  const { distanceUnit } = usePreferences();
+  const units = distanceUnit === "km" ? "metric" : "imperial";
+  // The same queries as the Battery capacity card and the Trends card: no extra request.
+  const trends = useQuery({
+    queryKey: ["trends", vehicleID, units],
+    queryFn: () => backend.trends(vehicleID, units),
+    enabled: !!vehicleID,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
   const pack = useQuery({
     queryKey: ["packHealth", vehicleID],
     queryFn: () => backend.packHealth(vehicleID),
@@ -18,7 +29,7 @@ export function TruckSummary({ vehicleID }: { vehicleID: string }) {
     staleTime: 5 * 60_000,
     retry: 0,
   });
-  const parts = summaryParts(pack.data, drain.data);
+  const parts = summaryParts(pack.data, trends.data, drain.data);
   if (parts.length === 0) return null;
   const go = (id: string) => document.getElementById(`truck-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   // One copy of the line. A phone: one half per row, each a sentence (a wrapped line would
@@ -41,7 +52,7 @@ export function TruckSummary({ vehicleID }: { vehicleID: string }) {
           <button
             type="button"
             onClick={() => go(p.id)}
-            title={p.id === "pack" ? "Shows Pack capacity" : "Shows Parked drain"}
+            title={p.id === "pack" ? "Shows Battery capacity" : "Shows Parked drain"}
             className={"min-h-11 text-left underline-offset-4 hover:underline" + (i > 0 ? " max-sm:first-letter:uppercase" : "")}
           >
             {i === 0 ? p.text : p.text.charAt(0).toLowerCase() + p.text.slice(1)}
