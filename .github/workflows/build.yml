@@ -270,7 +270,8 @@ jobs:
   e2e:
     name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
     needs: changes
-    if: "github.event_name == 'pull_request' && needs.changes.outputs.web == 'true'"
+    # PRs run chromium; main pushes and a manual run run WebKit (below).
+    if: "needs.changes.outputs.web == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))"
     runs-on: ubuntu-latest
     # WebKit runs in Playwright's own image: its system libraries are not on the runner,
     # and installing them with apt from the runner's mirror stalled 350 to 500 s on some
@@ -282,14 +283,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # One suite: every spec, with the new look (the only one users get).
-          - { suite: all, project: chromium, shard: 1, total: 3 }
-          - { suite: all, project: chromium, shard: 2, total: 3 }
-          - { suite: all, project: chromium, shard: 3, total: 3 }
-          # WebKit = the iPhone Safari engine: the phone specs only (see
-          # web/playwright.config.ts), one shard.
-          - { suite: all, project: webkit, shard: 1, total: 1 }
+        # One suite: every spec, with the new look (the only one users get).
+        # PRs: chromium, three shards. Main and a manual run: WebKit (the iPhone
+        # Safari engine; the phone specs only, see web/playwright.config.ts), one
+        # shard. WebKit left the PR path for speed (the owner, Oct 23): it was the
+        # slowest e2e job. Safari is still checked on every main push, nightly
+        # (e2e-nightly.yml), and by the pre-release iPhone WebKit gate at tag.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"suite":"all","project":"chromium","shard":1,"total":3},{"suite":"all","project":"chromium","shard":2,"total":3},{"suite":"all","project":"chromium","shard":3,"total":3}]' || '[{"suite":"all","project":"webkit","shard":1,"total":1}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
