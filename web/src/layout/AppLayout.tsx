@@ -1,7 +1,6 @@
 import { useRefreshListsWhenSessionCloses } from "../lib/activityLists";
 import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
-import { useApplyUiNext } from "../lib/uiNext";
 import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -53,7 +52,6 @@ function UserLayout() {
 
   const tripPlannerEnabled = useTripPlannerEnabled();
   useSystemTheme(true);
-  useApplyUiNext();
   useEffect(rememberAppSeen, []);
   const tabs = buildTabs({
     tripPlannerEnabled,
@@ -79,7 +77,7 @@ function UserLayout() {
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
         <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
         {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
-        <main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
+        <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <DegradedBanner />
           <SubNav tab={current} onPrefetch={prefetchRoute} />
           <Outlet />

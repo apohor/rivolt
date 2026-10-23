@@ -343,9 +343,9 @@ html[data-theme='light'] {
   --color-indigo-950: oklch(96.2% 0.018 272.314);
 }
 
-/* ---- ui_theme_next: the "cinematic cockpit" layer --------------------------
-   Everything here sits under html[data-ui='next'] (set by useApplyUiNext when
-   the flag or a ?ui=next override is on), so flag off is exactly today's UI.
+/* ---- The look: the "cinematic cockpit" layer ------------------------------
+   Everything here sits under html[data-ui='next'], which index.html sets on
+   every page (it is the only look; the prefix goes in a later cleanup).
    Dark first: a cooler, near-black base with four elevation steps (token
    overrides, so the whole app follows), a 1px top-edge highlight on cards, a
    soft light pool behind the hero metric, glow only on live states, small-caps

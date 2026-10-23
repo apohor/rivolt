@@ -1161,8 +1161,8 @@ export const backend = {
   },
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
-  // vehicleNow returns null when the endpoint is absent (404: flag off
-  // or an older server), so callers fall back to /api/state alone.
+  // vehicleNow returns null when the endpoint is absent (404: an older
+  // server), so callers fall back to /api/state alone.
   vehicleNow: async (vehicleID: string): Promise<NowSnapshot | null> => {
     try {
       return await api.get<NowSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/now`);
@@ -1181,8 +1181,8 @@ export const backend = {
       throw e;
     }
   },
-  // vehicleDrain returns null when the endpoint is absent (404: flag
-  // off or an older server); the Truck tab then hides the drain card.
+  // vehicleDrain returns null when the endpoint is absent (404: an older
+  // server); the Truck tab then hides the drain card.
   vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
     try {
       return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);

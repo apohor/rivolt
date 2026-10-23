@@ -178,19 +178,19 @@ export default function LandingPage() {
         <div className="mx-auto max-w-5xl space-y-1">
           <p>
             Rivolt is open source under the MIT license.{" "}
-            <a href={REPO} className="text-neutral-300 hover:underline">
+            <a href={REPO} className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
               GitHub
             </a>
             {" · "}
-            <Link to="/privacy" className="text-neutral-300 hover:underline">
+            <Link to="/privacy" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
               Privacy
             </Link>
             {" · "}
-            <Link to="/terms" className="text-neutral-300 hover:underline">
+            <Link to="/terms" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
               Terms
             </Link>
             {" · "}
-            <Link to="/lease-calculator" className="text-neutral-300 hover:underline">
+            <Link to="/lease-calculator" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
               Lease calculator
             </Link>
             {demoEnabled && (
@@ -199,7 +199,7 @@ export default function LandingPage() {
                 <Link
                   to="/demo"
                   onClick={() => track("demo_click", { where: "footer" })}
-                  className="text-neutral-300 hover:underline"
+                  className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
                 >
                   Demo
                 </Link>
@@ -211,7 +211,7 @@ export default function LandingPage() {
                 <a
                   href={DEMO_URL}
                   onClick={() => track("demo_click", { where: "footer" })}
-                  className="text-neutral-300 hover:underline"
+                  className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
                 >
                   Demo
                 </a>
