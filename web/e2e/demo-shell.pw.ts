@@ -34,7 +34,11 @@ function watch(page: Page) {
   page.on("console", (m) => {
     if (m.type() === "error" && !/tiles|pmtiles|Bad response code|Failed to load resource.*(404|416)/i.test(m.text())) bad.push(`console: ${m.text().slice(0, 140)}`);
   });
-  page.on("pageerror", (e) => bad.push(`pageerror: ${e.message.slice(0, 140)}`));
+  // WebKit reports a fetch cut short by the next page.goto as "… due to access control checks". Every
+  // request here is same-origin and stubbed, so that message can only be such an abort, not a CORS fault.
+  page.on("pageerror", (e) => {
+    if (!/due to access control checks/.test(e.message)) bad.push(`pageerror: ${e.message.slice(0, 140)}`);
+  });
   return bad;
 }
 
