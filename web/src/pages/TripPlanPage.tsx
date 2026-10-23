@@ -673,11 +673,11 @@ function SnapshotBanner({
       <span>
         {inDemo() ? (
           <>
-            Sample plan <strong className="text-neutral-100">"{name}"</strong>
+            Sample plan <span className="font-medium text-neutral-100">"{name}"</span>
           </>
         ) : (
           <>
-            Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+            Showing saved snapshot <span className="font-medium text-neutral-100">"{name}"</span>{" "}
             from {human}
             {stale && " — charging stations, weather, and ETA may have drifted."}
           </>

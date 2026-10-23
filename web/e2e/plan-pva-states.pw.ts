@@ -22,7 +22,7 @@ for (const v of [
     // The suggestion is shown first, with its two answers and how sure we are.
     await expect(section.getByText(/Was this your trip/)).toBeVisible();
     await expect(section.getByRole("button", { name: "Confirm" })).toBeVisible();
-    await expect(section.getByRole("button", { name: "Not this trip" })).toBeVisible();
+    await expect(section.getByRole("button", { name: "Not this trip", exact: true })).toBeVisible();
     await expect(section.getByText(/Likely match/)).toBeVisible();
     // An estimated actual says why its bar is dotted.
     await expect(section.locator("[data-pva-estimated]").first()).toContainText("network rate, not billed");

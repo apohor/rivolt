@@ -109,7 +109,6 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await expect(page.getByText(/Sample plan/).first()).toBeVisible();
   await expect(page.getByText(/Showing saved snapshot|min ago/)).toHaveCount(0);
   await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
-  await expect(page.getByText(/Likely match/).first()).toBeVisible();
   // The real result: stops table with a charger, cost, arrival SoC.
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   await expect(page.getByText(/24%/).first()).toBeVisible();
@@ -119,6 +118,10 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await expect(page.getByText(/Analyze|AI advice/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Save$/ })).toHaveCount(0);
   await expect(page.getByTestId("connect-hint").first()).toContainText("plan any trip");
+  // Plan vs actual is its own tab: the demo's sample trip says "Likely match", not "preview · high match".
+  await page.getByRole("tab", { name: "Plan vs actual" }).click();
+  await expect(page.getByText(/Likely match/).first()).toBeVisible();
+  await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
   await page.waitForTimeout(800);
   // The default stub preset has NO route_polyline: the map must not fall
   // back to the routing proxy (401 for anonymous visitors).
