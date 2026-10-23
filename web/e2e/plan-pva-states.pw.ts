@@ -34,3 +34,14 @@ for (const v of [
     await ctx.close();
   });
 }
+
+// No saved trips: the Plan vs actual tab says what it is for, in the Saved tab's tone, instead of a blank screen. Refs #989.
+test("plan vs actual with no saved trips shows an empty-state line", async ({ page }) => {
+  await stubApi(page);
+  await page.route("**/api/trips/saved", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.goto("/trips/plan?tab=pva");
+  const empty = page.locator("[data-pva-empty]");
+  await expect(empty).toBeVisible();
+  await expect(empty).toContainText("Nothing to compare yet. Plan a route and save it, drive it,");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
