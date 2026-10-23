@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { backend, type Charge, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { collapseRoundTrips } from "../lib/drives";
+import { collapseRoundTrips, driveHasTrailer } from "../lib/drives";
 import { EfficiencyView } from "../components/EfficiencyView";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView } from "../lib/activityView";
@@ -315,6 +315,7 @@ function DriveCard({ item }: { item: DriveItem }) {
         <span>
           {timeRange(d.StartedAt, d.EndedAt)} · {formatDuration(dur)}
           {(d.round_trip_legs ?? 1) > 1 && <span data-round-trip-legs> · round trip, {d.round_trip_legs} drives</span>}
+          {driveHasTrailer(d) === true && <span data-drive-trailer> · trailer</span>}
         </span>
         {missing ? (
           <span className="text-amber-300">no energy recorded</span>

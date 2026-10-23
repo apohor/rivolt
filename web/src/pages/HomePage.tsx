@@ -25,6 +25,7 @@ import { num } from "../lib/format";
 import {
   chargeStats,
   driveStats,
+  efficiencyTrailerNote,
   milesPerDay,
   shareByEnergy,
   socTrend,
@@ -331,11 +332,12 @@ export default function HomePage() {
                       : "—"
               }
               hint={
-                ds.miPerKWh > 0
+                (ds.miPerKWh > 0
                   ? `pack-side · ${num(ds.milesForEnergy, 0, "mi")} / ${num(ds.energyUsedKWh, 0, "kWh")}`
                   : cs.energyKWh > 0 && ds.miles > 0
                     ? `wall-to-wheel · ${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
-                    : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
+                    : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`) +
+                efficiencyTrailerNote(ds, cs.energyKWh)
               }
             />
               <Stat

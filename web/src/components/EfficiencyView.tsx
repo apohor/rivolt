@@ -53,6 +53,8 @@ export function EfficiencyView({ rivianVehicleID, since, until }: { rivianVehicl
   const avg = d.total.efficiency;
   const ex = d.excluded;
   const excluded = ex ? (ex.no_energy ?? 0) + (ex.duplicates ?? 0) : 0;
+  const trailer = ex?.trailer ?? 0;
+  const wt = d.with_trailer && d.with_trailer.drives > 0 ? d.with_trailer : null;
   return (
     <div className="space-y-4" data-eff-state="ready">
       <Card>
@@ -69,6 +71,13 @@ export function EfficiencyView({ rivianVehicleID, since, until }: { rivianVehicl
             {excluded > 0 && ` · ${excluded} left out (no energy recorded)`}
           </p>
         </div>
+        {trailer > 0 && (
+          <p data-eff-trailer className="mt-2 text-xs text-neutral-500">
+            Excludes {trailer} {trailer === 1 ? "drive" : "drives"} with a trailer
+            {wt && wt.efficiency != null ? `, which ran ${wt.efficiency.toFixed(2)} ${d.efficiency_unit} over ${Math.round(wt.distance).toLocaleString()} ${d.distance_unit}` : ""}.
+            The truck reports a trailer connector, not what is on it, so a bike rack with lights can count; you can correct a drive on its page.
+          </p>
+        )}
       </Card>
       <div className="grid gap-4 lg:grid-cols-2" data-eff-charts>
         {groups.map((g) => (
