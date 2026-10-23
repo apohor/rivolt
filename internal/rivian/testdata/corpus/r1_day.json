@@ -1,6 +1,6 @@
 {
   "_source": "synthetic",
-  "_method": "Hand-written R1T day: asleep, woken, a 20-minute drive, parked, a home Level 2 charge, back to sleep. Park and sleep come from vehicleState, as an R1 sends them.",
+  "_method": "Hand-written R1T day: asleep, woken, a 20-minute drive, a home Level 2 charge, asleep; park and sleep via vehicleState, as an R1 sends them.",
   "vehicle": {"model": "R1T"},
   "events": [
     {"t": 0, "kind": "vs", "gear": "P", "power": "sleep", "mph": 0, "odo": 0, "cs": "charger_disconnected", "status": "chrgr_sts_not_connected", "kw": 0, "soc": 62.0, "_note": "asleep in the driveway overnight"},

@@ -1,6 +1,6 @@
 {
   "_source": "anonymized",
-  "_method": "From prod (read-only): the Parallax shadow log and vehicle_state rows of an R2 audit vehicle (Oct 2026), times as seconds from the first event, odometer as miles from it, no ids, positions or wall-clock times (backend's r2_frames.json, converted).",
+  "_method": "Read-only from prod: an R2's Parallax shadow log and vehicle_state rows; relative times and odometer, no ids, positions or clock times.",
   "vehicle": {"model": "R2"},
   "events": [
     {"t": 0, "kind": "vs", "gear": "D", "power": "go", "mph": 28.9, "odo": 0, "cs": "charging_ready", "kw": 0, "soc": 37.9},
@@ -20,6 +20,6 @@
     {"t": 389, "kind": "vs", "kw": 7.4},
     {"t": 450, "kind": "vs", "kw": 0, "_note": "a 0 kW pause mid-session"},
     {"t": 470, "kind": "vs", "kw": 7.4, "soc": 38.6},
-    {"t": 900, "kind": "vs", "cs": "charging_complete", "kw": 0, "soc": 39.5, "_note": "the R2 leaves charging_active this way (01-000000001: active->complete 4, active->user_stopped 2 in 5 days)"}
+    {"t": 900, "kind": "vs", "cs": "charging_complete", "kw": 0, "soc": 39.5, "_note": "the R2 leaves charging_active this way (seen on an R2: active->complete 4, active->user_stopped 2 in 5 days)"}
   ]
 }

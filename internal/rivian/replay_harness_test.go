@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,6 @@ type corpus struct {
 	Method  string         `json:"_method"`
 	Vehicle corpusVehicle  `json:"vehicle"`
 	Events  []corpusEvent  `json:"events"`
-	Notes   map[string]any `json:"_notes,omitempty"`
 }
 
 type corpusVehicle struct {
@@ -280,8 +280,34 @@ func (r *replayRun) trackSessions() *replaySessions {
 	return out
 }
 
-// TestCorpusRules holds every committed corpus to DA's rules (the loader's checks, plus a raw scan for
-// coordinate-like keys, in case a field is ever added to the schema without thinking).
+// corpusTextBad is what no string in a corpus (_method, _note) may hold: a Rivian vehicle id, a UUID, a VIN's
+// shape, or a decimal with three or more places (a coordinate). Free text is for the reader, not for data.
+var corpusTextBad = []*regexp.Regexp{
+	regexp.MustCompile(`\b\d{2}-\d{9}\b`),
+	regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`),
+	regexp.MustCompile(`\b[A-HJ-NPR-Z0-9]{17}\b`),
+	regexp.MustCompile(`-?\d{1,3}\.\d{3,}`),
+}
+
+// corpusStrings is every string value in a decoded JSON document.
+func corpusStrings(v any, out *[]string) {
+	switch x := v.(type) {
+	case string:
+		*out = append(*out, x)
+	case []any:
+		for _, e := range x {
+			corpusStrings(e, out)
+		}
+	case map[string]any:
+		for _, e := range x {
+			corpusStrings(e, out)
+		}
+	}
+}
+
+// TestCorpusRules holds every committed corpus to DA's rules: the loader's checks, a raw scan for
+// coordinate-like keys (in case a field is ever added to the schema without thinking), and every string value
+// (notes, the method) short and free of ids and coordinates.
 func TestCorpusRules(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "corpus", "*.json"))
 	if err != nil || len(files) == 0 {
@@ -292,6 +318,22 @@ func TestCorpusRules(t *testing.T) {
 			t.Error(err)
 		}
 		raw, _ := os.ReadFile(f)
+		var doc any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		var texts []string
+		corpusStrings(doc, &texts)
+		for _, s := range texts {
+			if len(s) > 160 {
+				t.Errorf("%s: a string of %d chars (at most 160): %.60q…", f, len(s), s)
+			}
+			for _, re := range corpusTextBad {
+				if m := re.FindString(s); m != "" {
+					t.Errorf("%s: %q holds %q (an id, VIN or coordinate shape)", f, s, m)
+				}
+			}
+		}
 		lower := strings.ToLower(string(raw))
 		for _, k := range []string{`"lat`, `"lon`, `"lng`, `"gnss`, `"gps`, `"heading`, `"vin`, `"vehicle_id`, `"vehicleid`, `"ssid`, `"address`} {
 			if strings.Contains(lower, k) {

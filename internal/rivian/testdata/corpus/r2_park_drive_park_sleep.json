@@ -1,6 +1,6 @@
 {
   "_source": "anonymized",
-  "_method": "From prod (read-only): the Parallax shadow log and vehicle_state rows of an R2 audit vehicle (Oct 2026), times as seconds from the first event, odometer as miles from it, no ids, positions or wall-clock times (backend's r2_frames.json, converted).",
+  "_method": "Read-only from prod: an R2's Parallax shadow log and vehicle_state rows; relative times and odometer, no ids, positions or clock times.",
   "vehicle": {"model": "R2"},
   "events": [
     {"t": 0, "kind": "vs", "gear": "", "power": "", "mph": 0, "odo": 0, "cs": "charging_ready", "soc": 32.1},
