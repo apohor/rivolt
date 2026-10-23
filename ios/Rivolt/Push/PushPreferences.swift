@@ -17,6 +17,10 @@ struct PushPreferences: Codable, Equatable {
     /// not send it (a server without it): the row is then hidden.
     var onLeftOpen = false
     var leftOpenKnown = false
+    /// The low-tire alert: off until the person turns it on, per iPhone. `tireLowKnown` is false when the server did not
+    /// send it (a server without it): the row is then hidden.
+    var onTireLow = false
+    var tireLowKnown = false
 
     init() {}
 
@@ -34,6 +38,9 @@ struct PushPreferences: Codable, Equatable {
         let left = try c.decodeIfPresent(Bool.self, forKey: .onLeftOpen)
         onLeftOpen = left ?? false
         leftOpenKnown = left != nil
+        let tire = try c.decodeIfPresent(Bool.self, forKey: .onTireLow)
+        onTireLow = tire ?? false
+        tireLowKnown = tire != nil
     }
 
     subscript(kind: PushKind) -> Bool {
@@ -46,6 +53,7 @@ struct PushPreferences: Codable, Equatable {
             case .milestones: return onMilestones
             case .chargingLive: return onChargingLive
             case .leftOpen: return onLeftOpen
+            case .tireLow: return onTireLow
             }
         }
         set {
@@ -57,13 +65,14 @@ struct PushPreferences: Codable, Equatable {
             case .milestones: onMilestones = newValue
             case .chargingLive: onChargingLive = newValue
             case .leftOpen: onLeftOpen = newValue
+            case .tireLow: onTireLow = newValue
             }
         }
     }
 }
 
 enum PushKind: CaseIterable, Identifiable {
-    case chargingDone, softwareUpdate, anomaly, plugInReminder, milestones, leftOpen, chargingLive
+    case chargingDone, softwareUpdate, anomaly, plugInReminder, milestones, leftOpen, tireLow, chargingLive
 
     var id: Self { self }
 
@@ -76,6 +85,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .plugInReminder: return "Plug-in reminder"
         case .milestones: return "Milestones"
         case .leftOpen: return "Left open"
+        case .tireLow: return "Low tire pressure"
         case .chargingLive: return "Live Activity while charging"
         }
     }
@@ -88,6 +98,8 @@ enum PushKind: CaseIterable, Identifiable {
             return "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."
         case .leftOpen:
             return "A notification if a door, the frunk, the liftgate, the tailgate or the tonneau stays open for 15 minutes after the truck is parked and left. Not windows. It can be missed if the truck is offline, so never count on it to tell you the truck is closed. Off until you turn it on."
+        case .tireLow:
+            return "A notification when the truck itself has reported a tire low for 30 minutes, sent only while it is in Park. It repeats what the truck reports and doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep. Off until you turn it on."
         case .chargingLive:
             return "Shows charge level, power and time to your target on the Lock Screen and in the Dynamic Island while a charge is running. While it's on, Apple's push service gets your charge level, charging power and minutes to target during a charge, but never your truck's location, name or VIN. Off by default; this iPhone only."
         default:
@@ -104,6 +116,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .plugInReminder: return "on_plug_in_reminder"
         case .milestones: return "on_milestones"
         case .leftOpen: return "on_left_open"
+        case .tireLow: return "on_tire_low"
         case .chargingLive: return "on_charging_live"
         }
     }
