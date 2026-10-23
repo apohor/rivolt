@@ -32,6 +32,8 @@ func apnsSelector(kind string, p Preferences) bool {
 		return p.OnMilestones
 	case "left_open":
 		return p.OnLeftOpen
+	case "tire_low":
+		return p.OnTireLow
 	}
 	return false // test pings and anything new stay on the web until opted in here
 }
