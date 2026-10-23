@@ -152,12 +152,15 @@ export function monotoneAt(xs: number[], ys: number[]): (x: number) => number {
   };
 }
 
-/** The limit to draw, one value: the last step (today's target on the current period, else the last charge's limit),
- *  else today's target on the current period; null for none. */
-export function limitValue(steps: LimitStep[], current: boolean, live: number | null): number | null {
-  if (steps.length > 0) return steps[steps.length - 1].pct;
+/** The one stretch of limit to draw: from the last limit change (the last step) to now, or to the end of an earlier
+ *  period, carrying that limit. Without any limit stored on the charges (an older server), today's target over the
+ *  last two days on the current period only; null for none. A line across the whole period would claim the limit held
+ *  all period. */
+export function limitSegment(steps: LimitStep[], current: boolean, live: number | null, from: number, now: number): LimitStep | null {
+  if (steps.length > 0) return steps[steps.length - 1];
   // (A live target of 100% is no limit worth a line, as on the iPhone; a stored 100% from a charge still is.)
-  return current && validLimit(live) && live < 100 ? live : null;
+  if (current && validLimit(live) && live < 100) return { x0: Math.max(from, now - 2 * DAY), x1: now, pct: live };
+  return null;
 }
 
 export function SocTrendChart({
@@ -223,7 +226,9 @@ export function SocTrendChart({
   const now = Math.min(Date.now(), Math.max(x1, Date.now() - 5 * 60_000));
   const current = now >= x0 && now <= x1;
   const steps = limitSteps(charges, x0, x1, now, limit);
-  const limitAt = limitValue(steps, current, limit);
+  const seg = limitSegment(steps, current, limit, x0, now);
+  // The name goes right of the line's end in the days still to come, or above it when the period has little room left.
+  const segTight = seg ? x1 - seg.x1 < 4 * DAY : false;
   const ticks = dayTicks(x0, x1, Math.max(2, Math.min(5, Math.floor(iw / 110))));
   const tickAnchor = (x: number): "start" | "middle" | "end" =>
     X(x) - PAD.l < 14 ? "start" : PAD.l + iw - X(x) < 14 ? "end" : "middle";
@@ -260,10 +265,14 @@ export function SocTrendChart({
             <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[10px]">{v}%</text>
           </g>
         ))}
-        {limitAt != null && (
+        {seg && (
           <g data-testid="soc-limit" data-draw="limit">
-            <line x1={PAD.l} x2={PAD.l + iw} y1={Y(limitAt)} y2={Y(limitAt)} stroke={SOC_LIMIT} strokeOpacity={0.32} strokeWidth={1} data-limit-line />
-            <text x={PAD.l + iw} y={Y(limitAt) - 4} textAnchor="end" className="fill-amber-400 text-[10px]">Limit {Math.round(limitAt)}%</text>
+            <line x1={X(seg.x0)} x2={X(seg.x1)} y1={Y(seg.pct)} y2={Y(seg.pct)} stroke={SOC_LIMIT} strokeOpacity={0.32} strokeWidth={1} data-limit-line />
+            {segTight ? (
+              <text x={X(seg.x1)} y={Y(seg.pct) - 4} textAnchor="end" className="fill-amber-400 text-[10px]">Limit {Math.round(seg.pct)}%</text>
+            ) : (
+              <text x={X(seg.x1) + 5} y={Y(seg.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(seg.pct)}%</text>
+            )}
           </g>
         )}
         {shapes?.single && (

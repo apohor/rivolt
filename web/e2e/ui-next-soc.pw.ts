@@ -47,6 +47,9 @@ for (const theme of ["dark", "light"] as const) {
           expect(await page.getByTestId("soc-limit").locator("line").count()).toBe(1);
           const drawn = await page.getByTestId("soc-limit").locator("line[data-limit-line]").evaluate((l) => getComputedStyle(l).stroke);
           expect(drawn).toBe("rgb(245, 158, 11)");
+          // From its last change to now: not a line across the whole period.
+          const limitW = await page.getByTestId("soc-limit").locator("line[data-limit-line]").evaluate((l) => l.getBoundingClientRect().width);
+          expect(limitW).toBeLessThan((await chart.locator("svg[role='img']").boundingBox())!.width * 0.8);
           // hover() scrolls the plot into view first: a raw mouse.move at a page
           // coordinate can land below the fold on a short or slower-loading page
           // (it did on the Linux CI runner, desktop only).

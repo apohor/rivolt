@@ -65,6 +65,10 @@ describe("SocTrendChart", () => {
     const limit = container.querySelector("[data-testid='soc-limit']")!;
     expect(limit.textContent).toBe("Limit 70%");
     expect(limit.querySelectorAll("line")).toHaveLength(1);
+    // It runs from the last limit change to now, not across the whole month.
+    const line = limit.querySelector("line")!;
+    const svgW = Number(container.querySelector("svg")!.getAttribute("width"));
+    expect(Number(line.getAttribute("x2")) - Number(line.getAttribute("x1"))).toBeLessThan(svgW / 3);
     expect(container.querySelectorAll("[data-draw='tick']").length).toBeGreaterThan(0);
     // No legend, no bars or strip.
     expect(container.querySelector("[data-soc-legend]")).toBeNull();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dailyRanges, dayTicks, extremesOf, limitValue, monotoneAt, pctLabel, spokenBand } from "./SocTrendChart";
+import { dailyRanges, dayTicks, extremesOf, limitSegment, limitSteps, monotoneAt, pctLabel, spokenBand } from "./SocTrendChart";
 
 const at = (day: number, hour: number) => new Date(2026, 9, day, hour, 0, 0).getTime();
 const pt = (day: number, hour: number, y: number) => ({ x: at(day, hour), y });
@@ -73,11 +73,31 @@ describe("the battery by day", () => {
     expect(min).toBeGreaterThanOrEqual(3 - 1e-9);
   });
 
-  it("draws one limit: the last step, else today's target on the current period, else none", () => {
-    expect(limitValue([{ x0: 0, x1: 1, pct: 80 }, { x0: 1, x1: 2, pct: 70 }], true, 75)).toBe(70);
-    expect(limitValue([], true, 70)).toBe(70);
-    expect(limitValue([], false, 70)).toBeNull();
-    expect(limitValue([], true, 100)).toBeNull();
-    expect(limitValue([], true, null)).toBeNull();
+  it("draws one stretch of limit from its last change, never one line across the whole period", () => {
+    const OCT = new Date(2026, 9, 1).getTime();
+    const NOV = new Date(2026, 10, 1).getTime();
+    const DAYMS = 86_400_000;
+    const ch = (day: number, limit: number | null) => ({ x0: at(day, 8), x1: at(day, 10), limit });
+    // Limits 70, 100, 70, 85 and 80 over the month, then today's target 70.
+    const charges = [ch(3, 70), ch(8, 100), ch(9, 70), ch(12, 85), ch(19, 80)];
+    const now = at(22, 12);
+    const steps = limitSteps(charges, OCT, NOV, now, 70);
+    const seg = limitSegment(steps, true, 70, OCT, now)!;
+    expect(seg.pct).toBe(70);
+    expect(seg.x1).toBe(now);
+    expect(seg.x0 - OCT).toBeGreaterThan((NOV - OCT) / 2);
+    expect(seg.x1 - seg.x0).toBeLessThan((NOV - OCT) / 2);
+    // An earlier period: the last limit known in it, to its end.
+    const later = at(42, 12);
+    const past = limitSegment(limitSteps(charges, OCT, NOV, later, null), false, null, OCT, later)!;
+    expect(past.pct).toBe(80);
+    expect(past.x1).toBe(NOV);
+    expect(past.x1 - past.x0).toBeLessThan((NOV - OCT) / 2);
+    // No stored limits: today's target over the last two days, current period only; none otherwise.
+    const none = limitSegment([], true, 70, OCT, now)!;
+    expect(none.x1 - none.x0).toBe(2 * DAYMS);
+    expect(limitSegment([], false, 70, OCT, now)).toBeNull();
+    expect(limitSegment([], true, 100, OCT, now)).toBeNull();
+    expect(limitSegment([], true, null, OCT, now)).toBeNull();
   });
 });
