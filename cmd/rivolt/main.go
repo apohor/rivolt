@@ -367,6 +367,27 @@ func runServer() {
 		// SELECT on an allowlist of non-secret tables. The role is
 		// created by CNPG on its own schedule, so re-apply after boot
 		// too; grants are idempotent and cheap. See internal/db/readonly.go.
+		// The request role (row-level security, stage 1): its grants only. Nothing
+		// connects as it yet; stage 2 gives request handling a pool of its own.
+		// Re-applied like the reporting role's, since CNPG creates it on its own
+		// schedule and a later migration's table needs the narrowing. See
+		// internal/db/app_role.go.
+		if role := os.Getenv("RIVOLT_APP_ROLE"); role != "" && !adminOnlyMode {
+			go func() {
+				t := time.NewTicker(6 * time.Hour)
+				defer t.Stop()
+				for {
+					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
+					db.EnsureAppGrants(gctx, pgPool, role, logger)
+					gcancel()
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+					}
+				}
+			}()
+		}
 		if role := os.Getenv("RIVOLT_READONLY_ROLE"); role != "" && !adminOnlyMode {
 			go func() {
 				t := time.NewTicker(6 * time.Hour)
