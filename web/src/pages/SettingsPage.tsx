@@ -2247,7 +2247,7 @@ export function NotificationsPanel() {
     setPrefs(next);
     setStopNote(null);
     setErr(null);
-    if (key !== "on_plug_in_reminder" && key !== "on_milestones" && key !== "on_left_open") {
+    if (key !== "on_plug_in_reminder" && key !== "on_milestones" && key !== "on_left_open" && key !== "on_tire_low") {
       if (!(await enable(next))) setPrefs(before);
       return;
     }
@@ -2258,8 +2258,8 @@ export function NotificationsPanel() {
     setBusy("optin");
     try {
       await backend.pushOptin(sub.endpoint, { [key]: checked });
-      // The left-open alert needs no time zone (it is not scheduled), so only the other two save one.
-      if (checked && key !== "on_left_open") {
+      // The left-open and low-tire alerts need no time zone (they are not scheduled), so only the other two save one.
+      if (checked && key !== "on_left_open" && key !== "on_tire_low") {
         try {
           await engagement.save({});
         } catch (e) {
@@ -2278,12 +2278,12 @@ export function NotificationsPanel() {
   }
 
   // Stops one reminder kind on every device when the server can; otherwise on this device only, and says so.
-  async function stopAll(kind: "plug_in_reminder" | "milestones" | "left_open") {
+  async function stopAll(kind: "plug_in_reminder" | "milestones" | "left_open" | "tire_low") {
     setErr(null);
     setBusy("stop");
     try {
       const done = await backend.pushOff(kind);
-      const key = kind === "plug_in_reminder" ? "on_plug_in_reminder" : kind === "left_open" ? "on_left_open" : "on_milestones";
+      const key = kind === "plug_in_reminder" ? "on_plug_in_reminder" : kind === "left_open" ? "on_left_open" : kind === "tire_low" ? "on_tire_low" : "on_milestones";
       if (done) {
         setPrefs((p) => ({ ...p, [key]: false }));
         setStopNote("Turned off on all your devices.");
@@ -2392,6 +2392,7 @@ export function NotificationsPanel() {
             ["on_plug_in_reminder", "Plug-in reminder", "One notification in the evening if the truck is parked at home, unplugged, and below the level you set."],
             ["on_milestones", "Milestones", "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."],
             ["on_left_open", "Left open", "A notification if a door, the frunk, the liftgate, the tailgate or the tonneau stays open for 15 minutes after the truck is parked and left. Not windows. It can be missed if the truck is offline, so never count on it to tell you the truck is closed. Off until you turn it on."],
+            ["on_tire_low", "Low tire pressure", "A notification if the truck itself reports a tire low for 30 minutes while it is parked. It repeats what the truck reports and doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep. Off until you turn it on."],
           ] as const
         ).map(([key, label, help]) => (
           <label key={key} className="flex items-start gap-2">
@@ -2439,6 +2440,16 @@ export function NotificationsPanel() {
           className="text-xs text-neutral-400 underline hover:text-neutral-200 disabled:opacity-50"
         >
           Stop left-open notifications
+        </button>
+      )}
+      {subscribed && prefs.on_tire_low && (
+        <button
+          type="button"
+          onClick={() => void stopAll("tire_low")}
+          disabled={busy !== null}
+          className="text-xs text-neutral-400 underline hover:text-neutral-200 disabled:opacity-50"
+        >
+          Stop low-tire notifications
         </button>
       )}
       {stopNote && <p className="text-xs text-emerald-400">{stopNote}</p>}

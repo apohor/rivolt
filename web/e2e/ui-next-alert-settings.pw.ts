@@ -61,6 +61,7 @@ async function open(page: Page, opts: { off?: number; putStatus?: number; home?:
 const plug = (page: Page) => page.getByRole("checkbox", { name: /Plug-in reminder/ });
 const milestones = (page: Page) => page.getByRole("checkbox", { name: /Milestones/ });
 const leftOpen = (page: Page) => page.getByRole("checkbox", { name: /Left open/ });
+const tireLow = (page: Page) => page.getByRole("checkbox", { name: /Low tire pressure/ });
 
 for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
@@ -177,5 +178,23 @@ test("Left open is off until the user turns it on, goes through its own opt-in c
   await page.getByRole("button", { name: "Stop left-open notifications" }).click();
   await expect.poll(() => offs.at(-1)).toEqual({ kind: "left_open" });
   await expect(leftOpen(page)).not.toBeChecked();
+  await ctx.close();
+});
+
+test("Low tire pressure is off until the user turns it on, goes through its own opt-in call, and says where it stops", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+  const page = await ctx.newPage();
+  const { offs, optins, puts, subscribes } = await open(page, { off: 200, home: true });
+  await expect(tireLow(page)).not.toBeChecked();
+  // The help says it repeats the truck, is no replacement for the truck's own warning, and can be missed.
+  await expect(page.getByText(/doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep/)).toBeVisible();
+  await tireLow(page).check();
+  await expect.poll(() => optins.at(-1)).toEqual({ endpoint: "https://push.test/device-1", on_tire_low: true });
+  // No time zone is saved for it (it is not scheduled), and the subscribe call never carries it.
+  expect(puts).toEqual([]);
+  for (const s of subscribes) expect(Object.keys(s)).not.toContain("on_tire_low");
+  await page.getByRole("button", { name: "Stop low-tire notifications" }).click();
+  await expect.poll(() => offs.at(-1)).toEqual({ kind: "tire_low" });
+  await expect(tireLow(page)).not.toBeChecked();
   await ctx.close();
 });
