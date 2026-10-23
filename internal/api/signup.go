@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -225,7 +226,7 @@ func meRole(role string, hideAdmin bool) string {
 
 // hideAdmin (RIVOLT_ADMIN_DISABLED) reports an admin's role as "user": the
 // public site has no admin surface, so the SPA mustn't link to one.
-func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.HandlerFunc {
+func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool, notice TransferNotice) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -268,6 +269,8 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.Handler
 			"role":                 role,
 			"onboarding_completed": onboardingDone,
 			"terms":                termsView(r.Context(), d, uid),
+			// The in-app notice (notice.go): null when there is none.
+			"notice": notice.Active(time.Now()),
 		})
 	}
 }

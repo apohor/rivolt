@@ -2099,7 +2099,13 @@ export type AuthUser = {
   onboarding_completed: boolean;
   // The Terms version the user has accepted vs the current one; absent on older servers.
   terms?: TermsState;
+  // The server's in-app notice (components/SiteNotice), null when there is none; absent on older servers.
+  notice?: SiteNotice | null;
 };
+
+// SiteNotice: plain text shown from starts_at until until (RFC 3339), dismissed per device by id;
+// link_url is a same-site path.
+export type SiteNotice = { id: string; text: string; starts_at: string; until: string; link_text?: string; link_url?: string };
 
 // required: only new accounts (created after the terms took effect) must accept; existing users never see the gate.
 export type TermsState = { current: string; accepted: string | null; accepted_at: string | null; required?: boolean };

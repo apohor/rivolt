@@ -1972,6 +1972,11 @@ func runServer() {
 		return b
 	}
 	adminDisabled := parseFlag("RIVOLT_ADMIN_DISABLED")
+	// The operator-transfer notice window (api/notice.go); a bad value runs without one.
+	transferNotice, err := api.ParseTransferNotice(os.Getenv("RIVOLT_TRANSFER_NOTICE_FROM"), os.Getenv("RIVOLT_TRANSFER_DATE"))
+	if err != nil {
+		logger.Warn("transfer notice off", "err", err)
+	}
 	adminDebugProbes := parseFlag("RIVOLT_ADMIN_DEBUG_PROBES")
 	if adminDisabled {
 		logger.Info("admin surface disabled on this deployment (RIVOLT_ADMIN_DISABLED)")
@@ -2359,6 +2364,7 @@ func runServer() {
 		AuthEnforced:          authEnforced,
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
+		TransferNotice:        transferNotice,
 		AdminOnly:             adminOnlyMode,
 		PlanLegs:              planleg.New(sharedRedis, redisKeyPrefix, logger),
 		AdminHealth: adminhealth.New(adminhealth.Config{

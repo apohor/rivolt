@@ -16,6 +16,7 @@ import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
 import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
+import { SiteNoticeBanner } from "../components/SiteNotice";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
@@ -164,6 +165,7 @@ function UserLayout() {
     return (
       <div className="min-h-full flex flex-col">
         <ImpersonationBanner />
+        <SiteNoticeBanner />
         <IOSInstallBanner />
         <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
@@ -196,6 +198,7 @@ function UserLayout() {
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
+      <SiteNoticeBanner />
       <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">

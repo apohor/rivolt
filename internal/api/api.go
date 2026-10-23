@@ -135,6 +135,8 @@ type Deps struct {
 	// the SPA hides the link, and impersonation is off. Off by default;
 	// for the split to admin.rivolt.dev (scratchpad admin-split.md).
 	AdminDisabled bool
+	// TransferNotice is the operator-transfer notice window (notice.go); zero shows none.
+	TransferNotice TransferNotice
 	// AdminOnly is RIVOLT_ADMIN_ONLY: the admin deployment. Every request
 	// must carry a valid Cloudflare Access JWT (Access; nil denies all),
 	// and only the admin surface exists under /api.
@@ -443,7 +445,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
-				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
+				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled, d.TransferNotice))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)

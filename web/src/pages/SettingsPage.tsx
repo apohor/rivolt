@@ -39,6 +39,7 @@ import { useHomeRecheck } from "../components/HomeRecheck";
 import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocation";
 import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
+import { SiteNoticeLine } from "../components/SiteNotice";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
@@ -204,6 +205,7 @@ function SettingsPageInner() {
 
       {tab === "account" && (
         <>
+          <SiteNoticeLine />
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
