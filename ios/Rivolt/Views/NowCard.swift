@@ -40,7 +40,7 @@ struct NowCard: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             gaugeRow
-            if charging || driving || summary.outsideTempC != nil { detailRows }
+            if charging || driving || summary.outsideTempC != nil || summary.liveComfort != nil { detailRows }
             Text(footer).themeText(.subline)
         }
         .themeHero(live: liveKind, critical: critical)
@@ -158,6 +158,9 @@ struct NowCard: View {
             if let temp = summary.outsideTempC {
                 readout("Outside", Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .abbreviated, usage: .weather)))
             }
+            if let comfort = summary.liveComfort {
+                Text(comfort.text).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -226,6 +229,7 @@ struct NowCard: View {
         if let temp = summary.outsideTempC {
             parts.append("\(Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .wide, usage: .weather))) outside.")
         }
+        if let comfort = summary.liveComfort { parts.append(comfort.spokenText + ".") }
         parts.append(SpokenText.words(footer) + ".")
         return parts.joined(separator: " ")
     }
