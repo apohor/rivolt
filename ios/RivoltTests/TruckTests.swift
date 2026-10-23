@@ -250,6 +250,7 @@ final class TruckLogicTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testTheSleepHealthCardLoadsApartAndAnOlderServerHasNone() async throws {
         let src = FakeTruck()
         let m = TruckModel()
