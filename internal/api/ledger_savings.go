@@ -31,12 +31,28 @@ type savingsResponse struct {
 	Basis string `json:"basis"`
 }
 
+// savingsFlatBasis is the sentence a flat-rate user gets in place of an estimate.
+const savingsFlatBasis = "You said your electricity is one flat rate, so there are no off-peak hours to move charging into and Rivolt makes no off-peak estimate."
+
+// savingsFlatResponse is GET /api/ledger/savings for a user on a flat rate: the reason and nothing of an
+// estimate (no figure, counts or share), so a client holding an older answer can't keep showing it.
+type savingsFlatResponse struct {
+	Version  int    `json:"version"`
+	FlatRate bool   `json:"flat_rate"`
+	Reason   string `json:"reason"`
+	Basis    string `json:"basis"`
+}
+
 // savings serves GET /api/ledger/savings?[month=YYYY-MM][&months=N][&tz][&vehicle_id]:
 // what moving the user's home charging to their cheapest off-peak hours could
 // have saved over the N months ending at month (default: the last complete month,
 // one month). The figure is absent, with "needs", until the home rate and an
 // off-peak schedule are set and there are a few home sessions to look at.
 func (a ledgerAPI) savings(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+	if a.flatRate != nil && a.flatRate(r.Context(), uid) {
+		writeJSON(w, http.StatusOK, savingsFlatResponse{Version: ledger.Version, FlatRate: true, Reason: "flat_rate", Basis: savingsFlatBasis})
+		return
+	}
 	var sch offpeak.Schedule
 	if a.schedule != nil {
 		sch = a.schedule(r.Context(), uid)

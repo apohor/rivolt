@@ -179,6 +179,10 @@ struct LedgerSavings: Decodable, Equatable {
     /// Share of home charging by energy that ran in off-peak hours (0 to 100); absent without a schedule, a home rate or
     /// enough sessions. The share card's optional line.
     let offpeakSharePct: Double?
+    /// A user on a flat rate gets only `flatRate` and `reason` ("flat_rate") and the sentence: no estimate field of any kind,
+    /// so the card says so and the share card has no off-peak line to offer.
+    let flatRate: Bool?
+    let reason: String?
 }
 
 /// A charge whose auto-detected network waits for the owner's look (the "To confirm" list, all months), from

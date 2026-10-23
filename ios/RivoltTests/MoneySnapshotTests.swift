@@ -67,6 +67,14 @@ final class MoneySnapshotTests: XCTestCase {
         try render("money-past-month", page(model, title: "Sep 2026"))
     }
 
+    /// The savings card for someone on a flat rate: it says so, with the way to change it on the web.
+    func testRenderAFlatRateSavingsCard() throws {
+        let model = MoneyModel(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"),
+                               summary: try Fixture.decode(LedgerSummary.self, "ledger_summary"),
+                               savings: try Fixture.decode(LedgerSavings.self, "ledger_savings_flat"))
+        try render("money-flat-rate", page(model, title: "Sep 2026"))
+    }
+
     /// October so far, compared with September 1–21, with an estimate, a likely wrong home rate, a pending fast charge,
     /// fragments, the observed-price notice, two charges to confirm and the off-peak card asking for a schedule.
     func testRenderAMonthInProgressWithEveryPriceState() throws {

@@ -22,12 +22,16 @@ export type SavingsResponse = {
   // Share of home charging by energy that ran in off-peak hours (0 to 100); absent without a schedule, a home rate or enough sessions.
   offpeak_share_pct?: number | null;
   offpeak_share_sessions?: number;
+  // A user on a flat rate gets only these (no estimate field of any kind): the reason and a sentence.
+  flat_rate?: boolean;
+  reason?: string;
 };
 
 export const fetchSavings = (month: string, signal?: AbortSignal) =>
   api.get<SavingsResponse>(`/api/ledger/savings?month=${encodeURIComponent(month)}`, signal);
 
 export type SavingsView =
+  | { kind: "flat"; basis: string }
   | { kind: "needs"; need: "schedule" | "home_rate" | "sessions" }
   | { kind: "nothing"; leftOut: number; reasons: string[]; considered: number | null }
   | { kind: "saved"; saved: number; moved: number; leftOut: number; asCharged: number | null; ifMoved: number | null; reasons: string[]; considered: number | null; basis: string };
@@ -46,6 +50,7 @@ const reasonList = (r: Record<string, number> | undefined): string[] =>
     .map(([k, n]) => `${reasonText(k)} (${n})`);
 
 export function savingsView(d: SavingsResponse): SavingsView {
+  if (d.reason === "flat_rate" || d.flat_rate === true) return { kind: "flat", basis: d.basis ?? "" };
   if (d.needs === "offpeak_schedule") return { kind: "needs", need: "schedule" };
   if (d.needs === "home_rate") return { kind: "needs", need: "home_rate" };
   if (d.needs) return { kind: "needs", need: "sessions" };
@@ -56,6 +61,10 @@ export function savingsView(d: SavingsResponse): SavingsView {
   if (saved <= 0 || moved === 0) return { kind: "nothing", leftOut, reasons: reasonList(d.left_out_reasons), considered: d.sessions_considered ?? null };
   return { kind: "saved", saved, moved, leftOut, asCharged: d.as_charged_total ?? null, ifMoved: d.if_moved_total ?? null, reasons: reasonList(d.left_out_reasons), considered: d.sessions_considered ?? null, basis: d.basis ?? "" };
 }
+
+// The off-peak share for the share card's optional line: a number only when the server gave one. A flat-rate answer, one with a
+// need, or none at all has no share, so the line and its toggle are not offered.
+export const offpeakShareOf = (d: SavingsResponse | undefined): number | null => (typeof d?.offpeak_share_pct === "number" ? d.offpeak_share_pct : null);
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 

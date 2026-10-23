@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leftOutLine, savedHeadline, savingsView } from "./savings";
+import { leftOutLine, offpeakShareOf, savedHeadline, savingsView } from "./savings";
 
 describe("savingsView", () => {
   it("says what is missing instead of a number", () => {
@@ -7,6 +7,14 @@ describe("savingsView", () => {
     expect(savingsView({ needs: "home_rate" })).toEqual({ kind: "needs", need: "home_rate" });
     expect(savingsView({ needs: "more_home_sessions" })).toEqual({ kind: "needs", need: "sessions" });
     expect(savingsView({ could_have_saved: null })).toEqual({ kind: "needs", need: "sessions" });
+  });
+  it("a flat-rate answer is its own state and holds no estimate", () => {
+    const flat = { flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate." };
+    expect(savingsView(flat)).toEqual({ kind: "flat", basis: "You said your electricity is one flat rate." });
+    // The share card's off-peak line needs a number here; a flat-rate answer has none.
+    expect(typeof (flat as { offpeak_share_pct?: unknown }).offpeak_share_pct).not.toBe("number");
+    // Even next to stale-looking fields, the reason wins.
+    expect(savingsView({ reason: "flat_rate", could_have_saved: 12 }).kind).toBe("flat");
   });
   it("a saving carries the counts and the reasons, biggest first", () => {
     const v = savingsView({ could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, left_out_reasons: { plugged_in_too_briefly: 1, no_cheaper_hours: 2 }, sessions_considered: 12, basis: "From your home charges.", as_charged_total: 40, if_moved_total: 27.6 });
@@ -26,5 +34,14 @@ describe("wording", () => {
   it("says what was left out", () => {
     expect(leftOutLine(3)).toBe("3 sessions could not be moved and are left out.");
     expect(leftOutLine(1)).toBe("1 session could not be moved and is left out.");
+  });
+});
+
+describe("the share card's off-peak line", () => {
+  it("is offered only when the server gave a share, never for a flat-rate user", () => {
+    expect(offpeakShareOf({ offpeak_share_pct: 61.6 })).toBe(61.6);
+    expect(offpeakShareOf({ flat_rate: true, reason: "flat_rate" })).toBeNull();
+    expect(offpeakShareOf({ needs: "offpeak_schedule" })).toBeNull();
+    expect(offpeakShareOf(undefined)).toBeNull();
   });
 });

@@ -33,6 +33,8 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/ledger/monthly.csv", false},
 		{"GET", "/api/settings/charging/offpeak", false},
 		{"PUT", "/api/settings/charging/offpeak", false},
+		{"GET", "/api/settings/charging/flat-rate", false},
+		{"PUT", "/api/settings/charging/flat-rate", false}, // the demo is never on a flat rate and can't be changed
 		{"GET", "/api/ledger/trips", true},
 		{"GET", "/api/trips", false},
 		{"GET", "/api/trips/saved", true},

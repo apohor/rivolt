@@ -66,6 +66,10 @@ func newStatementSavings(la ledgerAPI) statement.SavingsFunc {
 		if err != nil {
 			return nil, err
 		}
+		// A flat rate has no off-peak hours: no estimate, so no saving line in the email.
+		if la.flatRate != nil && la.flatRate(ctx, uid) {
+			return nil, nil
+		}
 		var sch offpeak.Schedule
 		if la.schedule != nil {
 			sch = la.schedule(ctx, uid)
