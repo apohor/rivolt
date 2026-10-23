@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.28
+#
+# CI-only image assembly. The workflow's `bin` job has already built the static binary (warm Go cache, the same
+# `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=…"` as the root Dockerfile, with the SPA embedded),
+# so nothing is compiled here: this only copies it onto the same distroless base, with the same user, /data
+# directory, port, environment and entrypoint as the root Dockerfile. The root Dockerfile is unchanged and remains
+# what self-hosters and local builds use. Keep the two runtime stages identical.
+#
+# Build context: a directory holding `rivolt` (the binary, mode 0755) and an empty `data/` directory.
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY rivolt /app/rivolt
+# Pre-created /data owned by distroless "nonroot" (uid 65532) so a named volume mounts it with the right ownership.
+COPY --chown=nonroot:nonroot data /data
+USER nonroot:nonroot
+EXPOSE 8080
+# SQLite cache lives here; mount as a volume in compose.
+ENV DATA_DIR=/data
+VOLUME ["/data"]
+ENTRYPOINT ["/app/rivolt"]
