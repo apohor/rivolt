@@ -202,8 +202,7 @@ func TestAnnounceBaselineThenNewVersionThenInstalledOnce(t *testing.T) {
 	}
 	s.announce(ctx, uid, "v1", info("2026.30", "2026.38")) // new offer
 	s.announce(ctx, uid, "v1", info("2026.30", "2026.38")) // restart: no repeat
-	if len(got) != 1 || got[0].Installed || got[0].Version != "2026.38" || got[0].Vehicle != "R1S" ||
-		got[0].ReleaseNotesURL != "https://rivian.example/notes/2026.38" {
+	if len(got) != 1 || got[0].Installed || got[0].Version != "2026.38" || got[0].Vehicle != "R1S" {
 		t.Fatalf("available alert = %+v", got)
 	}
 	s.announce(ctx, uid, "v1", info("2026.38", "")) // installed

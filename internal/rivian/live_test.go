@@ -786,6 +786,10 @@ func TestOTAUpdateDetailsParsesAndSanitises(t *testing.T) {
 	if a.Current == nil || a.Current.Version != "2026.30.0" || a.Current.ReleaseNotesURL != "https://rivian.com/support/notes/2026-30" || a.Current.Locale != "en-US" {
 		t.Errorf("current = %+v", a.Current)
 	}
+	// The signed link is kept in memory only: it is never marshalled (and so never stored or served).
+	if raw, err := json.Marshal(a); err != nil || strings.Contains(string(raw), "rivian.com") || strings.Contains(string(raw), "release_notes_url") || !a.Current.HasNotes {
+		t.Errorf("marshalled %s (err %v), HasNotes %v: want has_notes and no link", raw, err, a.Current.HasNotes)
+	}
 	if a.Available == nil || a.Available.Version != "2026.38.1" || a.Available.ReleaseNotesURL != "" {
 		t.Errorf("available = %+v (version trimmed, javascript: URL dropped)", a.Available)
 	}

@@ -10,7 +10,7 @@
     "ota": {
       "current": {
         "version": "2026.34.1",
-        "release_notes_url": "https://rivian.com/support/software-release-notes/2026-34"
+        "has_notes": true
       }
     }
   },

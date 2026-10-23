@@ -50,11 +50,10 @@ type store interface {
 // Update is a software-update event worth an alert: a new version offered
 // (Installed false) or the installed version changed (Installed true).
 type Update struct {
-	UserID          uuid.UUID
-	Vehicle         string // model or name, e.g. "R1S"
-	Version         string
-	ReleaseNotesURL string
-	Installed       bool
+	UserID    uuid.UUID
+	Vehicle   string // model or name, e.g. "R1S"
+	Version   string
+	Installed bool
 }
 
 // Notifier delivers an Update (web push). It must not block.
@@ -142,11 +141,11 @@ func (s *Syncer) announce(ctx context.Context, uid uuid.UUID, id string, info *r
 	}
 	label := s.st.Label(ctx, uid, id)
 	for _, e := range []struct {
-		kind, version, notes string
-		installed            bool
+		kind, version string
+		installed     bool
 	}{
-		{db.OTAAvailable, available, notesURL(info.Available), false},
-		{db.OTAInstalled, installed, notesURL(info.Current), true},
+		{db.OTAAvailable, available, false},
+		{db.OTAInstalled, installed, true},
 	} {
 		if e.version == "" {
 			continue
@@ -157,16 +156,9 @@ func (s *Syncer) announce(ctx context.Context, uid uuid.UUID, id string, info *r
 			continue
 		}
 		if fresh {
-			s.notify(Update{UserID: uid, Vehicle: label, Version: e.version, ReleaseNotesURL: e.notes, Installed: e.installed})
+			s.notify(Update{UserID: uid, Vehicle: label, Version: e.version, Installed: e.installed})
 		}
 	}
-}
-
-func notesURL(v *rivian.OTAVersion) string {
-	if v == nil {
-		return ""
-	}
-	return v.ReleaseNotesURL
 }
 
 // New wires a Syncer over a pool.

@@ -6,15 +6,16 @@ import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 import { e2eNow } from "./clock";
 
 // Truck software card: the installed and the pending update each link to their release
-// notes (an outbound https link: new tab, noopener noreferrer); nothing renders for a
-// missing or non-https URL.
+// notes through our endpoint, which asks Rivian for a fresh link when it is clicked (Rivian's own
+// is a one-hour signed URL, so it is never stored or listed): new tab, noopener noreferrer;
+// nothing renders without has_notes.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const VEHICLE = { id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135 };
 const OTA = {
-  current: { version: "2026.30.0", release_notes_url: "https://rivian.com/support/release-notes/2026-30", locale: "en-US" },
-  available: { version: "2026.38.1", release_notes_url: "https://rivian.com/support/release-notes/2026-38", locale: "en-US" },
+  current: { version: "2026.30.0", has_notes: true, locale: "en-US" },
+  available: { version: "2026.38.1", has_notes: true, locale: "en-US" },
   status: "ready_to_install",
   fetched_at: new Date(e2eNow()).toISOString(),
 };
@@ -43,10 +44,10 @@ for (const theme of ["dark", "light"] as const) {
       for (const a of await links.all()) {
         await expect(a).toHaveAttribute("target", "_blank");
         await expect(a).toHaveAttribute("rel", "noopener noreferrer");
-        await expect(a).toHaveAttribute("href", /^https:\/\//);
+        await expect(a).toHaveAttribute("href", /^\/api\/vehicles\/[^/]+\/ota\/notes\?which=(current|available)$/);
       }
-      await expect(links.first()).toHaveAttribute("href", OTA.current.release_notes_url);
-      await expect(links.nth(1)).toHaveAttribute("href", OTA.available.release_notes_url);
+      await expect(links.first()).toHaveAttribute("href", `/api/vehicles/${VEHICLE_ID}/ota/notes?which=current`);
+      await expect(links.nth(1)).toHaveAttribute("href", `/api/vehicles/${VEHICLE_ID}/ota/notes?which=available`);
       await links.first().scrollIntoViewIfNeeded();
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(SHOTS, `truck-ota-${w}-${theme}.png`) });
@@ -59,12 +60,12 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
-test("no links without ota details or with a non-https URL", async ({ page }) => {
+test("no links without ota details or without has_notes", async ({ page }) => {
   await open(page, undefined);
   await expect(page.getByText("2026.30.0")).toBeVisible();
   await expect(page.locator("[data-ota-notes]")).toHaveCount(0);
   await page.unrouteAll({ behavior: "ignoreErrors" });
-  await open(page, { ...OTA, current: { ...OTA.current, release_notes_url: "javascript:alert(1)" }, available: { ...OTA.available, release_notes_url: "http://rivian.com/x" } });
+  await open(page, { ...OTA, current: { ...OTA.current, has_notes: false }, available: { version: "2026.38.1", locale: "en-US" } });
   await expect(page.getByText("2026.38.1")).toBeVisible();
   await expect(page.locator("[data-ota-notes]")).toHaveCount(0);
 });

@@ -11,7 +11,7 @@ import (
 func TestAttachOTAAddsStoredDetailsAndLiveStatus(t *testing.T) {
 	vs := []rivian.Vehicle{{ID: "veh-a"}, {ID: "veh-b"}, {ID: "veh-c"}}
 	stored := map[string]json.RawMessage{
-		"veh-a": json.RawMessage(`{"current":{"version":"2026.30.0","release_notes_url":"https://rivian.com/n"},"available":{"version":"2026.38.1"},"fetched_at":"2026-10-17T10:00:00Z"}`),
+		"veh-a": json.RawMessage(`{"current":{"version":"2026.30.0","has_notes":true},"available":{"version":"2026.38.1"},"fetched_at":"2026-10-17T10:00:00Z"}`),
 		"veh-c": json.RawMessage(`not json`),
 	}
 	attachOTA(vs, stored, func(id string) *rivian.State {
@@ -21,7 +21,7 @@ func TestAttachOTAAddsStoredDetailsAndLiveStatus(t *testing.T) {
 		return nil
 	})
 	a := vs[0].OTA
-	if a == nil || a.Current == nil || a.Current.Version != "2026.30.0" || a.Current.ReleaseNotesURL != "https://rivian.com/n" ||
+	if a == nil || a.Current == nil || a.Current.Version != "2026.30.0" || !a.Current.HasNotes ||
 		a.Available == nil || a.Available.Version != "2026.38.1" || a.Status != "ready_to_install" {
 		t.Fatalf("veh-a ota = %+v", a)
 	}
@@ -40,7 +40,7 @@ func TestAttachOTAAddsStoredDetailsAndLiveStatus(t *testing.T) {
 func TestAttachOTAFallsBackToLiveVersions(t *testing.T) {
 	vs := []rivian.Vehicle{{ID: "r2"}, {ID: "r2-pending"}, {ID: "r1"}, {ID: "none"}}
 	stored := map[string]json.RawMessage{
-		"r1": json.RawMessage(`{"current":{"version":"2026.36.0","release_notes_url":"https://rivian.com/n"},"fetched_at":"2026-10-17T10:00:00Z"}`),
+		"r1": json.RawMessage(`{"current":{"version":"2026.36.0","has_notes":true},"fetched_at":"2026-10-17T10:00:00Z"}`),
 	}
 	live := map[string]*rivian.State{
 		"r2":         {OtaCurrentVersion: "2026.36.41", OtaAvailableVersion: "2026.36.41", OtaStatus: "idle"},
@@ -49,14 +49,14 @@ func TestAttachOTAFallsBackToLiveVersions(t *testing.T) {
 		"none":       {},
 	}
 	attachOTA(vs, stored, func(id string) *rivian.State { return live[id] })
-	if o := vs[0].OTA; o == nil || o.Current == nil || o.Current.Version != "2026.36.41" || o.Current.ReleaseNotesURL != "" ||
+	if o := vs[0].OTA; o == nil || o.Current == nil || o.Current.Version != "2026.36.41" || o.Current.HasNotes ||
 		o.Available != nil || o.Status != "idle" {
 		t.Errorf("r2 ota = %+v", o)
 	}
 	if o := vs[1].OTA; o == nil || o.Available == nil || o.Available.Version != "2026.40.2" {
 		t.Errorf("r2 with a pending update: %+v", o)
 	}
-	if o := vs[2].OTA; o == nil || o.Current.Version != "2026.36.0" || o.Current.ReleaseNotesURL != "https://rivian.com/n" {
+	if o := vs[2].OTA; o == nil || o.Current.Version != "2026.36.0" || !o.Current.HasNotes {
 		t.Errorf("stored details must win: %+v", o.Current)
 	}
 	if vs[3].OTA != nil {

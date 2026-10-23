@@ -59,16 +59,3 @@ export function sleepSummary(days: DayActivity[], troubleThreshold = 3, now: Dat
     avgDays: done.length,
   };
 }
-
-// safeNotesUrl: the release-notes link is an outbound link only. The server already keeps
-// plain https URLs, and this refuses anything else again before it reaches an href.
-export function safeNotesUrl(u: string | undefined | null): string | null {
-  if (!u) return null;
-  try {
-    const url = new URL(u);
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}

@@ -210,18 +210,17 @@ func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {
 
 // NotifySoftwareUpdate fires when a vehicle is offered a new software
 // version (installed=false) or its installed version changed
-// (installed=true). Scoped to the user via store. notesURL is the
-// release-notes link, opened by tapping the notification; it must be
-// an https URL, anything else is dropped and the tap opens the app.
-func (s *Service) NotifySoftwareUpdate(store *Store, vehicle, version, notesURL string, installed bool) {
+// (installed=true). Scoped to the user via store. The tap opens the app: Rivian's
+// release-notes link is a one-hour signed URL, so it is never put in a payload.
+func (s *Service) NotifySoftwareUpdate(store *Store, vehicle, version string, installed bool) {
 	if s == nil || store == nil || version == "" {
 		return
 	}
-	p := softwareUpdatePayload(vehicle, version, notesURL, installed)
+	p := softwareUpdatePayload(vehicle, version, installed)
 	go s.broadcast(store, p, selectSoftwareUpdate)
 }
 
-func softwareUpdatePayload(vehicle, version, notesURL string, installed bool) Payload {
+func softwareUpdatePayload(vehicle, version string, installed bool) Payload {
 	if vehicle == "" {
 		vehicle = "your vehicle"
 	} else {
@@ -234,9 +233,6 @@ func softwareUpdatePayload(vehicle, version, notesURL string, installed bool) Pa
 	} else {
 		p.Title = "Software update available"
 		p.Body = fmt.Sprintf("Update %s available for %s.", version, vehicle)
-	}
-	if u, err := url.Parse(notesURL); err == nil && u.Scheme == "https" && u.Host != "" {
-		p.URL = notesURL
 	}
 	return p
 }

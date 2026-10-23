@@ -1093,7 +1093,7 @@ func runServer() {
 				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) }, logger)
 			if pushSvc != nil && pushFactory != nil {
 				otaSyncer.SetNotifier(func(u otadetails.Update) {
-					pushSvc.NotifySoftwareUpdate(pushFactory.For(u.UserID), u.Vehicle, u.Version, u.ReleaseNotesURL, u.Installed)
+					pushSvc.NotifySoftwareUpdate(pushFactory.For(u.UserID), u.Vehicle, u.Version, u.Installed)
 				})
 			}
 			go otaSyncer.Run(ctx)

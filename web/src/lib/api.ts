@@ -185,8 +185,8 @@ export type Vehicle = {
   images?: VehicleImage[];
   // Release details for the installed and the pending update (omitted until fetched).
   ota?: {
-    current?: { version?: string; release_notes_url?: string; locale?: string };
-    available?: { version?: string; release_notes_url?: string; locale?: string };
+    current?: { version?: string; has_notes?: boolean; locale?: string };
+    available?: { version?: string; has_notes?: boolean; locale?: string };
     status?: string;
     fetched_at?: string;
   };
