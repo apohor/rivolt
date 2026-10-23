@@ -53,6 +53,37 @@ struct ThemeTopBar<Trailing: View>: View {
     }
 }
 
+/// The page title row pinned under the top bar: the title and its controls (the month stepper, the truck switcher) side
+/// by side when both fit whole; otherwise the controls go under a one-line title that shrinks rather than breaking a word
+/// (the largest text sizes on a small phone).
+struct ThemeTitleRow<Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 8) {
+                heading.fixedSize()
+                Spacer(minLength: 8)
+                HStack(spacing: 8) { trailing }.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+                heading.lineLimit(1).minimumScaleFactor(0.5)
+                HStack(spacing: 8) { trailing }
+            }
+        }
+        .padding(.horizontal, 4 * Theme.unit)
+        .padding(.vertical, 2 * Theme.unit)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
+    }
+
+    private var heading: some View {
+        Text(title).themeText(.hero).accessibilityAddTraits(.isHeader)
+    }
+}
+
 /// One tab of the bottom bar: its icon (from the tokens), label and what to show.
 struct ThemeTabItem: Identifiable, Equatable {
     let id: String
@@ -82,12 +113,16 @@ struct ThemeTabBar: View {
                     .frame(maxWidth: .infinity, minHeight: ThemeTokens.tabBarMinHeight)
                 }
                 .buttonStyle(.plain)
+                // Capped below: a long press shows the label large, as the system tab bar does.
+                .accessibilityShowsLargeContentViewer()
                 .accessibilityLabel(item.label)
                 .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
             }
         }
         .background(Theme.bar.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1) }
+        // At accessibility sizes five labels can't fit whole: they broke mid-word and the bar ate the screen.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 

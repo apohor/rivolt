@@ -71,9 +71,7 @@ struct TruckView: View {
     }
 
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("Truck").themeText(.hero).accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+        ThemeTitleRow(title: "Truck") {
             if vehicles.count > 1 {
                 Menu {
                     Picker("Vehicle", selection: $selectedID) {
@@ -89,10 +87,6 @@ struct TruckView: View {
                          previous: { month = month.shifted(by: -1, calendar: .current) },
                          next: { month = month.shifted(by: 1, calendar: .current) })
         }
-        .padding(.horizontal, 4 * Theme.unit)
-        .padding(.vertical, 2 * Theme.unit)
-        .background(Theme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 
     private func loadVehicles() async {
