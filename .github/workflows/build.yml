@@ -863,7 +863,6 @@ jobs:
       # The image must be what the root Dockerfile makes: same user, port, environment, volume, entrypoint,
       # working directory, binary mode and /data owner (the binary itself is checked in `bin`).
       - name: Check the image
-        env:
         run: |
           set -euo pipefail
           cfg=$(docker inspect rivolt-ci:check --format '{{json .Config}}')
