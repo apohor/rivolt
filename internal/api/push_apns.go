@@ -97,13 +97,14 @@ func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFun
 			OnMilestones     *bool  `json:"on_milestones"`
 			OnChargingLive   *bool  `json:"on_charging_live"`
 			OnLeftOpen       *bool  `json:"on_left_open"`
+			OnTireLow        *bool  `json:"on_tire_low"`
 		}
 		if !decodeAPNsBody(w, r, &body) {
 			return
 		}
 		if !push.ValidDeviceToken(body.Token) ||
 			(body.OnChargingDone == nil && body.OnAnomaly == nil && body.OnSoftwareUpdate == nil &&
-				body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnChargingLive == nil && body.OnLeftOpen == nil) {
+				body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnChargingLive == nil && body.OnLeftOpen == nil && body.OnTireLow == nil) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "token and at least one switch required"})
 			return
 		}
@@ -117,6 +118,11 @@ func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFun
 			var f4 bool
 			f4, err = store.SetAPNsLeftOpen(r.Context(), body.Token, *body.OnLeftOpen)
 			found = found || f4
+		}
+		if err == nil && body.OnTireLow != nil {
+			var f5 bool
+			f5, err = store.SetAPNsTireLow(r.Context(), body.Token, *body.OnTireLow)
+			found = found || f5
 		}
 		if err == nil && body.OnChargingLive != nil {
 			var f3 bool
