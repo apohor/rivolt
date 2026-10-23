@@ -273,16 +273,34 @@ final class PushPreferencesTests: XCTestCase {
         XCTAssertFalse(p.onMilestones, "milestones are opt-in")
     }
 
+    func testLeftOpenIsOptInAndHiddenUntilTheServerSendsIt() throws {
+        // A server that predates it: off, and the row is hidden.
+        let old = try decode(#"{"on_charging_done":true}"#)
+        XCTAssertFalse(old.onLeftOpen)
+        XCTAssertFalse(old.leftOpenKnown)
+        // A server that has it: shown, off until turned on.
+        let off = try decode(#"{"on_left_open":false}"#)
+        XCTAssertFalse(off.onLeftOpen)
+        XCTAssertTrue(off.leftOpenKnown)
+        let on = try decode(#"{"on_left_open":true}"#)
+        XCTAssertTrue(on.onLeftOpen)
+        // The help says what it covers and what it does not, and never promises to always tell you.
+        let help = try XCTUnwrap(PushKind.leftOpen.help)
+        XCTAssertTrue(help.contains("Not windows") && help.contains("can be missed if the truck is offline") && help.contains("Off until you turn it on"), help)
+    }
+
     func testEveryKindHasItsWebWordingAndWireKey() {
-        XCTAssertEqual(PushKind.allCases.count, 6)
+        XCTAssertEqual(PushKind.allCases.count, 7)
         XCTAssertEqual(PushKind.chargingDone.title, "Charging session completes")
         XCTAssertEqual(PushKind.plugInReminder.wireKey, "on_plug_in_reminder")
+        XCTAssertEqual(PushKind.leftOpen.wireKey, "on_left_open")
         var p = PushPreferences()
         for k in PushKind.allCases {
             p[k] = !p[k]
         }
         XCTAssertEqual(p.onChargingDone, false)
         XCTAssertEqual(p.onMilestones, true)
+        XCTAssertEqual(p.onLeftOpen, true)
     }
 }
 
