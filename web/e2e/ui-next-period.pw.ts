@@ -120,12 +120,13 @@ for (const url of ["/", "/activity", "/truck"]) {
     await page.goto(url);
     const header = page.locator("[data-ui-header]").first();
     await expect(header).toBeVisible();
+    // The shell paints before the page's cards load (on /truck they arrive one by one), so wait until there is
+    // room to scroll the header under the nav; a wheel on a still-short page left it in place (y 119 on CI).
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(300);
     await page.mouse.wheel(0, 900);
-    await page.waitForTimeout(400);
-    const box = (await header.boundingBox())!;
     // Pinned just under the 48px top nav, still on screen after scrolling.
-    expect(box.y).toBeGreaterThanOrEqual(40);
-    expect(box.y).toBeLessThanOrEqual(60);
+    await expect.poll(async () => (await header.boundingBox())!.y).toBeGreaterThanOrEqual(40);
+    await expect.poll(async () => (await header.boundingBox())!.y).toBeLessThanOrEqual(60);
     await ctx.close();
   });
 }
