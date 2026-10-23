@@ -695,8 +695,7 @@ jobs:
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -807,14 +806,14 @@ jobs:
           retention-days: 1
 
       - name: Save Go module download cache
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gomod.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/go/pkg/mod/cache/download
           key: ${{ steps.gomod.outputs.cache-primary-key }}
 
       - name: Save Go build cache
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gocache.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
@@ -828,8 +827,7 @@ jobs:
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ needs.bin.outputs.version }}
@@ -875,45 +873,6 @@ jobs:
           grep -qE '^-rwxr-xr-x 0/0 .* app/rivolt$' listing.txt || { echo "::error::/app/rivolt is not root:root 0755"; exit 1; }
           grep -qE '^drwxr-xr-x 65532/65532 .* data/$' listing.txt || { echo "::error::/data is not owned by 65532:65532"; exit 1; }
           docker rm "$cid" >/dev/null
-
-  # TEMPORARY (removed before merge): builds the root Dockerfile the old way, for the before time and for a comparison
-  # of its image against the one assembled from prebuilt outputs.
-  exp-compare:
-    name: exp-compare
-    needs: image
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: image-ctx
-      - name: Unpack the image context
-        run: mkdir image-ctx && tar -C image-ctx -xf image-ctx.tar
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - name: Old way, timed
-        run: |
-          s=$(date +%s)
-          docker buildx build --load -t rivolt-old:x --build-arg VERSION=v0.0.0-exp -f Dockerfile . 2>&1 | tail -3
-          echo "EXP old image build $(( $(date +%s) - s )) s"
-      - name: New way, timed (from prebuilt outputs)
-        run: |
-          s=$(date +%s)
-          docker buildx build --load -t rivolt-new:x -f .github/ci/Dockerfile image-ctx 2>&1 | tail -3
-          echo "EXP new image build $(( $(date +%s) - s )) s"
-      - name: Compare
-        run: |
-          for t in old new; do
-            docker inspect rivolt-$t:x --format '{{json .Config}}' | jq -S 'del(.Labels, .Image, .Hostname, .Domainname, .AttachStdin, .AttachStdout, .AttachStderr, .OpenStdin, .StdinOnce, .Tty)' > cfg-$t.json
-            docker inspect rivolt-$t:x --format '{{.Architecture}} {{.Os}}' > plat-$t.txt
-            cid=$(docker create rivolt-$t:x)
-            docker export "$cid" | tar -tvf - | sed -E 's/ [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]+ / DATE /' | awk '{ $3=""; print }' | sort -k5 > fs-$t.txt
-            docker rm "$cid" >/dev/null
-          done
-          echo "EXP == config diff (old vs new):"; diff cfg-old.json cfg-new.json && echo "EXP identical"
-          echo "EXP == platform:"; cat plat-old.txt plat-new.txt
-          echo "EXP == filesystem diff (sizes elided; old vs new):"; diff fs-old.txt fs-new.txt && echo "EXP identical"
-          echo "EXP == new config:"; cat cfg-new.json
 
   publish:
     name: publish
