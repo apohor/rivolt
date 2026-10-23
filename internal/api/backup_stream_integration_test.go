@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -107,6 +108,11 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 	uid := seedBackupUser(t, ctx, pool, "bk-big", nSamples, nDrives, nCharges)
 	h := handleDataBackup(backupTestDeps(pool))
 
+	// The peak is HeapAlloc, which counts garbage the collector has not freed yet. At the default GOGC the slack
+	// is as large as the live heap, so a busy runner's bigger base heap (21 MB over, against a 15 MB limit, with
+	// the handler streaming flat) failed this test with nothing wrong. A tight GOGC keeps the slack to a tenth
+	// of the live heap, so the figure is the handler's own growth; loading every sample would still cost 30 MB.
+	defer debug.SetGCPercent(debug.SetGCPercent(10))
 	runtime.GC()
 	var base runtime.MemStats
 	runtime.ReadMemStats(&base)
