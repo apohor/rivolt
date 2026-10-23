@@ -71,6 +71,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -483,7 +484,32 @@ func (s *Service) Providers() []ProviderListing {
 			StartURL:    "/api/auth/oidc/" + p.cfg.Name + "/start",
 		})
 	}
+	sortProviderListings(out)
 	return out
+}
+
+// providerRank is the order the sign-in buttons show in: Email, Google, GitHub, then any other by name. The registry is a map, so
+// without this the order changed from one request to the next (qa saw /onboarding and /login disagree).
+func providerRank(name string) int {
+	switch strings.ToLower(name) {
+	case "email":
+		return 0
+	case "google":
+		return 1
+	case "github":
+		return 2
+	}
+	return 3
+}
+
+func sortProviderListings(l []ProviderListing) {
+	sort.Slice(l, func(i, j int) bool {
+		ri, rj := providerRank(l[i].Name), providerRank(l[j].Name)
+		if ri != rj {
+			return ri < rj
+		}
+		return l[i].Name < l[j].Name
+	})
 }
 
 // ProviderListing is the public shape of a registered IdP.

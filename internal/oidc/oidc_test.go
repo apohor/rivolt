@@ -247,3 +247,35 @@ func TestResolveIdentityKey_HydraLocalPartTwinsGetSeparateAccounts(t *testing.T)
 		t.Fatalf("local-part twins share a key: %q", a.Username)
 	}
 }
+
+// The sign-in buttons keep one order (Email, Google, GitHub, then others by name), however the registry map happens to iterate.
+func TestProvidersAreInAFixedOrder(t *testing.T) {
+	names := func(l []ProviderListing) string {
+		var out []string
+		for _, p := range l {
+			out = append(out, p.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	for i := 0; i < 50; i++ {
+		l := []ProviderListing{{Name: "zeta"}, {Name: "github"}, {Name: "email"}, {Name: "alpha"}, {Name: "google"}}
+		// Shuffle by rotating, so the map's random order is covered from several starting points.
+		k := i % len(l)
+		l = append(l[k:], l[:k]...)
+		sortProviderListings(l)
+		if got := names(l); got != "email,google,github,alpha,zeta" {
+			t.Fatalf("order %q", got)
+		}
+	}
+	// The registry itself lists them in that order on every call.
+	s := &Service{providers: map[string]*provider{
+		"github": {cfg: ProviderConfig{Name: "github", DisplayName: "GitHub"}},
+		"google": {cfg: ProviderConfig{Name: "google", DisplayName: "Google"}},
+		"email":  {cfg: ProviderConfig{Name: "email", DisplayName: "Email"}},
+	}}
+	for i := 0; i < 50; i++ {
+		if got := names(s.Providers()); got != "email,google,github" {
+			t.Fatalf("Providers() order %q on call %d", got, i)
+		}
+	}
+}
