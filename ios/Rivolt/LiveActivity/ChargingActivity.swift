@@ -45,7 +45,7 @@ enum ChargingActivityMath {
         return .init(
             socPct: Int(soc.rounded()),
             powerKw: (kw * 10).rounded() / 10,
-            minutesToTarget: minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
+            minutesToTarget: summary.chargeEta?.minutes
         )
     }
 

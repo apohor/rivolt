@@ -86,6 +86,10 @@ struct VehicleState: Decodable, Equatable {
     let cabinPreconditioningStatus: String?
     let petModeStatus: String?
     let cabinHoldStatus: String?
+    /// The truck's own time left in a charge (minutes; 0 or absent when it sends none) and whether it vouches for it
+    /// ("invalid" hides it). The Now card prefers it to our estimate (see ChargeETA).
+    let timeToEndMins: Double?
+    let chargingTimeEstimationValidity: String?
 }
 
 /// `GET /api/vehicles/{id}/now` (now-contract v1): the server's view of the

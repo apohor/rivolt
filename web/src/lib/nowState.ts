@@ -5,6 +5,7 @@
 
 import { displayTimeZone } from "./format";
 import type { NowSnapshot, VehicleState } from "./api";
+import { pickChargeEta, type EtaSource } from "./chargeEta";
 
 export type NowKind = "offline" | "driving" | "charging" | "plugged" | "asleep" | "parked";
 export type ChargeFlavor = "home_l2" | "away_ac" | "dcfc";
@@ -79,6 +80,8 @@ export type NowView = {
   powerKw: number | null;
   starting: boolean;
   etaHours: number | null;
+  // Whose figure etaHours is: the truck's own ("truck", shown plainly) or ours ("estimate", shown with "est."). Null with no eta.
+  etaSource: EtaSource | null;
   energyKwh: number | null;
   costSoFar: { amount: number; basis: "home_rate" } | null;
   priceUnknown: boolean;
@@ -188,9 +191,19 @@ export function computeNow(i: NowInput): NowView {
   }
 
   const target = limitPct ?? 100;
-  let etaHours: number | null = null;
+  let oursHours: number | null = null;
   if (charging && powerKw != null && i.packKwh && target > soc) {
-    etaHours = ((target - soc) / 100) * i.packKwh / powerKw;
+    oursHours = ((target - soc) / 100) * i.packKwh / powerKw;
+  }
+  // The truck's own time left when it is valid and plausible, else ours (see chargeEta.ts).
+  let etaHours = oursHours;
+  let etaSource: EtaSource | null = oursHours != null ? "estimate" : null;
+  if (charging) {
+    const pick = pickChargeEta(s.time_to_end_mins ?? 0, s.charging_time_estimation_validity, soc, limitPct ?? 0, oursHours != null ? oursHours * 60 : 0);
+    if (pick.source === "truck") {
+      etaHours = pick.minutes / 60;
+      etaSource = "truck";
+    }
   }
 
   let energyKwh: number | null = null;
@@ -220,6 +233,7 @@ export function computeNow(i: NowInput): NowView {
     powerKw,
     starting,
     etaHours,
+    etaSource,
     energyKwh,
     costSoFar,
     priceUnknown,
@@ -313,18 +327,19 @@ export function nowAlerts(opts: {
   return out.slice(0, 2);
 }
 
-export function formatEta(hours: number, nowMs: number): string {
-  if (hours < 1) return `~${Math.max(1, Math.round(hours * 60))} min`;
+export function formatEta(hours: number, nowMs: number, approx = true): string {
+  const tilde = approx ? "~" : "";
+  if (hours < 1) return `${tilde}${Math.max(1, Math.round(hours * 60))} min`;
   if (hours < 24) {
     const h = Math.floor(hours);
     const m = Math.round((hours - h) * 60);
-    return m === 0 ? `~${h} h` : `~${h} h ${m} m`;
+    return m === 0 ? `${tilde}${h} h` : `${tilde}${h} h ${m} m`;
   }
   const done = new Date(nowMs + hours * 3_600_000);
   const tz = displayTimeZone();
   const day = done.toLocaleDateString(undefined, { weekday: "short", timeZone: tz });
   const t = done.toLocaleTimeString(undefined, { hour: "numeric", timeZone: tz });
-  return `~${Math.round(hours)} h (${day} ${t})`;
+  return `${tilde}${Math.round(hours)} h (${day} ${t})`;
 }
 
 export function formatAgo(ageSec: number): string {

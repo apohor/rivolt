@@ -37,6 +37,9 @@ struct NowSummary: Equatable {
     let kind: NowSnapshot.State
     /// The newest frame says the truck is asleep, whatever `kind` reads (a plugged-in truck can sleep).
     let sleeping: Bool
+    /// The time left in a charge in progress: the truck's own figure when it is valid and plausible, else our estimate
+    /// (ChargeETA). Nil when not charging or when neither exists.
+    let chargeEta: ChargeETA.Result?
     /// How old the newest frame is, at the `clock` the summary was made with.
     let ageSec: TimeInterval?
     /// Percentage points since the current state began (parked, plugged or asleep only).
@@ -80,9 +83,12 @@ struct NowSummary: Equatable {
         var speedKph: Double?
         var comfort: NowComfort?
         var update: NowUpdate?
+        var timeToEndMins: Double?
+        var timeToEndValidity: String?
 
         init(socPct: Double?, rangeKm: Double?, chargeTargetPct: Double?, gear: String?, powerState: String?,
-             chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil, speedKph: Double? = nil, comfort: NowComfort? = nil, update: NowUpdate? = nil) {
+             chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil, speedKph: Double? = nil,
+             comfort: NowComfort? = nil, update: NowUpdate? = nil, timeToEndMins: Double? = nil, timeToEndValidity: String? = nil) {
             self.socPct = socPct
             self.rangeKm = rangeKm
             self.chargeTargetPct = chargeTargetPct
@@ -95,6 +101,8 @@ struct NowSummary: Equatable {
             self.speedKph = speedKph
             self.comfort = comfort
             self.update = update
+            self.timeToEndMins = timeToEndMins
+            self.timeToEndValidity = timeToEndValidity
         }
 
         init(_ s: VehicleState) {
@@ -102,7 +110,7 @@ struct NowSummary: Equatable {
                       gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
                       chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh, speedKph: s.speedKph,
                       comfort: NowComfort(cabinTempC: s.cabinTempC, preconditioning: s.cabinPreconditioningStatus, petMode: s.petModeStatus, cabinHold: s.cabinHoldStatus),
-                      update: NowUpdate(s))
+                      update: NowUpdate(s), timeToEndMins: s.timeToEndMins, timeToEndValidity: s.chargingTimeEstimationValidity)
         }
     }
 
@@ -134,6 +142,14 @@ struct NowSummary: Equatable {
             socChangeSinceState = soc - start
         } else {
             socChangeSinceState = nil
+        }
+        if kind == .charging, let soc = input?.socPct {
+            let limit = chargeTargetPct ?? 0
+            let ours = ChargeETA.ownMinutes(socPct: soc, limitPct: limit, packKwh: input?.packKwh ?? 0, powerKw: chargePowerKw ?? 0)
+            chargeEta = ChargeETA.pick(truckMins: input?.timeToEndMins ?? 0, validity: input?.timeToEndValidity, socPct: soc, limitPct: limit, oursMins: ours)
+                .map { ChargeETA.Result(minutes: max(1, Int($0.minutes.rounded())), source: $0.source) }
+        } else {
+            chargeEta = nil
         }
         chargeStartedAt = now?.charge?.startedAt
         failedSleeps6h = now?.failedSleeps6h
