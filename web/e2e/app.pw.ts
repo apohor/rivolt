@@ -86,7 +86,7 @@ const views: View[] = [
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
   { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /in the Sleep card below/] },
   { name: "truck-drain-thin", path: "/truck", heading: "Truck", opts: { drain: "insufficient" }, text: ["Not enough parked time yet to measure drain."] },
-  { name: "truck", path: "/truck", heading: "Truck", text: ["Pack capacity", "Lowest tire"] },
+  { name: "truck", path: "/truck", heading: "Truck", text: ["Battery capacity", "Lowest tire"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
   { name: "admin-idp", path: "/admin#users", heading: /Sign-in removal failures/, text: ["Delete that account instead"] },
 ];

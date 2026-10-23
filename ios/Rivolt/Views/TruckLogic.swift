@@ -115,7 +115,7 @@ enum TruckLogic {
 
     static let excludedLabel = ["charging": "charging most of the day", "driving": "mostly driving", "insufficient": "not enough data"]
 
-    // MARK: Pack capacity
+    // MARK: Battery capacity
 
     /// Our spec table has one pack (Max) at a gross 180 kWh; only a usable figure is shown next to the truck's own.
     static func specKwh(_ kwh: Double?) -> Double {
@@ -164,11 +164,55 @@ enum TruckLogic {
         case ok(median: Double, spec: Double, need: Double)
     }
 
+    /// The one "Battery capacity" card (the owner: two numbers in two places confused). The headline is what the truck
+    /// reports; without one, our estimate from charges (the trends median, the history the dots show). The other figure
+    /// goes on one labelled line. One estimate only: the pack-health "median of clean sessions" no longer shows. The web's
+    /// lib/batteryCapacity.ts says the same.
+    struct BatteryCapacity: Equatable {
+        enum Head: Equatable {
+            case reported(kwh: Double)
+            case estimate(kwh: Double)
+        }
+        var head: Head?
+        /// Our estimate, when the server's rule for it is met.
+        var estimateKwh: Double?
+        var charges: Int = 0
+        /// Rivian's spec when it is a usable figure, else 0.
+        var spec: Double = 0
+        var progress: String?
+        var untracked = false
+        var need: Double = 30
+
+        /// The other figure under the truck's own: our estimate, labelled as ours.
+        var estimateLine: String? {
+            guard case .reported = head, let e = estimateKwh else { return nil }
+            return "Our estimate from your charges: about \(TruckLogic.fixed(e, 0)) kWh, from \(charges) \(charges == 1 ? "charge" : "charges")."
+        }
+    }
+
+    static func battery(pack: PackHealth?, trends: TruckTrends?) -> BatteryCapacity {
+        var b = BatteryCapacity()
+        let reported = pack?.headline.reportedKwh ?? 0
+        if let t = trends {
+            switch capacity(t) {
+            case .untracked: b.untracked = true
+            case .sparse(let s): b.progress = s
+            case let .ok(median, _, need):
+                b.estimateKwh = median
+                b.charges = t.capacity?.samples.count ?? 0
+                b.need = need
+            }
+        }
+        b.spec = specKwh(pack?.headline.documentedKwh ?? trends?.capacity?.specKwh)
+        if reported > 0 { b.head = .reported(kwh: reported) } else if let e = b.estimateKwh { b.head = .estimate(kwh: e) }
+        return b
+    }
+
     static func capacity(_ t: TruckTrends) -> CapacityView {
         guard let c = t.capacity else { return .untracked }
         let need = c.minSocDeltaPct ?? 30
         guard let median = c.medianKwh, c.samples.count >= 2 else {
-            var s = "Needs about \(c.minSamples) charges that add at least \(whole(need))% of battery, spread over at least \(whole(c.minSpanDays)) days. So far: \(c.qualifyingCount) of \(c.minSamples) charges"
+            var s = "Our estimate needs about \(c.minSamples) charges that add at least \(whole(need))% of battery, over at least \(whole(c.minSpanDays)) days. So far: \(c.qualifyingCount) of \(c.minSamples) charges"
             if c.spanDays < c.minSpanDays { s += ", over \(whole(c.spanDays)) of \(whole(c.minSpanDays)) days" }
             return .sparse(s + ".")
         }

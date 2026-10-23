@@ -44,7 +44,7 @@ const SHOTS: Shot[] = [
   { name: "now", url: "/", ready: (p) => expect(p.getByRole("region", { name: "Now" })).toBeVisible() },
   { name: "activity", url: "/activity", ready: (p) => expect(p.getByRole("heading", { name: "Activity" }).first()).toBeVisible() },
   { name: "money", url: "/money", ready: (p) => expect(p.getByRole("region", { name: "Statement" })).toBeVisible() },
-  { name: "truck", url: "/truck", ready: (p) => expect(p.getByText("Pack capacity")).toBeVisible() },
+  { name: "truck", url: "/truck", ready: (p) => expect(p.getByText("Battery capacity")).toBeVisible() },
   {
     // The demo's preset planner stands in for a signed-in plan: same page.
     name: "plan",

@@ -90,6 +90,9 @@ struct TruckTrends: Decodable, Equatable {
         struct Sample: Decodable, Equatable {
             let at: Date
             let kwhEffective: Double
+            /// What the charge added (it weights the dot); absent on servers that don't send it yet.
+            var energyKwh: Double? = nil
+            var socDeltaPct: Double? = nil
         }
 
         let samples: [Sample]

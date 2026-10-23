@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
 import { BarChart } from "../components/charts";
-import { PackHealthCard } from "../components/PackHealthCard";
+import { BatteryCapacityCard } from "../components/BatteryCapacityCard";
 import { TrendsCard } from "../components/TrendsCard";
 import { ColdRangeCard } from "../components/ColdRangeCard";
 import DrainCard from "../components/DrainCard";
@@ -110,9 +110,7 @@ export default function TruckPage() {
       {/* The demo has no lease (and its API has no such call): no card, no 404 in the console. */}
       {next && !inDemo() && <LeaseCard vehicleID={selectedID} />}
 
-      <Card title="Pack capacity">
-        <PackHealthCard vehicleID={selectedID} />
-      </Card>
+      <BatteryCapacityCard vehicleID={selectedID} />
 
       {next && selectedID && <TrendsCard vehicleID={selectedID} />}
 

@@ -1,17 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend, type TruckTrends } from "../lib/api";
 import { usePreferences } from "../lib/preferences";
-import { BarChart, LineChart } from "./charts";
-import { specKwh } from "./PackHealthCard";
+import { BarChart } from "./charts";
 import { Card } from "./ui";
 
 const monthFmt = new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
 const monthLabel = (ym: string): string => monthFmt.format(new Date(`${ym}-15T12:00:00Z`));
-const dayFmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 const note = "text-sm text-neutral-400";
 
-// "Trends for your truck" (Truck tab): efficiency by month and the estimated usable capacity, for this truck only.
+// "Trends for your truck" (Truck tab): efficiency by month, for this truck only. (The capacity estimate's history
+// is in the Battery capacity card.)
 // A chart is drawn only when the server's own rule is met; otherwise the card says how far along it is, so there is
 // never an empty chart or a trend from two data points.
 export function TrendsCard({ vehicleID }: { vehicleID: string }) {
@@ -40,7 +39,6 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
         {q.data && (
           <>
             <EfficiencyTrend t={q.data} />
-            <CapacityTrend t={q.data} />
           </>
         )}
       </div>
@@ -74,66 +72,6 @@ function EfficiencyTrend({ t }: { t: TruckTrends }) {
           Not enough driving yet for a trend: {t.qualifying_months} of {t.min_months} months with at least {t.min_month_distance} {t.distance_unit}. This fills in as you drive.
         </p>
       )}
-    </section>
-  );
-}
-
-function CapacityTrend({ t }: { t: TruckTrends }) {
-  const c = t.capacity;
-  const head = (
-    <h3 id="trend-cap" className="text-sm font-medium text-neutral-100">
-      Estimated usable capacity (from your charges)
-    </h3>
-  );
-  if (!c) {
-    return (
-      <section data-trend="capacity" data-trend-state="untracked" aria-labelledby="trend-cap">
-        {head}
-        <p className={`mt-1 ${note}`}>Battery capacity can&apos;t be tracked on this truck yet.</p>
-      </section>
-    );
-  }
-  const need = c.min_soc_delta_pct ?? 30;
-  if (c.median_kwh == null || c.samples.length < 2) {
-    return (
-      <section data-trend="capacity" data-trend-state="sparse" aria-labelledby="trend-cap">
-        {head}
-        <p className={`mt-1 ${note}`}>
-          Needs about {c.min_samples} charges that add at least {need}% of battery, spread over at least {c.min_span_days} days. So far: {c.qualifying_count} of {c.min_samples} charges{c.span_days < c.min_span_days ? `, over ${Math.round(c.span_days)} of ${c.min_span_days} days` : ""}.
-        </p>
-      </section>
-    );
-  }
-  const pts = c.samples.map((s) => ({ x: new Date(s.at).getTime(), y: s.kwh_effective }));
-  const x0 = Math.min(...pts.map((p) => p.x));
-  const x1 = Math.max(...pts.map((p) => p.x));
-  const spec = specKwh(c.spec_kwh ?? 0);
-  const ys = [...pts.map((p) => p.y), c.median_kwh, ...(spec > 0 ? [spec] : [])];
-  const lo = Math.floor(Math.min(...ys) - 2);
-  const hi = Math.ceil(Math.max(...ys) + 2);
-  return (
-    <section data-trend="capacity" data-trend-state="ok" aria-labelledby="trend-cap">
-      {head}
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-neutral-100">
-        About {c.median_kwh.toFixed(0)} kWh <span className="text-sm font-normal text-neutral-400">usable (estimate)</span>
-      </p>
-      <LineChart
-        ariaLabel="Estimated usable capacity over time, kWh"
-        height={140}
-        yDomain={[lo, hi]}
-        xDomain={[x0, x1]}
-        formatY={(v) => `${v.toFixed(0)}`}
-        formatX={(x) => dayFmt.format(new Date(x))}
-        series={[
-          { points: pts, color: "#34d399", strokeWidth: 1.5, curve: "linear", label: "Estimate", formatCursor: (y) => `${y.toFixed(1)} kWh` },
-          { points: [{ x: x0, y: c.median_kwh }, { x: x1, y: c.median_kwh }], color: "#a3a3a3", dash: "4 3", strokeWidth: 1, curve: "linear", label: "Median", formatCursor: (y) => `${y.toFixed(1)} kWh` },
-          ...(spec > 0 ? [{ points: [{ x: x0, y: spec }, { x: x1, y: spec }], color: "#737373", dash: "1 3", strokeWidth: 1, curve: "linear" as const, label: `Rivian spec: ${spec.toFixed(0)} kWh`, formatCursor: (y: number) => `${y.toFixed(0)} kWh` }] : []),
-        ]}
-      />
-      <p className="mt-1 text-xs text-neutral-500">
-        Estimated from charges that add at least {need}% of battery. It moves a little with temperature and is not a Rivian figure. Charging losses and how the truck reports charge level can shift it by a few percent.
-        {spec > 0 && ` Rivian's spec for this pack: ${spec.toFixed(0)} kWh.`}
-      </p>
     </section>
   );
 }

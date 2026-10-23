@@ -20,7 +20,7 @@ const STEPS: Step[] = [
       await expect(p.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
     },
   },
-  { name: "truck", url: "/demo/truck", ready: async (p) => { await expect(p.getByText("Pack capacity")).toBeVisible(); } },
+  { name: "truck", url: "/demo/truck", ready: async (p) => { await expect(p.getByText("Battery capacity")).toBeVisible(); } },
   { name: "settings", url: "/demo/settings", ready: async (p) => { await expect(p.getByRole("heading", { name: "Appearance" })).toBeVisible(); } },
 ];
 

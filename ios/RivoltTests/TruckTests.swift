@@ -91,6 +91,32 @@ final class TruckLogicTests: XCTestCase {
         }
     }
 
+    /// One Battery capacity card: the truck's own figure leads, our estimate (the trends median, one source) is on one
+    /// labelled line under it; with no figure from the truck, our estimate leads, called one.
+    func testTheBatteryCapacityCardShowsOneHeadlineAndTheOtherFigureLabelled() throws {
+        let pack = try Fixture.decode(PackHealth.self, "pack_health")
+        let t = try Fixture.decode(TruckTrends.self, "trends")
+        let n = t.capacity?.samples.count ?? 0
+        let b = TruckLogic.battery(pack: pack, trends: t)
+        XCTAssertEqual(b.head, .reported(kwh: 123))
+        XCTAssertEqual(b.estimateLine, "Our estimate from your charges: about 122 kWh, from \(n) charges.")
+        XCTAssertEqual(b.spec, 135)
+        let none = try JSON.decoder().decode(PackHealth.self, from: Data(#"{"samples":[],"headline":{"effective_kwh":0,"documented_kwh":135,"sample_count":0,"window":0}}"#.utf8))
+        let e = TruckLogic.battery(pack: none, trends: t)
+        XCTAssertEqual(e.head, .estimate(kwh: 122.4))
+        XCTAssertNil(e.estimateLine, "the estimate is the headline: no second line")
+        // R2 (no capacity block): the truck's figure if any, and the plain "can't be tracked".
+        var raw = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Fixture.data("trends")) as? [String: Any])
+        raw["capacity"] = NSNull()
+        let untracked = try JSON.decoder().decode(TruckTrends.self, from: try JSONSerialization.data(withJSONObject: raw))
+        let r2 = TruckLogic.battery(pack: pack, trends: untracked)
+        XCTAssertTrue(r2.untracked)
+        XCTAssertNil(r2.estimateLine)
+        for line in [b.estimateLine ?? "", b.progress ?? ""] {
+            for w in ["health", "degrad", "loss", "lost", "% of"] { XCTAssertFalse(line.lowercased().contains(w), w) }
+        }
+    }
+
     func testTrendsSayHowFarAlongTheyAre() throws {
         let t = try Fixture.decode(TruckTrends.self, "trends")
         XCTAssertEqual(TruckLogic.capacity(t), .ok(median: 122.4, spec: 135, need: 30))
