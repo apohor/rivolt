@@ -152,19 +152,22 @@ enum KpiLogic {
 
         // Efficiency: the pack's own figure, else wall to wheel, else miles per percent.
         let effUnit = metric ? "km/kWh" : "mi/kWh"
-        let note = d.trailerNote.map { " · " + $0 } ?? ""
+        // The pack-side and miles-per-percent figures leave trailer drives out; the wall-to-wheel one (all miles over the energy
+        // charged) can't be split by drive, so it includes them and says so. The dash has nothing to note.
+        let excludes = d.trailerNote.map { " · " + $0 } ?? ""
+        let includes = d.trailerExcluded > 0 ? " · includes \(d.trailerExcluded) \(d.trailerExcluded == 1 ? "drive" : "drives") with a trailer" : ""
         if d.miPerKwh > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.miPerKwh * k, 2), unit: effUnit,
-                               hint: "pack-side · \(dst(d.milesForEnergy, 0)) \(dist) / \(fixed(d.energyUsedKwh, 0)) kWh" + note))
+                               hint: "pack-side · \(dst(d.milesForEnergy, 0)) \(dist) / \(fixed(d.energyUsedKwh, 0)) kWh" + excludes))
         } else if c.energyKwh > 0, d.miles > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.miles / c.energyKwh * k, 2), unit: effUnit,
-                               hint: "wall-to-wheel · \(dst(d.miles, 0)) \(dist) / \(fixed(c.energyKwh, 0)) kWh" + note))
+                               hint: "wall-to-wheel · \(dst(d.miles, 0)) \(dist) / \(fixed(c.energyKwh, 0)) kWh" + includes))
         } else if d.milesPerPct > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.milesPerPct * k, 2), unit: "\(dist)/%",
-                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")" + note))
+                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")" + excludes))
         } else {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: "—", unit: "",
-                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")" + note))
+                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")"))
         }
 
         // Charging cost: the ledger's month, the number Money shows; the month's charges when the ledger can't say.

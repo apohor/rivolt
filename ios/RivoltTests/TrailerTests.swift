@@ -42,6 +42,29 @@ final class TrailerTests: XCTestCase {
         XCTAssertEqual(tile?.hint, "pack-side · 20 mi / 10 kWh · excludes 1 drive with a trailer")
     }
 
+    func testTheWallToWheelFigureIncludesTrailerDrivesAndSaysSo() {
+        func hint(_ ds: [ActivityDrive]) -> String? {
+            KpiLogic.tiles(drives: KpiLogic.drives(ds), charges: KpiLogic.charges([charge()]), since: nil, sinceKnown: true, ledger: nil,
+                           ledgerPending: false, metric: false).first { $0.id == "efficiency" }?.hint
+        }
+        // No drive has energy recorded, so the figure is all miles over the energy charged, trailer drives included.
+        XCTAssertEqual(hint([drive(energy: 0), drive(energy: 0, trailer: true)]), "wall-to-wheel · 40 mi / 25 kWh · includes 1 drive with a trailer")
+        XCTAssertEqual(hint([drive(energy: 0)]), "wall-to-wheel · 20 mi / 25 kWh")
+    }
+
+    func testNoFigureHasNothingToNote() {
+        let tile = KpiLogic.tiles(drives: KpiLogic.drives([drive(energy: 0, trailer: true)].map { ActivityDrive(id: $0.id, vehicleId: "v", startedAt: .now, endedAt: .now, distanceMi: 0, energyUsedKwh: 0, startSocPct: 70, endSocPct: 70, avgSpeedMph: 0, maxSpeedMph: 66, estimatedCost: nil, estimatedCurrency: nil, estimatedPricePerKwh: nil, roundTripLegs: nil, drivingSeconds: nil, trailer: true) }),
+                                  charges: KpiLogic.charges([]), since: nil, sinceKnown: true, ledger: nil, ledgerPending: false, metric: false).first { $0.id == "efficiency" }
+        XCTAssertEqual(tile?.value, "—")
+        XCTAssertEqual(tile?.hint, "top speed 66 mph")
+    }
+
+    private func charge() -> ActivityCharge {
+        ActivityCharge(id: "c", vehicleId: "v", startedAt: .now, endedAt: .now, energyAddedKwh: 25, startSocPct: 40, endSocPct: 60, maxPowerKw: 11,
+                       cost: 0, currency: "USD", costSourceEffective: nil, costSourceDerived: nil, estimatedCost: nil, estimatedCurrency: nil,
+                       kind: nil, place: nil, network: nil)
+    }
+
     func testTheTrendAndEfficiencyNotesUseTheWebsWords() throws {
         let trends = try JSON.decoder().decode(TruckTrends.self, from: Data(#"""
         {"distance_unit":"mi","efficiency_unit":"mi/kWh","min_month_distance":50,"min_months":3,"qualifying_months":3,
