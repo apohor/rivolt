@@ -154,6 +154,7 @@ targets:
       - path: Rivolt/Resources/Fonts
         buildPhase: resources
       - path: Rivolt/Views/NowModel.swift
+      - path: Rivolt/Views/NowComfort.swift
       - path: Rivolt/Views/NowInk.swift
       # The one rounding rule for every figure (the web's), in the widgets and the Live Activity too.
       - path: Rivolt/Views/NumberText.swift

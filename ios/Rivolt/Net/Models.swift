@@ -72,6 +72,12 @@ struct VehicleState: Decodable, Equatable {
     let tirePressureRrBar: Double?
     let otaCurrentVersion: String?
     let otaAvailableVersion: String?
+    /// The Now card's comfort line: the cabin temperature in Celsius (0 when the truck hasn't reported one) and the
+    /// truck's own words for preconditioning, pet mode and cabin (climate) hold. Read as given, never worked out.
+    let cabinTempC: Double?
+    let cabinPreconditioningStatus: String?
+    let petModeStatus: String?
+    let cabinHoldStatus: String?
 }
 
 /// `GET /api/vehicles/{id}/now` (now-contract v1): the server's view of the
