@@ -206,8 +206,8 @@ struct HomeView: View {
             return
         }
         let client = state.client
-        async let st = try? client.vehicleState(id: id)
-        async let nw = try? client.vehicleNow(id: id)
+        async let st = NowReads.logged("/state") { try await client.vehicleState(id: id) }
+        async let nw = NowReads.logged("/now") { try await client.vehicleNow(id: id) }
         async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
@@ -239,8 +239,9 @@ struct HomeView: View {
     @discardableResult
     private func refreshNow() async -> Bool {
         guard let id = selected?.id else { return false }
-        async let st = try? state.client.vehicleState(id: id)
-        async let nw = try? state.client.vehicleNow(id: id)
+        let client = state.client
+        async let st = NowReads.logged("/state") { try await client.vehicleState(id: id) }
+        async let nw = NowReads.logged("/now") { try await client.vehicleNow(id: id) }
         let (s, n) = await (st, nw)
         if let s { vehicleState = s }
         if let n { now = n }

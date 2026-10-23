@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// How often the Now screen asks the server again, and when "Offline" may be said. A parked truck's newest frame ages on
 /// the clock, so without a re-read the card walks to "Offline" while the server has a frame from a minute ago.
@@ -45,5 +46,20 @@ extension NowSummary {
         var s = self
         s.holdOffline = holding
         return s.presence
+    }
+}
+
+/// The two reads behind the Now card, with the reason written to the log when one fails (a decoding error names the field;
+/// it carries no coordinates or account data). A failed read leaves the card on what it already had.
+enum NowReads {
+    private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
+
+    static func logged<T>(_ what: String, _ read: () async throws -> T) async -> T? {
+        do {
+            return try await read()
+        } catch {
+            log.error("\(what, privacy: .public) read failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 }

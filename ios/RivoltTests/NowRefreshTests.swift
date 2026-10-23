@@ -89,4 +89,37 @@ final class NowRefreshTests: XCTestCase {
         read.fetched(at: t0)
         XCTAssertEqual(read.shown(none, clock: t0).presence, .offline, "read just now, and there is nothing")
     }
+
+    // MARK: The server's real shapes
+
+    /// `/api/vehicles/{id}/now` and `/api/state/{id}` as the server sends them (the public demo's answers, with the
+    /// coordinates and the vehicle id taken out): timestamps with six and with nine fractional digits.
+    func testTheServersRealNowAndStateShapesDecodeAndReadLiveWithAFreshClock() throws {
+        let st = try Fixture.decode(VehicleState.self, "state_prod_shape")
+        let nw = try Fixture.decode(NowSnapshot.self, "now_prod_shape")
+        let at = try XCTUnwrap(nw.at)
+        XCTAssertEqual(at.timeIntervalSince1970, try XCTUnwrap(JSON.parseDate("2026-10-23T14:07:45.589Z")).timeIntervalSince1970, accuracy: 0.01, "six fractional digits")
+        XCTAssertEqual(try XCTUnwrap(st.at).timeIntervalSince1970, at.timeIntervalSince1970, accuracy: 0.01, "nine fractional digits")
+        XCTAssertNotNil(nw.vehicleStateFrameAt, "nine fractional digits too")
+        let clock = at.addingTimeInterval(30)
+        XCTAssertEqual(NowSummary(state: st, now: nw, clock: clock).presence, .live)
+        XCTAssertEqual(NowSummary(state: st, now: nil, clock: clock).presence, .live, "if /now were unreadable the state alone says live")
+        XCTAssertEqual(NowSummary(state: nil, now: nw, clock: clock).presence, .live, "and /now alone")
+    }
+
+    func testAParkedTrucksRealShapeStaysLiveForTwoMinutesAndGoesStaleThenOffline() throws {
+        // The same answers for a parked, ready truck (not asleep), as the owner's R1S reports.
+        func text(_ name: String) throws -> String { String(decoding: try Fixture.data(name), as: UTF8.self) }
+        let nowJSON = try text("now_prod_shape").replacingOccurrences(of: "\"state\": \"asleep\"", with: "\"state\": \"parked\"")
+            .replacingOccurrences(of: "\"asleep\": true", with: "\"asleep\": false").replacingOccurrences(of: "\"connection\": \"replay\"", with: "\"connection\": \"live\"")
+        let stateJSON = try text("state_prod_shape").replacingOccurrences(of: "\"power_state\": \"sleep\"", with: "\"power_state\": \"ready\"")
+        let nw = try JSON.decoder().decode(NowSnapshot.self, from: Data(nowJSON.utf8))
+        let st = try JSON.decoder().decode(VehicleState.self, from: Data(stateJSON.utf8))
+        XCTAssertEqual(nw.state, .parked)
+        XCTAssertEqual(nw.connection, .live)
+        let at = try XCTUnwrap(nw.at)
+        XCTAssertEqual(NowSummary(state: st, now: nw, clock: at.addingTimeInterval(60)).presence, .live)
+        XCTAssertEqual(NowSummary(state: st, now: nw, clock: at.addingTimeInterval(300)).presence, .stale)
+        XCTAssertEqual(NowSummary(state: st, now: nw, clock: at.addingTimeInterval(901)).presence, .offline, "the web's limit for a parked truck")
+    }
 }
