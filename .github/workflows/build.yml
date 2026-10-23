@@ -464,34 +464,38 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # setup-go's own cache saves only when its key (go.sum) misses, so after
-      # the first run the build and test-result cache is never refreshed and
-      # every commit recompiles what changed. Restore the newest cache by
-      # prefix and save a fresh one from main pushes only (PRs read main's),
-      # at most once per UTC day: the key ends in the date, not the commit.
-      # A per-commit key saved ~3.5 GB here plus ~2 GB in integration on
-      # every merge, and a burst of merges pushed the repo past its 10 GB
-      # Actions cache limit, evicting the image layers publish rebuilds
-      # from (publish went from ~30 s to 2-3 min on Oct 20).
-      - name: Cache day
-        id: day
-        run: echo "d=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      # Two caches, kept apart (measured Oct 23: one run of this job builds a 1.9 GB build cache, but the single
+      # cache restored here had grown to 13 GB uncompressed by carrying every day's objects forward through
+      # restore-keys: 183 s to restore for 76 s of work, against 319 s for the same work with no cache).
+      #
+      # The module download cache is keyed on go.sum alone and saved from main when it misses (a cold
+      # `go mod download` is 14 s, but a dropped connection to proxy.golang.org used to fail the job).
+      #
+      # The build cache is keyed on the Go version and the ISO week. Only a main push saves it, and only when
+      # the week's key is missing, from a run that restored NOTHING (exact key, no restore-keys), so a week's
+      # cache holds one build and cannot grow. PRs read it, falling back to last week's entry for the first
+      # days of a week; they never save (a PR's own cache is readable only by that PR).
+      - name: Cache keys
+        id: ck
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
-      # go.mod is in the key so a Go toolchain bump starts a fresh cache: with
-      # only go.sum, the day's key still hit after #802 (go1.27.3), the save
-      # was skipped, and every run rebuilt from objects for the old toolchain
-      # (go 195 s -> 347 s).
-      - name: Restore Go build and module cache
+      - name: Restore Go module download cache
+        id: gomod
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/go/pkg/mod/cache/download
+          key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Restore Go build cache
         id: gocache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.day.outputs.d }}
-          restore-keys: |
-            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
-            go-unit-${{ runner.os }}-
+          path: ~/.cache/go-build
+          key: go-unit-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-unit-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Satisfy `//go:embed all:dist` without running the vite build.
       # Assets() returns nil at runtime when index.html is absent, so
@@ -515,80 +519,19 @@ jobs:
           cat vet.log
           exit $(( t != 0 || v != 0 ))
 
-      - name: Save Go build and module cache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
+      - name: Save Go module download cache
+        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gomod.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ~/go/pkg/mod/cache/download
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+
+      - name: Save Go build cache
+        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gocache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
-
-  # TEMPORARY measurement for the cache diet (removed before merge): the go job's work with no cache at all, and
-  # the sizes inside the cache the go job restores today.
-  exp-cold:
-    name: exp-cold
-    needs: changes
-    if: "github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Stub web assets for embed
-        run: |
-          mkdir -p internal/web/dist
-          touch internal/web/dist/.keep
-      - name: Modules only (cold download)
-        run: |
-          s=$(date +%s); go mod download; echo "EXP mod download $(( $(date +%s) - s )) s"
-          du -sh ~/go/pkg/mod | sed 's/^/EXP mod size /'
-      - name: Cold vet + test -race (empty build cache)
-        run: |
-          s=$(date +%s)
-          go vet ./... > vet.log 2>&1 & vet=$!
-          go test -race ./...; t=$?
-          wait $vet; v=$?
-          echo "EXP cold vet+test $(( $(date +%s) - s )) s"
-          du -sh ~/.cache/go-build | sed 's/^/EXP build cache after one cold run /'
-          exit $(( t != 0 || v != 0 ))
-
-  exp-sizes:
-    name: exp-sizes
-    needs: changes
-    if: "github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Restore today's cache
-        id: r
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-restore-only
-          restore-keys: |
-            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
-      - name: Sizes inside the restored cache
-        run: |
-          du -sh ~/go/pkg/mod ~/.cache/go-build | sed 's/^/EXP /'
-          du -sh ~/go/pkg/mod/cache/download ~/go/pkg/mod/golang.org 2>/dev/null | sed 's/^/EXP /'
-          echo "EXP build cache files: $(find ~/.cache/go-build -type f | wc -l)"
-          echo "EXP build cache by age (files, MB):"
-          for d in 1 3 7 14 30; do
-            n=$(find ~/.cache/go-build -type f -atime -$d | wc -l); b=$(find ~/.cache/go-build -type f -atime -$d -printf '%s\n' | awk '{s+=$1} END {print int(s/1048576)}')
-            echo "EXP   used in last $d days: $n files, $b MB"
-          done
-          echo "EXP biggest entries (MB):"
-          find ~/.cache/go-build -type f -printf '%s %p\n' | sort -rn | head -5 | awk '{printf "EXP   %d MB\n", $1/1048576}'
-          echo "EXP files over 10 MB: $(find ~/.cache/go-build -type f -size +10M | wc -l), total MB $(find ~/.cache/go-build -type f -size +10M -printf '%s\n' | awk '{s+=$1} END {print int(s/1048576)}')"
 
   # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
   # runs beside `go` and adds nothing to the critical path, and so a lint finding
@@ -613,21 +556,14 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # The Go module cache (and build cache) the `go` job saves from main, by the same
-      # prefix. RESTORE ONLY: this job never saves, so a PR cannot write the cache, and
-      # setup-go's own cache stays off so two caches do not fight over ~/go/pkg/mod.
-      # Without it every run downloaded all modules cold, and a dropped connection to
-      # proxy.golang.org failed the job. A miss (a go.sum change before main has saved)
-      # still falls back to downloading.
-      - name: Restore Go build and module cache
+      # Only the module download cache the `go` job saves from main (restore only; see the go job). Not the
+      # go-unit build cache: that holds -race objects, which a plain type-check never reuses, and restoring it was
+      # 118 s of this job's 162 s. A miss (a go.sum change before main has saved) falls back to downloading.
+      - name: Restore Go module download cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-restore-only
-          restore-keys: |
-            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
+          path: ~/go/pkg/mod/cache/download
+          key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
       # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
       - name: Stub web assets for embed
@@ -635,11 +571,13 @@ jobs:
           mkdir -p internal/web/dist
           touch internal/web/dist/.keep
 
-      # The action caches the linter's analysis cache and the Go build cache.
+      # The action restores the linter's own analysis cache. Only main saves it (a PR's copy is readable by that
+      # PR alone and filled the repo's Actions budget).
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout 5m
+          skip-save-cache: false  # TEMP-MEASURE
 
   integration:
     name: integration
@@ -657,22 +595,28 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Same daily cache as the go job (see the comment there).
-      - name: Cache day
-        id: day
-        run: echo "d=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      # The same two caches as the go job (see the comment there), the build cache under its own prefix because
+      # these objects are compiled without -race and with the integration tag.
+      - name: Cache keys
+        id: ck
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Restore Go build and module cache
+      - name: Restore Go module download cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/go/pkg/mod/cache/download
+          key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Restore Go build cache
         id: gocache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-integration-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ steps.day.outputs.d }}
-          restore-keys: |
-            go-integration-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
-            go-integration-${{ runner.os }}-
+          path: ~/.cache/go-build
+          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-integration-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
       # postgres image fetch. ~80MB, cached across runs by docker.
@@ -691,13 +635,11 @@ jobs:
           echo "integration packages:"; echo "$pkgs"
           go test -tags=integration -count=1 -timeout=10m $pkgs
 
-      - name: Save Go build and module cache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
+      - name: Save Go build cache
+        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+          path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
   # Keeps the repo's Actions cache from filling up. The Go caches are saved once a UTC
@@ -723,7 +665,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for prefix in go-unit-Linux- go-integration-Linux- playwright-Linux-chromium- playwright-Linux-webkit-; do
+          for prefix in go-unit-Linux- go-integration-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit-; do
             ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
             kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
