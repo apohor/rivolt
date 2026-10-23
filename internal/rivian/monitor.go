@@ -177,6 +177,11 @@ type StateMonitor struct {
 	// otaCurrentVersion. Parallax ota.deployment.state fills the versions
 	// only for vehicles without it (an R2). Guarded by mu.
 	vehOtaVersion map[string]bool
+	// otaWords, otaProgress and otaScale remember what observeOTA has already logged (see ota_observe.go).
+	// Guarded by mu.
+	otaWords    map[string]bool
+	otaProgress map[string]bool
+	otaScale    map[string]bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -2784,6 +2789,7 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	// PowerState-driven cadence.
 	m.noteVehicleStateFrameLocked(vehicleID)
 	m.mu.Unlock()
+	m.observeOTA(vehicleID, st)
 	m.record(ctx, vehicleID, prev, merged)
 }
 
