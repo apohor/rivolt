@@ -58,6 +58,10 @@ type trendEfficiencyPoint struct {
 type trendCapacitySample struct {
 	At        time.Time `json:"at"`
 	KWhEffect float64   `json:"kwh_effective"`
+	// What the estimate came from, for the chart's tooltip: the energy the charge put in (kWh, one decimal) and the
+	// battery percentage it added (whole points). Both are the session's own measured figures.
+	EnergyKWh   float64 `json:"energy_kwh"`
+	SoCDeltaPct int     `json:"soc_delta_pct"`
 }
 
 type trendCapacity struct {
@@ -221,8 +225,8 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 				c.SpecKWh = &spec
 			}
 			srows, err := sqlDB.QueryContext(r.Context(), `
-				SELECT at, pack_kwh_effective FROM (
-				    SELECT at, pack_kwh_effective FROM vehicle_pack_health_samples
+				SELECT at, pack_kwh_effective, energy_delivered_kwh, soc_delta_pct FROM (
+				    SELECT at, pack_kwh_effective, energy_delivered_kwh, soc_delta_pct FROM vehicle_pack_health_samples
 				     WHERE vehicle_id = $1 AND NOT derate_active AND at >= $2
 				     ORDER BY at DESC LIMIT $3) s
 				ORDER BY at`, vid, since.UTC(), trendMaxCapacitySamples)
@@ -234,11 +238,13 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 			var kwh []float64
 			for srows.Next() {
 				var s trendCapacitySample
-				if err := srows.Scan(&s.At, &s.KWhEffect); err != nil {
+				var energy, delta float64
+				if err := srows.Scan(&s.At, &s.KWhEffect, &energy, &delta); err != nil {
 					serverError(w, r, "vehicle trends: scan capacity", err)
 					return
 				}
 				s.At, s.KWhEffect = s.At.UTC(), trendRound(s.KWhEffect, 1)
+				s.EnergyKWh, s.SoCDeltaPct = trendRound(energy, 1), int(math.Round(delta))
 				c.Samples = append(c.Samples, s)
 				kwh = append(kwh, s.KWhEffect)
 			}
