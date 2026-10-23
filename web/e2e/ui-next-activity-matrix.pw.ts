@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// ui_theme_next Activity Table and Map at 390 / 1280 / 1440, dark and light: nothing
+// Activity Table and Map at 390 / 1280 / 1440, dark and light: nothing
 // overlaps or overflows, table cells stay on one line, every text node is Geist at
 // 11/12/14/24/36, and the key columns are visible on a phone.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");

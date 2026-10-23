@@ -1,5 +1,5 @@
 // PowerSpark: charging power as a live sparkline with a soft glow, used only by
-// the ui_theme_next layer while a session is active.
+// the app while a session is active.
 export function PowerSpark({ values, width = 180, height = 36 }: { values: number[]; width?: number; height?: number }) {
   if (values.length < 2) return null;
   let hi = Math.max(...values, 1);

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// ui_theme_next Now: KPI values stay on one line ("2.30 mi/kWh" wrapped at 1280/1440 when the
+// Now: KPI values stay on one line ("2.30 mi/kWh" wrapped at 1280/1440 when the
 // 24px type scale landed). The unit is a 12px suffix. Flag off keeps the old markup.
 for (const w of [390, 1280, 1440] as const) {
   for (const theme of ["dark", "light"] as const) {

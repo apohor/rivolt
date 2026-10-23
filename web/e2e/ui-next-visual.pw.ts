@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// Visual regression for ui_theme_next: Now, Activity, Money, Truck and Plan,
+// Visual regression for Now, Activity, Money, Truck and Plan,
 // iPhone and desktop, dark and light, 20 baselines in
 // ui-next-visual.pw.ts-snapshots/. Data comes from the stub, the clock is
 // frozen (browser and the stub's Node side), animations are off, and the map
@@ -69,8 +69,7 @@ for (const s of SHOTS) {
         }, scheme);
         await stubApi(page, s.demo ? { demo: true, signedIn: false } : {});
         await page.goto(s.url);
-        await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
-        await s.ready(page);
+            await s.ready(page);
         await page.evaluate(() => document.fonts.ready);
         await page.waitForTimeout(900);
         await expect(page).toHaveScreenshot(`${s.name}-${v.name}-${scheme}.png`, {

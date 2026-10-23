@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next planner route bar (signed in): From/To rows with a swap, departure
+// Planner route bar (signed in): From/To rows with a swap, departure
 // chips, the start SoC slider, and the rest under More options.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

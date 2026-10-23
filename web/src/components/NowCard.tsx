@@ -127,7 +127,7 @@ export default function NowCard({
   useEffect(() => {
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
-  // Charging power history for the ui_theme_next sparkline: one reading per
+  // Charging power history for the sparkline: one reading per
   // successful poll while charging, cleared when the session ends.
   const [powerHist, setPowerHist] = useState<number[]>([]);
   useEffect(() => {
@@ -138,7 +138,7 @@ export default function NowCard({
   }, [stateQ.dataUpdatedAt]);
 
   // GET /now: the server's state, freshness inputs and charge baseline.
-  // Null when absent (older server / flag off): fall back to the
+  // Null when absent (an older server): fall back to the
   // client-derived path below.
   const nowQ = useQuery({
     queryKey: ["vehicle", "now", vehicleID],

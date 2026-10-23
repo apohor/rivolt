@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
-// The look's CSS layer is scoped under html[data-ui="next"] (index.css). It is the only look, so
-// index.html sets the attribute on every page, the public ones included.
+// Motion helpers for the look: reduced-motion detection and the count-up on changing numbers.
 
 export function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

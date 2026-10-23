@@ -20,7 +20,7 @@ export function planForTable(plan: string): string {
 // etc.) competed for screen space with the cost line and lost -
 // the user can see Distance / Total time / Arrival in the stat
 // grid right below the title.
-// RouteChooser: the ui_theme_next planner's compact route picker (Recommended and
+// RouteChooser: the planner's compact route picker (Recommended and
 // alternatives as selectable chips with cost, time and stops).
 export function RouteChooser({
   routes,

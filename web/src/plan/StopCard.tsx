@@ -6,7 +6,7 @@ import { Unit } from "./Unit";
 import { StopPriceNote } from "./StopPrice";
 import { stopCostText } from "../lib/planCost";
 
-// StopCard: one itinerary entry for the ui_theme_next planner (start, charging
+// StopCard: one itinerary entry for the planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
 // map) to show the charger, network, SoC in and out, charge time, energy, power
 // and cost. The parent renders these inside <ol data-plan-timeline>.

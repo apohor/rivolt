@@ -6,7 +6,7 @@ import { estimateLabel, fmtRange, NO_PRICE_TEXT, partialText, spendView } from "
 import { Unit } from "./Unit";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
-// gas sublines, time, arrival, distance, charging). Used by the ui_theme_next planner.
+// gas sublines, time, arrival, distance, charging). Used by the planner.
 type Waypoint = TripRoute["Waypoints"][number];
 
 export function SummaryStrip({
@@ -44,7 +44,7 @@ export function SummaryStrip({
     }
     return t;
   })();
-  // ui_theme_next: the result as a hero (cost, arrival arc, time) over the map and a route timeline.
+  // The result as a hero (cost, arrival arc, time) over the map and a route timeline.
   return (
     <div data-plan-hero className="mb-4 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-4">
       <ArcGauge

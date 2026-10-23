@@ -4,8 +4,8 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next Plan polish: result hero (cost, arrival arc, time), route
-// timeline, compact form. Before/after pairs, flag-off unchanged, axe.
+// Plan polish: result hero (cost, arrival arc, time), route
+// timeline, compact form. Screenshots and axe.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 

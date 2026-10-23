@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next Battery (SoC) trend, calm (the iPhone's rules): a soft daily band and one line, one faint limit, the
+// Battery (SoC) trend, calm (the iPhone's rules): a soft daily band and one line, one faint limit, the
 // extremes named, a caption and no legend.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

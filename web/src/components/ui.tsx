@@ -59,9 +59,9 @@ export function Card({
   children: ReactNode;
   actions?: ReactNode;
   id?: string;
-  // "full": spans every column of a ui_theme_next cockpit grid.
+  // "full": spans every column of a cockpit grid.
   span?: "full";
-  // Named slot in a ui_theme_next cockpit grid.
+  // Named slot in a cockpit grid.
   area?: string;
 }) {
   return (

@@ -1,6 +1,5 @@
 // The basemap follows the resolved app theme. The theme is applied as
-// html[data-theme="light"] (see theme.ts; it is never set with the shell
-// flag off, which is the dark app), so reading that attribute covers
+// html[data-theme="light"] (see theme.ts), so reading that attribute covers
 // System, an explicit choice and a live OS switch alike.
 
 export type MapFlavor = "dark" | "light";

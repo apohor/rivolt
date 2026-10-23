@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 import { e2eNow } from "./clock";
 
-// ui_theme_next: Now drops the idle-awake chart for a compact tile (today, average,
+// Now drops the idle-awake chart for a compact tile (today, average,
 // 7-day sparkline) linking to Truck's full sleep chart; the wake warning stays.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

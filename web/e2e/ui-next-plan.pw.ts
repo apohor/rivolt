@@ -4,8 +4,8 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next on Plan (the demo's preset planner stands in for a signed-in
-// plan: same page): before/after, flag-off check, axe.
+// Plan (the demo's preset planner stands in for a signed-in
+// plan: same page): screenshots and axe.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 

@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// ui_theme_next type scale on Now, Truck, Money and Activity: Geist only, sizes
+// Type scale on Now, Truck, Money and Activity: Geist only, sizes
 // from 11/12/14/24/36 (inputs 16 so iOS doesn't zoom), weights 400-600.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

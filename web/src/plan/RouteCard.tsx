@@ -59,12 +59,12 @@ export function RouteCard({
   // each other before the user signals interest. The Recommended
   // route stays expanded.
   defaultCollapsed?: boolean;
-  // ui_theme_next: render this (alternative) route in the map-first layout.
+  // Render this (alternative) route in the map-first layout.
   forceNext?: boolean;
   // One of several routes stacked on the page (a day of a multi-day trip):
   // always the in-flow card, never the map-first sheet, which only one route can own.
   stacked?: boolean;
-  // ui_theme_next: the route chooser, shown at the top of the summary.
+  // The route chooser, shown at the top of the summary.
   chooser?: React.ReactNode;
 }) {
   const { distanceUnit } = usePreferences();

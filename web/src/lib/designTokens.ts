@@ -1,4 +1,4 @@
-// Design tokens for the iPhone app, taken from the web's new look (ui_theme_next).
+// Design tokens for the iPhone app, taken from the web's new look.
 // buildTokens() resolves every token from the web's own CSS, the way the browser
 // would, and the result is committed as ios/design/tokens.json; designTokens.test.ts
 // rebuilds it and fails when the two differ, so the app can't drift silently.
@@ -52,13 +52,13 @@ export function cssVars(css: string): Map<string, Record<string, string>> {
 // The cascade the page applies, most specific first.
 const CASCADE: Record<Theme, { file: string; selector: string }[]> = {
   dark: [
-    { file: "src/index.css", selector: "html[data-ui='next']:not([data-theme='light'])" },
+    { file: "src/index.css", selector: ":root:not([data-theme='light'])" },
     { file: "src/index.css", selector: "html:not([data-theme='light'])" },
     { file: "src/index.css", selector: ":root" },
     { file: "node_modules/tailwindcss/theme.css", selector: "@theme default" },
   ],
   light: [
-    { file: "src/index.css", selector: "html[data-ui='next'][data-theme='light']" },
+    { file: "src/index.css", selector: ":root[data-theme='light']" },
     { file: "src/index.css", selector: "html[data-theme='light']" },
     { file: "src/index.css", selector: ":root" },
     { file: "node_modules/tailwindcss/theme.css", selector: "@theme default" },

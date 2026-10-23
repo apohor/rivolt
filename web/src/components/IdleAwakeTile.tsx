@@ -4,7 +4,7 @@ import { appPath } from "../lib/demo";
 import type { DayActivity } from "../lib/api";
 import { sleepSummary } from "../lib/truckHealth";
 
-// ui_theme_next: the Now page's compact idle-awake tile. Today's value, the
+// The Now page's compact idle-awake tile. Today's value, the
 // average over completed days in the period, a 7-day sparkline; links to the full
 // chart on Truck (vehicle health lives there).
 export function IdleAwakeTile({ days, loading }: { days: DayActivity[]; loading: boolean }) {

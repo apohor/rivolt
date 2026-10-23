@@ -5,7 +5,7 @@ import { EfficiencyBars } from "./EfficiencyBars";
 import { hasFigure } from "../lib/efficiency";
 import { usePreferences } from "../lib/preferences";
 
-// Activity → Efficiency (ui_theme_next): efficiency by outside temperature, speed and drive mode for
+// Activity → Efficiency: efficiency by outside temperature, speed and drive mode for
 // the period, as three distribution charts under a headline average. The server sends values and
 // labels in the requested units. "Not enough data" says so instead of drawing empty charts.
 export function EfficiencyView({ rivianVehicleID, since, until }: { rivianVehicleID: string | undefined; since?: string; until?: string }) {
