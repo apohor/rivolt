@@ -29,7 +29,8 @@ struct TruckView: View {
                 Group {
                     if let v = selected {
                         TruckContent(model: model, vehicle: v, drainKey: $drainKey, temp: temp, pickTemp: { pickedTemp = $0 },
-                                     r2Dismissed: $r2Dismissed, month: month)
+                                     r2Dismissed: $r2Dismissed, month: month,
+                                     notesLink: { id, which in try await state.client.otaNotesURL(vehicleID: id, which: which) })
                     } else if let vehiclesError {
                         TruckMessage(text: vehiclesError)
                     } else if vehiclesLoaded {
@@ -134,6 +135,8 @@ struct TruckContent: View {
     var now: Date = .now
     var calendar: Calendar = .current
     var metric: Bool = NowFormat.usesMetric
+    /// A fresh release-notes link from the server (`GET /api/vehicles/{id}/ota/notes`); tests render without one.
+    var notesLink: (_ vehicleID: String, _ which: String) async throws -> URL = { _, _ in throw APIError.badURL }
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// At an accessibility size pairs stack (label over value) and rows become a column, so nothing breaks mid-word.
@@ -587,9 +590,9 @@ struct TruckContent: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if let tire { stackedPair("Lowest tire") { tireText(tire) } }
                         if let sw {
-                            stackedPair("Software") { versionCell(sw.current, notes: vehicle.ota?.current?.releaseNotesUrl) }
+                            stackedPair("Software") { versionCell(sw.current, which: "current", hasNotes: vehicle.ota?.current?.hasNotes) }
                             if let a = sw.available {
-                                stackedPair("Update available") { versionCell(a, notes: vehicle.ota?.available?.releaseNotesUrl) }
+                                stackedPair("Update available") { versionCell(a, which: "available", hasNotes: vehicle.ota?.available?.hasNotes) }
                             }
                         }
                     }
@@ -604,12 +607,12 @@ struct TruckContent: View {
                         if let sw {
                             GridRow {
                                 Text("Software").themeText(.value, color: Theme.textTertiary)
-                                versionCell(sw.current, notes: vehicle.ota?.current?.releaseNotesUrl)
+                                versionCell(sw.current, which: "current", hasNotes: vehicle.ota?.current?.hasNotes)
                             }
                             if let a = sw.available {
                                 GridRow {
                                     Text("Update available").themeText(.value, color: Theme.textTertiary)
-                                    versionCell(a, notes: vehicle.ota?.available?.releaseNotesUrl)
+                                    versionCell(a, which: "available", hasNotes: vehicle.ota?.available?.hasNotes)
                                 }
                             }
                         }
@@ -632,11 +635,11 @@ struct TruckContent: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func versionCell(_ version: String, notes: String?) -> some View {
+    private func versionCell(_ version: String, which: String, hasNotes: Bool?) -> some View {
         (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))) {
             Text(version).themeText(.value, color: Theme.textPrimary)
-            if let u = TruckLogic.notesURL(notes) {
-                Link(destination: u) { Text("Release notes ↗").themeText(.subline, color: Theme.accent) }
+            if hasNotes == true {
+                ReleaseNotesLink(vehicleID: vehicle.id, which: which, fetch: notesLink)
             }
         }
         .frame(maxWidth: .infinity, alignment: stacked ? .leading : .trailing)

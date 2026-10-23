@@ -28,13 +28,14 @@ struct Vehicle: Decodable, Identifiable, Equatable {
     let model: String
     let modelYear: Int?
     let imageUrl: String?
-    /// The software versions' release notes (an outbound link only, never fetched by the app).
+    /// The software versions, and whether a release-notes link exists for each (the link itself is fetched fresh when
+    /// "Release notes" is tapped: Rivian's own expires after an hour).
     let ota: OTA?
 
     struct OTA: Decodable, Equatable {
         struct Version: Decodable, Equatable {
             let version: String?
-            let releaseNotesUrl: String?
+            let hasNotes: Bool?
         }
 
         let current: Version?

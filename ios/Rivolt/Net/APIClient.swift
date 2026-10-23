@@ -424,6 +424,17 @@ actor APIClient {
     /// The server's view of the truck right now (now-contract v1): state,
     /// freshness inputs and the current charge. Nil on a server without it
     /// (404 or 501), so the card falls back to `vehicleState` alone.
+    /// A fresh link to a software release's notes (`which` is "current" or "available"). Rivian's own link is a signed
+    /// URL that expires after an hour, so the server fetches one when this is asked and never stores it; it goes straight
+    /// to the browser and is not kept or logged here.
+    func otaNotesURL(vehicleID: String, which: String) async throws -> URL {
+        struct Answer: Decodable { let url: String }
+        let escaped = vehicleID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? vehicleID
+        let answer: Answer = try await request("GET", "/api/vehicles/\(escaped)/ota/notes?which=\(which)")
+        guard let url = TruckLogic.notesURL(answer.url) else { throw APIError.badURL }
+        return url
+    }
+
     func vehicleNow(id: String) async throws -> NowSnapshot? {
         let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         do {
