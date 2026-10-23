@@ -36,7 +36,6 @@ const SPREAD = {
 };
 
 async function open(page: Page, body: unknown, status = 200) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/trends`), (r) => r.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) }));
   await page.goto("/truck");
@@ -166,7 +165,6 @@ for (const scheme of ["light", "dark"] as const) {
 test("no figure from the truck: our estimate leads, labelled as one", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   // After the stub: the last route registered wins.
   await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/trends`), (r) => r.fulfill({ json: SPREAD }));

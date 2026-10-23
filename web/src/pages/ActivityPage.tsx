@@ -3,9 +3,8 @@ import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { earlyMonthFallback, filterByRange, periodLabel, periodRange, usePeriod } from "../lib/period";
 import { EarlyMonthNote, NEW_ACCOUNT_LINE, emptyMonthLine } from "../components/EarlyMonthNote";
-import { useUiNext } from "../lib/uiNext";
 import { displayTimeZone } from "../lib/format";
-import { detailPath, inDemo, appPath } from "../lib/demo";
+import { detailPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -48,12 +47,10 @@ export default function ActivityPage() {
   const [shown, setShown] = useState(PAGE);
   const navigate = useNavigate();
   const { roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes } = usePreferences();
-  // ui_theme_next: the shared calendar scope filters the feed; off shows everything.
-  const next = useUiNext();
+  // The shared calendar scope filters the feed.
   const [period, setPeriod] = usePeriod();
-  const baseRange = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
-  // Table and Map views are a ui_theme_next layer; flag off ignores ?view.
-  const view: ActivityView = next ? parseActivityView(params.get("view")) : "feed";
+  const baseRange = useMemo(() => periodRange(period), [period]);
+  const view: ActivityView = parseActivityView(params.get("view"));
   // Efficiency view: the selected truck's breakdowns for the period.
   const vehiclesQ = useQuery({ queryKey: ["vehicles"], queryFn: () => backend.vehicles(), enabled: view === "efficiency", staleTime: 5 * 60_000 });
   const { selectedID: effVehicleID } = useSelectedVehicle(vehiclesQ.data);
@@ -66,15 +63,15 @@ export default function ActivityPage() {
   const chargesQ = useQuery(chargesAllQuery());
   // Early in the month, with nothing recorded in it yet, follow the last 30 days instead (and say so).
   const early = useMemo(
-    () => (next ? earlyMonthFallback(period, [...(drivesQ.data ?? []), ...(chargesQ.data ?? [])]) : null),
-    [next, period, drivesQ.data, chargesQ.data],
+    () => earlyMonthFallback(period, [...(drivesQ.data ?? []), ...(chargesQ.data ?? [])]),
+    [period, drivesQ.data, chargesQ.data],
   );
   const range = early ? early.range : baseRange;
   // Empty-state line: a brand-new account, an explicitly chosen empty month, or another empty period.
   const noHistory = (drivesQ.data?.length ?? 0) + (chargesQ.data?.length ?? 0) === 0;
-  const emptyText = noHistory && next
+  const emptyText = noHistory
     ? NEW_ACCOUNT_LINE
-    : next && period.kind === "month"
+    : period.kind === "month"
       ? emptyMonthLine(periodLabel(period))
       : range.start || range.end
         ? "Nothing recorded in this period. Step to another period or pick All."
@@ -142,21 +139,7 @@ export default function ActivityPage() {
         subtitle="Drives and charges, newest first"
         // The table pages are signed-in only: no links to them in the demo.
         actions={
-          <>
-          {next && <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />}
-          {next || inDemo() ? undefined : (
-          <span className="text-xs text-neutral-500">
-            Tables:{" "}
-            <Link to={appPath("/drives")} className="text-neutral-300 hover:text-emerald-300">
-              Drives
-            </Link>
-            {" · "}
-            <Link to={appPath("/charges")} className="text-neutral-300 hover:text-emerald-300">
-              Charges
-            </Link>
-          </span>
-          )}
-          </>
+<PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />
         }
       />
       {early && <EarlyMonthNote />}
@@ -183,21 +166,19 @@ export default function ActivityPage() {
             </button>
           ))}
         </div>
-        {next && (
-          <div role="group" aria-label="View" data-activity-views className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
-            {ACTIVITY_VIEWS.map((v) => (
-              <button
-                key={v.key}
-                type="button"
-                aria-pressed={view === v.key}
-                onClick={() => setParams(withActivityView(params, v.key), { replace: true })}
-                className={`rounded-md px-3 py-1.5 ${view === v.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div role="group" aria-label="View" data-activity-views className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+          {ACTIVITY_VIEWS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              aria-pressed={view === v.key}
+              onClick={() => setParams(withActivityView(params, v.key), { replace: true })}
+              className={`rounded-md px-3 py-1.5 ${view === v.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {view === "efficiency" ? (

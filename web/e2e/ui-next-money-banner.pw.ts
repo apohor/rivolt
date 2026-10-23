@@ -7,7 +7,6 @@ test("sample-data banner is above the Money grid, full width, in next-mode deskt
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.theme", "dark");
   });
   await stubApi(page);
@@ -32,7 +31,6 @@ test("next desktop: Money's receipts card matches the left column's top and bott
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.theme", "dark");
   });
   await stubApi(page);

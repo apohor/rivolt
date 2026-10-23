@@ -14,7 +14,6 @@ for (const route of ["/settings?tab=account", "/onboarding"] as const) {
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {
-          localStorage.setItem("rivolt.ui.next", "on");
           localStorage.setItem("rivolt.theme", t);
         }, [theme]);
         await stubApi(page, { rivian: "disconnected" });

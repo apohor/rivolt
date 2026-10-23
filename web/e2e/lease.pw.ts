@@ -34,7 +34,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await mock(page, TERMS, STATUS);
@@ -74,23 +73,19 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
-test("no lease: the Truck card is hidden; flag off: hidden too", async ({ browser }) => {
-  for (const [ui, terms, status] of [["on", null, null], ["off", TERMS, STATUS]] as const) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    const page = await ctx.newPage();
-    await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
-    await mock(page, terms, status);
-    await page.goto("/truck");
-    await expect(page.getByText("Battery capacity")).toBeVisible();
-    await expect(page.locator("[data-lease-state]")).toHaveCount(0);
-    await ctx.close();
-  }
+test("no lease: the Truck card is hidden", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  await mock(page, null, null);
+  await page.goto("/truck");
+  await expect(page.getByText("Battery capacity")).toBeVisible();
+  await expect(page.locator("[data-lease-state]")).toHaveCount(0);
+  await ctx.close();
 });
 
 test("Settings: lease form validates, saves in miles, and removes", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await mock(page, null, null);
   await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
   let put: unknown = null;
@@ -129,7 +124,6 @@ test("Settings: lease form validates, saves in miles, and removes", async ({ bro
 test("Settings: an existing lease loads into the form and can be removed", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await mock(page, TERMS, STATUS);
   await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
   let deleted = false;
@@ -152,7 +146,6 @@ test("Settings: an existing lease loads into the form and can be removed", async
 test("a stale odometer pauses the figures and says why", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 900 } });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await mock(page, TERMS, {
     ...STATUS, used_mi: null, ahead_behind_mi: null, projected_total_mi: null, projected_return_odometer_mi: null,
     projected_overage_mi: null, projected_overage_cost: null, miles_per_day_budget: null, pace_mi_per_day: null, odometer_at: "2026-10-02T12:00:00Z",
@@ -185,7 +178,6 @@ for (const [name, status] of [["on-plan", ON_PLAN], ["over", STATUS], ["stale", 
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {
-          localStorage.setItem("rivolt.ui.next", "on");
           localStorage.setItem("rivolt.theme", t);
         }, [theme]);
         await mock(page, TERMS, status);
@@ -206,7 +198,6 @@ for (const theme of ["dark", "light"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: theme });
     const page = await ctx.newPage();
     await page.addInitScript(([t]) => {
-      localStorage.setItem("rivolt.ui.next", "on");
       localStorage.setItem("rivolt.theme", t);
     }, [theme]);
     await mock(page, null, null);
@@ -226,7 +217,6 @@ test("km mode: the heading, the projection and the overage-rate hint follow the 
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km", temperatureUnit: "c" }));
   });
   await mock(page, TERMS, STATUS);
@@ -246,7 +236,6 @@ test("km mode: the heading, the projection and the overage-rate hint follow the 
 test("/settings#lease opens the Vehicle tab and scrolls to the Lease card", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 700 } });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await mock(page, null, null);
   await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
   await page.goto("/settings#lease");

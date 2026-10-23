@@ -3,9 +3,8 @@ import { stubApi } from "./stub";
 
 // Money says "Fast" for fast charging (bar legend, filter chip, receipt tag), like Now and
 // Activity; "DCFC" stays an internal value.
-for (const ui of ["off", "on"] as const) {
+for (const ui of ["on"] as const) {
   test(`Money names fast charging "Fast", not "DCFC" · ui ${ui}`, async ({ page }) => {
-    await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
     await stubApi(page, { scenario: "parked" });
     await page.goto("/money");
     await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();

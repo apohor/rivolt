@@ -16,7 +16,6 @@
 // the fallback shape until then. Drive maps render the polyline
 // from raw GPS first anyway and overlay snapped roads when the
 // match call returns; a one-tick delay on first render is invisible.
-import { setServerUiNext } from "./uiNext";
 import { useEffect, useState } from "react";
 import { inDemo } from "./demo";
 export type RuntimeConfig = {
@@ -185,8 +184,6 @@ export function ensureConfig(): Promise<RuntimeConfig> {
     inflight = loadConfig().then((c) => {
       cached = c;
       configLoaded = true;
-      // The admin site has no /api/ledger/enabled (it 404s there): the new look is simply on.
-      if (c.features.adminOnly) setServerUiNext(true);
       return c;
     });
   }

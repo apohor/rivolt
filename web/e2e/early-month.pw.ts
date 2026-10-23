@@ -21,7 +21,6 @@ const charge = (id: string, at: string) => ({
 });
 
 async function open(page: Page, now: Date, path: string, rows: { drives: unknown[]; charges: unknown[] }) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.clock.setFixedTime(now);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });

@@ -209,7 +209,6 @@ test("demo planner: ?preset= opens that sample trip", async ({ page }) => {
 
 // The demo's Truck tab shows the cold-range card with sample figures and calls only the allowlisted endpoint.
 test("demo Truck: the range-at-temperatures card shows sample figures", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { demo: true, signedIn: false });
   const bad = watch(page);
   await page.goto("/demo/truck");

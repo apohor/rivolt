@@ -15,7 +15,6 @@ const base = DEMO_PLAN.costs[0];
 const stop = (price: unknown, low: number | null, high: number | null) => ({ ...base.breakdown[0], price, cost_low: low, cost_high: high });
 
 async function open(page: Page, next: boolean, cost: Record<string, unknown>) {
-  if (next) await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { demo: true, signedIn: false });
   await page.route(/\/api\/demo\/trips\/[a-z0-9-]+\/plan$/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...DEMO_PLAN, costs: [cost] }) }));
   await page.goto("/demo/trips/plan");

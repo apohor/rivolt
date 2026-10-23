@@ -12,7 +12,6 @@ const j = (b: unknown, status = 200) => ({ status, contentType: "application/jso
 const TEXT = "Outside temperature: Rivian doesn't report it, so Rivolt looks it up from Open-Meteo using your truck's location rounded to about 11 km, at most every 30 minutes and only while you have Rivolt open. Off by default.";
 
 async function open(page: Page, o: { enabled: boolean }) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { nowEndpoint: true });
   const puts: { enabled: boolean }[] = [];
   let enabled = o.enabled;

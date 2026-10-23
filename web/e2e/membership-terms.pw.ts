@@ -16,7 +16,6 @@ const ROWS = [
 ];
 
 async function open(page: Page, respond: (r: import("@playwright/test").Route) => Promise<void>) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/settings/charging/membership-terms", respond);
   await page.goto("/settings?tab=charging");

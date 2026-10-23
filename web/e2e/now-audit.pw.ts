@@ -9,7 +9,6 @@ for (const w of [390, 1280] as const) {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
     const page = await ctx.newPage();
     await page.addInitScript(() => {
-      localStorage.setItem("rivolt.ui.next", "on");
       localStorage.setItem("rivolt.period", JSON.stringify({ kind: "month", offset: 0 }));
     });
     await stubApi(page, { scenario: "parked" });
@@ -27,7 +26,6 @@ for (const w of [390, 1280] as const) {
 
 test("Charging locations percents are the kWh shares and add up to 100", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
   });
   await stubApi(page, { scenario: "parked" });
@@ -59,7 +57,6 @@ test("Charging locations percents are the kWh shares and add up to 100", async (
 
 test("All time: the miles chart spans the recorded data, not a 30-day window", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
   });
   await stubApi(page, { scenario: "parked" });
@@ -74,7 +71,6 @@ test("All time: the miles chart spans the recorded data, not a 30-day window", a
 });
 
 test("Money compares a month in progress with the same days of the last month", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
   // Mid-month of the fixtures' month (set after stubApi so a pinned run keeps it):
   // on the 1st there's no earlier spend to compare "Oct 1–1" with, so the app rightly
@@ -88,11 +84,3 @@ test("Money compares a month in progress with the same days of the last month", 
   await expect(hero).toContainText(new RegExp(`vs [A-Za-z]+ 1–${day}(?!\\d)`));
 });
 
-test("flag off: Money still compares with the whole last month", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "off"));
-  await stubApi(page, { scenario: "parked" });
-  await page.goto("/money");
-  const hero = page.getByRole("region", { name: "Statement" });
-  await expect(hero).toBeVisible();
-  await expect(hero).not.toContainText(/vs [A-Za-z]+ 1–\d+/);
-});

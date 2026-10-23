@@ -14,7 +14,6 @@ const M = [
 ];
 
 async function open(page: Page, opts: { status?: number; dismissStatus?: number } = {}) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const dismissed: Record<string, unknown>[] = [];
   await page.route("**/api/milestones", (r) =>

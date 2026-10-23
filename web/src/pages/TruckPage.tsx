@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { periodRange, sleepWindow, usePeriod } from "../lib/period";
-import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -50,12 +49,10 @@ export default function TruckPage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  // ui_theme_next: the shared calendar scope drives the sleep chart; off keeps
-  // the fixed last 30 days.
-  const next = useUiNext();
+  // The shared calendar scope drives the sleep chart.
   const [period, setPeriod] = usePeriod();
   const range = useMemo(() => periodRange(period), [period]);
-  const win = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
+  const win = useMemo(() => sleepWindow(range), [range]);
   const since = useMemo(
     () => win?.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString(),
     [win],
@@ -99,7 +96,7 @@ export default function TruckPage() {
         subtitle={name}
         actions={
           <>
-            {next && <PeriodPicker value={period} onChange={setPeriod} />}
+            <PeriodPicker value={period} onChange={setPeriod} />
             <VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />
           </>
         }
@@ -113,13 +110,13 @@ export default function TruckPage() {
       <DrainCard vehicleID={selectedID} />
 
       {/* The demo has no lease (and its API has no such call): no card, no 404 in the console. */}
-      {next && !inDemo() && <LeaseCard vehicleID={selectedID} />}
+      {!inDemo() && <LeaseCard vehicleID={selectedID} />}
 
       <BatteryCapacityCard vehicleID={selectedID} />
 
-      {next && selectedID && <TrendsCard vehicleID={selectedID} />}
+      {selectedID && <TrendsCard vehicleID={selectedID} />}
 
-      {next && selectedID && <ColdRangeCard vehicleID={selectedID} />}
+      {selectedID && <ColdRangeCard vehicleID={selectedID} />}
 
       <Card id="sleep" title="Sleep and idle-awake" span="full">
         {sleep.trouble && (

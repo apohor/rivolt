@@ -10,23 +10,15 @@ import { stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-async function open(page: import("@playwright/test").Page, state: "on" | "off") {
-  await page.addInitScript((s) => {
-    localStorage.setItem("rivolt.ui.next", s);
+async function open(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
     localStorage.setItem("rivolt.theme", "dark");
-  }, state);
+  });
   await stubApi(page);
 }
 
-test("flag off: the rolling window picker is unchanged and there is no calendar scope", async ({ page }) => {
-  await open(page, "off");
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "30 days" })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Time scope" })).toHaveCount(0);
-});
-
 test("next: Week/Month/Year/All/Custom, stepping, persistence and sharing across pages", async ({ page }) => {
-  await open(page, "on");
+  await open(page);
   await page.goto("/");
   const scope = page.getByRole("group", { name: "Time scope" });
   await expect(scope).toBeVisible();
@@ -62,7 +54,7 @@ test("next: Week/Month/Year/All/Custom, stepping, persistence and sharing across
 });
 
 test("next: a sleep-activity request carries the period's since and until", async ({ page }) => {
-  await open(page, "on");
+  await open(page);
   const urls: string[] = [];
   page.on("request", (r) => { if (r.url().includes("/api/sleep-activity")) urls.push(r.url()); });
   await page.goto("/");
@@ -77,7 +69,7 @@ for (const v of [
   test(`next: scope screenshots and axe · ${v.name} · dark`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await open(page, "on");
+    await open(page);
     await page.addInitScript(() =>
       localStorage.setItem("rivolt.period", JSON.stringify({ kind: "custom", offset: 0, from: "2026-10-03", to: "2026-10-17" })),
     );
@@ -100,7 +92,7 @@ for (const v of [
 test("next desktop: the hero card and the KPI grid share top and bottom edges; the scope sits in the page header", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, "on");
+  await open(page);
   await page.goto("/");
   const hero = page.locator("[data-ui-hero]").first();
   const kpi = page.locator("[data-ui-area='kpi']");
@@ -121,7 +113,7 @@ for (const url of ["/", "/activity", "/truck"]) {
   test(`next: the scope header is sticky under the nav on scroll · ${url}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 600 }, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await open(page, "on");
+    await open(page);
     // All time: enough rows to scroll under the nav whatever the date (in a month's
     // first minutes "this month" has almost nothing on /activity).
     await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
@@ -141,7 +133,7 @@ for (const url of ["/", "/activity", "/truck"]) {
 test("next phone: a compact scope bar; tapping the label opens the choices", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, "on");
+  await open(page);
   await page.goto("/");
   const scope = page.getByRole("group", { name: "Time scope" });
   // No full segmented row inline on a phone.

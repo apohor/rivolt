@@ -37,7 +37,6 @@ for (const v of [
   test(`multi-day plan vs actual: a block per day, each day links on its own · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     await page.route("**/api/trips/saved", (r) =>
       r.fulfill({

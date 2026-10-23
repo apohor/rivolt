@@ -56,7 +56,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await stubApi(page, { demo: true, signedIn: false });
@@ -86,7 +85,6 @@ for (const theme of ["dark", "light"] as const) {
 test("planner type scale · signed-in form", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.goto("/trips/plan");
   await expect(page.getByRole("button", { name: "Plan trip" })).toBeVisible();

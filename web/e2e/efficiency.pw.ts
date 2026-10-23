@@ -35,7 +35,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
         localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
       }, [theme]);
@@ -90,7 +89,6 @@ for (const theme of ["dark", "light"] as const) {
 test("not enough data says so, and an older server says it isn't available", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   let page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await open(page, { ...FULL, total: { ...FULL.total, efficiency: 2.2, not_enough_data: true, drives: 2 } });
   await expect(page.locator("[data-eff-state='not-enough']")).toContainText("Not enough data yet");
   await expect(page.locator("[data-eff-chart]")).toHaveCount(0);
@@ -101,14 +99,11 @@ test("not enough data says so, and an older server says it isn't available", asy
   await ctx.close();
 });
 
-test("the view switcher shows Efficiency in the new look only", async ({ browser }) => {
-  for (const ui of ["on", "off"] as const) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    const page = await ctx.newPage();
-    await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
-    await stubApi(page, { scenario: "parked" });
-    await page.goto("/activity");
-    await expect(page.getByRole("button", { name: "Efficiency", exact: true })).toHaveCount(ui === "on" ? 1 : 0);
-    await ctx.close();
-  }
+test("the view switcher shows Efficiency", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  await stubApi(page, { scenario: "parked" });
+  await page.goto("/activity");
+  await expect(page.getByRole("button", { name: "Efficiency", exact: true })).toHaveCount(1);
+  await ctx.close();
 });

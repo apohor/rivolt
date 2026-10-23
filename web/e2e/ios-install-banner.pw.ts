@@ -7,7 +7,6 @@ const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebK
 test("shown once on Now, not on other screens, and not on the next visit", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", userAgent: IPHONE });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const banner = page.getByText(/Add to Home Screen/);
   await page.goto("/");
@@ -29,7 +28,6 @@ test("shown once on Now, not on other screens, and not on the next visit", async
 test("a browser that is not an iPhone never shows it", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.goto("/");
   await page.waitForTimeout(800);

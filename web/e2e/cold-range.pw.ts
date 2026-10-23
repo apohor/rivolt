@@ -19,7 +19,6 @@ const sparse = (t: number) => ({ ...base, temp_c: t, reason: "not_enough_data", 
 
 async function open(page: Page, answer: (t: number) => { status?: number; body: unknown }) {
   await page.addInitScript(() => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ temperatureUnit: "f", temperatureUnitSet: true, distanceUnit: "mi" }));
   });
   await stubApi(page);

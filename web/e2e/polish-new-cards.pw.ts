@@ -15,7 +15,6 @@ const COLD = { units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh"
 
 async function truck(page: Page, theme: "dark" | "light") {
   await page.addInitScript(([t]) => {
-    localStorage.setItem("rivolt.ui.next", "on");
     localStorage.setItem("rivolt.theme", t);
   }, [theme]);
   await stubApi(page, { drain: "ok" });

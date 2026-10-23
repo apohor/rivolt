@@ -3,7 +3,6 @@ import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
 import { ArcGauge } from "./ArcGauge";
 import { PowerSpark } from "./PowerSpark";
-import { useUiNext } from "../lib/uiNext";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -197,7 +196,6 @@ export default function NowCard({
     });
   }, [state, nowMs, tracker, openCharge, server, packKwh, homeQ.data, chargingQ.data]);
 
-  const next = useUiNext(); // a hook: must run before the early returns below
   const driveQ = useQuery({
     queryKey: ["rivian", "live-drive", vehicleID],
     queryFn: () => backend.liveDrive(vehicleID),
@@ -281,7 +279,6 @@ export default function NowCard({
           </span>
         </div>
 
-        {next ? (
           <div className="mt-3 flex items-center gap-5">
             <ArcGauge
               value={view.soc}
@@ -327,31 +324,8 @@ export default function NowCard({
               )}
             </div>
           </div>
-        ) : (
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          {view.kind === "driving" && view.speedMph != null ? (
-            <>
-              <span className={`text-5xl font-semibold tabular-nums ${tone}`}>
-                {Math.round(view.speedMph)}
-                <span className="ml-1 text-lg font-normal text-neutral-500">mph</span>
-              </span>
-              <span className="text-lg tabular-nums text-neutral-300">{Math.round(view.soc)}%</span>
-            </>
-          ) : (
-            <>
-              <span className={`text-5xl font-semibold tabular-nums ${tone}`}>
-                {view.soc > 0 ? Math.round(view.soc) : "—"}
-                <span className="ml-0.5 text-2xl font-normal text-neutral-500">%</span>
-              </span>
-              {view.rangeMi != null && (
-                <span className="text-lg tabular-nums text-neutral-400">{Math.round(view.rangeMi)} mi</span>
-              )}
-            </>
-          )}
-        </div>
-        )}
 
-        {next && view.kind === "charging" && powerHist.length >= 2 && (
+        {view.kind === "charging" && powerHist.length >= 2 && (
           <div className="mt-3 flex items-center gap-3">
             <span className="ui-label shrink-0">Power</span>
             <PowerSpark values={powerHist} />
@@ -362,14 +336,10 @@ export default function NowCard({
           </div>
         )}
 
-        {!next && (view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
-          <LimitBar soc={view.soc} limit={view.limitPct} />
-        )}
-
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           {details(view, tracker, driveQ.data ?? null, nowMs, currency)
             // the sparkline row already shows the live power
-            .filter((d) => !(next && view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
+            .filter((d) => !(view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
             .map((d) => (
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
@@ -378,8 +348,8 @@ export default function NowCard({
             </div>
           ))}
         </dl>
-        {next && <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />}
-        {next && comfort.length > 0 && (
+        <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />
+        {comfort.length > 0 && (
           <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
             {comfort.join(" · ")}
           </p>
@@ -475,19 +445,4 @@ function details(
     else if (v.chargeFlavor === "dcfc") rows.push({ k: "Price", v: "Estimated when it ends" });
   }
   return rows;
-}
-
-function LimitBar({ soc, limit }: { soc: number; limit: number | null }) {
-  const s = Math.max(0, Math.min(100, soc));
-  return (
-    <div className="mt-3" aria-hidden>
-      <div className="relative h-2 rounded-full bg-neutral-800">
-        <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${s}%` }} />
-        {limit != null && (
-          <div className="absolute -top-1 h-4 w-0.5 bg-neutral-200" style={{ left: `${Math.min(100, limit)}%` }} />
-        )}
-      </div>
-      {limit != null && <p className="mt-1 text-right text-[11px] text-neutral-500">Limit {Math.round(limit)}%</p>}
-    </div>
-  );
 }

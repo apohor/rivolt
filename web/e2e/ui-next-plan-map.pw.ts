@@ -17,7 +17,6 @@ for (const who of ["signed-in", "demo"] as const) {
         const ctx = await browser.newContext({ viewport: { width: w, height: w === 390 ? 844 : 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {
-          localStorage.setItem("rivolt.ui.next", "on");
           localStorage.setItem("rivolt.theme", t);
         }, [theme]);
         if (who === "demo") {

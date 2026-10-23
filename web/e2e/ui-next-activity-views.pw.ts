@@ -8,13 +8,12 @@ import { stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-async function open(page: Page, state: "on" | "off", demo = false) {
-  await page.addInitScript((s) => {
-    localStorage.setItem("rivolt.ui.next", s);
+async function open(page: Page, demo = false) {
+  await page.addInitScript(() => {
     localStorage.setItem("rivolt.theme", "dark");
     // The stub's rows are a few hours to days old: show all time.
     localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
-  }, state);
+  });
   await stubApi(page, demo ? { demo: true, signedIn: false } : {});
 }
 
@@ -24,7 +23,7 @@ for (const vp of [
 ]) {
   test(`next: Feed, Table and Map views render at ${vp.name}`, async ({ page }) => {
     await page.setViewportSize(vp.size);
-    await open(page, "on");
+    await open(page);
     await page.goto("/activity");
     const views = page.getByRole("group", { name: "View" });
     await expect(views).toBeVisible();
@@ -62,7 +61,7 @@ for (const vp of [
 }
 
 test("next: a table row opens its drive; ?view survives a reload", async ({ page }) => {
-  await open(page, "on");
+  await open(page);
   await page.goto("/activity?view=table");
   await expect(page.locator("[data-activity-view='table'] table").first()).toBeVisible();
   await page.reload();
@@ -71,16 +70,8 @@ test("next: a table row opens its drive; ?view survives a reload", async ({ page
   await expect(page).toHaveURL(/\/drives\/[^/]+$/);
 });
 
-test("flag off: no view switcher, ?view is ignored, the Tables links stay", async ({ page }) => {
-  await open(page, "off");
-  await page.goto("/activity?view=table");
-  await expect(page.getByRole("group", { name: "View" })).toHaveCount(0);
-  await expect(page.locator("[data-activity-view]")).toHaveCount(0);
-  await expect(page.getByText("Tables:")).toBeVisible();
-});
-
 test("demo: tables render read-only and keep tab=activity", async ({ page }) => {
-  await open(page, "on", true);
+  await open(page, true);
   await page.goto("/demo/activity?view=table");
   await expect(page.locator("[data-activity-view='table'] table").first()).toBeVisible();
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Map" }).click();

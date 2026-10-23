@@ -46,7 +46,6 @@ for (const theme of ["dark", "light"] as const) {
       const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => {
-        localStorage.setItem("rivolt.ui.next", "on");
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await stubApi(page, { scenario: "parked" });
@@ -92,9 +91,8 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
-for (const ui of ["off", "on"] as const) {
+for (const ui of ["on"] as const) {
   test(`without the flag nothing changes · ui ${ui}`, async ({ page }) => {
-    await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s), ui);
     await stubApi(page, { scenario: "parked" });
     const m = withReceipts(false);
     await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: m }));
@@ -106,7 +104,6 @@ for (const ui of ["off", "on"] as const) {
 }
 
 test("a partly billed receipt says so and notes the billed part", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
   const m = withReceipts(true);
   const i = m.receipts.findIndex((r) => r.session_count >= 2 && r.place === "away");

@@ -57,16 +57,6 @@ const StatementEmailName = "statement_email_enabled"
 // MoneyTabState; off when the row is missing or malformed.
 const DCFCAutoNetworkName = "dcfc_auto_network"
 
-// UIThemeNextName turns on the "next" visual theme (the cinematic
-// cockpit layer) per user. Same shape as MoneyTabState ({"all": true} or
-// {"users": [...]}); off when the row is missing or malformed. Flipped
-// over psql like money_tab_enabled:
-//
-//	INSERT INTO flags (name, value, updated_by)
-//	VALUES ('ui_theme_next', '{"users":["<user uuid>"]}', 'ops')
-//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
-const UIThemeNextName = "ui_theme_next"
-
 // RivianReceiptsName gates the sync of Rivian's charging receipts (what
 // Rivian billed per session) into charges.receipt_*. Same shape as
 // MoneyTabState; off when the row is missing or malformed, so the extra
@@ -338,7 +328,6 @@ type Store struct {
 	moneyTab       atomic.Pointer[MoneyTabState]
 	statementEmail atomic.Pointer[MoneyTabState]
 	dcfcAutoNet    atomic.Pointer[MoneyTabState]
-	uiThemeNext    atomic.Pointer[MoneyTabState]
 	rivianReceipts atomic.Pointer[MoneyTabState]
 	inactivePurge  atomic.Pointer[InactivePurgeState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
@@ -409,7 +398,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, UIThemeNextName, RivianReceiptsName, InactiveAccountPurgeName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, RivianReceiptsName, InactiveAccountPurgeName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -422,7 +411,6 @@ func (s *Store) refresh(ctx context.Context) error {
 	moneyTab := MoneyTabState{}
 	statementEmail := MoneyTabState{}
 	dcfcAutoNet := MoneyTabState{}
-	uiThemeNext := MoneyTabState{}
 	rivianReceipts := MoneyTabState{}
 	inactivePurge := InactivePurgeState{}
 	wakeSafety := WakeSafetyState{}
@@ -469,12 +457,6 @@ func (s *Store) refresh(ctx context.Context) error {
 				s.logger.Warn("flags: dcfc_auto_network malformed, treating as off", "err", err.Error())
 				dcfcAutoNet = MoneyTabState{}
 			}
-		case UIThemeNextName:
-			// A visual opt-in: a malformed row reads as off.
-			if err := json.Unmarshal(raw, &uiThemeNext); err != nil {
-				s.logger.Warn("flags: ui_theme_next malformed, treating as off", "err", err.Error())
-				uiThemeNext = MoneyTabState{}
-			}
 		case InactiveAccountPurgeName:
 			// It deletes data: a malformed row reads as off, never as on.
 			if err := json.Unmarshal(raw, &inactivePurge); err != nil {
@@ -507,7 +489,6 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.moneyTab.Store(&moneyTab)
 	s.statementEmail.Store(&statementEmail)
 	s.dcfcAutoNet.Store(&dcfcAutoNet)
-	s.uiThemeNext.Store(&uiThemeNext)
 	s.rivianReceipts.Store(&rivianReceipts)
 	s.inactivePurge.Store(&inactivePurge)
 	s.wakeSafety.Store(&wakeSafety)
@@ -568,19 +549,6 @@ func (s *Store) DCFCAutoNetwork() MoneyTabState {
 		return MoneyTabState{}
 	}
 	p := s.dcfcAutoNet.Load()
-	if p == nil {
-		return MoneyTabState{}
-	}
-	return *p
-}
-
-// UIThemeNext returns the cached per-user "next" theme flag
-// (Enabled(userID)). Lock-free; off when the row is missing.
-func (s *Store) UIThemeNext() MoneyTabState {
-	if s == nil {
-		return MoneyTabState{}
-	}
-	p := s.uiThemeNext.Load()
 	if p == nil {
 		return MoneyTabState{}
 	}

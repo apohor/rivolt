@@ -22,7 +22,6 @@ const drive = (o: Record<string, unknown> = {}) => ({
 });
 
 async function open(page: Page, o: { charges?: unknown[]; drives?: unknown[]; rate?: number; lease?: boolean; routes?: () => Promise<void> } = {}) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route(/\/api\/charges(\?|$)/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o.charges ?? [charge()]) }));
   await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o.drives ?? [drive()]) }));

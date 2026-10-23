@@ -18,7 +18,6 @@ for (const v of [
   test(`download CSV: the link, the request and the file · ${v.w}px ${v.scheme}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: v.w, height: 900 }, colorScheme: v.scheme, acceptDownloads: true, timezoneId: "America/Chicago" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page, { scenario: "parked" });
     await page.route("**/api/ledger/monthly?**", (r) => r.fulfill({ json: ledgerMonthFixture(currentMonth(NOW), NOW) }));
     const csvReqs: string[] = [];
@@ -55,7 +54,6 @@ for (const v of [
 test("download CSV: a month with nothing to show has no live link", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
   const empty = ledgerMonthFixture(currentMonth(NOW), NOW);
   empty.energy.sessions = 0;

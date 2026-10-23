@@ -8,7 +8,6 @@ for (const w of [390, 1280] as const) {
   test(`#lease ends with the Lease card at the top after late layout · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 844 } });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page, { scenario: "parked", drain: "ok" });
     const terms = { start_date: "2024-11-03", end_date: "2027-11-03", start_odometer_mi: 12, allowed_miles_total: 36000, overage_per_mile: 0.25, currency: "USD" };
     await page.route(`**/api/vehicles/${VEHICLE_ID}/lease`, async (r) => {
@@ -37,7 +36,6 @@ for (const w of [390, 1280] as const) {
 // #statement-email has to open the Notifications tab, where the Monthly statement card lives, and bring it into view.
 test("#statement-email opens the Notifications tab with the Monthly statement card in view", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked", drain: "ok" });
   await page.goto("/settings#statement-email");
   const card = page.locator("#statement-email");

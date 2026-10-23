@@ -15,7 +15,6 @@ const NOW = new Date(e2eNow());
 const LAST = shiftMonth(currentMonth(NOW), -1);
 
 async function open(page: Page, answer: (month: string) => object, asked: string[]) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
   await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: ledgerMonthFixture(currentMonth(NOW), NOW) }));
   await page.route("**/api/ledger/savings**", (r) => {
@@ -81,7 +80,6 @@ test("savings: states with no number say what is missing and link to it", async 
 test("savings: a server without the endpoint shows no card", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { scenario: "parked" });
   await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: ledgerMonthFixture(currentMonth(NOW), NOW) }));
   await page.route("**/api/ledger/savings**", (r) => r.fulfill({ status: 404, json: { error: "not found" } }));

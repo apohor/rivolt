@@ -7,7 +7,6 @@ const pt = (label: string, lat: number, lon: number) => ({ lat, lon, label });
 const INPUTS = (departure_at: string) => ({ origin: pt("Chicago", 41.88, -87.63), destination: pt("Denver", 39.74, -104.99), extra_stops: [], overnight_flags: [], departure_at });
 
 async function open(page: Page, departure_at: string, withPlan = false) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
   const bodies: Record<string, unknown>[] = [];

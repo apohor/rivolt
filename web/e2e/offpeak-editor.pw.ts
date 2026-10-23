@@ -11,7 +11,6 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 type Put = { tz: string; windows: { days: string; start: string; end: string; rate: number; label?: string }[] };
 
 async function open(page: Page, initial: Put, puts: Put[], fail?: string, field?: string) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/settings/charging/offpeak", (r) => {
     if (r.request().method() === "PUT") {

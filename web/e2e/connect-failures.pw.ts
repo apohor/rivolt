@@ -11,7 +11,6 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const j = (b: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(b) });
 
 async function open(page: Page, rivian: "disconnected" | "mfa", answer: { status: number; body: unknown }) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page, { rivian: rivian === "mfa" ? "disconnected" : rivian });
   const events: string[] = [];
   await page.route("**/api/events", (r) => {

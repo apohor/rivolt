@@ -38,7 +38,6 @@ const saved = (id: string, name: string, plan: unknown, extra: object = {}) => (
 });
 
 async function setup(page: Page, trips: object[]) {
-  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
   await page.route("**/api/trips/saved", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(trips) }));
   await page.goto("/trips/plan");

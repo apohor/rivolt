@@ -16,7 +16,6 @@ for (const v of [
   test(`demo Now shows the first-charge card and Three things · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page, { demo: true, signedIn: false });
     const calls: string[] = [];
     page.on("request", (r) => {
