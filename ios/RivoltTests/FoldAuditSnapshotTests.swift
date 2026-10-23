@@ -131,12 +131,7 @@ final class FoldAuditSnapshotTests: XCTestCase {
         try eachScreen("activity") { d in
             AnyView(screen(d, tab: "activity", title: "Activity", month: "Oct 2026") {
                 VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2 * Theme.unit) {
-                        ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) },
-                                       selection: .constant(.list), accessibilityName: "View", fillsWidth: true)
-                        ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) },
-                                       selection: .constant(.all))
-                    }
+                    ActivityControls(mode: .constant(.list), filter: .constant(.all), drawsMenuAsButton: true)
                     ForEach(days.prefix(4)) { day in
                         VStack(alignment: .leading, spacing: 12) {
                             ActivityDayHeader(day: day.day, calendar: cal)

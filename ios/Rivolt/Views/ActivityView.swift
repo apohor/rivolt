@@ -61,17 +61,7 @@ struct ActivityView: View {
         }
     }
 
-    /// The view (List, Map, Efficiency) on a row of its own, the filter (All, Drives, Charges) under it; no filter in
-    /// Efficiency, which is drives only.
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 2 * Theme.unit) {
-            ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode,
-                           accessibilityName: "View", fillsWidth: true)
-            if mode != .efficiency {
-                ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
-            }
-        }
-    }
+    private var controls: some View { ActivityControls(mode: $mode, filter: $filter) }
 
     private var listBody: some View {
         ScrollView {
@@ -182,5 +172,62 @@ struct ActivityView: View {
         if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] }
         guard let id = vehicleID else { return }
         await model.load(source: state.client, vehicleID: id, month: month, force: force, calendar: calendar)
+    }
+}
+
+/// The view (List, Map, Efficiency) on a row of its own, the filter (All, Drives, Charges) under it; no filter in
+/// Efficiency, which is drives only.
+struct ActivityControls: View {
+    @Binding var mode: ActivityMode
+    @Binding var filter: ActivityFilter
+    /// ImageRenderer can't draw a system Menu (it paints a placeholder), so the snapshot test shows the button the menu opens from.
+    var drawsMenuAsButton = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+            if typeSize.isAccessibilitySize {
+                viewMenu
+            } else {
+                ThemeSegmented(options: ActivityMode.allCases.map { ThemeSegmented<ActivityMode>.Option(id: $0, label: $0.label) }, selection: $mode,
+                               accessibilityName: "View", fillsWidth: true)
+            }
+            if mode != .efficiency {
+                ThemeSegmented(options: ActivityFilter.allCases.map { ThemeSegmented<ActivityFilter>.Option(id: $0, label: $0.label) }, selection: $filter)
+            }
+        }
+    }
+
+    /// At accessibility text sizes the three views would stack as three full-width rows and push every item below the fold
+    /// (the scroll audit), so the view control is one button that opens a menu: "View: List".
+    @ViewBuilder
+    private var viewMenu: some View {
+        if drawsMenuAsButton {
+            viewMenuLabel
+        } else {
+            Menu {
+                Picker("View", selection: $mode) {
+                    ForEach(ActivityMode.allCases) { Text($0.label).tag($0) }
+                }
+            } label: {
+                viewMenuLabel
+            }
+            .accessibilityLabel("View, \(mode.label)")
+            .accessibilityHint("Choose List, Map or Efficiency")
+        }
+    }
+
+    private var viewMenuLabel: some View {
+            HStack(spacing: 2 * Theme.unit) {
+                Text("View: \(mode.label)")
+                    .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
+                    .foregroundStyle(Theme.textPrimary)
+                Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+            .contentShape(Rectangle())
     }
 }
