@@ -180,6 +180,8 @@ struct ActivityView: View {
 struct ActivityControls: View {
     @Binding var mode: ActivityMode
     @Binding var filter: ActivityFilter
+    /// ImageRenderer can't draw a system Menu (it paints a placeholder), so the snapshot test shows the button the menu opens from.
+    var drawsMenuAsButton = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -198,12 +200,24 @@ struct ActivityControls: View {
 
     /// At accessibility text sizes the three views would stack as three full-width rows and push every item below the fold
     /// (the scroll audit), so the view control is one button that opens a menu: "View: List".
+    @ViewBuilder
     private var viewMenu: some View {
-        Menu {
-            Picker("View", selection: $mode) {
-                ForEach(ActivityMode.allCases) { Text($0.label).tag($0) }
+        if drawsMenuAsButton {
+            viewMenuLabel
+        } else {
+            Menu {
+                Picker("View", selection: $mode) {
+                    ForEach(ActivityMode.allCases) { Text($0.label).tag($0) }
+                }
+            } label: {
+                viewMenuLabel
             }
-        } label: {
+            .accessibilityLabel("View, \(mode.label)")
+            .accessibilityHint("Choose List, Map or Efficiency")
+        }
+    }
+
+    private var viewMenuLabel: some View {
             HStack(spacing: 2 * Theme.unit) {
                 Text("View: \(mode.label)")
                     .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body))
@@ -215,8 +229,5 @@ struct ActivityControls: View {
             .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
             .contentShape(Rectangle())
-        }
-        .accessibilityLabel("View, \(mode.label)")
-        .accessibilityHint("Choose List, Map or Efficiency")
     }
 }

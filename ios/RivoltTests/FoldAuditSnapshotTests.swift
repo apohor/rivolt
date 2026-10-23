@@ -131,7 +131,7 @@ final class FoldAuditSnapshotTests: XCTestCase {
         try eachScreen("activity") { d in
             AnyView(screen(d, tab: "activity", title: "Activity", month: "Oct 2026") {
                 VStack(alignment: .leading, spacing: 16) {
-                    ActivityControls(mode: .constant(.list), filter: .constant(.all))
+                    ActivityControls(mode: .constant(.list), filter: .constant(.all), drawsMenuAsButton: true)
                     ForEach(days.prefix(4)) { day in
                         VStack(alignment: .leading, spacing: 12) {
                             ActivityDayHeader(day: day.day, calendar: cal)
