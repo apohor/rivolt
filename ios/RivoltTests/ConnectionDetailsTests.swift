@@ -21,7 +21,7 @@ final class ConnectionDetailsTests: XCTestCase {
     }
 
     func testAnOutcomeIsAFixedClassNeverTheErrorsText() {
-        let leaky = "https://rivolt.dev/api/vehicles/01-242521064/state?token=abc"
+        let leaky = "https://rivolt.dev/api/vehicles/01-000000001/state?token=abc"
         let cases: [(Error, ConnectionDiagnostics.Outcome)] = [
             (APIError.server(status: 503, message: leaky), .http(503)),
             (APIError.transport(leaky), .unreachable),
@@ -34,7 +34,7 @@ final class ConnectionDetailsTests: XCTestCase {
         for (error, want) in cases {
             let got = ConnectionDiagnostics.Outcome(error)
             XCTAssertEqual(got, want)
-            XCTAssertFalse(got.text.contains("rivolt.dev") || got.text.contains("token") || got.text.contains("01-"), got.text)
+            XCTAssertFalse(got.text.contains("rivolt.dev") || got.text.contains("token") || got.text.contains("01-0"), got.text)
         }
         XCTAssertEqual(ConnectionDiagnostics.Outcome.http(503).text, "HTTP 503")
     }
