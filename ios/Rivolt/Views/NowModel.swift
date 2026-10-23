@@ -46,6 +46,9 @@ struct NowSummary: Equatable {
     /// From `/now`: failed sleeps in the last 6 hours and the lowest tire pressure.
     let failedSleeps6h: Int?
     let tireMinBar: Double?
+    /// Set by the screen when the numbers are older than its last read of the server, so "Offline" would be our cache
+    /// speaking, not the truck: the presence reads stale until the server has been asked again (see `NowFreshness`).
+    var holdOffline = false
 
     /// The few fields the card works from. The widget builds this directly from
     /// the fields it decodes (it never decodes a location), the app from a full
@@ -135,7 +138,7 @@ struct NowSummary: Equatable {
     enum Presence: Equatable { case live, stale, offline }
 
     var presence: Presence {
-        guard let age = ageSec else { return .offline }
+        guard let age = ageSec else { return holdOffline ? .stale : .offline }
         let limits: (stale: TimeInterval, offline: TimeInterval)
         switch kind == .plugged ? (sleeping ? NowSnapshot.State.asleep : .parked) : kind {
         case .driving: limits = (30, 180)
@@ -143,7 +146,7 @@ struct NowSummary: Equatable {
         case .asleep: limits = (1800, 2700)
         default: limits = (120, 900)
         }
-        if age > limits.offline { return .offline }
+        if age > limits.offline { return holdOffline ? .stale : .offline }
         return age > limits.stale ? .stale : .live
     }
 
