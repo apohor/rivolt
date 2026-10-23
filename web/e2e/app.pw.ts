@@ -146,6 +146,12 @@ for (const view of views) {
           await expect(page.getByRole("status").filter({ hasText: /Rivian|reach its server/ })).toHaveCount(0);
         }
         if (view.name === "truck") {
+          // Sleep health: this week against the truck's own 30 days, neutral about why, and never "slept normally".
+          const health = page.locator("[data-sleep-health]");
+          await expect(health).toContainText("Woke 4 more times than usual this week.");
+          await expect(health).toContainText("9 short sleeps (under a minute) this week; about 5 in a usual week.");
+          await expect(health).toContainText("Compared with this truck's own last 30 days.");
+          await expect(health).not.toContainText(/slept normally|because|caused|key|app/i);
           // Tires: four wheels from the last reading, its age always shown, and never "OK" or "unsafe" in our words.
           const tires = page.locator("[data-tires]");
           await expect(tires).toContainText("Front left");

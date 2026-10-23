@@ -60,6 +60,9 @@ func TestDemoAllowed(t *testing.T) {
 		// charger archive tiles
 		{"GET", "/api/vehicles/" + demoVeh + "/drain", true},
 		{"GET", "/api/vehicles/other/drain", false},
+		{"GET", "/api/vehicles/" + demoVeh + "/sleep-health", true},
+		{"GET", "/api/vehicles/other/sleep-health", false},
+		{"POST", "/api/vehicles/" + demoVeh + "/sleep-health", false},
 		{"POST", "/api/vehicles/" + demoVeh + "/drain", false},
 		{"GET", "/api/trips/saved/" + demoTripID + "/actual", true},
 		{"GET", "/api/trips/saved/not-a-uuid/actual", false},

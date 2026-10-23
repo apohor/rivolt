@@ -286,7 +286,7 @@ func demoPerDrivePath(p string) bool {
 // join or window-scan a lot of rows: parked drain, plan-vs-actual and the
 // savings estimate (a month of home sessions against the example schedule).
 func demoHeavyPath(p, vehicleID string) bool {
-	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
+	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/vehicles/"+vehicleID+"/sleep-health" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
 }
 
 // demoSavedTripActualPath reports whether p is
@@ -342,6 +342,7 @@ func demoAllowed(method, path, vehicleID string) bool {
 	}
 	return demoPerDrivePath(p) || demoSavedTripActualPath(p) ||
 		p == "/api/vehicles/"+vehicleID+"/drain" ||
+		p == "/api/vehicles/"+vehicleID+"/sleep-health" ||
 		p == "/api/state/"+vehicleID ||
 		p == "/api/vehicles/"+vehicleID+"/now" ||
 		p == "/api/vehicles/"+vehicleID+"/pack-health" ||

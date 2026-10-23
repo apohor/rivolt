@@ -48,6 +48,7 @@ describe("TruckPage loading states", () => {
     stubFetch({
       "/api/settings/rivian": ok({ enabled: true, authenticated: true, mfa_pending: false }),
       "/api/vehicles/v1/drain": never,
+      "/api/vehicles/v1/sleep-health": never,
       "/api/vehicles/v1/state": ok({}),
       "/api/vehicles/v1/pack-health": ok({ samples: [], headline: {} }),
       "/api/sleep-activity": never,
