@@ -48,6 +48,7 @@ var forbidden = []struct{ name, why string }{
 	{"RIVOLT_DRAIN_METRICS_INTERVAL", "the drain collector (a worker)"},
 	{"RIVOLT_ENGAGEMENT_EMAILS", "engagement mail and the inactive purge (workers)"},
 	{"RIVOLT_READONLY_ROLE", "the reporting-role grant loop (a worker)"},
+	{"RIVOLT_APP_ROLE", "the request-role grant loop (a worker)"},
 }
 
 // Problems lists everything wrong with the environment for an admin-only
