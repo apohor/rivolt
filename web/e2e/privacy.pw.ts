@@ -25,7 +25,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc).toContainText("We do not sell your data");
       // The operator and publication date are filled in; placeholders and draft furniture are gone,
       // and the Terms reference links to section 2.
-      await expect(doc).toContainText("Anton Pohorilyi");
+      await expect(doc).toContainText("ZeroDowntime LLC, a Texas limited liability company");
       await expect(doc).toContainText("Texas");
       await expect(doc).toContainText(LAST_UPDATED);
       const text = await doc.innerText();
@@ -33,7 +33,7 @@ for (const theme of ["dark", "light"] as const) {
       for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]"]) expect(text, gone).not.toContain(gone);
       // The Terms are published: the reference links to section 2.
       await expect(doc.getByRole("link", { name: "Terms", exact: true })).toHaveAttribute("href", "/terms#2");
-      await expect(doc.getByText("anton@rivolt.dev").first()).toBeVisible();
+      await expect(doc.getByText("support@rivolt.dev").first()).toBeVisible();
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `privacy-${w}-${theme}.png`), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);

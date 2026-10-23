@@ -1,11 +1,11 @@
 # Rivolt Terms of Service
 
-Last updated: October 17, 2026
+Last updated: October 23, 2026
 
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
 
-These Terms are an agreement between you and Anton Pohorilyi, an individual (not a company) based in Texas, United States, who runs Rivolt ("we", "us"). They apply to the hosted service at rivolt.dev. Self-hosted installs are covered by the MIT license alone (section 9). By creating an account, you agree to these Terms and confirm that you have read the [Privacy Policy](/privacy). How the Terms apply to accounts created before they were published is in section 11.
+These Terms are an agreement between you and ZeroDowntime LLC, a Texas limited liability company, which runs Rivolt ("we", "us"). They apply to the hosted service at rivolt.dev. Self-hosted installs are covered by the MIT license alone (section 9). By creating an account, you agree to these Terms and confirm that you have read the [Privacy Policy](/privacy). How the Terms apply to accounts created before they were published is in section 11.
 
 ## 2. Unofficial access to Rivian: the main risk
 Rivolt reads your vehicle data through Rivian's unofficial, undocumented interfaces, the same ones Rivian's own app uses. Rivian does not offer these interfaces to third parties, has not approved Rivolt, and may change, limit or block access at any time. You accept that:
@@ -51,10 +51,10 @@ Rivolt's source code is MIT licensed. If you self-host, these Terms and our Priv
 You can stop at any time by deleting your account. We may suspend or end the service or an account (for example to comply with a Rivian request, protect other users, or for abuse). Where practical we will give notice and let you export your data first. Accounts that never connect Rivian are deleted as described in the Privacy Policy ("Keeping, exporting and deleting": warning at day 90, deletion at day 120 and never less than 30 days after the warning). We may pause all Rivian access at any time using an operator kill switch.
 
 ## 11. Changes, contact, disputes and law
-- **Accepting these Terms.** New users agree to these Terms when they sign up. If your account was created before October 17, 2026, these Terms apply to your use of Rivolt from that date on; if you do not agree with them, stop using Rivolt and delete your account (Privacy Policy, "Keeping, exporting and deleting").
+- **Accepting these Terms.** New users agree to these Terms when they sign up. If your account was created before October 23, 2026, these Terms apply to your use of Rivolt from that date on; if you do not agree with them, stop using Rivolt and delete your account (Privacy Policy, "Keeping, exporting and deleting").
 - **Changes.** We may update these Terms. We will tell you about material changes by email and with an in-app notice at least 30 days before they take effect (the same as the Privacy Policy, "Changes"). If you keep using Rivolt after a change takes effect, the new Terms apply; if you do not agree, delete your account before then.
-- **Transfer.** We may transfer these Terms and the service to a company we control (for example, an LLC formed to run Rivolt) or to a new owner. We will email you at least 30 days beforehand, so you can export or delete your data first (Privacy Policy, "Changes").
-- **Contact.** anton@rivolt.dev.
+- **Transfer.** We may transfer these Terms and the service to an affiliated company or to a new owner. We will email you at least 30 days beforehand, so you can export or delete your data first (Privacy Policy, "Changes").
+- **Contact.** support@rivolt.dev.
 - **Disputes.** Before filing a claim, email us and give us 30 days to try to resolve it. Either of us may bring an individual claim in small-claims court. There is no arbitration clause.
 - **Governing law and venue.** The laws of the State of Texas, without regard to its conflict-of-laws rules, govern these Terms. Any claim not brought in small-claims court must be brought in the state or federal courts for Williamson County, Texas, unless the law of the state where you live gives you the right to sue there.
 - **Whole agreement.** These Terms and the Privacy Policy are the whole agreement between you and us about the hosted service. If a court finds part of these Terms unenforceable, the rest still applies.

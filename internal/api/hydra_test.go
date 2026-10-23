@@ -276,7 +276,7 @@ func TestHydraConsentGET_injectsGroupsClaim(t *testing.T) {
 	// GetIdentity hits the admin API; build a Kratos client whose
 	// AdminURL points at the test server.
 	kratosSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"u","traits":{"email":"a@x","display_name":"Anton"},"metadata_public":{"role":"admin"}}`))
+		_, _ = w.Write([]byte(`{"id":"u","traits":{"email":"a@x","display_name":"Alex"},"metadata_public":{"role":"admin"}}`))
 	}))
 	t.Cleanup(kratosSrv.Close)
 	kr, err := kratos.New(kratos.Config{AdminURL: kratosSrv.URL, PublicURL: "http://unused"})

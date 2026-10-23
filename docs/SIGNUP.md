@@ -34,7 +34,7 @@ you own the address, which the emailed link does:
 
 1. Open <https://rivolt.dev/signup>, enter your email, click
    **Request access**.
-2. Check your inbox for the signup link from `anton@rivolt.dev`
+2. Check your inbox for the signup link from `support@rivolt.dev`
    (usually within a minute; check spam if it doesn't appear, iCloud
    Mail in particular tends to filter new senders). The link is
    single-use and expires in 14 days. The same address can ask for a
