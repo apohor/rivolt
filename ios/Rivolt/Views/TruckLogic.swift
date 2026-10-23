@@ -385,6 +385,28 @@ enum TruckLogic {
         return (bar, bar * 14.5038, bar < lowTireBar)
     }
 
+    /// Sleep health in words, the web's (`sleepHealthLines`): the verdict, what a short sleep is with this week's numbers, and what it is
+    /// compared with. Neutral on purpose: it never says why the truck woke and never says the truck is fine.
+    struct SleepHealthLines: Equatable {
+        let headline: String
+        let detail: String?
+        let basis: String
+    }
+
+    static func sleepHealthLines(_ h: SleepHealth) -> SleepHealthLines {
+        let basis = "Compared with this truck's own last 30 days."
+        if h.state == .notEnoughData { return SleepHealthLines(headline: "Not enough history yet to say how this week compares.", detail: nil, basis: basis) }
+        let n = h.thisWeek.failedSleeps
+        let usual = h.usualFailedSleeps ?? 0
+        let usualText = usual < 0.5 ? "almost none in a usual week" : "about \(Int(usual.rounded())) in a usual week"
+        let detail = "\(n) short \(n == 1 ? "sleep" : "sleeps") (under a minute) this week; \(usualText)."
+        if h.state == .more {
+            let by = h.moreBy ?? 0
+            return SleepHealthLines(headline: "Woke \(by) more \(by == 1 ? "time" : "times") than usual this week.", detail: detail, basis: basis)
+        }
+        return SleepHealthLines(headline: "Nothing unusual this week.", detail: detail, basis: basis)
+    }
+
     struct Wheel: Equatable, Identifiable {
         let label: String
         let bar: Double?

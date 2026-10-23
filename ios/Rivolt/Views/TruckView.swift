@@ -593,6 +593,15 @@ struct TruckContent: View {
             case .value(let days)?:
                 let s = TruckLogic.sleepSummary(days, now: now, calendar: calendar)
                 VStack(alignment: .leading, spacing: 8) {
+                    if let h = model.sleepHealth?.value {
+                        let l = TruckLogic.sleepHealthLines(h)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(l.headline).themeText(.value, color: Theme.textPrimary)
+                            if let d = l.detail { Text(d).themeText(.subline, color: Theme.textSecondary) }
+                            Text(l.basis).themeText(.subline, color: Theme.textTertiary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
                     if let t = s.trouble {
                         Text("\(vehicle.name.isEmpty ? "Your truck" : vehicle.name) woke up again within a minute \(t.failed) of \(t.sleeps) times in the last two days.")
                             .themeText(.subline, color: Theme.textBody)

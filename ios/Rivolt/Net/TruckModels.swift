@@ -174,3 +174,22 @@ struct LeaseStatus: Decodable, Equatable {
     let projectedOverageCost: Double?
     let milesPerDayBudget: Double?
 }
+
+/// `GET /api/vehicles/{id}/sleep-health`: this week's short sleeps (under a minute) against this truck's own last 30
+/// days. Numbers and a state only; the words are the app's (`TruckLogic.sleepHealthLines`), the same as the web's.
+struct SleepHealth: Decodable, Equatable {
+    enum State: String, Decodable, Equatable { case normal, more, notEnoughData = "not_enough_data" }
+    struct Week: Decodable, Equatable {
+        let days: Int
+        let sleeps: Int
+        let failedSleeps: Int
+    }
+
+    let state: State
+    let thisWeek: Week
+    let baselineDays: Int
+    /// The baseline's rate scaled to this week's recorded days; absent without enough data.
+    let usualFailedSleeps: Double?
+    /// How many more short sleeps than usual (rounded); set only when `state` is `.more`.
+    let moreBy: Int?
+}
