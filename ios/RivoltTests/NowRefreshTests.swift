@@ -128,7 +128,7 @@ final class NowRefreshTests: XCTestCase {
     func testALoggedErrorIsAFixedPhraseNeverTheErrorsOwnText() {
         let url = URL(string: "https://rivolt.example.org/api/state/veh-123456")!
         let urlError = URLError(.timedOut, userInfo: [NSURLErrorFailingURLErrorKey: url, NSLocalizedDescriptionKey: "The request to \(url) timed out."])
-        XCTAssertTrue(String(describing: urlError).contains("veh-123456"), "the raw description carries the URL: that is why it is not logged")
+        XCTAssertTrue(urlError.localizedDescription.contains("veh-123456"), "an error's own text carries the URL: that is why it is not logged")
         let line = NowReads.describe(urlError)
         XCTAssertEqual(line, "timed out")
         XCTAssertFalse(line.contains("veh-123456") || line.contains("rivolt.example.org") || line.contains("http"))
