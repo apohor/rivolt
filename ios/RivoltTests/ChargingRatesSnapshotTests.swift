@@ -9,7 +9,7 @@ final class ChargingRatesSnapshotTests: XCTestCase {
     private let saved = ChargingRates(homePricePerKwh: 0.15, homeCurrency: "USD")
 
     private func card(_ load: ChargingRatesModel.LoadState, _ save: ChargingRatesModel.SaveState = .idle) -> some View {
-        ChargingRatesContent(model: ChargingRatesModel(load: load, save: save), serverURL: url, onSave: { _, _ in }, onReload: {})
+        ChargingRatesContent(model: ChargingRatesModel(load: load, save: save), serverURL: url, staticControls: true, onSave: { _, _ in }, onReload: {})
     }
 
     func testRenderTheStates() throws {

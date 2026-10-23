@@ -41,15 +41,20 @@ struct ChargingRatesContent: View {
     let serverURL: URL
     let onSave: (Double?, String?) -> Void
     let onReload: () -> Void
+    /// Draws the field and the currency menu as plain text: a UIKit-backed control can't be drawn by ImageRenderer, so a
+    /// test render uses this to show the layout. The app never sets it.
+    var staticControls = false
 
     @State private var text: String
     @State private var currency: String
     @FocusState private var focused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(model: ChargingRatesModel, serverURL: URL, onSave: @escaping (Double?, String?) -> Void, onReload: @escaping () -> Void) {
+    init(model: ChargingRatesModel, serverURL: URL, staticControls: Bool = false,
+         onSave: @escaping (Double?, String?) -> Void, onReload: @escaping () -> Void) {
         self.model = model
         self.serverURL = serverURL
+        self.staticControls = staticControls
         self.onSave = onSave
         self.onReload = onReload
         _text = State(initialValue: model.saved.map { ChargingRatesForm.fieldText($0.homePricePerKwh) } ?? "")
@@ -117,9 +122,13 @@ struct ChargingRatesContent: View {
         layout {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Price per kWh").themeText(.label)
-                TextField("0.15", text: $text)
-                    .keyboardType(.decimalPad)
-                    .focused($focused)
+                Group {
+                    if staticControls {
+                        Text(text.isEmpty ? "0.15" : text).frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        TextField("0.15", text: $text).keyboardType(.decimalPad).focused($focused)
+                    }
+                }
                     .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
                     .foregroundStyle(Theme.textPrimary)
                     .padding(.horizontal, 12).frame(minHeight: 44)
@@ -129,12 +138,17 @@ struct ChargingRatesContent: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Currency").themeText(.label)
-                Picker("Currency", selection: $currency) {
-                    ForEach(currencies, id: \.self) { Text($0).tag($0) }
+                if staticControls {
+                    HStack(spacing: 4) { Text(currency); Image(systemName: "chevron.up.chevron.down").font(.caption2) }
+                        .themeText(.value, color: Theme.textPrimary).frame(minHeight: 44)
+                } else {
+                    Picker("Currency", selection: $currency) {
+                        ForEach(currencies, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Theme.textPrimary)
+                    .frame(minHeight: 44)
                 }
-                .pickerStyle(.menu)
-                .tint(Theme.textPrimary)
-                .frame(minHeight: 44)
             }
         }
 
