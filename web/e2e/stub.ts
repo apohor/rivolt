@@ -422,7 +422,10 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
             : metric("cost", "USD", 52.1, 48.22, {
                 actual_complete: true, actual_known: 48.22, unpriced_sessions: 0,
                 actual_sources: { rivian: 30.1, network_estimate: 18.12 },
-                reasons: [{ code: "rate_differed", amount: -3.88, detail: "Sample network billed $0.48/kWh vs $0.56 planned" }],
+                reasons: [
+                  { code: "rate_differed", amount: -3.88, detail: "Sample network billed $0.48/kWh vs $0.56 planned" },
+                  { code: "extra_stop", amount: 2.1, detail: "You made an extra fast-charge stop." },
+                ],
               }),
           metric("energy_kwh", "kWh", 150, 146),
           metric("dcfc_stops", "count", 3, 4, { reasons: [{ code: "extra_stop", amount: 9.5, detail: "One extra stop after a detour" }] }),

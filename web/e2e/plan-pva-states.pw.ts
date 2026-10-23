@@ -24,6 +24,10 @@ for (const v of [
     await expect(section.getByRole("button", { name: "Confirm" })).toBeVisible();
     await expect(section.getByRole("button", { name: "Not this trip", exact: true })).toBeVisible();
     await expect(section.getByText(/Likely match/)).toBeVisible();
+    // Two reasons read "Why: <first> Also: <second>", never "Mostly because You ..." (the reasons are full sentences).
+    const reasons = section.locator("[data-pva-reasons]").filter({ hasText: "Also:" }).first();
+    await expect(reasons).toContainText(/^Why: /);
+    await expect(section).not.toContainText("Mostly because");
     // An estimated actual says why its bar is dotted.
     await expect(section.locator("[data-pva-estimated]").first()).toContainText("network rate, not billed");
     // No bare labels where the sentences belong.
