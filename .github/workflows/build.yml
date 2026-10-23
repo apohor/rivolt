@@ -524,6 +524,72 @@ jobs:
             ~/go/pkg/mod
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
+  # TEMPORARY measurement for the cache diet (removed before merge): the go job's work with no cache at all, and
+  # the sizes inside the cache the go job restores today.
+  exp-cold:
+    name: exp-cold
+    needs: changes
+    if: "github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p internal/web/dist
+          touch internal/web/dist/.keep
+      - name: Modules only (cold download)
+        run: |
+          s=$(date +%s); go mod download; echo "EXP mod download $(( $(date +%s) - s )) s"
+          du -sh ~/go/pkg/mod | sed 's/^/EXP mod size /'
+      - name: Cold vet + test -race (empty build cache)
+        run: |
+          s=$(date +%s)
+          go vet ./... > vet.log 2>&1 & vet=$!
+          go test -race ./...; t=$?
+          wait $vet; v=$?
+          echo "EXP cold vet+test $(( $(date +%s) - s )) s"
+          du -sh ~/.cache/go-build | sed 's/^/EXP build cache after one cold run /'
+          exit $(( t != 0 || v != 0 ))
+
+  exp-sizes:
+    name: exp-sizes
+    needs: changes
+    if: "github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore today's cache
+        id: r
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-restore-only
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
+      - name: Sizes inside the restored cache
+        run: |
+          du -sh ~/go/pkg/mod ~/.cache/go-build | sed 's/^/EXP /'
+          du -sh ~/go/pkg/mod/cache/download ~/go/pkg/mod/golang.org 2>/dev/null | sed 's/^/EXP /'
+          echo "EXP build cache files: $(find ~/.cache/go-build -type f | wc -l)"
+          echo "EXP build cache by age (files, MB):"
+          for d in 1 3 7 14 30; do
+            n=$(find ~/.cache/go-build -type f -atime -$d | wc -l); b=$(find ~/.cache/go-build -type f -atime -$d -printf '%s\n' | awk '{s+=$1} END {print int(s/1048576)}')
+            echo "EXP   used in last $d days: $n files, $b MB"
+          done
+          echo "EXP biggest entries (MB):"
+          find ~/.cache/go-build -type f -printf '%s %p\n' | sort -rn | head -5 | awk '{printf "EXP   %d MB\n", $1/1048576}'
+          echo "EXP files over 10 MB: $(find ~/.cache/go-build -type f -size +10M | wc -l), total MB $(find ~/.cache/go-build -type f -size +10M -printf '%s\n' | awk '{s+=$1} END {print int(s/1048576)}')"
+
   # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
   # runs beside `go` and adds nothing to the critical path, and so a lint finding
   # never hides test results. NOT a required check until it has stayed green; main
