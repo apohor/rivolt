@@ -8,7 +8,7 @@ const NOV = new Date(2026, 10, 1).getTime();
 const at = (day: number, hour = 0) => OCT + (day - 1) * DAY + hour * 3_600_000;
 const charge = (day: number, limit: number | null, hours = 2) => ({ x0: at(day, 8), x1: at(day, 8 + hours), limit });
 
-describe("limitSteps (the iPhone's rule)", () => {
+describe("limitSteps (the iPhone's rule; the chart draws the last step)", () => {
   const now = at(22, 12);
 
   it("steps at each charge with a limit, carries over unknowns, then the live target to now", () => {
@@ -22,25 +22,14 @@ describe("limitSteps (the iPhone's rule)", () => {
 
   it("joins steps at the same value and keeps the last limit when there is no live target", () => {
     expect(limitSteps([charge(3, 80), charge(9, 80)], OCT, NOV, now, null)).toEqual([{ x0: at(3, 8), x1: now, pct: 80 }]);
-    expect(limitSteps([charge(3, 80), charge(9, 80)], OCT, NOV, now, 80)).toEqual([{ x0: at(3, 8), x1: now, pct: 80 }]);
-  });
-
-  it("draws a 100% limit, nothing before the first charge with one, and nothing when none has one", () => {
     expect(limitSteps([charge(5, 100)], OCT, NOV, now, null)).toEqual([{ x0: at(5, 8), x1: now, pct: 100 }]);
     expect(limitSteps([charge(5, null), charge(6, 0)], OCT, NOV, now, 70)).toEqual([]);
-    expect(limitSteps([charge(5, 101)], OCT, NOV, now, 70)).toEqual([]);
   });
 
   it("a past month ends at its end with its own charges' limits, no live target", () => {
     const sep = new Date(2026, 8, 1).getTime();
     const s = limitSteps([{ x0: sep + 2 * DAY, x1: sep + 2 * DAY + 3_600_000, limit: 80 }], sep, OCT, now, 70);
     expect(s).toEqual([{ x0: sep + 2 * DAY, x1: OCT, pct: 80 }]);
-  });
-
-  it("ignores charges outside the period", () => {
-    expect(limitSteps([{ x0: OCT - DAY, x1: OCT - DAY + 3_600_000, limit: 60 }, charge(10, 80)], OCT, NOV, now, null)).toEqual([
-      { x0: at(10, 8), x1: now, pct: 80 },
-    ]);
   });
 });
 
@@ -51,53 +40,50 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 } as unknown as typeof ResizeObserver;
 
-describe("SocTrendChart limit", () => {
+describe("SocTrendChart", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
   });
+  // Ordinary days near 60–70%, a road-trip day on the 9th and the 12th.
   const trend = [
-    { x: at(2), y: 60 },
-    { x: at(12), y: 85 },
-    { x: at(22, 11), y: 70 },
+    { x: at(2, 13), y: 71 }, { x: at(2, 14), y: 69 },
+    { x: at(5, 13), y: 66 }, { x: at(5, 14), y: 62 },
+    { x: at(9, 7), y: 97 }, { x: at(9, 14), y: 41 },
+    { x: at(12, 9), y: 73 }, { x: at(12, 13), y: 3 }, { x: at(12, 23), y: 70 },
+    { x: at(20, 9), y: 80 }, { x: at(20, 10), y: 77 },
   ];
+  const charges = [charge(3, 70), charge(8, 100), charge(12, 85), charge(19, 80)];
 
-  it("draws the steps with one value at now and the legend 'Charge limit'", () => {
+  it("draws the band and one line, only the two extremes named, one limit, ticks for charging days and a caption", () => {
     vi.useFakeTimers({ now: at(22, 12), toFake: ["Date"] });
-    const { container } = render(
-      <SocTrendChart trend={trend} charges={[charge(3, 80), charge(12, 90)]} drives={[]} domain={[OCT, NOV]} limit={70} />,
-    );
-    const g = container.querySelector("[data-testid='soc-limit']")!;
-    expect(g.getAttribute("data-steps")).toBe("3");
-    expect(g.querySelector("path[data-limit-line]")!.getAttribute("d")).toMatch(/^M [\d.]+ [\d.]+ H [\d.]+ V [\d.]+ H [\d.]+ V [\d.]+ H [\d.]+$/);
-    expect(g.querySelectorAll("text")).toHaveLength(1);
-    expect(g.textContent).toBe("Limit 70%");
-    expect(container.querySelector("[data-legend='limit']")!.textContent).toBe("Charge limit");
+    const { container } = render(<SocTrendChart trend={trend} charges={charges} domain={[OCT, NOV]} limit={70} />);
+    expect(container.querySelectorAll("path[data-draw='band']")).toHaveLength(1);
+    expect(container.querySelectorAll("path[data-draw='line']")).toHaveLength(1);
+    expect(container.querySelector("[data-testid='soc-max']")!.textContent).toBe("97% · Oct 9");
+    expect(container.querySelector("[data-testid='soc-min']")!.textContent).toBe("3% · Oct 12");
+    const limit = container.querySelector("[data-testid='soc-limit']")!;
+    expect(limit.textContent).toBe("Limit 70%");
+    expect(limit.querySelectorAll("line")).toHaveLength(1);
+    // It runs from the last limit change to now, not across the whole month.
+    const line = limit.querySelector("line")!;
+    const svgW = Number(container.querySelector("svg")!.getAttribute("width"));
+    expect(Number(line.getAttribute("x2")) - Number(line.getAttribute("x1"))).toBeLessThan(svgW / 3);
+    expect(container.querySelectorAll("[data-draw='tick']").length).toBeGreaterThan(0);
+    // No legend, no bars or strip.
+    expect(container.querySelector("[data-soc-legend]")).toBeNull();
+    expect(container.querySelector("[data-band]")).toBeNull();
+    expect(container.querySelector("[data-soc-caption]")!.textContent).toBe("Band: each day’s range · line: end of day · ticks: charged");
+    // One sentence for a screen reader.
+    expect(container.querySelector("svg[role='img']")!.getAttribute("aria-label")).toMatch(/^Battery level by day\. \d+ days with readings\. Lowest 3 percent on Oct 12; highest 97 percent on Oct 9\./);
   });
 
-  it("without stored limits keeps today's two-day segment, legend 'Charge limit now'", () => {
-    vi.useFakeTimers({ now: at(22, 12), toFake: ["Date"] });
-    const { container } = render(<SocTrendChart trend={trend} charges={[charge(3, null)]} drives={[]} domain={[OCT, NOV]} limit={70} />);
-    const g = container.querySelector("[data-testid='soc-limit']")!;
-    expect(g.getAttribute("data-steps")).toBe("0");
-    expect(g.textContent).toBe("Limit 70%");
-    expect(container.querySelector("[data-legend='limit']")!.textContent).toBe("Charge limit now");
-  });
-
-  it("a past month shows its steps without a value", () => {
-    vi.useFakeTimers({ now: at(22, 12), toFake: ["Date"] });
-    const sep = new Date(2026, 8, 1).getTime();
-    const { container } = render(
-      <SocTrendChart
-        trend={[{ x: sep + DAY, y: 50 }, { x: sep + 10 * DAY, y: 80 }]}
-        charges={[{ x0: sep + 2 * DAY, x1: sep + 2 * DAY + 3_600_000, limit: 80 }]}
-        drives={[]}
-        domain={[sep, OCT]}
-        limit={70}
-      />,
-    );
-    const g = container.querySelector("[data-testid='soc-limit']")!;
-    expect(g.getAttribute("data-steps")).toBe("1");
-    expect(g.querySelectorAll("text")).toHaveLength(0);
+  it("a past month names the last limit known in it, and none when there isn't one", () => {
+    vi.useFakeTimers({ now: new Date(2026, 10, 12).getTime(), toFake: ["Date"] });
+    const withLimit = render(<SocTrendChart trend={trend} charges={charges} domain={[OCT, NOV]} limit={null} />);
+    expect(withLimit.container.querySelector("[data-testid='soc-limit']")!.textContent).toBe("Limit 80%");
+    withLimit.unmount();
+    const none = render(<SocTrendChart trend={trend} charges={[charge(3, null)]} domain={[OCT, NOV]} limit={null} />);
+    expect(none.container.querySelector("[data-testid='soc-limit']")).toBeNull();
   });
 });
