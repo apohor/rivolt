@@ -11,11 +11,15 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.pw.ts",
   fullyParallel: true,
-  // CI: one retry (a flaky pass shows as "flaky" in the report), four workers
-  // per shard (the runner's four vCPUs), and an HTML report to upload next to the screenshots.
+  // CI: one retry (a flaky pass shows as "flaky" in the report and the job summary), E2E_WORKERS
+  // workers per shard (default four, the runner's four vCPUs), an HTML report to upload next to the
+  // screenshots, and a JSON report (e2e-results/results.json) for the job summary's flaky count and
+  // the per-spec timings that balance the shards (scripts/e2e-timings.mjs, scripts/e2e-shard.mjs).
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 4 : undefined,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]] : [["list"]],
+  workers: process.env.CI ? Number(process.env.E2E_WORKERS || 4) : undefined,
+  reporter: process.env.CI
+    ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }], ["json", { outputFile: "e2e-results/results.json" }]]
+    : [["list"]],
   outputDir: "./e2e/__results__",
   use: { baseURL: `http://127.0.0.1:${PORT}` },
   // Chromium runs everything. WebKit (the engine behind iPhone Safari, where

@@ -82,12 +82,38 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Restore spec timings
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-${{ matrix.project }}-none
+          restore-keys: e2e-timings-${{ matrix.project }}-
+
+      # The same duration-balanced split as build.yml (scripts/e2e-shard.mjs).
       - name: Playwright (${{ matrix.suite }}, ${{ matrix.project }})
         working-directory: web
         env:
           CI: "true"
           E2E_WEBKIT: "1"
-        run: npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+          E2E_PROJECT: ${{ matrix.project }}
+          E2E_TIMINGS: e2e-timings/${{ matrix.project }}.json
+        run: |
+          node scripts/e2e-shard.mjs --check ${{ matrix.total }}
+          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} ${{ matrix.project == 'webkit' && '--pass-with-no-tests' || '' }}
+
+      - name: Summary (flaky tests)
+        if: always()
+        working-directory: web
+        run: node scripts/e2e-timings.mjs summary e2e-results/results.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the JSON report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-results-${{ matrix.project }}-${{ matrix.shard }}
+          path: web/e2e-results/results.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload report and screenshots
         if: always()
@@ -191,7 +217,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            web/scripts
+            web/e2e
 
       - name: Open, update or clear the issue
         env:
@@ -205,3 +234,49 @@ jobs:
           [ "$DAILY" != "skipped" ] && KIND="daily"
           [ "$BOUNDARIES" != "skipped" ] && KIND="${KIND:+$KIND + }pinned-clock boundary"
           RESULT="$RESULT" KIND="$KIND" bash .github/scripts/e2e-red-issue.sh
+
+      # The daily run's per-spec timings (chromium for PRs, WebKit with main's pushes) and its flakes. The
+      # pinned-clock boundary runs are left out: their timings are of one instant, and their flakes are
+      # date bugs, which the red/green result above already reports.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.e2e.result != 'skipped'
+        with:
+          pattern: e2e-results-*
+          path: results
+
+      - name: Flaky tests and timings
+        id: merge
+        if: needs.e2e.result != 'skipped'
+        env:
+          ARTIFACTS: e2e-nightly-*
+        run: |
+          all=$(ls results/*/results.json 2>/dev/null || true)
+          flaky=$(node web/scripts/e2e-timings.mjs flaky $all)
+          RESULT=flaky TITLE="e2e flaky on main" KIND="daily" FLAKY="$flaky" bash .github/scripts/e2e-red-issue.sh
+          mkdir -p timings/chromium timings/webkit
+          node web/scripts/e2e-timings.mjs merge timings/chromium/chromium.json 3 $(ls results/e2e-results-chromium-*/results.json 2>/dev/null)
+          node web/scripts/e2e-timings.mjs merge timings/webkit/webkit.json 1 $(ls results/e2e-results-webkit-*/results.json 2>/dev/null)
+          [ -f timings/chromium/chromium.json ] && echo "chromium=true" >> "$GITHUB_OUTPUT" || true
+          [ -f timings/webkit/webkit.json ] && echo "webkit=true" >> "$GITHUB_OUTPUT" || true
+          # The cache paths are what the e2e jobs restore (web/e2e-timings/<browser>.json).
+          mkdir -p web/e2e-timings
+
+      - name: Save the chromium timings
+        if: steps.merge.outputs.chromium == 'true'
+        run: rm -rf web/e2e-timings && mkdir -p web/e2e-timings && cp timings/chromium/chromium.json web/e2e-timings/
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.merge.outputs.chromium == 'true'
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-chromium-${{ github.run_id }}
+
+      - name: Save the WebKit timings
+        if: steps.merge.outputs.webkit == 'true'
+        run: rm -rf web/e2e-timings && mkdir -p web/e2e-timings && cp timings/webkit/webkit.json web/e2e-timings/
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: steps.merge.outputs.webkit == 'true'
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-webkit-${{ github.run_id }}
