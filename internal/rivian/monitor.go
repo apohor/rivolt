@@ -2417,12 +2417,24 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Unlock()
 		}
 	case rvmTrailer:
-		// body.trailer.state field 1 = trailer_presence_status (APK enum).
-		// No State destination field yet — decode-and-log only.
+		// body.trailer.state field 1 = trailer_presence_status (APK enum). Applied to State.TrailerState from a fresh
+		// frame; a replayed or stale one (the cloud re-sends the last snapshot on every resubscribe) only fills a
+		// blank, as for the power state. Drives record it (see trailer.go).
 		m.logger.Info("parallax drive-dynamics shadow",
 			"vehicle", vehicleID, "topic", "trailer",
 			"px_enum", f.Value, "px_trailer", trailerPresenceFromParallax(f.Value),
 			"ts_ms", f.TimestampMs)
+		if ts := trailerStateFromParallax(f.Value); m.parallaxDriveDynamics && ts != "" {
+			applies := m.applicable(f, fresh)
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.TrailerState != ts && (applies || base.TrailerState == "") {
+				next := *base
+				next.At = time.Now()
+				next.TrailerState = ts
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
 	case rvmPreconStatus:
 		// comfort.cabin.cabin_preconditioning_status — decoded per the APK
 		// CABIN_PRECONDITIONING_STATE enum, but the topic's field number is
@@ -3024,6 +3036,7 @@ func mergeState(prev, next *State) *State {
 	mergeString(&out.OtaCurrentVersion, next.OtaCurrentVersion)
 	mergeString(&out.OtaAvailableVersion, next.OtaAvailableVersion)
 	mergeString(&out.OtaStatus, next.OtaStatus)
+	mergeString(&out.TrailerState, next.TrailerState)
 	mergeString(&out.TirePressureStatusFL, next.TirePressureStatusFL)
 	mergeString(&out.TirePressureStatusFR, next.TirePressureStatusFR)
 	mergeString(&out.TirePressureStatusRL, next.TirePressureStatusRL)

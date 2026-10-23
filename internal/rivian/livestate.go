@@ -51,22 +51,27 @@ type LiveStateSnapshot struct {
 
 // LiveDriveSnapshot mirrors liveDrive.
 type LiveDriveSnapshot struct {
-	ID         string       `json:"id"`
-	Number     int64        `json:"number"`
-	StartedAt  time.Time    `json:"started_at"`
-	StartSoC   float64      `json:"start_soc"`
-	StartOdoMi float64      `json:"start_odo_mi"`
-	StartLat   float64      `json:"start_lat"`
-	StartLon   float64      `json:"start_lon"`
-	MaxSpeed   float64      `json:"max_speed"`
-	SumSpeed   float64      `json:"sum_speed"`
-	SpeedN     int          `json:"speed_n"`
-	EndAt      time.Time    `json:"end_at"`
-	EndSoC     float64      `json:"end_soc"`
-	EndOdoMi   float64      `json:"end_odo_mi"`
-	EndLat     float64      `json:"end_lat"`
-	EndLon     float64      `json:"end_lon"`
-	Path       [][2]float64 `json:"path,omitempty"`
+	ID         string    `json:"id"`
+	Number     int64     `json:"number"`
+	StartedAt  time.Time `json:"started_at"`
+	StartSoC   float64   `json:"start_soc"`
+	StartOdoMi float64   `json:"start_odo_mi"`
+	StartLat   float64   `json:"start_lat"`
+	StartLon   float64   `json:"start_lon"`
+	MaxSpeed   float64   `json:"max_speed"`
+	SumSpeed   float64   `json:"sum_speed"`
+	SpeedN     int       `json:"speed_n"`
+	EndAt      time.Time `json:"end_at"`
+	EndSoC     float64   `json:"end_soc"`
+	EndOdoMi   float64   `json:"end_odo_mi"`
+	EndLat     float64   `json:"end_lat"`
+	EndLon     float64   `json:"end_lon"`
+	// The trailer connector's integral over the drive so far (trailer.go), so a restart keeps it.
+	TrailerPresentSec float64      `json:"trailer_present_sec,omitempty"`
+	TrailerKnownSec   float64      `json:"trailer_known_sec,omitempty"`
+	TrailerLast       string       `json:"trailer_last,omitempty"`
+	TrailerAt         time.Time    `json:"trailer_at,omitempty"`
+	Path              [][2]float64 `json:"path,omitempty"`
 }
 
 // LiveChargeSnapshot mirrors liveCharge.
@@ -129,6 +134,8 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			MaxSpeed: d.maxSpeed, SumSpeed: d.sumSpeed, SpeedN: d.speedN,
 			EndAt: d.endAt, EndSoC: d.endSoC, EndOdoMi: d.endOdoMi,
 			EndLat: d.endLat, EndLon: d.endLon,
+			TrailerPresentSec: d.trailer.present.Seconds(), TrailerKnownSec: d.trailer.known.Seconds(),
+			TrailerLast: d.trailer.last, TrailerAt: d.trailer.lastAt,
 			Path: path,
 		}
 	}
@@ -169,6 +176,11 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 			maxSpeed: d.MaxSpeed, sumSpeed: d.SumSpeed, speedN: d.SpeedN,
 			endAt: d.EndAt, endSoC: d.EndSoC, endOdoMi: d.EndOdoMi,
 			endLat: d.EndLat, endLon: d.EndLon,
+			trailer: trailerAcc{
+				present: time.Duration(d.TrailerPresentSec * float64(time.Second)),
+				known:   time.Duration(d.TrailerKnownSec * float64(time.Second)),
+				last:    d.TrailerLast, lastAt: d.TrailerAt,
+			},
 			path: path,
 		}
 	}

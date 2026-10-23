@@ -196,6 +196,9 @@ type State struct {
 	ChargerDerateStatus            string  `json:"charger_derate_status"`
 	ChargingDisabledAll            string  `json:"charging_disabled_all"`
 	ChargingTimeEstimationValidity string  `json:"charging_time_estimation_validity"`
+	// TrailerState is whether a trailer is connected, from Parallax body.trailer.state: "present", "not_present" or ""
+	// (unknown). The connector, not the load (see trailer.go).
+	TrailerState string `json:"trailer_state,omitempty"`
 	// Driver identity + special modes. Empty when the field hasn't
 	// been emitted by the subscription yet (e.g. brand-new tab) or
 	// when the mode isn't active.

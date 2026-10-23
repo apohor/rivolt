@@ -47,12 +47,24 @@ const (
 	trendMaxCapacitySamples = 500
 )
 
+// trendEfficiencyPoint is one month. Distance, EnergyKWh, Efficiency and Drives are the drives without a trailer
+// connected (the user's correction, else what was recorded): towing is left out so that it does not drag the truck's
+// own figure. Trailer, present only when the month has such drives, is their figure on its own.
 type trendEfficiencyPoint struct {
-	Month      string  `json:"month"` // YYYY-MM in the user's zone
+	Month      string        `json:"month"` // YYYY-MM in the user's zone
+	Distance   float64       `json:"distance"`
+	EnergyKWh  float64       `json:"energy_kwh"`
+	Efficiency float64       `json:"efficiency"`
+	Drives     int           `json:"drives"`
+	Trailer    *trendTrailer `json:"trailer,omitempty"`
+}
+
+// trendTrailer is a month's drives with a trailer connected (the connector, not the load).
+type trendTrailer struct {
+	Drives     int     `json:"drives"`
 	Distance   float64 `json:"distance"`
 	EnergyKWh  float64 `json:"energy_kwh"`
 	Efficiency float64 `json:"efficiency"`
-	Drives     int     `json:"drives"`
 }
 
 type trendCapacitySample struct {
@@ -85,16 +97,19 @@ type trendCapacity struct {
 }
 
 type vehicleTrends struct {
-	Units            insights.Units         `json:"units"`
-	DistanceUnit     string                 `json:"distance_unit"`
-	EfficiencyUnit   string                 `json:"efficiency_unit"`
-	Timezone         string                 `json:"timezone"`
-	Months           int                    `json:"months"`
-	MinMonthDistance float64                `json:"min_month_distance"`
-	MinMonths        int                    `json:"min_months"`
-	QualifyingMonths int                    `json:"qualifying_months"`
-	Efficiency       []trendEfficiencyPoint `json:"efficiency"`
-	Capacity         *trendCapacity         `json:"capacity"`
+	Units            insights.Units `json:"units"`
+	DistanceUnit     string         `json:"distance_unit"`
+	EfficiencyUnit   string         `json:"efficiency_unit"`
+	Timezone         string         `json:"timezone"`
+	Months           int            `json:"months"`
+	MinMonthDistance float64        `json:"min_month_distance"`
+	MinMonths        int            `json:"min_months"`
+	QualifyingMonths int            `json:"qualifying_months"`
+	// ExcludedTrailerDrives counts the drives over the window that the efficiency points leave out because a trailer
+	// was connected (their figure is in each month's Trailer).
+	ExcludedTrailerDrives int                    `json:"excluded_trailer_drives"`
+	Efficiency            []trendEfficiencyPoint `json:"efficiency"`
+	Capacity              *trendCapacity         `json:"capacity"`
 }
 
 func trendRound(v float64, places int) float64 {
@@ -176,10 +191,12 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 
 		rows, err := sqlDB.QueryContext(r.Context(), `
 			SELECT to_char(date_trunc('month', started_at AT TIME ZONE $3), 'YYYY-MM'),
-			       count(*), sum(distance_mi), sum(energy_used_kwh)
-			  FROM drives
-			 WHERE user_id = $1 AND vehicle_id = $2 AND started_at >= $4
-			   AND distance_mi >= $5 AND energy_used_kwh >= $6
+			       count(*) FILTER (WHERE NOT t), COALESCE(sum(distance_mi) FILTER (WHERE NOT t), 0), COALESCE(sum(energy_used_kwh) FILTER (WHERE NOT t), 0),
+			       count(*) FILTER (WHERE t), COALESCE(sum(distance_mi) FILTER (WHERE t), 0), COALESCE(sum(energy_used_kwh) FILTER (WHERE t), 0)
+			  FROM (SELECT started_at, distance_mi, energy_used_kwh, COALESCE(trailer_override, trailer, false) AS t
+			          FROM drives
+			         WHERE user_id = $1 AND vehicle_id = $2 AND started_at >= $4
+			           AND distance_mi >= $5 AND energy_used_kwh >= $6) d
 			 GROUP BY 1 ORDER BY 1`, uid, vid, zone, since.UTC(), trendMinDriveMi, trendMinDriveKWh)
 		if err != nil {
 			serverError(w, r, "vehicle trends: drives", err)
@@ -187,8 +204,9 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 		}
 		for rows.Next() {
 			var p trendEfficiencyPoint
-			var mi float64
-			if err := rows.Scan(&p.Month, &p.Drives, &mi, &p.EnergyKWh); err != nil {
+			var mi, tmi, tkwh float64
+			var tn int
+			if err := rows.Scan(&p.Month, &p.Drives, &mi, &p.EnergyKWh, &tn, &tmi, &tkwh); err != nil {
 				rows.Close()
 				serverError(w, r, "vehicle trends: scan drives", err)
 				return
@@ -200,6 +218,14 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 			p.EnergyKWh = trendRound(p.EnergyKWh, 1)
 			if mi >= trendMinMonthMi {
 				out.QualifyingMonths++
+			}
+			if tn > 0 {
+				tp := &trendTrailer{Drives: tn, Distance: trendRound(tmi*perMi, 1), EnergyKWh: trendRound(tkwh, 1)}
+				if tkwh > 0 {
+					tp.Efficiency = trendRound(tmi*perMi/tkwh, 2)
+				}
+				p.Trailer = tp
+				out.ExcludedTrailerDrives += tn
 			}
 			out.Efficiency = append(out.Efficiency, p)
 		}

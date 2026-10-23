@@ -225,6 +225,8 @@ func handleColdRange(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *http.R
 			  JOIN drive_weather w ON w.user_id = d.user_id AND w.drive_id = d.external_id
 			 WHERE d.user_id = $1 AND d.vehicle_id = $2 AND d.started_at >= $3
 			   AND w.temp_c IS NOT NULL AND d.distance_mi >= $4 AND d.energy_used_kwh >= $5
+			   -- Towing does not say what the truck uses on its own: a drive with a trailer connected is left out.
+			   AND NOT COALESCE(d.trailer_override, d.trailer, false)
 			 ORDER BY d.started_at DESC LIMIT $6`,
 			uid, vid, since, coldMinDriveMi, coldMinDriveKWh, coldMaxDrives)
 		if err != nil {
