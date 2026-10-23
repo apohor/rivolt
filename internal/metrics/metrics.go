@@ -112,6 +112,11 @@ type Metrics struct {
 	// states a software update goes through, which only "Idle" has been seen to say so far.
 	OTAStatusFramesTotal *prometheus.CounterVec
 
+	// Per-wheel tire status on vehicleState frames that carry tire data, by class: low (one of Rivian's low words),
+	// not_low (normal or ok), other (any other word) or missing (a pressure with no status). A fixed list; no vehicle,
+	// user or raw word. It tells whether prod trucks ever say low before any alert relies on it.
+	TireStatusTotal *prometheus.CounterVec
+
 	// Demo rate-limit bucket keys by source: "cf" / "lb" when the direct
 	// peer is a Cloudflare edge / our private load-balancer hop and
 	// CF-Connecting-IP was used; "xff" when the key is the rightmost
@@ -366,6 +371,13 @@ func New() *Metrics {
 			},
 			[]string{"status"},
 		),
+		TireStatusTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_tire_status_total",
+				Help: "Per-wheel tire status on vehicleState frames, by class (low|not_low|other|missing).",
+			},
+			[]string{"status"},
+		),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_vehicle_sleeps_total",
@@ -407,6 +419,7 @@ func New() *Metrics {
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
 		m.OTAStatusFramesTotal,
+		m.TireStatusTotal,
 	)
 	return m
 }
