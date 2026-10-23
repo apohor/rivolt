@@ -463,6 +463,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # an issue-tracker blip must never turn main red
     permissions:
+      contents: read   # checks out .github/scripts
       actions: read
       issues: write
     steps:
@@ -1129,18 +1130,21 @@ jobs:
           # workflow run targeting it. Tagging a docs-only commit (or
           # a commit before its main build finished) returns no rows.
           # A successful push build on main or on a release/** hotfix
-          # branch both publish 'sha-<short>', so either qualifies.
+          # branch both publish 'sha-<short>', so either qualifies. So
+          # does a successful manual run on main: it runs the same jobs
+          # (WebKit included) and bump-preview deploys it, and it is the
+          # fix for a merge whose push event was dropped. Without it such
+          # a SHA reached preview but could not be tagged.
           count=$(gh run list \
             --repo "${{ github.repository }}" \
             --workflow build.yml \
-            --event push \
             --commit "$SHA" \
             --status success \
             --limit 20 \
-            --json headBranch \
-            --jq '[.[] | select(.headBranch == "main" or (.headBranch | startswith("release/")))] | length')
+            --json headBranch,event \
+            --jq '[.[] | select((.event == "push" and (.headBranch == "main" or (.headBranch | startswith("release/")))) or (.event == "workflow_dispatch" and .headBranch == "main"))] | length')
           if [ "${count:-0}" -lt 1 ]; then
-            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main or release/** build."
+            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main (push or manual) or release/** build."
             echo "::error::Tag a commit that's already been built (and ideally soaked on preview)."
             exit 1
           fi
