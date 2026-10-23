@@ -40,7 +40,7 @@ for (const theme of ["dark", "light"] as const) {
           await expect(chart.locator("[data-draw='band']").first()).toBeAttached();
           await expect(chart.locator("[data-band]")).toHaveCount(0);
           await expect(chart.locator("[data-soc-legend]")).toHaveCount(0);
-          await expect(chart.locator("[data-soc-caption]")).toContainText("Shaded: each day");
+          await expect(chart.locator("[data-soc-caption]")).toContainText("Band: each day");
           // One faint limit line, named once ("Limit N%").
           await expect(page.getByTestId("soc-limit")).toHaveCount(1);
           await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);

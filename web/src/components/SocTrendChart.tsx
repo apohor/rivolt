@@ -227,7 +227,7 @@ export function SocTrendChart({
   const ticks = dayTicks(x0, x1, Math.max(2, Math.min(5, Math.floor(iw / 110))));
   const tickAnchor = (x: number): "start" | "middle" | "end" =>
     X(x) - PAD.l < 14 ? "start" : PAD.l + iw - X(x) < 14 ? "end" : "middle";
-  // A name goes on the side with room.
+  // A name goes on the side with room, and a low near the floor is lifted off the charging ticks.
   const labelRight = (r: DayRange) => centre(r) - x0 < 0.6 * (x1 - x0);
 
   const dayAt = (x: number): DayRange | null => {
@@ -293,7 +293,7 @@ export function SocTrendChart({
                 <circle cx={X(centre(r))} cy={Y(v)} r={3} fill="currentColor" className="text-neutral-100" />
                 <text
                   x={X(centre(r)) + (labelRight(r) ? 8 : -8)}
-                  y={Y(v) + 3.5}
+                  y={v < 12 ? Y(v) - 9 : Y(v) + 3.5}
                   textAnchor={labelRight(r) ? "start" : "end"}
                   className="fill-neutral-100 text-[11px] font-semibold"
                   data-testid={id}
@@ -330,7 +330,7 @@ export function SocTrendChart({
         </div>
       )}
       <p data-soc-caption className="mt-2 text-[11px] text-neutral-500">
-        Shaded: each day&rsquo;s low to high · line: end of day · ticks: days it charged
+        Band: each day&rsquo;s range · line: end of day · ticks: charged
       </p>
     </div>
   );

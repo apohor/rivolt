@@ -69,7 +69,7 @@ describe("SocTrendChart", () => {
     // No legend, no bars or strip.
     expect(container.querySelector("[data-soc-legend]")).toBeNull();
     expect(container.querySelector("[data-band]")).toBeNull();
-    expect(container.querySelector("[data-soc-caption]")!.textContent).toBe("Shaded: each day’s low to high · line: end of day · ticks: days it charged");
+    expect(container.querySelector("[data-soc-caption]")!.textContent).toBe("Band: each day’s range · line: end of day · ticks: charged");
     // One sentence for a screen reader.
     expect(container.querySelector("svg[role='img']")!.getAttribute("aria-label")).toMatch(/^Battery level by day\. \d+ days with readings\. Lowest 3 percent on Oct 12; highest 97 percent on Oct 9\./);
   });
