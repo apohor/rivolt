@@ -190,7 +190,7 @@ struct HomeView: View {
             await loadSelected()
             if force { await loadCharts(force: true) }
         } catch {
-            loadError = error.localizedDescription
+            loadError = UserFacingError.words(error)
         }
     }
 
