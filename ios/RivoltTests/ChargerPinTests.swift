@@ -143,7 +143,10 @@ final class ChargerPinTests: XCTestCase {
         XCTAssertEqual(c, ChargeLocation(lat: 32.7767, lon: -96.797, maxPowerKW: 148.2, network: "Electrify America"))
         XCTAssertTrue(c.isDC)
         XCTAssertTrue(c.hasFix)
-        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["lat", "lon", "maxPowerKW", "network"])
+        // Four decoded fields, plus the user's pin choice (#906), which comes from ChargeRow and is never decoded here.
+        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["lat", "lon", "maxPowerKW", "network", "recorded"])
+        XCTAssertFalse(c.recorded)
+        XCTAssertFalse(try JSON.decoder().decode(ChargeLocation.self, from: Data(#"{"Lat":1,"Lon":2,"LocationOverride":"recorded"}"#.utf8)).recorded)
         let none = try JSON.decoder().decode(ChargeLocation.self, from: Data(#"{"Lat":0,"Lon":0,"MaxPowerKW":7}"#.utf8))
         XCTAssertFalse(none.hasFix)
         XCTAssertFalse(none.isDC)
