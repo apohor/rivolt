@@ -58,7 +58,8 @@ final class TruckSnapshotTests: XCTestCase {
         Theme.registerFonts()
         for scheme in [ColorScheme.light, .dark] {
             let renderer = ImageRenderer(content: content.environment(\.colorScheme, scheme).fixedSize(horizontal: false, vertical: true))
-            renderer.scale = 3
+            // 2x: the page is tall enough that 3x goes past the image size limit and the PNG comes back empty.
+            renderer.scale = 2
             let image = try XCTUnwrap(renderer.uiImage, "\(name) did not render")
             XCTAssertGreaterThan(image.size.height, 1500)
             let png = try XCTUnwrap(image.pngData())
