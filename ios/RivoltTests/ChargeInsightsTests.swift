@@ -132,7 +132,7 @@ final class ChargeInsightsTests: XCTestCase {
 
     // MARK: The charge's row (GET /api/charges/{id}, backend's fixtures)
 
-    func testTheChargeRowDecodesTheTenFieldsAndNothingPositionalBeyondTheMaps() throws {
+    func testTheChargeRowDecodesTheTwelveFieldsAndNothingPositionalBeyondTheMaps() throws {
         let row = try Fixture.decode(ChargeRow.self, "charge_one")
         XCTAssertEqual(row.milesAdded, 214.5)
         XCTAssertEqual(row.avgPowerKw, 118.6)
@@ -143,12 +143,43 @@ final class ChargeInsightsTests: XCTestCase {
         XCTAssertEqual(row.activeSeconds, 2460)
         XCTAssertEqual(row.network, "Rivian Adventure Network")
         XCTAssertEqual(Mirror(reflecting: row).children.compactMap(\.label),
-                       ["lat", "lon", "maxPowerKW", "network", "milesAdded", "avgPowerKw", "finalState", "source", "thermalKwh", "activeSeconds"])
+                       ["lat", "lon", "maxPowerKW", "network", "milesAdded", "avgPowerKw", "finalState", "source", "thermalKwh", "activeSeconds",
+                        "placeOverride", "locationOverride"])
+        // The user's own word from the web (#906): set by them, and the pin where the truck was.
+        XCTAssertTrue(row.placeSetByYou)
+        XCTAssertTrue(row.pinnedWhereRecorded)
+        XCTAssertTrue(row.location().recorded, "the map gets the pin choice")
         let ac = try Fixture.decode(ChargeRow.self, "charge_one_ac")
         XCTAssertNil(ac.thermalKwh, "null: no thermal figure")
+        XCTAssertFalse(ac.placeSetByYou, "empty: automatic")
+        XCTAssertFalse(ac.pinnedWhereRecorded)
+        XCTAssertFalse(ac.location().recorded)
         XCTAssertEqual(ac.activeSeconds, 19_200)
         XCTAssertEqual(row.location().network, "Rivian Adventure Network")
         XCTAssertEqual(row.location(network: "Electrify America").network, "Electrify America", "the ledger's network wins")
+    }
+
+    func testTheOverridesReadAsAutomaticFromAnOlderServerOrAnUnknownValue() throws {
+        let older = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2}"#.utf8))
+        XCTAssertNil(older.placeOverride)
+        XCTAssertFalse(older.placeSetByYou)
+        XCTAssertFalse(older.pinnedWhereRecorded)
+        let odd = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":"garage","LocationOverride":"snapped"}"#.utf8))
+        XCTAssertFalse(odd.placeSetByYou)
+        XCTAssertFalse(odd.pinnedWhereRecorded)
+        XCTAssertFalse(odd.location().recorded)
+    }
+
+    func testTheTypeRowSaysSetByYouOnlyWhenTheUserSetThePlace() throws {
+        let c = try charge(maxKw: 11, energy: 40, soc: (40, 80), cost: 6.4, source: "home_rate", minutes: 240)
+        let mine = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":"home"}"#.utf8))
+        let auto = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":""}"#.utf8))
+        func typeRow(_ row: ChargeRow?) -> InsightRow? {
+            ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: [], row: row), metric: false).flatMap(\.rows).first { $0.label == "Type" }
+        }
+        XCTAssertEqual(typeRow(mine)?.tag, "set by you")
+        XCTAssertNil(typeRow(auto)?.tag)
+        XCTAssertNil(typeRow(nil)?.tag, "before the row is read")
     }
 
     func testTheRowAddsTheWebsRowsInThePhonesUnits() throws {

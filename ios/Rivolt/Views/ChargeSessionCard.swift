@@ -7,6 +7,8 @@ struct InsightRow: Identifiable, Equatable {
     var hint: String? = nil
     /// What VoiceOver says for the value when the printed one has symbols it would read badly.
     var spoken: String? = nil
+    /// A small pill after the value ("set by you").
+    var tag: String? = nil
     var id: String { label }
 }
 
@@ -26,7 +28,7 @@ enum ChargeSessionRows {
         let type = place == "Fast" ? "Fast charge" : place ?? "—"
         let network = c.network.flatMap { $0.isEmpty ? nil : $0 }
         var session: [InsightRow] = [
-            InsightRow(label: "Type", value: type, hint: network),
+            InsightRow(label: "Type", value: type, hint: network, tag: i.placeSetByYou ? "set by you" : nil),
             InsightRow(label: "Charging tier", value: i.tier.label, hint: i.tier.label == "—" ? nil : i.tier.hint),
         ]
         if let state = i.finalState { session.append(InsightRow(label: "Final state", value: state)) }
@@ -117,13 +119,27 @@ struct ChargeSessionCard: View {
                             ForEach(group.rows) { row in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(row.label).themeText(.label)
-                                    Text(row.value).themeText(.value, color: Theme.textPrimary)
+                                    if let tag = row.tag {
+                                        // Side by side when both fit whole; else the pill goes under the value. Neither is cut.
+                                        ViewThatFits(in: .horizontal) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 2 * Theme.unit) {
+                                                Text(row.value).themeText(.value, color: Theme.textPrimary).fixedSize()
+                                                ThemePill(text: tag).fixedSize()
+                                            }
+                                            VStack(alignment: .leading, spacing: Theme.unit) {
+                                                Text(row.value).themeText(.value, color: Theme.textPrimary)
+                                                ThemePill(text: tag).fixedSize()
+                                            }
+                                        }
+                                    } else {
+                                        Text(row.value).themeText(.value, color: Theme.textPrimary)
+                                    }
                                     if let hint = row.hint { Text(hint).themeText(.subline, color: Theme.textTertiary) }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(row.label)
-                                .accessibilityValue(SpokenText.words(row.spoken ?? row.value) + (row.hint.map { ", \(SpokenText.words($0))" } ?? ""))
+                                .accessibilityValue(SpokenText.words(row.spoken ?? row.value) + (row.tag.map { ", \($0)" } ?? "") + (row.hint.map { ", \(SpokenText.words($0))" } ?? ""))
                             }
                         }
                         if group.title == "Thermal management" {

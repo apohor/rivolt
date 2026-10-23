@@ -30,6 +30,8 @@
   "ReceiptTxnID": "",
   "EstimateMonth": "",
   "EstimateURL": "",
+  "PlaceOverride": "away",
+  "LocationOverride": "recorded",
   "ChargeLimitPct": 80,
   "cost_source_effective": "rivian",
   "cost_source_derived": false,
