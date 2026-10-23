@@ -445,6 +445,11 @@ type chargeResponse struct {
 	NetworkStateOut      *string         `json:"network_state"`
 	NetworkConfidenceOut *float64        `json:"network_confidence"`
 	NetworkEvidenceOut   json.RawMessage `json:"network_evidence"`
+	// PlaceAuto is what "Auto" gives this charge from the current home
+	// (#906): "home" or "away", omitted when the home or position is
+	// unknown. Shown next to the user's own place so they see what
+	// clearing it would do.
+	PlaceAuto string `json:"place_auto,omitempty"`
 }
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {
@@ -452,7 +457,7 @@ func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.H
 	// would not have accepted (a row written around it) is dropped, as in the
 	// ledger's classification.
 	c.EstimateMonth, c.EstimateURL = charges.CleanEstimate(c.EstimateMonth, c.EstimateURL)
-	resp := chargeResponse{Charge: c, NetworkEvidenceOut: json.RawMessage("null")}
+	resp := chargeResponse{Charge: c, NetworkEvidenceOut: json.RawMessage("null"), PlaceAuto: rivian.PlaceOf(c.Lat, c.Lon, home)}
 	if c.NetworkState != "" {
 		st := c.NetworkState
 		resp.NetworkStateOut = &st

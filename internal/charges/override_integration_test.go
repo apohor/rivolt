@@ -94,7 +94,8 @@ func TestChargeOverridesSurviveReclassification(t *testing.T) {
 		t.Errorf("after undo: place %q override %q", c.Place, c.PlaceOverride)
 	}
 
-	// A re-import of the same session carries the recorder's place and no override.
+	// The recorder re-saves the overridden session with a newly derived place (away) and no
+	// override: both the override and the user's place stay.
 	if err := store.Upsert(ctx, pinned); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +133,27 @@ func TestChargeOverridesSurviveReclassification(t *testing.T) {
 	if c := get("ov-pinned"); c.Place != "" {
 		t.Errorf("cleared, no home: place %q, want none", c.Place)
 	}
+	// Once cleared, the charge is automatic again: a correction moves it and its undo puts it back.
+	if err := store.SetPlaceOverride(ctx, "ov-pinned", "", true, farLat, lon, 250); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("ov-pinned"); c.Place != "away" {
+		t.Fatalf("cleared before the correction: %q", c.Place)
+	}
+	res3, err := store.RestampPlace(ctx, charges.RestampOptions{HomeLat: lat, HomeLon: lon, RadiusM: 250,
+		IsDCFC: func(float64, float64, float64, time.Duration) bool { return false }})
+	if err != nil || res3.RestampID == nil || res3.SkippedOverridden != 0 {
+		t.Fatalf("restamp after clear: %+v %v", res3, err)
+	}
+	if c := get("ov-pinned"); c.Place != "home" {
+		t.Errorf("after the correction: %q, want home", c.Place)
+	}
+	if _, err := store.UndoRestamp(ctx, res3.RestampID); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("ov-pinned"); c.Place != "away" || c.PlaceOverride != "" {
+		t.Errorf("after its undo: place %q override %q, want away and automatic", c.Place, c.PlaceOverride)
+	}
 	if err := store.SetPlaceOverride(ctx, "ov-missing", "", true, lat, lon, 250); !errors.Is(err, charges.ErrNoSuchCharge) {
 		t.Errorf("missing id = %v, want ErrNoSuchCharge", err)
 	}
@@ -153,7 +175,8 @@ func TestChargeOverridesSurviveReclassification(t *testing.T) {
 		t.Errorf("location after clear: %q", c.LocationOverride)
 	}
 
-	// A restore carries the overrides; anything else is stored as none.
+	// A restore carries the overrides; a hand-edited value outside the two lists is stored as
+	// none (the row restores, the restore doesn't fail).
 	restored := sampleCharge("ov-restored", "ov-rv", base.Add(48*time.Hour), "charging_complete")
 	restored.Place, restored.PlaceOverride, restored.LocationOverride = "home", "away", charges.LocationRecorded
 	odd := sampleCharge("ov-odd", "ov-rv", base.Add(50*time.Hour), "charging_complete")

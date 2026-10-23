@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -57,9 +58,10 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 		count = 10
 	}
 
+	// Ask for a few more than shown: duplicates are dropped below.
 	q := url.Values{}
 	q.Set("q", name)
-	q.Set("limit", strconv.Itoa(count))
+	q.Set("limit", strconv.Itoa(min(count+3, 10)))
 	q.Set("lang", "en")
 
 	u := c.BaseURL + "/api/?" + q.Encode()
@@ -98,8 +100,11 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 		return nil, fmt.Errorf("photon: decode: %w", err)
 	}
 
-	out := make([]Result, 0, len(body.Features))
+	out := make([]Result, 0, count)
 	for _, f := range body.Features {
+		if len(out) == count {
+			break
+		}
 		p := f.Properties
 		// Build a label that reads naturally regardless of result
 		// type: "123 Main St" for a housenumber, "Main St" for a
@@ -122,14 +127,48 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 		if (p.HouseNumber != "" || p.Street != "") && p.City != "" && !strings.Contains(label, p.City) {
 			label = label + ", " + p.City
 		}
-		out = append(out, Result{
+		r := Result{
 			Name:        label,
 			Latitude:    f.Geometry.Coordinates[1],
 			Longitude:   f.Geometry.Coordinates[0],
 			Country:     p.Country,
 			CountryCode: strings.ToUpper(p.CountryCode),
 			Admin1:      p.State,
-		})
+		}
+		if duplicateOf(out, r) {
+			continue
+		}
+		out = append(out, r)
 	}
 	return out, nil
+}
+
+// sameResultM is how close two results with the same label must be to count as one place.
+// OSM often holds one street as several ways (and one address as a node and a building), so
+// Photon returns "Rose Bowl Drive" twice a few hundred metres apart; a street of that name in
+// another town is kilometres away and stays.
+const sameResultM = 1000
+
+// duplicateOf reports whether r reads the same as a result already kept (label, state and
+// country, ignoring case and spacing) and lies within sameResultM of it.
+func duplicateOf(kept []Result, r Result) bool {
+	key := resultKey(r)
+	for _, k := range kept {
+		if resultKey(k) == key && distanceM(k.Latitude, k.Longitude, r.Latitude, r.Longitude) <= sameResultM {
+			return true
+		}
+	}
+	return false
+}
+
+func resultKey(r Result) string {
+	norm := func(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
+	return norm(r.Name) + "|" + norm(r.Admin1) + "|" + norm(r.Country)
+}
+
+func distanceM(lat1, lon1, lat2, lon2 float64) float64 {
+	const rad = math.Pi / 180
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * 6371008.8 * math.Asin(math.Min(1, math.Sqrt(a)))
 }

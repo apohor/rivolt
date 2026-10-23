@@ -971,7 +971,11 @@ function ChargingNetworksPanel() {
                   </div>
                 )}
 
-                {!r.slug && (
+                {!r.slug && (() => {
+                  const parsed = r.locDraft === undefined ? null : parseNetworkLocation(r.locDraft);
+                  const bad = parsed && !parsed.ok ? parsed.why : null;
+                  const hintId = `net-loc-hint-${i}`;
+                  return (
                   <label className="mt-2 flex flex-col text-xs" data-network-location>
                     <span className="text-[11px] uppercase tracking-wide text-neutral-500">Location (optional)</span>
                     <input
@@ -979,16 +983,25 @@ function ChargingNetworksPanel() {
                       inputMode="decimal"
                       value={r.locDraft ?? formatNetworkLocation(r)}
                       onChange={(e) => update(i, { locDraft: e.target.value })}
-                      placeholder="lat, lon"
-                      className="mt-1 w-full rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+                      aria-describedby={bad ? `${hintId} ${hintId}-err` : hintId}
+                      aria-invalid={bad ? true : undefined}
+                      placeholder="40.7128, -74.0060"
+                      className={
+                        "mt-1 w-full rounded-sm border bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums focus:outline-hidden " +
+                        (bad ? "border-rose-500 focus:border-rose-400" : "border-neutral-700 focus:border-neutral-500")
+                      }
                     />
-                    <span className="mt-1 text-neutral-500">
-                      {r.locDraft !== undefined && !parseNetworkLocation(r.locDraft).ok
-                        ? (parseNetworkLocation(r.locDraft) as { why: string }).why
-                        : "Only used to label your own charges near it."}
+                    <span id={hintId} className="mt-1 text-neutral-500">
+                      Only used to label your own charges near it. Clear it to remove it.
                     </span>
+                    {bad && (
+                      <span id={`${hintId}-err`} role="alert" className="mt-0.5 text-rose-400">
+                        {bad}
+                      </span>
+                    )}
                   </label>
-                )}
+                  );
+                })()}
 
                 {hasMembership && (
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -2876,6 +2889,26 @@ export function HomeLocationPanel() {
                 </li>
               ))}
             </ul>
+          )}
+          {/* A cold geocoder can take several seconds on the first search: say it's still looking, then what happened. */}
+          {debounced.trim().length >= 3 && (
+            <p role="status" aria-live="polite" className="mt-1 text-xs text-neutral-500" data-address-status>
+              {results.isFetching ? (
+                "Searching…"
+              ) : results.isError ? (
+                <>
+                  Address search didn&apos;t answer.{" "}
+                  <button type="button" onClick={() => void results.refetch()} className="underline hover:text-neutral-300">
+                    Try again
+                  </button>{" "}
+                  or enter coordinates below.
+                </>
+              ) : results.isSuccess && results.data.length === 0 ? (
+                "No matches. Try the street and town, or enter coordinates below."
+              ) : (
+                ""
+              )}
+            </p>
           )}
         </div>
       )}

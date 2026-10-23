@@ -19,7 +19,10 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 // nearestOwnNetwork is the user's own network (no slug) with a saved
-// location nearest to (lat, lon) within OWN_NETWORK_RADIUS_M, or null.
+// location nearest to (lat, lon) within OWN_NETWORK_RADIUS_M, or null;
+// equally near rows go alphabetically. Built-in rows never label. Its name
+// wins over the charger snap and over the ledger's network name, and only
+// when it is that close.
 export function nearestOwnNetwork(
   networks: ChargingNetwork[] | undefined,
   lat: number,
@@ -31,7 +34,8 @@ export function nearestOwnNetwork(
   for (const n of networks) {
     if (n.slug || n.lat == null || n.lon == null) continue;
     const m = haversineM(lat, lon, n.lat, n.lon);
-    if (m <= OWN_NETWORK_RADIUS_M && m < bestM) {
+    if (m > OWN_NETWORK_RADIUS_M) continue;
+    if (m < bestM || (m === bestM && best && n.name.localeCompare(best.name) < 0)) {
       best = n;
       bestM = m;
     }

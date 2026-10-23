@@ -51,7 +51,9 @@ export function useHomeRecheck() {
               : "Charges without a price stay unpriced (you can add prices). "}
             You can undo this right after. If you moved, history stays as recorded.
             {(ask.skipped_overridden ?? 0) > 0
-              ? ` ${ask.skipped_overridden} ${ask.skipped_overridden === 1 ? "charge" : "charges"} you set by hand ${ask.skipped_overridden === 1 ? "stays" : "stay"} as you set ${ask.skipped_overridden === 1 ? "it" : "them"}.`
+              ? ask.skipped_overridden === 1
+                ? " 1 charge you set by hand was left as it is. Change it on the charge's page."
+                : ` ${ask.skipped_overridden} charges you set by hand were left as they are. Change them on each charge's page.`
               : ""}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
