@@ -15,12 +15,12 @@ import (
 // currentTermsVersion is the version of the Terms users are asked to accept:
 // the date they took effect. Changing it asks everyone to accept again. The
 // client gates the UI on it; no API is blocked server-side.
-const currentTermsVersion = "2026-10-17"
+const currentTermsVersion = "2026-10-23"
 
 // termsEffectiveAt is when the Terms took effect. Only accounts created on or
 // after it are asked to accept; accounts that already existed are never gated
 // and never get an acceptance recorded on their behalf.
-var termsEffectiveAt = time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+var termsEffectiveAt = time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
 
 // termsRequired is whether the client must show the "I agree" step: the
 // account is new (created on or after termsEffectiveAt) and has not accepted
