@@ -17,7 +17,8 @@ import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { lowestTire, sleepSummary, softwareInfo } from "../lib/truckHealth";
+import { sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
+import { formatAgo } from "../lib/nowState";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
 // tires, software version. Gated by money_tab_enabled. Fields the
@@ -76,7 +77,7 @@ export default function TruckPage() {
     }
   }, [selectedID, sleepQ.isLoading]);
   const s = stateQ.data;
-  const tire = s ? lowestTire(s) : null;
+  const wheels = s ? tireWheels(s) : null;
   const software = s ? softwareInfo(s) : null;
   const name = vehicle?.name || "Your truck";
 
@@ -157,17 +158,11 @@ export default function TruckPage() {
         )}
       </Card>
 
-      {(tire || software) && (
+      {wheels && s && <TiresCard wheels={wheels} at={s.at} />}
+
+      {software && (
         <Card title="Vehicle" span="full">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {tire && (
-              <>
-                <dt className="text-neutral-500">Lowest tire</dt>
-                <dd className={`text-right tabular-nums ${tire.low ? "text-amber-300" : "text-neutral-200"}`}>
-                  {tire.bar.toFixed(1)} bar · {tire.psi.toFixed(0)} psi
-                </dd>
-              </>
-            )}
             {software && (
               <>
                 <dt className="text-neutral-500">Software</dt>
@@ -209,5 +204,37 @@ function NotesLink({ vehicleID, which, has }: { vehicleID?: string; which: "curr
     >
       Release notes<span aria-hidden> ↗</span>
     </a>
+  );
+}
+
+// TiresCard: the four pressures from the truck's last reading, with its age (always: people act on a pressure). A wheel is marked low in
+// plain amber text, no icon, below the fixed 32 psi floor or when Rivian's own status says so, and then it says whose word it is. Above
+// the floor there is only the number: a placard pressure is far higher than the floor, and we never call a wheel OK in our own words.
+function TiresCard({ wheels, at }: { wheels: Wheel[]; at: string }) {
+  const ageSec = Math.max(0, (Date.now() - Date.parse(at)) / 1000);
+  return (
+    <Card title="Tires" span="full">
+      <div data-tires className="space-y-3 text-sm">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+          {wheels.map((w) => (
+            <div key={w.pos} data-tire={w.pos}>
+              <dt className="text-xs text-neutral-500">{w.label}</dt>
+              <dd className="tabular-nums text-neutral-100">
+                {w.psi == null ? "—" : <>{w.psi.toFixed(0)} psi <span className="text-xs text-neutral-500">· {w.bar!.toFixed(1)} bar</span></>}
+              </dd>
+              {(w.low || w.rivianLow) && (
+                <dd data-tire-low className="text-xs text-amber-300">
+                  {w.low ? "Low" : "Low (Rivian)"}
+                </dd>
+              )}
+            </div>
+          ))}
+        </dl>
+        <p className="text-xs text-neutral-500" data-tires-age>
+          As of {formatAgo(ageSec)}. Pressure changes with temperature. Your truck&apos;s pressure is on the placard on the driver&apos;s door.
+          Marked low below 32 psi or when Rivian reports it.
+        </p>
+      </div>
+    </Card>
   );
 }

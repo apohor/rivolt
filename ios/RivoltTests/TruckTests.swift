@@ -203,6 +203,41 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(TruckLogic.minutesShort(0), "0m")
     }
 
+    private func state(_ edit: (inout [String: Any]) -> Void) throws -> VehicleState {
+        var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("state")) as? [String: Any])
+        edit(&o)
+        return try JSON.decoder().decode(VehicleState.self, from: JSONSerialization.data(withJSONObject: o))
+    }
+
+    func testTheTiresCardListsFourWheelsAndMarksLowOnlyByTheFloorOrRivian() throws {
+        let w = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_rr_bar"] = 2.8 }))
+        XCTAssertEqual(w.map(\.label), ["Front left", "Front right", "Rear left", "Rear right"])
+        XCTAssertEqual(TruckLogic.fixed(try XCTUnwrap(w[0].psi), 0), "42")
+        XCTAssertTrue(w.allSatisfy { TruckLogic.wheelFlag($0) == nil }, "above the floor and with no Rivian word, only the number")
+        let low = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_fl_bar"] = 2.1; $0["tire_pressure_rr_bar"] = 2.7; $0["tire_pressure_status_rr"] = "Low" }))
+        XCTAssertEqual(low.map { TruckLogic.wheelFlag($0) }, ["Low", nil, nil, "Low (Rivian)"])
+        // 38 psi is under a placard but above the floor: no claim either way, and never "OK" or "Normal".
+        let mid = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_fl_bar"] = 2.62; $0["tire_pressure_status_fl"] = "Normal" }))
+        XCTAssertNil(TruckLogic.wheelFlag(mid[0]))
+        for w in low + mid { XCTAssertFalse((TruckLogic.wheelFlag(w) ?? "").contains("OK") || (TruckLogic.wheelFlag(w) ?? "").contains("Normal")) }
+    }
+
+    func testAWheelWithNoReadingHasNoNumberAndNoNumberAtAllHidesTheCard() throws {
+        let w = try XCTUnwrap(TruckLogic.wheels(try Fixture.decode(VehicleState.self, "state")))
+        XCTAssertNil(w[3].bar, "the fixture's rear right sent 0")
+        XCTAssertNil(w[3].psi)
+        XCTAssertFalse(w[3].low)
+        XCTAssertNil(TruckLogic.wheels(try state { for k in ["fl", "fr", "rl", "rr"] { $0["tire_pressure_\(k)_bar"] = 0 } }))
+    }
+
+    func testOnlyAFixedListOfRivianLowWordsCounts() {
+        for v in ["low", "Low", " LOW ", "critically low", "critical-low"] { XCTAssertTrue(TruckLogic.rivianSaysLow(v), v) }
+        for v in ["", "Normal", "unknown", "undefined", "high", "lowish"] { XCTAssertFalse(TruckLogic.rivianSaysLow(v), v) }
+        XCTAssertFalse(TruckLogic.rivianSaysLow(nil))
+        XCTAssertTrue(TruckLogic.tiresNote.contains("32 psi"))
+        XCTAssertFalse(TruckLogic.tiresNote.lowercased().contains("unsafe"))
+    }
+
     func testTiresSoftwareAndTheNotesLink() throws {
         let s = try Fixture.decode(VehicleState.self, "state")
         let tire = try XCTUnwrap(TruckLogic.lowestTire(s))

@@ -162,6 +162,7 @@ struct TruckContent: View {
             if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") }
             placesCard
             sleepCard
+            tiresCard
             vehicleCard
         }
     }
@@ -613,13 +614,11 @@ struct TruckContent: View {
 
     @ViewBuilder
     private var vehicleCard: some View {
-        let tire = model.state.flatMap(TruckLogic.lowestTire)
         let sw = model.state.flatMap(TruckLogic.software)
-        if tire != nil || sw != nil {
+        if sw != nil {
             ThemeSection(title: "Vehicle") {
                 if stacked {
                     VStack(alignment: .leading, spacing: 12) {
-                        if let tire { stackedPair("Lowest tire") { tireText(tire) } }
                         if let sw {
                             stackedPair("Software") { versionCell(sw.current, which: "current", hasNotes: vehicle.ota?.current?.hasNotes) }
                             if let a = sw.available {
@@ -629,12 +628,6 @@ struct TruckContent: View {
                     }
                 } else {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                        if let tire {
-                            GridRow {
-                                Text("Lowest tire").themeText(.value, color: Theme.textTertiary)
-                                tireText(tire).gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
-                            }
-                        }
                         if let sw {
                             GridRow {
                                 Text("Software").themeText(.value, color: Theme.textTertiary)
@@ -653,9 +646,37 @@ struct TruckContent: View {
         }
     }
 
-    private func tireText(_ tire: (bar: Double, psi: Double, low: Bool)) -> some View {
-        Text("\(TruckLogic.fixed(tire.bar, 1)) bar · \(TruckLogic.fixed(tire.psi, 0)) psi")
-            .themeText(.value, color: tire.low ? Theme.estimate : Theme.textPrimary)
+    // MARK: Tires
+
+    /// The four pressures from the truck's last reading, with its age (always: people act on a pressure). A wheel is marked low in plain
+    /// text, no icon, below the fixed floor or when Rivian's own status says so, and then says whose word it is.
+    @ViewBuilder
+    private var tiresCard: some View {
+        if let state = model.state, let wheels = TruckLogic.wheels(state) {
+            let age = state.at.map { max(0, now.timeIntervalSince($0)) }
+            ThemeSection(title: "Tires") {
+                VStack(alignment: .leading, spacing: 12) {
+                    let columns = stacked ? [GridItem(.flexible(), alignment: .topLeading)] : [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)]
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                        ForEach(wheels) { w in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(w.label).themeText(.subline, color: Theme.textTertiary)
+                                Text(wheelValue(w)).themeText(.value, color: Theme.textPrimary)
+                                if let flag = TruckLogic.wheelFlag(w) { Text(flag).themeText(.subline, color: Theme.estimate) }
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    Text("As of \(age.map(NowFormat.ago) ?? "a while ago"). " + TruckLogic.tiresNote)
+                        .themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func wheelValue(_ w: TruckLogic.Wheel) -> String {
+        guard let bar = w.bar, let psi = w.psi else { return "—" }
+        return "\(TruckLogic.fixed(psi, 0)) psi · \(TruckLogic.fixed(bar, 1)) bar"
     }
 
     private func stackedPair<V: View>(_ label: String, @ViewBuilder value: () -> V) -> some View {

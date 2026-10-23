@@ -72,6 +72,11 @@ struct VehicleState: Decodable, Equatable {
     let tirePressureRrBar: Double?
     let otaCurrentVersion: String?
     let otaAvailableVersion: String?
+    /// Rivian's own word for each wheel ("Normal", ...), shown only as theirs and only when it is one of the known low words.
+    let tirePressureStatusFl: String?
+    let tirePressureStatusFr: String?
+    let tirePressureStatusRl: String?
+    let tirePressureStatusRr: String?
     /// The Now card's comfort line: the cabin temperature in Celsius (0 when the truck hasn't reported one) and the
     /// truck's own words for preconditioning, pet mode and cabin (climate) hold. Read as given, never worked out.
     let cabinTempC: Double?

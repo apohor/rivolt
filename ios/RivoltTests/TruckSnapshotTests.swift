@@ -14,8 +14,16 @@ final class TruckSnapshotTests: XCTestCase {
 
     private let now = JSON.parseDate("2026-10-22T17:00:00Z")!
 
-    private func model() throws -> TruckModel {
-        TruckModel(state: try Fixture.decode(VehicleState.self, "state"),
+    private func lowTires() throws -> VehicleState {
+        var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("state")) as? [String: Any])
+        o["tire_pressure_fl_bar"] = 2.1
+        o["tire_pressure_rr_bar"] = 2.7
+        o["tire_pressure_status_rr"] = "Low"
+        return try JSON.decoder().decode(VehicleState.self, from: JSONSerialization.data(withJSONObject: o))
+    }
+
+    private func model(state: VehicleState? = nil) throws -> TruckModel {
+        TruckModel(state: try state ?? Fixture.decode(VehicleState.self, "state"),
                    drain: .value(try Fixture.decode(DrainSnapshot.self, "drain")),
                    pack: .value(try Fixture.decode(PackHealth.self, "pack_health")),
                    trends: .value(try Fixture.decode(TruckTrends.self, "trends")),
@@ -25,8 +33,8 @@ final class TruckSnapshotTests: XCTestCase {
                    sleep: .value(try Fixture.decode([DayActivity].self, "sleep_activity")))
     }
 
-    private func page(_ key: TruckLogic.DrainKey) throws -> some View {
-        let m = try model()
+    private func page(_ key: TruckLogic.DrainKey, state: VehicleState? = nil) throws -> some View {
+        let m = try model(state: state)
         let v = try Fixture.decode([Vehicle].self, "vehicles")[0]
         return VStack(spacing: 0) {
             ThemeTopBar { EmptyView() }
@@ -67,5 +75,6 @@ final class TruckSnapshotTests: XCTestCase {
     func testRenderTheTruckTab() throws {
         try render("truck-7d", try page(.week))
         try render("truck-30d", try page(.month))
+        try render("truck-tires-low", try page(.week, state: try lowTires()))
     }
 }

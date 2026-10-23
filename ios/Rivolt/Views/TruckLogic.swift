@@ -374,6 +374,45 @@ enum TruckLogic {
         return (bar, bar * 14.5038, bar < lowTireBar)
     }
 
+    struct Wheel: Equatable, Identifiable {
+        let label: String
+        let bar: Double?
+        let psi: Double?
+        /// Below the fixed floor (`lowTireBar`).
+        let low: Bool
+        /// Rivian's own status for this wheel is one of its low words.
+        let rivianLow: Bool
+        var id: String { label }
+    }
+
+    /// The words Rivian's per-wheel status uses for a low tire, after trimming, lower-casing and turning spaces and hyphens into "_".
+    /// Any other word (including "normal") makes no claim: the card shows the pressure only and never calls a wheel OK in our words.
+    private static let rivianLowWords: Set<String> = ["low", "low_pressure", "very_low", "critically_low", "critical_low", "critical"]
+
+    static func rivianSaysLow(_ status: String?) -> Bool {
+        let key = (status ?? "").trimmingCharacters(in: .whitespaces).lowercased().split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).joined(separator: "_")
+        return rivianLowWords.contains(key)
+    }
+
+    /// The four wheels, front row first as on the truck. A wheel that sent no pressure (0) has no number and is never marked low on the
+    /// floor; it can still carry Rivian's own word. Nil when no wheel has a pressure to show.
+    static func wheels(_ s: VehicleState) -> [Wheel]? {
+        let rows: [(String, Double?, String?)] = [
+            ("Front left", s.tirePressureFlBar, s.tirePressureStatusFl), ("Front right", s.tirePressureFrBar, s.tirePressureStatusFr),
+            ("Rear left", s.tirePressureRlBar, s.tirePressureStatusRl), ("Rear right", s.tirePressureRrBar, s.tirePressureStatusRr),
+        ]
+        let out = rows.map { label, v, status -> Wheel in
+            let bar = v.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+            return Wheel(label: label, bar: bar, psi: bar.map { $0 * 14.5038 }, low: bar.map { $0 < lowTireBar } ?? false, rivianLow: rivianSaysLow(status))
+        }
+        return out.contains { $0.bar != nil } ? out : nil
+    }
+
+    /// What a wheel says under its number: Low (ours, the floor) or Low (Rivian's word), or nothing. Never "OK" or "Normal".
+    static func wheelFlag(_ w: Wheel) -> String? { w.low ? "Low" : w.rivianLow ? "Low (Rivian)" : nil }
+
+    static let tiresNote = "Pressure changes with temperature. Your truck's pressure is on the placard on the driver's door. Marked low below 32 psi or when Rivian reports it."
+
     /// The current version and an update, if one is pending (the feed says "0.0.0" when none is).
     static func software(_ s: VehicleState) -> (current: String, available: String?)? {
         let cur = (s.otaCurrentVersion ?? "").trimmingCharacters(in: .whitespaces)
