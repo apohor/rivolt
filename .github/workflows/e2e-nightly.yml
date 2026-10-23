@@ -99,7 +99,7 @@ jobs:
           E2E_TIMINGS: e2e-timings/${{ matrix.project }}.json
         run: |
           node scripts/e2e-shard.mjs --check ${{ matrix.total }}
-          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} --pass-with-no-tests
+          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} ${{ matrix.project == 'webkit' && '--pass-with-no-tests' || '' }}
 
       - name: Summary (flaky tests)
         if: always()

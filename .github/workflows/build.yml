@@ -376,9 +376,10 @@ jobs:
           E2E_TIMINGS: e2e-timings/${{ matrix.project }}.json
         run: |
           # Balanced by duration: this shard's spec files (scripts/e2e-shard.mjs). A WebKit shard can hold specs
-          # with no phone test, hence --pass-with-no-tests; --check fails unless every spec is in one shard.
+          # with no phone test, hence --pass-with-no-tests there (only: a chromium shard that runs nothing still
+          # fails); --check fails unless every spec is in one shard.
           node scripts/e2e-shard.mjs --check ${{ matrix.total }}
-          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} --pass-with-no-tests
+          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=${{ matrix.project }} ${{ matrix.project == 'webkit' && '--pass-with-no-tests' || '' }}
 
       - name: Summary (flaky tests)
         if: always()
