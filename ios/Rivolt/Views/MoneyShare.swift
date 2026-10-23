@@ -79,7 +79,9 @@ struct MoneyShareCardCanvas: View {
             Self.text(ctx, card.eyebrow, size: 44, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: 140)
             var size: CGFloat = 190
             while size > 64 && Self.width(ctx, card.title, size: size, weight: .bold) > Self.column { size -= 8 }
-            var y: CGFloat = 330
+            // A card with no figures (the milestone) is a headline and a sentence: centre that block between the label
+            // and the footer rather than leave the lower half empty.
+            var y: CGFloat = card.stats.isEmpty && card.notes.isEmpty ? 480 : 330
             Self.text(ctx, card.title, size: size, weight: .bold, color: Theme.shareCardTitle, x: 80, baseline: y)
             y = Self.wrap(ctx, card.subtitle, size: 44, color: Theme.shareCardMuted, x: 80, baseline: y + 80, lineHeight: 56, maxLines: 3)
             y += 30

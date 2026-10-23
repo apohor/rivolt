@@ -37,8 +37,8 @@ extension MoneyShareCard {
         f.calendar = calendar
         // The server's words as given, but never a dollar figure: cost is opt-in on every card.
         let body = hasMoney(m.body) ? "" : m.body
-        return MoneyShareCard(eyebrow: "Milestone", title: m.title, subtitle: [body, m.achievedAt.formatted(f)].filter { !$0.isEmpty }.joined(separator: " · "),
-                              stats: [], notes: [])
+        // The month rides in the top label so the sentence ends at its own full stop.
+        return MoneyShareCard(eyebrow: "Milestone · \(m.achievedAt.formatted(f))", title: m.title, subtitle: body, stats: [], notes: [])
     }
 
     private static let money = try! NSRegularExpression(pattern: #"[$€£]\s?\d|\d\s?(USD|EUR|GBP|CAD)\b"#, options: [.caseInsensitive])
@@ -90,7 +90,7 @@ struct ShareCardSheet: View {
                     Text("Made on your device. Nothing is uploaded or posted.").themeText(.subline, color: Theme.textTertiary)
                     if let png {
                         ShareLink(item: MoneySharePNG(data: png, name: fileName),
-                                  preview: SharePreview("Rivolt", image: Image(uiImage: UIImage(data: png) ?? UIImage()))) {
+                                  preview: SharePreview(card.title, image: Image(uiImage: UIImage(data: png) ?? UIImage()))) {
                             Text("Share")
                         }
                         .buttonStyle(ThemeButtonStyle())
