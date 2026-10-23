@@ -361,7 +361,7 @@ export default function TripPlanPage() {
               }
             />
           )}
-          {multidaySnapshot && !multidaySnapshot.replan && !inDemo() && (
+          {multidaySnapshot && !multidaySnapshot.replan && (
             <SnapshotBanner
               name={multidaySnapshot.name}
               updatedAt={multidaySnapshot.updatedAt}
@@ -425,7 +425,7 @@ export default function TripPlanPage() {
               </div>
             )}
           >
-            {loadedSnapshot && !inDemo() && (
+            {loadedSnapshot && (
               <SnapshotBanner
                 name={loadedSnapshot.name}
                 updatedAt={loadedSnapshot.updatedAt}
@@ -671,11 +671,11 @@ function SnapshotBanner({
       <span>
         {inDemo() ? (
           <>
-            Sample plan <strong className="text-neutral-100">"{name}"</strong>
+            Sample plan <span className="font-medium text-neutral-100">"{name}"</span>
           </>
         ) : (
           <>
-            Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+            Showing saved snapshot <span className="font-medium text-neutral-100">"{name}"</span>{" "}
             from {human}
             {stale && " — charging stations, weather, and ETA may have drifted."}
           </>
@@ -761,9 +761,12 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
   }, [presetParam, list.data]);
   return (
     <div data-plan-bar>
-      <p className="ui-label mb-2">Sample trips</p>
+      <p className="ui-label mb-1">Sample trips</p>
+      <p className="mb-2 text-xs text-neutral-500">Sample trips planned for the demo truck.</p>
       {list.isLoading ? (
         <Spinner />
+      ) : trips.length === 0 ? (
+        <p className="text-xs text-neutral-500">No sample trips available right now.</p>
       ) : (
         <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
           {trips.map((p) => (

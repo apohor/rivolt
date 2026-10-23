@@ -103,8 +103,10 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await page.goto("/demo/trips/plan");
   const presets = page.getByTestId("demo-presets");
   await expect(presets).toBeVisible();
+  await expect(page.getByText("Sample trips planned for the demo truck.")).toBeVisible();
   await presets.getByRole("button", { name: /LA to Las Vegas/ }).click();
-  // Plain copy: never a "saved snapshot from 1 min ago" or "preview · high match".
+  // Plain copy: a sample plan, not a "saved snapshot from 1 min ago"; Plan vs actual says "Likely match", not "preview · high match".
+  await expect(page.getByText(/Sample plan/).first()).toBeVisible();
   await expect(page.getByText(/Showing saved snapshot|min ago/)).toHaveCount(0);
   await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
   // The real result: stops table with a charger, cost, arrival SoC.
@@ -116,6 +118,10 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await expect(page.getByText(/Analyze|AI advice/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Save$/ })).toHaveCount(0);
   await expect(page.getByTestId("connect-hint").first()).toContainText("plan any trip");
+  // Plan vs actual is its own tab: the demo's sample trip says "Likely match", not "preview · high match".
+  await page.getByRole("tab", { name: "Plan vs actual" }).click();
+  await expect(page.getByText(/Likely match/).first()).toBeVisible();
+  await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
   await page.waitForTimeout(800);
   // The default stub preset has NO route_polyline: the map must not fall
   // back to the routing proxy (401 for anonymous visitors).
