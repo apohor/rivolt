@@ -185,6 +185,9 @@ for (const v of [
     await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(() => saved).not.toBeNull();
     expect((saved as { name: string; lat?: number }[]).find((r) => r.name === "Office garage")?.lat).toBeUndefined();
+    // The stub has the request, but the page re-seeds its rows from the answer when the save
+    // settles; typing before that would be overwritten. Wait for Save to be idle again.
+    await expect(page.locator("#networks button[type=submit]")).toHaveText("Save");
     saved = null;
     await input.fill("40.5, -100.25");
     await page.locator("#networks").getByRole("button", { name: "Save", exact: true }).click();
