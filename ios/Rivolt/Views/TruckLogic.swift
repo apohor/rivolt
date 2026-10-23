@@ -131,6 +131,26 @@ enum TruckLogic {
         case none
     }
 
+    /// The one line at the top of Truck (the scroll audit's "health headline"): the pack's usable capacity and the 7-day
+    /// parked drain, each exactly as its card below shows it (the same helpers, rounding and words), dropped when its card
+    /// has no figure; nil when neither has. Plain figures: no score, colour, comparison with the spec or "degradation".
+    static func summary(pack: PackHealth?, drain: DrainSnapshot?) -> String? {
+        var parts: [String] = []
+        if let pack {
+            switch Self.pack(pack).head {
+            case let .reported(kwh, _): parts.append("Pack \(fixed(kwh, 1)) kWh usable, as your truck reports it")
+            case let .estimate(kwh?, _): parts.append("Pack \(fixed(kwh, 0)) kWh usable (estimate)")
+            case .estimate(nil, _), .none: break
+            }
+        }
+        if let drain, case let .ok(p, _, _, _, _, _, _) = drainView(window(drain, .week), .week) {
+            parts.append("parked drain \(pct(p))% / day (last 7 days)")
+        }
+        guard let first = parts.first else { return nil }
+        parts[0] = first.prefix(1).uppercased() + first.dropFirst()
+        return parts.joined(separator: " · ")
+    }
+
     static func pack(_ p: PackHealth) -> (head: PackView, trend: [PackHealth.Sample], note: String) {
         let samples = p.samples ?? []
         let h = p.headline

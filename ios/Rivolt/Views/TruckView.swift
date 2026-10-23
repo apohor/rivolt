@@ -147,6 +147,13 @@ struct TruckContent: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            // The first screen answers "how is the truck": the two figures from the cards below, above the fold.
+            if let line = TruckLogic.summary(pack: model.pack?.value, drain: model.drain?.value) {
+                Text(line).themeText(.value, color: Theme.textBody)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Truck summary: \(line)")
+            }
             if TruckLogic.isR2(vehicle.model) && !r2Dismissed { r2Card }
             if let d = model.drain?.value { drainCard(d) } else if model.drain == nil { TruckLoading(title: "Parked drain") }
             if let terms = model.leaseTerms, let st = model.lease?.value { leaseCard(st, terms: terms) }
