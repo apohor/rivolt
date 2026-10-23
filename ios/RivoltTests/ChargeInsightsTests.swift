@@ -147,6 +147,7 @@ final class ChargeInsightsTests: XCTestCase {
                         "placeOverride", "locationOverride"])
         // The user's own word from the web (#906): set by them, and the pin where the truck was.
         XCTAssertTrue(row.placeSetByYou)
+        XCTAssertEqual(row.placeByYou, "Away")
         XCTAssertTrue(row.pinnedWhereRecorded)
         XCTAssertTrue(row.location().recorded, "the map gets the pin choice")
         let ac = try Fixture.decode(ChargeRow.self, "charge_one_ac")
@@ -177,7 +178,10 @@ final class ChargeInsightsTests: XCTestCase {
         func typeRow(_ row: ChargeRow?) -> InsightRow? {
             ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: [], row: row), metric: false).flatMap(\.rows).first { $0.label == "Type" }
         }
-        XCTAssertEqual(typeRow(mine)?.tag, "set by you")
+        // The pill says what was chosen: the Type value ("Fast charge", "Home") is the ledger's kind, not the choice.
+        XCTAssertEqual(typeRow(mine)?.tag, "Home · set by you")
+        let away = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":"away"}"#.utf8))
+        XCTAssertEqual(typeRow(away)?.tag, "Away · set by you")
         XCTAssertNil(typeRow(auto)?.tag)
         XCTAssertNil(typeRow(nil)?.tag, "before the row is read")
     }

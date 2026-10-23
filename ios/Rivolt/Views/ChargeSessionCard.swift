@@ -28,7 +28,7 @@ enum ChargeSessionRows {
         let type = place == "Fast" ? "Fast charge" : place ?? "—"
         let network = c.network.flatMap { $0.isEmpty ? nil : $0 }
         var session: [InsightRow] = [
-            InsightRow(label: "Type", value: type, hint: network, tag: i.placeSetByYou ? "set by you" : nil),
+            InsightRow(label: "Type", value: type, hint: network, tag: i.placeByYou.map { "\($0) · set by you" }),
             InsightRow(label: "Charging tier", value: i.tier.label, hint: i.tier.label == "—" ? nil : i.tier.hint),
         ]
         if let state = i.finalState { session.append(InsightRow(label: "Final state", value: state)) }
