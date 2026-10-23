@@ -112,7 +112,8 @@ test("charge overrides: picking a place and the pin writes once each · phone", 
 // value back with an inline error.
 for (const scheme of ["dark", "light"] as const) {
   test(`charge overrides: saving and failed states · iphone ${scheme}`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+    // Reduced motion: the switch has no colour transition, so the shot shows its settled colour.
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme, reducedMotion: "reduce" });
     const page = await ctx.newPage();
     await stubApi(page);
     await page.route("**/api/charges?**", (r) => r.fulfill({ json: [charge({ place_auto: "away" })] }));
@@ -136,9 +137,15 @@ for (const scheme of ["dark", "light"] as const) {
     await place.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-saving-iphone-${scheme}.png`), fullPage: false });
     release();
-    await expect(place.getByRole("alert")).toContainText("Couldn't save");
+    // Plain words, never the raw error ("boom").
+    await expect(place.getByRole("alert")).toHaveText("Couldn't save. Try again in a moment.");
+    await expect(page.locator("[data-location-override]").getByRole("alert")).toHaveText("Couldn't save. Try again in a moment.");
+    await expect(page.getByText("boom")).toHaveCount(0);
     await expect(place.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
     await expect(page.getByRole("switch", { name: "Pin where the truck was" })).toHaveAttribute("aria-checked", "false");
+    // The off track settles to the neutral colour (not green).
+    await expect(page.getByRole("switch", { name: "Pin where the truck was" })).not.toHaveClass(/bg-emerald/);
+    expect(await page.getByRole("switch", { name: "Pin where the truck was" }).evaluate((el) => getComputedStyle(el).transitionDuration)).toMatch(/^0s/);
     await page.screenshot({ path: path.join(SHOTS, `charge-overrides-failed-iphone-${scheme}.png`), fullPage: false });
     await ctx.close();
   });

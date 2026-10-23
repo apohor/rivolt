@@ -104,6 +104,9 @@ describe("charge overrides on a failed save", () => {
     fireEvent.click(screen.getByRole("switch"));
     expect(screen.getByRole("switch")).toBeChecked();
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    for (const a of screen.getAllByRole("alert")) expect(a).toHaveTextContent("Couldn't save. Try again in a moment.");
+    expect(screen.getByRole("radiogroup", { name: "Place" })).toHaveAccessibleDescription("Couldn't save. Try again in a moment.");
+    expect(screen.getByRole("switch")).toHaveAccessibleDescription(/Couldn't save\. Try again in a moment\./);
     expect(screen.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch")).not.toBeChecked();
   });
