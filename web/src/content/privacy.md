@@ -1,8 +1,8 @@
 # Rivolt Privacy Policy
 
-Last updated: October 22, 2026
+Last updated: October 23, 2026
 
-**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
+**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: support@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
 **Who it is for.** Adults (18 and over) in the United States who own or drive a Rivian.
 

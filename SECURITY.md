@@ -9,7 +9,7 @@ Two channels — pick whichever is easier:
 - **GitHub Security Advisory** (preferred):
   <https://github.com/apohor/rivolt/security/advisories/new> —
   opens a private channel with the maintainer.
-- **Email:** `pogiant@gmail.com` (subject line prefix:
+- **Email:** `support@rivolt.dev` (subject line prefix:
   `[rivolt-security]`).
 
 **Do not** open a public GitHub issue for security reports.

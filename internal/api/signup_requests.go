@@ -320,7 +320,7 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		"Join the Rivolt community on Discord for help, feedback, and\n" +
 		"early access to new features:\n\n" +
 		"    " + discordURL + "\n\n" +
-		"— Anton (anton@rivolt.dev)\n"
+		"— Rivolt (support@rivolt.dev)\n"
 	html := "<p>Hi,</p>" +
 		"<p>Here is your link to finish creating your Rivolt account.</p>" +
 		"<p>Click below to finish signing up — your email is already filled in, " +
@@ -334,7 +334,7 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		"<p>Join the community on " +
 		"<a href=\"" + discordURL + "\" style=\"color:#5865f2;font-weight:600;\">Discord</a> " +
 		"for help, feedback, and early access to new features.</p>" +
-		"<p>— Anton (<a href=\"mailto:anton@rivolt.dev\">anton@rivolt.dev</a>)</p>"
+		"<p>— Rivolt (<a href=\"mailto:support@rivolt.dev\">support@rivolt.dev</a>)</p>"
 	return mailer.Send(ctx, email.Message{
 		To:      to,
 		Subject: subject,

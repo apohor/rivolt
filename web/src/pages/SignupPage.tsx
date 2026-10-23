@@ -392,7 +392,7 @@ export default function SignupPage() {
                 </p>
                 <p className="mt-2 text-xs text-emerald-200/70">
                   Check your spam folder or add{" "}
-                  <span className="text-emerald-100 font-mono">anton@rivolt.dev</span>{" "}
+                  <span className="text-emerald-100 font-mono">support@rivolt.dev</span>{" "}
                   to your known recipients.
                 </p>
                 <p data-signup-have-account className="mt-2 text-xs text-emerald-200/70">

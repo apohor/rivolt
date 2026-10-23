@@ -89,8 +89,8 @@ type Message struct {
 var ErrNotConfigured = errors.New("email: client not configured")
 
 // FromAddress returns the bare email parsed out of the configured
-// `Name <addr>` From string (e.g. "Rivolt <anton@rivolt.dev>" →
-// "anton@rivolt.dev"). Empty when the client is nil or when the From
+// `Name <addr>` From string (e.g. "Rivolt <support@rivolt.dev>" →
+// "support@rivolt.dev"). Empty when the client is nil or when the From
 // has no angle-bracketed address. Used by admin notifications so the
 // same env var that gates the verified sender also targets the
 // admin's inbox — no second env var to keep in sync.

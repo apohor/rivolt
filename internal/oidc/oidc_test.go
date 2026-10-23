@@ -41,8 +41,8 @@ func TestResolveIdentityKey(t *testing.T) {
 		{name: "no email, bare preferred, multi-IdP without opt-in: candidate, iss:sub", sub: "abc-123", preferred: "Alice",
 			wantUsername: synth, wantCandidates: []string{"alice"}},
 		{name: "email present: a bare preferred (Hydra local part, login, display name) never keys", sub: "abc-123",
-			email: "anton@a.com", preferred: "anton", bareOK: true,
-			wantUsername: synth, wantEmail: "anton@a.com", wantCandidates: []string{"anton", "anton@a.com"}},
+			email: "alex@a.com", preferred: "alex", bareOK: true,
+			wantUsername: synth, wantEmail: "alex@a.com", wantCandidates: []string{"alex", "alex@a.com"}},
 		// 3. unverified candidates
 		{name: "unverified email only: iss:sub, candidate flagged", sub: "abc-123", email: "Alice@Example.com", bareOK: true,
 			wantUsername: synth, wantEmail: "alice@example.com", wantCandidates: []string{"alice@example.com"}},
@@ -236,10 +236,10 @@ func TestUsernameKeyOptInAndProviderCount(t *testing.T) {
 // land on one account, on a single-provider install either.
 func TestResolveIdentityKey_HydraLocalPartTwinsGetSeparateAccounts(t *testing.T) {
 	const iss = "https://auth.example.com"
-	a := resolveIdentityKey(iss, "sub-a", "anton@a.com", false, "anton", false, true)
-	b := resolveIdentityKey(iss, "sub-b", "anton@b.com", false, "anton", false, true)
+	a := resolveIdentityKey(iss, "sub-a", "alex@a.com", false, "alex", false, true)
+	b := resolveIdentityKey(iss, "sub-b", "alex@b.com", false, "alex", false, true)
 	for _, k := range []identityKey{a, b} {
-		if k.Username == "anton" || strings.Contains(k.Username, "@") || !strings.HasPrefix(k.Username, iss+":") {
+		if k.Username == "alex" || strings.Contains(k.Username, "@") || !strings.HasPrefix(k.Username, iss+":") {
 			t.Fatalf("must key on iss:sub, got %q", k.Username)
 		}
 	}

@@ -136,9 +136,9 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 			"data": map[string]any{
 				"currentUser": map[string]any{
 					"id":        "user-1",
-					"firstName": "Anton",
+					"firstName": "Alex",
 					"lastName":  "P",
-					"email":     "anton@example.com",
+					"email":     "alex@example.com",
 					"vehicles": []any{
 						map[string]any{
 							"id":   "veh-a",
