@@ -43,7 +43,7 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
   const { bars: bs, max } = bars(d.daily);
 
   return (
-    <section aria-label="Parked drain" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
+    <section id="truck-drain" aria-label="Parked drain" className="scroll-mt-20 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-base font-semibold text-neutral-100">Parked drain</h2>
         <div role="tablist" aria-label="Window" className="inline-flex rounded-lg border border-neutral-800 p-0.5 text-xs">

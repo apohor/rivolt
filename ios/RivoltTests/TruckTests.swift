@@ -74,6 +74,36 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(TruckLogic.specKwh(180), 0)
     }
 
+    /// The line at the top of Truck says exactly what the Battery capacity headline and the Parked drain (7 days) card
+    /// say: the same figures, rounding and words, each dropped when its card has none.
+    func testTheSummaryLineEqualsTheCardsItSummarises() throws {
+        let pack = try Fixture.decode(PackHealth.self, "pack_health")
+        let trends = try Fixture.decode(TruckTrends.self, "trends")
+        let drain = try drain()
+        guard case let .reported(kwh)? = TruckLogic.battery(pack: pack, trends: trends).head,
+              case let .ok(pct, _, _, _, _, _, _) = TruckLogic.drainView(TruckLogic.window(drain, .week), .week) else {
+            return XCTFail("the fixtures should give both cards a figure")
+        }
+        XCTAssertEqual(TruckLogic.summary(pack: pack, trends: trends, drain: drain),
+                       "Pack \(TruckLogic.fixed(kwh, 1)) kWh usable, as your truck reports it · parked drain \(TruckLogic.pct(pct))% a day (last 7 days)")
+        XCTAssertEqual(TruckLogic.summary(pack: pack, trends: trends, drain: drain), "Pack 123.0 kWh usable, as your truck reports it · parked drain 0.6% a day (last 7 days)")
+        // The halves name their cards, for the tap that shows them; each reads on its own (one per row at large text).
+        XCTAssertEqual(TruckLogic.summaryParts(pack: pack, trends: trends, drain: drain).map(\.id), ["pack", "drain"])
+        XCTAssertEqual(TruckLogic.summaryParts(pack: pack, trends: trends, drain: drain).last?.text, "Parked drain 0.6% a day (last 7 days)")
+        // No figure from the truck: our estimate (the trends median, the card's headline) is called one.
+        let none = try JSON.decoder().decode(PackHealth.self, from: Data(#"{"samples":[],"headline":{"effective_kwh":0,"sample_count":0,"window":0}}"#.utf8))
+        guard case let .estimate(e)? = TruckLogic.battery(pack: none, trends: trends).head else { return XCTFail("the card should lead with our estimate") }
+        XCTAssertEqual(TruckLogic.summary(pack: none, trends: trends, drain: nil), "Pack about \(TruckLogic.fixed(e, 0)) kWh usable (estimate)")
+        XCTAssertEqual(TruckLogic.summary(pack: none, trends: trends, drain: nil), "Pack about 122 kWh usable (estimate)")
+        // Only the drain; then nothing at all (no figure from the truck and no estimate yet).
+        XCTAssertEqual(TruckLogic.summary(pack: nil, drain: drain), "Parked drain 0.6% a day (last 7 days)")
+        XCTAssertNil(TruckLogic.summary(pack: nil, drain: nil))
+        XCTAssertNil(TruckLogic.summary(pack: none, trends: nil, drain: nil))
+        // No score, comparison or loss words.
+        let line = try XCTUnwrap(TruckLogic.summary(pack: pack, trends: trends, drain: drain)).lowercased()
+        for word in ["health", "degrad", "loss", "lost", "% of", "spec"] { XCTAssertFalse(line.contains(word), word) }
+    }
+
     /// A truck with no qualifying charge yet: a newer server sends `samples: []`, an older one `null`. Both read as
     /// "none yet", with the truck's own figure still shown.
     func testPackHealthWithNoSamplesDecodesFromAnEmptyListOrNull() throws {

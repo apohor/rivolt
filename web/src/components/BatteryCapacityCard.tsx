@@ -94,7 +94,8 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
     return () => ro.disconnect();
   }, []);
   const H = 150;
-  const PAD = { l: 34, r: 12, t: 8, b: 22 };
+  // Room on the right for the "Rivian spec" label when the spec line shows, so it never sits on the dots.
+  const PAD = { l: 34, r: specInRange(spec, median) ? 66 : 12, t: 8, b: 22 };
   const ds = dots(samples, median);
   if (ds.length === 0) return null;
   const [lo, hi] = yDomain(median);
@@ -144,7 +145,13 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
           </g>
         ))}
         {showSpec && (
-          <line data-cap-spec x1={PAD.l} x2={PAD.l + iw} y1={Y(spec)} y2={Y(spec)} stroke="#737373" strokeDasharray="1 3" strokeWidth={1} />
+          <>
+            <line data-cap-spec x1={PAD.l} x2={PAD.l + iw} y1={Y(spec)} y2={Y(spec)} stroke="#737373" strokeDasharray="1 3" strokeWidth={1} />
+            {/* Labelled past its end (in the right margin), so the dots read as our estimate, not as a gap to it. */}
+            <text data-cap-spec-label x={PAD.l + iw + 4} y={Y(spec) + 3.5} textAnchor="start" className="fill-neutral-500 text-[10px]">
+              Rivian spec
+            </text>
+          </>
         )}
         <line data-cap-median x1={PAD.l} x2={PAD.l + iw} y1={Y(median)} y2={Y(median)} stroke="#a3a3a3" strokeDasharray="4 3" strokeWidth={1} />
         {runs.map((run, i) => (
@@ -209,7 +216,7 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
         {showSpec && (
           <span>
             <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t border-dotted border-neutral-500 align-middle" />
-            Rated pack {spec.toFixed(0)} kWh
+            Rivian spec {spec.toFixed(0)} kWh
           </span>
         )}
       </p>
