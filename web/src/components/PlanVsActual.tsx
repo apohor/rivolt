@@ -6,7 +6,7 @@ import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Ro
 import { Card } from "./ui";
 
 // Plan vs Actual: for a saved trip, how the drive went against the plan
-// (contract v1). Behind money_tab_enabled (the caller gates it). Never
+// (contract v1). Never
 // guesses: an incomplete cost reads "so far $X, N not priced yet" and
 // shows no difference; a metric with an unknown side shows none.
 

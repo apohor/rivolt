@@ -1,27 +1,24 @@
 import { useCallback, type KeyboardEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 
-// Plan sections, as tabs at the top of /plan (ui_theme_next). The selected tab
+// Plan sections, as tabs at the top of /plan. The selected tab
 // lives in the URL (?tab=) so a reload, a link and the back button agree.
 export type PlanTab = "planner" | "saved" | "pva";
 
 const TAB_IDS: readonly PlanTab[] = ["planner", "saved", "pva"];
 
 // parsePlanTab maps the raw ?tab= value to a tab: unknown or missing values
-// fall back to the planner, and "pva" only exists when allowPva (the Money
-// shell) is on.
-export function parsePlanTab(raw: string | null, allowPva: boolean): PlanTab {
-  const t = TAB_IDS.find((id) => id === raw);
-  if (!t || (t === "pva" && !allowPva)) return "planner";
-  return t;
+// fall back to the planner.
+export function parsePlanTab(raw: string | null): PlanTab {
+  return TAB_IDS.find((id) => id === raw) ?? "planner";
 }
 
 // usePlanTab is [tab, setTab] backed by ?tab=. Choosing the planner removes
 // the param (a clean URL); other query params are kept; the history entry is
 // replaced, so switching tabs does not fill the back stack.
-export function usePlanTab(allowPva: boolean): [PlanTab, (t: PlanTab) => void] {
+export function usePlanTab(): [PlanTab, (t: PlanTab) => void] {
   const [params, setParams] = useSearchParams();
-  const tab = parsePlanTab(params.get("tab"), allowPva);
+  const tab = parsePlanTab(params.get("tab"));
   const setTab = useCallback(
     (t: PlanTab) => {
       setParams(

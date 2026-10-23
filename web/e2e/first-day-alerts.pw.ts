@@ -46,7 +46,7 @@ async function open(page: Page, o: { permission?: "default" | "denied" | "grante
     },
     [permission, prompt, existing, checkDelayMs] as const,
   );
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/drives*", (r) => (r.request().url().includes("/api/drives/") ? r.fallback() : r.fulfill({ json: [] })));
   await page.route("**/api/charges*", (r) => (r.request().url().includes("/api/charges/") ? r.fallback() : r.fulfill({ json: [] })));
   await page.route(`**/api/vehicles/${VEHICLE_ID}/lease`, (r) => r.fulfill({ status: 404, json: { error: "no lease" } }));

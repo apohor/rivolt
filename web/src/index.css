@@ -52,7 +52,7 @@
     padding-top: max(env(safe-area-inset-top), 0px);
   }
 
-  /* Fixed bottom tab bar (money_tab_enabled shell): a fixed element
+  /* Fixed bottom tab bar (the app shell): a fixed element
    ignores body padding, so it pads itself past the home indicator. */
   .app-safe-bottom {
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
@@ -251,7 +251,7 @@ input[type="number"] {
 }
 
 /*
-  Light theme (money_tab_enabled shell only; see lib/theme.ts). The app
+  Light theme (the app shell and the public pages; see lib/theme.ts). The app
   is authored dark. Neutrals are mirrored (100<->900, ...) so surfaces
   flip. Accent hues: 50/100/200 and 900/950 swap so tinted panels turn
   pale and their text turns dark; 300/400 text becomes the 700 shade

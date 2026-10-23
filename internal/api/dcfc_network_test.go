@@ -142,7 +142,7 @@ func TestLedger_SummaryToConfirmCounts(t *testing.T) {
 	uid := uuid.New()
 	la := (&fakeLedgerData{}).api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC))
 	la.toConfirmCount = func(context.Context, uuid.UUID) (int, int, error) { return 5, 2, nil }
-	h := ledgerRouter(map[string]bool{uid.String(): true}, la)
+	h := ledgerRouter(la)
 	rec := ledgerGET(t, h, uid, "/api/ledger/summary?months=1")
 	var sum ledgerSummaryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &sum); err != nil {

@@ -18,7 +18,7 @@ const USERS = [
 
 async function open(page: Page, url = "/admin/users", createPassword: string | null = null) {
   const created: unknown[] = [];
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/admin/users", (r) => {
     if (r.request().method() === "POST") {
       created.push(r.request().postDataJSON());

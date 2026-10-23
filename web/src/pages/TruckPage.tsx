@@ -20,7 +20,7 @@ import { otaLine, otaUpdate, sleepSummary, softwareInfo, tireWheels, type Wheel 
 import { formatAgo } from "../lib/nowState";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
-// tires, software version. Gated by money_tab_enabled. Fields the
+// tires, software version. Fields the
 // vehicle never reports are hidden, not shown as "—" (NQ15). No
 // sleep-safe badge: the sleep gate is off in prod.
 

@@ -749,8 +749,7 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Delete("/vehicles/{vehicleID}/lease", withUser(handleLeaseDelete(d.DB)))
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/lease/status", withUser(handleLeaseStatus(d.DB, time.Now)))
 			// Now-card state fields (location_fix_at, connection,
-			// state_since, tire min). Read-only; 404s unless
-			// money_tab_enabled covers the user.
+			// state_since, tire min). Read-only.
 			if d.DB != nil {
 				na := nowAPI{
 					snapshot: newNowSnapshotter(d.DB),
@@ -770,16 +769,13 @@ func New(d Deps) http.Handler {
 					ambient: ambientLookup(ambientOptIn(d.Settings), d.WeatherClient, newAmbientCache(), d.Logger, isDemoUser),
 					now:     time.Now,
 				}
-				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).
-					Get("/vehicles/{vehicleID}/now", withUser(na.handle))
+				r.With(vehicleScoped).Get("/vehicles/{vehicleID}/now", withUser(na.handle))
 			}
 			// Parked-drain card (B8): per-vehicle drain, idle-awake and
-			// sleep stats from vehicle_state. Read-only; 404s unless
-			// money_tab_enabled covers the user.
+			// sleep stats from vehicle_state. Read-only.
 			if d.DB != nil {
 				dr := newDrainAPI(newDrainStore(d.DB))
-				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).
-					Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
+				r.With(vehicleScoped).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
 			}
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
@@ -1017,11 +1013,6 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "flag.trip_planner", targetType: "flag", targetID: "trip_planner", keys: []string{"enabled"},
 					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"enabled": f.TripPlanner().Enabled} })})).
 					Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
-				r.With(audit(auditSpec{action: "flag.money_tab", targetType: "flag", targetID: "money_tab", keys: []string{"all"}, custom: usersCount,
-					before: flagBefore(func(f *flags.Store) map[string]any {
-						return map[string]any{"all": f.MoneyTab().All, "users_count": len(f.MoneyTab().Users)}
-					})})).
-					Put("/flags/money-tab", handleFlagsMoneyTabPut(d.Flags))
 				r.With(audit(auditSpec{action: "flag.statement_email", targetType: "flag", targetID: "statement_email", keys: []string{"all"}, custom: usersCount,
 					before: flagBefore(func(f *flags.Store) map[string]any {
 						return map[string]any{"all": f.StatementEmail().All, "users_count": len(f.StatementEmail().Users)}
@@ -1225,12 +1216,10 @@ func New(d Deps) http.Handler {
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
-			// Money tab ledger: server-side spend/energy statement.
-			// Read-only; 404s unless money_tab_enabled covers the user.
+			// Money tab ledger: server-side spend/energy statement. Read-only.
 			r.Route("/ledger", func(r chi.Router) {
-				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
 				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
-				r.Get("/enabled", handleLedgerEnabled())
+				r.Get("/enabled", withUser(handleLedgerEnabled))
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/monthly.csv", withUser(la.statementCSV))
 				r.Get("/summary", withUser(la.summary))
@@ -1279,14 +1268,12 @@ func New(d Deps) http.Handler {
 			// the map instantly while still letting the user re-plan
 			// against current station / weather state.
 			// Plan vs Actual (B12): compare a saved trip with the outing
-			// that happened. Read/links behind money_tab_enabled.
+			// that happened.
 			if d.DB != nil && d.Trips != nil {
 				pa := newPlanActualAPI(d.DB, d.Trips, d.Settings)
-				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags))).Group(func(r chi.Router) {
-					r.Get("/trips/saved/{id}/actual", withUser(pa.actual))
-					r.Post("/trips/saved/{id}/link", withUser(pa.link))
-					r.Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
-				})
+				r.Get("/trips/saved/{id}/actual", withUser(pa.actual))
+				r.Post("/trips/saved/{id}/link", withUser(pa.link))
+				r.Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
 			}
 			// Where a saved multi-day trip stands (which day is under way, where
 			// the truck is), for "re-plan from here". Reads only.

@@ -24,7 +24,7 @@ async function open(page: Page, tab: "signups" | "operations", init: Partial<Sta
     { id: "r2", email: "second@example.com", message: "", status: "pending", requested_at: ago(30 * H) },
     { id: "r3", email: "done@example.com", message: "", status: "approved", requested_at: ago(90 * H), signup_token: "t", token_used_at: ago(80 * H) },
   ];
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/admin/users", (r) => r.fulfill({ json: { users: [ADMIN] } }));
   await page.route("**/api/admin/audit**", (r) => {
     const action = new URL(r.request().url()).searchParams.get("action");

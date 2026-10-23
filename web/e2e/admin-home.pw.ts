@@ -22,7 +22,7 @@ const healthy = () => ({
 });
 
 async function open(page: Page, summary: unknown, extra?: (p: Page) => Promise<void>) {
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await extra?.(page);
   let calls = 0;
   await page.route("**/api/admin/health-summary", (r) => { calls++; return r.fulfill({ json: summary }); });
@@ -121,7 +121,7 @@ test("Refresh asks again, and it also refreshes by itself", async ({ page }) => 
 });
 
 test("a failed summary says so", async ({ page }) => {
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/admin/health-summary", (r) => r.fulfill({ status: 500, json: { error: "boom" } }));
   await page.goto("/admin");
   await expect(page.getByText("Couldn't load the health summary")).toBeVisible();

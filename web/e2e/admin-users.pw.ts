@@ -24,7 +24,7 @@ const USERS = [
 ];
 
 async function open(page: Page, users: unknown[] = USERS) {
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   await page.route("**/api/admin/users", (r) => (r.request().method() === "GET" ? r.fulfill({ json: { users } }) : r.fallback()));
   await page.route("**/api/admin/users/*", (r) => {
     const id = new URL(r.request().url()).pathname.split("/").pop();

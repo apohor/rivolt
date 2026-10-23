@@ -19,7 +19,7 @@ const userLabel = (u: AdminUserRow) => u.display_name || u.email || u.username;
 export function AudienceFlagRow({
   flag, title, feature, description, auditAction, value, note,
 }: {
-  flag: "money_tab" | "statement_email";
+  flag: "statement_email";
   title: string;
   feature: string; // as it reads in "Turn <feature> on for everyone?"
   description: string;
@@ -38,9 +38,7 @@ export function AudienceFlagRow({
   const [confirming, setConfirming] = useState(false);
   const save = useMutation({
     mutationFn: async ({ all, users }: { all: boolean; users: string[] }): Promise<AdminFlagsState> =>
-      flag === "money_tab"
-        ? { money_tab: (await backend.adminFlagsMoneyTabPut(all, users)).money_tab } as AdminFlagsState
-        : { statement_email: (await backend.adminFlagsStatementEmailPut(all, users)).statement_email } as AdminFlagsState,
+      ({ statement_email: (await backend.adminFlagsStatementEmailPut(all, users)).statement_email }) as AdminFlagsState,
     onSuccess: (patch) => {
       merge(patch);
       setEditing(false);

@@ -1430,8 +1430,6 @@ export const backend = {
       "/api/admin/flags/trip-planner",
       { enabled },
     ),
-  adminFlagsMoneyTabPut: (all: boolean, users: string[]) =>
-    api.put<{ money_tab: AudienceFlag }>("/api/admin/flags/money-tab", { all, users }),
   adminFlagsStatementEmailPut: (all: boolean, users: string[]) =>
     api.put<{ statement_email: AudienceFlag }>("/api/admin/flags/statement-email", { all, users }),
   adminFlagsAICallCapPut: (dailyLimit: number) =>
@@ -2114,7 +2112,6 @@ export type AdminFlagsState = {
   kill_switch: { paused: boolean; reason?: string; actor?: string };
   trip_planner: { enabled: boolean; actor?: string };
   // Who a feature is on for: everyone, or the listed user ids (empty: nobody).
-  money_tab?: AudienceFlag;
   statement_email?: AudienceFlag;
   ai_call_cap?: { daily_limit: number; actor?: string }; // <= 0: no cap
 };

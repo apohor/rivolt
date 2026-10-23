@@ -23,31 +23,6 @@ import (
 // load years of rows.
 const maxLedgerMonths = 24
 
-// requireMoneyTabMW 404s every /api/ledger request unless enabled
-// reports the Money tab on for the session user (the per-user
-// money_tab_enabled flag). 404 (not 403), like the trip planner: a
-// disabled tab looks like a route that doesn't exist.
-func requireMoneyTabMW(enabled func(userID string) bool) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			uid, ok := auth.UserFromContext(r.Context())
-			if !ok || uid == uuid.Nil || enabled == nil || !enabled(uid.String()) {
-				http.NotFound(w, r)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// moneyTabEnabled adapts the flags store for requireMoneyTabMW. A nil
-// store (no DB) keeps the tab off.
-func moneyTabEnabled(store *flags.Store) func(string) bool {
-	return func(userID string) bool {
-		return store != nil && store.MoneyTab().Enabled(userID)
-	}
-}
-
 // ledgerAPI holds the ledger handlers' dependencies as seams so tests
 // can run them without Postgres.
 type ledgerAPI struct {
@@ -201,14 +176,11 @@ func stamp(m *ledger.Monthly, p ledgerParams) {
 	}
 }
 
-// handleLedgerEnabled answers the SPA's "show the Money tab?" probe.
-// Reached only when requireMoneyTabMW let the request through.
-// ui_theme_next is always true now (the old look is gone): it stays in the
-// reply only so a tab still running an older bundle keeps the current look.
-func handleLedgerEnabled() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "ui_theme_next": true})
-	}
+// handleLedgerEnabled answers the old "show the Money tab?" probe. The tab
+// and the current look are always on now; the reply stays only so a tab
+// still running an older bundle gets the tab-bar shell and the current look.
+func handleLedgerEnabled(_ uuid.UUID, w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "ui_theme_next": true})
 }
 
 // monthly serves GET /api/ledger/monthly?month=YYYY-MM[&tz][&vehicle_id].
@@ -289,44 +261,11 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, out)
 }
 
-// flagsMoneyTabRequest is the PUT body for /api/admin/flags/money-tab.
-type flagsMoneyTabRequest struct {
+// flagsAudienceRequest is the PUT body for an audience flag
+// (/api/admin/flags/statement-email): everyone, or the listed users.
+type flagsAudienceRequest struct {
 	All   bool     `json:"all"`
 	Users []string `json:"users"`
-}
-
-// handleFlagsMoneyTabPut sets which users see the Money tab. Users must
-// be rivolt user UUIDs; actor comes from the session.
-func handleFlagsMoneyTabPut(store *flags.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if store == nil {
-			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var req flagsMoneyTabRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		users := make([]string, 0, len(req.Users))
-		for _, u := range req.Users {
-			id, err := uuid.Parse(strings.TrimSpace(u))
-			if err != nil {
-				http.Error(w, "users must be user UUIDs", http.StatusBadRequest)
-				return
-			}
-			users = append(users, id.String())
-		}
-		actor := "admin"
-		if uid, ok := auth.UserFromContext(r.Context()); ok {
-			actor = uid.String()
-		}
-		if err := store.SetMoneyTab(r.Context(), flags.MoneyTabState{All: req.All, Users: users}, actor); err != nil {
-			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"money_tab": store.MoneyTab()})
-	}
 }
 
 // handleFlagsStatementEmailPut sets which users the monthly statement
@@ -337,7 +276,7 @@ func handleFlagsStatementEmailPut(store *flags.Store) http.HandlerFunc {
 			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		var req flagsMoneyTabRequest
+		var req flagsAudienceRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
 			return
@@ -355,7 +294,7 @@ func handleFlagsStatementEmailPut(store *flags.Store) http.HandlerFunc {
 		if uid, ok := auth.UserFromContext(r.Context()); ok {
 			actor = uid.String()
 		}
-		if err := store.SetStatementEmail(r.Context(), flags.MoneyTabState{All: req.All, Users: users}, actor); err != nil {
+		if err := store.SetStatementEmail(r.Context(), flags.AudienceState{All: req.All, Users: users}, actor); err != nil {
 			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

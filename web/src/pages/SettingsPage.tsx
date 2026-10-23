@@ -42,7 +42,6 @@ import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
 import { useImpersonationTarget } from "../lib/impersonation";
-import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
   setDistanceUnit,
@@ -111,8 +110,6 @@ function SettingsPageInner() {
   // The tab's cards that load their own data appear after the first frame; watching this root (not the target's
   // parent, which does not exist yet) is what lets the anchor re-align once the target card has mounted.
   const rootRef = useRef<HTMLDivElement>(null);
-  // In the tab-bar shell the header no longer carries Sign out.
-  const shell = useMoneyTabEnabled();
 
   // Tab state. Priority: ?tab=… query param > hash → owning tab >
   // default "account". Query param wins so a bookmark like
@@ -207,12 +204,11 @@ function SettingsPageInner() {
           </Card>
           <AIFeaturesCard />
           <AmbientTempCard />
-          {shell && <AppearanceCard />}
-          {shell && (
-            <Card title="Rivolt account">
-              <SignOutButton label="Sign out of Rivolt" solid />
-            </Card>
-          )}
+          <AppearanceCard />
+          {/* The tab-bar shell's header has no Sign out; it lives here. */}
+          <Card title="Rivolt account">
+            <SignOutButton label="Sign out of Rivolt" solid />
+          </Card>
         </>
       )}
 
@@ -2729,8 +2725,7 @@ function DeleteAccountBlock() {
   );
 }
 
-// AppearanceCard: System / Light / Dark, per device (localStorage). The
-// shell-only theme; the control is hidden when the shell is off.
+// AppearanceCard: System / Light / Dark, per device (localStorage).
 export function AppearanceCard() {
   const [choice, setChoice] = useThemeChoice();
   const opts: { key: ThemeChoice; label: string }[] = [
@@ -2778,9 +2773,6 @@ export function homeMoved(
 // geocoding backend as the planner's search box.
 export function HomeLocationPanel() {
   const qc = useQueryClient();
-  // The wrong-or-moved prompt rewrites history, so it ships with the
-  // money_tab_enabled flag only.
-  const shell = useMoneyTabEnabled();
   const homeQ = useQuery({
     queryKey: ["settings", "homeLocation"],
     queryFn: backend.homeLocationGet,
@@ -2790,7 +2782,7 @@ export function HomeLocationPanel() {
   const saved = (data: HomeLocation, prev: HomeLocation | undefined) => {
     qc.setQueryData(["settings", "homeLocation"], data);
     recheck.reset();
-    if (shell && prev?.set && data.set && homeMoved(prev, data)) recheck.start();
+    if (prev?.set && data.set && homeMoved(prev, data)) recheck.start();
   };
   const save = useMutation({
     mutationFn: (h: HomeLocation) => backend.homeLocationPut(h),

@@ -28,7 +28,6 @@ import {
   milesPerDay,
   shareByEnergy,
   socTrend,
-  WINDOW_OPTIONS,
   type WindowKey,
 } from "../lib/analytics";
 import { collapseRoundTrips } from "../lib/drives";
@@ -36,11 +35,9 @@ import { usePreferences } from "../lib/preferences";
 import { WindowPicker } from "../components/WindowPicker";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { useMoneyTabEnabled } from "../lib/ledger";
 import NowCard from "../components/NowCard";
 
 export default function HomePage() {
-  const shellEnabled = useMoneyTabEnabled();
   const [win, setWin] = useState<WindowKey>("30d");
   // The calendar scope (Week/Month/Year/All/Custom).
   const [period, setPeriod] = usePeriod();
@@ -253,40 +250,21 @@ export default function HomePage() {
       />
       {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
-      {/* Hero owns the page header AND the window picker: folding the
-          picker into the hero removes the orphan 'Summary · 30 days'
-          row that floated between the hero card and the KPI card on
-          the previous layout (three competing borders in the first
-          viewport). Hero is now the single anchor — its CTAs still
-          route to /live and /drives, and a divider + right-aligned
-          picker communicate "this scope affects everything below". */}
-      {!shellEnabled && (
-        <HeroBanner
-        win={win}
-        onWinChange={setWin}
-        vehicles={vehicles.data ?? []}
-        selectedVehicleID={activeVehicleID}
-        onSelectVehicle={selectVehicle}
+      <PageHeader
+        title="Now"
+        actions={
+          <ScopeBar
+            win={win}
+            onWinChange={setWin}
+            period={period}
+            onPeriodChange={setPeriod}
+            vehicles={vehicles.data ?? []}
+            selectedVehicleID={activeVehicleID}
+            onSelectVehicle={selectVehicle}
+          />
+        }
       />
-      )}
-
-      {shellEnabled && (
-        <PageHeader
-          title="Now"
-          actions={
-            <ScopeBar
-              win={win}
-              onWinChange={setWin}
-              period={period}
-              onPeriodChange={setPeriod}
-              vehicles={vehicles.data ?? []}
-              selectedVehicleID={activeVehicleID}
-              onSelectVehicle={selectVehicle}
-            />
-          }
-        />
-      )}
-      {shellEnabled && activeVehicleID && (
+      {activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
           vehicleName={
@@ -587,93 +565,5 @@ function ScopeBar({
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
       {period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
-  );
-}
-
-// HeroBanner is the Overview's marketing frame AND filter anchor.
-// Top row = tagline pill / headline / description / CTAs (kept
-// intact from v0.3.34's Caffeine-style hero). Bottom row = a thin
-// divider + "Showing" label + WindowPicker so everything below the
-// hero inherits the picker's scope visually. Folding the picker
-// into the hero replaces the previous orphan 'Summary · 30 days'
-// header row that floated between two bordered cards.
-function HeroBanner({
-  win,
-  onWinChange,
-  vehicles,
-  selectedVehicleID,
-  onSelectVehicle,
-}: {
-  win: WindowKey;
-  onWinChange: (w: WindowKey) => void;
-  vehicles: import("../lib/api").Vehicle[];
-  selectedVehicleID: string | undefined;
-  onSelectVehicle: (id: string) => void;
-}) {
-  const currentLabel =
-    WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? "";
-  return (
-    <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-linear-to-br from-neutral-900 via-neutral-950 to-neutral-900">
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        className="pointer-events-none absolute -right-2 top-1/2 hidden h-32 w-32 -translate-y-1/2 text-emerald-500/10 md:block"
-        fill="currentColor"
-      >
-        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
-      </svg>
-      <div className="relative flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0 max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Your Rivian, your data
-          </span>
-          <h1 className="mt-1.5 text-lg font-semibold tracking-tight sm:text-xl">
-            <span className="text-neutral-100">There&apos;s a story</span>{" "}
-            <span className="text-emerald-300">in every drive.</span>
-          </h1>
-          <p className="mt-1 text-[12px] text-neutral-400 sm:text-sm">
-            Energy, cost, and route insights for every trip and charge.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <Link
-            to="/live"
-            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-500"
-          >
-            Live view →
-          </Link>
-          <Link
-            to="/drives"
-            className="text-sm text-neutral-400 hover:text-neutral-200"
-          >
-            Browse history
-          </Link>
-        </div>
-      </div>
-      {/* Filter footer: hairline divider + scope label + picker. The
-          label uses aria-hidden text because WindowPicker already
-          labels itself; we just want a visual cue that the picker
-          governs the summary below. currentLabel appears on sm+ to
-          avoid wrapping on narrow screens where the picker is wide. */}
-      <div className="relative flex flex-wrap items-center justify-between gap-2 border-t border-neutral-800/80 bg-neutral-950/40 px-4 py-2">
-        <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-          Showing{" "}
-          <span className="hidden text-neutral-300 sm:inline">
-            · {currentLabel}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* VehiclePicker self-hides when vehicles.length <= 1
-              so the single-car common case has zero new chrome. */}
-          <VehiclePicker
-            vehicles={vehicles}
-            selectedID={selectedVehicleID}
-            onChange={onSelectVehicle}
-          />
-          <WindowPicker value={win} onChange={onWinChange} />
-        </div>
-      </div>
-    </section>
   );
 }

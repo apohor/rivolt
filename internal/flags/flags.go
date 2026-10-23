@@ -49,17 +49,17 @@ import (
 const KillSwitchName = "rivian_upstream_paused"
 
 // StatementEmailName gates the monthly statement email (operator flag;
-// the user's own opt-in is separate). Same shape as MoneyTabState.
+// the user's own opt-in is separate). Same shape as AudienceState.
 const StatementEmailName = "statement_email_enabled"
 
 // DCFCAutoNetworkName gates DC fast charge network auto-detection with
 // user verification (verify states, confirm, push). Same shape as
-// MoneyTabState; off when the row is missing or malformed.
+// AudienceState; off when the row is missing or malformed.
 const DCFCAutoNetworkName = "dcfc_auto_network"
 
 // RivianReceiptsName gates the sync of Rivian's charging receipts (what
 // Rivian billed per session) into charges.receipt_*. Same shape as
-// MoneyTabState; off when the row is missing or malformed, so the extra
+// AudienceState; off when the row is missing or malformed, so the extra
 // upstream calls start only for the users the operator names:
 //
 //	INSERT INTO flags (name, value, updated_by)
@@ -92,7 +92,7 @@ func (s InactivePurgeState) Enabled(userID string) bool {
 	if s.DryRun {
 		return false
 	}
-	return MoneyTabState{All: s.All, Users: s.Users}.Enabled(userID)
+	return AudienceState{All: s.All, Users: s.Users}.Enabled(userID)
 }
 
 // TripPlannerEnabledName is the flags.name value gating the trip
@@ -140,15 +140,6 @@ const SleepSafeName = "sleep_safe_vehicles"
 // A malformed value is logged and read as all-off, never blocking the
 // other flags. See WakeSafetyState.
 const WakeSafetyName = "wake_safety"
-
-// MoneyTabName gates the Money tab and its /api/ledger endpoints per
-// user. Default-off: a missing row, {"all": false} or a user not in
-// "users" sees 404s. Flipped from the admin API or over psql:
-//
-//	INSERT INTO flags (name, value, updated_by)
-//	VALUES ('money_tab_enabled', '{"users":["<user uuid>"]}', 'ops')
-//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
-const MoneyTabName = "money_tab_enabled"
 
 // DefaultPollInterval is how often the Store refreshes its
 // in-memory snapshot from Postgres. Chosen so a flipped flag
@@ -261,16 +252,17 @@ func clampDuration(v string, def, lo, hi time.Duration) time.Duration {
 	return min(max(d, lo), hi)
 }
 
-// MoneyTabState is the JSONB payload for MoneyTabName. Users are rivolt
-// user UUIDs; All enables the tab for everyone.
-type MoneyTabState struct {
+// AudienceState is the JSONB payload of a per-user flag (statement email,
+// DCFC auto-detection, Rivian receipts). Users are rivolt user UUIDs; All
+// turns the feature on for everyone.
+type AudienceState struct {
 	All   bool     `json:"all,omitempty"`
 	Users []string `json:"users,omitempty"`
 	Actor string   `json:"actor,omitempty"`
 }
 
-// Enabled reports whether the Money tab is on for userID.
-func (s MoneyTabState) Enabled(userID string) bool {
+// Enabled reports whether the feature is on for userID.
+func (s AudienceState) Enabled(userID string) bool {
 	if s.All {
 		return true
 	}
@@ -325,10 +317,9 @@ type Store struct {
 	signupCap      atomic.Pointer[SignupCapState]
 	aiCallCap      atomic.Pointer[AICallCapState]
 	sleepSafe      atomic.Pointer[SleepSafeState]
-	moneyTab       atomic.Pointer[MoneyTabState]
-	statementEmail atomic.Pointer[MoneyTabState]
-	dcfcAutoNet    atomic.Pointer[MoneyTabState]
-	rivianReceipts atomic.Pointer[MoneyTabState]
+	statementEmail atomic.Pointer[AudienceState]
+	dcfcAutoNet    atomic.Pointer[AudienceState]
+	rivianReceipts atomic.Pointer[AudienceState]
 	inactivePurge  atomic.Pointer[InactivePurgeState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
 
@@ -358,8 +349,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 		s.signupCap.Store(&SignupCapState{Limit: 0})
 		s.aiCallCap.Store(&AICallCapState{DailyLimit: 0})
 		s.sleepSafe.Store(&SleepSafeState{})
-		s.moneyTab.Store(&MoneyTabState{})
-		s.statementEmail.Store(&MoneyTabState{})
+		s.statementEmail.Store(&AudienceState{})
 		s.wakeSafety.Store(&WakeSafetyState{})
 	}
 	return s, nil
@@ -398,7 +388,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, RivianReceiptsName, InactiveAccountPurgeName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, RivianReceiptsName, InactiveAccountPurgeName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -408,10 +398,9 @@ func (s *Store) refresh(ctx context.Context) error {
 	signupCap := SignupCapState{Limit: 0}
 	aiCallCap := AICallCapState{DailyLimit: 0}
 	sleepSafe := SleepSafeState{}
-	moneyTab := MoneyTabState{}
-	statementEmail := MoneyTabState{}
-	dcfcAutoNet := MoneyTabState{}
-	rivianReceipts := MoneyTabState{}
+	statementEmail := AudienceState{}
+	dcfcAutoNet := AudienceState{}
+	rivianReceipts := AudienceState{}
 	inactivePurge := InactivePurgeState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
@@ -441,21 +430,17 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &sleepSafe); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
-		case MoneyTabName:
-			if err := json.Unmarshal(raw, &moneyTab); err != nil {
-				return fmt.Errorf("decode flag %q: %w", name, err)
-			}
 		case StatementEmailName:
 			// A malformed row reads as off (it only gates sends).
 			if err := json.Unmarshal(raw, &statementEmail); err != nil {
 				s.logger.Warn("flags: statement_email_enabled malformed, treating as off", "err", err.Error())
-				statementEmail = MoneyTabState{}
+				statementEmail = AudienceState{}
 			}
 		case DCFCAutoNetworkName:
 			// A malformed row reads as off (the feature is opt-in).
 			if err := json.Unmarshal(raw, &dcfcAutoNet); err != nil {
 				s.logger.Warn("flags: dcfc_auto_network malformed, treating as off", "err", err.Error())
-				dcfcAutoNet = MoneyTabState{}
+				dcfcAutoNet = AudienceState{}
 			}
 		case InactiveAccountPurgeName:
 			// It deletes data: a malformed row reads as off, never as on.
@@ -467,7 +452,7 @@ func (s *Store) refresh(ctx context.Context) error {
 			// Extra upstream calls: a malformed row reads as off.
 			if err := json.Unmarshal(raw, &rivianReceipts); err != nil {
 				s.logger.Warn("flags: rivian_receipts malformed, treating as off", "err", err.Error())
-				rivianReceipts = MoneyTabState{}
+				rivianReceipts = AudienceState{}
 			}
 		case WakeSafetyName:
 			// Experiment switches: a typo reads as all-off rather than
@@ -486,7 +471,6 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.signupCap.Store(&signupCap)
 	s.aiCallCap.Store(&aiCallCap)
 	s.sleepSafe.Store(&sleepSafe)
-	s.moneyTab.Store(&moneyTab)
 	s.statementEmail.Store(&statementEmail)
 	s.dcfcAutoNet.Store(&dcfcAutoNet)
 	s.rivianReceipts.Store(&rivianReceipts)
@@ -507,63 +491,28 @@ func (s *Store) WakeSafety() WakeSafetyState {
 	return *p
 }
 
-// MoneyTab returns the cached Money tab flag. Lock-free.
-func (s *Store) MoneyTab() MoneyTabState {
-	if s == nil {
-		return MoneyTabState{}
-	}
-	p := s.moneyTab.Load()
-	if p == nil {
-		return MoneyTabState{}
-	}
-	return *p
-}
-
-// SetMoneyTab persists the Money tab flag and refreshes the local
-// snapshot so the writer observes its own change.
-func (s *Store) SetMoneyTab(ctx context.Context, st MoneyTabState, actor string) error {
-	st.Actor = actor
-	raw, err := json.Marshal(st)
-	if err != nil {
-		return fmt.Errorf("encode state: %w", err)
-	}
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO flags (name, value, updated_at, updated_by)
-		VALUES ($1, $2, now(), $3)
-		ON CONFLICT (name) DO UPDATE
-			SET value = EXCLUDED.value,
-			    updated_at = EXCLUDED.updated_at,
-			    updated_by = EXCLUDED.updated_by
-	`, MoneyTabName, raw, actor)
-	if err != nil {
-		return fmt.Errorf("upsert flag %q: %w", MoneyTabName, err)
-	}
-	s.moneyTab.Store(&st)
-	return nil
-}
-
 // DCFCAutoNetwork returns the cached DC fast charge auto-detection flag
 // (Enabled(userID)). Lock-free; off when the row is missing.
-func (s *Store) DCFCAutoNetwork() MoneyTabState {
+func (s *Store) DCFCAutoNetwork() AudienceState {
 	if s == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	p := s.dcfcAutoNet.Load()
 	if p == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	return *p
 }
 
 // RivianReceipts returns the cached per-user receipts-sync flag
 // (Enabled(userID)). Lock-free; off when the row is missing.
-func (s *Store) RivianReceipts() MoneyTabState {
+func (s *Store) RivianReceipts() AudienceState {
 	if s == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	p := s.rivianReceipts.Load()
 	if p == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	return *p
 }
@@ -583,20 +532,20 @@ func (s *Store) InactiveAccountPurge() InactivePurgeState {
 
 // StatementEmail returns the cached operator flag for the monthly
 // statement email. Lock-free; off when the row is missing.
-func (s *Store) StatementEmail() MoneyTabState {
+func (s *Store) StatementEmail() AudienceState {
 	if s == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	p := s.statementEmail.Load()
 	if p == nil {
-		return MoneyTabState{}
+		return AudienceState{}
 	}
 	return *p
 }
 
 // SetStatementEmail persists the operator flag and refreshes the local
 // snapshot.
-func (s *Store) SetStatementEmail(ctx context.Context, st MoneyTabState, actor string) error {
+func (s *Store) SetStatementEmail(ctx context.Context, st AudienceState, actor string) error {
 	st.Actor = actor
 	raw, err := json.Marshal(st)
 	if err != nil {

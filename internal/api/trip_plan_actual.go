@@ -26,7 +26,7 @@ import (
 // the ledger's pure functions (ParsePlan / MatchPlan / ComparePlan /
 // PlanWindow); this file owns the HTTP shape, the links table, the
 // plan snapshot taken at link time, and loading the ledger input for
-// the plan's window. Behind money_tab_enabled, user-scoped.
+// the plan's window. User-scoped.
 
 // planLink is one trip_plan_links row.
 type planLink struct {

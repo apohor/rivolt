@@ -1,4 +1,4 @@
-// Tab model for the money_tab_enabled shell: five top-level tabs
+// Tab model for the app shell: five top-level tabs
 // (Now · Activity · Money · Plan · Truck), each owning one or more
 // existing routes. Pure data + pure functions so the active-tab logic
 // is unit-testable without rendering the layout.

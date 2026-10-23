@@ -15,7 +15,7 @@ for (const theme of ["dark", "light"] as const) {
       await page.addInitScript(([t]) => {
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
-      await stubApi(page, { uiNext: true });
+      await stubApi(page);
       const posts: string[] = [];
       await page.route("**/api/settings/rivian/logout", (r) => {
         posts.push(r.request().method());

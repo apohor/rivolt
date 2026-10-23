@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  _resetMoneyTabFlagForTests,
   dataQualityNotes,
   estimatedShare,
   fetchLedgerMonth,
@@ -9,7 +8,6 @@ import {
   isValidMonth,
   ledgerMonthFixture,
   ledgerSummaryFixture,
-  loadMoneyTabEnabled,
   shiftMonth,
   sourceLabel,
   suspectSessionCount,
@@ -144,9 +142,8 @@ describe("counts and notes", () => {
   });
 });
 
-describe("fetchers and flag", () => {
+describe("fetchers", () => {
   beforeEach(() => {
-    _resetMoneyTabFlagForTests();
     Object.defineProperty(window, "location", {
       value: { pathname: "/money", search: "", assign: vi.fn() },
       writable: true,
@@ -174,14 +171,6 @@ describe("fetchers and flag", () => {
   it("surfaces real server errors", async () => {
     mockFetch(500, "db down");
     await expect(fetchLedgerMonth("2026-10")).rejects.toThrow("db down");
-  });
-
-  it("reads the per-user flag from /api/ledger/enabled, failing closed", async () => {
-    mockFetch(200, { enabled: true });
-    expect(await loadMoneyTabEnabled()).toBe(true);
-    _resetMoneyTabFlagForTests();
-    mockFetch(404, "not found");
-    expect(await loadMoneyTabEnabled()).toBe(false);
   });
 });
 

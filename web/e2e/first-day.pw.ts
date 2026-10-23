@@ -6,7 +6,7 @@ import { stubApi, VEHICLE_ID } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 
 async function open(page: import("@playwright/test").Page, opts: { rate?: number; lease?: boolean; history?: boolean } = {}) {
-  await stubApi(page, { uiNext: true });
+  await stubApi(page);
   const { rate = 0, lease = false, history = false } = opts;
   if (!history) {
     await page.route("**/api/drives*", (r) => (r.request().url().includes("/api/drives/") ? r.fallback() : r.fulfill({ json: [] })));
