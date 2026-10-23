@@ -23,6 +23,7 @@ import {
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
+import { comfortParts } from "../lib/comfort";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -88,7 +89,7 @@ export default function NowCard({
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
-  const { distanceUnit } = usePreferences();
+  const { distanceUnit, temperatureUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
@@ -238,6 +239,8 @@ export default function NowCard({
     view.kind === "plugged" && !view.atLimit ? nextScheduledStartMin(state?.charging_schedules, new Date(), displayTimeZone()) : null;
   const scheduleText = schedStart != null ? `charging starts ${formatScheduleStart(schedStart)} (schedule)` : null;
   const pill = statusPill(view);
+  // Only while the frame is live: a stale or offline truck shows none, so an old "Pet mode on" never reads as current.
+  const comfort = offline || view.stale ? [] : comfortParts(state, temperatureUnit);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
@@ -376,6 +379,11 @@ export default function NowCard({
           ))}
         </dl>
         {next && <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />}
+        {next && comfort.length > 0 && (
+          <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
+            {comfort.join(" · ")}
+          </p>
+        )}
 
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
           <p data-testid="now-freshness">{freshnessLine(view)}</p>
