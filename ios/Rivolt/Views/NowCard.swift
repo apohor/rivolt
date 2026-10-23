@@ -72,13 +72,13 @@ struct NowCard: View {
         return AnyView(regularGaugeRow)
     }
 
-    /// At accessibility sizes: a smaller gauge with the figures that answer "how much, how far, how long" directly under
+    /// At accessibility sizes: a smaller gauge (three quarters of the scaled size: the percentage inside is set in the large type) with the figures that answer "how much, how far, how long" directly under
     /// the percentage, one wrapping line each, so range and time left stay on the first screen (the scroll audit: with the
     /// gauge at full text size only the percentage was).
     private var compactGaugeColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
             ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone,
-                       width: ThemeTokens.gaugeSize * 0.8) {
+                       width: gaugeWidth * 0.75) {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
                         .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
