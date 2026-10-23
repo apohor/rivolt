@@ -51,12 +51,15 @@ struct NowCard: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 8) {
+        // At accessibility sizes the status line gets the whole width and wraps (it was cut to "Charging at h…" beside the
+        // pill); the pill goes under it.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+        return layout {
             VStack(alignment: .leading, spacing: 2) {
                 Text(vehicle.name).themeText(.label)
-                Text(Self.headline(for: summary, place: place)).themeText(.value)
+                Text(Self.headline(for: summary, place: place)).themeText(.value).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             let pill = Self.pill(for: summary, clock: clock)
             ThemePill(text: pill.text, tone: pill.tone)
         }
@@ -65,6 +68,44 @@ struct NowCard: View {
     // MARK: Gauge and figures
 
     private var gaugeRow: some View {
+        if typeSize.isAccessibilitySize { return AnyView(compactGaugeColumn) }
+        return AnyView(regularGaugeRow)
+    }
+
+    /// At accessibility sizes: a smaller gauge with the figures that answer "how much, how far, how long" directly under
+    /// the percentage, one wrapping line each, so range and time left stay on the first screen (the scroll audit: with the
+    /// gauge at full text size only the percentage was).
+    private var compactGaugeColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone,
+                       width: ThemeTokens.gaugeSize * 0.8) {
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                        .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                    Text("%").themeText(.value, color: Theme.textSecondary)
+                }
+            }
+            if let km = summary.rangeKm {
+                let range = NowFormat.usesMetric ? km : km / 1.609344
+                compactLine("Range", "\(NumberText.fixed(range, 0)) \(NowFormat.usesMetric ? "km" : "mi")")
+            }
+            if charging, let t = timeLeft { compactLine("Time left", "\(t) · est.") }
+            if charging || plugged, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
+            if driving, let kph = summary.speedKph {
+                let speed = NowFormat.usesMetric ? kph : kph / 1.609344
+                compactLine("Speed", "\(NumberText.fixed(speed, 0)) \(NowFormat.usesMetric ? "km/h" : "mph")")
+            }
+        }
+    }
+
+    /// "Range 202 mi" as one line that wraps as a whole rather than label and value on two rows.
+    private func compactLine(_ label: String, _ value: String) -> some View {
+        (Text("\(label) ").foregroundColor(Theme.textSecondary) + Text(value).foregroundColor(Theme.textPrimary))
+            .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var regularGaugeRow: some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 24))
         return layout {
             ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
@@ -135,7 +176,7 @@ struct NowCard: View {
     private var chargingRows: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
-            if let t = timeLeft { readout("Time left", "\(t) · est.") }
+            if let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", "\(t) · est.") }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
