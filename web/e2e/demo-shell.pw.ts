@@ -103,6 +103,7 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await page.goto("/demo/trips/plan");
   const presets = page.getByTestId("demo-presets");
   await expect(presets).toBeVisible();
+  await expect(page.getByText("Sample trips planned for the demo truck.")).toBeVisible();
   await presets.getByRole("button", { name: /LA to Las Vegas/ }).click();
   // Plain copy: a sample plan, not a "saved snapshot from 1 min ago"; Plan vs actual says "Likely match", not "preview · high match".
   await expect(page.getByText(/Sample plan/).first()).toBeVisible();

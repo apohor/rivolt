@@ -763,9 +763,12 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
   }, [presetParam, list.data]);
   return (
     <div data-plan-bar>
-      <p className="ui-label mb-2">Sample trips</p>
+      <p className="ui-label mb-1">Sample trips</p>
+      <p className="mb-2 text-xs text-neutral-500">Sample trips planned for the demo truck.</p>
       {list.isLoading ? (
         <Spinner />
+      ) : trips.length === 0 ? (
+        <p className="text-xs text-neutral-500">No sample trips available right now.</p>
       ) : (
         <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
           {trips.map((p) => (

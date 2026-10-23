@@ -329,7 +329,20 @@ function BarRows({ rs, currencyHint }: { rs: Row[]; currencyHint: string }) {
                 )}
               </p>
             )}
-            {r.reasons.length > 0 && <p className="mt-1 text-xs text-neutral-500">{r.reasons[0]}</p>}
+            {r.estimated && bars && (
+              <p data-pva-estimated className="mt-1 text-xs text-neutral-500">Dotted bar: includes charging priced from a network rate, not billed.</p>
+            )}
+            {r.reasons.length > 0 && (
+              <p className="mt-1 text-xs text-neutral-500" data-pva-reasons>
+                {r.reasons.length > 1 ? "Mostly because " : ""}
+                {r.reasons.map((x, i) => (
+                  <span key={i}>
+                    {i > 0 ? " Also: " : ""}
+                    {x}
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
         );
       })}

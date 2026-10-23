@@ -24,6 +24,8 @@ for (const v of [
     await expect(section.getByRole("button", { name: "Confirm" })).toBeVisible();
     await expect(section.getByRole("button", { name: "Not this trip" })).toBeVisible();
     await expect(section.getByText(/Likely match/)).toBeVisible();
+    // An estimated actual says why its bar is dotted.
+    await expect(section.locator("[data-pva-estimated]").first()).toContainText("network rate, not billed");
     // No bare labels where the sentences belong.
     await expect(section.getByText(/^(Not driven yet|In progress|Link lost)$/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
