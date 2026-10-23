@@ -21,36 +21,33 @@ export function TruckSummary({ vehicleID }: { vehicleID: string }) {
   const parts = summaryParts(pack.data, drain.data);
   if (parts.length === 0) return null;
   const go = (id: string) => document.getElementById(`truck-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  const button = (p: (typeof parts)[number], text: string) => (
-    <button
-      type="button"
-      onClick={() => go(p.id)}
-      title={p.id === "pack" ? "Shows Pack capacity" : "Shows Parked drain"}
-      className="min-h-11 text-left underline-offset-4 hover:underline"
-    >
-      {text}
-    </button>
-  );
-  // A phone: one half per row, each a sentence (a wrapped line would start with "·"). Wider: one line.
+  // One copy of the line. A phone: one half per row, each a sentence (a wrapped line would
+  // start with "·"), so the separator hides and the second half's first letter is a capital.
+  // Wider: one line.
   return (
-    <section aria-label="Truck summary" data-truck-summary data-span="full" className="text-sm text-neutral-200">
-      <div className="flex flex-col sm:hidden">
-        {parts.map((p) => (
-          <span key={p.id}>{button(p, p.text)}</span>
-        ))}
-      </div>
-      <div className="hidden flex-wrap items-center sm:flex">
-        {parts.map((p, i) => (
-          <span key={p.id} className="inline-flex items-center">
-            {i > 0 && (
-              <span aria-hidden className="px-1.5 text-neutral-500">
-                ·
-              </span>
-            )}
-            {button(p, i === 0 ? p.text : p.text.charAt(0).toLowerCase() + p.text.slice(1))}
-          </span>
-        ))}
-      </div>
+    <section
+      aria-label="Truck summary"
+      data-truck-summary
+      data-span="full"
+      className="flex flex-col text-sm text-neutral-200 sm:flex-row sm:flex-wrap sm:items-center"
+    >
+      {parts.map((p, i) => (
+        <span key={p.id} className="inline-flex items-center">
+          {i > 0 && (
+            <span aria-hidden className="hidden px-1.5 text-neutral-500 sm:inline">
+              ·
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => go(p.id)}
+            title={p.id === "pack" ? "Shows Pack capacity" : "Shows Parked drain"}
+            className={"min-h-11 text-left underline-offset-4 hover:underline" + (i > 0 ? " max-sm:first-letter:uppercase" : "")}
+          >
+            {i === 0 ? p.text : p.text.charAt(0).toLowerCase() + p.text.slice(1)}
+          </button>
+        </span>
+      ))}
     </section>
   );
 }
