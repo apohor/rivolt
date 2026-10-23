@@ -17,12 +17,15 @@ struct EfficiencyInsights: Decodable, Equatable {
     let bySpeed: [EfficiencyBucket]
     let byDriveMode: [EfficiencyBucket]
     let excluded: Excluded?
+    /// The drives with a trailer, which the total and every breakdown leave out. Absent on a server that predates it.
+    var withTrailer: EfficiencyBucket? = nil
 
     struct Excluded: Decodable, Equatable {
         let noEnergy: Int?
         let duplicates: Int?
         let noTemperature: Int?
         let noDriveMode: Int?
+        var trailer: Int? = nil
     }
 }
 

@@ -8,6 +8,17 @@ enum TruckLogic {
     static func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : many }
     static func whole(_ v: Double) -> String { Int(v.rounded()).formatted() }
 
+    /// "Excludes 3 drives with a trailer, which ran 1.40 mi/kWh over 120 mi.", the web's words; nil when none were left out.
+    static func trailerTrendNote(_ t: TruckTrends) -> String? {
+        let n = t.excludedTrailerDrives ?? 0
+        guard n > 0 else { return nil }
+        var s = "Excludes \(n) \(plural(n, "drive", "drives")) with a trailer"
+        let rows = t.efficiency.compactMap(\.trailer)
+        let miles = rows.reduce(0) { $0 + $1.distance }, kwh = rows.reduce(0) { $0 + $1.energyKwh }
+        if kwh > 0 { s += ", which ran \(fixed(miles / kwh, 2)) \(t.efficiencyUnit) over \(whole(miles)) \(t.distanceUnit)" }
+        return s + "."
+    }
+
     // MARK: Parked drain
 
     /// "0.6" under 10, "12" above.

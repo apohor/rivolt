@@ -26,6 +26,12 @@ struct ActivityDrive: Decodable, Hashable, Identifiable {
     /// Only on a merged round trip.
     let roundTripLegs: Int?
     let drivingSeconds: Double?
+    /// Whether a trailer was connected: the server's effective value (the user's correction, else what the truck
+    /// reported), nil when never known. The connector, not the load. The app does not correct it (web only).
+    var trailer: Bool? = nil
+
+    /// A drive with a trailer is left out of the efficiency figures.
+    var hasTrailer: Bool { trailer == true }
 }
 
 struct ActivityCharge: Decodable, Hashable, Identifiable {

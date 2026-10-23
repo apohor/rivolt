@@ -93,6 +93,7 @@ private struct DriveCardContent: View {
     private var sub: String {
         var s = ActivityLogic.timeRange(start: drive.startedAt, end: drive.endedAt, calendar: calendar)
         if let t = ActivityLogic.duration(drive) { s += " · \(ActivityLogic.shortDuration(t))" }
+        if drive.hasTrailer { s += " · Trailer" }
         return s
     }
 }

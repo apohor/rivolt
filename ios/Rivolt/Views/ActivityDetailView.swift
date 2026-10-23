@@ -46,6 +46,9 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
+                if case .drive(let d) = item, d.hasTrailer {
+                    Text("Trailer connected. This drive is left out of the efficiency figures.").themeText(.subline, color: Theme.textTertiary)
+                }
                 if case .drive = item { DriveRouteMap(phase: driveDetail.phase) }
                 if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, row: chargeRow.phase, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize

@@ -496,6 +496,9 @@ struct TruckContent: View {
                         .accessibilityLabel("Efficiency by month, \(t.efficiencyUnit)")
                         Text("\(t.efficiencyUnit), pack-side. Months under \(TruckLogic.whole(t.minMonthDistance)) \(t.distanceUnit) of driving are left blank. It includes weather and driving style, so cold months usually run lower.")
                             .themeText(.subline, color: Theme.textTertiary)
+                        if let note = TruckLogic.trailerTrendNote(t) {
+                            Text(note).themeText(.subline, color: Theme.textTertiary)
+                        }
                     } else {
                         Text("Not enough driving yet for a trend: \(t.qualifyingMonths) of \(t.minMonths) months with at least \(TruckLogic.whole(t.minMonthDistance)) \(t.distanceUnit). This fills in as you drive.")
                             .themeText(.value, color: Theme.textSecondary)
