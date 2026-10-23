@@ -9,10 +9,15 @@ struct ChargeLocation: Decodable, Equatable {
     let lon: Double
     let maxPowerKW: Double?
     let network: String?
+    /// The user had the pin placed where the truck was (#906): no snap to a charger. Not decoded here; from ChargeRow.
+    var recorded = false
 
     private enum CodingKeys: String, CodingKey {
         case lat = "Lat", lon = "Lon", maxPowerKW = "MaxPowerKW", network = "Network"
     }
+
+    /// The line under the map when the user placed the pin.
+    static let recordedNote = "Pin placed where the truck was recorded."
 
     /// The web's rule for "may say DC fast charger": a peak of 30 kW or more.
     var isDC: Bool { (maxPowerKW ?? 0) >= 30 }
@@ -42,6 +47,16 @@ struct ChargeLocationMap: View {
     @State private var pinLabel: String?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+            map
+            if let location, location.recorded, location.hasFix {
+                Text(ChargeLocation.recordedNote).themeText(.caption, color: Theme.textSecondary)
+            }
+        }
+        .task(id: LoadKey(chargeID: chargeID, ready: row.row != nil, failed: row == .failed)) { await load() }
+    }
+
+    private var map: some View {
         ZStack {
             if let location, !location.hasFix {
                 MapMessage(text: "No location was recorded for this charge.")
@@ -64,7 +79,6 @@ struct ChargeLocationMap: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
-        .task(id: LoadKey(chargeID: chargeID, ready: row.row != nil, failed: row == .failed)) { await load() }
     }
 
     private struct LoadKey: Equatable {
@@ -242,6 +256,11 @@ struct ChargeMapView: UIViewRepresentable {
             super.mapViewDidBecomeIdle(map)
             guard !lookedUp, let style = map.style, map.bounds.width > 0, map.zoomLevel >= ChargeMapView.zoom - 1 else { return }
             lookedUp = true
+            // The user's own pin (#906): the recorded position, no charger lookup.
+            if location.recorded {
+                apply(.plain)
+                return
+            }
             apply(ChargerPin.pin(snapped: Self.nearestCharger(in: style, lat: location.lat, lon: location.lon),
                                  network: location.network, isDC: location.isDC))
         }

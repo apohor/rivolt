@@ -30,6 +30,8 @@
   "ReceiptTxnID": "",
   "EstimateMonth": "",
   "EstimateURL": "",
+  "PlaceOverride": "",
+  "LocationOverride": "",
   "ChargeLimitPct": null,
   "cost_source_effective": "home_rate",
   "cost_source_derived": false,

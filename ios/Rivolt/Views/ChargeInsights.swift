@@ -30,6 +30,8 @@ struct ChargeInsights: Equatable {
     var source: String?
     var thermalKwh: Double?
     var thermalSharePct: Double?
+    /// The place on the card was set by the user on the web (#906).
+    var placeSetByYou = false
 
     /// The charger class by its peak power, in the web's words.
     static func tier(maxKw: Double) -> Tier {
@@ -107,7 +109,8 @@ struct ChargeInsights: Equatable {
             finalState: finalState(row?.finalState),
             source: source(row?.source),
             thermalKwh: thermal,
-            thermalSharePct: thermal.flatMap { $0 > 0 && charge.energyAddedKwh > 0 ? $0 / charge.energyAddedKwh * 100 : nil }
+            thermalSharePct: thermal.flatMap { $0 > 0 && charge.energyAddedKwh > 0 ? $0 / charge.energyAddedKwh * 100 : nil },
+            placeSetByYou: row?.placeSetByYou ?? false
         )
     }
 
