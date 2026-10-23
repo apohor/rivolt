@@ -60,6 +60,7 @@ async function open(page: Page, opts: { off?: number; putStatus?: number; home?:
 
 const plug = (page: Page) => page.getByRole("checkbox", { name: /Plug-in reminder/ });
 const milestones = (page: Page) => page.getByRole("checkbox", { name: /Milestones/ });
+const leftOpen = (page: Page) => page.getByRole("checkbox", { name: /Left open/ });
 
 for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
@@ -158,5 +159,23 @@ test("if the zone cannot be saved, the reminder is not left on and the reason sh
   await expect(plug(page)).not.toBeChecked();
   // The opt-in is taken back, so the server does not keep a reminder that can never fire.
   await expect.poll(() => optins.at(-1)).toEqual({ endpoint: "https://push.test/device-1", on_plug_in_reminder: false });
+  await ctx.close();
+});
+
+test("Left open is off until the user turns it on, goes through its own opt-in call, and says what it covers", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+  const page = await ctx.newPage();
+  const { offs, optins, puts, subscribes } = await open(page, { off: 200, home: true });
+  await expect(leftOpen(page)).not.toBeChecked();
+  // The help names what is covered and what is not, and never promises it will always tell you.
+  await expect(page.getByText(/Not windows\. It can be missed if the truck is offline/)).toBeVisible();
+  await leftOpen(page).check();
+  await expect.poll(() => optins.at(-1)).toEqual({ endpoint: "https://push.test/device-1", on_left_open: true });
+  // No time zone is saved for it (it is not scheduled), and the subscribe call never carries it.
+  expect(puts).toEqual([]);
+  for (const s of subscribes) expect(Object.keys(s)).not.toContain("on_left_open");
+  await page.getByRole("button", { name: "Stop left-open notifications" }).click();
+  await expect.poll(() => offs.at(-1)).toEqual({ kind: "left_open" });
+  await expect(leftOpen(page)).not.toBeChecked();
   await ctx.close();
 });

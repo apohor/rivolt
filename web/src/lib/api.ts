@@ -865,6 +865,9 @@ export type PushPreferences = {
   on_anomaly: boolean;
   on_software_update: boolean;
   on_milestones: boolean;
+  // The left-open alert: an opt-in. Optional so the subscribe call (which never sends it) and older stubs keep their shape;
+  // the server returns it when it reads a device's switches back.
+  on_left_open?: boolean;
 };
 
 // The account-wide engagement settings, GET and PUT /api/settings/engagement. A PUT may carry any
@@ -1396,10 +1399,10 @@ export const backend = {
   },
   // Turns the plug-in reminder and/or milestones on or off for this device. The subscribe call ignores both
   // switches (so a re-save can never opt anyone in); this is how a tap on either reaches the server.
-  pushOptin: (endpoint: string, patch: { on_plug_in_reminder?: boolean; on_milestones?: boolean }) =>
+  pushOptin: (endpoint: string, patch: { on_plug_in_reminder?: boolean; on_milestones?: boolean; on_left_open?: boolean }) =>
     api.post<{ ok?: boolean }>("/api/push/optin", { endpoint, ...patch }),
   // Turns one reminder kind off on every device of the account. Null when the server has no such call yet.
-  pushOff: async (kind: "plug_in_reminder" | "milestones"): Promise<{ devices_changed: number } | null> => {
+  pushOff: async (kind: "plug_in_reminder" | "milestones" | "left_open"): Promise<{ devices_changed: number } | null> => {
     try {
       return await api.post<{ devices_changed: number }>("/api/push/off", { kind });
     } catch (e) {
