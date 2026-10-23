@@ -53,7 +53,7 @@ final class ConnectionDetailsTests: XCTestCase {
 
     func testTheLimitsAreTheOnesPresenceUses() {
         XCTAssertEqual(summary(frameAgo: 10, gear: "park").limits.offline, 900)
-        XCTAssertEqual(summary(frameAgo: 10, gear: "drive").limits.stale, 30)
+        XCTAssertEqual(summary(frameAgo: 10, gear: "D").limits.stale, 30)
         // The presence follows the same numbers: parked, a frame 20 minutes old is offline, 10 minutes old is stale.
         XCTAssertEqual(summary(frameAgo: 20 * 60).presence(holding: false), .offline)
         XCTAssertEqual(summary(frameAgo: 10 * 60).presence(holding: false), .stale)
