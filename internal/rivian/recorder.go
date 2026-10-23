@@ -167,6 +167,8 @@ type liveDrive struct {
 	maxSpeed   float64 // mph
 	sumSpeed   float64 // mph
 	speedN     int
+	// trailer integrates the trailer connector's state over the drive (trailer.go).
+	trailer trailerAcc
 
 	// Rolling "current end" so we can upsert as the drive grows. Each
 	// state update refreshes these; the final values are what lands in
@@ -886,6 +888,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			endLat:     curr.Latitude,
 			endLon:     curr.Longitude,
 		}
+		s.drive.trailer.observe(curr.At, curr.TrailerState)
 		if curr.Latitude != 0 || curr.Longitude != 0 {
 			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
 			s.drive.lastFixAt = curr.At
@@ -911,6 +914,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			s.drive.endAt = curr.At
 		}
 		s.drive.endSoC = curr.BatteryLevelPct
+		s.drive.trailer.observe(curr.At, curr.TrailerState)
 		if odoMi := curr.OdometerKm * kmToMi; odoMi > 0 {
 			// The opening frame can lack an odometer (a failed REST seed after a
 			// restart); the first frame that has one is then the start, or the
@@ -1558,6 +1562,7 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		EnergyUsedKWh:   energy,
 		Source:          "live",
 		RoutePolyline:   encodePolyline(d.path),
+		Trailer:         d.trailer.result(d.endAt),
 	}
 	trimDrive(&row, d.trim, m.PackKWhFor(vehicleID))
 	return row

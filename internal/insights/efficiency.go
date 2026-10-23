@@ -29,6 +29,9 @@ type DriveInput struct {
 	AvgSpeedMph  float64
 	OutsideTempC *float64
 	DriveMode    string
+	// Trailer is whether a trailer was connected (the user's correction, else what was recorded): the connector, not
+	// the load. Such a drive is left out of every breakdown and the total, and is reported on its own (WithTrailer).
+	Trailer bool
 }
 
 // Units picks the distance, speed and temperature units of the labels
@@ -76,6 +79,9 @@ type Efficiency struct {
 	// MinBucketDistance is MinBucketMiles in DistanceUnit.
 	MinBucketDistance float64 `json:"min_bucket_distance"`
 	Total             Bucket  `json:"total"`
+	// WithTrailer is the drives with a trailer connected, which the total and the breakdowns leave out so that
+	// towing does not drag the truck's own figures. Drives is 0 when there are none.
+	WithTrailer Bucket `json:"with_trailer"`
 	// ByTemperature has a row per band, coldest first. Drives without an
 	// outside temperature are left out and counted in Excluded.
 	//
@@ -97,6 +103,8 @@ type Excluded struct {
 	// NoEnergy: no energy recorded, or a figure outside the plausible
 	// range; left out of every breakdown and the total.
 	NoEnergy int `json:"no_energy"`
+	// Trailer: drives with a trailer connected; left out of the total and every breakdown, reported as WithTrailer.
+	Trailer int `json:"trailer"`
 	// Duplicates: overlapping duplicate recordings (the Money ledger's
 	// rule); the kept recording counts.
 	Duplicates int `json:"duplicates"`
@@ -163,13 +171,18 @@ func BuildEfficiency(ds []DriveInput, u Units) Efficiency {
 	kept, dups := dedupe(ds)
 	out.Excluded.Duplicates = dups
 
-	var total acc
+	var total, trailer acc
 	temps := make([]acc, len(tempBands))
 	speeds := make([]acc, len(speedBands))
 	modes := map[string]*acc{}
 	for _, d := range kept {
 		if !plausible(d) {
 			out.Excluded.NoEnergy++
+			continue
+		}
+		if d.Trailer {
+			trailer.add(d)
+			out.Excluded.Trailer++
 			continue
 		}
 		total.add(d)
@@ -189,6 +202,7 @@ func BuildEfficiency(ds []DriveInput, u Units) Efficiency {
 		}
 	}
 	out.Total = total.bucket("total", "All drives", u)
+	out.WithTrailer = trailer.bucket("with_trailer", "With a trailer", u)
 	out.ByTemperature = rows(tempBands, temps, u)
 	out.BySpeed = rows(speedBands, speeds, u)
 	out.ByDriveMode = []Bucket{}

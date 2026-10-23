@@ -150,3 +150,35 @@ func TestEfficiencyEmpty(t *testing.T) {
 		t.Errorf("empty = %+v", e)
 	}
 }
+
+// A drive with a trailer connected is left out of the total and every breakdown, counted, and reported on its own.
+func TestTrailerDrivesAreLeftOutOfTheFiguresAndReportedApart(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
+	temp := 15.0
+	mk := func(id string, i int, mi, kwh float64, trailer bool) DriveInput {
+		return DriveInput{ID: id, VehicleID: "v", StartedAt: t0.Add(time.Duration(i) * 3 * time.Hour), EndedAt: t0.Add(time.Duration(i)*3*time.Hour + time.Hour),
+			CreatedAt: t0, Source: "live", DistanceMi: mi, EnergyKWh: kwh, AvgSpeedMph: 40, OutsideTempC: &temp, DriveMode: "everyday", Trailer: trailer}
+	}
+	ds := []DriveInput{mk("a", 0, 30, 12, false), mk("b", 1, 40, 16, false), mk("t1", 2, 20, 20, true), mk("t2", 3, 25, 25, true)}
+	got := BuildEfficiency(ds, Imperial)
+	if got.Total.Drives != 2 || got.Total.Distance != 70 || got.Total.EnergyKWh != 28 || got.Total.Efficiency == nil || *got.Total.Efficiency != 2.5 {
+		t.Errorf("total = %+v, want the two drives without a trailer: 70 mi over 28 kWh = 2.5", got.Total)
+	}
+	w := got.WithTrailer
+	if w.Drives != 2 || w.Distance != 45 || w.EnergyKWh != 45 || w.Efficiency == nil || *w.Efficiency != 1 || w.Key != "with_trailer" {
+		t.Errorf("with trailer = %+v, want 2 drives, 45 mi over 45 kWh = 1.0", w)
+	}
+	if got.Excluded.Trailer != 2 {
+		t.Errorf("excluded trailer = %d, want 2", got.Excluded.Trailer)
+	}
+	for _, b := range append(append([]Bucket{}, got.ByTemperature...), got.BySpeed...) {
+		if b.Drives > 2 {
+			t.Errorf("a breakdown holds trailer drives: %+v", b)
+		}
+	}
+	// With no trailer drives nothing changes and the group is empty.
+	none := BuildEfficiency(ds[:2], Imperial)
+	if none.WithTrailer.Drives != 0 || none.Excluded.Trailer != 0 || none.Total.Drives != 2 {
+		t.Errorf("no trailer drives: %+v %+v", none.WithTrailer, none.Excluded)
+	}
+}

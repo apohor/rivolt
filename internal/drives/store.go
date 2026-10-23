@@ -49,6 +49,19 @@ type Drive struct {
 	// UTC, as the partitions are; a drive that crosses a month counts as thinned
 	// when either of its months is.
 	Thinned bool `json:"thinned,omitempty"`
+	// Trailer is what the recorder saw: the trailer connector was present for at least half of the time its state was
+	// known, absent for more of it, or nil when it was never known. The connector, not the load.
+	Trailer *bool
+	// TrailerOverride is the user's own correction, nil when they have made none. Backup and restore carry both.
+	TrailerOverride *bool
+}
+
+// HasTrailer is the effective value: the user's correction when there is one, else what the recorder saw.
+func (d Drive) HasTrailer() *bool {
+	if d.TrailerOverride != nil {
+		return d.TrailerOverride
+	}
+	return d.Trailer
 }
 
 // thinnedSQL is the column that fills Drive.Thinned: one of the drive's months
@@ -138,8 +151,8 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			start_odometer_mi, end_odometer_mi, distance_mi,
 			start_lat, start_lon, end_lat, end_lon,
 			max_speed_mph, avg_speed_mph, energy_used_kwh, source,
-			route_polyline
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			route_polyline, trailer, trailer_override
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at        = EXCLUDED.started_at,
 			ended_at          = EXCLUDED.ended_at,
@@ -160,6 +173,10 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			-- one. ElectraFi re-imports of a row that the live
 			-- recorder already populated shouldn't erase the polyline.
 			route_polyline    = COALESCE(EXCLUDED.route_polyline, drives.route_polyline),
+			-- A recording that never knew the trailer state (NULL) leaves what is there; the user's correction is only
+			-- ever set by a value (a restore) or SetTrailerOverride, never cleared by a re-recording.
+			trailer           = COALESCE(EXCLUDED.trailer, drives.trailer),
+			trailer_override  = COALESCE(EXCLUDED.trailer_override, drives.trailer_override),
 			updated_at        = NOW()`,
 		s.userID, vid, d.ID,
 		d.StartedAt.UTC(), d.EndedAt.UTC(),
@@ -170,8 +187,22 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 		nullIfZero(d.MaxSpeedMph), nullIfZero(d.AvgSpeedMph),
 		nullIfZero(d.EnergyUsedKWh),
 		d.Source,
-		nullIfEmpty(d.RoutePolyline))
+		nullIfEmpty(d.RoutePolyline),
+		d.Trailer, d.TrailerOverride)
 	return err
+}
+
+// SetTrailerOverride sets the user's own correction on one of their drives (by external id): true or false, or nil
+// to go back to what was recorded. Reports whether the user has such a drive.
+func (s *Store) SetTrailerOverride(ctx context.Context, externalID string, v *bool) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE drives SET trailer_override = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND external_id = $2`, s.userID, externalID, v)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // Count returns the total number of drives for this user.
@@ -222,7 +253,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivian
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       `+routeCol+`, `+thinnedSQL+`
+		       `+routeCol+`, `+thinnedSQL+`, d.trailer, d.trailer_override
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -237,16 +268,18 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivian
 	var out []Drive
 	for rows.Next() {
 		var d Drive
+		var tr, tro sql.NullBool
 		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
 			&d.StartSoCPct, &d.EndSoCPct,
 			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
-			&d.RoutePolyline, &d.Thinned,
+			&d.RoutePolyline, &d.Thinned, &tr, &tro,
 		); err != nil {
 			return nil, err
 		}
+		d.Trailer, d.TrailerOverride = nullBoolPtr(tr), nullBoolPtr(tro)
 		d.StartedAt = d.StartedAt.UTC()
 		d.EndedAt = d.EndedAt.UTC()
 		out = append(out, d)
@@ -258,6 +291,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivian
 // when the user has no such drive.
 func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 	var d Drive
+	var tr, tro sql.NullBool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT d.external_id, v.rivian_vehicle_id,
 		       d.started_at, d.ended_at,
@@ -267,7 +301,7 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,''), `+thinnedSQL+`
+		       COALESCE(d.route_polyline,''), `+thinnedSQL+`, d.trailer, d.trailer_override
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1 AND d.external_id = $2
@@ -278,13 +312,14 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 		&d.MaxSpeedMph, &d.AvgSpeedMph,
 		&d.EnergyUsedKWh, &d.Source,
-		&d.RoutePolyline, &d.Thinned)
+		&d.RoutePolyline, &d.Thinned, &tr, &tro)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	d.Trailer, d.TrailerOverride = nullBoolPtr(tr), nullBoolPtr(tro)
 	d.StartedAt = d.StartedAt.UTC()
 	d.EndedAt = d.EndedAt.UTC()
 	return &d, nil
@@ -322,7 +357,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Drive) error)
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,'')
+		       COALESCE(d.route_polyline,''), d.trailer, d.trailer_override
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -334,16 +369,18 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Drive) error)
 	defer rows.Close()
 	for rows.Next() {
 		var d Drive
+		var tr, tro sql.NullBool
 		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
 			&d.StartSoCPct, &d.EndSoCPct,
 			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
-			&d.RoutePolyline,
+			&d.RoutePolyline, &tr, &tro,
 		); err != nil {
 			return err
 		}
+		d.Trailer, d.TrailerOverride = nullBoolPtr(tr), nullBoolPtr(tro)
 		d.StartedAt = d.StartedAt.UTC()
 		d.EndedAt = d.EndedAt.UTC()
 		if err := fn(d); err != nil {
@@ -371,6 +408,15 @@ func (s *Store) ListAllListed(ctx context.Context) ([]Drive, error) {
 		return nil
 	})
 	return out, err
+}
+
+// nullBoolPtr is a nullable boolean column as a pointer: nil when NULL.
+func nullBoolPtr(b sql.NullBool) *bool {
+	if !b.Valid {
+		return nil
+	}
+	v := b.Bool
+	return &v
 }
 
 func nullIfZero(f float64) sql.NullFloat64 {

@@ -1183,6 +1183,16 @@ func New(d Deps) http.Handler {
 			r.Post("/charges/apply-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleApplyNetworkRate(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
+			// The user's own correction of whether a trailer was connected on a drive (drive_trailer.go): web only, not on
+			// the app write allowlist.
+			r.With(settingsWriteLimiter.Middleware).Patch("/drives/{id}/trailer", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				st := d.Drives.For(uid)
+				if st == nil {
+					handleDriveTrailerPatch(nil)(w, r)
+					return
+				}
+				handleDriveTrailerPatch(st)(w, r)
+			}))
 			// Per-charge overrides (#906, charge_overrides.go): web only, not on the app write allowlist.
 			r.Put("/charges/{id}/place", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargePlacePut(overriderFor(d, uid), restampSettingsFor(d, uid).home)(w, r)

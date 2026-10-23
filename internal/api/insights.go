@@ -68,7 +68,7 @@ func handleEfficiencyInsights(store driveConditionLister, logger *slog.Logger) h
 		for i, d := range rows {
 			in[i] = insights.DriveInput{ID: d.ID, VehicleID: d.VehicleID, StartedAt: d.StartedAt, EndedAt: d.EndedAt,
 				CreatedAt: d.CreatedAt, Source: d.Source, DistanceMi: d.DistanceMi, EnergyKWh: d.EnergyKWh,
-				AvgSpeedMph: d.AvgSpeedMph, OutsideTempC: d.OutsideTempC, DriveMode: d.DriveMode}
+				AvgSpeedMph: d.AvgSpeedMph, OutsideTempC: d.OutsideTempC, DriveMode: d.DriveMode, Trailer: d.Trailer}
 		}
 		writeJSON(w, http.StatusOK, insights.BuildEfficiency(in, units))
 	}

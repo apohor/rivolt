@@ -857,6 +857,8 @@ type DriveCondition struct {
 	AvgSpeedMph  float64
 	OutsideTempC *float64
 	DriveMode    string
+	// Trailer: a trailer was connected (the user's correction, else what was recorded).
+	Trailer bool
 }
 
 // DriveConditions lists the user's drives that started in [since, until)
@@ -873,7 +875,7 @@ func (s *Store) DriveConditions(ctx context.Context, vehicleID string, since, un
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.external_id, v.rivian_vehicle_id, d.started_at, d.ended_at, d.created_at, d.source,
 		       COALESCE(d.distance_mi,0), COALESCE(d.energy_used_kwh,0), COALESCE(d.avg_speed_mph,0),
-		       c.temp_c, COALESCE(c.mode,'')
+		       c.temp_c, COALESCE(c.mode,''), COALESCE(d.trailer_override, d.trailer, false)
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		LEFT JOIN LATERAL (
@@ -897,7 +899,7 @@ func (s *Store) DriveConditions(ctx context.Context, vehicleID string, since, un
 		var d DriveCondition
 		var temp sql.NullFloat64
 		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt, &d.CreatedAt, &d.Source,
-			&d.DistanceMi, &d.EnergyKWh, &d.AvgSpeedMph, &temp, &d.DriveMode); err != nil {
+			&d.DistanceMi, &d.EnergyKWh, &d.AvgSpeedMph, &temp, &d.DriveMode, &d.Trailer); err != nil {
 			return nil, err
 		}
 		if temp.Valid {

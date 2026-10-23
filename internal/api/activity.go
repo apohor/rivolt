@@ -47,6 +47,11 @@ type activityDrive struct {
 	// durations (the parked gaps between them are not driving).
 	RoundTripLegs int     `json:"round_trip_legs,omitempty"`
 	DrivingSecs   float64 `json:"driving_seconds,omitempty"`
+	// Whether a trailer was connected (the connector, not the load): the user's own correction when they made one,
+	// else what the recorder saw; null when it was never known. TrailerOverride is the correction itself (null when
+	// there is none, and always null on a merged round trip, whose legs are corrected one by one).
+	Trailer         *bool `json:"trailer"`
+	TrailerOverride *bool `json:"trailer_override"`
 }
 
 // activityCharge is one charge of GET /api/activity: no coordinates, no place name.
@@ -191,7 +196,28 @@ func mergeChainLikeWeb(chain []rtDrive) rtDrive {
 		m.rate = floatPtr(*m.cost / energy)
 	}
 	m.legs = len(chain)
+	m.d.Trailer, m.d.TrailerOverride = mergedTrailer(chain), nil
 	return m
+}
+
+// mergedTrailer is the effective trailer flag of a merged round trip: true when any leg has one, false when none does
+// and some leg is known to have none, nil when no leg is known.
+func mergedTrailer(chain []rtDrive) *bool {
+	var known bool
+	for _, c := range chain {
+		if v := c.d.HasTrailer(); v != nil {
+			if *v {
+				t := true
+				return &t
+			}
+			known = true
+		}
+	}
+	if !known {
+		return nil
+	}
+	f := false
+	return &f
 }
 
 // roundTripParams reads round_trips (0 turns merging off), round_trip_radius_m and
@@ -317,6 +343,7 @@ func handleActivity(ds *drives.Store, cs *charges.Store, settingsStore *settings
 				if rt.legs > 1 {
 					a.RoundTripLegs, a.DrivingSecs = rt.legs, rt.drivingS
 				}
+				a.Trailer, a.TrailerOverride = d.HasTrailer(), d.TrailerOverride
 				out.Drives = append(out.Drives, a)
 			}
 		}

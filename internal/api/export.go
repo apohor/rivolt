@@ -157,6 +157,15 @@ func fptr(v *float64) string {
 	}
 	return fnum(*v)
 }
+
+// bptr is a nullable boolean as a CSV cell: "true", "false" or empty (not known).
+func bptr(v *bool) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatBool(*v)
+}
+
 func tstr(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -185,6 +194,7 @@ var exportDriveHeader = []string{
 	"id", "vehicle_id", "started_at", "ended_at", "start_soc_pct", "end_soc_pct",
 	"start_odometer_mi", "end_odometer_mi", "distance_mi", "energy_used_kwh",
 	"max_speed_mph", "avg_speed_mph", "start_lat", "start_lon", "end_lat", "end_lon", "source", "route_polyline",
+	"trailer", "trailer_override",
 }
 
 var exportTripHeader = []string{
@@ -258,6 +268,7 @@ func writeDrivesCSV(w io.Writer, e exportData) error {
 			fnum(d.StartOdometerMi), fnum(d.EndOdometerMi), fnum(d.DistanceMi), fnum(d.EnergyUsedKWh),
 			fnum(d.MaxSpeedMph), fnum(d.AvgSpeedMph), fnum(d.StartLat), fnum(d.StartLon), fnum(d.EndLat), fnum(d.EndLon),
 			csvText(d.Source), csvText(d.RoutePolyline),
+			bptr(d.Trailer), bptr(d.TrailerOverride),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
