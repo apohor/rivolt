@@ -84,7 +84,9 @@ struct NotificationSettingsView: View {
 
                     if let prefs = manager.preferences {
                         ThemeSection(title: "Notify me when…") {
-                            let kinds = PushKind.allCases.filter { $0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown) }
+                            let kinds = PushKind.allCases.filter {
+                                ($0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown)) && ($0 != .leftOpen || prefs.leftOpenKnown)
+                            }
                             ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
                                 if index > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
                                 Toggle(isOn: binding(for: kind, in: prefs)) {
