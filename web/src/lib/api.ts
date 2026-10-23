@@ -1204,7 +1204,9 @@ export const backend = {
   // sleepHealth: this week's short sleeps against the truck's own last 30 days; null when the endpoint is absent (an older server).
   vehicleSleepHealth: async (vehicleID: string): Promise<SleepHealth | null> => {
     try {
-      return await api.get<SleepHealth>(`/api/vehicles/${encodeURIComponent(vehicleID)}/sleep-health`);
+      const h = await api.get<SleepHealth>(`/api/vehicles/${encodeURIComponent(vehicleID)}/sleep-health`);
+      // Anything that isn't the contract's shape (an older server answering another route) is no answer.
+      return h && ["normal", "more", "not_enough_data"].includes(h.state) && h.this_week ? h : null;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;

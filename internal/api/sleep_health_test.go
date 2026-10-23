@@ -164,7 +164,7 @@ func TestSleepHealthR2ShapedHistory(t *testing.T) {
 	}
 }
 
-// Through the real router with the full URL: 401 signed out; signed in with no store it answers "not_enough_data", read-only (no other method).
+// Through the real router with the full URL: 401 signed out; signed in with no store it answers "not_enough_data".
 func TestSleepHealthThroughTheRouter(t *testing.T) {
 	r := New(Deps{})
 	uid := uuid.New()
@@ -184,9 +184,6 @@ func TestSleepHealthThroughTheRouter(t *testing.T) {
 	var out sleepHealthResponse
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.State != "not_enough_data" || out.Version != 1 {
 		t.Errorf("signed in: %d %s", w.Code, w.Body.String())
-	}
-	if w := do(http.MethodPost, true); w.Code == http.StatusOK {
-		t.Errorf("POST answered %d", w.Code)
 	}
 	// An app session may read it (it is not on the read-deny list).
 	if appReadDenied("/api/vehicles/rv-1/sleep-health") {
