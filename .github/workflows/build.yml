@@ -556,14 +556,30 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # Only the module download cache the `go` job saves from main (restore only; see the go job). Not the
-      # go-unit build cache: that holds -race objects, which a plain type-check never reuses, and restoring it was
-      # 118 s of this job's 162 s. A miss (a go.sum change before main has saved) falls back to downloading.
+      # Restore only (this job never saves a Go cache; see the go job for how they are keyed and saved): the
+      # module download cache, and the integration job's build cache. The linter type-checks from compiled
+      # dependencies, which cost 90 s to build cold and 22 s of linting once they exist, and the integration
+      # cache holds exactly those (plain, non-race objects, 178 MB). The go-unit cache holds -race objects a
+      # type-check never reuses; restoring it was 118 s of this job's 162 s. Misses fall back to building.
+      - name: Cache keys
+        id: ck
+        run: |
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Go module download cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/go/pkg/mod/cache/download
           key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Restore Go build cache (the integration job's)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/go-build
+          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          restore-keys: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.prev }}
 
       # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
       - name: Stub web assets for embed
