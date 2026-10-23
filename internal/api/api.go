@@ -777,6 +777,10 @@ func New(d Deps) http.Handler {
 				dr := newDrainAPI(newDrainStore(d.DB))
 				r.With(vehicleScoped).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
 			}
+			// This week's short sleeps against this truck's own last 30 days (display only).
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSleepHealth(uid, d.Samples.For(uid), time.Now)(w, r)
+			}))
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
