@@ -30,6 +30,8 @@ func apnsSelector(kind string, p Preferences) bool {
 		return p.OnSoftwareUpdate
 	case "milestone":
 		return p.OnMilestones
+	case "left_open":
+		return p.OnLeftOpen
 	}
 	return false // test pings and anything new stay on the web until opted in here
 }

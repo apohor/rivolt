@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/leases"
+	"github.com/apohor/rivolt/internal/leftopen"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -2293,6 +2294,28 @@ func runServer() {
 			},
 		}
 		go reminder.Run(ctx)
+	}
+
+	// The left-open alert (internal/leftopen): an opt-in push when a door, the frunk, the liftgate, the tailgate or
+	// the tonneau stays open after the truck is parked and left. A timer reads the monitor's latest state (a truck that
+	// sleeps with the frunk open sends no frames); nothing here calls Rivian. A pod that does not run a vehicle's
+	// monitor sees no state for it. Never in admin-only or demo-only mode, and never for the demo account.
+	if pgPool != nil && pushSvc != nil && monitorRegistry != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+		leftOpen := &leftopen.Job{
+			Source: leftopen.NewSource(pgPool, func(uid uuid.UUID, rivianID string) (*rivian.State, time.Time) {
+				m := monitorRegistry.For(uid)
+				if m == nil {
+					return nil, time.Time{}
+				}
+				return m.Latest(rivianID)
+			}, demo.UserID()),
+			Deliver: func(ctx context.Context, uid uuid.UUID, model string, kinds []string, minutes int) error {
+				_, err := pushSvc.DeliverLeftOpen(ctx, pushFactory.For(uid), model, kinds, minutes)
+				return err
+			},
+			Logger: logger,
+		}
+		go leftOpen.Run(ctx)
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.
