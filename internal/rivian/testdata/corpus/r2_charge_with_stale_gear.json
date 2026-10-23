@@ -1,0 +1,25 @@
+{
+  "_source": "anonymized",
+  "_method": "Read-only from prod: an R2's Parallax shadow log and vehicle_state rows; relative times and odometer, no ids, positions or clock times.",
+  "vehicle": {"model": "R2"},
+  "events": [
+    {"t": 0, "kind": "vs", "gear": "D", "power": "go", "mph": 28.9, "odo": 0, "cs": "charging_ready", "kw": 0, "soc": 37.9},
+    {"t": 53, "kind": "vs", "soc": 38.0},
+    {"t": 77, "kind": "vs", "gear": "R", "mph": 27.0},
+    {"t": 120, "kind": "vs", "mph": 0.0},
+    {"t": 161, "kind": "vs", "power": "ready"},
+    {"t": 179, "kind": "vs", "cs": "charging_active", "kw": 0, "soc": 38.1},
+    {"t": 184, "kind": "vs", "kw": 2.0},
+    {"t": 185, "kind": "vs", "kw": 4.2},
+    {"t": 194, "kind": "vs", "kw": 5.6},
+    {"t": 200, "kind": "vs", "kw": 7.1},
+    {"t": 209, "kind": "vs", "kw": 7.4},
+    {"t": 230, "kind": "vs", "soc": 38.2},
+    {"t": 270, "kind": "vs", "soc": 38.3},
+    {"t": 307, "kind": "vs", "soc": 38.4},
+    {"t": 389, "kind": "vs", "kw": 7.4},
+    {"t": 450, "kind": "vs", "kw": 0, "_note": "a 0 kW pause mid-session"},
+    {"t": 470, "kind": "vs", "kw": 7.4, "soc": 38.6},
+    {"t": 900, "kind": "vs", "cs": "charging_complete", "kw": 0, "soc": 39.5, "_note": "the R2 leaves charging_active this way (seen on an R2: active->complete 4, active->user_stopped 2 in 5 days)"}
+  ]
+}

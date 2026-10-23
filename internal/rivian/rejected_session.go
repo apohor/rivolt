@@ -104,10 +104,10 @@ func trimCharge(row *charges.Charge, t *sessionTrim) {
 // prepareRejectedDrive decides whether a rejected drive should be
 // written now and, if so, sets its trim. Returns false to skip.
 func (m *StateMonitor) prepareRejectedDrive(ctx context.Context, vehicleID string, d *liveDrive) bool {
-	if !rejectedRetryDue(d.rejectedAt, time.Now(), d.final) {
+	if !rejectedRetryDue(d.rejectedAt, m.clock(), d.final) {
 		return false
 	}
-	d.rejectedAt = time.Now()
+	d.rejectedAt = m.clock()
 	ov, err := m.drivesStore.LiveOverlap(ctx, vehicleID, d.id, d.startedAt, d.endAt)
 	if err != nil {
 		m.logger.Debug("rejected drive: overlap lookup failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())
@@ -126,10 +126,10 @@ func (m *StateMonitor) prepareRejectedDrive(ctx context.Context, vehicleID strin
 
 // prepareRejectedCharge is prepareRejectedDrive for charges.
 func (m *StateMonitor) prepareRejectedCharge(ctx context.Context, vehicleID string, c *liveCharge) bool {
-	if !rejectedRetryDue(c.rejectedAt, time.Now(), c.final) {
+	if !rejectedRetryDue(c.rejectedAt, m.clock(), c.final) {
 		return false
 	}
-	c.rejectedAt = time.Now()
+	c.rejectedAt = m.clock()
 	ov, err := m.chargesStore.LiveOverlap(ctx, vehicleID, c.id, c.startedAt, c.endAt)
 	if err != nil {
 		m.logger.Debug("rejected charge: overlap lookup failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())

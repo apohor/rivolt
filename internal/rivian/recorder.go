@@ -737,7 +737,7 @@ const (
 // at most once, however many times it's closed (a flap closed the same
 // charge id hundreds of times).
 func (m *StateMonitor) hookOnce(kind, id string) bool {
-	now := time.Now()
+	now := m.clock()
 	key := kind + "|" + id
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -804,7 +804,7 @@ func (s *liveSessions) lifecycleView(curr *State, m *StateMonitor) *State {
 		curr.OdometerKm*kmToMi-c.startOdoMi >= switchMovedMi {
 		moving = true
 	}
-	if g, at := m.lastParallaxGear(curr.VehicleID); isDrivingGear(g) && !at.IsZero() && time.Since(at) < 30*time.Second {
+	if g, at := m.lastParallaxGear(curr.VehicleID); isDrivingGear(g) && !at.IsZero() && m.since(at) < 30*time.Second {
 		moving = true
 	}
 	view := *curr
@@ -966,7 +966,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		mph := curr.SpeedKph * kphToMi
 		pxGear, pxAt := m.lastParallaxGear(curr.VehicleID)
-		pxFresh := !pxAt.IsZero() && time.Since(pxAt) < 30*time.Second
+		pxFresh := !pxAt.IsZero() && m.since(pxAt) < 30*time.Second
 		pxParked := pxFresh && pxGear == "P"
 		pxDriving := pxFresh && isDrivingGear(pxGear)
 		confirmed := pxParked ||
@@ -1598,7 +1598,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 				m.logger.Warn("live drive rejected: overlaps another live drive for this vehicle (duplicate recorder?); retrying with a trimmed start",
 					"vehicle", vehicleID, "id", d.id, "err", err.Error())
 			}
-			d.rejected, d.rejectedAt = true, time.Now()
+			d.rejected, d.rejectedAt = true, m.clock()
 			return
 		}
 		m.noteWriteFailure("drive_upsert", vehicleID, d.id, err)
@@ -1643,7 +1643,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 				m.logger.Warn("live charge rejected: overlaps another live charge for this vehicle (duplicate recorder?); retrying with a trimmed start",
 					"vehicle", vehicleID, "id", c.id, "err", err.Error())
 			}
-			c.rejected, c.rejectedAt = true, time.Now()
+			c.rejected, c.rejectedAt = true, m.clock()
 			return
 		}
 		m.noteWriteFailure("charge_upsert", vehicleID, c.id, err)
@@ -2152,7 +2152,7 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		}
 		return nil
 	}
-	if row == nil || time.Since(row.StartedAt) > 24*time.Hour {
+	if row == nil || m.since(row.StartedAt) > 24*time.Hour {
 		return nil
 	}
 	c := liveChargeFromRow(row)
@@ -2160,7 +2160,7 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		"vehicle", curr.VehicleID,
 		"id", row.ID,
 		"started_at", row.StartedAt,
-		"age", time.Since(row.StartedAt).Round(time.Second))
+		"age", m.since(row.StartedAt).Round(time.Second))
 	return c
 }
 

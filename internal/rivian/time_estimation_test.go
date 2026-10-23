@@ -30,17 +30,17 @@ func TestDecodeTimeEstimation(t *testing.T) {
 // vehicle's own value wins, and the end of the charge clears it.
 func TestR2TimeToFullFromParallax(t *testing.T) {
 	ctx := context.Background()
-	vs := func(r *r2Run, cs string, kw, toEnd float64) {
-		r.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: time.Now(), Gear: "P",
+	vs := func(r *replayRun, cs string, kw, toEnd float64) {
+		r.m.applyVehicleStatePush(ctx, replayVehicle, &State{VehicleID: replayVehicle, At: time.Now(), Gear: "P",
 			ChargerState: cs, ChargerPowerKW: kw, TimeToEndMins: toEnd, BatteryLevelPct: 60, OdometerKm: 30000})
 	}
-	px := func(r *r2Run, mins uint64, at time.Time) {
-		r.m.onDriveDynamicsFrame(ctx, "r2", DriveDynamicsFrame{RVM: rvmTimeEstimation,
+	px := func(r *replayRun, mins uint64, at time.Time) {
+		r.m.onDriveDynamicsFrame(ctx, replayVehicle, DriveDynamicsFrame{RVM: rvmTimeEstimation,
 			Payload: pbVarints(2, mins), TimestampMs: at.UnixMilli()})
 	}
 
 	t.Run("countdown while charging", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_active", 7.4, 0)
 		now := time.Now()
 		for i, m := range []uint64{288, 240, 130, 31, 2} {
@@ -60,7 +60,7 @@ func TestR2TimeToFullFromParallax(t *testing.T) {
 	})
 
 	t.Run("not while idle", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_ready", 0, 0)
 		px(r, 120, time.Now())
 		if c := r.cached(); c.TimeToEndMins != 0 || c.TimeToEndSource != "" {
@@ -69,7 +69,7 @@ func TestR2TimeToFullFromParallax(t *testing.T) {
 	})
 
 	t.Run("an older frame doesn't apply", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_active", 7.4, 0)
 		now := time.Now()
 		px(r, 100, now)
@@ -80,13 +80,13 @@ func TestR2TimeToFullFromParallax(t *testing.T) {
 	})
 
 	t.Run("the vehicle's own value wins", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_active", 7.4, 95)
 		px(r, 120, time.Now())
 		if c := r.cached(); c.TimeToEndMins != 95 || c.TimeToEndSource != "" {
 			t.Errorf("got %v (%q), want vehicleState's 95", c.TimeToEndMins, c.TimeToEndSource)
 		}
-		r2 := newR2Run()
+		r2 := newReplayRun("R2")
 		vs(r2, "charging_active", 7.4, 0)
 		px(r2, 120, time.Now())
 		vs(r2, "charging_active", 7.4, 80) // then vehicleState starts reporting
