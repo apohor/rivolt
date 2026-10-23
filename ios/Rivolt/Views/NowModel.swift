@@ -137,15 +137,19 @@ struct NowSummary: Equatable {
     /// Separate from `freshness`, which the widgets use with their own, looser cadence.
     enum Presence: Equatable { case live, stale, offline }
 
+    /// The ages, in seconds, past which the newest frame reads stale and then offline, for what the truck is doing.
+    var limits: (stale: TimeInterval, offline: TimeInterval) {
+        switch kind == .plugged ? (sleeping ? NowSnapshot.State.asleep : .parked) : kind {
+        case .driving: return (30, 180)
+        case .charging: return (120, 600)
+        case .asleep: return (1800, 2700)
+        default: return (120, 900)
+        }
+    }
+
     var presence: Presence {
         guard let age = ageSec else { return holdOffline ? .stale : .offline }
-        let limits: (stale: TimeInterval, offline: TimeInterval)
-        switch kind == .plugged ? (sleeping ? NowSnapshot.State.asleep : .parked) : kind {
-        case .driving: limits = (30, 180)
-        case .charging: limits = (120, 600)
-        case .asleep: limits = (1800, 2700)
-        default: limits = (120, 900)
-        }
+        let limits = self.limits
         if age > limits.offline { return holdOffline ? .stale : .offline }
         return age > limits.stale ? .stale : .live
     }

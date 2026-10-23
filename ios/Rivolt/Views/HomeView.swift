@@ -198,14 +198,16 @@ struct HomeView: View {
             return
         }
         let client = state.client
-        async let st = NowReads.logged("/state") { try await client.vehicleState(id: id) }
-        async let nw = NowReads.logged("/now") { try await client.vehicleNow(id: id) }
+        let conn = state.connection
+        async let st = NowReads.logged("/state", record: { conn.record(.state, $0) }) { try await client.vehicleState(id: id) }
+        async let nw = NowReads.logged("/now", record: { conn.record(.now, $0) }) { try await client.vehicleNow(id: id) }
         async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
         vehicleState = s
         now = n ?? nil
         if s != nil || n != nil { freshness.fetched(at: .now) }
+        publishConnection()
         recentCharges = c ?? []
         latestCharge = recentCharges.first
         latestDrive = d ?? nil
@@ -227,18 +229,25 @@ struct HomeView: View {
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
     }
 
+    /// What the Connection details screen shows about the newest frame and the presence limits, from what this screen holds.
+    private func publishConnection() {
+        state.connection.update(summary: NowSummary(state: vehicleState, now: now, clock: .now), freshness: freshness)
+    }
+
     /// The state and the live reads, from the server now. True when it answered.
     @discardableResult
     private func refreshNow() async -> Bool {
         guard let id = selected?.id else { return false }
         let client = state.client
-        async let st = NowReads.logged("/state") { try await client.vehicleState(id: id) }
-        async let nw = NowReads.logged("/now") { try await client.vehicleNow(id: id) }
+        let conn = state.connection
+        async let st = NowReads.logged("/state", record: { conn.record(.state, $0) }) { try await client.vehicleState(id: id) }
+        async let nw = NowReads.logged("/now", record: { conn.record(.now, $0) }) { try await client.vehicleNow(id: id) }
         let (s, n) = await (st, nw)
         if let s { vehicleState = s }
         if let n { now = n }
         let answered = s != nil || n != nil
         if answered { freshness.fetched(at: .now) }
+        publishConnection()
         clockTick = .now
         await loadLive(id: id)
         return answered

@@ -55,6 +55,8 @@ final class AppState {
     }
 
     private(set) var phase: Phase = .bootstrapping
+    /// What the Connection details screen shows: the last two reads' outcomes and the newest frame, in memory only.
+    let connection = ConnectionDiagnostics()
     private(set) var signInStatus: SignInStatus = .unknown
     /// The server this app signs in to: rivolt.dev unless the user chose
     /// another under "Other server". Persisted across launches.
