@@ -108,6 +108,9 @@ type Metrics struct {
 	// it with its original timestamp) and frames older than a minute. A
 	// replayed gear D once flapped a charging truck's sessions.
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
+	// vehicleState frames carrying an otaStatus, by its class (a fixed list of expected words, else "other"): what
+	// states a software update goes through, which only "Idle" has been seen to say so far.
+	OTAStatusFramesTotal *prometheus.CounterVec
 
 	// Demo rate-limit bucket keys by source: "cf" / "lb" when the direct
 	// peer is a Cloudflare edge / our private load-balancer hop and
@@ -356,6 +359,13 @@ func New() *Metrics {
 			},
 			[]string{"topic"},
 		),
+		OTAStatusFramesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_ota_status_frames_total",
+				Help: "vehicleState frames carrying an otaStatus, by class (a fixed list of expected words, else other).",
+			},
+			[]string{"status"},
+		),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_vehicle_sleeps_total",
@@ -396,6 +406,7 @@ func New() *Metrics {
 		m.ServerEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
+		m.OTAStatusFramesTotal,
 	)
 	return m
 }
