@@ -76,6 +76,16 @@ enum ChartMath {
         return out
     }
 
+    /// The one stretch of limit the calm Battery chart draws: from the last limit change (the last step) to now, or to the
+    /// end of an earlier month, carrying that limit. Without any limit stored on the charges (an older server), today's
+    /// target over the last two days on the current month only; nil for none. A line across the whole month would claim
+    /// the limit held all month; it is not drawn.
+    static func limitSegment(_ charges: [ChargePoint], from: Date, to: Date, now: Date, live: Double?) -> LimitStep? {
+        if let last = limitSteps(charges, from: from, to: to, now: now, live: live).last { return last }
+        guard limitVisible(live, now: now, since: from, until: to), let live else { return nil }
+        return LimitStep(start: max(from, now.addingTimeInterval(-2 * 86_400)), end: now, pct: live)
+    }
+
     /// Both ends of every drive and charge, oldest first. A reading of 0 or less is "unknown", as on the web.
     static func socTrend(drives: [DrivePoint], charges: [ChargePoint]) -> [SocPoint] {
         var pts: [SocPoint] = []

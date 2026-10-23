@@ -87,7 +87,7 @@ struct ChartsSection: View {
     }
 
     /// The battery chart: a soft band of each day's low to high with the end-of-day line over it (SocDailyChart). The limit
-    /// is today's on the current month, else the last known in the month shown.
+    /// is drawn only from its last change (today's on the current month, else the last known in the month shown).
     private var levelCard: some View {
         ThemeSection(title: "Battery (SoC) trend") {
             let days = SocDaily.days(drives: model.points?.drives ?? [], charges: model.points?.charges ?? [], calendar: calendar)
@@ -96,15 +96,14 @@ struct ChartsSection: View {
             } else if trend.count < 2 {
                 ChartEmpty(text: "Not enough drives or charges in \(month.title(calendar: calendar)) yet.")
             } else {
-                SocDailyChart(days: days, limit: limitValue, month: month, now: now, calendar: calendar)
+                SocDailyChart(days: days, limit: limitSegment, month: month, calendar: calendar)
             }
         }
     }
 
-    private var limitValue: Double? {
+    private var limitSegment: ChartMath.LimitStep? {
         let r = month.range(calendar: calendar)
-        if let last = ChartMath.limitSteps(model.points?.charges ?? [], from: r.since, to: r.until, now: now, live: limit).last { return last.pct }
-        return ChartMath.limitVisible(limit, now: now, since: r.since, until: r.until) ? limit : nil
+        return ChartMath.limitSegment(model.points?.charges ?? [], from: r.since, to: r.until, now: now, live: limit)
     }
 
     /// "10-01", the web's day labels.

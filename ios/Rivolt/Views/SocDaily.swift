@@ -67,10 +67,10 @@ enum SocDaily {
 /// as a deep, wide dip in the band. No legend: one short caption says what the marks are.
 struct SocDailyChart: View {
     let days: [SocDaily.Day]
-    /// The limit to draw (nil for none): today's on the current month, else the last known in that month.
-    let limit: Double?
+    /// The limit to draw (nil for none), only from its last change to now (or to the end of an earlier month): a line
+    /// across the whole month would say the limit held all month.
+    let limit: ChartMath.LimitStep?
     let month: PeriodMonth
-    var now: Date = .now
     var calendar: Calendar = .current
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 200
@@ -134,17 +134,19 @@ struct SocDailyChart: View {
             .foregroundStyle(Theme.critical.opacity(0.045))
     }
 
-    /// One faint line at the limit, named once at its right end.
+    /// One faint line at the limit, from its last change, named once at its end (to the right of it in the days to come;
+    /// above it when the month has little room left).
     @ChartContentBuilder
     private func limitMarks(_ r: (since: Date, until: Date)) -> some ChartContent {
         if let limit {
-            RuleMark(xStart: .value("From", r.since), xEnd: .value("To", r.until), y: .value("Limit", limit))
+            let tight = r.until.timeIntervalSince(limit.end) < 4 * 86_400
+            RuleMark(xStart: .value("From", limit.start), xEnd: .value("To", limit.end), y: .value("Limit", limit.pct))
                 .lineStyle(StrokeStyle(lineWidth: 1))
                 .foregroundStyle(Theme.chartSocLimit.opacity(0.32))
-            PointMark(x: .value("To", r.until), y: .value("Limit", limit))
+            PointMark(x: .value("To", limit.end), y: .value("Limit", limit.pct))
                 .symbolSize(0)
-                .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                    Text("Limit \(NumberText.fixed(limit, 0))%").themeText(.caption, color: Theme.chartSocLimit)
+                .annotation(position: tight ? .top : .trailing, alignment: tight ? .trailing : .center, spacing: 4) {
+                    Text("Limit \(NumberText.fixed(limit.pct, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
     }

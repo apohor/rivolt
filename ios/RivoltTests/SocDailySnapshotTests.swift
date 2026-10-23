@@ -85,12 +85,12 @@ final class SocDailySnapshotTests: XCTestCase {
         let pm = PeriodMonth(containing: now, calendar: utc)
         let r = pm.range(calendar: utc)
         let steps = ChartMath.limitSteps(m.charges, from: r.since, to: r.until, now: now, live: 70)
-        let limit = steps.last?.pct
+        let limit = ChartMath.limitSegment(m.charges, from: r.since, to: r.until, now: now, live: 70)
         XCTAssertEqual(SocDaily.extremes(days)?.low.low, 3)
         XCTAssertEqual(SocDaily.extremes(days)?.high.high, 97)
         XCTAssertFalse(steps.isEmpty)
         try render("soc-daily", ThemeSection(title: "Battery (SoC) trend") {
-            SocDailyChart(days: days, limit: limit, month: pm, now: now, calendar: utc)
+            SocDailyChart(days: days, limit: limit, month: pm, calendar: utc)
                 .padding(4 * Theme.unit)
         }.padding(16).frame(width: 390).background(ThemePageBackground()))
     }
