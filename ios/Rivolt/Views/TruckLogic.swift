@@ -135,20 +135,32 @@ enum TruckLogic {
     /// parked drain, each exactly as its card below shows it (the same helpers, rounding and words), dropped when its card
     /// has no figure; nil when neither has. Plain figures: no score, colour, comparison with the spec or "degradation".
     static func summary(pack: PackHealth?, drain: DrainSnapshot?) -> String? {
-        var parts: [String] = []
+        let parts = summaryParts(pack: pack, drain: drain)
+        guard !parts.isEmpty else { return nil }
+        return parts.enumerated().map { $0.offset == 0 ? $0.element.text : $0.element.text.prefix(1).lowercased() + $0.element.text.dropFirst() }
+            .joined(separator: " · ")
+    }
+
+    /// The line's halves, each capitalised (a row of its own at large text) and naming the card it summarises ("pack",
+    /// "drain"), so a tap can show that card.
+    struct SummaryPart: Equatable, Identifiable {
+        let id: String
+        let text: String
+    }
+
+    static func summaryParts(pack: PackHealth?, drain: DrainSnapshot?) -> [SummaryPart] {
+        var parts: [SummaryPart] = []
         if let pack {
             switch Self.pack(pack).head {
-            case let .reported(kwh, _): parts.append("Pack \(fixed(kwh, 1)) kWh usable, as your truck reports it")
-            case let .estimate(kwh?, _): parts.append("Pack \(fixed(kwh, 0)) kWh usable (estimate)")
+            case let .reported(kwh, _): parts.append(SummaryPart(id: "pack", text: "Pack \(fixed(kwh, 1)) kWh usable, as your truck reports it"))
+            case let .estimate(kwh?, _): parts.append(SummaryPart(id: "pack", text: "Pack about \(fixed(kwh, 0)) kWh usable (estimate)"))
             case .estimate(nil, _), .none: break
             }
         }
         if let drain, case let .ok(p, _, _, _, _, _, _) = drainView(window(drain, .week), .week) {
-            parts.append("parked drain \(pct(p))% / day (last 7 days)")
+            parts.append(SummaryPart(id: "drain", text: "Parked drain \(pct(p))% a day (last 7 days)"))
         }
-        guard let first = parts.first else { return nil }
-        parts[0] = first.prefix(1).uppercased() + first.dropFirst()
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     static func pack(_ p: PackHealth) -> (head: PackView, trend: [PackHealth.Sample], note: String) {

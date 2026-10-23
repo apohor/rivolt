@@ -11,6 +11,7 @@ import { BatteryCapacityCard } from "../components/BatteryCapacityCard";
 import { TrendsCard } from "../components/TrendsCard";
 import { ColdRangeCard } from "../components/ColdRangeCard";
 import DrainCard from "../components/DrainCard";
+import { TruckSummary } from "../components/TruckSummary";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
@@ -102,6 +103,9 @@ export default function TruckPage() {
           </>
         }
       />
+
+      {/* The first screen answers "how is the truck": the two figures from the cards below. */}
+      <TruckSummary vehicleID={selectedID} />
 
       {isR2(vehicle?.model) && <R2CheckedCard />}
 

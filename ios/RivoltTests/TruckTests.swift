@@ -84,16 +84,19 @@ final class TruckLogicTests: XCTestCase {
             return XCTFail("the fixtures should give both cards a figure")
         }
         XCTAssertEqual(TruckLogic.summary(pack: pack, drain: drain),
-                       "Pack \(TruckLogic.fixed(kwh, 1)) kWh usable, as your truck reports it · parked drain \(TruckLogic.pct(pct))% / day (last 7 days)")
-        XCTAssertEqual(TruckLogic.summary(pack: pack, drain: drain), "Pack 123.0 kWh usable, as your truck reports it · parked drain 0.6% / day (last 7 days)")
+                       "Pack \(TruckLogic.fixed(kwh, 1)) kWh usable, as your truck reports it · parked drain \(TruckLogic.pct(pct))% a day (last 7 days)")
+        XCTAssertEqual(TruckLogic.summary(pack: pack, drain: drain), "Pack 123.0 kWh usable, as your truck reports it · parked drain 0.6% a day (last 7 days)")
+        // The halves name their cards, for the tap that shows them; each reads on its own (one per row at large text).
+        XCTAssertEqual(TruckLogic.summaryParts(pack: pack, drain: drain).map(\.id), ["pack", "drain"])
+        XCTAssertEqual(TruckLogic.summaryParts(pack: pack, drain: drain).last?.text, "Parked drain 0.6% a day (last 7 days)")
         // Our estimate (no figure from the truck) is called one, as the card does.
         let est = try JSON.decoder().decode(PackHealth.self, from: Data(#"""
         {"samples":[{"at":"2026-10-01T00:00:00Z","pack_kwh_effective":121.6,"derate_active":false}],
          "headline":{"effective_kwh":121.6,"documented_kwh":135,"sample_count":1,"window":1}}
         """#.utf8))
-        XCTAssertEqual(TruckLogic.summary(pack: est, drain: nil), "Pack 122 kWh usable (estimate)")
+        XCTAssertEqual(TruckLogic.summary(pack: est, drain: nil), "Pack about 122 kWh usable (estimate)")
         // Only the drain; then nothing at all.
-        XCTAssertEqual(TruckLogic.summary(pack: nil, drain: drain), "Parked drain 0.6% / day (last 7 days)")
+        XCTAssertEqual(TruckLogic.summary(pack: nil, drain: drain), "Parked drain 0.6% a day (last 7 days)")
         XCTAssertNil(TruckLogic.summary(pack: nil, drain: nil))
         let none = try JSON.decoder().decode(PackHealth.self, from: Data(#"{"samples":[],"headline":{"effective_kwh":0,"sample_count":0,"window":0}}"#.utf8))
         XCTAssertNil(TruckLogic.summary(pack: none, drain: nil))

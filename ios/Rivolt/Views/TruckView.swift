@@ -25,12 +25,14 @@ struct TruckView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 Group {
                     if let v = selected {
                         TruckContent(model: model, vehicle: v, drainKey: $drainKey, temp: temp, pickTemp: { pickedTemp = $0 },
                                      r2Dismissed: $r2Dismissed, month: month,
-                                     notesLink: { id, which in try await state.client.otaNotesURL(vehicleID: id, which: which) })
+                                     notesLink: { id, which in try await state.client.otaNotesURL(vehicleID: id, which: which) },
+                                     showCard: { id in withAnimation { proxy.scrollTo(id, anchor: .top) } })
                     } else if let vehiclesError {
                         TruckMessage(text: vehiclesError)
                     } else if vehiclesLoaded {
@@ -41,6 +43,7 @@ struct TruckView: View {
                 }
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
+            }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -137,6 +140,8 @@ struct TruckContent: View {
     var metric: Bool = NowFormat.usesMetric
     /// A fresh release-notes link from the server (`GET /api/vehicles/{id}/ota/notes`); tests render without one.
     var notesLink: (_ vehicleID: String, _ which: String) async throws -> URL = { _, _ in throw APIError.badURL }
+    /// Scrolls to a card by its id ("pack", "drain"); the summary line's halves call it.
+    var showCard: ((String) -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// At an accessibility size pairs stack (label over value) and rows become a column, so nothing breaks mid-word.
@@ -148,22 +153,53 @@ struct TruckContent: View {
     var body: some View {
         VStack(spacing: 16) {
             // The first screen answers "how is the truck": the two figures from the cards below, above the fold.
-            if let line = TruckLogic.summary(pack: model.pack?.value, drain: model.drain?.value) {
-                Text(line).themeText(.value, color: Theme.textBody)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Truck summary: \(line)")
-            }
+            summaryLine
             if TruckLogic.isR2(vehicle.model) && !r2Dismissed { r2Card }
-            if let d = model.drain?.value { drainCard(d) } else if model.drain == nil { TruckLoading(title: "Parked drain") }
+            if let d = model.drain?.value { drainCard(d).id("drain") } else if model.drain == nil { TruckLoading(title: "Parked drain") }
             if let terms = model.leaseTerms, let st = model.lease?.value { leaseCard(st, terms: terms) }
-            packCard
+            packCard.id("pack")
             if let t = model.trends?.value { trendsCard(t) } else if model.trends == .failed { failedCard("Trends for your truck", "Couldn't load trends.") }
             if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") }
             placesCard
             sleepCard
             vehicleCard
         }
+    }
+
+    /// Each half a 44 pt target that shows its card; side by side when both fit whole, else one per row.
+    @ViewBuilder
+    private var summaryLine: some View {
+        let parts = TruckLogic.summaryParts(pack: model.pack?.value, drain: model.drain?.value)
+        if !parts.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 0) {
+                    ForEach(Array(parts.enumerated()), id: \.element.id) { i, p in
+                        if i > 0 { Text(" · ").themeText(.value, color: Theme.textTertiary).accessibilityHidden(true) }
+                        summaryButton(p, lowered: i > 0).fixedSize()
+                    }
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(parts) { summaryButton($0, lowered: false) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Truck summary")
+        }
+    }
+
+    private func summaryButton(_ p: TruckLogic.SummaryPart, lowered: Bool) -> some View {
+        let text = lowered ? p.text.prefix(1).lowercased() + p.text.dropFirst() : p.text
+        return Button { showCard?(p.id) } label: {
+            Text(text).themeText(.value, color: Theme.textBody)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(SpokenText.words(p.text))
+        .accessibilityHint(p.id == "pack" ? "Shows Pack capacity" : "Shows Parked drain")
     }
 
     private func failedCard(_ title: String, _ text: String) -> some View {
