@@ -144,12 +144,14 @@ jobs:
           retention-days: 7
 
   screenshots:
-    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
-    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Slow and rarely changed by a PR: manual runs (the lead dispatches one on
+    # each ios-v* tag before TestFlight) and PRs labelled ios-screens only.
+    # Not on every main push: with several iOS merges an hour, three macOS jobs
+    # per push queued main's build-test 10+ minutes behind.
     # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -275,12 +277,14 @@ jobs:
 
 
   appstore:
-    # Slow and rarely changed by a PR: main, manual runs, and PRs labelled
-    # ios-screens only, so PRs don't queue behind the macOS concurrency limit.
+    # Slow and rarely changed by a PR: manual runs (the lead dispatches one on
+    # each ios-v* tag before TestFlight) and PRs labelled ios-screens only.
+    # Not on every main push: with several iOS merges an hour, three macOS jobs
+    # per push queued main's build-test 10+ minutes behind.
     # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ios-screens')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
