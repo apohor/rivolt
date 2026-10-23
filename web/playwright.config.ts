@@ -11,10 +11,10 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.pw.ts",
   fullyParallel: true,
-  // CI: one retry (a flaky pass shows as "flaky" in the report), two workers
-  // per shard, and an HTML report to upload next to the screenshots.
+  // CI: one retry (a flaky pass shows as "flaky" in the report), four workers
+  // per shard (the runner's four vCPUs), and an HTML report to upload next to the screenshots.
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  workers: process.env.CI ? 4 : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]] : [["list"]],
   outputDir: "./e2e/__results__",
   use: { baseURL: `http://127.0.0.1:${PORT}` },
