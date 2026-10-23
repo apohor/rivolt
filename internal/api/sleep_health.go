@@ -96,9 +96,20 @@ func buildSleepHealth(days []samples.DayActivity, now time.Time) sleepHealthResp
 	return out
 }
 
-// handleSleepHealth serves GET /api/vehicles/{vehicleID}/sleep-health. Read-only, from vehicle_state only (never
-// Rivian, so it can't wake a truck), through the same per-process cache as /api/sleep-activity: the window is
-// whole UTC days, so the answer is computed once per truck per day-bucket however often the page asks.
+// sleepHealthTTL is how long a truck's verdict is reused. The window is whole UTC days ending at today's 00:00, so it only changes when a new
+// day starts (and a little as the last days settle). The two queries behind it scan about 420k vehicle_state rows on the busiest truck and
+// took about 1.9 s together on prod, so an hour of reuse keeps that to a handful of runs per truck a day.
+const sleepHealthTTL = time.Hour
+
+var sleepHealthCache = newTTLCache[sleepHealthResponse](sleepHealthTTL, 256)
+
+// sleepHealthKey is one truck's verdict for one UTC day.
+func sleepHealthKey(uid uuid.UUID, vehicle string, today time.Time) string {
+	return uid.String() + "|" + vehicle + "|" + today.UTC().Format("2006-01-02")
+}
+
+// handleSleepHealth serves GET /api/vehicles/{vehicleID}/sleep-health. Read-only, from vehicle_state only (never Rivian, so it can't wake a
+// truck), cached per truck per day for sleepHealthTTL (the cache shares one computation between concurrent callers).
 func handleSleepHealth(uid uuid.UUID, store *samples.Store, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t := now().UTC()
@@ -109,20 +120,20 @@ func handleSleepHealth(uid uuid.UUID, store *samples.Store, now func() time.Time
 		vehicle := chi.URLParam(r, "vehicleID")
 		today := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 		since := today.AddDate(0, 0, -(sleepHealthWeekDays + sleepHealthBaselineDays))
-		key := sleepActivityKey(uid, vehicle, since, today)
-		days, err := sleepActivityCache.get(key, func() ([]samples.DayActivity, error) {
+		out, err := sleepHealthCache.get(sleepHealthKey(uid, vehicle, today), func() (sleepHealthResponse, error) {
+			// Shared with concurrent callers, so it must not die with this request's context.
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 25*time.Second)
 			defer cancel()
-			res, err := store.SleepActivity(ctx, vehicle, since, today)
-			if res == nil {
-				res = []samples.DayActivity{}
+			days, err := store.SleepActivity(ctx, vehicle, since, today)
+			if err != nil {
+				return sleepHealthResponse{}, err
 			}
-			return res, err
+			return buildSleepHealth(days, t), nil
 		})
 		if err != nil {
 			http.Error(w, "could not read sleep history", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, buildSleepHealth(days, t))
+		writeJSON(w, http.StatusOK, out)
 	}
 }

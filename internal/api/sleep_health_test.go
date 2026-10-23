@@ -167,3 +167,19 @@ func TestSleepHealthThroughTheRouter(t *testing.T) {
 		t.Errorf("the response carries wording: %s", w.Body.String())
 	}
 }
+
+// One truck's verdict is cached per UTC day: the same day shares a key, another truck, user or day does not.
+func TestSleepHealthKey(t *testing.T) {
+	u, v := uuid.New(), uuid.New()
+	d := day(10, 23)
+	if sleepHealthKey(u, "a", d) != sleepHealthKey(u, "a", d.Add(15*time.Hour)) {
+		t.Error("the same UTC day must share a key")
+	}
+	for name, k := range map[string]string{
+		"vehicle": sleepHealthKey(u, "b", d), "user": sleepHealthKey(v, "a", d), "day": sleepHealthKey(u, "a", d.AddDate(0, 0, 1)),
+	} {
+		if k == sleepHealthKey(u, "a", d) {
+			t.Errorf("a different %s shares the key", name)
+		}
+	}
+}
