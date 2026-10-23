@@ -32,11 +32,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The same matrix and steps as build.yml's e2e job (keep them in step).
+  # The same steps as build.yml's e2e job, both browsers at once: chromium in three shards and WebKit in two, in
+  # the same pinned Playwright image, with the same browser cache and duration-balanced split (keep them in step).
   e2e:
     name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
     if: github.event.schedule != '45 0 * * 1'
     runs-on: ubuntu-latest
+    # WebKit runs in Playwright's own image: its system libraries are not on the runner,
+    # and installing them with apt from the runner's mirror stalled 350 to 500 s on some
+    # runs. The image carries the libraries and the browser build for this Playwright
+    # version. Pinned by digest of the multi-arch index (v1.64.1-noble, built Oct 14);
+    # bump the tag and digest with playwright-core (the step below fails on a mismatch).
+    container: ${{ matrix.project == 'webkit' && 'mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf' || null }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -46,7 +53,8 @@ jobs:
           - { suite: all, project: chromium, shard: 1, total: 3 }
           - { suite: all, project: chromium, shard: 2, total: 3 }
           - { suite: all, project: chromium, shard: 3, total: 3 }
-          - { suite: all, project: webkit, shard: 1, total: 1 }
+          - { suite: all, project: webkit, shard: 1, total: 2 }
+          - { suite: all, project: webkit, shard: 2, total: 2 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -62,15 +70,44 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
-      # Restores main's browser cache (saved by build.yml's playwright-cache job).
+      # The browser cache is keyed on Playwright's own version (the lockfile entry for
+      # playwright-core), not on the whole lockfile: any unrelated dependency bump
+      # changed the lockfile hash, missed the cache and sent every shard to download
+      # Chromium (280 to 630 s a shard, against 90 to 190 s of tests).
+      - name: Playwright version
+        id: pw-ver
+        working-directory: web
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+
+      # The browser download is the slow part. The cache is saved only by the
+      # main-only `playwright-cache` job below (a PR's own cache is readable
+      # only from that PR, so per-PR copies never hit and filled the repo's
+      # Actions budget); PRs just restore main's. System libraries are not in
+      # the cache: web/scripts/pw-system-deps.sh installs them only when the
+      # browser's binary reports a missing one (apt from a slow mirror took up
+      # to 10 minutes of a shard that runs 2-3 minutes of tests).
+      - name: The WebKit image matches Playwright
+        if: matrix.project == 'webkit'
+        env:
+          VERSION: ${{ steps.pw-ver.outputs.version }}
+        run: |
+          # The image's tag is the Playwright version it was built for; a different
+          # playwright-core would look for a browser build the image does not have.
+          if [ "$VERSION" != "1.64.1" ]; then
+            echo "::error::playwright-core is $VERSION but the webkit image is v1.64.1: bump the container tag and digest"
+            exit 1
+          fi
+
       - name: Restore Playwright browsers
         id: pw-cache
+        if: matrix.project != 'webkit'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ steps.pw-ver.outputs.version }}
 
       - name: Install Playwright browser
+        if: matrix.project != 'webkit'
         working-directory: web
         run: |
           if [ "${{ steps.pw-cache.outputs.cache-hit }}" != "true" ]; then
@@ -158,12 +195,17 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
+      - name: Playwright version
+        id: pw-ver
+        working-directory: web
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+
       - name: Restore Playwright browsers
         id: pw-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-chromium-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-chromium-${{ steps.pw-ver.outputs.version }}
 
       - name: Install Playwright browser
         working-directory: web
@@ -255,7 +297,7 @@ jobs:
           RESULT=flaky TITLE="e2e flaky on main" KIND="daily" FLAKY="$flaky" bash .github/scripts/e2e-red-issue.sh
           mkdir -p timings/chromium timings/webkit
           node web/scripts/e2e-timings.mjs merge timings/chromium/chromium.json 3 $(ls results/e2e-results-chromium-*/results.json 2>/dev/null)
-          node web/scripts/e2e-timings.mjs merge timings/webkit/webkit.json 1 $(ls results/e2e-results-webkit-*/results.json 2>/dev/null)
+          node web/scripts/e2e-timings.mjs merge timings/webkit/webkit.json 2 $(ls results/e2e-results-webkit-*/results.json 2>/dev/null)
           [ -f timings/chromium/chromium.json ] && echo "chromium=true" >> "$GITHUB_OUTPUT" || true
           [ -f timings/webkit/webkit.json ] && echo "webkit=true" >> "$GITHUB_OUTPUT" || true
           # The cache paths are what the e2e jobs restore (web/e2e-timings/<browser>.json).
