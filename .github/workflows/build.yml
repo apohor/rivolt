@@ -696,7 +696,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'  # TEMP-MEASURE
+      github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -828,7 +828,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'  # TEMP-MEASURE
+      github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ needs.bin.outputs.version }}
