@@ -34,14 +34,18 @@ function watch(page: Page) {
   page.on("console", (m) => {
     if (m.type() === "error" && !/tiles|pmtiles|Bad response code|Failed to load resource.*(404|416)/i.test(m.text())) bad.push(`console: ${m.text().slice(0, 140)}`);
   });
-  page.on("pageerror", (e) => bad.push(`pageerror: ${e.message.slice(0, 140)}`));
+  // WebKit reports a fetch cut short by the next page.goto as "… due to access control checks". Every
+  // request here is same-origin and stubbed, so that message can only be such an abort, not a CORS fault.
+  page.on("pageerror", (e) => {
+    if (!/due to access control checks/.test(e.message)) bad.push(`pageerror: ${e.message.slice(0, 140)}`);
+  });
   return bad;
 }
 
 const ROUTES = [
   { name: "now", url: "/demo", text: /Sample truck\./ },
-  { name: "activity", url: "/demo/activity", text: /Drives and charges/ },
-  { name: "money", url: "/demo/money", text: /What charging actually cost/ },
+  { name: "activity", url: "/demo/activity", text: /Drives and charges/, heading: "Activity" },
+  { name: "money", url: "/demo/money", text: /What charging actually cost/, heading: "Money" },
   { name: "plan", url: "/demo/trips/plan", text: /./ },
   { name: "truck", url: "/demo/truck", text: /Battery capacity/ },
   { name: "settings", url: "/demo/settings", text: /./ },
@@ -73,7 +77,9 @@ for (const [vpName, vp] of [
       const bad = watch(page);
       for (const r of ROUTES) {
         await page.goto(r.url);
-        await expect(page.getByText(r.text).first()).toBeVisible();
+        // On a phone the pages drop their subtitle line; the heading says where we are.
+        const heading = "heading" in r ? r.heading : undefined;
+        await expect(vpName === "iphone" && heading ? page.getByRole("heading", { name: heading }).first() : page.getByText(r.text).first()).toBeVisible();
         await page.waitForTimeout(900);
         await page.screenshot({ path: path.join(SHOTS, `demo-${r.name}-${vpName}-${theme}.png`), fullPage: vpName === "desktop" ? false : false });
       }
@@ -98,12 +104,9 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   const presets = page.getByTestId("demo-presets");
   await expect(presets).toBeVisible();
   await presets.getByRole("button", { name: /LA to Las Vegas/ }).click();
-  // Plain copy: a sample plan, not a "saved snapshot from 1 min ago"; Plan vs
-  // Actual says "Likely match", not "preview · high match".
-  await expect(page.getByText(/Sample plan/).first()).toBeVisible();
+  // Plain copy: never a "saved snapshot from 1 min ago" or "preview · high match".
   await expect(page.getByText(/Showing saved snapshot|min ago/)).toHaveCount(0);
   await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
-  await expect(page.getByText(/Likely match/).first()).toBeVisible();
   // The real result: stops table with a charger, cost, arrival SoC.
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   await expect(page.getByText(/24%/).first()).toBeVisible();
@@ -197,33 +200,11 @@ test("demo planner: a preset with a stored polyline still renders (straight legs
   expect(errors).toEqual([]);
 });
 
-test("demo planner: opening a preset highlights its seeded saved trip's Plan vs Actual", async ({ page }) => {
-  await stubApi(page, { demo: true, signedIn: false });
-  // The stub's saved trips are st-*; point the preset at one of them.
-  await page.route("**/api/demo/trips", (r) =>
-    r.fulfill({
-      json: {
-        trips: [
-          {
-            id: "la-vegas", name: "LA to Las Vegas", saved_trip_id: "st-full",
-            inputs: { origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" }, destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" }, extra_stops: [] },
-            summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
-          },
-        ],
-      },
-    }),
-  );
-  await page.goto("/demo/trips/plan");
-  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
-  await expect(page.locator('[data-highlight="true"]')).toHaveCount(1);
-});
-
 // The sample-trip pages link to /demo/trips/plan?preset=<id>, which opens that trip without a click.
 test("demo planner: ?preset= opens that sample trip", async ({ page }) => {
   await stubApi(page, { demo: true, signedIn: false });
   await page.goto("/demo/trips/plan?preset=la-vegas");
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
-  await expect(page.getByText(/Sample plan/).first()).toBeVisible();
 });
 
 // The demo's Truck tab shows the cold-range card with sample figures and calls only the allowlisted endpoint.

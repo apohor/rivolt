@@ -262,7 +262,7 @@ jobs:
           fi
           echo "$out" | grep -q 'rivolt: set secrets.kek' || { echo "$out"; echo "::error::unexpected failure"; exit 1; }
 
-  # Functional Playwright specs (ui-next-*), against `vite preview` and the stub
+  # Functional Playwright specs (all of them, with the new look), against `vite preview` and the stub
   # API (web/e2e/stub.ts): no backend, no real data. PRs that touch web only.
   # The visual-regression spec stays opt-in (E2E_VISUAL): its baselines carry
   # the OS and do not match Linux. Three shards in parallel; each builds the SPA
@@ -283,18 +283,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # next: the ui-next-* specs, flag on (and their flag-off twins).
-          - { suite: next, project: chromium, shard: 1, total: 3 }
-          - { suite: next, project: chromium, shard: 2, total: 3 }
-          - { suite: next, project: chromium, shard: 3, total: 3 }
+          # One suite: every spec, with the new look (the only one users get).
+          - { suite: all, project: chromium, shard: 1, total: 3 }
+          - { suite: all, project: chromium, shard: 2, total: 3 }
+          - { suite: all, project: chromium, shard: 3, total: 3 }
           # WebKit = the iPhone Safari engine: the phone specs only (see
           # web/playwright.config.ts), one shard.
-          - { suite: next, project: webkit, shard: 1, total: 1 }
-          # legacy: every other spec (flag off, the pre-redesign pages and the
-          # demo), so a regression in the old UI shows up in CI too.
-          - { suite: legacy, project: chromium, shard: 1, total: 3 }
-          - { suite: legacy, project: chromium, shard: 2, total: 3 }
-          - { suite: legacy, project: chromium, shard: 3, total: 3 }
+          - { suite: all, project: webkit, shard: 1, total: 1 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -362,12 +357,7 @@ jobs:
         env:
           CI: "true"
           E2E_WEBKIT: "1"
-          SUITE: ${{ matrix.suite }}
-        run: |
-          # ui-next-*.pw.ts is the "next" suite; every other spec is "legacy"
-          # (ui-next.pw.ts, the prototype spec, has no dash after "next").
-          if [ "$SUITE" = "next" ]; then files="ui-next-"; else files=$(ls e2e/*.pw.ts | grep -v '^e2e/ui-next-'); fi
-          npx playwright test $files --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+        run: npx playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
 
       - name: Upload report and screenshots
         if: always()

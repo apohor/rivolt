@@ -200,12 +200,13 @@ export type StubOptions = {
   signedIn?: boolean;
   landing?: boolean;
   admin?: boolean;
-  // The server-side new-look flag on /api/ledger/enabled (no localStorage override).
+  // The server-side new-look flag on /api/ledger/enabled (no localStorage override). On by
+  // default, as for every user; false only for a spec of the old look (being removed).
   uiNext?: boolean;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", uiNext = false } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", uiNext = true } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });

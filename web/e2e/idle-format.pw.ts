@@ -5,7 +5,7 @@ import { stubApi } from "./stub";
 import { e2eNow } from "./clock";
 
 // Idle-awake values read as minutes under an hour and hours + minutes above,
-// on the Truck tab and on Now; nothing is capped.
+// on the Truck tab; nothing is capped.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -30,8 +30,8 @@ for (const scheme of ["dark", "light"] as const) {
     const axis = (await card.locator("svg text").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).join(" ");
     expect(axis).toMatch(/\d+h|\d+m/);
     expect(axis).not.toMatch(/\b\d{3,}m\b/);
-    // The 22 h day is in the data: its tooltip is "22 h 17 min", not capped.
-    const titles = await card.locator("svg rect title").evaluateAll((els) => els.map((e) => e.textContent ?? ""));
+    // The 22 h day is in the data: its bar reads "22 h 17 min", not capped.
+    const titles = await card.locator("svg title").evaluateAll((els) => els.map((e) => e.textContent ?? ""));
     expect(titles.some((t) => /22 h 17 min/.test(t))).toBe(true);
     expect(titles.some((t) => /45 min/.test(t))).toBe(true);
     // The cards re-render as the page's queries settle, so the located element
@@ -40,15 +40,7 @@ for (const scheme of ["dark", "light"] as const) {
       await card.scrollIntoViewIfNeeded();
       await card.screenshot({ path: path.join(SHOTS, `idle-format-truck-${scheme}.png`) });
     }).toPass();
-
-    await page.goto("/");
-    const now = page.locator("section").filter({ has: page.getByRole("heading", { name: "Idle-awake time per day" }) });
-    await expect(now).toBeVisible();
-    await expect(now.locator("svg").first()).toBeVisible();
-    await expect(async () => {
-      await now.scrollIntoViewIfNeeded();
-      await now.screenshot({ path: path.join(SHOTS, `idle-format-now-${scheme}.png`) });
-    }).toPass();
+    // Now shows idle-awake as a KPI tile in the new look (ui-next-idle.pw.ts), not this chart.
     await ctx.close();
   });
 }

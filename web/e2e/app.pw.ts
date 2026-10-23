@@ -62,18 +62,11 @@ const views: View[] = [
   { name: "demo-stale", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, scenario: "stale" }, text: [/Last seen [5-7] min ago/] },
   {
     name: "plan-vs-actual",
-    path: "/trips/plan",
-    heading: "Plan vs actual",
-    text: [
-      "We'll compare once you've driven it.",
-      "Confirm",
-      "Not this trip",
-      "Trip in progress. We'll compare when you're home.",
-      /Driven .* · 612 mi/,
-      "Fast-charging stops",
-      /so far .*2 not priced yet/,
-      "Sample network billed $0.48/kWh vs $0.56 planned",
-    ],
+    // Plan vs actual is a tab of the planner.
+    path: "/trips/plan?tab=pva",
+    heading: "Trip planner",
+    // The tab compares one trip (the old look listed every saved trip by state).
+    text: [/Driven .* · 612 mi/, "Fast-charging stops", "Sample network billed $0.48/kWh vs $0.56 planned"],
   },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"], midday: true },
@@ -137,8 +130,16 @@ for (const view of views) {
         if (view.name.startsWith("now-")) {
           await expect(page.getByRole("link", { name: "Overview" })).toHaveCount(0);
           await expect(page.getByRole("link", { name: "Full telemetry →" })).toBeVisible();
-          const top = await page.getByRole("region", { name: "Now" }).evaluate((el) => el.getBoundingClientRect().top);
-          expect(top).toBeLessThan(200);
+          // The Now card leads the page: no other card in main starts above it. (In the new look the
+          // region's own box can be the grid's, so its top is its first child's.)
+          const above = await page.getByRole("region", { name: "Now" }).evaluate((now) => {
+            const top = (now.firstElementChild ?? now).getBoundingClientRect().top;
+            return [...document.querySelectorAll("main section")].filter((e) => {
+              const r = e.getBoundingClientRect();
+              return !e.contains(now) && !now.contains(e) && r.height > 0 && r.top < top - 1;
+            }).length;
+          });
+          expect(above).toBe(0);
         }
         if (!view.name.startsWith("banner-") && view.name !== "landing" && view.name !== "admin-idp") {
           // Healthy: no degraded banner.
