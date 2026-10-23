@@ -793,7 +793,8 @@ jobs:
           echo "$info" | grep -E 'CGO_ENABLED|trimpath|ldflags|GOARCH|GOOS'
           echo "$info" | grep -q 'CGO_ENABLED=0' || { echo "::error::binary is not CGO_ENABLED=0"; exit 1; }
           echo "$info" | grep -q -- '-trimpath=true' || { echo "::error::binary is not -trimpath"; exit 1; }
-          echo "$info" | grep -q -- "-X main.version=${VERSION}" || { echo "::error::binary is not stamped ${VERSION}"; exit 1; }
+          # (-trimpath leaves -ldflags out of the build info, so look for the stamped string itself.)
+          grep -aqF -- "${VERSION}" image-ctx/rivolt || { echo "::error::binary is not stamped ${VERSION}"; exit 1; }
 
       # tar keeps the modes the upload would drop.
       - name: Pack the image context
