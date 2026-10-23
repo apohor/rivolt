@@ -125,8 +125,12 @@ for (const url of ["/", "/activity", "/truck"]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(300);
     await page.mouse.wheel(0, 900);
     // Pinned just under the 48px top nav, still on screen after scrolling.
-    await expect.poll(async () => (await header.boundingBox())!.y).toBeGreaterThanOrEqual(40);
-    await expect.poll(async () => (await header.boundingBox())!.y).toBeLessThanOrEqual(60);
+    await expect
+      .poll(async () => {
+        const y = (await header.boundingBox())!.y;
+        return y >= 40 && y <= 60 ? "pinned" : `y ${y}`;
+      })
+      .toBe("pinned");
     await ctx.close();
   });
 }
