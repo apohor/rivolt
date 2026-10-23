@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// R2 support from real frames (testdata/corpus/r2_*.json, anonymized prod
-// data, played by the replay harness). An R2's vehicleState never reports park or sleep: the gear
+// R2 support from frames in the shape of real ones (testdata/corpus/r2_*.json, synthetic:
+// derived in shape from real days and perturbed, played by the replay harness). An R2's vehicleState never reports park or sleep: the gear
 // stays at the last D/R and power at ready. Parallax does report both.
 
 // Park → drive → park → sleep, then resubscribe replays of the stale
