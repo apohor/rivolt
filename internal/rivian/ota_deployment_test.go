@@ -61,19 +61,19 @@ func TestDecodeOTADeployment(t *testing.T) {
 
 func TestParallaxOTAFillsVersionsWithoutVehicleState(t *testing.T) {
 	ctx := context.Background()
-	px := func(r *r2Run, b64 string, at time.Time) {
-		r.m.onDriveDynamicsFrame(ctx, "r2", DriveDynamicsFrame{RVM: rvmOtaDeploy, Payload: b64, TimestampMs: at.UnixMilli()})
+	px := func(r *replayRun, b64 string, at time.Time) {
+		r.m.onDriveDynamicsFrame(ctx, replayVehicle, DriveDynamicsFrame{RVM: rvmOtaDeploy, Payload: b64, TimestampMs: at.UnixMilli()})
 	}
-	vs := func(r *r2Run, cur string) {
-		r.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: time.Now(), OtaCurrentVersion: cur, BatteryLevelPct: 60, OdometerKm: 30000})
+	vs := func(r *replayRun, cur string) {
+		r.m.applyVehicleStatePush(ctx, replayVehicle, &State{VehicleID: replayVehicle, At: time.Now(), OtaCurrentVersion: cur, BatteryLevelPct: 60, OdometerKm: 30000})
 	}
-	versions := func(r *r2Run) (string, string) {
+	versions := func(r *replayRun) (string, string) {
 		c := r.cached()
 		return c.OtaCurrentVersion, c.OtaAvailableVersion
 	}
 
 	t.Run("R2: Parallax supplies the versions; a replay applies, an older frame doesn't", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "")
 		at := time.Now().Add(-5 * 24 * time.Hour) // the last change, days ago
 		px(r, otaPayload("2026.36.41", "2026.40.2", true), at)
@@ -95,7 +95,7 @@ func TestParallaxOTAFillsVersionsWithoutVehicleState(t *testing.T) {
 	})
 
 	t.Run("R1: vehicleState's version wins", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "2026.36.0")
 		px(r, otaPayload("2026.99.0", "", false), time.Now())
 		if c, _ := versions(r); c != "2026.36.0" {

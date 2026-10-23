@@ -11,17 +11,17 @@ import (
 // the blank, never replaces a value, and a later real change still applies.
 func TestR2PowerStateSeededFromAReplay(t *testing.T) {
 	ctx := context.Background()
-	push := func(r *r2Run, power string) {
-		r.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: time.Now(), Gear: "P",
+	push := func(r *replayRun, power string) {
+		r.m.applyVehicleStatePush(ctx, replayVehicle, &State{VehicleID: replayVehicle, At: time.Now(), Gear: "P",
 			PowerState: power, BatteryLevelPct: 60, OdometerKm: 30000})
 	}
-	frame := func(r *r2Run, enum uint64, at time.Time) {
-		r.m.onDriveDynamicsFrame(ctx, "r2", DriveDynamicsFrame{RVM: rvmPowerState,
+	frame := func(r *replayRun, enum uint64, at time.Time) {
+		r.m.onDriveDynamicsFrame(ctx, replayVehicle, DriveDynamicsFrame{RVM: rvmPowerState,
 			Payload: pbVarints(1, enum), Value: enum, ValueOK: true, TimestampMs: at.UnixMilli()})
 	}
-	power := func(r *r2Run) string { return r.cached().PowerState }
+	power := func(r *replayRun) string { return r.cached().PowerState }
 
-	r := newR2Run()
+	r := newReplayRun("R2")
 	push(r, "")
 	if power(r) != "" {
 		t.Fatalf("setup: power %q", power(r))
@@ -49,7 +49,7 @@ func TestR2PowerStateSeededFromAReplay(t *testing.T) {
 	}
 
 	// An unmapped enum seeds nothing.
-	r2 := newR2Run()
+	r2 := newReplayRun("R2")
 	push(r2, "")
 	frame(r2, 0, time.Now().Add(-time.Hour))
 	if power(r2) != "" {

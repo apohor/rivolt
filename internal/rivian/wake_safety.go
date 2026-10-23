@@ -164,7 +164,7 @@ func (m *StateMonitor) holdWhileAsleep(ctx context.Context, vehicleID string, ws
 		}
 		// The watchdog measures from the reopen, not from the last
 		// frame before the hold.
-		m.stamp[vehicleID] = time.Now()
+		m.stamp[vehicleID] = m.clock()
 		m.mu.Unlock()
 		attrs := []any{"vehicle", vehicleID, "reason", reason,
 			"held", time.Since(start).Round(time.Second).String(), "rest_checks", checks}

@@ -66,21 +66,21 @@ func TestDecodeBatteryCharacteristics(t *testing.T) {
 // supplies it, so plugged-but-idle (a scheduled window) reads as plugged.
 func TestR2PlugStateFromParallax(t *testing.T) {
 	ctx := context.Background()
-	vs := func(r *r2Run, cs, status string, kw float64) {
-		r.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: time.Now(), Gear: "P",
+	vs := func(r *replayRun, cs, status string, kw float64) {
+		r.m.applyVehicleStatePush(ctx, replayVehicle, &State{VehicleID: replayVehicle, At: time.Now(), Gear: "P",
 			ChargerState: cs, ChargerStatus: status, ChargerPowerKW: kw, BatteryLevelPct: 60, OdometerKm: 30000})
 	}
-	px := func(r *r2Run, plug uint64, at time.Time) {
-		r.m.onDriveDynamicsFrame(ctx, "r2", DriveDynamicsFrame{RVM: rvmChargingStatus,
+	px := func(r *replayRun, plug uint64, at time.Time) {
+		r.m.onDriveDynamicsFrame(ctx, replayVehicle, DriveDynamicsFrame{RVM: rvmChargingStatus,
 			Payload: pbVarints(1, plug, 2, 5), TimestampMs: at.UnixMilli()})
 	}
-	status := func(r *r2Run) (string, bool) {
+	status := func(r *replayRun) (string, bool) {
 		c := r.cached()
 		return c.ChargerStatus, c.ChargerStatusPx
 	}
 
 	t.Run("plugged, scheduled", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_scheduled", "", 0)
 		px(r, 2, time.Now())
 		if s, fromPx := status(r); s != "chrgr_sts_connected_no_chrg" || !fromPx {
@@ -91,7 +91,7 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 			t.Errorf("a vehicleState push blanked the status: %q", s)
 		}
 		r.m.sessMu.Lock()
-		plugged := r.m.sessions["r2"].plugged(r.cached())
+		plugged := r.m.sessions[replayVehicle].plugged(r.cached())
 		r.m.sessMu.Unlock()
 		if !plugged {
 			t.Error("plugged() = false for a Parallax connected status")
@@ -99,7 +99,7 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 	})
 
 	t.Run("replay after a restart applies; an older frame doesn't", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_complete", "", 0)
 		at := time.Now().Add(-9 * time.Hour) // plugged in last night
 		px(r, 2, at)
@@ -117,7 +117,7 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 	})
 
 	t.Run("a Parallax unplugged doesn't stop a charge that draws power", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_ready", "", 0)
 		px(r, 1, time.Now())
 		vs(r, "charging_active", "", 7.4)
@@ -127,8 +127,8 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 	})
 
 	t.Run("an R1's vehicleState status wins", func(t *testing.T) {
-		r := newR2Run()
-		r.m.vehicleInfo["r2"] = &Vehicle{ID: "r2", Model: "R1S"}
+		r := newReplayRun("R2")
+		r.m.vehicleInfo[replayVehicle] = &Vehicle{ID: replayVehicle, Model: "R1S"}
 		vs(r, "charging_ready", "chrgr_sts_not_connected", 0)
 		px(r, 2, time.Now())
 		if s, fromPx := status(r); s != "chrgr_sts_not_connected" || fromPx {
@@ -137,7 +137,7 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 	})
 
 	t.Run("a vehicleState status clears the Parallax mark", func(t *testing.T) {
-		r := newR2Run()
+		r := newReplayRun("R2")
 		vs(r, "charging_ready", "", 0)
 		px(r, 2, time.Now())
 		vs(r, "charging_ready", "chrgr_sts_connected_charging", 0)

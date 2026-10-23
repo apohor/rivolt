@@ -192,15 +192,11 @@ func TestPriceCharges(t *testing.T) {
 	}
 }
 
-// The anonymized prod fixture (01-000000004, Oct 15 13:00–13:34): its
-// vehicleState rows give one trip of the odometer's 6.2 mi.
+// The anonymized prod corpus r2_park_drive_park_sleep (internal/rivian's
+// replay harness): its vehicleState rows give one trip of the odometer's 6.2 mi.
 func TestFixtureTrip(t *testing.T) {
-	raw, err := os.ReadFile("../../rivian/testdata/r2_frames.json")
+	raw, err := os.ReadFile("../../rivian/testdata/corpus/r2_park_drive_park_sleep.json")
 	if err != nil {
-		t.Fatal(err)
-	}
-	var all map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &all); err != nil {
 		t.Fatal(err)
 	}
 	var seq struct {
@@ -212,7 +208,7 @@ func TestFixtureTrip(t *testing.T) {
 			SoC   float64  `json:"soc"`
 		} `json:"events"`
 	}
-	if err := json.Unmarshal(all["park_drive_park_sleep"], &seq); err != nil {
+	if err := json.Unmarshal(raw, &seq); err != nil {
 		t.Fatal(err)
 	}
 	var rows []Row

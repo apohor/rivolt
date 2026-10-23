@@ -32,6 +32,11 @@ import (
 type StateMonitor struct {
 	client *LiveClient
 	logger *slog.Logger
+	// now is the monitor's clock for cache stamps, freshness and session
+	// times: nil means the wall clock (see clock). Only this package's tests
+	// set it (the replay harness pins it to a corpus's clock); tickers,
+	// timers and context deadlines stay on the wall clock.
+	now func() time.Time
 
 	mu    sync.RWMutex
 	cache map[string]*State
@@ -549,7 +554,7 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.putCacheLocked(vehicleID, &cur)
-		m.stamp[vehicleID] = time.Now()
+		m.stamp[vehicleID] = m.clock()
 		m.noteVehicleStateFrameLocked(vehicleID)
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
@@ -638,7 +643,7 @@ func (m *StateMonitor) lastParallaxGear(vehicleID string) (string, time.Time) {
 // must skip replays (see applyParallaxGear).
 func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) (fresh bool) {
 	m.mu.Lock()
-	m.lastParallaxAt[vehicleID] = time.Now()
+	m.lastParallaxAt[vehicleID] = m.clock()
 	// Sleep hygiene: count only FRESH frames (event ts advancing past the
 	// last seen for this topic) while asleep. The Rivian cloud replays the
 	// last-known snapshot of every subscribed topic on a keepalive cadence
@@ -751,7 +756,7 @@ func (m *StateMonitor) noteVehStateGPS(vehicleID string, st *State) {
 	}
 	m.mu.Lock()
 	if gps {
-		m.lastVehStateGPS[vehicleID] = time.Now()
+		m.lastVehStateGPS[vehicleID] = m.clock()
 	}
 	if soc {
 		m.lastVehStateSoC[vehicleID] = st.BatteryLevelPct
@@ -925,7 +930,7 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 		return
 	}
 	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
-	candidates, err := m.chargesStore.ListStaleOpenLive(listCtx, time.Now().Add(-staleAfter))
+	candidates, err := m.chargesStore.ListStaleOpenLive(listCtx, m.clock().Add(-staleAfter))
 	listCancel()
 	if err != nil {
 		m.noteWriteFailure("stale_charge", "", "", err)
@@ -1248,7 +1253,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			merged = mergeState(st, prev)
 		}
 		m.putCacheLocked(vehicleID, merged)
-		m.stamp[vehicleID] = time.Now()
+		m.stamp[vehicleID] = m.clock()
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, merged)
 	} else if err != nil && ctx.Err() == nil {
@@ -1358,10 +1363,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		//      the userSessionToken expired server-side.
 		//   3. fast failure — apply backoff.
 		m.mu.Lock()
-		m.stamp[vehicleID] = time.Now()
+		m.stamp[vehicleID] = m.clock()
 		m.mu.Unlock()
 		var frameCount int64
-		connectAt := time.Now()
+		connectAt := m.clock()
 		go m.watchSubscription(subCtx, vehicleID, cancelSub)
 
 		err := m.client.SubscribeVehicleStateHeld(subCtx, vehicleID, m.vehicleStateHold(vehicleID), func(st *State) {
@@ -1373,7 +1378,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		if ctx.Err() != nil {
 			break
 		}
-		sessionDur := time.Since(connectAt)
+		sessionDur := m.since(connectAt)
 		frames := atomic.LoadInt64(&frameCount)
 		// errors.Is so any wrapped form (context.Cause may chain)
 		// still classifies. errStaleSubscription is the watchdog's
@@ -1498,7 +1503,7 @@ func (m *StateMonitor) noteSubEnd(vehicleID string, sessionDur time.Duration, nu
 	if nudged || sessionDur >= flapSessionMax {
 		return false
 	}
-	now := time.Now()
+	now := m.clock()
 	m.mu.Lock()
 	ends := append(m.shortSubEnds[vehicleID], now)
 	cutoff := now.Add(-flapWindow)
@@ -1720,7 +1725,7 @@ func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
 		merged = mergeState(st, prev)
 	}
 	m.putCacheLocked(vehicleID, merged)
-	m.stamp[vehicleID] = time.Now()
+	m.stamp[vehicleID] = m.clock()
 	m.mu.Unlock()
 	// Resubscribe nudge: REST just observed an interesting
 	// transition (car woke up / plugged in / shifted into D /
@@ -2079,7 +2084,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 		}
 		lastVeh := m.lastVehStateGPS[vehicleID]
 		next := *prev
-		next.At = time.Now()
+		next.At = m.clock()
 		next.Latitude = g.Latitude
 		next.Longitude = g.Longitude
 		next.SpeedKph = g.SpeedMS * 3.6
@@ -2093,9 +2098,9 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 		// Informational: how stale the vehicleState feed was when this
 		// gnss frame landed — the old "gap-fill" signal, now just a
 		// health metric for the demoted filler feed.
-		if !lastVeh.IsZero() && time.Since(lastVeh) > parallaxGPSStallThreshold {
+		if !lastVeh.IsZero() && m.since(lastVeh) > parallaxGPSStallThreshold {
 			m.logger.Info("parallax gps covering vehicleState stall", "vehicle", vehicleID,
-				"vehicleState_gap_s", time.Since(lastVeh).Round(time.Second).Seconds())
+				"vehicleState_gap_s", m.since(lastVeh).Round(time.Second).Seconds())
 		}
 		m.record(ctx, vehicleID, prev, &next)
 	})
@@ -2154,7 +2159,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.DriveMode != dm {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.DriveMode = dm
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2175,7 +2180,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && km > base.OdometerKm {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.OdometerKm = km
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2206,7 +2211,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 				m.lastPxPower[vehicleID] = ps
 				if base := m.cache[vehicleID]; base != nil && base.PowerState != ps {
 					next := *base
-					next.At = time.Now()
+					next.At = m.clock()
 					next.PowerState = ps
 					next.PowerStateAt = time.Time{}
 					if f.TimestampMs > 0 {
@@ -2229,7 +2234,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.DistanceToEmpty != km {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.DistanceToEmpty = km
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2244,7 +2249,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				for _, t := range tires {
 					switch t.Position {
 					case 1:
@@ -2276,7 +2281,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.CabinTempC != temp {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.CabinTempC = temp
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2301,7 +2306,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				d1, o1 := known(1)
 				d2, o2 := known(2)
 				d3, o3 := known(3)
@@ -2365,7 +2370,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 				m.mu.Lock()
 				if base := m.cache[vehicleID]; base != nil {
 					next := *base
-					next.At = time.Now()
+					next.At = m.clock()
 					next.Locked = allLocked
 					m.putCacheLocked(vehicleID, &next)
 				}
@@ -2389,7 +2394,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.AlarmSoundStatus != ps {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.AlarmSoundStatus = ps
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2410,7 +2415,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.TwelveVoltBatteryHealth != ps {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.TwelveVoltBatteryHealth = ps
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2429,7 +2434,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.TrailerState != ts && (applies || base.TrailerState == "") {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.TrailerState = ts
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2465,7 +2470,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.PetModeStatus != ps {
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.PetModeStatus = ps
 				m.putCacheLocked(vehicleID, &next)
 			}
@@ -2481,7 +2486,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		// The time-boxed next-topics capture (parallax_next.go): a field
 		// tree, never the raw payload, and nothing once it has ended.
 		if spec, ok := pxNextTopics[f.RVM]; ok {
-			if pxNextCapturing(time.Now()) {
+			if pxNextCapturing(m.clock()) {
 				m.logPxNext(vehicleID, spec, f)
 			}
 			return
@@ -2532,7 +2537,7 @@ func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleI
 		return
 	}
 	next := *base
-	next.At = time.Now()
+	next.At = m.clock()
 	next.ChargerStatus = status
 	next.ChargerStatusPx = true
 	m.putCacheLocked(vehicleID, &next)
@@ -2571,7 +2576,7 @@ func (m *StateMonitor) applyParallaxTimeEstimation(vehicleID string, f DriveDyna
 		return
 	}
 	next := *base
-	next.At = time.Now()
+	next.At = m.clock()
 	next.TimeToEndMins = want
 	next.TimeToEndSource = timeToEndEstimate
 	if want == 0 {
@@ -2622,7 +2627,7 @@ func (m *StateMonitor) applyParallaxOTA(vehicleID string, f DriveDynamicsFrame, 
 		return
 	}
 	next := *base
-	next.At = time.Now()
+	next.At = m.clock()
 	next.OtaCurrentVersion, next.OtaAvailableVersion = cur, avail
 	m.putCacheLocked(vehicleID, &next)
 }
@@ -2640,7 +2645,7 @@ func parkableGear(g string) bool {
 // the live state: a fresh frame (noteParallaxFrame) whose event time is
 // within parallaxGearMaxAge. A replay is counted for the replay metric.
 func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
-	ok := fresh && f.TimestampMs > 0 && time.Since(time.UnixMilli(f.TimestampMs)) <= parallaxGearMaxAge
+	ok := fresh && f.TimestampMs > 0 && m.since(time.UnixMilli(f.TimestampMs)) <= parallaxGearMaxAge
 	if !ok {
 		m.mu.RLock()
 		obs := m.sleepObserver
@@ -2680,7 +2685,7 @@ func (m *StateMonitor) fillBlankPowerState(vehicleID string, f DriveDynamicsFram
 		return
 	}
 	next := *base
-	next.At = time.Now()
+	next.At = m.clock()
 	next.PowerState = ps
 	next.PowerStateAt = time.UnixMilli(f.TimestampMs).UTC()
 	if m.lastPxPower == nil {
@@ -2720,7 +2725,7 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 			if base != nil && parkableGear(base.Gear) && base.SpeedKph*kphToMi <= driveCloseSpeedMph {
 				m.lastPxGear[vehicleID] = "P"
 				next := *base
-				next.At = time.Now()
+				next.At = m.clock()
 				next.Gear = "P"
 				m.putCacheLocked(vehicleID, &next)
 				m.mu.Unlock()
@@ -2740,7 +2745,7 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 	if g != "" {
 		m.mu.Lock()
 		m.lastPxGear[vehicleID] = g
-		m.lastPxGearAt[vehicleID] = time.Now()
+		m.lastPxGearAt[vehicleID] = m.clock()
 		m.mu.Unlock()
 	}
 	// Authoritative early-open: a Parallax driving gear (R/N/D)
@@ -2762,7 +2767,7 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 		base := m.cache[vehicleID]
 		if base != nil && (g != "P" || parkableGear(base.Gear)) {
 			next := *base
-			next.At = time.Now()
+			next.At = m.clock()
 			next.Gear = g
 			m.putCacheLocked(vehicleID, &next)
 			m.mu.Unlock()
@@ -2795,7 +2800,7 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	merged := mergeState(prev, st)
 	m.holdParallaxLocked(vehicleID, prev, merged)
 	m.putCacheLocked(vehicleID, merged)
-	m.stamp[vehicleID] = time.Now()
+	m.stamp[vehicleID] = m.clock()
 	// Cold-start guard: any real WS frame proves the subscription is
 	// delivering, so adaptiveRefreshInterval can return to
 	// PowerState-driven cadence.
@@ -2830,7 +2835,7 @@ func (m *StateMonitor) holdParallaxLocked(vehicleID string, prev, merged *State)
 		merged.Gear = "P"
 	}
 	if prev.PowerState == "sleep" && merged.PowerState == "ready" && m.lastPxPower[vehicleID] == "sleep" &&
-		time.Since(m.lastParallaxAt[vehicleID]) < parallaxLiveWindow {
+		m.since(m.lastParallaxAt[vehicleID]) < parallaxLiveWindow {
 		merged.PowerState, merged.PowerStateAt = prev.PowerState, prev.PowerStateAt
 	}
 }
@@ -2948,7 +2953,7 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		dropIdleChargerPower(&cp)
 		merged = &cp
 		m.putCacheLocked(vehicleID, merged)
-		m.stamp[vehicleID] = time.Now()
+		m.stamp[vehicleID] = m.clock()
 	}
 	m.mu.Unlock()
 	if merged != nil {
@@ -3142,7 +3147,7 @@ func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *Stat
 		return nil
 	}
 	m.remoteMu.Lock()
-	if e, ok := m.remoteLatest[vehicleID]; ok && time.Since(e.at) < remoteLatestTTL {
+	if e, ok := m.remoteLatest[vehicleID]; ok && m.since(e.at) < remoteLatestTTL {
 		m.remoteMu.Unlock()
 		cp := *e.st
 		return &cp
@@ -3160,7 +3165,7 @@ func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *Stat
 	if m.remoteLatest == nil {
 		m.remoteLatest = make(map[string]remoteLatestEntry)
 	}
-	m.remoteLatest[vehicleID] = remoteLatestEntry{st: st, at: time.Now()}
+	m.remoteLatest[vehicleID] = remoteLatestEntry{st: st, at: m.clock()}
 	m.remoteMu.Unlock()
 	cp := *st
 	return &cp
@@ -3219,12 +3224,12 @@ func (m *StateMonitor) ServeState(ctx context.Context, vehicleID string) (st *St
 	if m.fallbackAt == nil {
 		m.fallbackAt = make(map[string]time.Time)
 	}
-	if last, ok := m.fallbackAt[vehicleID]; ok && time.Since(last) < stateRefetchEvery {
+	if last, ok := m.fallbackAt[vehicleID]; ok && m.since(last) < stateRefetchEvery {
 		return local, false
 	}
 	// Claimed before the fetch, so concurrent polls serve local (or wait
 	// out the window) instead of fetching too.
-	m.fallbackAt[vehicleID] = time.Now()
+	m.fallbackAt[vehicleID] = m.clock()
 	return local, true
 }
 
@@ -3271,7 +3276,7 @@ func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
 	if m.lastVSFrame == nil {
 		m.lastVSFrame = make(map[string]time.Time)
 	}
-	m.lastVSFrame[vehicleID] = time.Now()
+	m.lastVSFrame[vehicleID] = m.clock()
 }
 
 // vehicleStateFrameAtLocked is VehicleStateFrameAt for a vehicle this
@@ -3422,7 +3427,7 @@ func (m *StateMonitor) putCacheLocked(vehicleID string, next *State) {
 		if m.wokeAt == nil {
 			m.wokeAt = make(map[string]time.Time)
 		}
-		m.wokeAt[vehicleID] = time.Now()
+		m.wokeAt[vehicleID] = m.clock()
 	}
 	m.cache[vehicleID] = next
 }
@@ -3439,7 +3444,7 @@ func (m *StateMonitor) Prime(vehicleID string, st *State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.putCacheLocked(vehicleID, st)
-	m.stamp[vehicleID] = time.Now()
+	m.stamp[vehicleID] = m.clock()
 }
 
 // discardWriter is an io.Writer that eats everything, used as a
@@ -3740,3 +3745,14 @@ func jitter(d time.Duration) time.Duration {
 	half := int64(d / 2)
 	return time.Duration(half + rand.Int64N(2*half+1))
 }
+
+// clock is the monitor's current time: the wall clock unless a test set now.
+func (m *StateMonitor) clock() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
+// since is time.Since on the monitor's clock.
+func (m *StateMonitor) since(t time.Time) time.Duration { return m.clock().Sub(t) }
