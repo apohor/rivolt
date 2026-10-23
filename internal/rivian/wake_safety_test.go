@@ -226,8 +226,8 @@ func TestHoldCancelled(t *testing.T) {
 }
 
 // TestHoldAsleepSleepMicroCycles replays the failing car's pattern
-// (prod 01-000000000, 2026-10-14: it falls asleep and is awake again
-// 12-40 s later, over and over) through the real reconnect loop
+// (a prod R1, Oct 2026: it falls asleep and is awake again 12-40 s
+// later, over and over) through the real reconnect loop
 // (subscribeLoop) with the hold installed. The fake session stands in
 // for Rivian's ~3-min connection TTL; the test closes it at chosen
 // points so every step is deterministic. The rule under test: a
