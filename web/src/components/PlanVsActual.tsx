@@ -10,8 +10,18 @@ import { Card } from "./ui";
 // guesses: an incomplete cost reads "so far $X, N not priced yet" and
 // shows no difference; a metric with an unknown side shows none.
 
-export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
-  if (trips.length === 0) return null;
+export function PlanVsActualSection({ trips, highlightId, ready = true }: { trips: SavedTrip[]; highlightId?: string | null; ready?: boolean }) {
+  if (trips.length === 0) {
+    // No saved trips: say what this tab is for, in the tone of the Saved tab, instead of a blank screen. Not while the list is still loading.
+    if (!ready) return null;
+    return (
+      <Card title="Plan vs actual" area="p-pva">
+        <p data-pva-empty className="text-xs text-neutral-500">
+          Nothing to compare yet. Plan a route and save it, drive it, and Rivolt shows how the drive went against the plan here.
+        </p>
+      </Card>
+    );
+  }
   return <NextSection trips={trips} highlightId={highlightId} />;
 }
 

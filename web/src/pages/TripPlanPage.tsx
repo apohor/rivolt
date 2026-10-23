@@ -298,7 +298,7 @@ export default function TripPlanPage() {
   );
   const pvaEl = (
     <>
-      <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />
+      <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} ready={savedTripsQuery.isSuccess} />
     </>
   );
   // The trip being shown, named for a Save that is one tap on the result.
