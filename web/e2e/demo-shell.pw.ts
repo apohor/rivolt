@@ -104,9 +104,11 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   const presets = page.getByTestId("demo-presets");
   await expect(presets).toBeVisible();
   await presets.getByRole("button", { name: /LA to Las Vegas/ }).click();
-  // Plain copy: never a "saved snapshot from 1 min ago" or "preview · high match".
+  // Plain copy: a sample plan, not a "saved snapshot from 1 min ago"; Plan vs actual says "Likely match", not "preview · high match".
+  await expect(page.getByText(/Sample plan/).first()).toBeVisible();
   await expect(page.getByText(/Showing saved snapshot|min ago/)).toHaveCount(0);
   await expect(page.getByText(/preview ·|high match/)).toHaveCount(0);
+  await expect(page.getByText(/Likely match/).first()).toBeVisible();
   // The real result: stops table with a charger, cost, arrival SoC.
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   await expect(page.getByText(/24%/).first()).toBeVisible();

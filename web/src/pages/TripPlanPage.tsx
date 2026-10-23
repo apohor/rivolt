@@ -363,7 +363,7 @@ export default function TripPlanPage() {
               }
             />
           )}
-          {multidaySnapshot && !multidaySnapshot.replan && !inDemo() && (
+          {multidaySnapshot && !multidaySnapshot.replan && (
             <SnapshotBanner
               name={multidaySnapshot.name}
               updatedAt={multidaySnapshot.updatedAt}
@@ -427,7 +427,7 @@ export default function TripPlanPage() {
               </div>
             )}
           >
-            {loadedSnapshot && !inDemo() && (
+            {loadedSnapshot && (
               <SnapshotBanner
                 name={loadedSnapshot.name}
                 updatedAt={loadedSnapshot.updatedAt}

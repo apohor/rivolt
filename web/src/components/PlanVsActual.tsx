@@ -27,26 +27,33 @@ function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?:
       staleTime: 60_000,
     })),
   });
+  // Trips with a drive waiting for a Confirm / Not this trip always show (a suggestion nobody sees is never answered); the latest
+  // confirmed comparison shows after them, older ones behind a toggle; trips not driven yet or still in progress are one-line rows.
+  const needs: SavedTrip[] = [];
   const matched: SavedTrip[] = [];
   const lines: SavedTrip[] = [];
   trips.forEach((t, i) => {
     const d = qs[i].data;
     const parts = d ? (isPvaMulti(d) ? d.days : [d]) : [];
-    if (parts.some((x) => stateOf(x) === "linked-full" || stateOf(x) === "linked-partial" || stateOf(x) === "suggested")) matched.push(t);
+    const states = parts.map(stateOf);
+    if (states.includes("suggested")) needs.push(t);
+    else if (states.some((x) => x === "linked-full" || x === "linked-partial")) matched.push(t);
     else lines.push(t);
   });
-  const shown = more ? matched : matched.slice(0, 1);
+  const shown = [...needs, ...(more ? matched : matched.slice(0, 1))];
   const hidden = matched.length - 1;
+  // The trip open in the planner above gets the ring, as the classic card had.
+  const ring = (id: string) => (id === highlightId ? "rounded-lg ring-1 ring-emerald-700/60" : undefined);
   return (
     <Card title="Plan vs actual" area="p-pva">
       <ul className="space-y-3" data-pva-next>
         {shown.map((t) => (
-          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined}>
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined} className={ring(t.id)}>
             <TripCompare trip={t} compact />
           </li>
         ))}
         {lines.map((t) => (
-          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined}>
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined} className={ring(t.id)}>
             <TripCompare trip={t} compact />
           </li>
         ))}
@@ -93,13 +100,14 @@ function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boo
   const busy = link.isPending || unlink.isPending;
   const err = link.error ?? unlink.error;
   const parts = isPvaMulti(d) ? d.days : [d];
-  if (compact && parts.every((x) => ["none", "in-progress", "link-lost"].includes(stateOf(x)))) {
-    const st = stateOf(parts[0]);
-    const text = parts.length > 1 || st === "none" ? "Not driven yet" : st === "in-progress" ? "In progress" : "Link lost";
+  // Not driven yet, or still in progress: the trip's name and the plain sentence, never a bare label. (A lost link keeps its card, which
+  // has the Unlink button.)
+  if (compact && parts.every((x) => ["none", "in-progress"].includes(stateOf(x)))) {
+    const text = parts.length === 1 && stateOf(parts[0]) === "in-progress" ? "Trip in progress. We'll compare when you're home." : "We'll compare once you've driven it.";
     return (
-      <div className="flex items-baseline justify-between gap-3 px-1 text-sm">
-        <span className="min-w-0 truncate text-neutral-200">{trip.name}</span>
-        <span className="shrink-0 text-xs text-neutral-500">{text}</span>
+      <div className="px-1 text-sm" data-pva-line>
+        <div className="min-w-0 truncate text-neutral-200">{trip.name}</div>
+        <p className="mt-0.5 text-xs text-neutral-400">{text}</p>
       </div>
     );
   }
