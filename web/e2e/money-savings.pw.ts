@@ -126,6 +126,7 @@ test("flat rate: the card says so with a way back, and the share sheet has no of
   await expect(card.locator("[data-savings-flat]")).toContainText("one flat rate");
   await expect(card.getByRole("link", { name: "Change in Settings" })).toHaveAttribute("href", /settings\?tab=charging#offpeak/);
   await expect(card).not.toContainText("could have saved");
+  await expect(card).not.toContainText("Estimated from");
   await page.getByRole("button", { name: "Share statement" }).click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
   await ctx.close();

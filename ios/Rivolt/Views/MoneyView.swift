@@ -401,6 +401,8 @@ struct MoneyContent: View {
         let ym = MoneyModel.savingsPeriod(savingsWhich, now: now, calendar: calendar)
         let monthTitle = MoneyLogic.monthTitle(ym, calendar: calendar)
         let currency = model.savings?.currency ?? fallback
+        var isFlat = false
+        if let s = model.savings, case .flat = MoneyLogic.savingsView(s) { isFlat = true }
         return ActionSection(title: "Off-peak savings") {
             SmallSwitch(options: [(MoneyModel.Which.last, "Last month"), (.now, "This month so far")], selection: $savingsWhich, label: "Month")
         } content: {
@@ -437,8 +439,11 @@ struct MoneyContent: View {
                 } else {
                     Text("…").themeText(.value, color: Theme.textTertiary)
                 }
-                Text("Estimated from your own home charges and your off-peak hours. Advice only: Rivolt never changes charging on the truck.")
-                    .themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                // A flat-rate card makes no estimate, so it doesn't say it is one.
+                if !isFlat {
+                    Text("Estimated from your own home charges and your off-peak hours. Advice only: Rivolt never changes charging on the truck.")
+                        .themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

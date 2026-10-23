@@ -107,7 +107,7 @@ export function SavingsCard({ area }: { area?: string }) {
             )}
           </>
         )}
-        <p className="text-[11px] text-neutral-500">{demo ? "Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data." : "Estimated from your own home charges and your off-peak hours."} Advice only: Rivolt never changes charging on the truck.</p>
+        {view?.kind !== "flat" && <p className="text-[11px] text-neutral-500">{demo ? "Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data." : "Estimated from your own home charges and your off-peak hours."} Advice only: Rivolt never changes charging on the truck.</p>}
       </div>
     </Card>
   );
