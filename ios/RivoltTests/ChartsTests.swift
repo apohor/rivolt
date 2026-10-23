@@ -78,8 +78,6 @@ final class ChartMathTests: XCTestCase {
         XCTAssertTrue(said.value.hasPrefix("average 1"), said.value)
         XCTAssertTrue(said.value.hasSuffix("most 46 miles on Sunday"), said.value)
         XCTAssertEqual(ChartMath.spokenMinutes(72), "1 hour 12 minutes")
-        let level = ChartMath.spokenLevel(period: "October 2026", trend: ChartMath.socTrend(drives: p.drives, charges: p.charges))
-        XCTAssertEqual(level.value, "from 88 percent to 58 percent, lowest 58 percent, highest 88 percent")
         XCTAssertEqual(ChartMath.spokenDaily(title: "x", period: "p", bars: [], calendar: cal) { "\($0)" }.value, "")
     }
 
@@ -102,18 +100,6 @@ final class ChartMathTests: XCTestCase {
         XCTAssertEqual(thisMonth.days(now: now, calendar: cal).count, 21)
         XCTAssertEqual(thisMonth.shifted(by: -1, calendar: cal).days(now: now, calendar: cal).count, 30, "September")
         XCTAssertEqual(thisMonth.days(now: now, calendar: cal).first, date("2026-10-01T00:00:00Z"))
-    }
-
-    func testTheBandsAreClippedToTheMonthAndTheExtremesAreLabelled() throws {
-        let p = try Fixture.decode(ChartPoints.self, "chart_points")
-        let from = date("2026-10-19T00:00:00Z"), to = date("2026-10-20T00:00:00Z")
-        let bands = ChartMath.bands(drives: p.drives, charges: p.charges, from: from, to: to)
-        XCTAssertTrue(bands.allSatisfy { $0.start >= from && $0.end <= to })
-        XCTAssertEqual(bands.filter { $0.kind == .charging }.count, 1)
-        let hl = try XCTUnwrap(ChartMath.highLow(ChartMath.socTrend(drives: p.drives, charges: p.charges)))
-        XCTAssertEqual(hl.high.pct, 88)
-        XCTAssertEqual(hl.low.pct, 58)
-        XCTAssertNil(ChartMath.highLow([]))
     }
 }
 

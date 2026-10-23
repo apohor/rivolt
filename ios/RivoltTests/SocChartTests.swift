@@ -58,25 +58,36 @@ final class SocChartTests: XCTestCase {
         XCTAssertFalse(ChartMath.limitVisible(nil, now: now, since: since, until: until))
     }
 
-    func testAShortDriveStillGetsAVisibleMarkOnTheStrip() throws {
-        let p = try roadTrip()
+    func testSeveralLimitsInAMonthNeverDrawOneLineAcrossIt() throws {
+        let p = try roadTrip()   // limits 70, 100, 70, 85 and 80 over the month
         let since = try date("2026-10-01T00:00:00Z"), until = try date("2026-11-01T00:00:00Z")
+        let now = try date("2026-10-22T10:00:00Z")
         let month = until.timeIntervalSince(since)
-        let plain = ChartMath.bands(drives: p.drives, charges: p.charges, from: since, to: until)
-        let wide = ChartMath.bands(drives: p.drives, charges: p.charges, from: since, to: until, minSpan: month / 100)
-        XCTAssertEqual(plain.count, wide.count)
-        XCTAssertTrue(plain.contains { $0.end.timeIntervalSince($0.start) < month / 100 })
-        XCTAssertTrue(wide.allSatisfy { $0.end.timeIntervalSince($0.start) >= month / 100 - 1 })
-        XCTAssertTrue(wide.allSatisfy { $0.start >= since && $0.end <= until })
-        XCTAssertEqual(plain.first?.start, wide.first?.start)
+        let seg = try XCTUnwrap(ChartMath.limitSegment(p.charges, from: since, to: until, now: now, live: 70))
+        XCTAssertEqual(seg.pct, 70, "today's target")
+        XCTAssertEqual(seg.end, now, "to now: the days to come stay empty")
+        XCTAssertGreaterThan(seg.start.timeIntervalSince(since), month / 2, "from the last change, not from the start of the month")
+        XCTAssertLessThan(seg.end.timeIntervalSince(seg.start), month / 2)
+        // An earlier month: the last limit known in it, to its end.
+        let later = try date("2026-11-12T10:00:00Z")
+        let past = try XCTUnwrap(ChartMath.limitSegment(p.charges, from: since, to: until, now: later, live: nil))
+        XCTAssertEqual(past.pct, 80)
+        XCTAssertEqual(past.end, until)
+        XCTAssertLessThan(past.end.timeIntervalSince(past.start), month / 2)
+        // No stored limits (an older server): today's target over the last two days, current month only.
+        let bare = [ChargePoint(startedAt: try date("2026-10-03T01:00:00Z"), endedAt: try date("2026-10-03T07:00:00Z"), startSocPct: 66, endSocPct: 70)]
+        let old = try XCTUnwrap(ChartMath.limitSegment(bare, from: since, to: until, now: now, live: 70))
+        XCTAssertEqual(old.end.timeIntervalSince(old.start), 2 * 86_400)
+        XCTAssertNil(ChartMath.limitSegment(bare, from: since, to: until, now: later, live: 70))
+        XCTAssertNil(ChartMath.limitSegment([], from: since, to: until, now: now, live: nil))
     }
 
     func testTheHighAndLowAreTheRoadTripsSwing() throws {
         let p = try roadTrip()
-        let e = try XCTUnwrap(ChartMath.highLow(ChartMath.socTrend(drives: p.drives, charges: p.charges)))
-        XCTAssertEqual(e.high.pct, 97)
-        XCTAssertEqual(e.low.pct, 2.6)
-        XCTAssertEqual(NumberText.fixed(e.low.pct, 0), "3")
+        let e = try XCTUnwrap(SocDaily.extremes(SocDaily.days(drives: p.drives, charges: p.charges, calendar: utc)))
+        XCTAssertEqual(e.high.high, 97)
+        XCTAssertEqual(e.low.low, 2.6)
+        XCTAssertEqual(NumberText.fixed(e.low.low, 0), "3")
     }
 
     @MainActor
