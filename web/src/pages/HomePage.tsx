@@ -532,7 +532,7 @@ export default function HomePage() {
                   ariaLabel="Idle-awake time per day"
                   data={sleepBars}
                   height={140}
-                  color="#6366f1"
+                  color="#64748b"
                   formatY={formatMinutesShort}
                   formatValue={formatMinutes}
                   formatX={(label) => String(label).slice(5)}

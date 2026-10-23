@@ -218,8 +218,8 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
   chartSocCharge: { both: { file: "src/components/SocTrendChart.tsx", css: 'const SOC_GREEN = "#10b981"', use: "charge-level chart: the daily band, the end-of-day line and the charging-day ticks" } },
   chartSocDrive: { both: { file: "src/lib/driveTimelineData.ts", css: 'speed: "#38bdf8"', use: "driving (sky): the drive timeline's speed panel" } },
   chartSocLimit: { both: { file: "src/components/SocTrendChart.tsx", css: 'const SOC_LIMIT = "#f59e0b"', use: "charge-level chart: the charge-limit line (faint, solid) and its label" } },
-  chartIdleAwakeBar: { both: { file: "src/pages/HomePage.tsx", css: 'color="#6366f1"', use: "idle-awake bars" } },
-  chartIdleAwakeTile: { both: { file: "src/components/IdleAwakeTile.tsx", css: 'fill="#818cf8"', use: "idle-awake tile mini bars (last day full, others at 50%)" } },
+  chartIdleAwakeBar: { both: { file: "src/pages/HomePage.tsx", css: 'color="#64748b"', use: "idle-awake bars" } },
+  chartIdleAwakeTile: { both: { file: "src/components/IdleAwakeTile.tsx", css: 'fill="#94a3b8"', use: "idle-awake tile mini bars (last day full, others at 50%)" } },
   // The share card is a fixed dark 1080 x 1080 image in both themes (lib/shareCard.ts paintShareCard).
   shareCardBackground: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#0a0a0a"', use: "share card: background" } },
   shareCardMuted: { both: { file: "src/lib/shareCard.ts", css: 'g.fillStyle = "#a3a3a3"', use: "share card: eyebrow, subtitle and stat labels" } },

@@ -35,7 +35,7 @@ export function IdleAwakeTile({ days, loading }: { days: DayActivity[]; loading:
           <svg viewBox="0 0 70 18" className="mt-1.5 h-4 w-full" role="img" aria-label="Idle-awake time, last 7 days" preserveAspectRatio="none">
             {spark.map((b, i) => {
               const h = Math.max(1.5, (b.value / max) * 16);
-              return <rect key={i} x={i * 10 + 1} y={18 - h} width={8} height={h} rx={1.5} fill="#818cf8" opacity={i === spark.length - 1 ? 1 : 0.55} />;
+              return <rect key={i} x={i * 10 + 1} y={18 - h} width={8} height={h} rx={1.5} fill="#94a3b8" opacity={i === spark.length - 1 ? 1 : 0.55} />;
             })}
           </svg>
         </>
