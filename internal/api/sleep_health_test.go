@@ -153,13 +153,14 @@ func TestSleepHealthR2ShapedHistory(t *testing.T) {
 	if got.State != "not_enough_data" || got.BaselineDays != 0 || got.ThisWeek.Days != 7 {
 		t.Errorf("a week of real R2 days and no baseline: %+v", got)
 	}
-	// A month on (Nov 20): the pre-fix days are far outside the window, and a flat history reads as normal.
+	// A month on (Nov 20): this week is Nov 13-19 and the baseline Oct 14-Nov 12, of which the R2 has Oct 16 on, so 28 days; the pre-fix days
+	// are outside the window, and a flat history reads as normal.
 	var later []samples.DayActivity
 	for d := day(10, 16); !d.After(day(11, 19)); d = d.AddDate(0, 0, 1) {
 		later = append(later, samples.DayActivity{Day: d, AsleepH: 16, IdleAwakeH: 2, Sleeps: 12, FailedSleeps: 2})
 	}
 	g := buildSleepHealth(later, time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC))
-	if g.State != "normal" || g.BaselineDays != 30 || g.ThisWeek.Days != 7 {
+	if g.State != "normal" || g.BaselineDays != 28 || g.ThisWeek.Days != 7 {
 		t.Errorf("R2 with a month of real days: %+v", g)
 	}
 }
