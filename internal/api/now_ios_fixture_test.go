@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
@@ -91,5 +94,28 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 				t.Fatalf("fixture %s no longer matches the server type: %v", name, err)
 			}
 		})
+	}
+}
+
+// A capacity sample carries exactly these keys: the estimate, and the two figures it came from (the chart's tooltip).
+func TestTrendCapacitySampleKeys(t *testing.T) {
+	b, err := json.Marshal(trendCapacitySample{At: time.Date(2026, 10, 1, 6, 0, 0, 0, time.UTC), KWhEffect: 121.5, EnergyKWh: 66.8, SoCDeltaPct: 55})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if got := strings.Join(keys, ","); got != "at,energy_kwh,kwh_effective,soc_delta_pct" {
+		t.Errorf("capacity sample keys = %s", got)
+	}
+	if m["energy_kwh"] != 66.8 || m["soc_delta_pct"] != float64(55) {
+		t.Errorf("values = %v", m)
 	}
 }

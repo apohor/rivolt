@@ -129,6 +129,13 @@ func TestVehicleTrendsForOneTruck(t *testing.T) {
 		t.Errorf("capacity = %+v, want 6 clean samples (derated excluded), median 138 over 30+ days", c)
 	}
 
+	// Each sample carries what it came from: the seeded charges put in 60 kWh over 50 points.
+	for _, smp := range c.Samples {
+		if smp.EnergyKWh != 60 || smp.SoCDeltaPct != 50 {
+			t.Errorf("sample %+v, want energy_kwh 60 and soc_delta_pct 50", smp)
+		}
+	}
+
 	// A truck whose trim names its pack gets a spec; the reported value stays separate.
 	if _, err := pool.ExecContext(ctx, `UPDATE vehicles SET trim = 'MAX-QM' WHERE id = $1`, av); err != nil {
 		t.Fatal(err)
