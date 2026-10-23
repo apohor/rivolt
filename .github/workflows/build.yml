@@ -520,14 +520,14 @@ jobs:
           exit $(( t != 0 || v != 0 ))
 
       - name: Save Go module download cache
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gomod.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/go/pkg/mod/cache/download
           key: ${{ steps.gomod.outputs.cache-primary-key }}
 
       - name: Save Go build cache
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gocache.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
@@ -593,7 +593,7 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout 5m
-          skip-save-cache: false  # TEMP-MEASURE
+          skip-save-cache: ${{ github.ref != 'refs/heads/main' }}
 
   integration:
     name: integration
@@ -652,7 +652,7 @@ jobs:
           go test -tags=integration -count=1 -timeout=10m $pkgs
 
       - name: Save Go build cache
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && steps.gocache.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
