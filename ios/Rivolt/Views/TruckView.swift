@@ -615,10 +615,12 @@ struct TruckContent: View {
     @ViewBuilder
     private var vehicleCard: some View {
         let sw = model.state.flatMap(TruckLogic.software)
-        if sw != nil {
+        let update = model.state.flatMap { NowUpdate($0) }
+        if sw != nil || update != nil {
             ThemeSection(title: "Vehicle") {
                 if stacked {
                     VStack(alignment: .leading, spacing: 12) {
+                        if let update { stackedPair("Software update") { updateCell(update) } }
                         if let sw {
                             stackedPair("Software") { versionCell(sw.current, which: "current", hasNotes: vehicle.ota?.current?.hasNotes) }
                             if let a = sw.available {
@@ -628,6 +630,12 @@ struct TruckContent: View {
                     }
                 } else {
                     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                        if let update {
+                            GridRow {
+                                Text("Software update").themeText(.value, color: Theme.textTertiary)
+                                updateCell(update).gridColumnAlignment(.trailing).frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
                         if let sw {
                             GridRow {
                                 Text("Software").themeText(.value, color: Theme.textTertiary)
@@ -644,6 +652,16 @@ struct TruckContent: View {
                 }
             }
         }
+    }
+
+    /// The update state in plain words; when the frame is more than two minutes old, its age under it so "Installing" isn't read as current.
+    private func updateCell(_ u: NowUpdate) -> some View {
+        let age = model.state?.at.map { max(0, now.timeIntervalSince($0)) }
+        return VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
+            Text(u.line()).themeText(.value, color: Theme.textPrimary)
+            if let age, age > 120 { Text("As of \(NowFormat.ago(age))").themeText(.caption, color: Theme.textTertiary) }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Tires

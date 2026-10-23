@@ -19,6 +19,8 @@ final class TruckSnapshotTests: XCTestCase {
         o["tire_pressure_fl_bar"] = 2.1
         o["tire_pressure_rr_bar"] = 2.7
         o["tire_pressure_status_rr"] = "Low"
+        o["ota_status"] = "Ready_To_Install"
+        o["ota_available_version"] = "2026.38.0"
         return try JSON.decoder().decode(VehicleState.self, from: JSONSerialization.data(withJSONObject: o))
     }
 

@@ -72,6 +72,9 @@ struct VehicleState: Decodable, Equatable {
     let tirePressureRrBar: Double?
     let otaCurrentVersion: String?
     let otaAvailableVersion: String?
+    /// The truck's own update state and install progress (an R1's feed; an R2 sends none), read by `NowUpdate` from a fixed word list.
+    let otaStatus: String?
+    let otaInstallProgress: Double?
     /// Rivian's own word for each wheel ("Normal", ...), shown only as theirs and only when it is one of the known low words.
     let tirePressureStatusFl: String?
     let tirePressureStatusFr: String?
