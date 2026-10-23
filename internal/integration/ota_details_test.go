@@ -50,7 +50,7 @@ func TestVehicleOTAStoreAndClaim(t *testing.T) {
 		t.Error("claimed a vehicle that does not exist")
 	}
 
-	ota := json.RawMessage(`{"current":{"version":"2026.30.0","release_notes_url":"https://rivian.com/n"},"available":{"version":"2026.38.1"},"fetched_at":"2026-10-17T10:00:00Z"}`)
+	ota := json.RawMessage(`{"current":{"version":"2026.30.0","has_notes":true},"available":{"version":"2026.38.1"},"fetched_at":"2026-10-17T10:00:00Z"}`)
 	if err := db.SetVehicleOTA(ctx, pool, uid, "rv-1", ota); err != nil {
 		t.Fatal(err)
 	}

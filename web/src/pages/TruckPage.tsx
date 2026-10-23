@@ -16,7 +16,7 @@ import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { lowestTire, safeNotesUrl, sleepSummary, softwareInfo } from "../lib/truckHealth";
+import { lowestTire, sleepSummary, softwareInfo } from "../lib/truckHealth";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
 // tires, software version. Gated by money_tab_enabled. Fields the
@@ -171,14 +171,14 @@ export default function TruckPage() {
                 <dt className="text-neutral-500">Software</dt>
                 <dd className="text-right tabular-nums text-neutral-200">
                   {software.current}
-                  <NotesLink url={vehicle?.ota?.current?.release_notes_url} />
+                  <NotesLink vehicleID={vehicle?.id} which="current" has={vehicle?.ota?.current?.has_notes} />
                 </dd>
                 {software.available && (
                   <>
                     <dt className="text-neutral-500">Update available</dt>
                     <dd className="text-right tabular-nums text-neutral-200">
                       {software.available}
-                      <NotesLink url={vehicle?.ota?.available?.release_notes_url} />
+                      <NotesLink vehicleID={vehicle?.id} which="available" has={vehicle?.ota?.available?.has_notes} />
                     </dd>
                   </>
                 )}
@@ -191,10 +191,12 @@ export default function TruckPage() {
   );
 }
 
-// NotesLink: "Release notes" for an update, an outbound link only (never fetched by us).
-function NotesLink({ url }: { url?: string }) {
-  const href = safeNotesUrl(url);
-  if (!href) return null;
+// NotesLink: "Release notes" for an update. Rivian's own link is a one-hour signed URL, so it is not stored or listed:
+// this opens our endpoint, which asks Rivian for a fresh one when it is clicked and redirects there (new tab; the
+// cookie carries the session). Never fetched by the page itself.
+function NotesLink({ vehicleID, which, has }: { vehicleID?: string; which: "current" | "available"; has?: boolean }) {
+  if (!has || !vehicleID) return null;
+  const href = `/api/vehicles/${encodeURIComponent(vehicleID)}/ota/notes?which=${which}`;
   return (
     <a
       href={href}

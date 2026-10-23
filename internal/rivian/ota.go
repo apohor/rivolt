@@ -22,11 +22,16 @@ const qOTAUpdateDetails = `query getOTAUpdateDetails($vehicleId: String!) {
 }`
 
 // OTAVersion is one software release: its version string, the release-notes
-// page Rivian publishes for it and the page's locale. ReleaseNotesURL is an
-// outbound link for the UI to show; Rivolt never fetches it.
+// page Rivian publishes for it and the page's locale. Rivian's link is a
+// pre-signed, one-hour URL (it carries an X-Amz-Security-Token), so it is a
+// credential that has expired long before it is tapped: ReleaseNotesURL lives
+// in memory only (json "-": never stored, exported or served), and HasNotes
+// says a link existed. The app asks for a fresh one when the user taps
+// (GET /api/vehicles/{id}/ota/notes). Rivolt never fetches the page itself.
 type OTAVersion struct {
 	Version         string `json:"version"`
-	ReleaseNotesURL string `json:"release_notes_url,omitempty"`
+	ReleaseNotesURL string `json:"-"`
+	HasNotes        bool   `json:"has_notes,omitempty"`
 	Locale          string `json:"locale,omitempty"`
 }
 
@@ -94,6 +99,7 @@ func toOTAVersion(d *otaDetail) *OTAVersion {
 	v := &OTAVersion{Version: strings.TrimSpace(*d.Version)}
 	if d.URL != nil {
 		v.ReleaseNotesURL = safeHTTPSURL(*d.URL)
+		v.HasNotes = v.ReleaseNotesURL != ""
 	}
 	if d.Locale != nil {
 		v.Locale = strings.TrimSpace(*d.Locale)

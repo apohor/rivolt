@@ -735,6 +735,13 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleProfilePut(d.DB)(uid, w, r)
 			}))
+			// A fresh link to a software release's notes: Rivian's own is a one-hour signed URL, so it is fetched when tapped
+			// (see ota_notes.go) and never stored or served with the vehicle list.
+			otaNotes := handleOTANotes(func(uid uuid.UUID) rivian.OTASource {
+				src, _ := clientFor(d, uid).(rivian.OTASource)
+				return src
+			}, newOTANotesCache(), d.Logger)
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/ota/notes", withUser(otaNotes))
 			// Lease tracker: terms CRUD and the computed standing. 404 when
 			// no lease is set.
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/lease", withUser(handleLeaseGet(d.DB)))
