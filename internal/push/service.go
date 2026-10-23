@@ -168,13 +168,17 @@ func LeftOpenPayload(model string, kinds []string, minutes int) Payload {
 	if len(kinds) > 0 {
 		what = JoinClosures(kinds)
 	}
+	verb := "has" // "has" for one closure (or "something"), "have" for several
+	if n := countClosures(kinds); n > 1 {
+		verb = "have"
+	}
 	truck := "your vehicle"
 	if m := strings.TrimSpace(model); m != "" {
 		truck = "your " + m
 	}
 	return Payload{
 		Title: "Left open",
-		Body:  fmt.Sprintf("%s on %s has been open for %d minutes.", capitalize(what), truck, minutes),
+		Body:  fmt.Sprintf("%s on %s %s been open for %d minutes.", capitalize(what), truck, verb, minutes),
 		Tag:   "rivolt-left-open",
 		URL:   "/",
 		Kind:  "left_open",
@@ -207,6 +211,21 @@ func JoinClosures(kinds []string) string {
 	default:
 		return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 	}
+}
+
+// countClosures counts the distinct closure kinds JoinClosures would name.
+func countClosures(kinds []string) int {
+	have := map[string]bool{}
+	for _, k := range kinds {
+		have[k] = true
+	}
+	n := 0
+	for _, c := range closureWords {
+		if have[c.kind] {
+			n++
+		}
+	}
+	return n
 }
 
 // DeliverLeftOpen sends the left-open alert to every device of the store's user that has it on, and waits. It reports

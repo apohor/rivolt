@@ -29,9 +29,24 @@ func TestJoinClosures(t *testing.T) {
 
 func TestLeftOpenPayloadIsFixedTextWithNoPlaceAndNoPromise(t *testing.T) {
 	p := LeftOpenPayload("R1S", []string{"frunk", "door"}, 15)
-	if p.Title != "Left open" || p.Body != "The frunk and a door on your R1S has been open for 15 minutes." ||
+	if p.Title != "Left open" || p.Body != "The frunk and a door on your R1S have been open for 15 minutes." ||
 		p.Kind != "left_open" || p.URL != "/" || p.Tag != "rivolt-left-open" {
 		t.Errorf("payload = %+v", p)
+	}
+	// Several closures take "have", one takes "has", and the same kind twice is still one.
+	for _, c := range []struct {
+		kinds []string
+		want  string
+	}{
+		{[]string{"door"}, "A door on your R1S has been open for 15 minutes."},
+		{[]string{"door", "door"}, "A door on your R1S has been open for 15 minutes."},
+		{[]string{"frunk", "door", "tonneau"}, "The frunk, a door and the tonneau on your R1S have been open for 15 minutes."},
+		{[]string{"liftgate", "tailgate"}, "The liftgate and the tailgate on your R1S have been open for 15 minutes."},
+		{nil, "Something on your R1S has been open for 15 minutes."},
+	} {
+		if got := LeftOpenPayload("R1S", c.kinds, 15).Body; got != c.want {
+			t.Errorf("%v: %q, want %q", c.kinds, got, c.want)
+		}
 	}
 	// The model only, never a nickname, and a blank model reads "your vehicle".
 	if b := LeftOpenPayload("", []string{"door"}, 15).Body; b != "A door on your vehicle has been open for 15 minutes." {
