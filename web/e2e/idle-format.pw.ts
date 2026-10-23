@@ -30,8 +30,8 @@ for (const scheme of ["dark", "light"] as const) {
     const axis = (await card.locator("svg text").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).join(" ");
     expect(axis).toMatch(/\d+h|\d+m/);
     expect(axis).not.toMatch(/\b\d{3,}m\b/);
-    // The 22 h day is in the data: its tooltip is "22 h 17 min", not capped.
-    const titles = await card.locator("svg rect title").evaluateAll((els) => els.map((e) => e.textContent ?? ""));
+    // The 22 h day is in the data: its bar reads "22 h 17 min", not capped.
+    const titles = await card.getByRole("img", { name: "Idle-awake time per day" }).locator("[aria-label]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
     expect(titles.some((t) => /22 h 17 min/.test(t))).toBe(true);
     expect(titles.some((t) => /45 min/.test(t))).toBe(true);
     // The cards re-render as the page's queries settle, so the located element

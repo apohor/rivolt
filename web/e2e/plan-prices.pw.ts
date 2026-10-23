@@ -24,7 +24,8 @@ async function open(page: Page, next: boolean, cost: Record<string, unknown>) {
 
 const body = async (page: Page) => (await page.locator("body").innerText()).replace(/\s+/g, " ");
 
-for (const next of [true, false]) {
+// The classic look is gone (old-UI removal); the loop goes with the rest of it in part 2.
+for (const next of [true]) {
   const look = next ? "new look" : "classic";
 
   test(`a priced stop: range, the tracker label with its link, one note · ${look}`, async ({ browser }) => {

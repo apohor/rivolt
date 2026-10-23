@@ -62,8 +62,9 @@ const views: View[] = [
   { name: "demo-stale", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, scenario: "stale" }, text: [/Last seen [5-7] min ago/] },
   {
     name: "plan-vs-actual",
-    path: "/trips/plan",
-    heading: "Plan vs actual",
+    // Plan vs actual is a tab of the planner.
+    path: "/trips/plan?tab=pva",
+    heading: "Trip planner",
     text: [
       "We'll compare once you've driven it.",
       "Confirm",
@@ -137,8 +138,10 @@ for (const view of views) {
         if (view.name.startsWith("now-")) {
           await expect(page.getByRole("link", { name: "Overview" })).toHaveCount(0);
           await expect(page.getByRole("link", { name: "Full telemetry →" })).toBeVisible();
+          // The Now card leads the page: no card in main starts above it.
           const top = await page.getByRole("region", { name: "Now" }).evaluate((el) => el.getBoundingClientRect().top);
-          expect(top).toBeLessThan(200);
+          const above = await page.locator("main section").evaluateAll((els, t) => els.filter((e) => e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().top < t - 1).length, top);
+          expect(above).toBe(0);
         }
         if (!view.name.startsWith("banner-") && view.name !== "landing" && view.name !== "admin-idp") {
           // Healthy: no degraded banner.
