@@ -66,7 +66,6 @@ enum ThemeTokens {
     static let gaugeIdleTo = Pair(dark: Rgba(0x6B727E, 1), light: Rgba(0x6B727E, 1))
     static let chartMilesBar = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
     static let chartSocCharge = Pair(dark: Rgba(0x10B981, 1), light: Rgba(0x10B981, 1))
-    static let chartSocDrive = Pair(dark: Rgba(0x38BDF8, 1), light: Rgba(0x38BDF8, 1))
     static let chartSocLimit = Pair(dark: Rgba(0xF59E0B, 1), light: Rgba(0xF59E0B, 1))
     static let chartIdleAwakeBar = Pair(dark: Rgba(0x6366F1, 1), light: Rgba(0x6366F1, 1))
     static let chartIdleAwakeTile = Pair(dark: Rgba(0x818CF8, 1), light: Rgba(0x818CF8, 1))

@@ -4,7 +4,8 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next Battery (SoC) trend (the iPhone's #895 rules): strip under 0%, today's limit, min/max, crosshair.
+// ui_theme_next Battery (SoC) trend, calm (the iPhone's rules): a soft daily band and one line, one faint limit, the
+// extremes named, a caption and no legend.
 // Flag off keeps today's line chart.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -35,8 +36,17 @@ for (const theme of ["dark", "light"] as const) {
         } else {
           const chart = page.locator("[data-soc-trend]");
           await expect(chart).toBeVisible();
-          await expect(page.locator("[data-band='charge']").first()).toBeAttached();
+          // The band and the line, no strip, bars or legend.
+          await expect(chart.locator("[data-draw='band']").first()).toBeAttached();
+          await expect(chart.locator("[data-band]")).toHaveCount(0);
+          await expect(chart.locator("[data-soc-legend]")).toHaveCount(0);
+          await expect(chart.locator("[data-soc-caption]")).toContainText("Shaded: each day");
+          // One faint limit line, named once ("Limit N%").
           await expect(page.getByTestId("soc-limit")).toHaveCount(1);
+          await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);
+          expect(await page.getByTestId("soc-limit").locator("line").count()).toBe(1);
+          const drawn = await page.getByTestId("soc-limit").locator("line[data-limit-line]").evaluate((l) => getComputedStyle(l).stroke);
+          expect(drawn).toBe("rgb(245, 158, 11)");
           // hover() scrolls the plot into view first: a raw mouse.move at a page
           // coordinate can land below the fold on a short or slower-loading page
           // (it did on the Linux CI runner, desktop only).
@@ -44,37 +54,10 @@ for (const theme of ["dark", "light"] as const) {
           const box = await svg.boundingBox();
           await svg.hover({ position: { x: box!.width * 0.8, y: Math.min(80, box!.height / 2) } });
           await expect(page.getByTestId("soc-tip")).toContainText(/%/);
-          await expect(page.getByTestId("soc-tip")).toContainText(/Charging|Driving|Parked/);
-          // Every legend entry corresponds to something drawn, and nothing is promised that is not
-          // (no "Pack capacity" row: that line only exists in the legacy chart).
-          const entries = await chart.locator("[data-legend]").evaluateAll((els) => els.map((e) => e.getAttribute("data-legend")));
-          expect(entries).toEqual(expect.arrayContaining(["line", "limit"]));
-          for (const k of entries) {
-            expect(await chart.locator(`[data-draw="${k}"]`).count(), `legend ${k} has a drawn element`).toBeGreaterThan(0);
-          }
-          for (const k of ["line", "charge", "drive", "limit", "extreme"]) {
-            if ((await chart.locator(`[data-draw="${k}"]`).count()) > 0) expect(entries, `drawn ${k} has a legend entry`).toContain(k);
-          }
+          await expect(page.getByTestId("soc-tip")).toContainText(/ended \d+%/);
+          // The plot is named for a screen reader in one sentence.
+          await expect(svg).toHaveAttribute("aria-label", /^Battery level by day\./);
           await expect(page.getByText(/Pack capacity/)).toHaveCount(0);
-          await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit now");
-          // The limit is today's: a two-day segment labelled "Limit N%", not a line across the period.
-          await expect(page.getByTestId("soc-limit")).toContainText(/^Limit \d+%$/);
-          const limitW = await page.getByTestId("soc-limit").locator("path[data-limit-line]").evaluate((l) => (l as SVGPathElement).getBBox().width);
-          expect(limitW).toBeLessThan(box!.width / 2);
-          // One strip per stretch below the 0% line, no wash over the plot.
-          const bands = chart.locator("[data-band]");
-          expect(await chart.locator("[data-band] rect").count()).toBe(await bands.count());
-          const stripTop = await chart.locator("[data-band] rect").first().evaluate((r) => Number(r.getAttribute("y")));
-          const zero = await chart.locator("svg[role='img'] line").first().evaluate((l) => Number(l.getAttribute("y1")));
-          expect(stripTop).toBeGreaterThan(zero);
-          // The limit swatch is the same amber as the drawn line.
-          const drawn = await page.getByTestId("soc-limit").locator("path[data-limit-line]").evaluate((l) => getComputedStyle(l).stroke);
-          const swatch = await page.getByTestId("legend-limit-swatch").evaluate((l) => getComputedStyle(l).stroke);
-          expect(swatch).toBe(drawn);
-          expect(swatch).toBe("rgb(245, 158, 11)");
-          // Bands are visible marks: the strip on the axis is at least 3px wide.
-          const strip = await chart.locator("[data-band] rect").last().evaluate((r) => Number(r.getAttribute("width")));
-          expect(strip).toBeGreaterThanOrEqual(3);
         }
         await chart(page).screenshot({ path: path.join(SHOTS, `soc-${v.name}-${theme}-${state}.png`) }).catch(() => {});
         if (state === "on") {

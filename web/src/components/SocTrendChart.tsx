@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { axisDayIndices, mmdd } from "../lib/period";
 
-// Battery (SoC) trend for the ui_theme_next layer, the same chart as the iPhone's (#895): a linear line with a
-// fading fill down to 0%, one strip below the 0% line marking charging (emerald) and driving (sky), the charge
-// limit as steps from the charges' stored limits (else today's target over the last two days), the high and low labelled inside
-// the plot, and a crosshair tooltip.
+// Battery (SoC) trend for the ui_theme_next layer, calm, the same chart as the iPhone's: a soft band for each day from
+// its lowest to highest level (smoothed between days), one smooth line over it for where the day ended, only the
+// period's highest and lowest points named inside the plot, one faint line for the charge limit named once, a tiny
+// tick on the axis for each day it charged and a barely visible tint under 20%. A road trip reads as a deep, wide dip
+// in the band. No bars, strip or legend: one caption says what the marks are.
 type Pt = { x: number; y: number };
 type Span = { x0: number; x1: number };
 // A charge: its span and the limit it was set to (1–100; null or 0 unknown).
 type ChargeSpan = Span & { limit?: number | null };
 export type LimitStep = { x0: number; x1: number; pct: number };
+
+// The chart's two colours (the design tokens read them here).
+const SOC_GREEN = "#10b981";
+const SOC_LIMIT = "#f59e0b";
+const LOW_ZONE = 20;
 
 const validLimit = (p: number | null | undefined): p is number => p != null && Number.isFinite(p) && p > 0 && p <= 100;
 
@@ -45,12 +51,9 @@ export function limitSteps(charges: ChargeSpan[], from: number, to: number, now:
   return out;
 }
 
-const H = 190;
-const PAD = { l: 34, r: 20, t: 8, b: 22 };
-// The y domain runs past 0–100% so the strip sits under the 0% line and the high's label fits above 100%.
-const Y_MIN = -12;
-const Y_MAX = 108;
-const STRIP = { lo: -10, hi: -4 };
+const H = 200;
+const PAD = { l: 34, r: 20, t: 10, b: 22 };
+const Y_MAX = 104;
 const DAY = 86_400_000;
 
 /** Integer percent, half away from zero (2.5 → 3). */
@@ -74,16 +77,97 @@ export function dayTicks(x0: number, x1: number, n: number): { x: number; label:
   return Array.from({ length: n }, (_, i) => x0 + ((x1 - x0) * i) / (n - 1)).map((x) => ({ x, label: fmt(x) }));
 }
 
+/** One local day with readings: how low and how high the level went, where it ended, and whether a charge started or
+ *  ended on it. */
+export type DayRange = { day: number; low: number; high: number; end: number; charged: boolean };
+
+const startOfDay = (ms: number) => {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+/** The readings as one entry per local day that has any, oldest first. A reading of 0 or less is "unknown". */
+export function dailyRanges(trend: Pt[], charges: Span[]): DayRange[] {
+  const byDay = new Map<number, Pt[]>();
+  for (const p of trend) {
+    if (!Number.isFinite(p.y) || p.y <= 0) continue;
+    const k = startOfDay(p.x);
+    const list = byDay.get(k);
+    if (list) list.push(p);
+    else byDay.set(k, [p]);
+  }
+  const charged = new Set<number>();
+  for (const c of charges) {
+    charged.add(startOfDay(c.x0));
+    charged.add(startOfDay(c.x1));
+  }
+  return [...byDay.keys()]
+    .sort((a, b) => a - b)
+    .map((day) => {
+      const ps = (byDay.get(day) as Pt[]).slice().sort((a, b) => a.x - b.x);
+      return { day, low: Math.min(...ps.map((p) => p.y)), high: Math.max(...ps.map((p) => p.y)), end: ps[ps.length - 1].y, charged: charged.has(day) };
+    });
+}
+
+/** The day with the highest reading and the one with the lowest; null with fewer than two different levels. */
+export function extremesOf(rows: DayRange[]): { hi: DayRange; lo: DayRange } | null {
+  if (rows.length === 0) return null;
+  const hi = rows.reduce((m, r) => (r.high > m.high ? r : m));
+  const lo = rows.reduce((m, r) => (r.low < m.low ? r : m));
+  return pctLabel(hi.high) !== pctLabel(lo.low) ? { hi, lo } : null;
+}
+
+const dayName = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** The chart as sentences for a screen reader. */
+export function spokenBand(rows: DayRange[]): string {
+  const e = extremesOf(rows);
+  if (rows.length === 0) return "No readings.";
+  const said = (v: number) => `${Math.sign(v) * Math.round(Math.abs(v))} percent`;
+  let s = `${rows.length} ${rows.length === 1 ? "day" : "days"} with readings.`;
+  if (e) s += ` Lowest ${said(e.lo.low)} on ${dayName(e.lo.day)}; highest ${said(e.hi.high)} on ${dayName(e.hi.day)}.`;
+  const k = rows.filter((r) => r.charged).length;
+  if (k > 0) s += ` Charged on ${k} ${k === 1 ? "day" : "days"}.`;
+  return s;
+}
+
+/** A monotone cubic through the points (Fritsch-Carlson): smooth, and never above the highest or below the lowest of
+ *  its neighbours, so a smoothed band cannot overshoot a real low or high. */
+export function monotoneAt(xs: number[], ys: number[]): (x: number) => number {
+  const n = xs.length;
+  if (n < 2) return () => ys[0] ?? 0;
+  const h = xs.slice(1).map((x, i) => x - xs[i]);
+  const m = h.map((d, i) => (ys[i + 1] - ys[i]) / d);
+  const t = [m[0], ...m.slice(1).map((v, i) => (m[i] * v <= 0 ? 0 : (2 * m[i] * v) / (m[i] + v))), m[n - 2]];
+  return (x) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0;
+    while (i < n - 2 && xs[i + 1] <= x) i++;
+    const s = (x - xs[i]) / h[i];
+    const s2 = s * s;
+    const s3 = s2 * s;
+    return (2 * s3 - 3 * s2 + 1) * ys[i] + (s3 - 2 * s2 + s) * h[i] * t[i] + (-2 * s3 + 3 * s2) * ys[i + 1] + (s3 - s2) * h[i] * t[i + 1];
+  };
+}
+
+/** The limit to draw, one value: the last step (today's target on the current period, else the last charge's limit),
+ *  else today's target on the current period; null for none. */
+export function limitValue(steps: LimitStep[], current: boolean, live: number | null): number | null {
+  if (steps.length > 0) return steps[steps.length - 1].pct;
+  // (A live target of 100% is no limit worth a line, as on the iPhone; a stored 100% from a charge still is.)
+  return current && validLimit(live) && live < 100 ? live : null;
+}
+
 export function SocTrendChart({
   trend,
   charges,
-  drives,
   domain,
   limit,
 }: {
   trend: Pt[];
   charges: ChargeSpan[];
-  drives: Span[];
   domain: [number, number] | null;
   limit: number | null;
 }) {
@@ -107,69 +191,50 @@ export function SocTrendChart({
     if (trend.length > 0) return [trend[0].x, Math.max(trend[trend.length - 1].x, now)];
     return [now - DAY, now];
   }, [domain, trend]);
-  const pts = useMemo(() => trend.filter((p) => p.x >= x0 && p.x <= x1), [trend, x0, x1]);
+  const rows = useMemo(() => dailyRanges(trend.filter((p) => p.x >= x0 && p.x <= x1), charges), [trend, charges, x0, x1]);
   const iw = w - PAD.l - PAD.r;
   const ih = H - PAD.t - PAD.b;
   const X = (x: number) => PAD.l + ((x - x0) / (x1 - x0)) * iw;
-  const Y = (y: number) => PAD.t + ((Y_MAX - y) / (Y_MAX - Y_MIN)) * ih;
-  const xy = pts.map((p) => [X(p.x), Y(p.y)] as [number, number]);
-  const line = xy.length > 0 ? xy.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ") : "";
-  const area = xy.length > 1 ? `${line} L ${xy[xy.length - 1][0].toFixed(1)} ${Y(0)} L ${xy[0][0].toFixed(1)} ${Y(0)} Z` : "";
-  const clip = (s: Span) => ({ a: Math.max(s.x0, x0), b: Math.min(s.x1, x1) });
-  // One strip under the 0% line, no wash over the plot. A stretch is at least 1% of the width (and 3 px) so a
-  // short drive still shows.
-  const band = (s: Span, i: number, color: string, kind: string) => {
-    const { a, b } = clip(s);
-    if (b <= a) return null;
-    const wd = Math.max(3, iw * 0.01, X(b) - X(a));
-    return (
-      <g key={`${kind}${i}`} data-band={kind} data-draw={kind}>
-        <rect x={X(a)} y={Y(STRIP.hi)} width={wd} height={Y(STRIP.lo) - Y(STRIP.hi)} fill={color} />
-      </g>
-    );
-  };
-  const drawnCharge = charges.some((s) => clip(s).b > clip(s).a);
-  const drawnDrive = drives.some((s) => clip(s).b > clip(s).a);
-  const lo = pts.length >= 2 ? pts.reduce<Pt | null>((m, p) => (m == null || p.y < m.y ? p : m), null) : null;
-  const hi = pts.length >= 2 ? pts.reduce<Pt | null>((m, p) => (m == null || p.y > m.y ? p : m), null) : null;
-  const extremes = hi && lo && pctLabel(hi.y) !== pctLabel(lo.y) ? { hi, lo } : null;
+  const Y = (y: number) => PAD.t + ((Y_MAX - y) / Y_MAX) * ih;
+  const centre = (r: DayRange) => r.day + DAY / 2;
+
+  // The band and the line, sampled from monotone curves through the days' lows, highs and last levels.
+  const shapes = useMemo(() => {
+    if (rows.length === 0) return null;
+    const cx = rows.map(centre);
+    if (rows.length === 1) {
+      const half = Math.max(3, ((DAY * 0.3) / (x1 - x0)) * iw);
+      return { single: { x: X(cx[0]), half }, band: "", line: "" };
+    }
+    const lo = monotoneAt(cx, rows.map((r) => r.low));
+    const hi = monotoneAt(cx, rows.map((r) => r.high));
+    const en = monotoneAt(cx, rows.map((r) => r.end));
+    const n = Math.max(8, Math.min(600, Math.round(((cx[cx.length - 1] - cx[0]) / (x1 - x0)) * iw / 2)));
+    const xs = Array.from({ length: n + 1 }, (_, i) => cx[0] + ((cx[cx.length - 1] - cx[0]) * i) / n);
+    const top = xs.map((x) => `${X(x).toFixed(1)} ${Y(Math.max(hi(x), lo(x) + 0.6)).toFixed(1)}`);
+    const bottom = xs.map((x) => `${X(x).toFixed(1)} ${Y(lo(x)).toFixed(1)}`).reverse();
+    const line = xs.map((x, i) => `${i === 0 ? "M" : "L"} ${X(x).toFixed(1)} ${Y(en(x)).toFixed(1)}`).join(" ");
+    return { single: null, band: `M ${top.join(" L ")} L ${bottom.join(" L ")} Z`, line };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, x0, x1, iw]);
+
+  const extremes = extremesOf(rows);
   // (All time ends at the now of its memo, a moment before this one: a few minutes' slack.)
   const now = Math.min(Date.now(), Math.max(x1, Date.now() - 5 * 60_000));
   const current = now >= x0 && now <= x1;
-  // The limit as steps from the charges' stored limits (limitSteps). Without any (an older server, or none known
-  // in the period), today's target over the last two days, on the current period only, as the iPhone (#895).
   const steps = limitSteps(charges, x0, x1, now, limit);
-  const limitLine: LimitStep[] =
-    steps.length > 0 ? steps : current && validLimit(limit) ? [{ x0: Math.max(x0, now - 2 * DAY), x1: now, pct: limit }] : [];
-  const limitShown = limitLine.length > 0;
-  let limitPath = "";
-  limitLine.forEach((s, i) => {
-    const prev = limitLine[i - 1];
-    limitPath += prev && prev.x1 === s.x0 ? ` V ${Y(s.pct).toFixed(1)}` : ` M ${X(s.x0).toFixed(1)} ${Y(s.pct).toFixed(1)}`;
-    limitPath += ` H ${X(s.x1).toFixed(1)}`;
-  });
-  // One value, on the current period: at the line's end at now, right of it in the days still to come, or above it
-  // in a period's last four days (no room to the right). Past periods carry no value.
-  const limitEnd = limitLine[limitLine.length - 1];
-  const limitLabel = current && limitEnd && now - limitEnd.x1 < 60_000 ? limitEnd : null;
-  const limitLabelAbove = x1 - now < 4 * DAY;
+  const limitAt = limitValue(steps, current, limit);
   const ticks = dayTicks(x0, x1, Math.max(2, Math.min(5, Math.floor(iw / 110))));
   const tickAnchor = (x: number): "start" | "middle" | "end" =>
     X(x) - PAD.l < 14 ? "start" : PAD.l + iw - X(x) < 14 ? "end" : "middle";
+  // A name goes on the side with room.
+  const labelRight = (r: DayRange) => centre(r) - x0 < 0.6 * (x1 - x0);
 
-  const at = (x: number) => {
-    // No reading outside the recorded span (the crosshair would otherwise float over empty space).
-    if (pts.length === 0 || x < pts[0].x || x > pts[pts.length - 1].x) return null;
-    let i = pts.findIndex((p) => p.x >= x);
-    if (i <= 0) i = i === 0 ? 0 : pts.length - 1;
-    const a = pts[Math.max(0, i - 1)];
-    const b = pts[i];
-    const y = b.x === a.x ? b.y : a.y + ((b.y - a.y) * (x - a.x)) / (b.x - a.x);
-    const inC = charges.some((s) => x >= s.x0 && x <= s.x1);
-    const inD = drives.some((s) => x >= s.x0 && x <= s.x1);
-    return { y, state: inC ? "Charging" : inD ? "Driving" : "Parked" };
+  const dayAt = (x: number): DayRange | null => {
+    if (rows.length === 0) return null;
+    return rows.reduce((best, r) => (Math.abs(centre(r) - x) < Math.abs(centre(best) - x) ? r : best));
   };
-  const hv = hover != null ? at(hover) : null;
+  const hv = hover != null ? dayAt(hover) : null;
   const move = (e: React.PointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * w;
@@ -183,44 +248,60 @@ export function SocTrendChart({
         width={w}
         height={H}
         role="img"
-        aria-label="Battery state of charge over time, with charging and driving marked below the line"
+        aria-label={`Battery level by day. ${spokenBand(rows)}`}
         onPointerMove={move}
         onPointerLeave={() => setHover(null)}
         className="touch-pan-y"
       >
-        <defs>
-          <linearGradient id="soc-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-          </linearGradient>
-        </defs>
+        <rect x={PAD.l} y={Y(LOW_ZONE)} width={iw} height={Y(0) - Y(LOW_ZONE)} fill="#f43f5e" opacity={0.045} data-draw="low-zone" />
         {[0, 50, 100].map((v) => (
           <g key={v}>
             <line x1={PAD.l} x2={PAD.l + iw} y1={Y(v)} y2={Y(v)} className="text-neutral-800" stroke="currentColor" strokeOpacity={0.5} />
             <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[10px]">{v}%</text>
           </g>
         ))}
-        {charges.map((s, i) => band(s, i, "#10b981", "charge"))}
-        {drives.map((s, i) => band(s, i, "#38bdf8", "drive"))}
-        {area && <path d={area} fill="url(#soc-fill)" className="text-neutral-100" />}
-        {line && <path d={line} data-draw="line" fill="none" stroke="currentColor" className="text-neutral-100" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
-        {limitShown && (
-          <g data-testid="soc-limit" data-draw="limit" data-steps={steps.length}>
-            <path d={limitPath.trim()} data-limit-line fill="none" stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5} />
-            {limitLabel &&
-              (limitLabelAbove ? (
-                <text x={X(limitLabel.x1)} y={Y(limitLabel.pct) - 5} textAnchor={X(limitLabel.x1) - PAD.l < 80 ? "start" : "end"} className="fill-amber-400 text-[10px]">Limit {Math.round(limitLabel.pct)}%</text>
-              ) : (
-                <text x={X(limitLabel.x1) + 4} y={Y(limitLabel.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(limitLabel.pct)}%</text>
-              ))}
+        {limitAt != null && (
+          <g data-testid="soc-limit" data-draw="limit">
+            <line x1={PAD.l} x2={PAD.l + iw} y1={Y(limitAt)} y2={Y(limitAt)} stroke={SOC_LIMIT} strokeOpacity={0.32} strokeWidth={1} data-limit-line />
+            <text x={PAD.l + iw} y={Y(limitAt) - 4} textAnchor="end" className="fill-amber-400 text-[10px]">Limit {Math.round(limitAt)}%</text>
           </g>
         )}
+        {shapes?.single && (
+          <rect
+            data-draw="band"
+            x={shapes.single.x - shapes.single.half}
+            y={Y(rows[0].high)}
+            width={shapes.single.half * 2}
+            height={Math.max(2, Y(rows[0].low) - Y(rows[0].high))}
+            rx={3}
+            fill={SOC_GREEN}
+            fillOpacity={0.22}
+          />
+        )}
+        {shapes && !shapes.single && <path d={shapes.band} data-draw="band" fill={SOC_GREEN} fillOpacity={0.22} stroke={SOC_GREEN} strokeOpacity={0.28} strokeWidth={0.8} strokeLinejoin="round" />}
+        {shapes && !shapes.single && <path d={shapes.line} data-draw="line" fill="none" stroke={SOC_GREEN} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />}
+        {rows.filter((r) => r.charged).map((r) => (
+          <line key={r.day} data-draw="tick" x1={X(centre(r))} x2={X(centre(r))} y1={Y(0)} y2={Y(0) - 5} stroke={SOC_GREEN} strokeWidth={1.6} strokeLinecap="round" />
+        ))}
         {extremes && (
           <g data-draw="extreme">
-            <circle cx={X(extremes.hi.x)} cy={Y(extremes.hi.y)} r={3.5} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
-            <text x={X(extremes.hi.x)} y={Y(extremes.hi.y) - 7} textAnchor="middle" className="fill-neutral-100 text-[10px]" data-testid="soc-max">{pctLabel(extremes.hi.y)}</text>
-            <circle cx={X(extremes.lo.x)} cy={Y(extremes.lo.y)} r={3.5} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
-            <text x={X(extremes.lo.x) + 7} y={Y(extremes.lo.y) + 3.5} textAnchor="start" className="fill-neutral-100 text-[10px]" data-testid="soc-min">{pctLabel(extremes.lo.y)}</text>
+            {[
+              { r: extremes.hi, v: extremes.hi.high, id: "soc-max" },
+              { r: extremes.lo, v: extremes.lo.low, id: "soc-min" },
+            ].map(({ r, v, id }) => (
+              <g key={id}>
+                <circle cx={X(centre(r))} cy={Y(v)} r={3} fill="currentColor" className="text-neutral-100" />
+                <text
+                  x={X(centre(r)) + (labelRight(r) ? 8 : -8)}
+                  y={Y(v) + 3.5}
+                  textAnchor={labelRight(r) ? "start" : "end"}
+                  className="fill-neutral-100 text-[11px] font-semibold"
+                  data-testid={id}
+                >
+                  {pctLabel(v)} · {dayName(r.day)}
+                </text>
+              </g>
+            ))}
           </g>
         )}
         {ticks.map((t) => (
@@ -228,8 +309,8 @@ export function SocTrendChart({
         ))}
         {hover != null && hv && (
           <g pointerEvents="none">
-            <line x1={X(hover)} x2={X(hover)} y1={PAD.t} y2={Y(0)} stroke="currentColor" className="text-neutral-400" strokeOpacity={0.6} />
-            <circle cx={X(hover)} cy={Y(hv.y)} r={4} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
+            <line x1={X(centre(hv))} x2={X(centre(hv))} y1={PAD.t} y2={Y(0)} stroke="currentColor" className="text-neutral-400" strokeOpacity={0.6} />
+            <circle cx={X(centre(hv))} cy={Y(hv.end)} r={3.5} fill="currentColor" className="text-neutral-100" />
           </g>
         )}
       </svg>
@@ -238,48 +319,18 @@ export function SocTrendChart({
           role="status"
           data-testid="soc-tip"
           className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 text-xs text-neutral-200 shadow-lg"
-          style={{ left: Math.min(Math.max(X(hover) - 50, 0), w - 120) }}
+          style={{ left: Math.min(Math.max(X(centre(hv)) - 70, 0), w - 190) }}
         >
-          <span>{new Date(hover).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+          <span>{dayName(hv.day)}</span>
           {" · "}
-          <span className="font-medium">{Math.round(hv.y)}%</span>
-          {" · "}
-          {hv.state}
+          <span className="font-medium">{Math.round(hv.low)}–{Math.round(hv.high)}%</span>
+          {" · ended "}
+          <span className="font-medium">{Math.round(hv.end)}%</span>
+          {hv.charged ? " · charged" : ""}
         </div>
       )}
-      <p data-soc-legend className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500">
-        {line && (
-          <span data-legend="line">
-            <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t-2 align-middle border-neutral-100" />
-            Battery %
-          </span>
-        )}
-        {drawnCharge && (
-          <span data-legend="charge">
-            <span aria-hidden className="mr-1 inline-block h-1.5 w-4 rounded-[1px] align-middle" style={{ background: "#10b981" }} />
-            Charging
-          </span>
-        )}
-        {drawnDrive && (
-          <span data-legend="drive">
-            <span aria-hidden className="mr-1 inline-block h-1.5 w-4 rounded-[1px] align-middle" style={{ background: "#38bdf8" }} />
-            Driving
-          </span>
-        )}
-        {limitShown && (
-          <span data-legend="limit">
-            <svg aria-hidden width="16" height="4" className="mr-1 inline-block align-middle">
-              <line data-testid="legend-limit-swatch" x1="0" x2="16" y1="2" y2="2" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3" />
-            </svg>
-            {steps.length > 0 ? "Charge limit" : "Charge limit now"}
-          </span>
-        )}
-        {extremes && (
-          <span data-legend="extreme">
-            <span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-full bg-neutral-100 align-middle" />
-            High and low
-          </span>
-        )}
+      <p data-soc-caption className="mt-2 text-[11px] text-neutral-500">
+        Shaded: each day&rsquo;s low to high · line: end of day · ticks: days it charged
       </p>
     </div>
   );

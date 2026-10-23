@@ -97,7 +97,6 @@ enum Theme {
     static let gaugeIdle = [color(ThemeTokens.gaugeIdleFrom), color(ThemeTokens.gaugeIdleTo)]
     static let chartMilesBar = color(ThemeTokens.chartMilesBar)
     static let chartSocCharge = color(ThemeTokens.chartSocCharge)
-    static let chartSocDrive = color(ThemeTokens.chartSocDrive)
     static let chartSocLimit = color(ThemeTokens.chartSocLimit)
     static let chartIdleAwakeBar = color(ThemeTokens.chartIdleAwakeBar)
     static let chartIdleAwakeTile = color(ThemeTokens.chartIdleAwakeTile)
