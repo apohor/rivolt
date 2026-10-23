@@ -71,6 +71,12 @@
       "groupName": "container base images"
     },
     {
+      "description": "The Go toolchain is stated in go.mod (the toolchain line) and in the Dockerfile's golang image, and the two must match (.github/workflows/dockerfile-sync.yml fails otherwise): one PR bumps both",
+      "matchManagers": ["gomod", "dockerfile"],
+      "matchDepNames": ["go", "golang"],
+      "groupName": "go toolchain"
+    },
+    {
       "description": "Automerge non-major updates once every check on the PR head is green (none failing or pending; a skipped job counts as passed, so go, web, integration and e2e-ok all have to have passed or been skipped by the path filter), on any day, rebased onto the current main first. Renovate merges them itself on a later run instead of GitHub auto-merge (platformAutomerge off): main has no branch protection, so GitHub would merge before CI finished. A group containing a major is a major and stays manual. pinDigest (pinning an action to the commit its tag already points at) is its own update type, separate from pin and digest, and without it a group holding one never automerged (#692). A release must be 3 days old before it is proposed or merged (minimumReleaseAge), the usual defence against a hijacked package release that is yanked within hours. A merge only reaches preview; prod still needs a release tag.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
       "automerge": true,

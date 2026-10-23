@@ -16,8 +16,11 @@ RUN mkdir -p /internal/web && npm run build
 # is dramatically faster than running `go build` under QEMU.
 # Pinned to the exact Go in go.mod's `toolchain` line, so the weekly
 # govulncheck scan checks the same standard library the image ships with.
-# Bump both together.
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
+# Bump both together: the official golang image sets GOTOOLCHAIN=local, so
+# the `toolchain` line does not pull a newer Go here, and a Dockerfile left
+# behind builds with an older standard library. .github/workflows/
+# dockerfile-sync.yml fails when the two differ, and Renovate groups them.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 # VERSION is stamped into main.version via -ldflags -X. The workflow
