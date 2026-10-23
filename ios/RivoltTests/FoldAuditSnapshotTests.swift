@@ -60,7 +60,8 @@ final class FoldAuditSnapshotTests: XCTestCase {
             titleRow(title, month)
             page()
                 .frame(width: d.width, alignment: .top)
-                .frame(maxHeight: .infinity, alignment: .top)
+                // minHeight 0: without it the frame won't go below the page's own height and the screen overflows.
+                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
             ThemeTabBar(items: tabs, selection: .constant(tab))
             Color.clear.frame(height: d.bottom)
