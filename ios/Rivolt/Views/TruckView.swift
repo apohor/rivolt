@@ -600,6 +600,7 @@ struct TruckContent: View {
                             if let d = l.detail { Text(d).themeText(.subline, color: Theme.textSecondary) }
                             Text(l.basis).themeText(.subline, color: Theme.textTertiary)
                         }
+                        .padding(.bottom, Theme.unit * 2)
                         .accessibilityElement(children: .combine)
                     }
                     if let t = s.trouble {
