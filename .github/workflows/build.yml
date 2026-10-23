@@ -37,13 +37,15 @@ on:
   # required checks (go, integration, web), so a docs-only PR could not
   # merge. The `changes` job below skips the test jobs instead, and a
   # skipped job counts as success for a required check.
-  # `edited` is here for ONE reason: retargeting a PR (changing its base)
-  # must re-run CI against the new base. It also fires on title/body edits,
-  # which simply re-run CI as well. They are deliberately NOT skipped: a
-  # skipped job reports success, and a skipped run's checks (same names as
-  # the required ones) could mask an earlier failure on the same commit.
+  # No `edited`: it re-ran (and, through the PR concurrency group, cancelled
+  # the run in flight) on every title or body edit, for the one case of a
+  # retargeted PR. PRs don't stack (they all target main), so a retarget is
+  # rare: after one, close and reopen the PR or push to it to re-run CI
+  # against the new base. Skipping the edit runs instead isn't safe: a
+  # skipped job reports success under the required checks' names and could
+  # mask an earlier failure on the same commit.
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
     branches: [main, "release/**"]
   workflow_dispatch:
     inputs:
@@ -84,6 +86,7 @@ jobs:
     name: changes
     if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       web: ${{ steps.f.outputs.web }}
       go: ${{ steps.f.outputs.go }}
@@ -151,6 +154,7 @@ jobs:
     # still run.
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -413,6 +417,7 @@ jobs:
     name: playwright-cache
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     continue-on-error: true   # a warm-up must never turn main red
     strategy:
       fail-fast: false
@@ -466,6 +471,7 @@ jobs:
     needs: [changes, e2e]
     if: "!cancelled() && !startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Matrix result
         env:
@@ -487,6 +493,7 @@ jobs:
     needs: e2e
     if: "!cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.e2e.result == 'success' || needs.e2e.result == 'failure')"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     continue-on-error: true   # an issue-tracker blip must never turn main red
     permissions:
       contents: read   # checks out .github/scripts and web/scripts
@@ -541,6 +548,7 @@ jobs:
     needs: changes
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -556,15 +564,17 @@ jobs:
       # The module download cache is keyed on go.sum alone and saved from main when it misses (a cold
       # `go mod download` is 14 s, but a dropped connection to proxy.golang.org used to fail the job).
       #
-      # The build cache is keyed on the Go version and the ISO week. Only a main push saves it, and only when
-      # the week's key is missing, from a run that restored NOTHING (exact key, no restore-keys), so a week's
-      # cache holds one build and cannot grow. PRs read it, falling back to last week's entry for the first
-      # days of a week; they never save (a PR's own cache is readable only by that PR).
+      # The build cache is keyed on the Go version and the UTC day. Only a main push saves it, and only when
+      # the day's key is missing, from a run that restored NOTHING (exact key, no restore-keys), so a day's
+      # cache holds one build and cannot grow. PRs read it, falling back to yesterday's entry until the
+      # day's first main push; they never save (a PR's own cache is readable only by that PR). A day, not a
+      # week: a weekly cache went stale within the week (go test 67 s to 87 s in one day as the code moved
+      # away from it); the cost is that the day's first main push builds cold.
       - name: Cache keys
         id: ck
         run: |
-          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
           echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Go module download cache
@@ -579,7 +589,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-unit-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          key: go-unit-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
           restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-unit-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Satisfy `//go:embed all:dist` without running the vite build.
@@ -649,8 +659,8 @@ jobs:
       - name: Cache keys
         id: ck
         run: |
-          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
           echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Go module download cache
@@ -663,7 +673,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
           restore-keys: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.prev }}
 
       # Satisfy `//go:embed all:dist` without running the vite build (as in `go`).
@@ -685,6 +695,7 @@ jobs:
     needs: changes
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
     # talks to over the default unix socket — no extra service: block
     # needed.
@@ -701,8 +712,8 @@ jobs:
       - name: Cache keys
         id: ck
         run: |
-          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
           echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Go module download cache
@@ -716,7 +727,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
           restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-integration-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
@@ -758,6 +769,7 @@ jobs:
     needs: [go, integration]
     if: "!cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.go.result == 'success' && needs.integration.result == 'success'"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     continue-on-error: true
     permissions:
       actions: write
@@ -792,6 +804,7 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       version: ${{ steps.ver.outputs.version }}
       devtag: ${{ steps.ver.outputs.devtag }}
@@ -845,13 +858,13 @@ jobs:
           cache: false
 
       # Caches as in the go job (see there): the module download cache, and a build cache of this job's own (objects
-      # for CGO_ENABLED=0, which the test caches do not hold) keyed on the Go version and ISO week, saved by a main
+      # for CGO_ENABLED=0, which the test caches do not hold) keyed on the Go version and UTC day, saved by a main
       # push from a run that restored nothing.
       - name: Cache keys
         id: ck
         run: |
-          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-          echo "prev=$(date -u -d '7 days ago' +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "prev=$(date -u -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
           echo "gover=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Go module download cache
@@ -866,7 +879,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-image-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.week }}
+          key: go-image-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
           restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-image-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # The same command as the Dockerfile's build stage (CGO off, -trimpath, stripped, version stamped).
@@ -924,6 +937,7 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ needs.bin.outputs.version }}
       devtag: ${{ needs.bin.outputs.devtag }}
@@ -989,6 +1003,7 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write   # push to ghcr.io
@@ -1080,13 +1095,13 @@ jobs:
     # main) — tag pushes go to prod manually, not via this auto-bump.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # No job-level concurrency: a pending job superseded in a concurrency
     # group is cancelled, which would mark that commit's run cancelled and
     # make tag-validate refuse it. Instead the step below retries on a
     # rejected push and re-checks newest-wins each attempt.
     permissions:
       contents: read
-      actions: read   # poll this run's go/integration jobs when a migration ships
     steps:
       - name: Checkout rivolt-infra
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1120,24 +1135,10 @@ jobs:
               echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
               case "$rel" in
                 behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
-                ahead|diverged)
-                  # A bad migration can't be undone on preview's DB, so when the
-                  # range being deployed (preview's commit..this one, which also
-                  # covers a migration merged just before this commit) touches
-                  # internal/db/migrations, wait for go + integration first.
-                  if gh api "repos/$REPO/compare/$prev_full...$SHA" --paginate --jq '.files[].filename' | grep -q '^internal/db/migrations/'; then
-                    echo "a migration is in this range; waiting for go and integration."
-                    for i in $(seq 1 100); do
-                      res=$(gh api "repos/$REPO/actions/runs/${{ github.run_id }}/jobs" --jq '[.jobs[]|select(.name=="go" or .name=="integration")|.conclusion // "pending"]|sort|join(" ")')
-                      case "$res" in
-                        *failure*|*cancelled*|*timed_out*) echo "::error::go/integration did not pass ($res); not deploying a migration to preview."; exit 1 ;;
-                      esac
-                      [ "$res" = "success success" ] && break
-                      sleep 15
-                    done
-                    [ "$res" = "success success" ] || { echo "::error::timed out waiting for go/integration ($res)"; exit 1; }
-                  fi
-                  ;;
+                # A migration in the range needs no extra wait: this job needs
+                # publish, which needs go and integration, so a migration only
+                # reaches preview's DB from a commit whose tests passed.
+                ahead|diverged) ;;
                 # An API blip must not roll preview back mid-QA; the next
                 # merge's build bumps it. "diverged" (preview pinned by hand
                 # off main) falls through to the old always-bump behaviour.
@@ -1169,6 +1170,7 @@ jobs:
     # message instead.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -1213,6 +1215,7 @@ jobs:
     # main build is still in flight when the tag landed.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
@@ -1277,6 +1280,7 @@ jobs:
     # that previously followed every tag push.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout rivolt-infra
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
