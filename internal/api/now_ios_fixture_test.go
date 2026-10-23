@@ -73,11 +73,13 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"charge_one_ac.json": &chargeResponse{},
 		// The Truck tab (item G): parked drain, pack health, the monthly trends, the
 		// cold-weather range and the lease status.
-		"drain.json":        &drainResponse{},
-		"pack_health.json":  &packHealthResponse{},
-		"trends.json":       &vehicleTrends{},
-		"cold_range.json":   &coldRange{},
-		"lease_status.json": &vehiclelease.Status{},
+		"drain.json":       &drainResponse{},
+		"pack_health.json": &packHealthResponse{},
+		"trends.json":      &vehicleTrends{},
+		// The capacity dots' history (#920): estimates with energy_kwh and soc_delta_pct.
+		"trends_capacity_spread.json": &vehicleTrends{},
+		"cold_range.json":             &coldRange{},
+		"lease_status.json":           &vehiclelease.Status{},
 		// The Truck tab's "Where you charge" map: the account's charge clusters (synthetic public points).
 		"charge_clusters.json": &[]chargeClusterResponse{},
 		// Money's "To confirm" list: the open auto-detected networks, without coordinates.

@@ -32,6 +32,16 @@ final class CapacityChartTests: XCTestCase {
         XCTAssertTrue(CapacityMath.trendRuns([sample("2026-01-01", 130), sample("2026-02-15", 140)]).isEmpty)
     }
 
+    /// The server's trends (backend's fixture, #949) carry what each charge added: it weights the dots.
+    func testTheServersSamplesCarryTheEnergyAdded() throws {
+        let t = try Fixture.decode(TruckTrends.self, "trends")
+        let first = try XCTUnwrap(t.capacity?.samples.first)
+        XCTAssertEqual(first.energyKwh, 66.8)
+        XCTAssertEqual(first.socDeltaPct, 55)
+        let dots = CapacityMath.dots(t.capacity?.samples ?? [], median: t.capacity?.medianKwh ?? 0)
+        XCTAssertTrue(dots.allSatisfy { $0.energyKwh != nil }, "every dot is weighted, none at the unknown 0.6")
+    }
+
     func testTheSpreadHistory() throws {
         let c = try XCTUnwrap(try spread().capacity)
         XCTAssertEqual(c.samples.count, 20)
