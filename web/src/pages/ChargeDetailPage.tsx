@@ -28,6 +28,7 @@ import {
 import { formatDistance, formatTemperature, usePreferences, type DistanceUnit } from "../lib/preferences";
 import { chargePlaceLabel } from "../lib/chargePlace";
 import { nearestOwnNetwork } from "../lib/networkLocation";
+import { saveErrorText } from "../lib/saveError";
 import { smoothGaussianTime } from "../lib/smooth";
 
 // nearestY returns the y of the series point closest in time to ms, or
@@ -1685,6 +1686,7 @@ export function PlaceOverrideControl({
   };
   const idx = PLACE_OPTIONS.findIndex((o) => o.value === current);
   const labelId = useId();
+  const errId = useId();
   const auto = charge.place_auto === "home" ? "Home" : charge.place_auto === "away" ? "Away" : "unknown (no home set)";
   return (
     <div className="mt-4 text-xs" data-place-override>
@@ -1694,6 +1696,7 @@ export function PlaceOverrideControl({
           role="radiogroup"
           aria-labelledby={labelId}
           aria-busy={save.isPending}
+          aria-describedby={save.isError ? errId : undefined}
           className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5"
           onKeyDown={(e) => {
             const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
@@ -1730,7 +1733,11 @@ export function PlaceOverrideControl({
             ? `Kept when your home location changes. Auto: ${auto}.`
             : `Auto: ${auto}, from your home location.`}
       </p>
-      {save.isError && <p role="alert" className="mt-1 text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
+      {save.isError && (
+        <p id={errId} role="alert" className="mt-1 text-rose-400">
+          {saveErrorText(save.error)}
+        </p>
+      )}
     </div>
   );
 }
@@ -1749,6 +1756,7 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
   const hintId = useId();
   const labelId = useId();
   const switchId = useId();
+  const errId = useId();
   const toggle = () => {
     if (save.isPending) return;
     setChosen(!on);
@@ -1769,17 +1777,17 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
           role="switch"
           aria-checked={on}
           aria-labelledby={labelId}
-          aria-describedby={hintId}
+          aria-describedby={save.isError ? `${hintId} ${errId}` : hintId}
           aria-busy={save.isPending}
           onClick={toggle}
           className={[
-            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors motion-reduce:transition-none",
             on ? "border-emerald-600 bg-emerald-600" : "border-neutral-600 bg-neutral-800",
           ].join(" ")}
         >
           <span
             aria-hidden
-            className={["inline-block h-5 w-5 rounded-full bg-white shadow transition-transform", on ? "translate-x-5" : "translate-x-0.5"].join(" ")}
+            className={["inline-block h-5 w-5 rounded-full bg-white shadow transition-transform motion-reduce:transition-none", on ? "translate-x-5" : "translate-x-0.5"].join(" ")}
           />
         </button>
         <label htmlFor={switchId} className="flex min-h-11 flex-1 cursor-pointer flex-col justify-center">
@@ -1792,7 +1800,11 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
           </span>
         </label>
       </div>
-      {save.isError && <p role="alert" className="mt-1 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
+      {save.isError && (
+        <p id={errId} role="alert" className="mt-1 text-xs text-rose-400">
+          {saveErrorText(save.error)}
+        </p>
+      )}
     </div>
   );
 }
@@ -1837,7 +1849,7 @@ export function UseAsHome({ lat, lon }: { lat: number; lon: number }) {
               Cancel
             </button>
           </div>
-          {save.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t save: {String(save.error)}</p>}
+          {save.isError && <p role="alert" className="mt-2 text-xs text-rose-400">{saveErrorText(save.error)}</p>}
         </div>
       ) : (
         <button type="button" onClick={() => setConfirm(true)} className="text-xs text-neutral-400 underline hover:text-neutral-200">
