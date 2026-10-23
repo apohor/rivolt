@@ -20,7 +20,10 @@ import (
 //   - no coordinates: the schema has no latitude, longitude, gnss or heading field, and unknown keys are refused;
 //   - relative time: the first event is t=0 and every t and ts is seconds from it (mapped onto corpusEpoch);
 //   - a re-based odometer: "odo" is miles from the first event, laid onto corpusOdoKm;
-//   - "_source" is "synthetic" or "anonymized", with "_method" saying how (an anonymized corpus needs DA's ack);
+//   - "_source" is "synthetic" or "operator", with "_method" saying how. Users' data never ships, however
+//     stripped (privacy.md's sharing list has no carve-out for it): a shape taken from prod is perturbed into a
+//     synthetic corpus first (perturbCorpus), and only the operator's own vehicles or test accounts are
+//     "operator";
 //   - the vehicle is always replayVehicle.
 
 // replayVehicle is the only vehicle id a corpus run uses.
@@ -92,9 +95,9 @@ func loadCorpus(path string) (*corpus, error) {
 
 func (c *corpus) check() error {
 	switch c.Source {
-	case "synthetic", "anonymized":
+	case "synthetic", "operator":
 	default:
-		return fmt.Errorf(`_source %q: want "synthetic" or "anonymized"`, c.Source)
+		return fmt.Errorf(`_source %q: want "synthetic" or "operator" (users' data ships only perturbed, as synthetic)`, c.Source)
 	}
 	if strings.TrimSpace(c.Method) == "" {
 		return fmt.Errorf("_method is empty: say how the corpus was made")

@@ -16,27 +16,45 @@ import (
 // gear P and power sleep held through the replays, no drive reopened.
 func TestR2ParkDriveParkSleep(t *testing.T) {
 	r, events := replayCorpus(t, "r2_park_drive_park_sleep")
-	opened, closedAfterPark, reopened := 0, false, false
+	// Anchors, from the corpus itself (it is synthetic, re-spaced by cmd/corpusperturb): the first Parallax D, the
+	// fresh Parallax P (its ts is its own time: not a replay), and the last gear frame before that P.
+	gear := func(e corpusEvent, enum uint64) bool {
+		return e.Kind == "px" && e.RVM == rvmDriveGear && *e.Enum == enum
+	}
+	firstD, freshP, lastGear := -1, -1, -1
+	for i, e := range events {
+		if firstD < 0 && gear(e, 4) {
+			firstD = i
+		}
+		if freshP < 0 && firstD >= 0 && gear(e, 1) && *e.TS == e.T {
+			freshP = i
+		}
+	}
+	for i := freshP - 1; i > firstD && lastGear < 0; i-- {
+		if events[i].Kind == "px" && events[i].RVM == rvmDriveGear {
+			lastGear = i
+		}
+	}
+	if firstD < 0 || freshP < 0 || lastGear < 0 {
+		t.Fatalf("corpus anchors: first D %d, fresh P %d, last gear before P %d", firstD, freshP, lastGear)
+	}
+	opened, reopened := 0, false
+	closedAtP := false
 	var wasOpen bool
-	parkedAt := -1.0
 	r.onStep = func(i int, e corpusEvent) {
 		d, _ := r.session()
 		if d != nil && !wasOpen {
 			opened++
-			if parkedAt >= 0 {
+			if i > freshP {
 				reopened = true
 			}
 		}
-		if e.Kind == "px" && e.RVM == rvmDriveGear && *e.Enum == 1 && *e.TS == 1500 && parkedAt < 0 {
-			parkedAt = e.T
-		}
-		// Closed at the fresh P itself, before any resubscribe replay
-		// (t=1665) could do it.
-		if parkedAt >= 0 && d == nil && e.T < 1665 {
-			closedAfterPark = true
+		// Closed at the fresh P itself, before any resubscribe replay could do it.
+		if i == freshP && d == nil {
+			closedAtP = true
 		}
 		// Mid-drive: a stop in traffic and a replayed D keep it open.
-		if e.T > 74 && e.T < 1482 && d == nil {
+		if e.T > events[firstD].T && e.T < events[lastGear].T && d == nil {
 			t.Errorf("t=%.0f: the drive closed mid-trip (%s %s)", e.T, e.Kind, e.RVM)
 		}
 		wasOpen = d != nil
@@ -46,7 +64,7 @@ func TestR2ParkDriveParkSleep(t *testing.T) {
 	if opened != 1 || reopened {
 		t.Errorf("drives opened %d (reopened after park: %v), want exactly 1", opened, reopened)
 	}
-	if !closedAfterPark {
+	if !closedAtP {
 		t.Error("the drive didn't close at the fresh Parallax P (vehicleState kept R)")
 	}
 	c := r.cached()
@@ -60,6 +78,27 @@ func TestR2ParkDriveParkSleep(t *testing.T) {
 // before it closes.
 func TestR2ChargeWithStaleGear(t *testing.T) {
 	r, events := replayCorpus(t, "r2_charge_with_stale_gear")
+	// Anchors, from the corpus (synthetic, re-spaced): the first power while charging_active, the
+	// charging_complete that ends it, and the peak power.
+	wantOpen, wantClose, peakKW := -1.0, -1.0, 0.0
+	cs := ""
+	for _, e := range events {
+		if e.CS != "" {
+			cs = e.CS
+		}
+		if e.KW != nil && *e.KW > peakKW {
+			peakKW = *e.KW
+		}
+		if wantOpen < 0 && cs == "charging_active" && e.KW != nil && *e.KW > 0 {
+			wantOpen = e.T
+		}
+		if wantClose < 0 && e.CS == "charging_complete" {
+			wantClose = e.T
+		}
+	}
+	if wantOpen < 0 || wantClose < 0 || peakKW == 0 {
+		t.Fatalf("corpus anchors: open %v close %v peak %v kW", wantOpen, wantClose, peakKW)
+	}
 	sawDrive := false
 	var charge *liveCharge
 	var openedAt, closedAt float64 = -1, -1
@@ -94,20 +133,20 @@ func TestR2ChargeWithStaleGear(t *testing.T) {
 		t.Error("the drive before the charge never opened")
 	}
 	// No chargerStatus at all (an R2): charging_active at 0 kW doesn't
-	// open it (t=179); power does (t=184); charging_complete closes it.
-	if openedAt != 184 {
-		t.Errorf("charge opened at t=%.0f, want 184 (first power while charging_active)", openedAt)
+	// open it; power does; charging_complete closes it.
+	if openedAt != wantOpen {
+		t.Errorf("charge opened at t=%.0f, want %.0f (first power while charging_active)", openedAt, wantOpen)
 	}
-	if closedAt != 900 {
-		t.Errorf("charge closed at t=%.0f, want 900 (charging_complete)", closedAt)
+	if closedAt != wantClose {
+		t.Errorf("charge closed at t=%.0f, want %.0f (charging_complete)", closedAt, wantClose)
 	}
-	if peakEnergy <= 0 || charge == nil || charge.maxPower < 7 {
-		t.Errorf("charge: %.2f kWh, peak %.1f kW; want energy at ~7.4 kW", peakEnergy, charge.maxPower)
+	if peakEnergy <= 0 || charge == nil || charge.maxPower < 0.95*peakKW {
+		t.Errorf("charge: %.2f kWh; want energy, and its peak at the corpus's %.1f kW", peakEnergy, peakKW)
 	}
 }
 
-// Without chargerStatus (R2): charging_connecting at 0 kW (29 of them in
-// 5 days on 01-000000001, never followed by power) opens nothing; with a
+// Without chargerStatus (R2): charging_connecting at 0 kW (seen often on
+// R2s, never followed by power) opens nothing; with a
 // status (R1) the status decides, as before.
 func TestPluggedWithoutChargerStatus(t *testing.T) {
 	s := &liveSessions{}

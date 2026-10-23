@@ -192,8 +192,9 @@ func TestPriceCharges(t *testing.T) {
 	}
 }
 
-// The anonymized prod corpus r2_park_drive_park_sleep (internal/rivian's
-// replay harness): its vehicleState rows give one trip of the odometer's 6.2 mi.
+// The synthetic corpus r2_park_drive_park_sleep (internal/rivian's replay
+// harness): its vehicleState rows give one trip of the distance its odometer
+// covers.
 func TestFixtureTrip(t *testing.T) {
 	raw, err := os.ReadFile("../../rivian/testdata/corpus/r2_park_drive_park_sleep.json")
 	if err != nil {
@@ -212,7 +213,7 @@ func TestFixtureTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rows []Row
-	power, odo, soc := "", 0.0, 0.0
+	power, odo, soc, maxOdo := "", 0.0, 0.0, 0.0
 	for _, e := range seq.Events {
 		if e.Kind != "vs" {
 			continue
@@ -222,6 +223,7 @@ func TestFixtureTrip(t *testing.T) {
 		}
 		if e.Odo != nil {
 			odo = *e.Odo
+			maxOdo = math.Max(maxOdo, odo)
 		}
 		if e.SoC > 0 {
 			soc = e.SoC
@@ -229,7 +231,7 @@ func TestFixtureTrip(t *testing.T) {
 		rows = append(rows, Row{At: t0.Add(time.Duration(e.T * float64(time.Second))), Power: power, OdoMi: 30000 + odo, SoC: soc})
 	}
 	trips, _ := Segment(rows)
-	if len(trips) != 1 || math.Abs(trips[0].DistanceMi()-6.2) > 1e-9 {
-		t.Fatalf("fixture: %d trips %+v, want one of 6.2 mi", len(trips), trips)
+	if maxOdo <= 0 || len(trips) != 1 || math.Abs(trips[0].DistanceMi()-maxOdo) > 1e-9 {
+		t.Fatalf("fixture: %d trips %+v, want one of the corpus's %.2f mi", len(trips), trips, maxOdo)
 	}
 }
