@@ -157,6 +157,7 @@ extension ActivityLogic {
         var parts = ["Drive, \(timeOfDay(d.startedAt, calendar: calendar))."]
         parts.append("\(NowFormat.distance(mi: d.distanceMi, spoken: true)).")
         if let legs = d.roundTripLegs, legs > 1 { parts.append("Round trip, \(legs) legs.") }
+        if d.hasTrailer { parts.append("Trailer.") }
         if let t = duration(d) { parts.append("\(NowFormat.spokenDuration(t)).") }
         if missingEnergy(d) {
             parts.append("No energy reading.")

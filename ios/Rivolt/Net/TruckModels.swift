@@ -84,6 +84,15 @@ struct TruckTrends: Decodable, Equatable {
         let month: String
         let distance: Double
         let efficiency: Double?
+        /// The month's drives with a trailer on their own; absent when there were none.
+        var trailer: Trailer? = nil
+    }
+
+    struct Trailer: Decodable, Equatable {
+        let drives: Int
+        let distance: Double
+        let energyKwh: Double
+        let efficiency: Double?
     }
 
     struct Capacity: Decodable, Equatable {
@@ -111,6 +120,8 @@ struct TruckTrends: Decodable, Equatable {
     let minMonths: Int
     let qualifyingMonths: Int
     let efficiency: [Month]
+    /// The drives over the window left out of those months because a trailer was connected.
+    var excludedTrailerDrives: Int? = nil
     /// Nil on a truck whose capacity can't be tracked (the R2).
     let capacity: Capacity?
 }

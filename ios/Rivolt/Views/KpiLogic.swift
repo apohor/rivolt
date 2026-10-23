@@ -11,6 +11,14 @@ struct KpiDriveStats: Equatable {
     let miPerKwh: Double
     let milesPerPct: Double
     let maxSpeedMph: Double
+    /// Drives with a trailer, which the efficiency figures (energy, milesForEnergy, miPerKwh, milesPerPct) leave out;
+    /// count, miles and the average trip still include them.
+    var trailerExcluded: Int = 0
+
+    /// "excludes 2 drives with a trailer", the same words as the web's Efficiency tile; nil when none were left out.
+    var trailerNote: String? {
+        trailerExcluded > 0 ? "excludes \(trailerExcluded) \(trailerExcluded == 1 ? "drive" : "drives") with a trailer" : nil
+    }
 }
 
 struct KpiChargeStats: Equatable {
@@ -47,14 +55,17 @@ struct KpiTile: Equatable, Identifiable {
 enum KpiLogic {
     static func drives(_ ds: [ActivityDrive]) -> KpiDriveStats {
         let miles = ds.reduce(0) { $0 + max(0, $1.distanceMi) }
-        let socUsed = ds.reduce(0) { $0 + max(0, $1.startSocPct - $1.endSocPct) }
-        let withEnergy = ds.filter { $0.energyUsedKwh > 0 && $0.distanceMi > 0 }
+        let plain = ds.filter { !$0.hasTrailer }
+        let socUsed = plain.reduce(0) { $0 + max(0, $1.startSocPct - $1.endSocPct) }
+        let plainMiles = plain.reduce(0) { $0 + max(0, $1.distanceMi) }
+        let withEnergy = plain.filter { $0.energyUsedKwh > 0 && $0.distanceMi > 0 }
         let energy = withEnergy.reduce(0) { $0 + $1.energyUsedKwh }
         let milesForEnergy = withEnergy.reduce(0) { $0 + $1.distanceMi }
         return KpiDriveStats(
             count: ds.count, miles: miles, avgTripMi: ds.isEmpty ? 0 : miles / Double(ds.count),
             energyUsedKwh: energy, milesForEnergy: milesForEnergy, miPerKwh: energy > 0 ? milesForEnergy / energy : 0,
-            milesPerPct: socUsed > 0 ? miles / socUsed : 0, maxSpeedMph: ds.reduce(0) { max($0, $1.maxSpeedMph) })
+            milesPerPct: socUsed > 0 ? plainMiles / socUsed : 0, maxSpeedMph: ds.reduce(0) { max($0, $1.maxSpeedMph) },
+            trailerExcluded: ds.count - plain.count)
     }
 
     static func charges(_ cs: [ActivityCharge]) -> KpiChargeStats {
@@ -141,18 +152,19 @@ enum KpiLogic {
 
         // Efficiency: the pack's own figure, else wall to wheel, else miles per percent.
         let effUnit = metric ? "km/kWh" : "mi/kWh"
+        let note = d.trailerNote.map { " · " + $0 } ?? ""
         if d.miPerKwh > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.miPerKwh * k, 2), unit: effUnit,
-                               hint: "pack-side · \(dst(d.milesForEnergy, 0)) \(dist) / \(fixed(d.energyUsedKwh, 0)) kWh"))
+                               hint: "pack-side · \(dst(d.milesForEnergy, 0)) \(dist) / \(fixed(d.energyUsedKwh, 0)) kWh" + note))
         } else if c.energyKwh > 0, d.miles > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.miles / c.energyKwh * k, 2), unit: effUnit,
-                               hint: "wall-to-wheel · \(dst(d.miles, 0)) \(dist) / \(fixed(c.energyKwh, 0)) kWh"))
+                               hint: "wall-to-wheel · \(dst(d.miles, 0)) \(dist) / \(fixed(c.energyKwh, 0)) kWh" + note))
         } else if d.milesPerPct > 0 {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: fixed(d.milesPerPct * k, 2), unit: "\(dist)/%",
-                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")"))
+                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")" + note))
         } else {
             out.append(KpiTile(id: "efficiency", label: "Efficiency", value: "—", unit: "",
-                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")"))
+                               hint: "top speed \(fixed(d.maxSpeedMph * k, 0)) \(metric ? "km/h" : "mph")" + note))
         }
 
         // Charging cost: the ledger's month, the number Money shows; the month's charges when the ledger can't say.

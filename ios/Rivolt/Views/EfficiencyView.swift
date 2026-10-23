@@ -31,6 +31,17 @@ enum EfficiencyLogic {
         return s
     }
 
+    /// "Excludes 2 drives with a trailer, which ran 1.40 mi/kWh over 120 mi.", the web's words; nil when none were left out.
+    static func trailerNote(_ e: EfficiencyInsights) -> String? {
+        let n = e.excluded?.trailer ?? 0
+        guard n > 0 else { return nil }
+        var s = "Excludes \(n) \(n == 1 ? "drive" : "drives") with a trailer"
+        if let t = e.withTrailer, t.drives > 0, let eff = t.efficiency {
+            s += ", which ran \(NumberText.fixed(eff, 2)) \(e.efficiencyUnit) over \(TruckLogic.whole(t.distance)) \(e.distanceUnit)"
+        }
+        return s + "."
+    }
+
     /// The one line in place of the figures when there are too few, in the list's words.
     static func notEnough(_ e: EfficiencyInsights, month: String) -> String {
         "Not enough data yet for \(month): efficiency needs drives with recorded energy, at least \(TruckLogic.whole(e.minBucketDistance)) \(e.distanceUnit)."
@@ -126,6 +137,9 @@ struct EfficiencyView: View {
             .accessibilityLabel(SpokenText.words("Average efficiency \(NumberText.fixed(avg, 2)) \(e.efficiencyUnit)"))
             Text(EfficiencyLogic.summary(e)).themeText(.subline)
                 .accessibilityLabel(SpokenText.words(EfficiencyLogic.summary(e).replacingOccurrences(of: " · ", with: ", ")))
+            if let note = EfficiencyLogic.trailerNote(e) {
+                Text(note).themeText(.subline, color: Theme.textTertiary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .themeCard()
