@@ -13,8 +13,9 @@
 # runs fails there, in a week, instead of one night a month.
 #
 # A failure opens, or comments on, one open issue titled "e2e red on main"
-# (label: ci). A green run after a red one says so on that issue, naming which
-# run (daily or boundary) it was; the lead closes it.
+# (label: ci), the same one a WebKit failure on a main push uses (build.yml). A
+# green run after a red one says so on that issue, naming which run (daily or
+# boundary) it was; the lead closes it.
 name: e2e nightly
 
 on:
@@ -169,8 +170,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # One issue, never a pile: a red run opens it or comments on the open one; a
-  # green run after a red one comments that it's green again.
+  # One issue, never a pile (.github/scripts/e2e-red-issue.sh, shared with the
+  # WebKit run on main pushes in build.yml).
   report:
     needs: [e2e, e2e-boundaries]
     if: always() && needs.e2e.result != 'cancelled' && needs.e2e-boundaries.result != 'cancelled'
@@ -187,26 +188,19 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       TITLE: e2e red on main
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Open, update or clear the issue
+        env:
+          ARTIFACTS: e2e-nightly-*, e2e-boundary-*
         run: |
           # Red if either half failed; a half that didn't run this time is skipped.
           RESULT=success
           for r in "$DAILY" "$BOUNDARIES"; do [ "$r" = "success" ] || [ "$r" = "skipped" ] || RESULT=failure; done
           # Name the run, so a green daily run doesn't read as clearing a boundary failure.
-          kinds=""
-          [ "$DAILY" != "skipped" ] && kinds="daily"
-          [ "$BOUNDARIES" != "skipped" ] && kinds="${kinds:+$kinds + }pinned-clock boundary"
-          open=$(gh issue list --state open --label ci --search "\"$TITLE\" in:title" --json number,title \
-            --jq "[.[] | select(.title == env.TITLE)][0].number // empty")
-          if [ "$RESULT" = "success" ]; then
-            [ -n "$open" ] && gh issue comment "$open" --body "The $kinds run is green: $RUN_URL"
-            exit 0
-          fi
-          failed=$(gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name')
-          body=$(printf 'The %s e2e run on main failed: %s\n\nFailed jobs:\n%s\n\nThe artifacts (e2e-nightly-*, e2e-boundary-*) hold the report, screenshots and error context for 7 days.' "$kinds" "$RUN_URL" "${failed:-"- (see the run)"}")
-          if [ -n "$open" ]; then
-            gh issue comment "$open" --body "$body"
-          else
-            gh label create ci --color B60205 --description "CI health" 2>/dev/null || true
-            gh issue create --title "$TITLE" --label ci --body "$body"
-          fi
+          KIND=""
+          [ "$DAILY" != "skipped" ] && KIND="daily"
+          [ "$BOUNDARIES" != "skipped" ] && KIND="${KIND:+$KIND + }pinned-clock boundary"
+          RESULT="$RESULT" KIND="$KIND" bash .github/scripts/e2e-red-issue.sh

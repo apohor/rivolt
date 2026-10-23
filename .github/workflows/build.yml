@@ -288,11 +288,12 @@ jobs:
         # Main pushes and a manual run: WebKit (the iPhone Safari engine; the phone
         # specs only, see web/playwright.config.ts), two shards. WebKit left the PR
         # path for speed (the owner, Oct 23); keep it on main: a WebKit failure turns
-        # that main build red, and tag-validate refuses a tag whose SHA has no green
-        # main build, so a Safari regression can land on main but can't ship. Nothing
-        # in the release path (publish, bump-preview) needs this job, so a green run
-        # never waits on it. Also nightly (e2e-nightly.yml) and the pre-release iPhone
-        # WebKit gate at tag.
+        # that main build red, tag-validate refuses a tag whose SHA has no green main
+        # build, bump-preview waits for e2e-ok (so preview only gets SHAs that can be
+        # tagged), and e2e-report opens the "e2e red on main" issue. A Safari
+        # regression can land on main but can't reach preview or ship. publish does not
+        # wait for it (it only pushes per-commit image tags). Also nightly
+        # (e2e-nightly.yml) and the pre-release iPhone WebKit gate at tag.
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"suite":"all","project":"chromium","shard":1,"total":3},{"suite":"all","project":"chromium","shard":2,"total":3},{"suite":"all","project":"chromium","shard":3,"total":3}]' || '[{"suite":"all","project":"webkit","shard":1,"total":2},{"suite":"all","project":"webkit","shard":2,"total":2}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -451,6 +452,35 @@ jobs:
           # A failed `changes` skips e2e; that must not read as green.
           [ "$CHANGES" = "success" ] || exit 1
           [ "$RESULT" = "success" ] || [ "$RESULT" = "skipped" ]
+
+  # A failed WebKit shard on main (a push, or a manual run on main) opens or
+  # comments on the "e2e red on main" issue, as the nightly run does; the next
+  # green main run says so once. Shared with e2e-nightly.yml.
+  e2e-report:
+    name: e2e-report
+    needs: e2e
+    if: "!cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (needs.e2e.result == 'success' || needs.e2e.result == 'failure')"
+    runs-on: ubuntu-latest
+    continue-on-error: true   # an issue-tracker blip must never turn main red
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Open, update or clear the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.e2e.result }}
+          KIND: ${{ github.event_name == 'push' && 'main push (WebKit)' || 'manual run on main (WebKit)' }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: e2e red on main
+          ARTIFACTS: e2e-all-webkit-*
+        run: bash .github/scripts/e2e-red-issue.sh
 
   go:
     name: go
@@ -984,10 +1014,14 @@ jobs:
 
   bump-preview:
     name: bump-preview
-    # Waits for the image only. The tests already ran green on the PR; a red
-    # main still blocks the next tag via tag-validate. The one exception is a
-    # migration in the range being deployed: see the step below.
-    needs: [publish, changes]
+    # Preview gets only a SHA that tag-validate would accept: every job that can
+    # turn this run red is needed here (publish already needs go, integration and
+    # web; e2e-ok is the WebKit run on main, lint and chart run on every push).
+    # Otherwise a WebKit flake or a lint failure on main shipped to preview and
+    # left that SHA untaggable for prod. The housekeeping jobs (cache-prune,
+    # playwright-cache, e2e-report) are continue-on-error and can't redden it.
+    # e2e-ok finished about 35 s after publish on the first 2-shard main run.
+    needs: [publish, changes, e2e-ok, lint, chart]
     # Only after a successful main image publish (a push, or a manual run on
     # main) — tag pushes go to prod manually, not via this auto-bump.
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
