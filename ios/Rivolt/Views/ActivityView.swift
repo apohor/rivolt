@@ -155,16 +155,11 @@ struct ActivityView: View {
     }
 
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("Activity").themeText(.hero).accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+        ThemeTitleRow(title: "Activity") {
             ThemeStepper(title: month.title(calendar: calendar), spokenTitle: month.spokenTitle(calendar: calendar), canGoForward: !month.isCurrent(now: .now, calendar: calendar),
                          previous: { month = month.shifted(by: -1, calendar: calendar) },
                          next: { month = month.shifted(by: 1, calendar: calendar) })
         }
-        .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
-        .background(Theme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 
     /// The map's lists, read only when the Map view is open (the web's Activity map lists).

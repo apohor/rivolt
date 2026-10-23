@@ -47,12 +47,6 @@ struct HomeView: View {
                         let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                         let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
-                            if let m = extras.current(vehicleID: vehicle.id) {
-                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }) {
-                                    Task { await extras.dismiss(m, source: state.client) }
-                                }
-                            }
-                            threeThings
                             // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
                             // charge we can't see.
                             let fresh = summary.freshness != .stale
@@ -64,6 +58,17 @@ struct HomeView: View {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
                                 NoDataCard(vehicleName: vehicle.name)
                             }
+                            // The truck comes first (battery, range, charging, status); the asks and the milestone after
+                            // it, so they never push it below the fold (the scroll audit: on an SE they did).
+                            if state.notifications.shouldAskInApp {
+                                NotificationPromptCard(manager: state.notifications)
+                            }
+                            if let m = extras.current(vehicleID: vehicle.id) {
+                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }) {
+                                    Task { await extras.dismiss(m, source: state.client) }
+                                }
+                            }
+                            threeThings
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
                             // The web's order after the tiles: where it charges, then the two charts.
@@ -105,13 +110,6 @@ struct HomeView: View {
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
-            .safeAreaInset(edge: .top) {
-                if state.notifications.shouldAskInApp {
-                    NotificationPromptCard(manager: state.notifications)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                }
-            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }) }
@@ -132,9 +130,7 @@ struct HomeView: View {
     /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
     /// bar like the web's.
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text("Now").themeText(.hero).accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+        ThemeTitleRow(title: "Now") {
             if vehicles.count > 1 {
                 Menu {
                     Picker("Vehicle", selection: $selectedID) {
@@ -150,10 +146,6 @@ struct HomeView: View {
                          previous: { month = month.shifted(by: -1, calendar: .current) },
                          next: { month = month.shifted(by: 1, calendar: .current) })
         }
-        .padding(.horizontal, 4 * Theme.unit)
-        .padding(.vertical, 2 * Theme.unit)
-        .background(Theme.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
     }
 
     /// When the newest finished charge ended (the one in progress doesn't count), for "Since last charge".
