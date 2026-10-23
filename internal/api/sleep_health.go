@@ -18,17 +18,18 @@ import (
 // verdict agree), and a sleep that ended within a minute is a "failed" (short) sleep.
 //
 // This week is the 7 complete UTC days before today; the baseline is the 30 days before that. A day counts
-// only if the truck's power state was recorded for it. Because the week can have 5 to 7 such days and the
+// only if the truck slept that day (see sleepHealthMinAsleepHours). Because the week can have 5 to 7 such days and the
 // baseline 14 to 30, the usual week is a rate: the baseline's short sleeps per recorded day times this
 // week's recorded days.
 const (
 	sleepHealthWeekDays     = 7
 	sleepHealthBaselineDays = 30
-	// A day is recorded with a sleep in it, or with this many hours of asleep or idle-awake time (the drain
-	// card's own "observed power state" minimum).
-	sleepHealthMinObsHours = 3.0
-	sleepHealthMinWeekDays = 5
-	sleepHealthMinBaseDays = 14
+	// A day is recorded when the truck slept at all that day: a sleep in it, or at least this many hours asleep. A day with neither is not "a day
+	// without short sleeps": before its power-state fix an R2 reported about 21 awake hours and no sleep at all, and counting those as quiet days
+	// would make the baseline look calmer than it was.
+	sleepHealthMinAsleepHours = 0.5
+	sleepHealthMinWeekDays    = 5
+	sleepHealthMinBaseDays    = 14
 	// "More than usual": at least this many more short sleeps than the usual week, and at least this share more.
 	sleepHealthMoreBy    = 3.0
 	sleepHealthMoreRatio = 1.5
@@ -54,7 +55,7 @@ type weekSum struct {
 }
 
 func sleepDayRecorded(d samples.DayActivity) bool {
-	return d.Sleeps > 0 || d.AsleepH+d.IdleAwakeH >= sleepHealthMinObsHours
+	return d.Sleeps > 0 || d.AsleepH >= sleepHealthMinAsleepHours
 }
 
 // buildSleepHealth is pure: the per-UTC-day rows and the clock -> the verdict.

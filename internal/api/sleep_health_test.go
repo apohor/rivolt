@@ -120,17 +120,47 @@ func TestSleepHealthBoundary(t *testing.T) {
 	}
 }
 
-// Days without a recorded power state (no sleeps, under 3 h observed) never count, so a truck that sends none isn't read as "slept well".
+// Days on which the truck never slept don't count (an R2 before its power-state fix: about 21 awake hours, no sleep), so they never make the
+// baseline look calmer than it was and a truck that sends none isn't read as "slept well".
 func TestSleepHealthUnrecordedDaysDontCount(t *testing.T) {
 	days := shDays(day(9, 16), day(10, 22), func(time.Time) int { return 1 })
 	for i := range days {
 		if i%2 == 0 {
-			days[i].Sleeps, days[i].AsleepH, days[i].IdleAwakeH, days[i].FailedSleeps = 0, 0.5, 0.5, 40
+			days[i].Sleeps, days[i].AsleepH, days[i].IdleAwakeH, days[i].FailedSleeps = 0, 0.2, 21, 40
 		}
 	}
 	got := buildSleepHealth(days, shNow)
 	if got.ThisWeek.Days > 4 || got.State != "not_enough_data" {
 		t.Errorf("%+v", got)
+	}
+}
+
+// An R2-shaped history: nothing slept before Oct 16 (ready all day), then real days. Seven real days are a week but no baseline, so no verdict;
+// and with a longer real history the invalid days still add nothing to the baseline's days or its rate.
+func TestSleepHealthR2ShapedHistory(t *testing.T) {
+	r2 := func(m time.Month, d int, sleeps, failed int, asleep float64) samples.DayActivity {
+		return samples.DayActivity{Day: day(m, d), AsleepH: asleep, IdleAwakeH: 2, Sleeps: sleeps, FailedSleeps: failed}
+	}
+	var days []samples.DayActivity
+	for d := 9; d <= 15; d++ { // before the fix: ready ~21 h, no sleep
+		days = append(days, samples.DayActivity{Day: day(10, d), AsleepH: 0, IdleAwakeH: 21})
+	}
+	// Oct 16-22, R2 A's real shape.
+	for i, s := range [][3]int{{7, 0, 4}, {18, 6, 14}, {21, 3, 14}, {30, 10, 20}, {7, 0, 18}, {7, 0, 24}, {7, 0, 24}} {
+		days = append(days, r2(10, 16+i, s[0], s[1], float64(s[2])))
+	}
+	got := buildSleepHealth(days, shNow)
+	if got.State != "not_enough_data" || got.BaselineDays != 0 || got.ThisWeek.Days != 7 {
+		t.Errorf("a week of real R2 days and no baseline: %+v", got)
+	}
+	// A month on (Nov 20): the pre-fix days are far outside the window, and a flat history reads as normal.
+	var later []samples.DayActivity
+	for d := day(10, 16); !d.After(day(11, 19)); d = d.AddDate(0, 0, 1) {
+		later = append(later, samples.DayActivity{Day: d, AsleepH: 16, IdleAwakeH: 2, Sleeps: 12, FailedSleeps: 2})
+	}
+	g := buildSleepHealth(later, time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC))
+	if g.State != "normal" || g.BaselineDays != 30 || g.ThisWeek.Days != 7 {
+		t.Errorf("R2 with a month of real days: %+v", g)
 	}
 }
 
