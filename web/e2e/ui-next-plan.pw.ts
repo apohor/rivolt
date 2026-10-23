@@ -42,11 +42,13 @@ test("next-mode on a phone: map first, then the summary and itinerary; Saved and
   await page.goto("/demo/trips/plan");
   await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
-  const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
-  const bar = await y("[data-plan-bar]");
-  const map = await y("[data-plan-area='map']");
-  const summary = await y("[data-plan-area='summary']");
-  const itinerary = await y("[data-plan-area='itinerary']");
+  // The page smooth-scrolls the map into view as the plan arrives, so the four tops are read in one frame and in
+  // page coordinates: separate boundingBox() calls each landed at a different point of the scroll.
+  const [bar, map, summary, itinerary] = await page.evaluate(() =>
+    ["[data-plan-bar]", "[data-plan-area='map']", "[data-plan-area='summary']", "[data-plan-area='itinerary']"].map(
+      (sel) => document.querySelector(sel)!.getBoundingClientRect().top + window.scrollY,
+    ),
+  );
   expect(bar).toBeLessThan(map);
   expect(map).toBeLessThan(summary);
   expect(summary).toBeLessThan(itinerary);
