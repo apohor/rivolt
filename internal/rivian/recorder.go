@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apohor/rivolt/internal/bg"
@@ -286,6 +287,9 @@ type liveCharge struct {
 	// progress kept integrating (noteProgress).
 	progressKWh       float64
 	progressActiveSec float64
+
+	// floorNoted is set once the energy floor's counter and log have been written for this charge.
+	floorNoted atomic.Bool
 }
 
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
@@ -1495,6 +1499,7 @@ func (m *StateMonitor) maybeRehydrate(vehicleID string, curr *State) *liveSessio
 	}
 
 	sess := liveSessionsFromSnapshot(snap)
+	m.seedChargeEnergyFromRow(sess, curr)
 	if sess.drive != nil || sess.charge != nil {
 		m.logger.Info("live state rehydrated",
 			"vehicle", vehicleID,
@@ -1504,6 +1509,82 @@ func (m *StateMonitor) maybeRehydrate(vehicleID string, curr *State) *liveSessio
 			"charge_counter", sess.chargeCounter)
 	}
 	return sess
+}
+
+// chargeEnergyFloorRatio is how far under the SoC-implied energy an AC charge's recorded energy may fall before the
+// SoC-delta estimate replaces it. Healthy rows sit at or above 1.0 (the losses add to the pack's energy); a handoff
+// that took part of the integral leaves less.
+const chargeEnergyFloorRatio = 0.6
+
+// chargeEnergyFloorMinSoC is the smallest SoC gain the floor trusts: under it a rounding step moves the estimate too much.
+const chargeEnergyFloorMinSoC = 5.0
+
+// ChargeWallToPackFactor is how much more energy the wall delivers than the pack gains, the charging losses: the
+// median across clean AC charges (R1 and R2) is about 1.08. The estimate uses it so it does not understate; the repair
+// of past rows uses the same factor when a vehicle has too few clean charges of its own.
+const ChargeWallToPackFactor = 1.08
+
+// chargeEnergyFloor returns the energy to record and whether the floor replaced it. Only an AC charge (peak under
+// l2PowerThresholdKW, which has no Parallax total) with a known start SoC (a start of 0 is a failed seed, which would make the
+// gain the whole end SoC), a rising SoC no higher than 100, a gain of at least chargeEnergyFloorMinSoC and a known pack.
+// The replacement is the pack's gain times the charging-loss factor, not the bare pack gain.
+func chargeEnergyFloor(energy, peakKW, startSoC, endSoC, packKWh float64) (float64, bool) {
+	dSoC := endSoC - startSoC
+	if peakKW <= 0 || peakKW >= l2PowerThresholdKW || startSoC <= 0 || endSoC > 100 || dSoC < chargeEnergyFloorMinSoC || packKWh <= 0 {
+		return energy, false
+	}
+	pack := dSoC / 100 * packKWh
+	if energy < chargeEnergyFloorRatio*pack {
+		return pack * ChargeWallToPackFactor, true
+	}
+	return energy, false
+}
+
+// ChargeEnergyObserver is optionally implemented by the SleepObserver (main's metrics adapter): told once for each charge
+// whose energy the floor replaced (rivolt_charge_energy_floor_total, no labels).
+type ChargeEnergyObserver interface {
+	OnChargeEnergyFloor()
+}
+
+// noteEnergyFloor counts and logs a floored charge once, however many times its row is rebuilt. The log carries the vehicle id
+// every line of the recorder carries, and the energies, never a place.
+func (m *StateMonitor) noteEnergyFloor(vehicleID string, c *liveCharge, row charges.Charge) {
+	if !row.EnergyEstimated || !c.floorNoted.CompareAndSwap(false, true) {
+		return
+	}
+	m.mu.RLock()
+	obs := m.sleepObserver
+	m.mu.RUnlock()
+	if o, ok := obs.(ChargeEnergyObserver); ok {
+		o.OnChargeEnergyFloor()
+	}
+	if m.logger != nil {
+		m.logger.Warn("charge energy replaced by an estimate from the SoC gain (the integral had lost energy)",
+			"vehicle", vehicleID, "id", c.id, "kwh", row.EnergyAddedKWh, "active_s", c.activeSeconds,
+			"soc_gain", c.endSoC-c.startSoC)
+	}
+}
+
+// seedChargeEnergyFromRow lifts a rehydrated charge's energy to what its stored row already holds. A snapshot an older
+// pod wrote carries no energy integral (it restarted at 0 on every handoff), but the open row has been upserted with
+// the running total all along; the larger of the two stands. Best-effort: with no store or no matching open row the
+// snapshot's value stands.
+func (m *StateMonitor) seedChargeEnergyFromRow(sess *liveSessions, curr *State) {
+	if sess == nil || sess.charge == nil || m.chargesStore == nil || curr == nil {
+		return
+	}
+	rctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	row, err := m.chargesStore.LatestOpenLive(rctx, curr.VehicleID)
+	if err != nil || row == nil || row.ID != sess.charge.id {
+		return
+	}
+	if row.EnergyAddedKWh > sess.charge.energyIntKWh {
+		sess.charge.energyIntKWh, sess.charge.progressKWh = row.EnergyAddedKWh, row.EnergyAddedKWh
+	}
+	if row.ActiveSeconds > sess.charge.activeSeconds {
+		sess.charge.activeSeconds, sess.charge.progressActiveSec = row.ActiveSeconds, row.ActiveSeconds
+	}
 }
 
 // persistLiveState saves the current accumulator snapshot to the
@@ -1741,6 +1822,17 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		}
 	}
 
+	// Integral-lost floor (AC only). The integral can lose energy a restart or a handoff took (this happened on prod: every
+	// pod handoff mid-charge zeroed it). An AC charge whose energy is far under what its SoC gain implies is
+	// understated, so the SoC-delta estimate stands in. Pack energy under-counts wall energy by the charging losses
+	// (about 8 %), so this errs low, never high.
+	// Only on the closing build: the mark is sticky, and a transient mid-charge dip (an SoC step before its energy) must not
+	// mark a charge that ends up metered. An open row shows its live energy.
+	energyEstimated := false
+	if closing := c.final || !charges.IsOpenLiveFinalState(c.finalState); closing && maxPower > 0 {
+		energy, energyEstimated = chargeEnergyFloor(energy, maxPower, c.startSoC, c.endSoC, m.PackKWhFor(vehicleID))
+	}
+
 	// Physical plausibility cap (L2/home only). Delivered energy can
 	// never exceed peak observed power × elapsed time. Rivian's Parallax
 	// feed reports TotalChargedEnergyKWh cumulatively since the cable was
@@ -1804,21 +1896,22 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 
 	row := charges.Charge{
-		ID:             c.id,
-		VehicleID:      vehicleID,
-		StartedAt:      c.startedAt,
-		EndedAt:        c.endAt,
-		StartSoCPct:    c.startSoC,
-		EndSoCPct:      c.endSoC,
-		EnergyAddedKWh: energy,
-		MilesAdded:     milesAdded,
-		MaxPowerKW:     maxPower,
-		AvgPowerKW:     avg,
-		FinalState:     c.finalState,
-		Lat:            c.lat,
-		Lon:            c.lon,
-		Source:         "live",
-		ActiveSeconds:  c.activeSeconds,
+		ID:              c.id,
+		VehicleID:       vehicleID,
+		StartedAt:       c.startedAt,
+		EndedAt:         c.endAt,
+		StartSoCPct:     c.startSoC,
+		EndSoCPct:       c.endSoC,
+		EnergyAddedKWh:  energy,
+		EnergyEstimated: energyEstimated,
+		MilesAdded:      milesAdded,
+		MaxPowerKW:      maxPower,
+		AvgPowerKW:      avg,
+		FinalState:      c.finalState,
+		Lat:             c.lat,
+		Lon:             c.lon,
+		Source:          "live",
+		ActiveSeconds:   c.activeSeconds,
 	}
 	if c.limitPct > 0 {
 		v := c.limitPct
@@ -1945,6 +2038,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	m.mu.RUnlock()
 	row.Place = PlaceOf(row.Lat, row.Lon, homeNow)
 	trimCharge(&row, c.trim)
+	m.noteEnergyFloor(vehicleID, c, row)
 	return row
 }
 

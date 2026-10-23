@@ -108,6 +108,10 @@ type Metrics struct {
 	// it with its original timestamp) and frames older than a minute. A
 	// replayed gear D once flapped a charging truck's sessions.
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
+	// Charges whose energy the recorder replaced with an estimate from the SoC gain because its integral had lost energy
+	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
+	ChargeEnergyFloorTotal prometheus.Counter
+
 	// vehicleState frames carrying an otaStatus, by its class (a fixed list of expected words, else "other"): what
 	// states a software update goes through, which only "Idle" has been seen to say so far.
 	OTAStatusFramesTotal *prometheus.CounterVec
@@ -359,6 +363,10 @@ func New() *Metrics {
 			},
 			[]string{"topic"},
 		),
+		ChargeEnergyFloorTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_charge_energy_floor_total",
+			Help: "Charges whose energy was replaced by an estimate from the SoC gain (the recorder's integral had lost energy).",
+		}),
 		OTAStatusFramesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_ota_status_frames_total",
@@ -406,6 +414,7 @@ func New() *Metrics {
 		m.ServerEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
+		m.ChargeEnergyFloorTotal,
 		m.OTAStatusFramesTotal,
 	)
 	return m

@@ -136,6 +136,10 @@ type Charge struct {
 	// page). Empty on every other row. Migration 0075.
 	EstimateMonth string
 	EstimateURL   string
+	// EnergyEstimated says EnergyAddedKWh was not metered: the recorder's integral had lost energy (a handoff or a
+	// restart took it) and the energy was estimated from the SoC gain. Stored in metadata ("energy_estimated"), set
+	// and never cleared by an upsert (a row read back and re-saved keeps it).
+	EnergyEstimated bool
 }
 
 // Store wraps the charges table.
@@ -274,8 +278,10 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			rivian_charger,
 			estimate_month, estimate_url,
 			charge_limit_pct,
-			place_override, location_override
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32)
+			place_override, location_override,
+			metadata
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32,
+			CASE WHEN $33::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -323,6 +329,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			location_override = COALESCE(EXCLUDED.location_override, charges.location_override),
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			charge_limit_pct = COALESCE(EXCLUDED.charge_limit_pct, charges.charge_limit_pct),
+			-- Sticky: an estimated energy stays marked, whatever re-saves the row later.
+			metadata         = CASE WHEN $33::boolean THEN charges.metadata || '{"energy_estimated": true}'::jsonb ELSE charges.metadata END,
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -340,7 +348,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullableBool(c.RivianCharger),
 		nullIfEmpty(month), nullIfEmpty(url),
 		nullableFloatPtr(c.ChargeLimitPct),
-		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride))
+		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride),
+		c.EnergyEstimated)
 	return err
 }
 
