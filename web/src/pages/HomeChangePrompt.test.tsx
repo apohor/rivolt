@@ -182,29 +182,38 @@ describe("precise home (#906)", () => {
   it("says it is still searching while a cold geocoder answers, then what happened", async () => {
     mockFetch({ dry_run: true, changed: 0 });
     const base = globalThis.fetch;
-    let answer: (r: Response) => void = () => {};
+    // Driven by the mocked search itself, not the clock: each search waits until the test answers it, and the
+    // test waits for the call (after the field's debounce) before answering every pending one.
+    const pending: ((r: Response) => void)[] = [];
+    let searches = 0;
     let mode: "slow" | "fail" = "slow";
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         if (!String(input).startsWith("/api/settings/home-location/search")) return base(input, init);
+        searches++;
         if (mode === "fail") {
           return Promise.resolve({ ok: false, status: 502, headers: { get: () => "application/json" }, text: async () => '{"error":"address search failed"}' } as unknown as Response);
         }
-        return new Promise<Response>((res) => (answer = res));
+        return new Promise<Response>((res) => pending.push(res));
       }),
     );
+    const settle = { timeout: 5000 };
     homeGet = { ...OLD, address_search: true };
     renderPanel();
-    fireEvent.change(await screen.findByLabelText("Home street address"), { target: { value: "Nowhere Lane" } });
-    expect(await screen.findByText("Searching…", {}, { timeout: 3000 })).toBeInTheDocument();
-    answer({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]" } as unknown as Response);
-    expect(await screen.findByText("No matches. Try the street and town, or enter coordinates below.")).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText("Home street address", {}, settle), { target: { value: "Nowhere Lane" } });
+    await vi.waitFor(() => expect(searches).toBe(1), settle);
+    expect(await screen.findByText("Searching…", {}, settle)).toBeInTheDocument();
+    for (const answer of pending.splice(0)) {
+      answer({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]" } as unknown as Response);
+    }
+    expect(await screen.findByText("No matches. Try the street and town, or enter coordinates below.", {}, settle)).toBeInTheDocument();
     mode = "fail";
     fireEvent.change(screen.getByLabelText("Home street address"), { target: { value: "Nowhere Lane 2" } });
-    expect(await screen.findByText(/Address search didn.t answer/, {}, { timeout: 3000 })).toBeInTheDocument();
+    await vi.waitFor(() => expect(searches).toBe(2), settle);
+    expect(await screen.findByText(/Address search didn.t answer/, {}, settle)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("says how many charges set by hand a re-check leaves alone", async () => {
     mockFetch({ dry_run: true, changed: 4, to_home: 3, to_away: 1, unchanged: 9, skipped_user_priced: 0, skipped_overridden: 1 });
