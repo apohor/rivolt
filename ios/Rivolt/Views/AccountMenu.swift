@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The account menu at the end of every screen's top bar: Refresh (when the screen has something to refresh),
-/// Notifications (when this server can push), Appearance (System, Light or Dark, saved on this iPhone), Privacy policy and Terms (the pages on the signed-in server, in Safari), Acknowledgements and Sign out. It opens its own sheets, so each screen
+/// Notifications (when this server can push), Charging rates (the home rate, read and changed), Appearance (System, Light or Dark, saved on this iPhone), Privacy policy and Terms (the pages on the signed-in server, in Safari), Acknowledgements and Sign out. It opens its own sheets, so each screen
 /// only places it. The screens it opens are the architect's (Settings); the menu itself is shared.
 struct AccountMenu: View {
     @Environment(AppState.self) private var state
@@ -13,6 +13,7 @@ struct AccountMenu: View {
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showNotifications = false
     @State private var showAcknowledgements = false
+    @State private var showRates = false
 
     var body: some View {
         Menu {
@@ -22,6 +23,7 @@ struct AccountMenu: View {
             if state.notifications.offered {
                 Button("Notifications") { showNotifications = true }
             }
+            Button("Charging rates") { showRates = true }
             Picker("Appearance", selection: $appearance) {
                 ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
             }
@@ -37,6 +39,7 @@ struct AccountMenu: View {
         }
         .accessibilityLabel("Account")
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
+        .sheet(isPresented: $showRates) { ChargingRatesView() }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
                                      live: state.liveActivity, vehicleID: vehicleID)
