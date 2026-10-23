@@ -374,7 +374,6 @@ jobs:
           E2E_WEBKIT: "1"
           E2E_PROJECT: ${{ matrix.project }}
           E2E_TIMINGS: e2e-timings/${{ matrix.project }}.json
-          E2E_WORKERS: "3"   # MEASUREMENT ONLY (3 vs 4): reverted before review
         run: |
           # Balanced by duration: this shard's spec files (scripts/e2e-shard.mjs). A WebKit shard can hold specs
           # with no phone test, hence --pass-with-no-tests; --check fails unless every spec is in one shard.
