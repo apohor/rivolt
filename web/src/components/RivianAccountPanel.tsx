@@ -47,7 +47,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["rivian"] });
     // After login/logout the vehicle list and any live state change;
-    // kick off a refetch so LivePanel/LiveSummary catch up without a
+    // kick off a refetch so LivePanel catches up without a
     // page reload.
     qc.invalidateQueries({ queryKey: ["vehicles"] });
   };

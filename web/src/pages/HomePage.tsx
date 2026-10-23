@@ -129,7 +129,7 @@ export default function HomePage() {
     return { miles: ds.reduce((n, d) => n + (d.DistanceMi || 0), 0), drives: ds.length, since: last };
   }, [all, allC]);
 
-  // ui_theme_next Cost tile: the period's charging spend, the same number Money shows. A single
+  // The Cost tile: the period's charging spend, the same number Money shows. A single
   // month comes from the ledger month; a year or All sums the ledger months inside it; a week
   // or custom range (not whole months) falls back to the charges in the window.
   // Same vehicle scoping as Money: only filter when there is more than one truck.
@@ -553,7 +553,7 @@ function ScopeBar({
 }: {
   win: WindowKey;
   onWinChange: (w: WindowKey) => void;
-  // Set in the ui_theme_next layer: calendar scope instead of the windows.
+  // Set in the app: calendar scope instead of the windows.
   period: Period | null;
   onPeriodChange: (p: Period) => void;
   vehicles: import("../lib/api").Vehicle[];

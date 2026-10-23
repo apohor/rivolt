@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// The 13 public pages (no app shell) carry the one look too: html[data-ui="next"] from index.html. Each is
+// The 13 public pages (no app shell) carry the one look too, with their own type sizes. Each is
 // axe-clean at phone and desktop width in both themes, and the legal and changelog deep links still land
 // on their heading.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
@@ -65,7 +65,6 @@ for (const [name, url, opts] of PAGES) {
           }, embed);
         }
         await page.goto(url);
-        await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
         await expect(page.getByRole("heading").first()).toBeVisible();
         await expect(page.getByText(/^loading/i)).toHaveCount(0);
         await expect(page.getByText(/didn't load/)).toHaveCount(0);
@@ -76,19 +75,30 @@ for (const [name, url, opts] of PAGES) {
         expect(summary, summary.join("\n")).toEqual([]);
         await page.screenshot({ path: path.join(SHOTS, `public-${name}-${w}-${theme}.png`), fullPage: true });
         if (w === 1280 && theme === "dark") {
-          // The app's compact type scale stays inside the app shells: a public page keeps its own sizes (the lead
-          // paragraph, display headings), so every text element is the size it would be without the look's layer.
-          const sizes = () =>
-            page.evaluate(() =>
-              [...document.querySelectorAll("body *")]
-                .filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim()))
-                .map((e) => `${getComputedStyle(e).fontSize} ${(e.textContent || "").trim().slice(0, 40)}`),
-            );
-          const withLayer = await sizes();
-          await page.evaluate(() => document.documentElement.removeAttribute("data-ui"));
-          const without = await sizes();
-          await page.evaluate(() => document.documentElement.setAttribute("data-ui", "next"));
-          expect(withLayer).toEqual(without);
+          // The app's compact type scale (next-type.css) applies only inside an app shell's <main data-app-main>.
+          // A public page has none, and each Tailwind size class keeps Tailwind's size (the lead paragraph, the
+          // display headings): at 1280 px every sm/md/lg/xl variant applies, so the widest one is expected.
+          const off = await page.evaluate(() => {
+            const px: Record<string, number> = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "3xl": 30, "4xl": 36, "5xl": 48, "6xl": 60 };
+            const order = ["", "sm:", "md:", "lg:", "xl:"];
+            const bad: string[] = [];
+            if (document.querySelector("main[data-app-main]")) bad.push("an app-shell <main> on a public page");
+            for (const el of document.querySelectorAll<HTMLElement>("body [class*='text-']")) {
+              if (el.closest(".ui-label")) continue;
+              let want: number | undefined;
+              let rank = -1;
+              for (const c of el.classList) {
+                const m = /^((?:sm|md|lg|xl):)?text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl)$/.exec(c);
+                if (!m) continue;
+                const r = order.indexOf(m[1] ?? "");
+                if (r > rank) { rank = r; want = px[m[2]]; }
+              }
+              const got = parseFloat(getComputedStyle(el).fontSize);
+              if (want !== undefined && got !== want) bad.push(`${el.tagName.toLowerCase()}.${[...el.classList].join(".")}: ${got}px, want ${want}px`);
+            }
+            return bad;
+          });
+          expect(off, off.join("\n")).toEqual([]);
         }
         await ctx.close();
       });

@@ -550,7 +550,7 @@ export function usePlanner() {
   };
 
   // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
-  // for everyone; in the ui_theme_next layer the result follows the form in the DOM
+  // for everyone; in the look the result follows the form in the DOM
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
   const multiday = multidayMutation.data ?? multidaySnapshot?.response;
   const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multiday);

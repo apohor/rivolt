@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 
-// The map-first planner's route bar (ui_theme_next). Always visible: From and
+// The map-first planner's route bar. Always visible: From and
 // To with a swap button, the departure chip, the starting SoC slider, and the
 // Plan action. Everything else sits under a "More options" disclosure,
 // collapsed by default, with a badge counting the options that are not at

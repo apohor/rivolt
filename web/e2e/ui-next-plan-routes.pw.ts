@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { DEMO_PLAN, stubApi } from "./stub";
 
-// ui_theme_next planner: a compact route chooser instead of stacked alternative cards.
+// Planner: a compact route chooser instead of stacked alternative cards.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 

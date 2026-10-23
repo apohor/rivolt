@@ -698,7 +698,7 @@ function SnapshotBanner({
 // DemoPresetPicker: the public demo's planner. A handful of stored trips
 // rendered by the real planner UI (route, stops, cost, arrival SoC); any
 // other trip needs the visitor's own Rivian.
-// FormShell: the classic card, or in ui_theme_next the compact route bar. On a
+// FormShell: the classic card, or otherwise the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
 function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
   const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);

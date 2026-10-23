@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-// Calendar-aligned scope for the ui_theme_next layer: Week (Mon to Sun),
+// Calendar-aligned scope for the app: Week (Mon to Sun),
 // Month, Year, All or a Custom date range, with stepping to earlier periods.
 // The choice is remembered per device. Ranges are computed in the browser's
 // local calendar and are half-open: [start, end). `null` bounds are open.

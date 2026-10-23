@@ -50,8 +50,7 @@ for (const theme of ["dark", "light"] as const) {
       const apiPaths = await open(page);
       await expect(page).toHaveURL(/\/admin$/);
       await expect(page.locator("[data-admin-only-shell]")).toBeVisible();
-      await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
-      await expect(page.getByRole("tab", { name: "Home" }).or(page.getByRole("button", { name: "Home" }))).toBeVisible(); // the new admin look
+        await expect(page.getByRole("tab", { name: "Home" }).or(page.getByRole("button", { name: "Home" }))).toBeVisible(); // the new admin look
       await expect(page.locator("[data-admin-home]")).toBeVisible();
       // No user navigation, no status pill, no footer links to pages that do not exist here.
       for (const name of ["Overview", "Live", "Drives", "Charges", "Plan", "Settings", "Now", "Activity", "Money", "Truck"]) {

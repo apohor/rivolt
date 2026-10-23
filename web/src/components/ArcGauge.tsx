@@ -1,7 +1,7 @@
 import { useCountUp } from "../lib/uiNext";
 
 // ArcGauge: battery as a 240-degree arc with an animated fill. Used only by
-// the ui_theme_next layer. The glow is reserved for live states.
+// the app. The glow is reserved for live states.
 export function ArcGauge({
   value,
   label,

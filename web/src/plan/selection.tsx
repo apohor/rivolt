@@ -44,8 +44,8 @@ export function PlanSelectionProvider({ routeKey, children }: { routeKey: unknow
 // useSelectedStop returns the selection for routeKey. With shared (the
 // primary route in the map-first layout) and a provider above, that is the
 // provider's, so every component using it stays in step; otherwise it is the
-// component's own, which is how the classic route cards and the flag-off
-// planner keep their independent per-card selection.
+// component's own, which is how the classic route cards keep their
+// independent per-card selection.
 export function useSelectedStop(routeKey: unknown, opts: { shared?: boolean } = {}): SelectedStop {
   const own = useOwnSelection(routeKey);
   const ctx = useContext(SelectionContext);

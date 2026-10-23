@@ -1,4 +1,4 @@
-// Activity's view switcher (ui_theme_next): the same period and All/Drives/
+// Activity's view switcher: the same period and All/Drives/
 // Charges filter shown as the day-grouped feed, as tables, or on maps.
 // URL state is ?view=feed|table|map; the feed is the default and carries no
 // param, and every other param (the demo's tab=activity, f=, ...) is kept.

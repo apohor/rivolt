@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next calendar scope: Week | Month | Year | All | Custom with
+// Calendar scope: Week | Month | Year | All | Custom with
 // stepping; remembered per device and shared by Now, Activity and Truck.
 // Flag off keeps the rolling window picker.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");

@@ -1814,7 +1814,7 @@ export const backend = {
   // trip can render the result instantly while still letting the
   // user re-plan against current station / weather state.
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
-  // Read-only and cheap (no Rivian call). Null on 404 (flag off or not the user's trip).
+  // Read-only and cheap (no Rivian call). Null on 404 (not the user's trip).
   savedTripActive: async (id: string): Promise<SavedTripActive | null> => {
     try {
       return await api.get<SavedTripActive>(`/api/trips/saved/${encodeURIComponent(id)}/active`);
@@ -1823,7 +1823,7 @@ export const backend = {
       throw e;
     }
   },
-  // Null on 404 (flag off or not the user's trip), so the section
+  // Null on 404 (not the user's trip), so the section
   // simply doesn't render.
   planVsActual: async (savedTripID: string): Promise<PlanVsActual | PlanVsActualMulti | null> => {
     try {

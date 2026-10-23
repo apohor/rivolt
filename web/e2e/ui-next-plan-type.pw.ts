@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { DEMO_PLAN, stubApi } from "./stub";
 
-// ui_theme_next planner typography: one family (Geist sans, no mono) and one size
+// Planner typography: one family (Geist sans, no mono) and one size
 // scale (24/36 headings, 14 values, 12 sub-lines, 11 captions, as on Now/Truck), weights 400-600.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

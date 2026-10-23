@@ -15,7 +15,7 @@ export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]
   return <NextSection trips={trips} highlightId={highlightId} />;
 }
 
-// ui_theme_next: the latest matched trip as a compact bar comparison, unmatched
+// The latest matched trip as a compact bar comparison, unmatched
 // and in-progress trips as one-line rows, older matched trips behind a toggle.
 function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
   const [more, setMore] = useState(false);

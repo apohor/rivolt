@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { axisDayIndices, mmdd } from "../lib/period";
 
-// Battery (SoC) trend for the ui_theme_next layer, calm, the same chart as the iPhone's: a soft band for each day from
+// Battery (SoC) trend for the app, calm, the same chart as the iPhone's: a soft band for each day from
 // its lowest to highest level (smoothed between days), one smooth line over it for where the day ended, only the
 // period's highest and lowest points named inside the plot, one faint line for the charge limit named once, a tiny
 // tick on the axis for each day it charged and a barely visible tint under 20%. A road trip reads as a deep, wide dip

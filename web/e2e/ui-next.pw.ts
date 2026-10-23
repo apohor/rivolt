@@ -4,8 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// ui_theme_next prototype: before/after pairs of Now and Truck (dark), and
-// proof that flag off leaves html[data-ui] unset.
+// Now and Truck: screenshots per state and viewport, and axe.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -32,7 +31,6 @@ for (const v of VIEWS) {
         }
         await page.waitForTimeout(900);
         if (scenario === "charging") await expect(page.locator(".ui-spark")).toBeVisible();
-        else await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
         await page.screenshot({ path: path.join(SHOTS, `uinext-now-${scenario}-${v.name}-${state}.png`) });
         await ctx.close();
       });
@@ -66,7 +64,6 @@ for (const [name, url, scenario] of [
     });
     await stubApi(page, { scenario, drain: "ok" });
     await page.goto(url);
-    await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
     await page.waitForTimeout(1200);
     const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
     const summary = res.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);

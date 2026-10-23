@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { canStep, periodLabel, stepPeriod, toYmd, type Period, type PeriodKind } from "../lib/period";
 
-// PeriodPicker: calendar scope for the ui_theme_next layer. Week | Month |
+// PeriodPicker: calendar scope for the app. Week | Month |
 // Year | All | Custom; calendar periods get arrows to step back (never into
 // the future) and a label ("Oct 2026", "Oct 6–12"). On desktop the segmented
 // control is inline; on a phone it collapses to a compact bar (label with

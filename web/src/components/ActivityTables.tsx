@@ -104,7 +104,7 @@ export function ChargeTable({
 }: {
   charges: Charge[];
   labelByID: Map<string, ChargePlaceLabel>;
-  // The Activity Table view (ui_theme_next): the secondary columns drop out on a phone.
+  // The Activity Table view: the secondary columns drop out on a phone.
   compact?: boolean;
 }) {
   const navigate = useNavigate();

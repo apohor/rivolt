@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
-// A bottom sheet for phones (ui_theme_next planner): the summary peeks over
+// A bottom sheet for phones (planner): the summary peeks over
 // the map; drag the handle, or use the keyboard, to raise it to half height
 // or full. At 1024px and wider it is not a sheet: the content renders inline
 // and the page's grid lays it out.

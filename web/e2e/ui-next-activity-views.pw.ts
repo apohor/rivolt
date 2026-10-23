@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// ui_theme_next Activity: Feed | Table | Map switcher (?view=), reusing the
+// Activity: Feed | Table | Map switcher (?view=), reusing the
 // Drives and Charges tables and overview maps. Flag off is unchanged.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));

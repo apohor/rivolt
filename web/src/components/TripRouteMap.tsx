@@ -59,7 +59,7 @@ export function TripRouteMap({
 }: {
   route: TripRoute;
   height?: number;
-  // Fill the parent (ui_theme_next map-first layout): chips float over the map.
+  // Fill the parent (the map-first layout): chips float over the map.
   fill?: boolean;
   onAddStop?: AddStop;
   // Hotel-L2 popups get a dedicated "Add as overnight stop" button.

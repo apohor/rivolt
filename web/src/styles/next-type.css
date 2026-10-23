@@ -6,15 +6,15 @@
    over the utilities). The public pages (landing, legal, calculators, sign-in)
    keep Tailwind's own scale: they need a lead (text-lg, 18) and display sizes
    (text-4xl/5xl) that a dense app scale doesn't have. */
-html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) .text-\[10px\] {
+:root main[data-app-main]:not(:has([data-plan-next])) .text-\[10px\] {
   font-size: 0.6875rem;
 }
-html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) :is(.text-base, .text-lg) {
+:root main[data-app-main]:not(:has([data-plan-next])) :is(.text-base, .text-lg) {
   font-size: 0.875rem;
 }
-html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) .text-xl {
+:root main[data-app-main]:not(:has([data-plan-next])) .text-xl {
   font-size: 1.5rem;
 }
-html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) :is(.text-3xl, .text-4xl, .text-5xl, .sm\:text-5xl) {
+:root main[data-app-main]:not(:has([data-plan-next])) :is(.text-3xl, .text-4xl, .text-5xl, .sm\:text-5xl) {
   font-size: 2.25rem;
 }
