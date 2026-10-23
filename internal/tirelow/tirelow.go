@@ -8,15 +8,19 @@
 //     minute: low after a cold night, woken, driven off and parked again is the common case, and it must fire.
 //   - It fires only with the truck in P (stated), never while driving. A parked, awake truck with the owner nearby is
 //     exactly the moment to say it.
-//   - A wheel's episode ends only after EndAfter of fresh "not low" frames: a status that flickers at a threshold does
-//     not make new episodes, and a gap with no frames never counts as "not low".
+//   - A wheel's episode ends only after EndAfter of fresh "not low" time, accumulated: a status that flickers at a
+//     threshold does not make new episodes, and a gap with no frames never counts as "not low". It is cumulative across
+//     awake periods (a gap does not reset it), so a truck awake two hours a day takes days to end an episode; the
+//     7-day Cooldown and restarts govern repeats more than this does.
 //   - A repeat for the same wheels waits out Cooldown; a wheel that was not in the last alert and goes low inside the
 //     cooldown alerts again.
 //   - The text is fixed (internal/push.TireLowPayload): the model and the wheel positions. No pressure, no place.
 //
 // The marker (tire_low_alerts) records only that an alert went out for these wheels, so a restart or a second pod never
-// repeats it. The job reads the monitor's latest state (the merged state: a status the truck has not changed since an
-// earlier frame still stands) and calls nothing on Rivian. A pod that does not run the vehicle's monitor does nothing.
+// repeats it. The job reads the monitor's latest state and calls nothing on Rivian. That is the merged state: a status
+// the truck has not changed since an earlier frame still stands, which is the word the Truck card shows too. It can miss
+// one case: if the vehicleState stream drops while Parallax keeps the state's time fresh, an old status can stand; the
+// marker and the cooldown limit any repeat, which is acceptable for v1. A pod that does not run the vehicle's monitor does nothing.
 package tirelow
 
 import (
@@ -34,7 +38,7 @@ import (
 const (
 	// SustainedFor is how long a wheel must have been low (the owner's N). One constant.
 	SustainedFor = 30 * time.Minute
-	// EndAfter is how long of fresh "not low" frames ends a wheel's episode.
+	// EndAfter is how much fresh "not low" time, accumulated, ends a wheel's episode.
 	EndAfter = 12 * time.Hour
 	// Cooldown: no repeat alert for the same wheels within this long.
 	Cooldown = 7 * 24 * time.Hour
@@ -102,7 +106,7 @@ type Source interface {
 // wheel is one wheel's clocks.
 type wheel struct {
 	lowSince  time.Time     // first seen low on a fresh frame, since the last fresh "not low"; zero when not low
-	notLowFor time.Duration // fresh "not low" time since it was last low
+	notLowFor time.Duration // fresh "not low" time accumulated since it was last low (gaps add nothing and do not reset it)
 	lastObs   time.Time     // the last tick that saw this wheel's status on a fresh frame
 	alerted   bool          // named in an alert (or a recent one covered it) in this episode
 }
