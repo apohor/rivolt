@@ -99,7 +99,7 @@ enum PushKind: CaseIterable, Identifiable {
         case .leftOpen:
             return "A notification if a door, the frunk, the liftgate, the tailgate or the tonneau stays open for 15 minutes after the truck is parked and left. Not windows. It can be missed if the truck is offline, so never count on it to tell you the truck is closed. Off until you turn it on."
         case .tireLow:
-            return "A notification if the truck itself reports a tire low for 30 minutes while it is parked. It repeats what the truck reports and doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep. Off until you turn it on."
+            return "A notification when the truck itself has reported a tire low for 30 minutes, sent only while it is in Park. It repeats what the truck reports and doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep. Off until you turn it on."
         case .chargingLive:
             return "Shows charge level, power and time to your target on the Lock Screen and in the Dynamic Island while a charge is running. While it's on, Apple's push service gets your charge level, charging power and minutes to target during a charge, but never your truck's location, name or VIN. Off by default; this iPhone only."
         default:
