@@ -182,6 +182,8 @@ type StateMonitor struct {
 	otaWords    map[string]bool
 	otaProgress map[string]bool
 	otaScale    map[string]bool
+	// tireWords remembers the tire status words observeTires has already logged (see tire_observe.go). Guarded by mu.
+	tireWords map[string]bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -2802,6 +2804,7 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	m.noteVehicleStateFrameLocked(vehicleID)
 	m.mu.Unlock()
 	m.observeOTA(vehicleID, st)
+	m.observeTires(st)
 	m.record(ctx, vehicleID, prev, merged)
 }
 

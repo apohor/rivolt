@@ -2753,6 +2753,14 @@ func (s *sleepMetrics) OnOTAStatus(class string) {
 	s.m.OTAStatusFramesTotal.WithLabelValues(class).Inc()
 }
 
+// OnTireStatus implements rivian.TireObserver. class is one of low, not_low, other, missing (bounded cardinality).
+func (s *sleepMetrics) OnTireStatus(class string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.TireStatusTotal.WithLabelValues(class).Inc()
+}
+
 // OnParallaxReplayIgnored implements rivian.ParallaxReplayObserver.
 // topic is one of a few fixed Parallax RVM names (bounded cardinality).
 func (s *sleepMetrics) OnParallaxReplayIgnored(topic string) {
