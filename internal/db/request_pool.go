@@ -41,7 +41,8 @@ func RequestConnHook(userFrom func(context.Context) (uuid.UUID, bool)) func(cont
 }
 
 // ErrRequestRoleBypassesRLS is returned when the request pool's role would see past the tenant policies: the
-// tables' owner, a superuser, or a role with BYPASSRLS. Row-level security would be silently dormant, so the
+// tables' owner or a member of the owner role (which inherits its rights), a superuser, or a role with
+// BYPASSRLS. Row-level security would be silently dormant, so the
 // pool refuses to open.
 var ErrRequestRoleBypassesRLS = errors.New("request pool: the role bypasses row-level security")
 
@@ -96,7 +97,8 @@ func checkRequestRole(ctx context.Context, d *sql.DB) error {
 	err := d.QueryRowContext(ctx, `
 		SELECT r.rolname, r.rolsuper, r.rolbypassrls,
 		       EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relowner = r.oid)
+		                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+		                  AND pg_has_role(r.oid, c.relowner, 'USAGE'))
 		  FROM pg_roles r WHERE r.rolname = current_user`).Scan(&role, &super, &bypass, &owns)
 	if err != nil {
 		return fmt.Errorf("request pool: check role: %w", err)

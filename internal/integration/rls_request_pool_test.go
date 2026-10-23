@@ -262,6 +262,26 @@ func TestRequestPoolRefusesBypassingRoles(t *testing.T) {
 		}
 		t.Errorf("as a BYPASSRLS role: err %v, want ErrRequestRoleBypassesRLS", err)
 	}
+	// A member of the owner role inherits its rights (and its ownership): refused too.
+	var owner string
+	if err := f.owner.QueryRowContext(ctx, `SELECT current_user`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	member := "rivolt_member_" + randHex(t, 6)
+	for _, q := range []string{
+		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD 'pw'`, member),
+		fmt.Sprintf(`GRANT %s TO %s`, owner, member),
+	} {
+		if _, err := f.owner.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if rp, err := db.OpenRequestPool(ctx, asRole(t, f.ownerDN, member, "pw"), 1, auth.UserFromContext); !errors.Is(err, db.ErrRequestRoleBypassesRLS) {
+		if rp != nil {
+			rp.Close()
+		}
+		t.Errorf("as a member of the owner role: err %v, want ErrRequestRoleBypassesRLS", err)
+	}
 	rp, err := db.OpenRequestPool(ctx, f.appDSN, 1, auth.UserFromContext)
 	if err != nil {
 		t.Fatalf("as the request role: %v", err)
@@ -270,7 +290,8 @@ func TestRequestPoolRefusesBypassingRoles(t *testing.T) {
 }
 
 // The request role's grants: full DML on every table with row-level security, SELECT only on the other plain
-// tables, nothing on the denied ones or on views, the policy function, and a table a later migration creates.
+// tables, nothing on the denied ones, views, materialized views or partitions (made before or after the grants),
+// EXECUTE on the policy function, and no access to a later table until GrantApp runs again.
 func TestGrantAppPrivileges(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -300,9 +321,9 @@ func TestGrantAppPrivileges(t *testing.T) {
 		return true
 	}
 	rows, err := f.owner.QueryContext(ctx, `
-		SELECT c.relname, c.relrowsecurity, c.relkind
+		SELECT c.relname, c.relrowsecurity, CASE WHEN c.relispartition THEN 'partition' ELSE c.relkind::text END
 		  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v') AND NOT c.relispartition`)
+		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,9 +345,9 @@ func TestGrantAppPrivileges(t *testing.T) {
 	nRLS := 0
 	for _, r := range rels {
 		switch {
-		case r.kind == "v":
-			if priv(r.name, "SELECT") {
-				t.Errorf("view %s is readable: a view runs as its owner and reads past the policies", r.name)
+		case r.kind == "v" || r.kind == "m" || r.kind == "partition":
+			if priv(r.name, "SELECT") || priv(r.name, "INSERT") {
+				t.Errorf("%s %s is accessible: it reads past the policies (a view runs as its owner; a partition queried directly has none)", r.kind, r.name)
 			}
 		case denied[r.name]:
 			if priv(r.name, "SELECT") || priv(r.name, "INSERT") {
@@ -350,11 +371,45 @@ func TestGrantAppPrivileges(t *testing.T) {
 	if err := f.owner.QueryRowContext(ctx, `SELECT has_function_privilege($1, 'rivolt_current_user_id()', 'EXECUTE')`, f.role).Scan(&fn); err != nil || !fn {
 		t.Errorf("rivolt_current_user_id(): EXECUTE %v (%v)", fn, err)
 	}
-	// A table a later migration creates (as the owner): default privileges reach it.
-	if _, err := f.owner.ExecContext(ctx, `CREATE TABLE later_per_user (id serial PRIMARY KEY, user_id uuid NOT NULL)`); err != nil {
+	for _, v := range []string{"activated", "user_rivian_connected"} {
+		if priv(v, "SELECT") {
+			t.Errorf("view %s is readable by the request role", v)
+		}
+	}
+
+	// Later relations, created by the owner after the grants (as a migration or 0070's partition guard would):
+	// none is reachable until GrantApp runs again (no default privileges on tables), and then a per-user table
+	// gets DML while its partitions and a new view stay closed.
+	for _, q := range []string{
+		`CREATE TABLE later_per_user (id serial PRIMARY KEY, user_id uuid NOT NULL)`,
+		`ALTER TABLE later_per_user ENABLE ROW LEVEL SECURITY`,
+		`CREATE TABLE later_parted (user_id uuid NOT NULL, at date NOT NULL) PARTITION BY RANGE (at)`,
+		`ALTER TABLE later_parted ENABLE ROW LEVEL SECURITY`,
+		`CREATE TABLE later_parted_2030_01 PARTITION OF later_parted FOR VALUES FROM ('2030-01-01') TO ('2030-02-01')`,
+		`CREATE VIEW later_view AS SELECT user_id FROM later_per_user`,
+	} {
+		if _, err := f.owner.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	for _, r := range []string{"later_per_user", "later_parted", "later_parted_2030_01", "later_view"} {
+		if priv(r, "SELECT") || priv(r, "INSERT") {
+			t.Errorf("%s: reachable before GrantApp ran again (default privileges?)", r)
+		}
+	}
+	if ok, err := db.GrantApp(ctx, f.owner, f.role); err != nil || !ok {
+		t.Fatalf("GrantApp after the new tables: %v, %v", ok, err)
+	}
+	// A partition made after this run too (the runtime monthly guard): still closed.
+	if _, err := f.owner.ExecContext(ctx, `CREATE TABLE later_parted_2030_02 PARTITION OF later_parted FOR VALUES FROM ('2030-02-01') TO ('2030-03-01')`); err != nil {
 		t.Fatal(err)
 	}
-	if !priv("later_per_user", "SELECT, INSERT, UPDATE, DELETE") {
-		t.Error("a table created after the grants isn't covered by default privileges")
+	if !priv("later_per_user", "SELECT, INSERT, UPDATE, DELETE") || !priv("later_parted", "SELECT, INSERT, UPDATE, DELETE") {
+		t.Error("after GrantApp: a new per-user table (or partitioned parent) isn't granted")
+	}
+	for _, r := range []string{"later_parted_2030_01", "later_parted_2030_02", "later_view"} {
+		if priv(r, "SELECT") || priv(r, "INSERT") {
+			t.Errorf("%s is accessible to the request role", r)
+		}
 	}
 }

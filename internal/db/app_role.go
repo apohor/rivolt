@@ -16,12 +16,14 @@ import (
 //   - a table with row-level security (every per-user table): SELECT, INSERT, UPDATE and DELETE, which the
 //     tenant policy narrows to the request's own rows;
 //   - any other table: SELECT only, except appDeniedTables, which it can't read at all;
-//   - no view: a view runs with its owner's rights, so it would read past the policies;
+//   - no view or materialized view: a view runs with its owner's rights, so it would read past the policies;
+//   - no partition: a partition doesn't carry its parent's policies when queried directly, so the role reaches
+//     partitioned data only through the parent (vehicle_state's monthly partitions, created at runtime);
 //   - the sequences (for inserts) and rivolt_current_user_id(), which the policies call.
 //
-// Default privileges cover a table a later migration creates (so a new per-user table works on the request
-// path without a grant here); the next boot's run narrows a new table without row-level security to SELECT,
-// and the coverage test fails on a per-user table without a policy.
+// No default privileges on tables: they would also reach every later partition and view, which this loop would
+// then have to catch. A table a later migration creates gets its grant when GrantApp next runs; stage 2 runs it
+// synchronously after migrations, before it opens the request pool. Default privileges stay for sequences.
 
 // appDeniedTables hold secrets or system state that no request handler reads directly: provider keys, the push
 // signing key, the migration ledger, the pre-account waitlist and its tokens, and the system retry queue.
@@ -53,9 +55,9 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 		return true, fmt.Errorf("app role: owner %q: unexpected name", owner)
 	}
 	rows, err := d.QueryContext(ctx, `
-		SELECT c.relname, c.relrowsecurity
+		SELECT c.relname, c.relrowsecurity, c.relkind IN ('v', 'm') OR c.relispartition
 		  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
 		 ORDER BY c.relname`)
 	if err != nil {
 		return true, fmt.Errorf("app role: list tables: %w", err)
@@ -63,11 +65,12 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 	type table struct {
 		name string
 		rls  bool
+		none bool // a view, materialized view or partition: no access at all
 	}
 	var tables []table
 	for rows.Next() {
 		var tb table
-		if err := rows.Scan(&tb.name, &tb.rls); err != nil {
+		if err := rows.Scan(&tb.name, &tb.rls, &tb.none); err != nil {
 			rows.Close()
 			return true, fmt.Errorf("app role: list tables: %w", err)
 		}
@@ -86,7 +89,7 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 	// parameter in DDL.
 	stmts := []string{
 		fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s`, role),
-		fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s`, owner, role),
+		fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public REVOKE ALL ON TABLES FROM %s`, owner, role),
 		fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %s`, owner, role),
 		fmt.Sprintf(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %s`, role),
 		fmt.Sprintf(`GRANT EXECUTE ON FUNCTION rivolt_current_user_id() TO %s`, role),
@@ -94,7 +97,7 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 	for _, tb := range tables {
 		id := quoteIdent(tb.name)
 		switch {
-		case denied[tb.name]:
+		case denied[tb.name] || tb.none:
 			stmts = append(stmts, fmt.Sprintf(`REVOKE ALL ON %s FROM %s`, id, role))
 		case tb.rls:
 			stmts = append(stmts, fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %s`, id, role))
