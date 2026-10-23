@@ -262,7 +262,7 @@ jobs:
           fi
           echo "$out" | grep -q 'rivolt: set secrets.kek' || { echo "$out"; echo "::error::unexpected failure"; exit 1; }
 
-  # Functional Playwright specs (ui-next-*), against `vite preview` and the stub
+  # Functional Playwright specs (all of them, with the new look), against `vite preview` and the stub
   # API (web/e2e/stub.ts): no backend, no real data. PRs that touch web only.
   # The visual-regression spec stays opt-in (E2E_VISUAL): its baselines carry
   # the OS and do not match Linux. Three shards in parallel; each builds the SPA
