@@ -77,7 +77,11 @@ export function UsersList({
   }, [urlQ]);
   useEffect(() => {
     if (q === written.current) return;
+    const listPath = here.pathname;
     const t = window.setTimeout(() => {
+      // A user opened within the wait: the link already carries the text, and writing the URL now (a navigation
+      // relative to the list) would pull the page back to the list mid-transition.
+      if (window.location.pathname !== listPath) return;
       written.current = q;
       setParam("q", q);
     }, 200);
