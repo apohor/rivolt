@@ -5,14 +5,12 @@ import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
 import { SignOutButton } from "../components/SignOutButton";
 import { useSystemTheme } from "../lib/theme";
-import { useApplyUiNext } from "../lib/uiNext";
 
 // The shell of the admin site (features.admin_only): a header with the name and sign-out, and the
 // page. No user navigation, no status pill, no footer: nothing here fetches user data (the admin
 // site answers only /api/admin, /api/auth, /api/health and /api/config).
 export function AdminOnlyShell() {
   useSystemTheme(true);
-  useApplyUiNext();
   // A visitor who got through the edge but has no Rivolt session (whoami answers "nobody") is sent
   // to sign in and brought back to /admin, instead of a bare "not authorized". A signed-in
   // non-admin still gets the admin page's own "not authorized".
@@ -30,7 +28,7 @@ export function AdminOnlyShell() {
           <SignOutButton />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 md:py-6">
+      <main data-app-main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 md:py-6">
         <Outlet />
       </main>
     </div>

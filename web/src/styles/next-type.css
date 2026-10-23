@@ -1,17 +1,20 @@
-/* ui_theme_next: the shared type scale on every page (the planner has its own
-   token block in next-plan.css with the same values).
+/* The app's type scale (the planner has its own token block in next-plan.css
+   with the same values):
      caption 11 · sub-line 12 · value 14 · title/KPI 24 · hero 36
-   The Tailwind size utilities used on Now, Truck, Money and Activity fold onto
-   it (unlayered, so they win over the utilities). */
-html[data-ui='next'] main:not(:has([data-plan-next])) .text-\[10px\] {
+   The Tailwind size utilities inside the app shells' <main> (data-app-main: the
+   signed-in app, the demo, the admin site) fold onto it (unlayered, so they win
+   over the utilities). The public pages (landing, legal, calculators, sign-in)
+   keep Tailwind's own scale: they need a lead (text-lg, 18) and display sizes
+   (text-4xl/5xl) that a dense app scale doesn't have. */
+html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) .text-\[10px\] {
   font-size: 0.6875rem;
 }
-html[data-ui='next'] main:not(:has([data-plan-next])) :is(.text-base, .text-lg) {
+html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) :is(.text-base, .text-lg) {
   font-size: 0.875rem;
 }
-html[data-ui='next'] main:not(:has([data-plan-next])) .text-xl {
+html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) .text-xl {
   font-size: 1.5rem;
 }
-html[data-ui='next'] main:not(:has([data-plan-next])) :is(.text-3xl, .text-4xl, .text-5xl, .sm\:text-5xl) {
+html[data-ui='next'] main[data-app-main]:not(:has([data-plan-next])) :is(.text-3xl, .text-4xl, .text-5xl, .sm\:text-5xl) {
   font-size: 2.25rem;
 }

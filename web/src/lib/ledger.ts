@@ -259,8 +259,7 @@ function query(params: Record<string, string | undefined>): string {
   return qs.toString();
 }
 
-// The ledger routes 404 when the flag is off *or* before the backend
-// ships them. `allowFixture` (?fixture=1, or the backend not deployed
+// The ledger routes 404 on a backend that predates them. `allowFixture` (?fixture=1, or the backend not deployed
 // yet) swaps in the typed fixture and labels the result so the page
 // shows a "Sample data" banner rather than passing it off as real.
 function isMissingEndpoint(e: unknown): boolean {

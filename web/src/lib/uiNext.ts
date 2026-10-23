@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
 
-// The look's CSS layer is scoped under html[data-ui="next"] (index.css). It is the only look now
-// (the old one was removed), so every shell sets the attribute.
-export function useApplyUiNext(): void {
-  useEffect(() => {
-    const root = document.documentElement;
-    root.setAttribute("data-ui", "next");
-    return () => root.removeAttribute("data-ui");
-  }, []);
-}
+// The look's CSS layer is scoped under html[data-ui="next"] (index.css). It is the only look, so
+// index.html sets the attribute on every page, the public ones included.
 
 export function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
