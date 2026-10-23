@@ -16,7 +16,7 @@ import (
 // cloud's replays open nothing and split nothing.
 //
 // The expected figures are the corpus's own (offsets in seconds from its first event): drive 1 from 452 to 1834, 9.80 mi,
-// SoC 52.0 to 48.2; the charge from 1938 to 17663, 7.5 kW at most, SoC 48.2 to 82.3; drive 2 from 28947 to 30767, 17.02 mi,
+// SoC 52.0 to 48.2; the charge from 1938 to 17663, 7.5 kW at most, SoC 48.2 to 82.3; drive 2 from 30213 to 32033, 17.02 mi,
 // SoC 81.9 to 76.6. A drive ends at the last moving sample, and the harness reads it to within the few seconds a frame
 // takes to arrive, so the checks allow 20 s; energy comes from integrating the corpus's 1 %-step SoC and kW samples.
 func TestCorpusR2DriveChargeDrive(t *testing.T) {
@@ -63,7 +63,7 @@ func TestCorpusR2DriveChargeDrive(t *testing.T) {
 
 	for i, w := range []struct{ start, end, miles, soc0, soc1 float64 }{
 		{452, 1834, 9.80, 52.0, 48.2},
-		{28947, 30767, 17.02, 81.9, 76.6},
+		{30213, 32033, 17.02, 81.9, 76.6},
 	} {
 		d := driveRows[i]
 		near("drive start", off(d.StartedAt), w.start, 20)
@@ -124,17 +124,17 @@ func TestCorpusR2PowerSequence(t *testing.T) {
 		{17666, "P", "standby", "the charge is done: standby"},
 		{17677, "P", "sleep", "asleep, still plugged in"},
 		{17769, "P", "sleep", "a replay of sleep"},
-		{27511, "P", "standby", "woken at 10:05"},
-		{27516, "P", "ready", ""},
-		{28054, "P", "sleep", "asleep again"},
-		{28848, "P", "standby", "woken for the drive"},
-		{28853, "P", "ready", ""},
-		{28946, "P", "go", ""},
-		{29037, "D", "go", "a replay of go mid-drive"},
-		{30784, "P", "go", "parked"},
-		{30812, "P", "ready", ""},
-		{30907, "P", "standby", ""},
-		{30919, "P", "sleep", "asleep at the end"},
+		{28777, "P", "standby", "woken at 10:05"},
+		{28782, "P", "ready", ""},
+		{29320, "P", "sleep", "asleep again"},
+		{30114, "P", "standby", "woken for the drive"},
+		{30119, "P", "ready", ""},
+		{30212, "P", "go", ""},
+		{30303, "D", "go", "a replay of go mid-drive"},
+		{32050, "P", "go", "parked"},
+		{32078, "P", "ready", ""},
+		{32173, "P", "standby", ""},
+		{32185, "P", "sleep", "asleep at the end"},
 	} {
 		s, ok := after[w.t]
 		if !ok {
