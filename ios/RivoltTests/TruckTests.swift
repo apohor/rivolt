@@ -227,7 +227,7 @@ final class TruckLogicTests: XCTestCase {
             var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("sleep_health")) as? [String: Any])
             o["state"] = state
             o["this_week"] = ["days": 7, "sleeps": 20, "failed_sleeps": failed]
-            o["usual_failed_sleeps"] = usual as Any? ?? NSNull()
+            if let usual { o["usual_failed_sleeps"] = usual } else { o.removeValue(forKey: "usual_failed_sleeps") }
             o["more_by"] = NSNull()
             return try JSON.decoder().decode(SleepHealth.self, from: JSONSerialization.data(withJSONObject: o))
         }
