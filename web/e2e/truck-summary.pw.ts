@@ -20,8 +20,8 @@ for (const v of [
       await stubApi(page, { drain: "ok", uiNext: true });
       await page.goto("/truck");
       const line = page.getByRole("region", { name: "Truck summary" });
-      await expect(line).toContainText(/^Pack (about )?\d+(\.\d)? kWh usable/);
-      await expect(line).toContainText(/parked drain [\d.]+% a day \(last 7 days\)/);
+      await expect(line.getByRole("button", { name: /^Pack (about )?\d+(\.\d)? kWh usable/ })).toBeVisible();
+      await expect(line).toContainText(/parked drain [\d.]+% a day \(last 7 days\)/i);
       // The figures are the cards' own.
       const packFig = (await page.locator("#truck-pack").innerText()).match(/(\d+(?:\.\d)?) kWh/)![1];
       await expect(line).toContainText(`${packFig} kWh usable`);
