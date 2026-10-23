@@ -1304,6 +1304,8 @@ export const backend = {
   // The off-peak schedule: windows of the week with their own rate. PUT replaces it; an empty list clears it.
   getOffpeak: () => api.get<OffpeakSchedule>("/api/settings/charging/offpeak"),
   setOffpeak: (cfg: OffpeakSchedule) => api.put<OffpeakSchedule>("/api/settings/charging/offpeak", cfg),
+  // "My electricity is one flat rate": stops the off-peak estimates (savings, the share line, the statement saving); the schedule stays.
+  setFlatRate: (on: boolean) => api.put<{ flat_rate: boolean }>("/api/settings/charging/flat-rate", { flat_rate: on }),
   // Price book for fast/public charging networks. GET returns the
   // current list (possibly empty); PUT replaces it wholesale.
   getChargingNetworks: () =>

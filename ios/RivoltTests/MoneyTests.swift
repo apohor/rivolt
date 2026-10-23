@@ -245,6 +245,25 @@ final class MoneyLogicTests: XCTestCase {
         XCTAssertEqual(MoneyLogic.distance(km: 30, metric: true), "30 km")
     }
 
+    /// A flat-rate answer holds only the reason: the card says so, and there is no share for the off-peak line.
+    func testAFlatRateAnswerHasNoEstimateAndNoShare() throws {
+        let flat = try Fixture.decode(LedgerSavings.self, "ledger_savings_flat")
+        guard case let .flat(basis) = MoneyLogic.savingsView(flat) else { return XCTFail("expected the flat-rate state") }
+        XCTAssertTrue(basis.contains("flat rate"))
+        XCTAssertNil(flat.couldHaveSaved)
+        XCTAssertNil(flat.offpeakSharePct, "no share, so the share card offers no off-peak line")
+        XCTAssertNil(flat.sessionsConsidered)
+    }
+
+    /// The app can't turn it on: its settings write has no such field, so the server's PATCH (which refuses the name) is never sent it.
+    func testTheAppsSettingsWriteCannotCarryFlatRate() throws {
+        let enc = JSONEncoder()
+        enc.keyEncodingStrategy = .convertToSnakeCase
+        let all = String(decoding: try enc.encode(ChargingRatesPatch(homePricePerKwh: 0.2, homeCurrency: "USD")), as: UTF8.self)
+        XCTAssertFalse(all.contains("flat"), all)
+        XCTAssertEqual(Set(Mirror(reflecting: ChargingRatesPatch()).children.compactMap(\.label)), ["homePricePerKwh", "homeCurrency"])
+    }
+
     func testSavingsReadAsAnEstimate() throws {
         guard case let .saved(saved, moved, leftOut, asCharged, ifMoved, _, considered, basis) = MoneyLogic.savingsView(try Fixture.decode(LedgerSavings.self, "ledger_savings")) else {
             return XCTFail("expected a figure")

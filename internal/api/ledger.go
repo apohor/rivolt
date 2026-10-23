@@ -63,6 +63,8 @@ type ledgerAPI struct {
 	billed func(uid uuid.UUID) bool
 	// schedule is the user's off-peak electricity schedule (none: no windows).
 	schedule func(ctx context.Context, uid uuid.UUID) offpeak.Schedule
+	// flatRate reports the user's "my rate is flat" choice (nil: not set): every off-peak estimate stops.
+	flatRate func(ctx context.Context, uid uuid.UUID) bool
 }
 
 // withBilled returns a copy that adds the billed_* fields for users the
@@ -114,6 +116,13 @@ func newLedgerAPI(pool *sql.DB, settingsF *settings.Factory) ledgerAPI {
 				return offpeak.Schedule{}
 			}
 			return sch
+		},
+		flatRate: func(ctx context.Context, uid uuid.UUID) bool {
+			if settingsF == nil {
+				return false
+			}
+			on, err := settings.GetFlatRate(ctx, settingsF.For(uid))
+			return err == nil && on
 		},
 		toConfirmCount: func(ctx context.Context, uid uuid.UUID) (int, int, error) {
 			return ledger.CountToConfirm(ctx, pool, uid)

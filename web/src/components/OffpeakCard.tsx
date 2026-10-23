@@ -87,6 +87,16 @@ export function OffpeakPanel() {
     save.reset();
   };
 
+  const flat = q.data?.flat_rate === true;
+  const setFlat = useMutation({
+    mutationFn: (on: boolean) => backend.setFlatRate(on),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["offpeak"] });
+      qc.invalidateQueries({ queryKey: ["savings"] });
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+    },
+  });
+
   if (q.isLoading || !loaded) return q.isError ? <ErrorBox title="Failed to load" detail={String(q.error)} /> : <Spinner />;
   const bad = hasErrors(errs);
   const strips: { kind: "weekdays" | "weekends"; label: string }[] = [
@@ -103,6 +113,26 @@ export function OffpeakPanel() {
         if (!bad) save.mutate(rows);
       }}
     >
+      <label data-flat-rate className="flex items-start gap-2 text-sm text-neutral-200">
+        <input
+          type="checkbox"
+          className="mt-1 accent-emerald-500"
+          checked={flat}
+          disabled={setFlat.isPending}
+          onChange={(e) => setFlat.mutate(e.target.checked)}
+        />
+        <span>
+          My electricity is one flat rate (no off-peak hours)
+          <span className="block text-xs text-neutral-400">
+            {flat
+              ? "Rivolt shows no off-peak savings, no off-peak line on share cards and no saving in your statement email. Your hours below are kept, and the estimates come back if you turn this off."
+              : "Turn this on if your utility has no cheaper hours, so Rivolt stops offering off-peak estimates."}
+          </span>
+        </span>
+      </label>
+      {setFlat.isError && (
+        <p role="alert" className="text-xs text-rose-400">Couldn&apos;t save that. Try again in a moment.</p>
+      )}
       <p className="text-xs text-neutral-400">
         If your utility charges less at certain hours, add those hours and their rate. You enter them yourself. Rivolt uses them only for estimates in Settings
         and Money; it does not contact your utility and cannot check them. Hours outside every window use your home rate

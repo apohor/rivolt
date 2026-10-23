@@ -408,8 +408,12 @@ struct MoneyContent: View {
                 Text(monthTitle).themeText(.subline, color: Theme.textTertiary)
                 if let s = model.savings {
                     switch MoneyLogic.savingsView(s) {
+                    case .flat(let basis):
+                        inline((basis.isEmpty ? "You said your electricity is one flat rate, so there are no off-peak hours and Rivolt makes no off-peak estimate." : basis) + " ",
+                               "Change in Settings on the web", .offpeak)
                     case .needs(.schedule):
                         needs("Add your off-peak hours and rate to see what moving home charging would have saved.", "Set off-peak hours", .offpeak)
+                        inline("", "My rate is flat, no off-peak hours", .offpeak, style: .subline)
                     case .needs(.homeRate):
                         needs("Set your home rate first, so hours outside your off-peak windows are priced.", "Set home rate", .homeRate)
                     case .needs(.sessions):

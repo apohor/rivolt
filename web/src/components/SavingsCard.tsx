@@ -49,6 +49,13 @@ export function SavingsCard({ area }: { area?: string }) {
         </p>
         {!view ? (
           <p className="text-neutral-500">…</p>
+        ) : view.kind === "flat" ? (
+          <p data-savings-flat className="text-neutral-300">
+            {view.basis || "You said your electricity is one flat rate, so there are no off-peak hours and Rivolt makes no off-peak estimate."}{" "}
+            <Link to={appPath("/settings?tab=charging#offpeak")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+              Change in Settings
+            </Link>
+          </p>
         ) : view.kind === "needs" ? (
           <p className="text-neutral-300">
             {view.need === "schedule" && (
@@ -57,6 +64,14 @@ export function SavingsCard({ area }: { area?: string }) {
                 <Link to={appPath("/settings?tab=charging#offpeak")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
                   Set off-peak hours
                 </Link>
+                {!demo && (
+                  <>
+                    {" · "}
+                    <Link data-savings-flat-link to={appPath("/settings?tab=charging#offpeak")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+                      My rate is flat, no off-peak hours
+                    </Link>
+                  </>
+                )}
               </>
             )}
             {view.need === "home_rate" && (

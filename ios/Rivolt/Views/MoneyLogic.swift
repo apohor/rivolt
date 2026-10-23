@@ -342,6 +342,8 @@ enum MoneyLogic {
     enum SavingsView: Equatable {
         enum Need: Equatable { case schedule, homeRate, sessions }
         case needs(Need)
+        /// The person said their electricity is one flat rate: no off-peak hours, no estimate.
+        case flat(basis: String)
         case nothing(leftOut: Int, reasons: [String])
         case saved(saved: Double, moved: Int, leftOut: Int, asCharged: Double?, ifMoved: Double?, reasons: [String], considered: Int?, basis: String)
     }
@@ -361,6 +363,7 @@ enum MoneyLogic {
     }
 
     static func savingsView(_ d: LedgerSavings) -> SavingsView {
+        if d.reason == "flat_rate" || d.flatRate == true { return .flat(basis: d.basis ?? "") }
         if d.needs == "offpeak_schedule" { return .needs(.schedule) }
         if d.needs == "home_rate" { return .needs(.homeRate) }
         if d.needs != nil { return .needs(.sessions) }

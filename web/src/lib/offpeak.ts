@@ -10,6 +10,8 @@ export type OffpeakSchedule = {
   configured?: boolean;
   base_rate?: number;
   currency?: string;
+  // GET only: the user said their electricity is one flat rate (no off-peak hours). The schedule stays stored while it is on.
+  flat_rate?: boolean;
 };
 
 // A window as edited: the rate is text until it's valid.

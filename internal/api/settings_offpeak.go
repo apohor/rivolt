@@ -19,6 +19,9 @@ type offpeakResponse struct {
 	// BaseRate is the flat home rate used outside the windows (0: not set).
 	BaseRate float64 `json:"base_rate"`
 	Currency string  `json:"currency"`
+	// FlatRate is the user's "my rate is flat, there are no off-peak hours" choice (read-only
+	// here; it is written through /flat-rate). The schedule above stays stored while it is on.
+	FlatRate bool `json:"flat_rate"`
 }
 
 func offpeakView(r *http.Request, store *settings.Store) (offpeakResponse, error) {
@@ -30,7 +33,11 @@ func offpeakView(r *http.Request, store *settings.Store) (offpeakResponse, error
 	if err != nil {
 		return offpeakResponse{}, err
 	}
-	return offpeakResponse{Schedule: sch, Configured: ok, BaseRate: cfg.HomePricePerKWh, Currency: cfg.HomeCurrency}, nil
+	flat, err := settings.GetFlatRate(r.Context(), store)
+	if err != nil {
+		return offpeakResponse{}, err
+	}
+	return offpeakResponse{Schedule: sch, Configured: ok, BaseRate: cfg.HomePricePerKWh, Currency: cfg.HomeCurrency, FlatRate: flat}, nil
 }
 
 // handleOffpeakGet serves GET /api/settings/charging/offpeak.

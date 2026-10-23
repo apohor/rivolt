@@ -71,6 +71,10 @@ test("savings: states with no number say what is missing and link to it", async 
   needs = "more_home_sessions";
   await page.reload();
   await expect(card).toContainText("A few more home charges are needed");
+  // The way out for someone with no off-peak hours at all.
+  needs = "offpeak_schedule";
+  await page.reload();
+  await expect(card.locator("[data-savings-flat-link]")).toHaveAttribute("href", /settings\?tab=charging#offpeak/);
   await ctx.close();
 });
 
@@ -110,6 +114,19 @@ test("share statement: no share from the server, no toggle", async ({ browser })
   await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0 }), []);
   await page.getByRole("button", { name: "Share statement" }).click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/Include cost/)).toBeVisible();
+  await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
+  await ctx.close();
+});
+
+test("flat rate: the card says so with a way back, and the share sheet has no off-peak toggle", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, () => ({ version: 1, flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate, so there are no off-peak hours." }), []);
+  const card = page.locator("[data-savings]");
+  await expect(card.locator("[data-savings-flat]")).toContainText("one flat rate");
+  await expect(card.getByRole("link", { name: "Change in Settings" })).toHaveAttribute("href", /settings\?tab=charging#offpeak/);
+  await expect(card).not.toContainText("could have saved");
+  await page.getByRole("button", { name: "Share statement" }).click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
   await ctx.close();
 });
