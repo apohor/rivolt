@@ -88,7 +88,7 @@ final class ChargingRatesModel {
         }
     }
 
-    static func saveError(_ error: Error) -> SaveError {
+    nonisolated static func saveError(_ error: Error) -> SaveError {
         guard case APIError.server(let status, let message) = error else { return .unknown }
         switch status {
         case 400: return .invalid(message)
