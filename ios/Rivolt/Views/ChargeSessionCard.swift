@@ -119,9 +119,20 @@ struct ChargeSessionCard: View {
                             ForEach(group.rows) { row in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(row.label).themeText(.label)
-                                    HStack(alignment: .firstTextBaseline, spacing: 2 * Theme.unit) {
+                                    if let tag = row.tag {
+                                        // Side by side when both fit whole; else the pill goes under the value. Neither is cut.
+                                        ViewThatFits(in: .horizontal) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 2 * Theme.unit) {
+                                                Text(row.value).themeText(.value, color: Theme.textPrimary).fixedSize()
+                                                ThemePill(text: tag).fixedSize()
+                                            }
+                                            VStack(alignment: .leading, spacing: Theme.unit) {
+                                                Text(row.value).themeText(.value, color: Theme.textPrimary)
+                                                ThemePill(text: tag).fixedSize()
+                                            }
+                                        }
+                                    } else {
                                         Text(row.value).themeText(.value, color: Theme.textPrimary)
-                                        if let tag = row.tag { ThemePill(text: tag) }
                                     }
                                     if let hint = row.hint { Text(hint).themeText(.subline, color: Theme.textTertiary) }
                                 }
