@@ -100,7 +100,7 @@ final class MoneyModel {
         case .failure(let e):
             if Self.isMissing(e) { unavailable = true }
             // A 429 or a dropped connection keeps the figures already shown for this truck and month.
-            if month == nil { error = e.localizedDescription }
+            if month == nil { error = UserFacingError.words(e) }
         }
         if let ss { summary = ss }
 

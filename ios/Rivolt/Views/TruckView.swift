@@ -103,7 +103,7 @@ struct TruckView: View {
             }
             vehiclesError = nil
         } catch {
-            if vehicles.isEmpty { vehiclesError = error.localizedDescription }
+            if vehicles.isEmpty { vehiclesError = UserFacingError.words(error) }
         }
         vehiclesLoaded = true
     }

@@ -104,7 +104,7 @@ struct MoneyView: View {
             }
             vehiclesError = nil
         } catch {
-            if vehicles.isEmpty { vehiclesError = error.localizedDescription }
+            if vehicles.isEmpty { vehiclesError = UserFacingError.words(error) }
         }
         vehiclesLoaded = true
     }
@@ -119,7 +119,7 @@ struct MoneyView: View {
             let data = try await state.client.ledgerCSV(month: m.period, timeZone: TimeZone.current.identifier, vehicleID: scope)
             exportFile = try MoneyExportFile.csv(data, month: m.period)
         } catch {
-            csvError = "Couldn't make the CSV. \(error.localizedDescription)"
+            csvError = "Couldn't make the CSV. \(UserFacingError.words(error))"
         }
     }
 
