@@ -14,6 +14,7 @@ struct ActivityDetailView: View {
     @State private var driveDetail = DriveDetailModel()
     /// A charge's row, read once for its map and its session card.
     @State private var chargeRow = ChargeRowModel()
+    @State private var sharing: ActivityDrive?
 
     private var title: String {
         switch item {
@@ -66,12 +67,24 @@ struct ActivityDetailView: View {
             if case .charge(let c) = item { await chargeRow.load(source: state.client, id: c.id) }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $sharing) { d in
+            ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "trip", date: d.startedAt, calendar: calendar),
+                           costHint: (d.estimatedCost ?? 0) > 0 ? "Adds the estimated charging cost." : nil) { cost in
+                MoneyShareCard.trip(d, includeCost: cost, calendar: calendar)
+            }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ThemeTopBar { AccountMenu(vehicleID: nil, onRefresh: nil) }
                 HStack(alignment: .center) {
                     Text(title).themeText(.hero).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
+                    if case .drive(let d) = item {
+                        Button("Share") { sharing = d }
+                            .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
+                            .foregroundStyle(Theme.textBody)
+                            .accessibilityLabel("Share this trip")
+                    }
                     Button { dismiss() } label: {
                         Label(backLabel, systemImage: "arrow.left").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
                     }

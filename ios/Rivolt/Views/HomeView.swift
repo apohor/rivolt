@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
+    @State private var sharingMilestone: Milestone?
     @State private var extras = ExtrasModel()
     @State private var session: LiveSession?
     @State private var liveDrive: LiveDrive?
@@ -42,7 +43,7 @@ struct HomeView: View {
                         let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
                             if let m = extras.current(vehicleID: vehicle.id) {
-                                MilestoneCard(milestone: m, failed: extras.dismissFailed) {
+                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }) {
                                     Task { await extras.dismiss(m, source: state.client) }
                                 }
                             }
@@ -107,6 +108,11 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }) }
                     titleRow
+                }
+            }
+            .sheet(item: $sharingMilestone) { m in
+                ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "milestone", date: m.achievedAt, calendar: .current)) { _ in
+                    MoneyShareCard.milestone(m, calendar: .current)
                 }
             }
             .sheet(isPresented: $showNotifications) {

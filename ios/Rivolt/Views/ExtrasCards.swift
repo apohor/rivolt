@@ -4,6 +4,7 @@ import SwiftUI
 struct MilestoneCard: View {
     let milestone: Milestone
     let failed: Bool
+    var onShare: (() -> Void)?
     let onHide: () -> Void
 
     var body: some View {
@@ -18,10 +19,18 @@ struct MilestoneCard: View {
                 }
             }
             Spacer(minLength: 8)
-            Button("Hide this", action: onHide)
-                .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityLabel("Hide this milestone")
+            VStack(alignment: .trailing, spacing: 8) {
+                if let onShare {
+                    Button("Share", action: onShare)
+                        .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Theme.textSecondary)
+                        .accessibilityLabel("Share this milestone")
+                }
+                Button("Hide this", action: onHide)
+                    .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityLabel("Hide this milestone")
+            }
         }
         .themeCard(padding: 4 * Theme.unit)
     }
