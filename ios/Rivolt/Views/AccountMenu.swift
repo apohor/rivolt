@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The account menu at the end of every screen's top bar: Refresh (when the screen has something to refresh),
-/// Notifications (when this server can push), Charging rates (the home rate, read and changed), Appearance (System, Light or Dark, saved on this iPhone), Privacy policy and Terms (the pages on the signed-in server, in Safari), Acknowledgements and Sign out. It opens its own sheets, so each screen
+/// Notifications (when this server can push), Charging rates (the home rate, read and changed), Signed-in devices (where you're signed in, and a way to sign one out), Appearance (System, Light or Dark, saved on this iPhone), Privacy policy and Terms (the pages on the signed-in server, in Safari), Acknowledgements and Sign out. It opens its own sheets, so each screen
 /// only places it. The screens it opens are the architect's (Settings); the menu itself is shared.
 struct AccountMenu: View {
     @Environment(AppState.self) private var state
@@ -17,6 +17,7 @@ struct AccountMenu: View {
     @State private var showConnection = false
     @State private var showDelete = false
     @State private var showAbout = false
+    @State private var showDevices = false
 
     var body: some View {
         HStack(spacing: 2 * Theme.unit) {
@@ -46,6 +47,7 @@ struct AccountMenu: View {
                     Button("Notifications") { showNotifications = true }
                 }
                 Button("Charging rates") { showRates = true }
+                Button("Signed-in devices") { showDevices = true }
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
                 }
@@ -67,6 +69,7 @@ struct AccountMenu: View {
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
         .sheet(isPresented: $showRates) { ChargingRatesView() }
         .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
+        .sheet(isPresented: $showDevices) { DevicesView() }
         .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,

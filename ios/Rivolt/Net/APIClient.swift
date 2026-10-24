@@ -80,6 +80,20 @@ actor APIClient {
         try await request("GET", "/api/auth/me")
     }
 
+    // MARK: Signed-in devices
+
+    /// The browsers and iPhones signed in as this person (newest first as the server sends them).
+    func signedInDevices() async throws -> [SignedInDevice] {
+        let list: SignedInDevices = try await request("GET", "/api/auth/sessions")
+        return list.sessions
+    }
+
+    /// Signs one device out. The server allows the app this one call, for this person's own devices only; there is no
+    /// "sign out everywhere else" on the phone (a stolen phone could lock the owner out).
+    func signOutDevice(id: String) async throws {
+        let _: Empty = try await request("DELETE", "/api/auth/sessions/\(pathID(id))")
+    }
+
     // MARK: Push (APNs)
 
     private struct ApnsRegisterBody: Encodable {
