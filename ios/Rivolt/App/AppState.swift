@@ -61,6 +61,8 @@ final class AppState {
     private(set) var signInNotice: String?
     /// Set when the person was sent to the web to delete the account: the next time the app is in front, it checks whether they did.
     private var awaitingDeletion = false
+    /// The account the demo was opened from, when it was opened from one (see `enterDemoFromAccount`).
+    private var resumeAfterDemo: String?
     /// What the Connection details screen shows: the last two reads' outcomes and the newest frame, in memory only.
     let connection = ConnectionDiagnostics()
     private(set) var signInStatus: SignInStatus = .unknown
@@ -104,18 +106,36 @@ final class AppState {
     /// no widget or Live Activity.
     func enterDemo() {
         guard phase == .loggedOut else { return }
+        resumeAfterDemo = nil
         client = APIClient.demo()
         phase = .demo
     }
 
-    /// Leaves the demo for the sign-in screen, forgetting everything it held in memory.
+    /// The sample truck for someone signed in who has no truck yet. The account stays signed in underneath (nothing of it is used
+    /// while the demo is open); leaving the demo returns to it.
+    func enterDemoFromAccount() {
+        guard case .loggedIn(let username) = phase else { return }
+        resumeAfterDemo = username
+        client = APIClient.demo()
+        phase = .demo
+    }
+
+    /// True while the demo was opened from a signed-in account: its way out leads back there, not to the sign-in screen.
+    var demoResumesAccount: Bool { resumeAfterDemo != nil }
+
+    /// Leaves the demo, forgetting everything it held in memory: back to the account it was opened from, or to the sign-in screen.
     func leaveDemo() {
         guard phase == .demo else { return }
         client = signedInClient
         MapNetwork.reset()
         activityMap.clear()
         efficiency.clear()
-        phase = .loggedOut
+        if let username = resumeAfterDemo {
+            resumeAfterDemo = nil
+            phase = .loggedIn(username: username)
+        } else {
+            phase = .loggedOut
+        }
     }
 
     /// This build's number, compared with the server's `min_ios_build`.

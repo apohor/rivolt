@@ -41,7 +41,7 @@ struct AccountMenu: View {
                 Button("About the demo") { showAbout = true }
                 Button("Acknowledgements") { showAcknowledgements = true }
                 Divider()
-                Button("Sign in") { state.leaveDemo() }
+                Button(state.demoResumesAccount ? "Back to my account" : "Sign in") { state.leaveDemo() }
             } else {
                 if state.notifications.offered {
                     Button("Notifications") { showNotifications = true }
