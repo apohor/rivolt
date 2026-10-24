@@ -3339,6 +3339,31 @@ func (m *StateMonitor) LatestLiveSession(vehicleID string) *LiveSession {
 	return m.lastSession[vehicleID]
 }
 
+// LiveSessionForCharge is what the live-session endpoint serves: the cached charging session only when it belongs to the
+// vehicle's open charge, and the energy that charge has recorded so far. The cache can hold the previous plug-in's
+// session (Parallax's charge breakdown counts per plug-in and the cloud replays the last snapshot), whose total and power
+// are not this charge's: the recorder already refuses to credit such a session to a row, and the endpoint now does the
+// same. With no open charge (a charge that has not opened yet, or none) there is no session to serve.
+func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, float64) {
+	m.mu.RLock()
+	sess, bondedTo := m.lastSession[vehicleID], m.lastSessionFor[vehicleID]
+	m.mu.RUnlock()
+	m.sessMu.Lock()
+	s := m.sessions[vehicleID]
+	if s == nil || s.charge == nil {
+		m.sessMu.Unlock()
+		return nil, 0
+	}
+	c := s.charge
+	energy := m.liveChargeRow(vehicleID, c).EnergyAddedKWh
+	usable := sess != nil && bondedTo == c.id && !sessionPredatesCharge(sess, c)
+	m.sessMu.Unlock()
+	if !usable {
+		return nil, energy
+	}
+	return sess, energy
+}
+
 // LiveDrive is the wire-friendly snapshot of an in-flight drive
 // session — the recorder's internal `liveDrive` accumulator
 // projected into the same style that /api/live-session returns for
