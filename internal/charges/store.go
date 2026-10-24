@@ -442,7 +442,8 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
-		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
+		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -470,7 +471,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
 		); err != nil {
 			return nil, err
 		}
@@ -510,7 +511,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
-		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
+		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -541,7 +543,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
 	); err != nil {
 		return nil, err
 	}
@@ -734,7 +736,8 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
-		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
+		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -759,7 +762,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
 		); err != nil {
 			return err
 		}
@@ -975,7 +978,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
-		       COALESCE(c.place_override,''), COALESCE(c.location_override,'')
+		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
+		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -999,7 +1003,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
 	); err != nil {
 		return nil, err
 	}

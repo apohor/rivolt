@@ -745,3 +745,49 @@ func TestClassifyAll_Superseded(t *testing.T) {
 		t.Errorf("unrelated row = %+v", got[2])
 	}
 }
+
+// A charge whose energy was estimated from the SoC gain is marked on its session, on its receipt, and on the month's
+// energy total; a month without one is not.
+func TestBuild_EnergyEstimatedIsMarked(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	est := priced(charge("est", "2026-10-12T23:00:00Z", 6*time.Hour, 40, 7.6), 0.11)
+	est.EnergyEstimated = true
+	// A separate plug-in (a drive between) that was metered.
+	drive := Drive{ID: "d1", VehicleID: "veh-1", StartedAt: ts("2026-10-13T12:00:00Z"),
+		EndedAt: ts("2026-10-13T14:00:00Z"), DistanceMi: f(30), EnergyKWh: f(10), Source: "live"}
+	plain := priced(charge("plain", "2026-10-14T01:00:00Z", 3*time.Hour, 20, 7.6), 0.11)
+
+	m := Build(Input{Charges: []Charge{est, plain}, Drives: []Drive{drive}, Config: cfg(), Now: ts("2026-10-15T00:00:00Z")}, month, true)
+	if !m.Energy.IncludesEstimated {
+		t.Error("the month's energy does not say it includes an estimate")
+	}
+	byID := map[string]Receipt{}
+	for _, r := range m.Receipts {
+		byID[r.ReceiptID] = r
+	}
+	if r := byID["rcpt_est"]; !r.EnergyEstimated || len(r.Sessions) != 1 || !r.Sessions[0].EnergyEstimated {
+		t.Errorf("the estimated receipt: %+v", r)
+	}
+	if r := byID["rcpt_plain"]; r.EnergyEstimated || r.Sessions[0].EnergyEstimated {
+		t.Errorf("a metered receipt is marked: %+v", r)
+	}
+	// A plug-in that mixes both is marked, and only its estimated session is.
+	a := priced(charge("a", "2026-10-20T01:00:00Z", 2*time.Hour, 10, 7.6), 0.11)
+	b := priced(charge("b", "2026-10-20T04:00:00Z", 2*time.Hour, 10, 7.6), 0.11)
+	b.EnergyEstimated = true
+	mix := Build(Input{Charges: []Charge{a, b}, Config: cfg(), Now: ts("2026-10-21T00:00:00Z")}, month, true)
+	if len(mix.Receipts) != 1 || !mix.Receipts[0].EnergyEstimated || mix.Receipts[0].Sessions[0].EnergyEstimated || !mix.Receipts[0].Sessions[1].EnergyEstimated {
+		t.Errorf("a mixed plug-in: %+v", mix.Receipts)
+	}
+	none := Build(Input{Charges: []Charge{plain}, Config: cfg(), Now: ts("2026-10-15T00:00:00Z")}, month, true)
+	if none.Energy.IncludesEstimated {
+		t.Error("a month with no estimate says it includes one")
+	}
+	// The JSON keys are always present.
+	raw, _ := json.Marshal(none)
+	for _, k := range []string{`"includes_estimated":false`, `"energy_estimated":false`} {
+		if !strings.Contains(string(raw), k) {
+			t.Errorf("monthly JSON lacks %s", k)
+		}
+	}
+}

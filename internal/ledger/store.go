@@ -105,7 +105,8 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+billedCols+estimateCols+`
+		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+billedCols+estimateCols+`,
+		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id`+billedJoin+`
 		WHERE c.user_id = $1
@@ -143,7 +144,7 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 			&costSource, &network,
 			&netState, &netConf, &netEv,
 			&billed, &billedCur, &billedVendor, &billedCharger, &billedHome,
-			&estMonth, &estURL,
+			&estMonth, &estURL, &c.EnergyEstimated,
 		); err != nil {
 			return nil, err
 		}
