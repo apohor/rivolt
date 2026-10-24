@@ -319,3 +319,84 @@ func TestCampgroundsOnlyIsUnchanged(t *testing.T) {
 		t.Fatalf("candidates = %+v", res.Candidates)
 	}
 }
+
+// 1000 km in 10 h (100 km/h), an 8 h budget: the budget point is 800 km. The first window is 750-850 km; it widens
+// to -60/+60 min (700-900 km), then -120/+60 (600-900), then -180/+60 (500-900). The after side never passes an hour.
+func suggestHotels(t *testing.T, hotels ...chargers.POI) *Result {
+	t.Helper()
+	res, err := Suggest(&fakeArchive{hotels: hotels}, Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestWidensOnlyWhenTheFirstWindowIsEmpty(t *testing.T) {
+	res := suggestHotels(t, hotel("In the first window", 760, 0, 7), hotel("Earlier", 650, 0, 19.2))
+	if len(res.Candidates) != 1 || res.Candidates[0].Name != "In the first window" {
+		t.Fatalf("candidates %+v", res.Candidates)
+	}
+	if res.Target.WindowBeforeMin != 30 || res.Target.WindowAfterMin != 30 {
+		t.Errorf("window %v/%v, want 30/30", res.Target.WindowBeforeMin, res.Target.WindowAfterMin)
+	}
+}
+
+func TestWidensToTheFirstWindowThatHasAStay(t *testing.T) {
+	cases := []struct {
+		name          string
+		km            float64
+		before, after float64
+	}{
+		{"54 min after", 890, 60, 60},
+		{"75 min before", 725, 60, 60},
+		{"90 min before", 650, 120, 60},
+		{"150 min before", 550, 180, 60},
+	}
+	for _, c := range cases {
+		res := suggestHotels(t, hotel("Only stay", c.km, 0, 7))
+		if len(res.Candidates) != 1 {
+			t.Errorf("%s: %d candidates", c.name, len(res.Candidates))
+			continue
+		}
+		if res.Target.WindowBeforeMin != c.before || res.Target.WindowAfterMin != c.after {
+			t.Errorf("%s: window %v/%v, want %v/%v", c.name, res.Target.WindowBeforeMin, res.Target.WindowAfterMin, c.before, c.after)
+		}
+	}
+}
+
+// Stopping early is safe; suggesting a stay more than an hour past the budget point (an 11-hour day) is not.
+func TestNeverSuggestsMoreThanAnHourPastTheBudgetPoint(t *testing.T) {
+	res := suggestHotels(t, hotel("Ninety minutes late", 950, 0, 19.2), hotel("Just over an hour late", 910, 0, 19.2))
+	if len(res.Candidates) != 0 {
+		t.Fatalf("suggested %+v", res.Candidates)
+	}
+	if res.Target.WindowBeforeMin != 180 || res.Target.WindowAfterMin != 60 {
+		t.Errorf("empty result reports window %v/%v, want the widest tried, 180/60", res.Target.WindowBeforeMin, res.Target.WindowAfterMin)
+	}
+	// With an earlier stay available, that one is offered instead.
+	res = suggestHotels(t, hotel("Ninety minutes late", 950, 0, 19.2), hotel("Early", 520, 0, 3.3))
+	if len(res.Candidates) != 1 || res.Candidates[0].Name != "Early" {
+		t.Fatalf("candidates %+v", res.Candidates)
+	}
+}
+
+// In a widened window the stay nearest the budget point comes first, an earlier one winning a tie, whatever the power.
+func TestWidenedWindowRanksByDistanceFromTheBudgetPoint(t *testing.T) {
+	res := suggestHotels(t,
+		hotel("Far, strong", 640, 0, 19.2),
+		hotel("Near, weak", 720, 0, 3.3),
+		hotel("Mid", 680, 0, 11.5),
+		hotel("Tie, after", 740, 0, 7),
+		hotel("Tie, before", 740, 0.001, 7),
+	)
+	var names []string
+	for _, c := range res.Candidates {
+		names = append(names, c.Name)
+	}
+	if len(names) != 3 || names[0] != "Tie, after" && names[0] != "Tie, before" {
+		t.Fatalf("order %v", names)
+	}
+	if names[2] != "Near, weak" {
+		t.Errorf("order %v: nearest to the budget point should come first", names)
+	}
+}

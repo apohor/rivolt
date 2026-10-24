@@ -23,7 +23,6 @@ type Archive interface {
 const (
 	DefaultBudgetHours = 8.0
 	MaxPathPoints      = 20000
-	windowMinutes      = 30.0 // look this far either side of the budget point
 	corridorKm         = 12.0 // a hotel counts as near the route within this
 	dcfcNearKm         = 8.0  // "within about 10 minutes" of a morning top-up
 	assumedL2KW        = 7.0  // when the listing gives no power
@@ -134,6 +133,10 @@ type Target struct {
 	// ReachesEnd is true when the whole day fits in the budget; the stops are
 	// then around the day's end.
 	ReachesEnd bool `json:"reaches_end"`
+	// WindowBeforeMin and WindowAfterMin are how many minutes of driving before and after the budget point the
+	// search covered: the window that produced the stays, or the widest one tried when there are none.
+	WindowBeforeMin float64 `json:"window_before_min"`
+	WindowAfterMin  float64 `json:"window_after_min"`
 }
 
 // Result is the suggestion.
@@ -189,18 +192,54 @@ func Suggest(a Archive, req Request) (*Result, error) {
 	if reachesEnd {
 		target = pth.total
 	}
-	win := windowMinutes * 60 / secPerM
-	lo, hi := math.Max(0, target-win), math.Min(pth.total, target+win)
 	tlat, tlon := pth.at(target)
 	res := &Result{Candidates: []Candidate{}, RouteM: math.Round(pth.total), Target: Target{Lat: tlat, Lon: tlon, AlongM: math.Round(target), ReachesEnd: reachesEnd}}
 
-	sub := pth.slice(lo, hi)
-	if len(sub) < 2 {
-		return res, nil
-	}
 	kinds, err := wantedKinds(req.Kinds)
 	if err != nil {
 		return nil, err
+	}
+	for i, w := range searchWindows {
+		lo := math.Max(0, target-w.beforeMin*60/secPerM)
+		hi := math.Min(pth.total, target+w.afterMin*60/secPerM)
+		res.Target.WindowBeforeMin, res.Target.WindowAfterMin = w.beforeMin, w.afterMin
+		found, err := search(a, pth, kinds, lo, hi, target, i > 0)
+		if err != nil {
+			return nil, err
+		}
+		if len(found) > 0 {
+			res.Candidates = found
+			break
+		}
+	}
+	return res, nil
+}
+
+// searchWindows are the half-widths, in minutes of driving, tried in turn: the day's budget point plus or minus the
+// first, then wider. A search widens only when the one before found no stay. The "after" side stops at an hour (a
+// nine-hour day at most): stopping early is always safe, driving an eleventh hour to bed is not a thing to suggest.
+var searchWindows = []struct{ beforeMin, afterMin float64 }{{30, 30}, {60, 60}, {120, 60}, {180, 60}}
+
+// search finds the ranked stays between lo and hi metres along the route. In a widened window (byDist) the stays
+// nearest the budget point come first, an earlier stop winning a tie; in the first window they are ranked on the
+// listing as always.
+func search(a Archive, pth *path, kinds []string, lo, hi, target float64, byDist bool) ([]Candidate, error) {
+	sub := pth.slice(lo, hi)
+	if len(sub) < 2 {
+		return nil, nil
+	}
+	less := rankBefore
+	if byDist {
+		less = func(x, y scored) bool {
+			dx, dy := math.Abs(x.c.AlongM-target), math.Abs(y.c.AlongM-target)
+			if dx != dy {
+				return dx < dy
+			}
+			if x.c.AlongM != y.c.AlongM {
+				return x.c.AlongM < y.c.AlongM
+			}
+			return x.c.EntityID+x.c.Name < y.c.EntityID+y.c.Name
+		}
 	}
 	var all []scored
 	for _, kind := range kinds {
@@ -253,7 +292,7 @@ func Suggest(a Archive, req Request) (*Result, error) {
 	for i := range all {
 		all[i].score = score(all[i].c, false)
 	}
-	sort.SliceStable(all, func(i, j int) bool { return rankBefore(all[i], all[j]) })
+	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
 	wantCamp := false
 	for _, k := range kinds {
 		wantCamp = wantCamp || k == KindCampground
@@ -273,7 +312,7 @@ func Suggest(a Archive, req Request) (*Result, error) {
 		all[i].c.DCFCNearby = nearbyDCFC(a, all[i].c)
 		all[i].score = score(all[i].c, all[i].c.DCFCNearby != nil)
 	}
-	sort.SliceStable(all, func(i, j int) bool { return rankBefore(all[i], all[j]) })
+	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
 	top := all
 	if len(top) > maxCandidates {
 		top = top[:maxCandidates]
@@ -286,10 +325,11 @@ func Suggest(a Archive, req Request) (*Result, error) {
 			}
 		}
 	}
+	out := make([]Candidate, 0, len(top))
 	for _, sc := range top {
-		res.Candidates = append(res.Candidates, sc.c)
+		out = append(out, sc.c)
 	}
-	return res, nil
+	return out, nil
 }
 
 // indexOfKind is the first stay of the given kind, or -1.

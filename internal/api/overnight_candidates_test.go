@@ -78,6 +78,10 @@ func TestOvernightCandidatesEndpoint(t *testing.T) {
 	if !strings.Contains(empty.Body.String(), `"candidates":[]`) {
 		t.Errorf("empty = %s", empty.Body.String())
 	}
+	// The widest window tried travels with the answer, so the page can say how far it looked.
+	if !strings.Contains(empty.Body.String(), `"window_before_min":180`) || !strings.Contains(empty.Body.String(), `"window_after_min":60`) {
+		t.Errorf("empty answer lacks the window it searched: %s", empty.Body.String())
+	}
 }
 
 func TestOvernightCandidatesRefusals(t *testing.T) {
