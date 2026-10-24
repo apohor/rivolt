@@ -14,7 +14,6 @@ extension EnvironmentValues {
 
 /// The "Demo" pill in every top bar while the demo truck is open: it says what this is and is the way out ("Sign in").
 struct DemoPill: View {
-    @Environment(AppState.self) private var state
     @State private var showAbout = false
 
     var body: some View {

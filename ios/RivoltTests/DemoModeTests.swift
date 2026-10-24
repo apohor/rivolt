@@ -63,7 +63,7 @@ final class DemoClientTests: XCTestCase {
             try await client.dismissMilestone(vehicleID: "v", key: "k")
             XCTFail("a write went out from the demo")
         } catch {
-            XCTAssertEqual(UserFacingError.words(error).isEmpty, false)
+            XCTAssertFalse(UserFacingError.words(error).isEmpty)
         }
         XCTAssertTrue(DemoStub.seen.isEmpty, "nothing was sent")
     }
@@ -72,10 +72,11 @@ final class DemoClientTests: XCTestCase {
         DemoStub.reset(status: 401, body: #"{"error":"unauthorized"}"#)
         let demo = APIClient.demo(session: session())
         // An optional card's read: 404 is "not here" and the card is left out.
-        let drain = try await demo.drain(vehicleID: "v")
-        XCTAssertNil(drain)
+        let denied = try await demo.drain(vehicleID: "v")
+        XCTAssertNil(denied)
         DemoStub.reset(status: 403)
-        XCTAssertNil(try await demo.drain(vehicleID: "v"))
+        let forbidden = try await demo.drain(vehicleID: "v")
+        XCTAssertNil(forbidden)
         // The same answer to a real client is still an ended sign-in.
         DemoStub.reset(status: 401, body: #"{"error":"unauthorized"}"#)
         let real = APIClient(baseURL: URL(string: "https://rivolt.dev")!, tokens: TokenSpy(), session: session())
@@ -87,10 +88,11 @@ final class DemoClientTests: XCTestCase {
         }
     }
 
-    func testTheWordsOnTheSignInScreenAndTheAboutSheet() {
+    func testTheWordsOnTheSignInScreenAndTheAboutSheet() throws {
         XCTAssertEqual(DemoMode.caption, "Sample truck · example data")
         XCTAssertEqual(DemoMode.about, "A sample truck with made-up data. Nothing here is saved or sent to Rivian. Sign in to see your own truck.")
-        XCTAssertNil(try? NoTokenStore().token(for: DemoMode.baseURL) ?? nil)
+        let stored = try NoTokenStore().token(for: DemoMode.baseURL)
+        XCTAssertNil(stored)
         XCTAssertThrowsError(try NoTokenStore().setToken("x", for: DemoMode.baseURL))
     }
 }
