@@ -80,6 +80,13 @@ the percentage moved.
 
 ![Now](docs/screenshots/now.png)
 
+- **Comfort line.** While the feed is live, one line reads what the truck
+  says about the cabin: "Cabin 68°F · Pet mode on · Climate hold", or
+  "Preconditioning". It disappears when the data is stale, so an old
+  "Pet mode on" is never read as current.
+
+<img src="docs/screenshots/now-comfort.png" width="390" alt="The comfort line on Now for the demo's sample truck, live only: here just the cabin temperature, 49 degrees Fahrenheit">
+
 ### Activity — every drive and charge
 
 One day-grouped **Feed** of drives and charges, newest first, with
@@ -101,6 +108,17 @@ between energy into the pack and energy spent on battery conditioning.
 Sessions are bucketed Home / Public / Fast by clustering on coordinates
 and peak kW; home sessions price against your configured home rate,
 others against the cost Rivian reports.
+
+- **Trailer connected.** Drives record whether a trailer was connected
+  (from the connector, so "trailer", never "towing"), you can correct a
+  drive, and efficiency figures leave those drives out and say so:
+  "Excludes N drives with a trailer".
+- **Estimated energy, marked.** If a Rivolt bug loses a charge's energy
+  count, the kWh is worked out from the battery's change and shown as an
+  estimate, "~12.3 kWh" with a note, and so is the cost that follows from
+  it, on the feed, the charge page, Money's receipts, the month total, the
+  statement email and the share card. Nothing estimated is ever shown as
+  measured.
 
 ![Activity](docs/screenshots/activity.png)
 
@@ -218,12 +236,35 @@ weather and traffic will differ.
 
 ### Truck — health, sleep and drain
 
-Parked drain, pack capacity and the lowest tire pressure and software
-version the truck reports. The sleep chart shows idle-awake time per
-day (the car awake while parked and not charging), with a warning when
-it keeps waking up again within a minute.
+Parked drain, pack capacity and software version as the truck reports
+them, plus three cards that read only what your own truck sends:
+
+- **Tires.** Four pressures in psi and bar, front row first, with how old
+  the reading is. A wheel is marked **Low** below 32 psi, or **Low (Rivian)**
+  when the truck's own status says so; above that there is only the number,
+  and Rivolt never calls a wheel OK. Your truck's correct pressure is on the
+  placard on the driver's door.
+- **Sleep health.** The sleep card now opens with this week against your
+  truck's own last 30 days: "Nothing unusual this week" or "Woke N more times
+  than usual this week", with the counts. It compares the truck only with
+  itself, never with other trucks, and offers no cause (Rivolt's own
+  requests, a key nearby or a fault can all wake a truck). Until there are
+  five recorded days this week and fourteen in the baseline it says so
+  instead of guessing.
+- **Software update.** When the truck reports an update, the Vehicle card
+  shows the version and the truck's own word for it: Downloading, Ready to
+  install, Installing, with the reading's age. While it is installing and
+  the feed is live, Now shows "Installing software 2026.38". No percentage
+  yet (the scale is unconfirmed), no instruction, no alarm.
+
+The sleep chart shows idle-awake time per day (the car awake while parked
+and not charging), with a warning when it keeps waking up again within a
+minute.
 
 ![Truck](docs/screenshots/truck.png)
+
+<img src="docs/screenshots/truck-tires.png" width="390" alt="The Tires card on the demo's sample truck: front left and right 42 psi, rear left and right 41 psi, with the reading's age and the note that a wheel is marked Low below 32 psi or when the truck says so">
+<img src="docs/screenshots/truck-sleep-health.png" width="390" alt="Sleep health on the demo's sample truck (sample data): this week against the truck's own last 30 days, with the short-sleep counts and no cause named">
 
 #### Trends
 
@@ -324,6 +365,13 @@ event. Currently wired: **charging session completes** (with the
 final SoC + kWh added in the body). Plug-in reminders and
 anomaly alerts have the plumbing — event sources land next.
 
+- **Left open (opt-in, off by default).** A push to web push and the iPhone app when a door, the frunk,
+  the liftgate, the tailgate or the tonneau has been open for 15 minutes
+  after the truck is parked and left: "The frunk and a door on your R1S
+  have been open for 15 minutes." Windows are not included. One alert per
+  episode, and it can be missed if the truck is offline. It says nothing
+  about safety; it only tells you something is open.
+
 ---
 
 ## Sign up
@@ -361,8 +409,11 @@ real R2s, so you know what to trust.
 
 - **Checked on real R2s:** drives · charges and plug-in · charge limit
   · battery, range and odometer · location · cabin and battery
-  temperature · tire pressure · sleep and power state · reported
-  battery capacity.
+  temperature · tire pressure · sleep and park state (since the
+  October fix the R2 reports its power state on nearly every reading, so
+  sleep, standby and parked show as they do for an R1) · reported
+  battery capacity. Sleep health still needs 14 baseline days, so an R2
+  reads "Not enough history yet" until it has them.
 - **Shown as an estimate:** time to full charge (Rivian's own
   countdown, labelled "estimate"). Power state can take a minute to
   appear after Rivolt reconnects.
