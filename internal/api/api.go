@@ -227,6 +227,9 @@ type Deps struct {
 	// the rivolt DB row is still created, callers must create
 	// the OIDC identity out-of-band. See internal/idp.
 	Users idp.UserProvider
+	// AppleRevocation revokes (or queues the revoke of) an account's
+	// Sign in with Apple token before any account deletion. nil-safe.
+	AppleRevocation *AppleRevocation
 	// SignupRequests, when non-nil, enables the public-facing
 	// "request beta access" form at POST /api/signup/request and
 	// the admin review surface at /api/admin/signup-requests/*.
@@ -1058,7 +1061,7 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
 					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.DB, d.Logger))
 				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
-					Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.Logger))
+					Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.AppleRevocation, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.With(audit(auditSpec{action: "settings.ai", targetType: "settings", targetID: "ai", fields: true})).
 					Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))

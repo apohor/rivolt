@@ -285,3 +285,43 @@ func TestInactivePurgeOffNeverTouchesUnwarnableAccounts(t *testing.T) {
 		t.Errorf("flag off: %+v, touched %v", res, st.unwarnLog)
 	}
 }
+
+// Every purge deletion runs the Sign in with Apple step first: an account whose token was neither revoked nor
+// queued is not deleted this run; one without Apple goes as before.
+func TestInactivePurgeRunsTheAppleStepFirst(t *testing.T) {
+	apple, plain := uuid.New(), uuid.New()
+	for _, unwarnable := range []bool{false, true} {
+		st := &fakePurgeStore{}
+		if unwarnable {
+			st.unwarnDue = []uuid.UUID{apple, plain}
+			st.unwarnDeleted = map[uuid.UUID]string{apple: "apple-user", plain: "plain-user"}
+		} else {
+			st.deleteDue = []uuid.UUID{apple, plain}
+			st.deleted = map[uuid.UUID]string{apple: "apple-user", plain: "plain-user"}
+		}
+		var buf bytes.Buffer
+		j, fi := newTestPurge(st, flags.InactivePurgeState{All: true}, &fakeMailer{}, &buf)
+		j.WithAppleRevocation(&AppleRevocation{ // Apple down and no queue: the step fails for apple only
+			Token: func(_ context.Context, uid uuid.UUID) (string, error) {
+				if uid == apple {
+					return "tok", nil
+				}
+				return "", nil
+			},
+			Revoke: func(context.Context, string) error { return errors.New("apple down") },
+			Log:    slog.New(slog.NewTextHandler(&buf, nil)),
+		})
+		j.RunOnce(context.Background())
+		if len(fi.deleted) != 1 || fi.deleted[0] != "plain-user" {
+			t.Errorf("unwarnable=%v: idp deleted %v, want only plain-user", unwarnable, fi.deleted)
+		}
+		for _, id := range append(st.deleteLog, st.unwarnLog...) {
+			if id == apple {
+				t.Errorf("unwarnable=%v: the Apple account was deleted without its revoke done or queued", unwarnable)
+			}
+		}
+		if strings.Contains(buf.String(), "tok") {
+			t.Errorf("token in logs: %s", buf.String())
+		}
+	}
+}

@@ -2164,13 +2164,30 @@ func runServer() {
 	// deletion (recorded in idp_delete_failures), with per-row backoff.
 	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
 
+	// Sign in with Apple: every account deletion revokes the account's Apple
+	// token first, or queues the revoke (sealed) for this retrier.
+	var appleRevocation *api.AppleRevocation
+	if pgPool != nil {
+		appleRevocation = &api.AppleRevocation{
+			DB:     pgPool,
+			Token:  appleid.New(pgPool, secretsStore).RefreshToken,
+			Sealer: sealer,
+			Log:    logger,
+		}
+		if oidcSvc != nil {
+			appleRevocation.Revoke = oidcSvc.AppleRevoke
+		}
+		go api.RunAppleRevokeRetrier(ctx, appleRevocation, 5*time.Minute)
+	}
+
 	// Inactive-account purge: accounts that never connected a vehicle are
 	// warned at day 90 and deleted at day 120. Off unless the
 	// inactive_account_purge flag says so ({"dry_run":true} counts only); the
 	// same RIVOLT_ENGAGEMENT_EMAILS=false opt-out as the nudge sweeps keeps a
 	// preview that shares a copy of real users from mailing or deleting them.
 	if pgPool != nil && flagsStore != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
-		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger)
+		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger).
+			WithAppleRevocation(appleRevocation)
 		go purge.Run(ctx)
 	}
 
@@ -2453,6 +2470,7 @@ func runServer() {
 		Secrets:            secretsStore,
 		Metrics:            appMetrics,
 		Users:              userProvider,
+		AppleRevocation:    appleRevocation,
 		SignupRequests:     signupRequestStore,
 		Email:              mailer,
 		BaseURL:            publicBaseURL,

@@ -92,7 +92,7 @@ func TestAccountDelete_PurgesSignupRequestsAndRecordsIdPFailures(t *testing.T) {
 	// Admin deletes the account while the IdP is down.
 	provider := &flakyIdP{failing: true}
 	r := chi.NewRouter()
-	r.Delete("/users/{id}", handleAdminUserDelete(pool, provider, nil))
+	r.Delete("/users/{id}", handleAdminUserDelete(pool, provider, nil, nil))
 	r.Get("/idp-delete-failures", handleAdminIdPFailures(pool))
 	r.Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(pool, provider, nil))
 	do := func(method, path string) *httptest.ResponseRecorder {
