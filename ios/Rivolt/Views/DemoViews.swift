@@ -47,7 +47,7 @@ struct DemoAboutSheet: View {
                 dismiss()
                 state.leaveDemo()
             } label: {
-                Text("Sign in").frame(maxWidth: .infinity)
+                Text(state.demoResumesAccount ? "Back to my account" : "Sign in").frame(maxWidth: .infinity)
             }
             .buttonStyle(ThemeButtonStyle())
             Button("Keep looking around") { dismiss() }
