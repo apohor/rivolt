@@ -262,7 +262,7 @@ func Render(in Input) Rendered {
 		quality = append(quality, "Some amounts are estimated from public network rates, not billed.")
 	}
 	if m.Energy.IncludesEstimated {
-		quality = append(quality, "Some charges this month were estimated from the battery's change, because their energy count was lost, so their kWh and cost are estimates.")
+		quality = append(quality, "Some charges this month were estimated from the battery's change, because a Rivolt bug lost their energy count; their kWh and cost are estimates.")
 	}
 	if m.DataQuality.CurrencyMismatchExcluded > 0 {
 		quality = append(quality, fmt.Sprintf("%d charge%s used another currency and %s left out.",
