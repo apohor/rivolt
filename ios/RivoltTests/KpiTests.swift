@@ -62,6 +62,18 @@ final class KpiLogicTests: XCTestCase {
         XCTAssertEqual(none.first { $0.id == "miles" }?.value, "—")
     }
 
+    func testAMergedRoundTripCountsAsItsRecordedDrivesLikeTheWeb() {
+        func drive(_ id: String, mi: Double, legs: Int?) -> ActivityDrive {
+            ActivityDrive(id: id, vehicleId: "v", startedAt: .now, endedAt: .now, distanceMi: mi, energyUsedKwh: 3, startSocPct: 80, endSocPct: 75,
+                          avgSpeedMph: 40, maxSpeedMph: 66, estimatedCost: nil, estimatedCurrency: nil, estimatedPricePerKwh: nil, roundTripLegs: legs, drivingSeconds: nil)
+        }
+        // One plain drive and a round trip the server merged from three recorded drives: four drives, as the web counts them.
+        let d = KpiLogic.drives([drive("a", mi: 10, legs: nil), drive("b", mi: 30, legs: 3)])
+        XCTAssertEqual(d.count, 4)
+        XCTAssertEqual(d.miles, 40, "the miles are the same either way")
+        XCTAssertEqual(d.avgTripMi, 10, accuracy: 0.001, "the average is over the recorded drives")
+    }
+
     func testEfficiencyFallsBackFromThePackToTheWallToMilesPerPercent() {
         func eff(_ ds: [ActivityDrive], _ cs: [ActivityCharge]) -> KpiTile? {
             KpiLogic.tiles(drives: KpiLogic.drives(ds), charges: KpiLogic.charges(cs), since: nil, sinceKnown: true, ledger: nil, ledgerPending: false, metric: false)

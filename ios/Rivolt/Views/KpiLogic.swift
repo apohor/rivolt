@@ -54,6 +54,9 @@ struct KpiTile: Equatable, Identifiable {
 
 enum KpiLogic {
     static func drives(_ ds: [ActivityDrive]) -> KpiDriveStats {
+        // The activity list merges a round trip's legs into one row; the web counts the recorded drives, so a merged row counts
+        // as its legs (the miles are the same either way).
+        let recorded = ds.reduce(0) { $0 + max(1, $1.roundTripLegs ?? 1) }
         let miles = ds.reduce(0) { $0 + max(0, $1.distanceMi) }
         let plain = ds.filter { !$0.hasTrailer }
         let socUsed = plain.reduce(0) { $0 + max(0, $1.startSocPct - $1.endSocPct) }
@@ -62,7 +65,7 @@ enum KpiLogic {
         let energy = withEnergy.reduce(0) { $0 + $1.energyUsedKwh }
         let milesForEnergy = withEnergy.reduce(0) { $0 + $1.distanceMi }
         return KpiDriveStats(
-            count: ds.count, miles: miles, avgTripMi: ds.isEmpty ? 0 : miles / Double(ds.count),
+            count: recorded, miles: miles, avgTripMi: recorded == 0 ? 0 : miles / Double(recorded),
             energyUsedKwh: energy, milesForEnergy: milesForEnergy, miPerKwh: energy > 0 ? milesForEnergy / energy : 0,
             milesPerPct: socUsed > 0 ? plainMiles / socUsed : 0, maxSpeedMph: ds.reduce(0) { max($0, $1.maxSpeedMph) },
             trailerExcluded: ds.count - plain.count)
