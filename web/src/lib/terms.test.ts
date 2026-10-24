@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { termsGateActive } from "./terms";
+import { ApiError } from "./api";
+import { isTermsRequiredError, termsGateActive } from "./terms";
 
 const me = (required: boolean | undefined, accepted: string | null = null) => ({ terms: { current: "2026-10-17", accepted, accepted_at: null, ...(required === undefined ? {} : { required }) } });
 
@@ -22,5 +23,17 @@ describe("termsGateActive", () => {
       expect(termsGateActive(me(true), p), p).toBe(false);
     }
     expect(termsGateActive(me(true), "/privacy-settings")).toBe(true);
+  });
+});
+
+describe("isTermsRequiredError", () => {
+  it("recognises the server's terms_required 403 and nothing else", () => {
+    expect(isTermsRequiredError(new ApiError(403, { error: "terms_required", current: "2026-10-23" }))).toBe(true);
+    expect(isTermsRequiredError(new ApiError(403, { error: "forbidden" }))).toBe(false);
+    expect(isTermsRequiredError(new ApiError(403, { class: "ai_off" }))).toBe(false);
+    expect(isTermsRequiredError(new ApiError(401, { error: "terms_required" }))).toBe(false);
+    expect(isTermsRequiredError(new ApiError(403, null))).toBe(false);
+    expect(isTermsRequiredError(new Error("terms_required"))).toBe(false);
+    expect(isTermsRequiredError(undefined)).toBe(false);
   });
 });

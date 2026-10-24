@@ -124,6 +124,8 @@ type Deps struct {
 	// True when at least one real issuer is configured (OIDC,
 	// trusted-proxy, or the debug bypass).
 	AuthEnforced bool
+	// TermsLookup replaces the database read of a user's accepted Terms in the server-side Terms gate (tests).
+	TermsLookup func(ctx context.Context, uid uuid.UUID) (db.Terms, error)
 	// ImpersonationDisabled mirrors $RIVOLT_IMPERSONATION_DISABLED.
 	// true makes the impersonation middleware ignore
 	// X-Rivolt-Impersonate outright (regardless of caller role) and
@@ -590,6 +592,7 @@ func New(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
+				r.Use(requireTermsMW(termsLookupFor(d)))
 			}
 			// Per-user Rivian sessions are hydrated at boot via the
 			// AccountRegistry sweep in main.go (see runServer's call
@@ -1342,6 +1345,7 @@ func New(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
+				r.Use(requireTermsMW(termsLookupFor(d)))
 			}
 			r.Use(middleware.Timeout(5 * time.Minute))
 			r.Use(maxBodyBytes(maxJSONBody))
@@ -1375,6 +1379,7 @@ func New(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			if d.Auth != nil && d.Auth.Configured() {
 				r.Use(requireUserMW)
+				r.Use(requireTermsMW(termsLookupFor(d)))
 			}
 
 			// Accepts a multipart upload of an ElectraFi CSV export. Streams
