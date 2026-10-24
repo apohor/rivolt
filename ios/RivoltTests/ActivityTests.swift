@@ -17,6 +17,46 @@ private func charge(cost: Double, source: String?, derived: Bool? = nil, estimat
                    kind: kind, place: place, network: nil)
 }
 
+final class EnergyEstimatedTests: XCTestCase {
+    private func make(estimated: Bool?, kwh: Double = 12.34, cost: Double = 1.85, source: String? = "home_rate") -> ActivityCharge {
+        var c = charge(cost: cost, source: source)
+        c = ActivityCharge(id: c.id, vehicleId: c.vehicleId, startedAt: c.startedAt, endedAt: c.endedAt, energyAddedKwh: kwh, startSocPct: 40, endSocPct: 60,
+                           maxPowerKw: 7, cost: cost, currency: "USD", costSourceEffective: source, costSourceDerived: nil, estimatedCost: nil,
+                           estimatedCurrency: nil, kind: "ac", place: "home", network: nil, energyEstimated: estimated)
+        return c
+    }
+
+    func testTheFlagDecodesFromTheActivityFeedAndIsAbsentOnAnOlderServer() throws {
+        let json = #"{"id":"c","vehicle_id":"v","started_at":"2026-10-20T01:00:00Z","ended_at":"2026-10-20T05:00:00Z","energy_added_kwh":12.3,"start_soc_pct":40,"end_soc_pct":60,"max_power_kw":7,"cost":1.85,"currency":"USD","energy_estimated":true}"#
+        XCTAssertTrue(try JSON.decoder().decode(ActivityCharge.self, from: Data(json.utf8)).isEnergyEstimated)
+        let old = json.replacingOccurrences(of: #","energy_estimated":true"#, with: "")
+        XCTAssertFalse(try JSON.decoder().decode(ActivityCharge.self, from: Data(old.utf8)).isEnergyEstimated)
+    }
+
+    func testEstimatedEnergyAndCostAreMarkedAndNothingElseIs() {
+        XCTAssertEqual(ActivityLogic.energyText(make(estimated: true)), "~12.3 kWh")
+        XCTAssertEqual(ActivityLogic.energyText(make(estimated: nil)), "12.3 kWh")
+        XCTAssertEqual(ActivityLogic.energyText(make(estimated: false)), "12.3 kWh")
+        XCTAssertEqual(ActivityLogic.costLine(make(estimated: true)).tone, .estimate)
+        XCTAssertTrue(ActivityLogic.costLine(make(estimated: true)).text.hasPrefix("~$1.85"))
+        XCTAssertEqual(ActivityLogic.costLine(make(estimated: nil)).tone, .billed)
+        // Free and unpriced charges have no cost to mark; a network estimate is not marked twice.
+        XCTAssertEqual(ActivityLogic.costLine(make(estimated: true, cost: 0, source: "user")).tone, .free)
+        XCTAssertEqual(ActivityLogic.costLine(make(estimated: true, cost: 0, source: "unknown")).tone, .missing)
+        XCTAssertEqual(ActivityLogic.costLine(make(estimated: true, source: "network_estimate")).text.filter { $0 == "~" }.count, 1)
+    }
+
+    func testTheTileAndTheSpokenWordsSayEstimateAndNeverMetered() {
+        let c = make(estimated: true)
+        let tile = ActivityLogic.tiles(c).first { $0.id == "energy" }
+        XCTAssertEqual(tile?.value, "~12.3")
+        XCTAssertEqual(tile?.hint, "Estimated from the battery's change. The energy count for this charge was lost.")
+        XCTAssertTrue(ActivityLogic.spoken(c, calendar: .current).contains("About 12.3 kilowatt hours added, an estimate."))
+        XCTAssertNil(ActivityLogic.tiles(make(estimated: nil)).first { $0.id == "energy" }?.hint)
+        XCTAssertNil(ActivityLogic.energyEstimatedNote.range(of: "exact|metered|measured|accurate", options: [.regularExpression, .caseInsensitive]))
+    }
+}
+
 final class ActivityLogicTests: XCTestCase {
     func testTheFixtureDecodes() throws {
         let r = try Fixture.decode(ActivityResponse.self, "activity")

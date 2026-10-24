@@ -97,7 +97,24 @@ enum ActivityLogic {
         return nil
     }
 
+    /// The words under an estimated energy figure (the web's `ENERGY_ESTIMATED_NOTE`).
+    static let energyEstimatedNote = "Estimated from the battery's change. The energy count for this charge was lost."
+
+    /// "12.3 kWh", or "~12.3 kWh" when the energy is an estimate.
+    static func energyText(_ c: ActivityCharge, digits: Int = 1) -> String {
+        "\(c.isEnergyEstimated && c.energyAddedKwh > 0 ? "~" : "")\(NumberText.fixed(c.energyAddedKwh, digits)) kWh"
+    }
+
+    /// A cost that follows from an estimated energy figure is an estimate too, unless it is free or has no price.
     static func costLine(_ c: ActivityCharge) -> ChargeCostLine {
+        let line = baseCostLine(c)
+        if c.isEnergyEstimated, line.tone == .billed, !line.text.hasPrefix("~") {
+            return ChargeCostLine(text: "~\(line.text) (estimate)", tone: .estimate)
+        }
+        return line
+    }
+
+    private static func baseCostLine(_ c: ActivityCharge) -> ChargeCostLine {
         let money = NowFormat.money(c.cost, currency: usable(c.currency))
         let est = ChargeCostLine(text: "~\(money) (estimate)", tone: .estimate)
         let unpriced = ChargeCostLine(text: "Unpriced", tone: .missing)
@@ -173,7 +190,9 @@ extension ActivityLogic {
     static func spoken(_ c: ActivityCharge, calendar: Calendar) -> String {
         var parts = ["Charge, \(timeOfDay(c.startedAt, calendar: calendar))."]
         if let p = placeLabel(c) { parts.append(p == "Fast" ? "Fast charger." : p == "Home" ? "At home." : "Away from home.") }
-        parts.append("\(NowFormat.oneDecimal(c.energyAddedKwh)) kilowatt hours added.")
+        parts.append(c.isEnergyEstimated && c.energyAddedKwh > 0
+            ? "About \(NowFormat.oneDecimal(c.energyAddedKwh)) kilowatt hours added, an estimate."
+            : "\(NowFormat.oneDecimal(c.energyAddedKwh)) kilowatt hours added.")
         let line = costLine(c)
         switch line.tone {
         case .estimate: parts.append("Cost about \(line.text.replacingOccurrences(of: "~", with: "").replacingOccurrences(of: " (estimate)", with: "")), an estimate.")
@@ -261,7 +280,8 @@ extension ActivityLogic {
         if c.startSocPct > 0, c.endSocPct > 0 {
             out.append(KpiTile(id: "soc", label: "SoC", value: "\(Int(c.startSocPct.rounded()))% → \(Int(c.endSocPct.rounded()))%", unit: "", hint: nil))
         }
-        out.append(KpiTile(id: "energy", label: "Energy", value: f(c.energyAddedKwh, 1), unit: "kWh", hint: nil))
+        out.append(KpiTile(id: "energy", label: "Energy", value: (c.isEnergyEstimated && c.energyAddedKwh > 0 ? "~" : "") + f(c.energyAddedKwh, 1), unit: "kWh",
+                           hint: c.isEnergyEstimated ? energyEstimatedNote : nil))
         if c.maxPowerKw > 0 { out.append(KpiTile(id: "power", label: "Max kW", value: f(c.maxPowerKw, 1), unit: "kW", hint: nil)) }
         let line = costLine(c)
         switch line.tone {

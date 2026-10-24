@@ -51,7 +51,9 @@ enum ChargeSessionRows {
             InsightRow(label: "SoC gained", value: gained),
             InsightRow(label: "Charge rate", value: rate, spoken: i.socPerHour > 0 ? "\(f(i.socPerHour, 1)) percent per hour" : nil),
             InsightRow(label: "Charge limit", value: i.limitPct.map { "\($0)%" } ?? "—"),
-            InsightRow(label: "Energy added", value: "\(f(c.energyAddedKwh, 2)) kWh"),
+            InsightRow(label: "Energy added", value: ActivityLogic.energyText(c, digits: 2),
+                       hint: c.isEnergyEstimated ? ActivityLogic.energyEstimatedNote : nil,
+                       spoken: c.isEnergyEstimated ? "About \(f(c.energyAddedKwh, 2)) kilowatt hours, an estimate" : nil),
         ]
         if let miles = i.milesAdded {
             battery.append(InsightRow(label: "Range added", value: NowFormat.distance(mi: miles), spoken: NowFormat.distance(mi: miles, spoken: true)))

@@ -118,7 +118,8 @@ private struct ChargeCardContent: View {
             }
             if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
-                Text("\(NowFormat.oneDecimal(charge.energyAddedKwh)) kWh").themeText(.value, color: Theme.textPrimary)
+                Text(ActivityLogic.energyText(charge)).themeText(.value, color: Theme.textPrimary)
+                    .underline(charge.isEnergyEstimated, pattern: .dot)
                 Text(costText(line)).themeText(.subline, color: costColor(line))
             }
         }

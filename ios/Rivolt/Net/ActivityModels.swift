@@ -55,4 +55,8 @@ struct ActivityCharge: Decodable, Hashable, Identifiable {
     let kind: String?
     let place: String?
     let network: String?
+    /// The energy was lost (a bug before the fix) and worked out afterwards from the battery's change in charge level: the kWh, and the
+    /// cost that follows from it, are estimates. Absent (nil) on a server that predates it.
+    var energyEstimated: Bool? = nil
+    var isEnergyEstimated: Bool { energyEstimated == true }
 }
