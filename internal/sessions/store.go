@@ -377,6 +377,21 @@ func (s *Store) RevokeOthers(ctx context.Context, userID, keepID uuid.UUID) (int
 	return res.RowsAffected()
 }
 
+// RevokeAll revokes every live session of userID, browsers and iPhone app alike (Apple told us the user withdrew
+// consent or deleted their Apple account), and returns how many it revoked.
+func (s *Store) RevokeAll(ctx context.Context, userID uuid.UUID) (int64, error) {
+	if userID == uuid.Nil {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET revoked_at = now()
+		 WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()`, userID)
+	if err != nil {
+		return 0, fmt.Errorf("sessions: revoke all: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // PurgeExpired deletes revoked / expired rows older than a
 // grace period. Runs from a background janitor; not in the hot
 // path. Grace window exists so support can forensic-inspect

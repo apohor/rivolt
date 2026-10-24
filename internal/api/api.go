@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/aibudget"
+	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/changelog"
@@ -154,6 +155,10 @@ type Deps struct {
 	// header. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
+	// AppleNotifications, when non-nil, is POST /api/auth/apple/notifications: Apple's
+	// server-to-server notifications (consent revoked, Apple account deleted, relay email
+	// off or on). Public (Apple calls it, no cookie), behind a body cap and a per-IP limit.
+	AppleNotifications http.Handler
 	// IOSAppIDs ("TEAMID.bundle.id", RIVOLT_IOS_APP_IDS) publishes the
 	// iPhone app's associated domain: the AASA file and /app/callback. Empty:
 	// neither is served.
@@ -454,6 +459,11 @@ func New(d Deps) http.Handler {
 				}
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
+				}
+				if d.AppleNotifications != nil && !d.AdminOnly {
+					// A real notification is ~1 KB and Apple sends few: 30 a minute per address is generous.
+					appleLimiter := newIPLimiter(30, time.Minute, time.Hour)
+					r.With(appleLimiter.Middleware, maxBodyBytes(appleid.MaxNotificationBody)).Post("/apple/notifications", d.AppleNotifications.ServeHTTP)
 				}
 				// The iPhone app's sign-in: start → the usual OIDC sign-in →
 				// finish (one-time code to the app's fixed callback) → token.

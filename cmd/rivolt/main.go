@@ -1836,6 +1836,7 @@ func runServer() {
 	// requires pgPool (we need EnsureUserFull and a sessions
 	// store) — emit a clear error rather than silently dropping.
 	var oidcSvc *oidc.Service
+	var appleNotifier http.Handler // an interface, so it stays nil unless the Apple provider is set up
 	if provs, perr := oidc.ParseProvidersFromEnv(os.Getenv, os.Getenv("RIVOLT_BASE_URL")); perr != nil {
 		logger.Error("oidc env parse", "err", perr.Error())
 		os.Exit(1)
@@ -1882,6 +1883,22 @@ func runServer() {
 			os.Exit(1)
 		}
 		oidcSvc = svc
+		// Apple's server-to-server notifications, when the Apple provider is configured.
+		for _, p := range provs {
+			if p.Kind == "apple" && sessionStore != nil {
+				issuer := p.IssuerURL
+				if issuer == "" {
+					issuer = "https://appleid.apple.com"
+				}
+				appleNotifier = &appleid.Notifier{
+					Verify:   appleid.NewVerifier(ctx, issuer, p.ClientID),
+					Store:    appleid.New(pgPool, secretsStore),
+					Sessions: sessionStore,
+					Mail:     mailer,
+					Logger:   logger,
+				}
+			}
+		}
 		names := make([]string, 0, len(provs))
 		for _, p := range provs {
 			names = append(names, p.Name)
@@ -2193,6 +2210,8 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Apple notification replay guard (hashes only; the freshness window is an hour).
+		jobs = append(jobs, retention.Job{Name: "apple_notification_seen", Run: appleid.New(pgPool, nil).PurgeSeen})
 		// Expired iPhone-app sign-in attempts (minutes-long; kept a day).
 		if appAuth != nil {
 			jobs = append(jobs, retention.Job{Name: "app_auth_requests", Run: appAuth.Store.Purge})
@@ -2419,23 +2438,24 @@ func runServer() {
 			PrometheusURL:   os.Getenv("RIVOLT_PROMETHEUS_URL"),
 			Namespace:       os.Getenv("RIVOLT_HEALTH_NAMESPACE"),
 		}),
-		Access:           accessVerifier,
-		AdminDebugProbes: adminDebugProbes,
-		OIDC:             oidcSvc,
-		AppAuth:          appAuth,
-		IOSAppIDs:        iosAppIDs,
-		WebFS:            webFS,
-		Version:          version,
-		DB:               pgPool,
-		Logger:           logger,
-		Flags:            flagsStore,
-		AIBudget:         aibudget.New(pgPool),
-		Secrets:          secretsStore,
-		Metrics:          appMetrics,
-		Users:            userProvider,
-		SignupRequests:   signupRequestStore,
-		Email:            mailer,
-		BaseURL:          publicBaseURL,
+		Access:             accessVerifier,
+		AdminDebugProbes:   adminDebugProbes,
+		OIDC:               oidcSvc,
+		AppleNotifications: appleNotifier,
+		AppAuth:            appAuth,
+		IOSAppIDs:          iosAppIDs,
+		WebFS:              webFS,
+		Version:            version,
+		DB:                 pgPool,
+		Logger:             logger,
+		Flags:              flagsStore,
+		AIBudget:           aibudget.New(pgPool),
+		Secrets:            secretsStore,
+		Metrics:            appMetrics,
+		Users:              userProvider,
+		SignupRequests:     signupRequestStore,
+		Email:              mailer,
+		BaseURL:            publicBaseURL,
 		// Release notes for /changelog and /changelog.atom, from the public
 		// GitHub Releases (fixed URL, cached). RIVOLT_CHANGELOG=false turns
 		// them off; the admin deployment never serves them.

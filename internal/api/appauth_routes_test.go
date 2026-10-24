@@ -1,11 +1,13 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 )
@@ -42,5 +44,50 @@ func TestAppSignInNotMountedUnlessConfigured(t *testing.T) {
 				t.Fatalf("config: %d %s", w.Code, w.Body)
 			}
 		})
+	}
+}
+
+// Apple's notification endpoint is public (Apple sends no cookie), only mounted when main wired it, capped at 16 KB
+// and rate limited per address; tested through the real router with the full URL.
+func TestAppleNotificationsRoute(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(r http.Handler, body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/apple/notifications", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "198.51.100.7:4444"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if c := post(New(Deps{Auth: svc}), "payload=x"); c != http.StatusNotFound && c != http.StatusMethodNotAllowed {
+		t.Errorf("unwired: %d, want not mounted", c)
+	}
+	var gotLen int
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "too big", http.StatusRequestEntityTooLarge)
+			return
+		}
+		gotLen = len(b)
+	})
+	r := New(Deps{Auth: svc, AppleNotifications: h})
+	if c := post(r, "payload=abc"); c != http.StatusOK || gotLen != len("payload=abc") {
+		t.Errorf("wired, no cookie: %d (read %d bytes)", c, gotLen)
+	}
+	if c := post(r, "payload="+strings.Repeat("a", appleid.MaxNotificationBody)); c != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversized body: %d, want 413", c)
+	}
+	limited := 0
+	for i := 0; i < 40; i++ {
+		if post(r, "payload=abc") == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited == 0 {
+		t.Error("40 quick requests from one address were never rate limited")
 	}
 }

@@ -90,3 +90,62 @@ func TestAppleIdentityLink(t *testing.T) {
 		t.Errorf("the token outlived the account (%d rows, %v)", n, err)
 	}
 }
+
+// The notification endpoint's storage: a replay guard that remembers a hash for two days, and the undeliverable flag
+// that the mailers and the account-delete notice honour.
+func TestNotificationStorage(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	st := appleid.New(pool, nil)
+
+	h := []byte("0123456789abcdef0123456789abcdef")
+	if fresh, err := st.MarkSeen(ctx, h); err != nil || !fresh {
+		t.Fatalf("first sight: %v, %v", fresh, err)
+	}
+	if fresh, err := st.MarkSeen(ctx, h); err != nil || fresh {
+		t.Fatalf("second sight: %v, %v; want a replay", fresh, err)
+	}
+	if err := st.Unsee(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	if fresh, _ := st.MarkSeen(ctx, h); !fresh {
+		t.Fatal("after Unsee the hash should be new again")
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE apple_notification_seen SET seen_at = now() - interval '3 days'`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.PurgeSeen(ctx); err != nil || n != 1 {
+		t.Fatalf("PurgeSeen = %d, %v; want 1", n, err)
+	}
+	if n, _ := st.PurgeSeen(ctx); n != 0 {
+		t.Fatal("a purge of nothing")
+	}
+
+	uid, err := db.EnsureUser(ctx, pool, "apple-notify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET email = 'n@example.com', email_verified = TRUE WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if e, err := st.DeliverableEmail(ctx, uid); err != nil || e != "n@example.com" {
+		t.Fatalf("DeliverableEmail = %q, %v", e, err)
+	}
+	if err := st.SetEmailUndeliverable(ctx, uid, true); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := st.DeliverableEmail(ctx, uid); e != "" {
+		t.Errorf("an undeliverable address was offered: %q", e)
+	}
+	if err := st.SetEmailUndeliverable(ctx, uid, false); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := st.DeliverableEmail(ctx, uid); e != "n@example.com" {
+		t.Errorf("cleared flag should restore the address, got %q", e)
+	}
+}
