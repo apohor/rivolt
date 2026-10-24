@@ -1,4 +1,5 @@
 import { SET_RATE_FIRST, SET_RATE_PATH, networkNameFromSlug, networkRateSet } from "../lib/networkRates";
+import { ENERGY_ESTIMATED_NOTE, isEnergyEstimated } from "../lib/energyEstimated";
 import { monthLabelShort } from "../lib/ledger";
 import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
@@ -378,7 +379,11 @@ export default function ChargeDetailPage() {
           label="SoC"
           value={`${pct(charge.StartSoCPct)} → ${pct(charge.EndSoCPct)}`}
         />
-        <Stat label="Energy" value={num(charge.EnergyAddedKWh, 1, "kWh")} />
+        <Stat
+          label="Energy"
+          value={isEnergyEstimated(charge) && charge.EnergyAddedKWh > 0 ? `~${num(charge.EnergyAddedKWh, 1, "kWh")}` : num(charge.EnergyAddedKWh, 1, "kWh")}
+          hint={isEnergyEstimated(charge) ? ENERGY_ESTIMATED_NOTE : undefined}
+        />
         <Stat label="Max kW" value={num(charge.MaxPowerKW, 1, "kW")} />
         <Stat
           label="Cost"
@@ -386,6 +391,7 @@ export default function ChargeDetailPage() {
           hint={
             [
               chargeCostHint(charge, demo),
+              isEnergyEstimated(charge) && charge.Cost > 0 ? "follows the estimated energy" : undefined,
               groupReceipt && groupReceipt.cost != null
                 ? `Part of a ${formatMoney(groupReceipt.cost, charge.Currency || "USD")} receipt with ${groupReceipt.sessions.length} sessions (Money shows the whole plug-in)`
                 : undefined,
@@ -742,7 +748,8 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
   if (c.cost_source_effective === "home_rate_misapplied") return "Pending";
   if (c.cost_source_effective === "unknown") return "—";
   if (c.Cost > 0) {
-    return formatMoney(c.Cost, c.Currency || "USD");
+    // A cost that follows from an estimated energy figure is an estimate too.
+    return `${isEnergyEstimated(c) ? "~" : ""}${formatMoney(c.Cost, c.Currency || "USD")}`;
   }
   if (c.estimated_cost && c.estimated_cost > 0) {
     return `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`;
@@ -914,7 +921,7 @@ function SessionInsights({
           />
           <Row
             label="Energy added"
-            value={num(charge.EnergyAddedKWh, 2, "kWh")}
+            value={isEnergyEstimated(charge) && charge.EnergyAddedKWh > 0 ? `~${num(charge.EnergyAddedKWh, 2, "kWh")}` : num(charge.EnergyAddedKWh, 2, "kWh")}
           />
           <Row
             label="Range efficiency"

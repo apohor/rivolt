@@ -1,4 +1,5 @@
 import { fieldHidden, fieldLabel } from "../lib/fieldSupport";
+import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../lib/energyEstimated";
 import { detailPath } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -737,7 +738,13 @@ function ParkedSummary({
               className="block hover:text-emerald-300"
             >
               <div className="tabular-nums text-neutral-200">
-                {num(lastCharge.EnergyAddedKWh, 1, "kWh")}
+                {isEnergyEstimated(lastCharge) && lastCharge.EnergyAddedKWh > 0 ? (
+                  <span className={ESTIMATED_FIGURE} title={ENERGY_ESTIMATED_NOTE} data-energy-estimated="true">
+                    ~{num(lastCharge.EnergyAddedKWh, 1, "kWh")}
+                  </span>
+                ) : (
+                  num(lastCharge.EnergyAddedKWh, 1, "kWh")
+                )}
               </div>
               <div className="text-neutral-500">
                 {pct(lastCharge.StartSoCPct, 0)}→{pct(lastCharge.EndSoCPct, 0)} ·{" "}

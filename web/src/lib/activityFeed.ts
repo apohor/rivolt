@@ -6,6 +6,7 @@
 import { formatMoney } from "./ledger";
 import type { Charge, Drive } from "./api";
 import { displayTimeZone, isActiveCharge } from "./format";
+import { isEnergyEstimated } from "./energyEstimated";
 
 export const ERRAND_MAX_MI = 3;
 export const HOME_RADIUS_M = 250;
@@ -138,7 +139,17 @@ export type CostLine = { text: string; tone: "ok" | "est" | "missing" };
 // (cost_source_effective) so the feed agrees with Money. Builds that
 // predate it fall back to the stored fields, where homeRate lets legacy
 // fast charges stamped at the home rate read "Estimate pending".
+// A charge whose energy is an estimate has a cost that follows from it: shown as an estimate too (the "~", dotted), unless it is free or
+// has no price to mark.
 export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
+  const line = baseChargeCostLine(c, homeRate);
+  if (isEnergyEstimated(c) && line.tone === "ok" && line.text !== "Free" && line.text !== "Charging now" && !line.text.startsWith("~")) {
+    return { text: `~${line.text}`, tone: "est" };
+  }
+  return line;
+}
+
+function baseChargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   if (isActiveCharge(c)) return { text: "Charging now", tone: "ok" };
   // The server couldn't classify (settings unreadable): say so rather
   // than guess with client rules.
