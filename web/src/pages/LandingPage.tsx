@@ -190,6 +190,10 @@ export default function LandingPage() {
               Terms
             </Link>
             {" · "}
+            <Link to="/support" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
+              Support
+            </Link>
+            {" · "}
             <Link to="/lease-calculator" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
               Lease calculator
             </Link>
