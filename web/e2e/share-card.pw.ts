@@ -23,6 +23,10 @@ for (const v of [
     const page = await ctx.newPage();
     await openDemo(page, "/demo/money");
     await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+    // The page's own reads finish first: once the statement shows, Money still fetches the previous month for its "vs September 1-N" comparison
+    // (a query that waits for the month list), and on a slow run that request landed after the listener below was attached. Only what the
+    // sheet does is under test, so listen once the page has gone quiet.
+    await page.waitForLoadState("networkidle");
     const requests: string[] = [];
     page.on("request", (r) => requests.push(r.url()));
     await page.getByRole("button", { name: "Share statement" }).click();
