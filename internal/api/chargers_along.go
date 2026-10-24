@@ -25,6 +25,10 @@ type chargersAlongResponse struct {
 	Count    int            `json:"count"`
 }
 
+// routeBodyMax bounds a request that carries a route polyline: 200,000 points of [lat, lon] at about 25 bytes each is
+// 5 MB, so 8 MiB covers the longest accepted route.
+const routeBodyMax = 8 << 20
+
 // handleChargersAlong serves POST /api/maps/chargers-along. Lazy-loads
 // the archive on first request when the startup warm failed; honours
 // the 30s timeout middleware on the route group.
@@ -35,7 +39,7 @@ func handleChargersAlong(a *chargers.Archive) http.HandlerFunc {
 			return
 		}
 		var req chargersAlongRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, routeBodyMax)).Decode(&req); err != nil {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -43,10 +47,13 @@ func handleChargersAlong(a *chargers.Archive) http.HandlerFunc {
 			http.Error(w, "path requires >= 2 points", http.StatusBadRequest)
 			return
 		}
-		if len(req.Path) > chargers.MaxPathPoints {
+		if len(req.Path) > chargers.MaxRoutePoints {
 			http.Error(w, "path has too many points", http.StatusBadRequest)
 			return
 		}
+		// A long drive's polyline has tens of thousands of points; the query takes a few thousand, evenly spaced
+		// along the route, which follows the road to within a few hundred metres.
+		req.Path = chargers.ThinPath(req.Path, chargers.MaxPathPoints)
 		// Lazy load if the startup warm failed.
 		if a.LoadedAt().IsZero() {
 			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
