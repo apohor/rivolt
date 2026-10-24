@@ -156,6 +156,7 @@ for (const view of views) {
           const tires = page.locator("[data-tires]");
           await expect(tires).toContainText("Front left");
           await expect(tires.locator("[data-tires-age]")).toContainText("As of");
+          await expect(tires).toContainText("2.90 bar");
           await expect(tires).toContainText("Marked low below 32 psi or when Rivian reports it.");
           await expect(tires).not.toContainText(/unsafe|dangerous|\bOK\b|Normal/);
           // Endpoint absent (404): no drain card at all.
