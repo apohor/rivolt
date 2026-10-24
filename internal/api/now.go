@@ -203,6 +203,14 @@ SELECT (SELECT at FROM cur),
 // at the first row whose state differs. This is the part worth
 // caching; with no differing row inside the lookback the state is older
 // than the window and the start is NULL (unknown), not the window edge.
+//
+// The rows after the break are bounded by the lookback ($3) as well as by
+// the break: brk.at is never before $3, so the meaning is the same, but
+// the explicit bound lets Postgres skip the older monthly partitions, and
+// comparing with (SELECT at FROM brk) rather than joining brk keeps the
+// break time an index bound. Joined, it was neither: every call read the
+// vehicle's whole history in every partition (about 1 GB a call for a
+// year-old truck, Oct 24, 2026).
 var nowRunSQL = fmt.Sprintf(`
 WITH v AS (
 	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
@@ -214,14 +222,16 @@ WITH v AS (
 	ORDER BY vs.at DESC LIMIT 1
 ), first AS (
 	SELECT vs.at, vs.battery_level_pct
-	FROM vehicle_state vs, brk
-	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at
+	FROM vehicle_state vs
+	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
+	  AND vs.at >= $3::timestamptz AND vs.at > (SELECT at FROM brk)
 	ORDER BY vs.at ASC LIMIT 1
 )
 SELECT (SELECT at FROM first),
        (SELECT battery_level_pct FROM first),
-       (SELECT max(vs.charger_power_kw) FROM vehicle_state vs, brk
-         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at)`, "vs")
+       (SELECT max(vs.charger_power_kw) FROM vehicle_state vs
+         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
+           AND vs.at >= $3::timestamptz AND vs.at > (SELECT at FROM brk))`, "vs")
 
 // nowSleepSQL counts sleeps that ended within a minute in the window,
 // with the same definition as the sleep-activity analytics: a sleep is

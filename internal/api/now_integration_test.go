@@ -7,6 +7,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,5 +166,64 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	}
 	if other.State != "" || other.At != nil {
 		t.Fatalf("leak: %+v", other)
+	}
+}
+
+// The run query must stay inside the lookback: its plan may only touch
+// vehicle_state partitions that overlap [now - nowLookback, ∞). Before the
+// fix it joined the break CTE, so every partition was read for the
+// vehicle's whole history on every cache miss.
+func TestNowRunSQL_PrunesPartitionsOutsideTheLookback(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "now-prune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-prune')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	// An old partition well outside the lookback, so there is something to prune.
+	if _, err := pool.ExecContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, now.AddDate(-1, 0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	lookback := now.Add(-nowLookback)
+	rows, err := pool.QueryContext(ctx, `
+		SELECT c.relname
+		  FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+		 WHERE i.inhparent = 'vehicle_state'::regclass
+		   AND (regexp_match(pg_get_expr(c.relpartbound, c.oid), 'TO \(''([^'']+)''\)'))[1]::timestamptz <= $1`, lookback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outside []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		outside = append(outside, n)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	_ = rows.Close()
+	if len(outside) == 0 {
+		t.Fatal("no partition outside the lookback to check against")
+	}
+	var plan string
+	if err := pool.QueryRowContext(ctx, "EXPLAIN (FORMAT JSON) "+nowRunSQL, uid, "rv-prune", lookback, "parked").Scan(&plan); err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	for _, p := range outside {
+		if strings.Contains(plan, `"`+p+`"`) {
+			t.Errorf("the run query's plan reads %s, a partition entirely before the lookback", p)
+		}
 	}
 }
