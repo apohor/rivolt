@@ -20,8 +20,9 @@ import (
 //   - no coordinates: the schema has no latitude, longitude, gnss or heading field, and unknown keys are refused;
 //   - relative time: the first event is t=0 and every t and ts is seconds from it (mapped onto corpusEpoch);
 //   - a re-based odometer: "odo" is miles from the first event, laid onto corpusOdoKm;
-//   - "_source" is "synthetic", with "_method" saying how: a corpus may be derived in shape from a real day but its values
-//     are perturbed, so none is a real user's (privacy.md has no carve-out for anonymized data in a public repo);
+//   - "_source" is "synthetic" or "operator", with "_method" saying how. A synthetic corpus may be derived in shape
+//     from a real day but its values are perturbed (TestPerturbCorpus), so none is a real user's (privacy.md has no
+//     carve-out for anonymized data in a public repo); "operator" is the operator's own vehicles or test accounts;
 //   - the vehicle is always replayVehicle.
 
 // replayVehicle is the only vehicle id a corpus run uses.
@@ -79,23 +80,32 @@ func loadCorpus(path string) (*corpus, error) {
 	if err != nil {
 		return nil, err
 	}
+	c, err := loadCorpusBytes(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return c, nil
+}
+
+// loadCorpusBytes decodes and checks a corpus.
+func loadCorpusBytes(raw []byte) (*corpus, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	var c corpus
 	if err := dec.Decode(&c); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 	if err := c.check(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 	return &c, nil
 }
 
 func (c *corpus) check() error {
 	switch c.Source {
-	case "synthetic":
+	case "synthetic", "operator":
 	default:
-		return fmt.Errorf(`_source %q: want "synthetic" (a real user's day, even anonymized, is not committed)`, c.Source)
+		return fmt.Errorf(`_source %q: want "synthetic" or "operator" (a real user's day, even anonymized, is not committed)`, c.Source)
 	}
 	if strings.TrimSpace(c.Method) == "" {
 		return fmt.Errorf("_method is empty: say how the corpus was made")

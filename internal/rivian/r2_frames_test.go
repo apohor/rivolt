@@ -106,8 +106,8 @@ func TestR2ChargeWithStaleGear(t *testing.T) {
 	}
 }
 
-// Without chargerStatus (R2): charging_connecting at 0 kW (29 of them in
-// 5 days on 01-000000001, never followed by power) opens nothing; with a
+// Without chargerStatus (R2): charging_connecting at 0 kW (common on R2s,
+// and not followed by power) opens nothing; with a
 // status (R1) the status decides, as before.
 func TestPluggedWithoutChargerStatus(t *testing.T) {
 	s := &liveSessions{}

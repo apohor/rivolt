@@ -80,9 +80,8 @@ func TestTrips(t *testing.T) {
 	}
 }
 
-// The charging fixture's shape (01-000000001, Oct 13): power ramps to
-// 7.4 kW while the gear says R; a 40-min gap starts a new charge; a
-// telemetry gap can't invent energy.
+// A charge on an R2: power ramps up while the gear still says R; a 40-min
+// gap starts a new charge; a telemetry gap can't invent energy.
 func TestCharges(t *testing.T) {
 	row := func(sec int, cs string, kw, soc float64) Row {
 		return Row{At: at(sec), ChargingState: cs, KW: kw, SoC: soc, Lat: 34, Lon: -118}
@@ -153,8 +152,8 @@ func TestMakePlanRefusesR1(t *testing.T) {
 
 // The first driving row may already be moving, and the parking row
 // carries the final odometer: both ends fold in, so trip miles match the
-// odometer (01-000000001 Sep 30: 0.62 mi between a ready row and the
-// first go row at 26 mph).
+// odometer (a truck can already have moved between a ready row and the
+// first go row).
 func TestTripEndsFoldParkedRows(t *testing.T) {
 	trips, _ := Segment(rowsOf([]step{
 		{0, "ready", 0}, {60, "go", 0.62}, {120, "go", 2}, {150, "ready", 2.3}, {400, "ready", 2.3},
