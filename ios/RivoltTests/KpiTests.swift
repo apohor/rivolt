@@ -15,7 +15,7 @@ final class KpiLogicTests: XCTestCase {
     func testTheDriveAndChargeStatsAreTheWebs() throws {
         let a = try activity()
         let d = KpiLogic.drives(a.drives)
-        XCTAssertEqual(d.count, 3)
+        XCTAssertEqual(d.count, 4, "drv-2a is a round trip merged from 2 recorded drives; the web counts the recorded ones")
         XCTAssertEqual(d.miles, 18.6 + 61.4 + 42.3, accuracy: 1e-9)
         XCTAssertEqual(d.miPerKwh, d.milesForEnergy / d.energyUsedKwh, accuracy: 1e-9)
         XCTAssertEqual(d.maxSpeedMph, 72)
@@ -37,7 +37,7 @@ final class KpiLogicTests: XCTestCase {
         XCTAssertEqual(byID["since"]?.hint, "no finished charges yet")
         XCTAssertEqual(byID["miles"]?.value, "122.3")
         XCTAssertEqual(byID["miles"]?.unit, "mi")
-        XCTAssertEqual(byID["miles"]?.hint, "3 drives · avg 40.8 mi")
+        XCTAssertEqual(byID["miles"]?.hint, "4 drives · avg 30.6 mi")
         XCTAssertEqual(byID["energy"]?.value, "140.1")
         XCTAssertEqual(byID["energy"]?.hint, "4 charges · peak 198 kW")
         XCTAssertEqual(byID["efficiency"]?.unit, "mi/kWh")
