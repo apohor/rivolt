@@ -17,6 +17,9 @@ const (
 	// Each call walks a tile box on the server (bounded by the corridor caps),
 	// so a re-render per route edit is fine and a loop is not.
 	mapsChargersAlongPerMin = 30
+	// A suggestion reads up to four corridor windows of the same archive and takes a route body of up to 8 MiB:
+	// one per planned day edit is fine, a loop is not.
+	tripsOvernightPerMin = 30
 )
 
 // mapsUserLimiter buckets by the signed-in user, so one account cannot
