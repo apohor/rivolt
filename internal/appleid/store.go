@@ -84,6 +84,21 @@ func (s *Store) UserBySub(ctx context.Context, sub string) (uuid.UUID, bool, err
 	return id, true, nil
 }
 
+// UsernameBySub returns the account key (users.username) of the account an Apple identity is linked to, or false.
+func (s *Store) UsernameBySub(ctx context.Context, sub string) (string, bool, error) {
+	var username string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.username FROM apple_identities a JOIN users u ON u.id = a.user_id
+		WHERE a.sub = $1`, strings.TrimSpace(sub)).Scan(&username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("appleid: lookup: %w", err)
+	}
+	return username, true, nil
+}
+
 // RefreshToken returns the account's kept Apple refresh token, or "" when there is none.
 func (s *Store) RefreshToken(ctx context.Context, userID uuid.UUID) (string, error) {
 	if s.secrets == nil {

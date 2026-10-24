@@ -59,6 +59,12 @@ func TestAppleIdentityLink(t *testing.T) {
 	if _, ok, err := st.UserBySub(ctx, "sub-unknown"); err != nil || ok {
 		t.Errorf("UserBySub(unknown) = %v, %v; want not found", ok, err)
 	}
+	if u, ok, err := st.UsernameBySub(ctx, "sub-a"); err != nil || !ok || u != "apple-a" {
+		t.Errorf("UsernameBySub(sub-a) = %q, %v, %v; want apple-a", u, ok, err)
+	}
+	if _, ok, err := st.UsernameBySub(ctx, "sub-unknown"); err != nil || ok {
+		t.Errorf("UsernameBySub(unknown) = %v, %v; want not found", ok, err)
+	}
 
 	if err := st.DropToken(ctx, a); err != nil {
 		t.Fatal(err)
