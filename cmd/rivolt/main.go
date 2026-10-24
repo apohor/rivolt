@@ -1060,10 +1060,8 @@ func runServer() {
 				if st == nil || time.Since(at) > 10*time.Minute || !rivian.IsChargingState(st.ChargerState) {
 					return 0, 0, 0, false
 				}
-				mins := st.TimeToEndMins
-				if strings.EqualFold(st.ChargingTimeEstimationValidity, "invalid") {
-					mins = 0
-				}
+				// The truck's own time left when it is valid, else ours (the same rule as Now; see rivian.PickChargeETA).
+				mins, _ := rivian.ChargeETAFromState(st)
 				return st.BatteryLevelPct, st.ChargerPowerKW, mins, true
 			})
 			go pushSvc.RunLive(ctx, pgPool, pushFactory, liveSrc, push.LiveInterval)

@@ -15,6 +15,19 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("now-charging", NowCard(vehicle: vehicle, summary: NowSummary(state: st, now: now, clock: clock), clock: clock))
     }
 
+    /// The truck's own time left (a taper: longer than our straight line) is shown plainly, with no "est.".
+    func testRenderChargingTrucksOwnEta() throws {
+        let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
+        let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let clock = try XCTUnwrap(now.at).addingTimeInterval(120)
+        var input = NowSummary.Input(st)
+        input.timeToEndMins = 135
+        input.timeToEndValidity = "valid"
+        let summary = NowSummary(input: input, now: now, clock: clock)
+        XCTAssertEqual(summary.chargeEta, ChargeETA.Result(minutes: 135, source: .truck))
+        try snapshot("now-charging-truck-eta", NowCard(vehicle: vehicle, summary: summary, clock: clock))
+    }
+
     func testRenderStale() throws {
         let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
         let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]

@@ -1,0 +1,272 @@
+{
+  "pick": [
+    {
+      "name": "truck valid, no ours",
+      "truck_mins": 72,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 72,
+      "want_source": "truck"
+    },
+    {
+      "name": "truck valid, validity blank",
+      "truck_mins": 72,
+      "validity": "",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 72,
+      "want_source": "truck"
+    },
+    {
+      "name": "truck longer than ours (taper), kept",
+      "truck_mins": 110,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 110,
+      "want_source": "truck"
+    },
+    {
+      "name": "truck invalid -> ours",
+      "truck_mins": 72,
+      "validity": "invalid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    },
+    {
+      "name": "validity compared case-insensitively",
+      "truck_mins": 72,
+      "validity": "Invalid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    },
+    {
+      "name": "truck none -> ours",
+      "truck_mins": 0,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    },
+    {
+      "name": "neither -> nothing",
+      "truck_mins": 0,
+      "validity": "",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 0,
+      "want_source": ""
+    },
+    {
+      "name": "invalid and no ours -> nothing",
+      "truck_mins": 72,
+      "validity": "invalid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 0,
+      "want_source": ""
+    },
+    {
+      "name": "guard: exactly a quarter of ours kept",
+      "truck_mins": 15,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 15,
+      "want_source": "truck"
+    },
+    {
+      "name": "guard: under a quarter of ours dropped",
+      "truck_mins": 14,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    },
+    {
+      "name": "guard: exactly four times ours kept",
+      "truck_mins": 240,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 240,
+      "want_source": "truck"
+    },
+    {
+      "name": "guard: over four times ours dropped",
+      "truck_mins": 241,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    },
+    {
+      "name": "guard: an 80% vs 100% gap (about 1.7x) is not caught",
+      "truck_mins": 100,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 100,
+      "want_source": "truck"
+    },
+    {
+      "name": "guard does not apply without ours",
+      "truck_mins": 1000,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 1000,
+      "want_source": "truck"
+    },
+    {
+      "name": "over 24 h is dropped (ours kept)",
+      "truck_mins": 1441,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 600,
+      "want_mins": 600,
+      "want_source": "estimate"
+    },
+    {
+      "name": "over 24 h and no ours -> nothing",
+      "truck_mins": 1441,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 0,
+      "want_source": ""
+    },
+    {
+      "name": "exactly 24 h kept",
+      "truck_mins": 1440,
+      "validity": "valid",
+      "soc_pct": 10,
+      "limit_pct": 100,
+      "ours_mins": 0,
+      "want_mins": 1440,
+      "want_source": "truck"
+    },
+    {
+      "name": "at the limit: truck dropped",
+      "truck_mins": 5,
+      "validity": "valid",
+      "soc_pct": 80,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 0,
+      "want_source": ""
+    },
+    {
+      "name": "above the limit: truck dropped, ours too",
+      "truck_mins": 5,
+      "validity": "valid",
+      "soc_pct": 82,
+      "limit_pct": 80,
+      "ours_mins": 0,
+      "want_mins": 0,
+      "want_source": ""
+    },
+    {
+      "name": "limit unknown: truck kept",
+      "truck_mins": 40,
+      "validity": "valid",
+      "soc_pct": 95,
+      "limit_pct": 0,
+      "ours_mins": 0,
+      "want_mins": 40,
+      "want_source": "truck"
+    },
+    {
+      "name": "negative truck figure ignored",
+      "truck_mins": -3,
+      "validity": "valid",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "ours_mins": 60,
+      "want_mins": 60,
+      "want_source": "estimate"
+    }
+  ],
+  "own": [
+    {
+      "name": "60 kWh at 7.2 kW from 50 to 80% of 135 kWh",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "pack_kwh": 135,
+      "power_kw": 7.2,
+      "want_mins": 338
+    },
+    {
+      "name": "rounds up to whole minutes",
+      "soc_pct": 79.5,
+      "limit_pct": 80,
+      "pack_kwh": 135,
+      "power_kw": 11,
+      "want_mins": 4
+    },
+    {
+      "name": "at least one minute",
+      "soc_pct": 79.99,
+      "limit_pct": 80,
+      "pack_kwh": 135,
+      "power_kw": 250,
+      "want_mins": 1
+    },
+    {
+      "name": "at the limit",
+      "soc_pct": 80,
+      "limit_pct": 80,
+      "pack_kwh": 135,
+      "power_kw": 7.2,
+      "want_mins": 0
+    },
+    {
+      "name": "limit unknown",
+      "soc_pct": 50,
+      "limit_pct": 0,
+      "pack_kwh": 135,
+      "power_kw": 7.2,
+      "want_mins": 0
+    },
+    {
+      "name": "pack unknown",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "pack_kwh": 0,
+      "power_kw": 7.2,
+      "want_mins": 0
+    },
+    {
+      "name": "no power",
+      "soc_pct": 50,
+      "limit_pct": 80,
+      "pack_kwh": 135,
+      "power_kw": 0.1,
+      "want_mins": 0
+    }
+  ]
+}

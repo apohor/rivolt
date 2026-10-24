@@ -89,7 +89,7 @@ struct NowCard: View {
                 let range = NowFormat.usesMetric ? km : km / 1.609344
                 compactLine("Range", "\(NumberText.fixed(range, 0)) \(NowFormat.usesMetric ? "km" : "mi")")
             }
-            if charging, let t = timeLeft { compactLine("Time left", "\(t) · est.") }
+            if charging, let t = timeLeft { compactLine("Time left", t) }
             if charging || plugged, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
             if driving, let kph = summary.speedKph {
                 let speed = NowFormat.usesMetric ? kph : kph / 1.609344
@@ -143,12 +143,11 @@ struct NowCard: View {
 
     // MARK: Charging readout
 
-    private var timeLeftMinutes: Int? {
-        guard let soc = summary.socPct else { return nil }
-        return ChargingActivityMath.minutesToTarget(socPct: soc, targetPct: summary.chargeTargetPct, packKwh: summary.packKwh, powerKw: summary.chargePowerKw)
+    /// The truck's own time left when it is valid and plausible, else ours (ChargeETA); the readout says which.
+    private var timeLeft: String? {
+        guard let e = summary.chargeEta else { return nil }
+        return e.source == .truck ? Self.plainEta(minutes: e.minutes) : "\(Self.eta(minutes: e.minutes)) · est."
     }
-
-    private var timeLeft: String? { timeLeftMinutes.map(Self.eta(minutes:)) }
 
     @ViewBuilder
     private var detailRows: some View {
@@ -182,7 +181,7 @@ struct NowCard: View {
     private var chargingRows: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
-            if let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", "\(t) · est.") }
+            if let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
@@ -217,7 +216,9 @@ struct NowCard: View {
         if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
         if charging {
             if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
-            if let m = timeLeftMinutes { parts.append("About \(ChartMath.spokenMinutes(Double(m))) left, an estimate.") }
+            if let e = summary.chargeEta {
+                parts.append(e.source == .truck ? "\(ChartMath.spokenMinutes(Double(e.minutes))) left." : "About \(ChartMath.spokenMinutes(Double(e.minutes))) left, an estimate.")
+            }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 parts.append("About \(NowFormat.oneDecimal(added / 100 * pack)) kilowatt hours added.")
             }
@@ -313,6 +314,13 @@ struct NowCard: View {
     }
 
     /// "~42 min", "~5 h 6 m": a time to the charge limit, never more precise than the estimate.
+    /// The truck's own figure, as the Rivian app shows it: no tilde and no "est.".
+    static func plainEta(minutes: Int) -> String {
+        if minutes < 60 { return "\(max(1, minutes)) min" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "\(h) h" : "\(h) h \(m) m"
+    }
+
     static func eta(minutes: Int) -> String {
         if minutes < 60 { return "~\(max(1, minutes)) min" }
         let h = minutes / 60, m = minutes % 60

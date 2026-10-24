@@ -447,7 +447,8 @@ function details(
   }
   if (v.kind === "charging") {
     if (v.powerKw != null) rows.push({ k: "Power", v: `${v.powerKw.toFixed(v.powerKw < 10 ? 1 : 0)} kW` });
-    if (v.etaHours != null) rows.push({ k: "Time left", v: `${formatEta(v.etaHours, nowMs)} · est.` });
+    // The truck's own figure plainly (it is Rivian's, as its app shows it); ours is an estimate and says so.
+    if (v.etaHours != null) rows.push({ k: "Time left", v: v.etaSource === "truck" ? formatEta(v.etaHours, nowMs, false) : `${formatEta(v.etaHours, nowMs)} · est.` });
     if (v.energyKwh != null && v.energyKwh > 0) rows.push({ k: "Added", v: `≈ ${v.energyKwh.toFixed(1)} kWh` });
     if (v.costSoFar) rows.push({ k: "Cost so far", v: `${formatMoney(v.costSoFar.amount, currency)} · home rate` });
     else if (v.priceUnknown) rows.push({ k: "Price", v: "Unknown, add it after" });

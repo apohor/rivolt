@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VehicleState } from "./api";
-import { advanceTripDistance, clock, computeNow, freshnessLine, nowAlerts, statusPill, type NowInput } from "./nowState";
+import { advanceTripDistance, clock, computeNow, formatEta, freshnessLine, nowAlerts, statusPill, type NowInput } from "./nowState";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const HOME = { latitude: 40, longitude: -90 };
@@ -154,6 +154,26 @@ describe("computeNow", () => {
     expect(v.etaHours).toBeCloseTo(3); // 30% of 100 kWh at 10 kW
     expect(v.energyKwh).toBeCloseTo(10);
     expect(v.costSoFar?.amount).toBeCloseTo(1.1);
+  });
+  it("prefers the truck's own time left when it is valid and plausible, else ours labelled estimate", () => {
+    const charging = { charger_status: PLUG, charger_state: "charging_active", charger_power_kw: 10, battery_level_pct: 50 };
+    const ours = computeNow(inp(charging));
+    expect(ours.etaSource).toBe("estimate");
+    expect(ours.etaHours).toBeCloseTo(3);
+    // The truck says 3 h 20 min (a taper): shown as the truck's, plainly.
+    const truck = computeNow(inp({ ...charging, time_to_end_mins: 200, charging_time_estimation_validity: "valid" }));
+    expect(truck.etaSource).toBe("truck");
+    expect(truck.etaHours).toBeCloseTo(200 / 60);
+    expect(formatEta(truck.etaHours ?? 0, NOW, false)).toBe("3 h 20 m");
+    expect(formatEta(ours.etaHours ?? 0, NOW)).toBe("~3 h");
+    // Invalid, or implausibly short (under a quarter of ours): ours, with "est.".
+    for (const bad of [{ time_to_end_mins: 200, charging_time_estimation_validity: "invalid" }, { time_to_end_mins: 20, charging_time_estimation_validity: "valid" }]) {
+      const v = computeNow(inp({ ...charging, ...bad }));
+      expect(v.etaSource).toBe("estimate");
+      expect(v.etaHours).toBeCloseTo(3);
+    }
+    // Not charging: no time left from either.
+    expect(computeNow(inp({ charger_status: PLUG, charger_state: "charging_complete", time_to_end_mins: 30 })).etaSource).toBeNull();
   });
   it("away AC has unknown price and a multi-day ETA; DCFC by peak kW", () => {
     const away = { latitude: 41, longitude: -90 };
