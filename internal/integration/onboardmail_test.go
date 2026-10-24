@@ -205,3 +205,56 @@ func TestOnboardingEmails(t *testing.T) {
 }
 
 func secs(d time.Duration) string { return fmt.Sprintf("%d seconds", int(d.Seconds())) }
+
+// An address Apple told us its relay no longer forwards to (email-disabled) gets no welcome or setup reminder, and
+// gets them again once forwarding is back on (email-enabled).
+func TestOnboardingEmailsSkipUndeliverableAddress(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUserVerified(ctx, pool, "relay-off", "relay-off@x.test", "relay-off", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '5 hours', welcome_sent_at = NULL, email_undeliverable = TRUE WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	due := func() bool {
+		t.Helper()
+		ws, err := db.ListUsersDueForWelcome(ctx, pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range ws {
+			if w.UserID == uid {
+				return true
+			}
+		}
+		return false
+	}
+	if due() {
+		t.Fatal("a welcome is due for an undeliverable address")
+	}
+	if ok, err := db.ClaimWelcome(ctx, pool, uid); err != nil || ok {
+		t.Fatalf("ClaimWelcome = %v, %v; want refused", ok, err)
+	}
+	nudges, err := db.ListUsersDueForSetupNudge(ctx, pool, time.Minute, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range nudges {
+		if n.UserID == uid {
+			t.Fatal("a setup reminder is due for an undeliverable address")
+		}
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET email_undeliverable = FALSE WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if !due() {
+		t.Fatal("the welcome should be due again once the flag is cleared")
+	}
+}
