@@ -58,6 +58,15 @@ struct ActivityView: View {
                 await loadEfficiency()
             }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
+            // App Store screenshots only: open the first drive or charge of the month once the list is there.
+            .task(id: days.count) {
+                guard let kind = StoreShots.open, picked == nil, !days.isEmpty else { return }
+                picked = days.flatMap(\.items).first { item in
+                    if case .drive = item { return kind == "drive" }
+                    if case .charge = item { return kind == "charge" }
+                    return false
+                }
+            }
         }
     }
 
