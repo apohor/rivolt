@@ -1220,13 +1220,19 @@ func handleDataReset(d Deps) http.HandlerFunc {
 // the same browser is unauthenticated.
 func handleDataAccountDelete(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.DB == nil {
-			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-			return
-		}
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		// The request must be a deliberate one before anything is looked up: not an admin viewing as the user, not the app's
+		// token, not cross-site, and a JSON body that says so (account_delete_confirm.go).
+		if code, reason := accountDeleteRefusal(r); code != 0 {
+			writeJSON(w, code, map[string]any{"error": reason})
+			return
+		}
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		// Last-admin guard. An admin can self-delete only if there's
@@ -1269,7 +1275,12 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 		}
 		// A failed IdP deletion is recorded for the admin page; the
 		// account is gone on our side either way.
-		_, _ = deleteFromIdP(delCtx, d.DB, d.Users, username, d.Logger)
+		idpStatus, _ := deleteFromIdP(delCtx, d.DB, d.Users, username, d.Logger)
+		// The one record that it happened: a salted hash of the user id (the account is gone, so the raw id would be a way
+		// back to a person), who asked, and how the identity-provider step went. No email, no name.
+		if d.Logger != nil {
+			d.Logger.Info("account deleted", "user_hash", auditUserHash(d.AuditKey, uid), "actor", accountActor(r), "idp", idpStatus)
+		}
 		// Clear the session cookie so the next request from this
 		// browser is unauthenticated. The session row was already
 		// cascaded out of `sessions` by DeleteUser; this just stops

@@ -7,10 +7,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -220,5 +222,118 @@ func TestIdPDeleteRetrier(t *testing.T) {
 	if attempts(due) != -1 || len(provider.deleted) != 2 || !strings.Contains(deleted, "due@example.com") ||
 		!strings.Contains(deleted, "stuck@example.com") {
 		t.Errorf("after the IdP came back: due %d deleted %v; want gone, due + stuck", attempts(due), provider.deleted)
+	}
+}
+
+// Self-service deletion, end to end: the request must carry the confirmation; once it does, every session (a browser's and
+// the app's), every push device (the phone's and a browser's) and the user row are gone in the one request, another
+// account's rows are untouched, and the one log line says it happened without naming anyone.
+func TestSelfDelete_RevokesEverythingAndLogsOnlyAHash(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+
+	if _, err := db.EnsureUser(ctx, pool, "admin-self-delete@example.com"); err != nil { // the bootstrap admin, so the target is not the last one
+		t.Fatal(err)
+	}
+	const email = "leaving-person@example.com"
+	target, err := db.EnsureUserFull(ctx, pool, email, email, "Leaving Person")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.EnsureUserFull(ctx, pool, "staying-person@example.com", "staying-person@example.com", "Stays")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addSession := func(uid uuid.UUID, kind string) uuid.UUID {
+		id := uuid.New()
+		if _, err := pool.ExecContext(ctx, `INSERT INTO sessions (id, user_id, token_hash, expires_at, kind) VALUES ($1,$2,$3, now() + interval '1 day', $4)`,
+			id, uid, []byte(id.String()), kind); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	webSess, appSess, otherApp := addSession(target, "web"), addSession(target, "app"), addSession(other, "app")
+	addDevice := func(uid, sess uuid.UUID, tok string) {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id) VALUES (gen_random_uuid(),$1,$2,$3,'sandbox','me.apoh.rivolt')`,
+			uid, sess, tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addDevice(target, appSess, strings.Repeat("a", 64))
+	addDevice(other, otherApp, strings.Repeat("b", 64))
+	for _, row := range []struct {
+		uid      uuid.UUID
+		endpoint string
+	}{{target, "https://fcm.googleapis.com/fcm/send/leaving"}, {other, "https://fcm.googleapis.com/fcm/send/staying"}} {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,$2,'p','a')`, row.uid, row.endpoint); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(q string, args ...any) int {
+		var n int
+		if err := pool.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	var logs bytes.Buffer
+	h := handleDataAccountDelete(Deps{DB: pool, Logger: slog.New(slog.NewJSONHandler(&logs, nil)), AuditKey: []byte("test-key")})
+	send := func(body, ct string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "https://rivolt.dev/api/data/account", strings.NewReader(body))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		req = req.WithContext(auth.WithSession(auth.WithUser(ctx, target), auth.SessionRef{ID: webSess, Kind: "web"}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Without the confirmation nothing happens.
+	for _, c := range [][2]string{{"", ""}, {`{"confirm":"no"}`, "application/json"}} {
+		if rec := send(c[0], c[1]); rec.Code < 400 {
+			t.Fatalf("a request without the confirmation: %d", rec.Code)
+		}
+	}
+	if count(`SELECT count(*) FROM users WHERE id = $1`, target) != 1 {
+		t.Fatal("the account went without the confirmation")
+	}
+
+	if rec := send(`{"confirm":"delete my account"}`, "application/json"); rec.Code != http.StatusOK {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
+	}
+	for what, q := range map[string]string{
+		"the user":              `SELECT count(*) FROM users WHERE id = $1`,
+		"its sessions":          `SELECT count(*) FROM sessions WHERE user_id = $1`,
+		"its phone's devices":   `SELECT count(*) FROM push_apns_devices WHERE user_id = $1`,
+		"its browser's devices": `SELECT count(*) FROM push_subscriptions WHERE user_id = $1`,
+	} {
+		if n := count(q, target); n != 0 {
+			t.Errorf("%s: %d rows left", what, n)
+		}
+	}
+	if count(`SELECT count(*) FROM sessions WHERE id = $1 OR id = $2`, webSess, appSess) != 0 {
+		t.Error("a session of the deleted account survived (a token would still authenticate)")
+	}
+	// Another account is untouched.
+	if count(`SELECT count(*) FROM sessions WHERE user_id = $1`, other) != 1 || count(`SELECT count(*) FROM push_apns_devices WHERE user_id = $1`, other) != 1 ||
+		count(`SELECT count(*) FROM push_subscriptions WHERE user_id = $1`, other) != 1 {
+		t.Error("another account's sessions or devices were touched")
+	}
+	// The one log line: a hash, the actor, no email, no id, no name.
+	line := logs.String()
+	if !strings.Contains(line, `"msg":"account deleted"`) || !strings.Contains(line, `"user_hash":"`+auditUserHash([]byte("test-key"), target)+`"`) || !strings.Contains(line, `"actor":"web"`) {
+		t.Errorf("audit line: %s", line)
+	}
+	for _, leak := range []string{email, "Leaving", target.String(), strings.ReplaceAll(target.String(), "-", "")} {
+		if strings.Contains(line, leak) {
+			t.Errorf("the audit line names the person (%q): %s", leak, line)
+		}
 	}
 }

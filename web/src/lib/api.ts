@@ -2016,8 +2016,13 @@ export const backend = {
   // service's Logout handler — the session cookie is cleared so
   // subsequent requests are unauthenticated. Refuses with 409 if
   // the caller is the install's last admin.
+  // The server wants the confirmation as a JSON body (a bare DELETE is refused), so a stray or replayed call cannot delete.
   deleteAccount: async () => {
-    const res = await fetch("/api/data/account", { method: "DELETE" });
+    const res = await fetch("/api/data/account", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "delete my account" }),
+    });
     if (!res.ok) {
       const text = await res.text();
       let msg = text;
