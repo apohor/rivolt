@@ -57,9 +57,11 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(s.demoResumesAccount)
     }
 
-    func testTheDemoFromTheSignInScreenStillLeadsToTheSignInScreen() throws {
+    func testTheDemoFromTheSignInScreenStillLeadsToTheSignInScreen() async throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "onboard-tests-\(UUID().uuidString)"))
         let s = AppState(tokens: NoTokenStore(), defaults: defaults)
+        await s.bootstrap()
+        XCTAssertEqual(s.phase, .loggedOut)
         s.enterDemoFromAccount()
         XCTAssertNotEqual(s.phase, .demo, "only a signed-in account can open it from here")
         s.enterDemo()
