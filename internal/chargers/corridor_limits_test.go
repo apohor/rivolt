@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -49,15 +51,30 @@ func TestPlanCorridorRefusesBadAndHugeQueries(t *testing.T) {
 			t.Errorf("%s: %v, want ErrBadPath", name, err)
 		}
 	}
-	long := make([][2]float64, MaxPathPoints+1)
-	for i := range long {
-		long[i] = [2]float64{34, -118}
+	route := func(n int) [][2]float64 {
+		p := make([][2]float64, n)
+		for i := range p {
+			f := float64(i) / float64(n-1)
+			p[i] = [2]float64{33 + 6*f, -97 - 8*f}
+		}
+		return p
 	}
-	if _, _, err := planCorridor(long, 5); !errors.Is(err, ErrQueryTooLarge) {
-		t.Errorf("%d points: %v, want ErrQueryTooLarge", len(long), err)
+	// A long drive's polyline is thinned, not refused: the scan walks at most MaxPathPoints of it.
+	for _, n := range []int{MaxPathPoints, MaxPathPoints + 1, 30_000, MaxRoutePoints} {
+		got, _, err := planCorridor(route(n), 5)
+		if err != nil || len(got) > MaxPathPoints {
+			t.Errorf("%d points: %d kept, %v", n, len(got), err)
+		}
 	}
-	if _, _, err := planCorridor(long[:MaxPathPoints], 5); err != nil {
-		t.Errorf("%d points: %v", MaxPathPoints, err)
+	// But not without bound.
+	if _, _, err := planCorridor(route(MaxRoutePoints+1), 5); !errors.Is(err, ErrQueryTooLarge) {
+		t.Errorf("%d points: %v, want ErrQueryTooLarge", MaxRoutePoints+1, err)
+	}
+	// A bad coordinate in a long path is still refused as bad.
+	bad := route(20_000)
+	bad[100][0] = math.NaN()
+	if _, _, err := planCorridor(bad, 5); !errors.Is(err, ErrBadPath) {
+		t.Errorf("long path with a NaN: %v, want ErrBadPath", err)
 	}
 	// Two opposite corners of the world: a box of about 268 million tiles.
 	if _, _, err := planCorridor([][2]float64{{-80, -179}, {80, 179}}, 5); !errors.Is(err, ErrQueryTooLarge) {
@@ -78,5 +95,26 @@ func TestQueryCorridorStopsOnACancelledContext(t *testing.T) {
 	_, err := a.QueryCorridor([][2]float64{{34.05, -118.24}, {36.17, -115.14}}, FilterDCFC, QueryCorridorOptions{Context: ctx})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+// Every caller of QueryCorridor (the planners as well as the HTTP routes) gets a long route's polyline thinned, not
+// refused: the synthetic planner sent a drive of 1,000 km straight in and failed with "query is too large".
+func TestQueryCorridorTakesALongRoute(t *testing.T) {
+	file := minimalArchive()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(file) }))
+	defer srv.Close()
+	a := New(srv.URL)
+	if err := a.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := 30_000
+	path := make([][2]float64, n)
+	for i := range path {
+		f := float64(i) / float64(n-1)
+		path[i] = [2]float64{32.8 + 7*f, -96.8 - 8.2*f} // about 1,000 km
+	}
+	if _, err := a.QueryCorridor(path, FilterDCFC, QueryCorridorOptions{}); err != nil {
+		t.Errorf("%d points: %v", n, err)
 	}
 }
