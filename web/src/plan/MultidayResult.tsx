@@ -9,6 +9,8 @@ import { chargingStopCount } from "./waypoints";
 import { OvernightSuggestions } from "./OvernightSuggestions";
 import type { OvernightAdder } from "./tripTypes";
 import { Stat } from "./Stat";
+import { usePreferences } from "../lib/preferences";
+import { wholeDistance } from "./units";
 import { FarFutureNote } from "./FarFutureNote";
 
 // LONG_DAY_THRESHOLD_MI / LONG_DAY_THRESHOLD_HR drive the "long day"
@@ -87,7 +89,7 @@ export function MultidayResult({
   // Set when the days from `fromDay` on were planned from the truck's position.
   replan?: { fromDay: number; position: FromPosition; mid: boolean };
 }) {
-  const totalMiles = response.total.distance_meters / 1609.344;
+  const { distanceUnit } = usePreferences();
   const totalHrs = response.total.drive_duration_sec / 3600;
   const chargeMin = Math.round(response.total.charging_duration_sec / 60);
   const failed = response.failed_day;
@@ -101,7 +103,7 @@ export function MultidayResult({
     <Card title={title}>
       <dl className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Days" value={String(response.days.length)} />
-        <Stat label="Total distance" value={`${totalMiles.toFixed(0)} mi`} />
+        <Stat label="Total distance" value={wholeDistance(response.total.distance_meters, distanceUnit)} />
         <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
         <Stat label="Charging" value={`${chargeMin} min`} />
       </dl>
@@ -150,11 +152,11 @@ export function MultidayResult({
             : (response.days[i - 1].overnight?.name || `Overnight ${i}`);
           const dayDest = d.overnight?.name
             ?? (i === response.days.length - 1 ? (destLabel || "Destination") : `Overnight ${i + 1}`);
-          const miles = r ? r.TotalDriveDistanceMeters / 1609.344 : 0;
+          const miles = r ? r.TotalDriveDistanceMeters / 1609.344 : 0; // the long-day rule is in miles whatever the display unit
           const hrs = r ? r.TotalDriveDurationSec / 3600 : 0;
           const isLongDay = miles > LONG_DAY_THRESHOLD_MI || hrs > LONG_DAY_THRESHOLD_HR;
           const stops = r ? chargingStopCount(r) : 0;
-          const short = r && r.BatteryEmptyToDestMeters > 0 ? r.BatteryEmptyToDestMeters / 1609.344 : 0;
+          const shortM = r && r.BatteryEmptyToDestMeters > 0 ? r.BatteryEmptyToDestMeters : 0;
           return (
             <div key={d.index} className="space-y-3">
               <div data-day-card className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
@@ -167,7 +169,7 @@ export function MultidayResult({
                     {isLongDay && (
                       <span
                         className="rounded-sm bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-300"
-                        title="Over 600 mi or 9 h of driving. Consider an earlier overnight."
+                        title={`Over ${wholeDistance(LONG_DAY_THRESHOLD_MI * 1609.344, distanceUnit)} or ${LONG_DAY_THRESHOLD_HR} h of driving. Consider an earlier overnight.`}
                       >
                         long day
                       </span>
@@ -178,18 +180,18 @@ export function MultidayResult({
                   </div>
                   <div className="mt-0.5 text-xs text-neutral-400">
                     {d.depart_at ? `Depart ${fmtTime(d.depart_at)} at ${d.departure_soc.toFixed(0)}%` : `Start at ${d.departure_soc.toFixed(0)}%`}
-                    {r && ` · ${miles.toFixed(0)} mi · ${hrs.toFixed(1)} h driving · ${stops} charging stop${stops === 1 ? "" : "s"}`}
+                    {r && ` · ${wholeDistance(r.TotalDriveDistanceMeters, distanceUnit)} · ${hrs.toFixed(1)} h driving · ${stops} charging stop${stops === 1 ? "" : "s"}`}
                     {d.arrive_at && ` · arrive about ${fmtTime(d.arrive_at)} at ${d.arrival_soc.toFixed(0)}%`}
                   </div>
                 </div>
-                {d.soc_below_limit && !short && (
+                {d.soc_below_limit && !shortM && (
                   <p className="mb-2 text-xs text-rose-300">The battery gets very low on this day.</p>
                 )}
                 {d.destination_reached === false && (
                   <div role="alert" className="mb-3 rounded-md border border-rose-900 bg-rose-950/40 p-2.5 text-sm text-rose-200">
                     <div className="font-semibold">Day {d.index} can't reach {dayDest} on available chargers.</div>
                     <div className="mt-0.5 text-rose-300/80">
-                      {short ? `The battery would run out about ${short.toFixed(0)} mi before ${dayDest}. ` : ""}
+                      {shortM ? `The battery would run out about ${wholeDistance(shortM, distanceUnit)} before ${dayDest}. ` : ""}
                       Add an overnight or a via near a fast charger.
                     </div>
                   </div>

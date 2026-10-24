@@ -5,14 +5,14 @@ import { revealStop } from "./reveal";
 import { Unit } from "./Unit";
 import { StopPriceNote } from "./StopPrice";
 import { stopCostText } from "../lib/planCost";
+import { usePreferences } from "../lib/preferences";
+import { distanceIn } from "./units";
 
 // StopCard: one itinerary entry for the planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
 // map) to show the charger, network, SoC in and out, charge time, energy, power
 // and cost. The parent renders these inside <ol data-plan-timeline>.
 type Waypoint = TripRoute["Waypoints"][number];
-
-const miles = (m: number) => (m / 1609.344).toFixed(0);
 
 export function StopCard({
   kind,
@@ -37,6 +37,7 @@ export function StopCard({
   onSelect: () => void;
   showLeg: boolean;
 }) {
+  const { distanceUnit } = usePreferences();
   const money = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(v);
   const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs, true);
   const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs, true);
@@ -71,7 +72,7 @@ export function StopCard({
               <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
             )}
           </span>
-          {leg > 0 && <span className="pt-sub shrink-0 text-neutral-400">+{miles(leg)}<Unit>mi</Unit></span>}
+          {leg > 0 && <span className="pt-sub shrink-0 text-neutral-400">+{distanceIn(leg, distanceUnit).toFixed(0)}<Unit>{distanceUnit}</Unit></span>}
         </span>
         <span className="pt-sub mt-0.5 flex flex-wrap items-baseline gap-x-3 text-neutral-400">
           {kind === "start" && (

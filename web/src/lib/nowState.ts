@@ -321,7 +321,7 @@ export function nowAlerts(opts: {
   if (tires.length > 0) {
     const low = Math.min(...tires);
     if (low < LOW_TIRE_BAR) {
-      out.push({ id: "tire", tone: "amber", text: `Lowest tire ${low.toFixed(1)} bar.` });
+      out.push({ id: "tire", tone: "amber", text: `Lowest tire ${low.toFixed(2)} bar.` });
     }
   }
   return out.slice(0, 2);

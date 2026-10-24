@@ -268,7 +268,7 @@ struct NowCard: View {
             out.append(NowAlert(id: "waking", tone: .amber, text: "\(vehicleName) woke up \(n) times in the last 6 hours."))
         }
         if let bar = s.tireMinBar, bar > 0, bar < 2.2 {
-            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(NumberText.fixed(bar, 1)) bar."))
+            out.append(NowAlert(id: "tire", tone: .amber, text: "Lowest tire \(NumberText.fixed(bar, 2)) bar."))
         }
         return Array(out.prefix(2))
     }

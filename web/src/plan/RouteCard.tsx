@@ -6,6 +6,7 @@ import { CostEstimateNote } from "./CostEstimateNote";
 import { BottomSheet } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
+import { wholeDistance } from "./units";
 import { type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { Card } from "../components/ui";
 import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
@@ -138,12 +139,12 @@ export function RouteCard({
   // leg = current - previous. Hidden when Rivian didn't populate the
   // field (legacy plans). All values converted to miles for display.
   const haveDistances = route.Waypoints.some((w) => (w.DistanceFromOriginMeters ?? 0) > 0);
-  const mFmt = (m: number) => `${(m / 1609.344).toFixed(0)} mi`;
+  const mFmt = (m: number) => wholeDistance(m, distanceUnit);
   const distanceCell = (idx: number) => {
     const w = route.Waypoints[idx];
     const cum = w?.DistanceFromOriginMeters ?? 0;
     if (idx === 0) {
-      return <td className="px-2 py-2 font-mono text-xs text-neutral-500">0 mi</td>;
+      return <td className="px-2 py-2 font-mono text-xs text-neutral-500">0 {distanceUnit}</td>;
     }
     const prev = route.Waypoints[idx - 1];
     const leg = cum - (prev?.DistanceFromOriginMeters ?? 0);
@@ -328,7 +329,7 @@ export function RouteCard({
         <Stat
           label="Distance"
           value={route.TotalDriveDistanceMeters > 0
-            ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi`
+            ? wholeDistance(route.TotalDriveDistanceMeters, distanceUnit)
             : "—"}
         />
         <Stat
