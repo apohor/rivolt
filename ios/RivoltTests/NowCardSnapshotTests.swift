@@ -46,6 +46,8 @@ final class NowCardSnapshotTests: XCTestCase {
         let comfort = NowComfort(cabinTempC: 20, preconditioning: nil, petMode: "on", cabinHold: "on")
         try snapshot("now-comfort", card(comfort, age: 15))
         try snapshot("now-comfort-stale", card(comfort, age: 600))
+        // Cabin on its own row (whole degrees), with no line under it when the truck says nothing else.
+        try snapshot("now-cabin-row", card(NowComfort(cabinTempC: 28.6, preconditioning: nil, petMode: nil, cabinHold: nil), age: 15))
     }
 
     func testRenderInstalling() throws {

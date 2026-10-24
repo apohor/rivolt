@@ -25,9 +25,13 @@ export function AmbientTempLine({ ambient, vehicleID }: { ambient?: { temp_c: nu
   if (amb.enabled) {
     return ambient ? (
       <>
-        <p data-ambient-temp className="mt-2 text-xs text-neutral-400">
-          Outside {formatTemperature(ambient.temp_c, temperatureUnit)} <span className="text-neutral-500">· estimate from Open-Meteo</span>
-        </p>
+        <div data-ambient-temp>
+          <dl className="mt-1 grid grid-cols-2 gap-x-4 text-sm">
+            <dt className="text-neutral-500">Outside</dt>
+            <dd className="text-right tabular-nums text-neutral-200">{formatTemperature(ambient.temp_c, temperatureUnit)}</dd>
+          </dl>
+          <p className="mt-1 text-xs text-neutral-500">Outside is an estimate from Open-Meteo.</p>
+        </div>
         {vehicleID && <ColdRangeSentence vehicleID={vehicleID} tempC={ambient.temp_c} />}
       </>
     ) : null;

@@ -11,10 +11,15 @@ const clean = (s: string | undefined | null) => (s ?? "").toLowerCase().trim();
 // The same words the live panel reads as on.
 const isOn = (s: string | undefined | null) => ["true", "on", "active", "1"].includes(clean(s));
 
-export function comfortParts(s: Comfort, unit: TemperatureUnit): string[] {
-  const out: string[] = [];
+// The cabin temperature in whole degrees, for its own row beside Outside; null when the truck gave none.
+export function cabinValue(s: Pick<VehicleState, "cabin_temp_c">, unit: TemperatureUnit): string | null {
   const c = s.cabin_temp_c;
-  if (typeof c === "number" && Number.isFinite(c) && c !== 0 && c > -50 && c < 80) out.push(`Cabin ${formatTemperature(c, unit)}`);
+  return typeof c === "number" && Number.isFinite(c) && c !== 0 && c > -50 && c < 80 ? formatTemperature(c, unit) : null;
+}
+
+// The rest of the comfort line: preconditioning, pet mode, climate hold (the cabin temperature has its own row).
+export function comfortParts(s: Comfort): string[] {
+  const out: string[] = [];
   const precon = clean(s.cabin_preconditioning_status);
   if (precon === "preconditioning") out.push("Preconditioning");
   else if (precon === "preconditioned") out.push("Preconditioned");
