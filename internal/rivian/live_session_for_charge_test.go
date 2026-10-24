@@ -28,20 +28,25 @@ func TestLiveSessionForChargeServesOnlyTheOpenChargesSession(t *testing.T) {
 	m.mu.Unlock()
 
 	// No charge is open yet: there is no session to serve.
-	if sess, e := m.LiveSessionForCharge(chargeTestVehicle); sess != nil || e != 0 {
-		t.Fatalf("before the charge opens: %+v, %.2f kWh, want nothing", sess, e)
+	if sess, n := m.LiveSessionForCharge(chargeTestVehicle); sess != nil || n != (ChargeNow{}) {
+		t.Fatalf("before the charge opens: %+v, %+v, want nothing", sess, n)
 	}
 
 	// The charge opens; the stale session was never bonded to it. Nothing is served, and the energy is the charge's own.
 	for minute := 0; minute <= 2; minute++ {
 		push(minute, 7.6)
 	}
-	sess, e := m.LiveSessionForCharge(chargeTestVehicle)
+	sess, now := m.LiveSessionForCharge(chargeTestVehicle)
+	e := now.EnergyKWh
 	if sess != nil {
 		t.Errorf("a session never bonded to this charge was served: %+v", sess)
 	}
 	if e <= 0 || e > 1 {
 		t.Errorf("the charge's own energy after 2 minutes at 7.6 kW is %.3f kWh, want a few hundredths", e)
+	}
+
+	if now.PeakKW != 7.6 || !now.HomeRateApplies() {
+		t.Errorf("the charge's peak %.1f kW, home rate applies %v, want 7.6 and true", now.PeakKW, now.HomeRateApplies())
 	}
 
 	// Bonded to the charge but describing a much earlier start (it predates the charge): still not served.
@@ -66,7 +71,7 @@ func TestLiveSessionForChargeServesOnlyTheOpenChargesSession(t *testing.T) {
 	}
 
 	// No charge for another vehicle: nothing.
-	if sess, e := m.LiveSessionForCharge("other"); sess != nil || math.Abs(e) > 0 {
-		t.Errorf("another vehicle: %+v %.2f", sess, e)
+	if sess, n := m.LiveSessionForCharge("other"); sess != nil || math.Abs(n.EnergyKWh) > 0 {
+		t.Errorf("another vehicle: %+v %+v", sess, n)
 	}
 }

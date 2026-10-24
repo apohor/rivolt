@@ -40,8 +40,8 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 			// Only a session that belongs to the open charge, and the charge's own recorded energy for the estimate: the
 			// cache can hold the previous plug-in's session, whose total would price a charge that has just begun at a
 			// whole earlier charge's cost (and whose power would beat the truck's own).
-			sess, energy := mon.LiveSessionForCharge(id)
-			writeJSON(w, http.StatusOK, decorateLiveSessionFor(id, sess, energy, cfg))
+			sess, now := mon.LiveSessionForCharge(id)
+			writeJSON(w, http.StatusOK, decorateLiveSessionFor(id, sess, now, cfg))
 			return
 		}
 		sess, err := lc.LiveSession(r.Context(), id)
@@ -91,14 +91,15 @@ type liveSessionResponse struct {
 
 // decorateLiveSessionFor is the response for the open charge: the session when it is the charge's, else the zeroed
 // payload Rivian itself returns for a home charge (so a client falls back to the truck's own power and shows no session
-// totals), and an estimated cost from the charge's recorded energy when Rivian reported no price.
-func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, chargeKWh float64, cfg settings.ChargingConfig) liveSessionResponse {
+// totals), and an estimated cost from the charge's recorded energy when Rivian reported no price and the home rate is a
+// fair price for it (an AC charge not known to be away from home): a fast charge on another network has a price of its own.
+func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, now rivian.ChargeNow, cfg settings.ChargingConfig) liveSessionResponse {
 	if sess == nil {
 		sess = &rivian.LiveSession{VehicleID: vehicleID}
 	}
 	resp := liveSessionResponse{LiveSession: sess}
-	if cfg.HomePricePerKWh > 0 && chargeKWh > 0 && sess.CurrentPrice == "" {
-		resp.EstimatedCost = cfg.HomePricePerKWh * chargeKWh
+	if cfg.HomePricePerKWh > 0 && now.EnergyKWh > 0 && sess.CurrentPrice == "" && now.HomeRateApplies() {
+		resp.EstimatedCost = cfg.HomePricePerKWh * now.EnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}
 	return resp
