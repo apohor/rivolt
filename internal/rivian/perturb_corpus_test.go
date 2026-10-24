@@ -233,8 +233,8 @@ func TestPerturbCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root, err := filepath.Abs("../.."); err == nil && strings.HasPrefix(in, root+string(filepath.Separator)) {
-		t.Fatalf("-perturb.in is inside the module (%s): keep a real input in your scratchpad, never in a worktree", root)
+	if repo := gitTreeOf(in); repo != "" {
+		t.Fatalf("-perturb.in is inside a git working tree (%s): keep a real input in your scratchpad, never in a checkout or worktree", repo)
 	}
 	raw, err := os.ReadFile(in)
 	if err != nil {
@@ -266,6 +266,26 @@ func TestPerturbCorpus(t *testing.T) {
 	t.Logf("wrote %s (%d events); now delete the input", *perturbOut, len(out))
 }
 
+// gitTreeOf is the git working tree path is in (any checkout or worktree, not only this module), or "": the
+// path's symlinks resolved, then every ancestor checked for a .git entry (a directory, or a worktree's file).
+func gitTreeOf(path string) string {
+	p, err := filepath.Abs(path)
+	if err != nil {
+		return path // can't place it: treat it as inside a tree rather than risk it
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
+	for dir := filepath.Dir(p); ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return ""
+		}
+	}
+}
+
 // The tool on the committed corpora (synthetic, so a seed is fine): every perturbation of them replays the same,
 // passes the corpus rules, and keeps no note.
 func TestPerturbKeepsStructure(t *testing.T) {
@@ -294,6 +314,14 @@ func TestPerturbKeepsStructure(t *testing.T) {
 			}
 		}
 	}
+	// The input check refuses any git working tree, and not a plain directory.
+	if gitTreeOf(filepath.Join("testdata", "corpus", "r1_day.json")) == "" {
+		t.Error("a corpus inside this checkout isn't recognized as being in a git working tree")
+	}
+	if dir := t.TempDir(); gitTreeOf(filepath.Join(dir, "in.json")) != "" {
+		t.Errorf("%s is taken for a git working tree", dir)
+	}
+
 	// A crossed threshold is caught: stretch one corpus's gaps 200× (its brief 0 kW pause becomes longer than the
 	// charge-split window) and the replay must differ.
 	c, err := loadCorpus(filepath.Join("testdata", "corpus", "r2_charge_with_stale_gear.json"))
