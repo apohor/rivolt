@@ -64,13 +64,25 @@ type Stat struct {
 }
 
 // fleetQuery aggregates every vehicle's rows in [$1, $3), with $2 the
-// start of the 24 h window. One scan serves both windows.
+// start of the 24 h window. One read serves both windows.
+//
+// The rows are read vehicle by vehicle through vehicle_state's primary key
+// (vehicle_id, at), so a run reads only the window's rows. A predicate on at
+// alone has no index and scanned the whole of every partition in range: the
+// current month's, about every 15 minutes (DB tuning note, Oct 24). OFFSET 0
+// keeps the planner from flattening the LATERAL subquery into a plain join,
+// which would let it go back to one full scan. Rows of a vehicle no longer in
+// vehicles were dropped by the final join before, so the result is the same.
 const fleetQuery = `
 WITH s AS (
-	SELECT vehicle_id, at, battery_level_pct AS soc, odometer_mi AS odo, power_state AS ps,
-	       shift_state AS gear, speed_mph AS mph, charging_state AS cs
-	  FROM vehicle_state
-	 WHERE at >= $1::timestamptz AND at < $3::timestamptz
+	SELECT x.vehicle_id, x.at, x.soc, x.odo, x.ps, x.gear, x.mph, x.cs
+	  FROM vehicles v
+	  CROSS JOIN LATERAL (
+	        SELECT vehicle_id, at, battery_level_pct AS soc, odometer_mi AS odo, power_state AS ps,
+	               shift_state AS gear, speed_mph AS mph, charging_state AS cs
+	          FROM vehicle_state
+	         WHERE vehicle_id = v.id AND at >= $1::timestamptz AND at < $3::timestamptz
+	        OFFSET 0) x
 ), p AS (
 	SELECT vehicle_id, at, soc, odo,
 	       LAG(at)  OVER w AS pat,
