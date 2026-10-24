@@ -738,7 +738,7 @@ function ChargingCostPanel() {
         </button>
       </div>
       <p className="text-xs text-neutral-500">
-        Applied locally to sessions Rivian reports as free (home AC, L2 on
+        Applied locally to sessions Rivian reports as free (home AC, Level 2 on
         non-RAN chargers). Leave at 0 to disable.
       </p>
       {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}

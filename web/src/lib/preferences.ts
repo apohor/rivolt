@@ -216,7 +216,7 @@ export function formatTemperature(
   return `${celsius.toFixed(digits)} °C`;
 }
 
-const MI_PER_KM = 0.6213711922;
+export const MI_PER_KM = 0.6213711922;
 
 // formatDistance renders a distance the backend serves in km in the
 // user's chosen unit, rounded so it never reveals a precise position:

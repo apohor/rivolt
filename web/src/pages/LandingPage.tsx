@@ -102,7 +102,7 @@ export default function LandingPage() {
           </Claim>
           <Claim
             title="Price the trip before you go"
-            body="See DCFC spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
+            body="See fast-charging spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
           />
           <Claim
             title="Yours to keep"

@@ -27,9 +27,9 @@ final class ChargeInsightsTests: XCTestCase {
 
     func testTheChargerClassIsTheWebsByPeakPower() {
         XCTAssertEqual(ChargeInsights.tier(maxKw: 0).label, "—")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 1.4).label, "L1 (120 V)")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 11.5).label, "L2")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 19).label, "L2 high power")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 1.4).label, "Household outlet (Level 1)")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 11.5).label, "Level 2")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 19).label, "Level 2, high power")
         XCTAssertEqual(ChargeInsights.tier(maxKw: 50).label, "DC slow")
         XCTAssertEqual(ChargeInsights.tier(maxKw: 142).label, "DC standard")
         XCTAssertEqual(ChargeInsights.tier(maxKw: 190).label, "DC fast")
