@@ -248,7 +248,8 @@ func TestResolveIdentityKey_HydraLocalPartTwinsGetSeparateAccounts(t *testing.T)
 	}
 }
 
-// The sign-in buttons keep one order (Email, Google, GitHub, then others by name), however the registry map happens to iterate.
+// The sign-in buttons keep one order (Email, Google, GitHub, then others by name), however the registry map happens to iterate. The Email
+// button's registry name is "hydra" (display name "Email"): qa found the first version ranked it last because it only knew "email".
 func TestProvidersAreInAFixedOrder(t *testing.T) {
 	names := func(l []ProviderListing) string {
 		var out []string
@@ -257,24 +258,32 @@ func TestProvidersAreInAFixedOrder(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	for i := 0; i < 50; i++ {
-		l := []ProviderListing{{Name: "zeta"}, {Name: "github"}, {Name: "email"}, {Name: "alpha"}, {Name: "google"}}
-		// Shuffle by rotating, so the map's random order is covered from several starting points.
+	real := []ProviderListing{
+		{Name: "google", DisplayName: "Google"}, {Name: "github", DisplayName: "GitHub"}, {Name: "hydra", DisplayName: "Email"},
+	}
+	for i := 0; i < 30; i++ {
+		l := append([]ProviderListing(nil), real...)
 		k := i % len(l)
 		l = append(l[k:], l[:k]...)
 		sortProviderListings(l)
-		if got := names(l); got != "email,google,github,alpha,zeta" {
-			t.Fatalf("order %q", got)
+		if got := names(l); got != "hydra,google,github" {
+			t.Fatalf("real names: order %q", got)
 		}
+	}
+	// Other spellings of the same buttons, and an unknown provider, which goes last by name.
+	l := []ProviderListing{{Name: "zeta", DisplayName: "Zeta"}, {Name: "github", DisplayName: "GitHub"}, {Name: "email", DisplayName: "Email"}, {Name: "alpha", DisplayName: "Alpha"}, {Name: "x", DisplayName: "Google"}}
+	sortProviderListings(l)
+	if got := names(l); got != "email,x,github,alpha,zeta" {
+		t.Fatalf("order %q", got)
 	}
 	// The registry itself lists them in that order on every call.
 	s := &Service{providers: map[string]*provider{
 		"github": {cfg: ProviderConfig{Name: "github", DisplayName: "GitHub"}},
 		"google": {cfg: ProviderConfig{Name: "google", DisplayName: "Google"}},
-		"email":  {cfg: ProviderConfig{Name: "email", DisplayName: "Email"}},
+		"hydra":  {cfg: ProviderConfig{Name: "hydra", DisplayName: "Email"}},
 	}}
 	for i := 0; i < 50; i++ {
-		if got := names(s.Providers()); got != "email,google,github" {
+		if got := names(s.Providers()); got != "hydra,google,github" {
 			t.Fatalf("Providers() order %q on call %d", got, i)
 		}
 	}

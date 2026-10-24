@@ -489,14 +489,16 @@ func (s *Service) Providers() []ProviderListing {
 }
 
 // providerRank is the order the sign-in buttons show in: Email, Google, GitHub, then any other by name. The registry is a map, so
-// without this the order changed from one request to the next (qa saw /onboarding and /login disagree).
-func providerRank(name string) int {
-	switch strings.ToLower(name) {
-	case "email":
+// without this the order changed from one request to the next (qa saw /onboarding and /login disagree). The Email button is the
+// "hydra" provider (registry name "hydra", display name "Email"), so it is recognised by either name or its display name.
+func providerRank(p ProviderListing) int {
+	name, display := strings.ToLower(p.Name), strings.ToLower(p.DisplayName)
+	switch {
+	case name == "hydra" || name == "email" || display == "email":
 		return 0
-	case "google":
+	case name == "google" || display == "google":
 		return 1
-	case "github":
+	case name == "github" || display == "github":
 		return 2
 	}
 	return 3
@@ -504,7 +506,7 @@ func providerRank(name string) int {
 
 func sortProviderListings(l []ProviderListing) {
 	sort.Slice(l, func(i, j int) bool {
-		ri, rj := providerRank(l[i].Name), providerRank(l[j].Name)
+		ri, rj := providerRank(l[i]), providerRank(l[j])
 		if ri != rj {
 			return ri < rj
 		}
