@@ -448,3 +448,58 @@ func TestSampleCorpusEnergyBalance(t *testing.T) {
 			added, used, stored, drain, days, 1.5*days)
 	}
 }
+
+// The demo's Truck card needs more than the min tire pressure: four different wheels, and one trailer drive (the connector reading "not
+// present" otherwise) for the efficiency note that leaves it out.
+func TestSampleCorpus_ShowsTheNewerCards(t *testing.T) {
+	t.Parallel()
+	frames := sharedSampleFrames()
+	var trailerRuns, trailerFrames int
+	inTrailer := false
+	for _, s := range frames {
+		if s.TirePressureFLBar != sampleTireFrontBar || s.TirePressureFRBar != sampleTireFrontBar ||
+			s.TirePressureRLBar != sampleTireRearBar || s.TirePressureRRBar != sampleTireRearBar {
+			t.Fatalf("tires at %v: %v %v %v %v", s.At, s.TirePressureFLBar, s.TirePressureFRBar, s.TirePressureRLBar, s.TirePressureRRBar)
+		}
+		switch s.TrailerState {
+		case "present":
+			trailerFrames++
+			if s.Gear != "D" {
+				t.Fatalf("a trailer frame outside a drive at %v (gear %q)", s.At, s.Gear)
+			}
+			if !inTrailer {
+				trailerRuns++
+			}
+			inTrailer = true
+		case "not_present":
+			inTrailer = false
+		default:
+			t.Fatalf("trailer state %q at %v", s.TrailerState, s.At)
+		}
+	}
+	if trailerRuns != 1 || trailerFrames == 0 {
+		t.Errorf("want exactly one trailer drive, got %d runs and %d frames", trailerRuns, trailerFrames)
+	}
+}
+
+// Where the trailer drive falls on the wall clock: the timeline is anchored to a fixed epoch, so it is the same for every demo pod. In the
+// loop that began on 2026-09-28 it is the 20-mile errand run on Wed 2026-10-28 at about 10:42 UTC, so it records on its own a few days after
+// the v0.39.0 deploy, with nothing to re-record. (Each later loop plays it again, 45 days and 6 hours on.)
+func TestSampleCorpus_TrailerDriveFallsOnTheWallClock(t *testing.T) {
+	t.Parallel()
+	c, tl := sampleShared()
+	var found []time.Time
+	loopStart := tl.loopStart(tl.loopAt(time.Date(2026, 10, 24, 17, 0, 0, 0, time.UTC)))
+	for _, s := range c.segs {
+		if s.kind == segDrive && s.trailer {
+			found = append(found, loopStart.Add(s.start.Sub(tl.start)))
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("want exactly one trailer drive segment, got %d", len(found))
+	}
+	want := time.Date(2026, 10, 28, 10, 42, 0, 0, time.UTC)
+	if d := found[0].Sub(want); d < -10*time.Minute || d > 10*time.Minute {
+		t.Errorf("the trailer drive is at %v, want about %v", found[0], want)
+	}
+}

@@ -56,6 +56,15 @@ type replayFrame struct {
 	// OtaCurrentVersion is the installed software version. Only the
 	// sample corpus sets it (vehicle_state has no column for it).
 	OtaCurrentVersion string `json:"ota_current_version,omitempty"`
+
+	// Only the sample corpus sets these (vehicle_state has no column for them), so the demo shows the cards built on them.
+	// Per-wheel pressures: when none is set, TirePressureBar is spread to all four as before.
+	TireFLBar float64 `json:"tire_fl_bar,omitempty"`
+	TireFRBar float64 `json:"tire_fr_bar,omitempty"`
+	TireRLBar float64 `json:"tire_rl_bar,omitempty"`
+	TireRRBar float64 `json:"tire_rr_bar,omitempty"`
+	// TrailerState is "present" or "not_present" (Parallax body.trailer.state): the trailer connector.
+	TrailerState string `json:"trailer_state,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -85,6 +94,10 @@ func (f replayFrame) toState() State {
 		TirePressureRLBar: f.TirePressureBar,
 		TirePressureRRBar: f.TirePressureBar,
 		OtaCurrentVersion: f.OtaCurrentVersion,
+		TrailerState:      f.TrailerState,
+	}
+	if f.TireFLBar > 0 || f.TireFRBar > 0 || f.TireRLBar > 0 || f.TireRRBar > 0 {
+		s.TirePressureFLBar, s.TirePressureFRBar, s.TirePressureRLBar, s.TirePressureRRBar = f.TireFLBar, f.TireFRBar, f.TireRLBar, f.TireRRBar
 	}
 	// chargerStatus (cable connected?) isn't a vehicle_state column, but
 	// the charge lifecycle requires it to open a session, so infer it.
