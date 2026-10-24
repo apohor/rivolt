@@ -107,7 +107,7 @@ jobs:
             xcrun simctl ui "$udid" appearance "$mode"
             xcrun simctl launch --terminate-running-process "$udid" "$bid" "$@" || { echo "launch failed: $name $mode"; failed=1; return; }
             # The sample truck's answers come over the network, and a detail screen loads its charts after that.
-            sleep 40
+            case "$name" in now|drive|charge) sleep 110 ;; *) sleep 40 ;; esac
             out="$RUNNER_TEMP/raw/$name-$mode.png"
             for try in 1 2 3; do
               xcrun simctl io "$udid" screenshot "$out" || true
