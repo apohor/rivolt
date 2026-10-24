@@ -107,6 +107,8 @@ func main() {
 			os.Exit(runReprice(os.Args[2:]))
 		case "repair-charge-fragments":
 			os.Exit(runRepairChargeFragments(os.Args[2:]))
+		case "repair-charge-energy":
+			os.Exit(runRepairChargeEnergy(os.Args[2:]))
 		case "repair-phantom-charges":
 			os.Exit(runRepairPhantoms(os.Args[2:]))
 		case "repair-r2-history":
@@ -135,6 +137,9 @@ Usage:
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-charge-energy [--since DATE] [--ids-out FILE]            (dry run: counts per model)
+  rivolt repair-charge-energy --apply --ids FILE --user NAME --backup FILE
+  rivolt repair-charge-energy --restore-json FILE [--apply]
   rivolt repair-r2-history --vehicle ID --since T --until T [--apply --backup CSV]
   rivolt repair-r2-history --vehicle ID --restore-csv FILE [--apply]
                   Rebuild a vehicle's drives and charges in a window
