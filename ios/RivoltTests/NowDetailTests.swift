@@ -153,8 +153,9 @@ final class NowDetailTests: XCTestCase {
     }
 
     func testASpokenCardSaysWordsNotSymbols() throws {
-        let session = LiveSession(active: true, timeElapsedSeconds: 4320, timeRemainingSeconds: 2520, powerKw: 7.2, totalChargedEnergyKwh: 5.6, socPct: 78, estimatedCost: 3.1, estimatedCurrency: "USD")
-        let d = try XCTUnwrap(ChargingDetail.make(summary: try charging(), session: session, charge: nil))
+        let sum = try charging()
+        let session = LiveSession(active: true, timeElapsedSeconds: 4320, timeRemainingSeconds: 2520, powerKw: 7.2, totalChargedEnergyKwh: try gainKwh(sum), socPct: 78, estimatedCost: 3.1, estimatedCurrency: "USD")
+        let d = try XCTUnwrap(ChargingDetail.make(summary: sum, session: session, charge: nil))
         let said = d.spoken
         XCTAssertTrue(said.contains("kilowatts"), said)
         XCTAssertTrue(said.contains("charge limit"), said)
