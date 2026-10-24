@@ -165,7 +165,8 @@ final class DemoSnapshotTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "demo-snap-\(UUID().uuidString)"))
         let s = AppState(tokens: TokenSpy(), defaults: defaults)
         s.setPreviewSignIn(.available)
-        try render("login-demo", LoginView().environment(s))
+        // The sign-in screen's own scroll view doesn't render offscreen, so its demo entry is drawn alone, in its card.
+        try render("login-demo", DemoEntryButton {}.themeCard(padding: 6 * Theme.unit).padding(16).frame(height: 200))
         s.enterDemo()
         try render("demo-about", DemoAboutSheet().environment(s).frame(height: 360))
     }

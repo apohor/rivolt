@@ -43,9 +43,11 @@ struct DemoAboutSheet: View {
             Text(DemoMode.about)
                 .themeText(.value, color: Theme.textBody)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Sign in") {
+            Button {
                 dismiss()
                 state.leaveDemo()
+            } label: {
+                Text("Sign in").frame(maxWidth: .infinity)
             }
             .buttonStyle(ThemeButtonStyle())
             Button("Keep looking around") { dismiss() }
@@ -56,5 +58,20 @@ struct DemoAboutSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .themePage()
         .presentationDetents([.medium])
+    }
+}
+
+/// The sign-in screen's way into the demo: the button and what it is.
+struct DemoEntryButton: View {
+    var disabled = false
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.unit) {
+            Button("Try the demo truck", action: action)
+                .buttonStyle(ThemeSecondaryButtonStyle())
+                .disabled(disabled)
+            Text("A sample truck with made-up data. No account needed.").themeText(.caption)
+        }
     }
 }
