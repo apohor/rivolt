@@ -134,6 +134,13 @@ type ProviderConfig struct {
 	// with the default; some (Authentik) need an extra scope to
 	// emit groups.
 	Scopes []string
+
+	// AppleTeamID, AppleKeyID and ApplePrivateKey (the .p8 PEM) sign
+	// the client secret for Kind="apple" (see apple.go). ClientID is
+	// the Services ID; ClientSecret is unused.
+	AppleTeamID     string
+	AppleKeyID      string
+	ApplePrivateKey string
 }
 
 // ErrUserForbidden is the sentinel main returns from EnsureUser
@@ -220,12 +227,16 @@ type Service struct {
 	// subsequently mutated by the retry goroutine when an IdP
 	// that was unreachable at startup becomes available.
 	providers map[string]*provider
+
+	// appleLinks, see Config.AppleLinks.
+	appleLinks AppleLinks
 }
 
 type provider struct {
 	cfg      ProviderConfig
 	verifier *oidc.IDTokenVerifier
 	oauth    *oauth2.Config
+	apple    *appleConfig // Kind="apple" only
 }
 
 // Config bundles the wiring main hands to New. Splitting it from
@@ -237,7 +248,7 @@ type Config struct {
 	// UserExists reports whether an account is keyed by username. Used
 	// to refuse a sign-in that would take over (or orphan) an account
 	// keyed by an email the IdP did not verify. nil fails closed.
-	UserExists func(ctx context.Context, username string) (bool, error)
+	UserExists   func(ctx context.Context, username string) (bool, error)
 	UserIDFor    func(string) uuid.UUID
 	PostLoginURL string
 	SecureCookie bool
@@ -258,6 +269,10 @@ type Config struct {
 	// sign-in failure. Defaults to "/login", which renders the
 	// error banner inline above the provider buttons.
 	ErrorURL string
+
+	// AppleLinks finds and records Apple identities' accounts. An
+	// "apple" provider refuses every sign-in without it.
+	AppleLinks AppleLinks
 }
 
 // New builds a Service. Providers that fail to bootstrap (DNS
@@ -302,7 +317,8 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		postLoginURL:   post,
 		secureCookie:   cfg.SecureCookie,
 		log:            log,
-		providers:    make(map[string]*provider),
+		providers:      make(map[string]*provider),
+		appleLinks:     cfg.AppleLinks,
 	}
 	var pending []ProviderConfig
 	for _, pc := range cfg.Providers {
@@ -391,8 +407,20 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 	if len(scopes) == 0 {
 		scopes = []string{oidc.ScopeOpenID, "email", "profile"}
 	}
+	var apple *appleConfig
+	if pc.Kind == kindApple {
+		key, err := parseAppleKey(pc.ApplePrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("apple private key: %w", err)
+		}
+		apple = &appleConfig{teamID: pc.AppleTeamID, keyID: pc.AppleKeyID, key: key}
+		if len(pc.Scopes) == 0 {
+			scopes = []string{"name", "email"}
+		}
+	}
 	return &provider{
-		cfg: pc,
+		cfg:   pc,
+		apple: apple,
 		verifier: op.Verifier(&oidc.Config{
 			ClientID: pc.ClientID,
 		}),
@@ -459,6 +487,8 @@ func (s *Service) Mount(r chi.Router) {
 		r.Get("/", s.handleProviders)
 		r.Get("/{provider}/start", s.handleStart)
 		r.Get("/{provider}/callback", s.handleCallback)
+		// Apple's form_post callback (apple.go); other providers 405.
+		r.Post("/{provider}/callback", s.handleCallback)
 	})
 }
 
@@ -596,21 +626,18 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "encode state", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     stateCookieName,
-		Value:    cookieVal,
-		Path:     "/api/auth/oidc",
-		HttpOnly: true,
-		Secure:   s.secureCookie,
-		SameSite: http.SameSiteLaxMode, // Strict blocks the cross-site IdP→app redirect.
-		MaxAge:   int(stateMaxAge.Seconds()),
-	})
+	s.setStateCookie(w, p, cookieVal)
 
-	authURL := p.oauth.AuthCodeURL(stateRaw,
+	opts := []oauth2.AuthCodeOption{
 		oidc.Nonce(stateRaw),
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-	)
+	}
+	if p.cfg.Kind == kindApple {
+		// Required by Apple when asking for name or email.
+		opts = append(opts, oauth2.SetAuthURLParam("response_mode", "form_post"))
+	}
+	authURL := p.oauth.AuthCodeURL(stateRaw, opts...)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -623,7 +650,24 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown provider", http.StatusNotFound)
 		return
 	}
-	c, err := r.Cookie(stateCookieName)
+	isApple := p.cfg.Kind == kindApple
+	// Apple answers with a form POST; every other provider with a GET.
+	if isApple != (r.Method == http.MethodPost) {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	if isApple {
+		// Single use: whatever happens next, the Apple state is spent.
+		clearAppleCookie(w, name)
+		r.Body = http.MaxBytesReader(w, r.Body, appleFormMax)
+		if err := r.ParseForm(); err != nil {
+			s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+			return
+		}
+		q = r.PostForm
+	}
+	c, err := stateCookieFor(r, p)
 	if err != nil {
 		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
@@ -639,7 +683,6 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
-	q := r.URL.Query()
 	if errParam := q.Get("error"); errParam != "" {
 		s.log.Warn("oidc: idp returned error",
 			"provider", name,
@@ -666,7 +709,15 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tok, err := p.oauth.Exchange(r.Context(), code,
+	secret, err := exchangeSecretFor(p, time.Now())
+	if err != nil {
+		s.log.Error("oidc: client secret", "provider", name, "err", err)
+		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+		return
+	}
+	oc := *p.oauth
+	oc.ClientSecret = secret
+	tok, err := oc.Exchange(r.Context(), code,
 		oauth2.SetAuthURLParam("code_verifier", st.Verifier),
 	)
 	if err != nil {
@@ -676,7 +727,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	var (
 		claimSub, claimEmail, claimPreferred, claimName string
-		claimEmailVerified                              bool
+		claimEmailVerified, claimPrivateEmail           bool
 	)
 	if p.cfg.Kind == "oauth2-github" {
 		gh, err := fetchGitHubIdentity(r.Context(), tok.AccessToken)
@@ -710,11 +761,12 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var claims struct {
-			Sub               string `json:"sub"`
-			Email             string `json:"email"`
-			EmailVerified     bool   `json:"email_verified"`
-			PreferredUsername string `json:"preferred_username"`
-			Name              string `json:"name"`
+			Sub               string   `json:"sub"`
+			Email             string   `json:"email"`
+			EmailVerified     flexBool `json:"email_verified"`
+			IsPrivateEmail    flexBool `json:"is_private_email"` // Apple's relay address
+			PreferredUsername string   `json:"preferred_username"`
+			Name              string   `json:"name"`
 		}
 		if err := idTok.Claims(&claims); err != nil {
 			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
@@ -722,13 +774,34 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		claimSub = claims.Sub
 		claimEmail = claims.Email
-		claimEmailVerified = claims.EmailVerified
+		claimEmailVerified = bool(claims.EmailVerified)
+		claimPrivateEmail = bool(claims.IsPrivateEmail)
 		claimPreferred = claims.PreferredUsername
 		claimName = claims.Name
+	}
+	if isApple {
+		// Apple's id_token carries no name; the form's unsigned "user"
+		// field does, on the first authorization only (prefill only).
+		claimName = appleFirstName(q.Get("user"))
+		claimPreferred = ""
 	}
 	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail(),
 		s.bareUsernameKeyOK(p.cfg))
 	username, email := key.Username, key.Email
+	newAccount := true // for Apple: whether the account doesn't exist yet
+	if isApple {
+		acct, ok := s.appleAccount(w, r, claimSub, claimPrivateEmail, key)
+		if !ok {
+			return
+		}
+		username, email, newAccount = acct.username, acct.email, acct.isNew
+		if acct.linked {
+			// The linked account keeps its own address; nothing
+			// about Apple's email is a key or a candidate now.
+			claimEmailVerified = false
+			key.UnverifiedCandidates = nil
+		}
+	}
 	if len(key.UnverifiedCandidates) > 0 {
 		// The old rules would have keyed on one of these unverified
 		// values. If an account already lives under any of them,
@@ -765,6 +838,9 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if display == "" {
 		display = strings.TrimSpace(claimPreferred)
 	}
+	if isApple && !newAccount {
+		display = "" // the name only prefills a new account
+	}
 
 	if s.capGuard != nil {
 		if err := s.capGuard(r.Context(), username, email, claimEmailVerified && email != ""); err != nil {
@@ -782,9 +858,11 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(s.capOverflowURL, "?") {
 					sep = "&"
 				}
-				http.Redirect(w, r,
-					s.capOverflowURL+sep+"email="+url.QueryEscape(email)+"&provider="+url.QueryEscape(name),
-					http.StatusFound)
+				target := s.capOverflowURL + sep
+				if !isApple { // never put an Apple (possibly relay) address in a URL
+					target += "email=" + url.QueryEscape(email) + "&"
+				}
+				http.Redirect(w, r, target+"provider="+url.QueryEscape(name), http.StatusFound)
 				return
 			}
 			s.log.Error("oidc: cap guard failed", "err", logging.ScrubErr(err))
@@ -807,6 +885,20 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("oidc: ensure user", "err", logging.ScrubErr(err))
 		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 		return
+	}
+	if isApple {
+		// Before the session: an account already linked to another
+		// Apple ID doesn't get signed in by this one.
+		if err := s.appleLinks.Link(r.Context(), uid, claimSub, tok.RefreshToken); err != nil {
+			if errors.Is(err, ErrAppleLinkConflict) {
+				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "apple_linked: account linked to another Apple ID")
+				s.failRedirect(w, r, "apple_linked", "This account is already connected to a different Apple ID. Sign in with that Apple ID or the method you used before.")
+				return
+			}
+			s.log.Error("oidc: apple link", "err", logging.ScrubErr(err))
+			s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+			return
+		}
 	}
 	if err := s.issueSession(w, r, uid); err != nil {
 		s.log.Error("oidc: issue session", "err", logging.ScrubErr(err))
@@ -1080,8 +1172,16 @@ func decodeState(raw string) (flowState, error) {
 //	RIVOLT_OIDC_GITHUB_CLIENT_SECRET=...
 //	RIVOLT_OIDC_GITHUB_DISPLAY_NAME=GitHub         # optional
 //
+//	RIVOLT_OIDC_APPLE_KIND=apple                   # Sign in with Apple (apple.go)
+//	RIVOLT_OIDC_APPLE_CLIENT_ID=...                # the Services ID
+//	RIVOLT_OIDC_APPLE_TEAM_ID=...
+//	RIVOLT_OIDC_APPLE_KEY_ID=...
+//	RIVOLT_OIDC_APPLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----...  # the .p8
+//
 // KIND defaults to "oidc". Set KIND=oauth2-github for GitHub (which
-// doesn't issue ID tokens); ISSUER is ignored in that case.
+// doesn't issue ID tokens); ISSUER is ignored in that case. KIND=apple
+// defaults ISSUER to https://appleid.apple.com and needs no
+// CLIENT_SECRET (it is minted from the key).
 //
 // baseURL is the public origin Rivolt is reachable at; we build
 // the redirect URL automatically as
@@ -1121,9 +1221,25 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 		clientSecret := strings.TrimSpace(getenv(prefix + "CLIENT_SECRET"))
 		display := strings.TrimSpace(getenv(prefix + "DISPLAY_NAME"))
 		scopesRaw := strings.TrimSpace(getenv(prefix + "SCOPES"))
-		if kind != "" && kind != "oidc" && kind != "oauth2-github" {
-			return nil, fmt.Errorf("%s_KIND %q: must be \"oidc\" or \"oauth2-github\"",
+		if kind != "" && kind != "oidc" && kind != "oauth2-github" && kind != kindApple {
+			return nil, fmt.Errorf("%s_KIND %q: must be \"oidc\", \"oauth2-github\" or \"apple\"",
 				strings.ToUpper(name), kind)
+		}
+		var teamID, keyID, p8 string
+		if kind == kindApple {
+			if issuer == "" {
+				issuer = appleIssuer
+			}
+			teamID = strings.TrimSpace(getenv(prefix + "TEAM_ID"))
+			keyID = strings.TrimSpace(getenv(prefix + "KEY_ID"))
+			p8 = getenv(prefix + "PRIVATE_KEY")
+			if teamID == "" || keyID == "" {
+				return nil, fmt.Errorf("%s_TEAM_ID and %s_KEY_ID are required for KIND=apple",
+					strings.ToUpper(name), strings.ToUpper(name))
+			}
+			if _, err := parseAppleKey(p8); err != nil {
+				return nil, fmt.Errorf("%s_PRIVATE_KEY: %v", strings.ToUpper(name), err)
+			}
 		}
 		if kind != "oauth2-github" && issuer == "" {
 			return nil, fmt.Errorf("%s_ISSUER is empty", strings.ToUpper(name))
@@ -1149,6 +1265,10 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 			RedirectURL:  bu + "/api/auth/oidc/" + name + "/callback",
 			Scopes:       scopes,
 			UsernameKey:  strings.EqualFold(strings.TrimSpace(getenv(prefix+"USERNAME_KEY")), "true"),
+
+			AppleTeamID:     teamID,
+			AppleKeyID:      keyID,
+			ApplePrivateKey: p8,
 		})
 	}
 	return out, nil

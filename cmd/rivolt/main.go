@@ -36,6 +36,7 @@ import (
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
+	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/auth"
@@ -1874,6 +1875,7 @@ func runServer() {
 			Logger:       logger,
 			Providers:    provs,
 			CapGuard:     signupgate.NewCapGuard(pgPool, func() int { return flagsStore.SignupCap().Limit }),
+			AppleLinks:   appleLinks{appleid.New(pgPool, secretsStore)},
 		})
 		if oerr != nil {
 			logger.Error("oidc init", "err", oerr.Error())
@@ -2911,4 +2913,15 @@ func deriveKey(secret []byte, purpose string) []byte {
 	m := hmac.New(sha256.New, secret)
 	_, _ = m.Write([]byte(purpose))
 	return m.Sum(nil)
+}
+
+// appleLinks adapts appleid.Store to oidc.AppleLinks (the oidc package doesn't import the store).
+type appleLinks struct{ *appleid.Store }
+
+func (a appleLinks) Link(ctx context.Context, uid uuid.UUID, sub, refreshToken string) error {
+	err := a.Store.Link(ctx, uid, sub, refreshToken)
+	if errors.Is(err, appleid.ErrSubInUse) {
+		return oidc.ErrAppleLinkConflict
+	}
+	return err
 }
