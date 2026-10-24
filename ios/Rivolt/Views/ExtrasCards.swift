@@ -5,6 +5,8 @@ struct MilestoneCard: View {
     let milestone: Milestone
     let failed: Bool
     var onShare: (() -> Void)?
+    /// False in the demo, which can write nothing.
+    var canHide = true
     let onHide: () -> Void
 
     var body: some View {
@@ -26,10 +28,12 @@ struct MilestoneCard: View {
                         .foregroundStyle(Theme.textSecondary)
                         .accessibilityLabel("Share this milestone")
                 }
-                Button("Hide this", action: onHide)
-                    .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Theme.textSecondary)
-                    .accessibilityLabel("Hide this milestone")
+                if canHide {
+                    Button("Hide this", action: onHide)
+                        .font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Theme.textSecondary)
+                        .accessibilityLabel("Hide this milestone")
+                }
             }
         }
         .themeCard(padding: 4 * Theme.unit)

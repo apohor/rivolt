@@ -22,6 +22,7 @@ struct LoginView: View {
                 header
                 VStack(alignment: .leading, spacing: 3 * Theme.unit) {
                     signInButton
+                    demoButton
                     if let reason = unavailable?.errorDescription {
                         Text(reason).themeText(.subline, color: Theme.estimate)
                     }
@@ -75,6 +76,16 @@ struct LoginView: View {
         .buttonStyle(ThemeButtonStyle())
         // Disabled (the Theme's disabled look) when the server can't do app sign-in: no invitation to a tap that can't work.
         .disabled(isWorking || unavailable != nil)
+    }
+
+    /// Looks around a sample truck, no account needed (for a reviewer, or before you connect a Rivian).
+    private var demoButton: some View {
+        VStack(alignment: .leading, spacing: Theme.unit) {
+            Button("Try the demo truck") { state.enterDemo() }
+                .buttonStyle(ThemeSecondaryButtonStyle())
+                .disabled(isWorking)
+            Text("A sample truck with made-up data. No account needed.").themeText(.caption)
+        }
     }
 
     private var otherServerSection: some View {

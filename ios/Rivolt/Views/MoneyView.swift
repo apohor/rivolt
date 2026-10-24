@@ -167,6 +167,7 @@ struct MoneyContent: View {
     }
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.isDemo) private var isDemo
 
     var body: some View {
         VStack(spacing: 16) {
@@ -316,14 +317,17 @@ struct MoneyContent: View {
             row {
                 Button("Share statement") { export?.share() }
                     .accessibilityHint("An image of your month. No places or addresses; cost only if you add it.")
-                Button { export?.csv() } label: {
-                    HStack(spacing: 6) {
-                        Text("Download CSV")
-                        if export?.busy == true { ProgressView().controlSize(.mini) }
+                // The CSV is a read of the signed-in account's own file; the demo has none.
+                if !isDemo {
+                    Button { export?.csv() } label: {
+                        HStack(spacing: 6) {
+                            Text("Download CSV")
+                            if export?.busy == true { ProgressView().controlSize(.mini) }
+                        }
                     }
+                    .accessibilityHint("This month's totals and sessions as a spreadsheet file.")
+                    .disabled(export?.busy == true)
                 }
-                .accessibilityHint("This month's totals and sessions as a spreadsheet file.")
-                .disabled(export?.busy == true)
             }
             .buttonStyle(MoneySmallButtonStyle())
             .disabled(off)

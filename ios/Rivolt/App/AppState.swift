@@ -19,6 +19,8 @@ final class AppState {
         case bootstrapping
         case loggedOut
         case loggedIn(username: String)
+        /// The demo truck: the sample account, read only, held in memory (no sign-in, no token). See `DemoMode`.
+        case demo
     }
 
     /// What the server said about signing in from the app, so the sign-in button
@@ -61,7 +63,9 @@ final class AppState {
     /// The server this app signs in to: rivolt.dev unless the user chose
     /// another under "Other server". Persisted across launches.
     private(set) var serverURL: URL
-    let client: APIClient
+    /// The client the screens read through: the signed-in one, or the demo's while the demo truck is open.
+    private(set) var client: APIClient
+    private let signedInClient: APIClient
     let tokens: TokenStore
     /// Notifications on this iPhone (the Apple token, permission, the switches).
     let notifications: NotificationManager
@@ -84,7 +88,29 @@ final class AppState {
         self.tokens = tokens
         self.notifications = notifications ?? NotificationManager.shared
         self.liveActivity = liveActivity ?? LiveActivityManager.shared
-        self.client = APIClient(baseURL: server, tokens: tokens)
+        let signedIn = APIClient(baseURL: server, tokens: tokens)
+        self.client = signedIn
+        self.signedInClient = signedIn
+    }
+
+    var isDemo: Bool { phase == .demo }
+
+    /// Opens the demo truck from the sign-in screen. Nothing is stored and nothing is registered: no token, no notification permission,
+    /// no widget or Live Activity.
+    func enterDemo() {
+        guard phase == .loggedOut else { return }
+        client = APIClient.demo()
+        phase = .demo
+    }
+
+    /// Leaves the demo for the sign-in screen, forgetting everything it held in memory.
+    func leaveDemo() {
+        guard phase == .demo else { return }
+        client = signedInClient
+        MapNetwork.reset()
+        activityMap.clear()
+        efficiency.clear()
+        phase = .loggedOut
     }
 
     /// This build's number, compared with the server's `min_ios_build`.
@@ -205,6 +231,8 @@ final class AppState {
     }
 
     func logout() async {
+        // The demo has no session to end: "Sign in" there just leaves it.
+        if isDemo { leaveDemo(); return }
         // Best effort on the server; locally the token always goes, so the UI
         // reflects the user's intent even offline.
         // The phone is forgotten for notifications first, while the token still works.
