@@ -212,7 +212,11 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 			{http.MethodPut, "/api/settings/charging"},
 			{http.MethodDelete, "/api/charges/chg-x"},
 			{http.MethodPost, "/api/rivian/logout"},
-			{http.MethodDelete, "/api/auth/sessions/" + uuid.NewString()},
+			// Signing one device out by its id is allowed (below); the rest of /api/auth/sessions is not.
+			{http.MethodPost, "/api/auth/sessions/revoke-others"},
+			{http.MethodDelete, "/api/auth/sessions"},
+			{http.MethodDelete, "/api/auth/sessions/not-a-uuid"},
+			{http.MethodDelete, "/api/auth/sessions/revoke-others"},
 			{http.MethodPost, "/api/push/subscribe"},
 		} {
 			w := do(app(c[0], c[1], tok.Token))
@@ -240,6 +244,9 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 			{http.MethodPost, "/api/push/apns/test"},
 			{http.MethodPost, "/api/push/apns/register"},
 			{http.MethodPost, "/api/milestones/dismiss"},
+			// This router has no sessions API mounted, so the request passes the list and is a router 404; the point is that the
+			// list does not refuse it (the handler's own-user and view-as rules are tested with the API mounted).
+			{http.MethodDelete, "/api/auth/sessions/" + uuid.NewString()},
 		} {
 			if w := do(app(c[0], c[1], tok.Token)); strings.Contains(w.Body.String(), appWriteDenied) {
 				t.Errorf("%s %s refused for the app token, but the app does this", c[0], c[1])

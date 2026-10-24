@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/sessions"
 )
@@ -21,7 +23,10 @@ import (
 // path; a trailing slash or other spelling is not on the list). GET, HEAD and OPTIONS
 // are not writes and pass.
 var appWrites = map[string]bool{
-	"POST /api/auth/logout":               true, // sign out (revokes this token)
+	"POST /api/auth/logout": true, // sign out (revokes this token)
+	// Also allowed, by pattern (appSessionRevokePath): DELETE /api/auth/sessions/{uuid}, to sign one device out from the phone.
+	// Not allowed: POST /api/auth/sessions/revoke-others, which from a leaked phone token would sign the owner out everywhere
+	// at once and leave the attacker's session as the last one standing.
 	"POST /api/push/apns/register":        true, // notifications
 	"POST /api/push/apns/unregister":      true,
 	"POST /api/push/apns/preferences":     true,
@@ -33,6 +38,27 @@ var appWrites = map[string]bool{
 	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
 	"POST /api/maps/valhalla/route":       true, // routing for the map: computed, nothing stored
 	"POST /api/maps/valhalla/trace_route": true,
+}
+
+// sessionsPrefix is where a single sign-in is addressed: DELETE /api/auth/sessions/{id}.
+const sessionsPrefix = "/api/auth/sessions/"
+
+// appSessionRevokePath reports whether p is exactly /api/auth/sessions/{id} with {id} a canonical (lower-case, hyphenated)
+// UUID. The phone may sign one device out (a lost browser) by id; "revoke-others", the list path, a non-UUID and any other
+// spelling are not this. The sessions API only ever revokes the caller's own sessions (another user's id reads as 404), and
+// it refuses a viewing-as admin.
+func appSessionRevokePath(p string) bool {
+	id, ok := strings.CutPrefix(p, sessionsPrefix)
+	if !ok {
+		return false
+	}
+	u, err := uuid.Parse(id)
+	return err == nil && u.String() == id
+}
+
+// appWriteAllowed is the whole list: the exact routes in appWrites, and signing one device out by its id.
+func appWriteAllowed(method, p string) bool {
+	return appWrites[method+" "+p] || (method == http.MethodDelete && appSessionRevokePath(p))
 }
 
 // appWriteDenied is the body of the refusal; tests look for it.
@@ -74,7 +100,7 @@ func appWriteAllowlistMW(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !app || appWrites[r.Method+" "+r.URL.Path] {
+		if !app || appWriteAllowed(r.Method, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

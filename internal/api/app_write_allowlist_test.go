@@ -215,3 +215,82 @@ func TestAppWriteAllowlistCoversTheAppsCalls(t *testing.T) {
 		}
 	}
 }
+
+// The phone may sign one device out by id, and nothing else under /api/auth/sessions: exactly /api/auth/sessions/{uuid} on
+// DELETE passes the list (and reaches the sessions API, which only revokes the caller's own sessions and refuses view-as);
+// revoke-others, the list path, a non-UUID, another spelling and another method do not.
+func TestAppSessionMayRevokeOneDeviceOnly(t *testing.T) {
+	id := uuid.NewString()
+	for _, c := range []struct {
+		method, path string
+		want         bool
+	}{
+		{"DELETE", "/api/auth/sessions/" + id, true},
+		{"DELETE", "/api/auth/sessions/" + id + "/", false},
+		{"DELETE", "/api/auth/sessions/" + strings.ToUpper(id), false},
+		{"DELETE", "/api/auth/sessions/revoke-others", false},
+		{"DELETE", "/api/auth/sessions/", false},
+		{"DELETE", "/api/auth/sessions", false},
+		{"DELETE", "/api/auth/sessions/not-a-uuid", false},
+		{"DELETE", "/api/auth/sessions/" + id + "/x", false},
+		{"DELETE", "/api/auth/sessions/../logout", false},
+		{"DELETE", "/api/auth/sessionsx/" + id, false},
+		{"POST", "/api/auth/sessions/revoke-others", false},
+		{"POST", "/api/auth/sessions/" + id, false},
+		{"PUT", "/api/auth/sessions/" + id, false},
+		{"PATCH", "/api/auth/sessions/" + id, false},
+		{"POST", "/api/auth/logout", true},
+	} {
+		if got := appWriteAllowed(c.method, c.path); got != c.want {
+			t.Errorf("%s %s: allowed=%v, want %v", c.method, c.path, got, c.want)
+		}
+	}
+}
+
+// Through the real router with the sessions API mounted: an app session's DELETE of a device id reaches the handler and
+// revokes only its own user's session (another user's id reads as 404, nothing revoked), revoke-others is refused by the
+// list before the handler, and a viewing-as admin is refused by the handler.
+func TestAppSessionRevokeThroughTheRouter(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, stranger := uuid.New(), uuid.New()
+	mine, theirs := uuid.New(), uuid.New()
+	store := &fakeSessions{owner: me, rows: []sessions.Session{{ID: mine, UserID: me, Kind: sessions.KindWeb}, {ID: uuid.New(), UserID: me, Kind: sessions.KindApp}}}
+	router := New(Deps{Auth: svc, Sessions: &SessionsAPI{Store: store, Current: func(r *http.Request) (uuid.UUID, bool) {
+		ref, ok := auth.SessionFromContext(r.Context())
+		return ref.ID, ok
+	}}})
+	send := func(uid uuid.UUID, method, path string, impersonating bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "https://rivolt.dev"+path, strings.NewReader("{}"))
+		req.RemoteAddr = "203.0.113.9:4000"
+		ctx := auth.WithSession(auth.WithUser(req.Context(), uid), auth.SessionRef{ID: uuid.New(), Kind: sessions.KindApp})
+		if impersonating {
+			ctx = auth.WithImpersonation(ctx, uuid.New(), uid)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+	if rec := send(me, "DELETE", "/api/auth/sessions/"+mine.String(), false); rec.Code != http.StatusNoContent || len(store.revoked) != 1 || store.revoked[0] != mine {
+		t.Fatalf("own device: %d, revoked %v", rec.Code, store.revoked)
+	}
+	if rec := send(stranger, "DELETE", "/api/auth/sessions/"+mine.String(), false); rec.Code != http.StatusNotFound || len(store.revoked) != 1 {
+		t.Errorf("another user's session id: %d, revoked %v, want 404 and nothing more revoked", rec.Code, store.revoked)
+	}
+	if rec := send(me, "DELETE", "/api/auth/sessions/"+theirs.String(), false); rec.Code != http.StatusNotFound {
+		t.Errorf("an unknown session id: %d, want 404", rec.Code)
+	}
+	if rec := send(me, "POST", "/api/auth/sessions/revoke-others", false); !denied(rec) || store.keptOther != uuid.Nil {
+		t.Errorf("revoke-others from an app token: %d %s (kept %v), want the app-write refusal and no call", rec.Code, rec.Body.String(), store.keptOther)
+	}
+	for _, p := range []string{"/api/auth/sessions", "/api/auth/sessions/not-a-uuid"} {
+		if rec := send(me, "DELETE", p, false); !denied(rec) {
+			t.Errorf("DELETE %s from an app token: %d, want the app-write refusal", p, rec.Code)
+		}
+	}
+	if rec := send(me, "DELETE", "/api/auth/sessions/"+mine.String(), true); rec.Code != http.StatusForbidden || len(store.revoked) != 1 {
+		t.Errorf("under view-as: %d, revoked %v, want 403 and nothing more revoked", rec.Code, store.revoked)
+	}
+}
