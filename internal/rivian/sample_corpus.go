@@ -53,9 +53,19 @@ const (
 // (Truck tab). No update is ever pending.
 const sampleSoftwareVersion = "2026.34.1"
 
-// sampleTrailerErrand is which weekend errand (counting from the corpus start) tows a trailer, so the demo shows one Trailer drive and the
-// efficiency note that leaves it out. The fifth of about six weekends is a couple of weeks before the corpus ends.
-const sampleTrailerErrand = 5
+// sampleTrailerDrive is which drive to an errand place (counting from the corpus start) tows a trailer, so the demo shows one Trailer drive
+// and the efficiency note that leaves it out. The 14th is a 20-mile weekday errand run; the corpus loops every 45 days, so it comes round
+// once a loop (the loop that began on 2026-09-28 reaches it on Wed 2026-10-28 at about 10:42 UTC).
+const sampleTrailerDrive = 14
+
+func isSampleErrand(p samplePoint) bool {
+	for _, e := range sampleErrand {
+		if p == e {
+			return true
+		}
+	}
+	return false
+}
 
 // The sample truck's tire pressures, bar: the fronts sit a little above the rears, as a loaded R1S's placard asks.
 const (
@@ -217,9 +227,8 @@ type sampleBuilder struct {
 	plugged bool
 	limit   float64
 
-	// errands counts the weekend errand drives so far; the sampleTrailerErrand-th one tows a trailer (nextTrailer carries it to drive()).
-	errands     int
-	nextTrailer bool
+	// errandDrives counts the drives that end at an errand place so far; the sampleTrailerDrive-th one tows a trailer.
+	errandDrives int
 
 	tripMiles []float64
 	inTrip    bool
@@ -307,14 +316,18 @@ func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
 	for i := 1; i < len(way); i++ {
 		b.legs = append(b.legs, [2]samplePoint{way[i-1], way[i]})
 	}
+	towing := false
+	if end := to[len(to)-1]; isSampleErrand(end) {
+		b.errandDrives++
+		towing = b.errandDrives == sampleTrailerDrive
+	}
 	path, miles := sampleRoad(way)
 	dur := time.Duration(miles / cruise * float64(time.Hour))
 	drop := miles / (sampleMiPerKWh * samplePackKWh) * 100
 	b.plugged = false
 	b.add(sampleSeg{kind: segDrive, start: b.t, end: b.t.Add(dur), step: 5 * time.Second,
 		socA: b.soc, socB: b.soc - drop, odoA: b.odo, odoB: b.odo + miles, path: path, cruise: cruise, power: "go",
-		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise), trailer: b.nextTrailer})
-	b.nextTrailer = false
+		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise), trailer: towing})
 	b.soc -= drop
 	b.odo += miles
 	b.at = to[len(to)-1]
@@ -543,8 +556,6 @@ func (b *sampleBuilder) errand(day int) {
 	if b.t.Before(b.clock(day, 11, 0)) {
 		b.park(b.clock(day, 11, 0).Add(b.jitter(30)), false)
 	}
-	b.errands++
-	b.nextTrailer = b.errands == sampleTrailerErrand
 	b.drive(28, sampleErrand[b.rng.Intn(len(sampleErrand))])
 	b.park(b.t.Add(time.Duration(30+b.rng.Intn(60))*time.Minute), false)
 	b.drive(28, SampleHome)
