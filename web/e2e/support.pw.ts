@@ -7,9 +7,9 @@ test("support renders signed out, shows the support email and is in the footer",
   await stubApi(page, { signedIn: false });
   await page.goto("/support");
   const doc = page.locator("[data-legal]");
-  await expect(doc.getByRole("heading", { name: "Rivolt support", level: 1 })).toBeVisible();
+  await expect(doc.getByRole("heading", { name: "Support", level: 1 })).toBeVisible();
   await expect(doc.getByRole("link", { name: "support@rivolt.dev" })).toHaveAttribute("href", "mailto:support@rivolt.dev");
-  await expect(doc).toContainText("not affiliated with, endorsed by or sponsored by Rivian");
+  await expect(doc).toContainText("not affiliated with Rivian");
   const footer = page.locator("footer");
   await expect(footer.getByRole("link", { name: "Privacy" })).toBeVisible();
   await expect(footer.getByRole("link", { name: "Terms" })).toBeVisible();

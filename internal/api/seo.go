@@ -83,8 +83,8 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		pathSupport: {
 			title:   "Rivolt support",
-			desc:    "How to get help with Rivolt: the support email, GitHub issues, and answers to the common questions. " + notAffiliated,
-			summary: "Rivolt support: email support@rivolt.dev or open an issue on GitHub. " + notAffiliated,
+			desc:    "Help for Rivolt, the unofficial open-source companion for Rivian owners: how to connect, export or delete your data, what it does and doesn't do, and how to reach us.",
+			summary: "Rivolt support: email support@rivolt.dev or open an issue on GitHub; answers on connecting, exporting and deleting your data. " + notAffiliated,
 		},
 		pathChangelog: {
 			title: "What's new in Rivolt: release notes",
