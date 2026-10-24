@@ -180,6 +180,33 @@ func TestChargersAlongRouteIsLimitedPerUser(t *testing.T) {
 	}
 }
 
+func TestOvernightCandidatesRouteIsLimitedPerUser(t *testing.T) {
+	t.Parallel()
+	if tripsOvernightPerMin <= 0 || tripsOvernightPerMin > 120 {
+		t.Fatalf("overnight-candidates ceiling %d out of range", tripsOvernightPerMin)
+	}
+	h := mapsUserLimiter(tripsOvernightPerMin).Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+	call := func(uid uuid.UUID) int {
+		r := httptest.NewRequest("POST", "/api/trips/overnight-candidates", nil)
+		r = r.WithContext(auth.WithUser(r.Context(), uid))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	uid := uuid.New()
+	for i := 0; i < tripsOvernightPerMin; i++ {
+		if c := call(uid); c != 204 {
+			t.Fatalf("request %d = %d, want 204", i+1, c)
+		}
+	}
+	if c := call(uid); c != 429 {
+		t.Fatalf("request %d = %d, want 429", tripsOvernightPerMin+1, c)
+	}
+	if c := call(uuid.New()); c != 204 {
+		t.Fatalf("another user = %d, want 204", c)
+	}
+}
+
 // The real proxy behind the real mounts, called with the public URLs: the allowlist
 // still lets the SPA's calls through, the path and query reach the upstream
 // unchanged after the prefix is stripped, and the upstream gets neither the

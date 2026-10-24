@@ -1284,7 +1284,7 @@ func New(d Deps) http.Handler {
 			// Where to sleep: hotels with a listed Level 2 charger near the
 			// day's drive budget. Archive-only, no Rivian call.
 			if d.ChargersArchive != nil {
-				r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive))
+				r.With(requireTripPlannerEnabledMW(d.Flags), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive))
 			}
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
