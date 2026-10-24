@@ -52,6 +52,71 @@ var demoExactPaths = map[string]bool{
 	// Curve data for the demo's drive/charge detail views. Results are
 	// scoped to the demo user by the store; the limit is clamped below.
 	"/api/samples": true,
+	// The iPhone's demo mode: the milestones list (the demo user's own), and the windowed aggregates its Home and Activity
+	// tabs read. The aggregates are heavy (each reads the window's drives and charges), so they are in demoWindowedPaths below.
+	"/api/milestones":          true,
+	"/api/activity":            true,
+	"/api/charge-split":        true,
+	"/api/chart-points":        true,
+	"/api/insights/efficiency": true,
+}
+
+// demoWindowedPaths are the allowlisted reads that scan a time window of the demo user's drives and charges. They take a
+// window and a vehicle, which demoWindowQuery normalizes (RFC 3339 times snapped to 5 minutes, a window of at most
+// demoWindowMaxSpan, only the demo vehicle) so the heavy budget and cache key stay bounded, and they draw on the heavy budget.
+var demoWindowedPaths = map[string]bool{
+	"/api/activity": true, "/api/charge-split": true, "/api/chart-points": true, "/api/insights/efficiency": true,
+}
+
+// demoWindowMaxSpan bounds the window an anonymous caller may ask for: the demo's data is under four months, and the app asks
+// for a month at a time.
+const demoWindowMaxSpan = 95 * 24 * time.Hour
+
+// demoWindowSnap is what a window's edges are rounded down to, so repeat loads within the cache's lifetime share a key.
+const demoWindowSnap = 5 * time.Minute
+
+// demoWindowQuery rewrites the query of a windowed anonymous read, in place, to the few parameters it may carry: since and
+// until (RFC 3339, snapped, at most demoWindowMaxSpan apart), the demo vehicle (vehicle_id, or vehicle for the efficiency
+// insight) and, for the efficiency insight, units. Anything else is dropped, and a bad value falls back to the endpoint's own
+// default rather than an error.
+func demoWindowQuery(r *http.Request, vehicleID string) {
+	q := r.URL.Query()
+	out := url.Values{}
+	snap := func(t time.Time) time.Time { return t.UTC().Truncate(demoWindowSnap) }
+	var since, until time.Time
+	haveSince, haveUntil := false, false
+	if t, err := time.Parse(time.RFC3339, q.Get("until")); err == nil {
+		until, haveUntil = snap(t), true
+	}
+	if t, err := time.Parse(time.RFC3339, q.Get("since")); err == nil {
+		since, haveSince = snap(t), true
+	}
+	if haveSince && haveUntil && !since.Before(until) {
+		haveSince, haveUntil = false, false // an empty or reversed window: the endpoint's default
+	}
+	if haveSince && haveUntil && until.Sub(since) > demoWindowMaxSpan {
+		since = until.Add(-demoWindowMaxSpan)
+	}
+	if haveSince && !haveUntil && time.Since(since) > demoWindowMaxSpan {
+		haveSince = false // an open-ended window from long ago
+	}
+	if haveSince {
+		out.Set("since", since.Format(time.RFC3339))
+	}
+	if haveUntil {
+		out.Set("until", until.Format(time.RFC3339))
+	}
+	for _, name := range []string{"vehicle_id", "vehicle"} {
+		if q.Get(name) == vehicleID && vehicleID != "" {
+			out.Set(name, vehicleID)
+		}
+	}
+	if strings.TrimSuffix(r.URL.Path, "/") == "/api/insights/efficiency" {
+		if u := q.Get("units"); u == "imperial" || u == "metric" {
+			out.Set("units", u)
+		}
+	}
+	r.URL.RawQuery = out.Encode()
 }
 
 // Anonymous /api/samples is the one heavy read (a full reply is 1-2 MB),
@@ -251,6 +316,17 @@ var demoPerDriveSuffixes = []string{"/weather", "/weather/series", ""}
 // (an export, a summary) does not join the allowlist by accident.
 var demoDriveIDRe = regexp.MustCompile(`^(live|electrafi)_[A-Za-z0-9:._-]+_d_[0-9]+$`)
 
+// demoChargeIDRe is the shape of a charge id the demo serves: a recorded session ("live_<vehicle>_c_<unix>", an
+// "electrafi_" import) or a seeded one ("demo_seed_…"). The bare GET /api/charges/{id} is open only for ids of this shape, so
+// the single-segment routes under /charges that are not a charge (clusters, to-confirm) never join the allowlist by accident.
+var demoChargeIDRe = regexp.MustCompile(`^(live|electrafi|demo_seed)_[A-Za-z0-9:._-]{1,120}$`)
+
+// demoPerChargePath reports whether p is /api/charges/{id} for a plain charge id.
+func demoPerChargePath(p string) bool {
+	id, ok := strings.CutPrefix(p, "/api/charges/")
+	return ok && len(id) <= 140 && demoChargeIDRe.MatchString(id) && id != "." && id != ".."
+}
+
 // demoPerDrivePath reports whether p is /api/drives/{id}<suffix> for an
 // allowed suffix and a plain id segment.
 func demoPerDrivePath(p string) bool {
@@ -286,7 +362,7 @@ func demoPerDrivePath(p string) bool {
 // join or window-scan a lot of rows: parked drain, plan-vs-actual and the
 // savings estimate (a month of home sessions against the example schedule).
 func demoHeavyPath(p, vehicleID string) bool {
-	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/vehicles/"+vehicleID+"/sleep-health" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
+	return demoWindowedPaths[p] || p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/vehicles/"+vehicleID+"/sleep-health" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
 }
 
 // demoSavedTripActualPath reports whether p is
@@ -340,7 +416,7 @@ func demoAllowed(method, path, vehicleID string) bool {
 	if demoExactPaths[p] || isDemoTilePath(path) {
 		return true
 	}
-	return demoPerDrivePath(p) || demoSavedTripActualPath(p) ||
+	return demoPerDrivePath(p) || demoPerChargePath(p) || demoSavedTripActualPath(p) ||
 		p == "/api/vehicles/"+vehicleID+"/drain" ||
 		p == "/api/vehicles/"+vehicleID+"/sleep-health" ||
 		p == "/api/state/"+vehicleID ||
@@ -359,7 +435,9 @@ func demoOnlyPublic(method, path, vehicleID string) bool {
 	}
 	p := strings.TrimSuffix(path, "/")
 	switch p {
-	case "/api/config", "/api/health", "/api/demo", "/api/demo/trips":
+	case "/api/config", "/api/health", "/api/demo", "/api/demo/trips",
+		// The iPhone's server check (static: the server, the API version, whether sign-in and push are on).
+		"/api/app/config":
 		return true
 	}
 	if rest, ok := strings.CutPrefix(p, "/api/demo/trips/"); ok && strings.HasSuffix(rest, "/plan") {
@@ -473,7 +551,12 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 			isSamples := p == "/api/samples"
 			isHeavy := demoHeavyPath(p, vehicleID)
 			if isHeavy {
-				demoHeavyQuery(r) // before the cache sees the key
+				// Before the cache sees the key: a windowed read keeps its normalized window, any other heavy read only tz.
+				if demoWindowedPaths[p] {
+					demoWindowQuery(r, vehicleID)
+				} else {
+					demoHeavyQuery(r)
+				}
 			}
 			if isSamples {
 				serve = samplesGlobal.Middleware(serve)

@@ -24,6 +24,29 @@ func TestDemoAllowed(t *testing.T) {
 		want         bool
 	}{
 		{"GET", "/api/vehicles", true},
+		// The iPhone's demo mode (Sprint 9): read-only aggregates and the demo user's own milestones and charge detail.
+		{"GET", "/api/activity", true},
+		{"GET", "/api/charge-split", true},
+		{"GET", "/api/chart-points", true},
+		{"GET", "/api/insights/efficiency", true},
+		{"GET", "/api/milestones", true},
+		{"POST", "/api/milestones", false},
+		{"GET", "/api/milestones/dismiss", false},
+		{"POST", "/api/milestones/dismiss", false},
+		{"GET", "/api/charges/live_demo-x_c_1798000000", true},
+		{"GET", "/api/charges/demo_seed_home", true},
+		{"GET", "/api/charges/electrafi_abc123_c_1700000000", true},
+		{"DELETE", "/api/charges/live_demo-x_c_1798000000", false},
+		{"PUT", "/api/charges/live_demo-x_c_1798000000/place", false},
+		{"PATCH", "/api/charges/live_demo-x_c_1798000000/pricing", false},
+		{"GET", "/api/charges/live_demo-x_c_1798000000/place", false},
+		{"GET", "/api/charges/to-confirm", false},
+		{"GET", "/api/charges/to-confirm/", false},
+		{"GET", "/api/charges/..", false},
+		{"GET", "/api/charges/other", false},
+		{"GET", "/api/charges/live_" + strings.Repeat("a", 200), false},
+		{"GET", "/api/insights/efficiency/x", false},
+		{"GET", "/api/insights", false},
 		{"HEAD", "/api/charges", true},
 		{"GET", "/api/charges/", true},
 		{"GET", "/api/ledger/monthly", true},
@@ -943,5 +966,78 @@ func TestDemoSavingsIgnoresQueryNoise(t *testing.T) {
 	}
 	if len(seen) != 1 || seen[0] != "" {
 		t.Fatalf("handler saw %q, want one call with no query", seen)
+	}
+}
+
+// A windowed anonymous read keeps only its window (snapped, at most 95 days), the demo vehicle and units; everything else is
+// dropped, and a bad value falls back to the endpoint's own default.
+func TestDemoWindowQuery(t *testing.T) {
+	const veh = "demo-0000"
+	mk := func(path, rawQuery string) *http.Request {
+		r := httptest.NewRequest("GET", path+"?"+rawQuery, nil)
+		return r
+	}
+	get := func(path, q string) url.Values {
+		r := mk(path, q)
+		demoWindowQuery(r, veh)
+		return r.URL.Query()
+	}
+	// A normal month: edges snapped down to 5 minutes, the demo vehicle kept, a foreign vehicle and extras dropped.
+	v := get("/api/chart-points", "since=2026-10-01T00:00:00Z&until=2026-10-24T16:47:33Z&vehicle_id="+veh+"&evil=1&limit=999999")
+	if v.Get("since") != "2026-10-01T00:00:00Z" || v.Get("until") != "2026-10-24T16:45:00Z" || v.Get("vehicle_id") != veh || len(v) != 3 {
+		t.Errorf("normal window: %v", v)
+	}
+	if v := get("/api/activity", "vehicle_id=someone-elses"); len(v) != 0 {
+		t.Errorf("a foreign vehicle survived: %v", v)
+	}
+	// Too wide a window is clamped to 95 days; reversed or garbled falls back to the default.
+	v = get("/api/charge-split", "since=2020-01-01T00:00:00Z&until=2026-10-24T00:00:00Z")
+	su, _ := time.Parse(time.RFC3339, v.Get("since"))
+	un, _ := time.Parse(time.RFC3339, v.Get("until"))
+	if un.Sub(su) != demoWindowMaxSpan {
+		t.Errorf("a 6-year window came back as %v", un.Sub(su))
+	}
+	if v := get("/api/activity", "since=2026-10-24T00:00:00Z&until=2026-10-01T00:00:00Z"); len(v) != 0 {
+		t.Errorf("a reversed window survived: %v", v)
+	}
+	if v := get("/api/activity", "since=yesterday&until=now"); len(v) != 0 {
+		t.Errorf("garbled times survived: %v", v)
+	}
+	if v := get("/api/activity", "since=2001-01-01T00:00:00Z"); v.Get("since") != "" {
+		t.Errorf("an open-ended window from long ago survived: %v", v)
+	}
+	// The efficiency insight takes vehicle and units; units only imperial or metric, and only there.
+	v = get("/api/insights/efficiency", "vehicle="+veh+"&units=metric&since=2026-10-01T00:00:00Z&until=2026-10-24T00:00:00Z")
+	if v.Get("vehicle") != veh || v.Get("units") != "metric" || len(v) != 4 {
+		t.Errorf("efficiency window: %v", v)
+	}
+	if v := get("/api/insights/efficiency", "units=furlongs"); v.Get("units") != "" {
+		t.Errorf("a made-up unit survived: %v", v)
+	}
+	if v := get("/api/chart-points", "units=metric"); v.Get("units") != "" {
+		t.Errorf("units on a read that has none: %v", v)
+	}
+	// Two loads in the same five minutes share one key (the heavy cache's).
+	a, b := mk("/api/activity", "since=2026-10-01T00:00:00Z&until=2026-10-24T16:41:01Z"), mk("/api/activity", "until=2026-10-24T16:44:59Z&since=2026-10-01T00:02:00Z")
+	demoWindowQuery(a, veh)
+	demoWindowQuery(b, veh)
+	if a.URL.RawQuery != b.URL.RawQuery {
+		t.Errorf("same window, different keys: %q vs %q", a.URL.RawQuery, b.URL.RawQuery)
+	}
+}
+
+// The standalone demo serves the iPhone's server check, and nothing else under /api/app or /api/auth.
+func TestDemoOnlyPublicServesTheAppConfigOnly(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/api/app/config": true, "/api/app/config/": true, "/api/app": false, "/api/app/other": false,
+		"/api/auth/me": false, "/api/auth/app/start": false, "/api/auth/app/token": false, "/api/auth/sessions": false,
+		"/api/push/apns/register": false, "/api/data/account": false,
+	} {
+		if got := demoOnlyPublic("GET", p, demoVeh); got != want {
+			t.Errorf("GET %s: %v, want %v", p, got, want)
+		}
+	}
+	if demoOnlyPublic("POST", "/api/app/config", demoVeh) {
+		t.Error("POST /api/app/config is open on the demo")
 	}
 }
