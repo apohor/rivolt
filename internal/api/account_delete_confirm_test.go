@@ -118,7 +118,8 @@ func TestAuditUserHash(t *testing.T) {
 	if len(h) != 16 || strings.Contains(h, strings.ReplaceAll(a.String(), "-", "")[:8]) {
 		t.Errorf("hash %q: want 16 hex chars that are not the id", h)
 	}
-	if auditUserHash(nil, a) == "" || auditUserHash(nil, a) != auditUserHash(nil, a) {
+	first, second := auditUserHash(nil, a), auditUserHash(nil, a)
+	if first == "" || first != second {
 		t.Error("the keyless fallback is empty or unstable within a process")
 	}
 }
