@@ -116,6 +116,10 @@ type Metrics struct {
 	// caller was not the same install, by reason (install_mismatch or install_missing). No token, user or hash: /metrics is public.
 	APNsRegisterRefusedTotal *prometheus.CounterVec
 
+	// Passkey registrations and sign-ins refused, by a fixed reason (ceremony, unknown_credential, assertion,
+	// no_user_verification, sign_count, registration). No credential, user or address: /metrics is public.
+	PasskeyRefusedTotal *prometheus.CounterVec
+
 	// vehicleState frames carrying an otaStatus, by its class (a fixed list of expected words, else "other"): what
 	// states a software update goes through, which only "Idle" has been seen to say so far.
 	OTAStatusFramesTotal *prometheus.CounterVec
@@ -376,6 +380,13 @@ func New() *Metrics {
 			Name: "rivolt_charge_energy_floor_total",
 			Help: "Charges whose energy was replaced by an estimate from the SoC gain (the recorder's integral had lost energy).",
 		}),
+		PasskeyRefusedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_passkey_refused_total",
+				Help: "Passkey registrations and sign-ins refused, by reason.",
+			},
+			[]string{"reason"},
+		),
 		APNsRegisterRefusedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_apns_register_refused_total",
@@ -439,6 +450,7 @@ func New() *Metrics {
 		m.ParallaxReplaysIgnoredTotal,
 		m.ChargeEnergyFloorTotal,
 		m.APNsRegisterRefusedTotal,
+		m.PasskeyRefusedTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
 	)

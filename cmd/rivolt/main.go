@@ -69,6 +69,7 @@ import (
 	"github.com/apohor/rivolt/internal/onboardmail"
 	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
+	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
@@ -1837,6 +1838,18 @@ func runServer() {
 	// store) — emit a clear error rather than silently dropping.
 	var oidcSvc *oidc.Service
 	var appleNotifier http.Handler // an interface, so it stays nil unless the Apple provider is set up
+	// Passkeys (WebAuthn) for the email accounts: only with RIVOLT_WEBAUTHN_RP_ID and _ORIGINS set, a database, and not on the
+	// admin or demo-only deployments. The pointer stays nil otherwise, so no passkey route exists.
+	var passkeySvc *passkeys.Service
+	if cfg := passkeys.ConfigFromEnv(os.Getenv); cfg.Enabled() && pgPool != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+		svc, perr := passkeys.New(cfg, passkeys.NewPGStore(pgPool))
+		if perr != nil {
+			logger.Error("passkeys init", "err", perr.Error())
+			os.Exit(1)
+		}
+		passkeySvc = svc
+		logger.Info("passkeys enabled", "rp_id", cfg.RPID, "origins", len(cfg.Origins))
+	}
 	if provs, perr := oidc.ParseProvidersFromEnv(os.Getenv, os.Getenv("RIVOLT_BASE_URL")); perr != nil {
 		logger.Error("oidc env parse", "err", perr.Error())
 		os.Exit(1)
@@ -2227,6 +2240,12 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Passkey ceremonies that were begun and never finished (a challenge lives five minutes).
+		if passkeySvc != nil {
+			jobs = append(jobs, retention.Job{Name: "webauthn_ceremonies", Run: func(ctx context.Context) (int64, error) {
+				return passkeySvc.Store().PurgeCeremonies(ctx, time.Now())
+			}})
+		}
 		// Apple notification replay guard (hashes only; the freshness window is an hour).
 		jobs = append(jobs, retention.Job{Name: "apple_notification_seen", Run: appleid.New(pgPool, nil).PurgeSeen})
 		// Expired iPhone-app sign-in attempts (minutes-long; kept a day).
@@ -2486,6 +2505,7 @@ func runServer() {
 		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,
+		Passkeys:         passkeySvc,
 		HydraRememberFor: hydraRememberFor,
 	})
 

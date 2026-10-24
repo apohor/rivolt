@@ -37,6 +37,8 @@ type hydraDeps struct {
 	// addresses (the per-IP limit alone leaves a distributed guess on one account
 	// unthrottled). nil: no per-email limit (tests that do not need one).
 	Failures *failLimiter
+	// Passkeys, when non-nil, adds the passkey sign-in routes beside the password one.
+	Passkeys *passkeyAPI
 }
 
 // rememberForSeconds returns RememberFor in whole seconds, clamped at
@@ -381,6 +383,12 @@ func mountHydraBridge(r chi.Router, hd hydraDeps) {
 		r.With(loginGet.Middleware).Get("/login", hydraLoginGET(hd))
 		r.With(loginPost.Middleware).Post("/login", hydraLoginPOST(hd))
 		r.Get("/consent", hydraConsentGET(hd))
+		if hd.Passkeys != nil {
+			pk := newIPLimiter(20, time.Minute, time.Hour)
+			pk.key = demoClientKey
+			r.With(pk.Middleware).Post("/passkey/begin", hd.Passkeys.hydraBegin)
+			r.With(pk.Middleware).Post("/passkey/finish", hd.Passkeys.hydraFinish)
+		}
 	})
 }
 

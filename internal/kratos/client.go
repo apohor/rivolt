@@ -295,6 +295,15 @@ func (c *Client) create(ctx context.Context, email, displayName, role, password 
 	}
 }
 
+// IdentityIDByEmail finds a Kratos identity's id by its email, or "" when there is none (an account that signs in only
+// with Google, GitHub or Apple has no Kratos identity).
+func (c *Client) IdentityIDByEmail(ctx context.Context, email string) (string, error) {
+	if !c.Enabled() {
+		return "", errors.New("kratos: client not configured")
+	}
+	return c.lookupIDByEmail(ctx, email)
+}
+
 // lookupIDByEmail finds an identity ID by its email trait. Returns
 // "" with nil error when no match exists.
 func (c *Client) lookupIDByEmail(ctx context.Context, email string) (string, error) {

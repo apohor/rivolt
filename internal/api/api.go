@@ -41,6 +41,7 @@ import (
 	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/packhealth"
+	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/receipts"
@@ -161,6 +162,15 @@ type Deps struct {
 	// server-to-server notifications (consent revoked, Apple account deleted, relay email
 	// off or on). Public (Apple calls it, no cookie), behind a body cap and a per-IP limit.
 	AppleNotifications http.Handler
+	// Passkeys, when non-nil, adds WebAuthn sign-in to Rivolt's email accounts: the management routes under /api/auth/passkeys
+	// and, with Hydra and Kratos wired, the passkey sign-in on the Hydra login page. nil: no passkey route exists.
+	Passkeys *passkeys.Service
+	// PasskeyAccount replaces the database read of the signed-in account's email and name for the passkey routes (tests).
+	PasskeyAccount func(ctx context.Context, uid uuid.UUID) (mail, display string, err error)
+	// PasskeyMailer replaces the mailer for the "a passkey was added" notice (tests).
+	PasskeyMailer interface {
+		Send(ctx context.Context, m email.Message) error
+	}
 	// IOSAppIDs ("TEAMID.bundle.id", RIVOLT_IOS_APP_IDS) publishes the
 	// iPhone app's associated domain: the AASA file and /app/callback. Empty:
 	// neither is served.
@@ -465,6 +475,16 @@ func New(d Deps) http.Handler {
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
+				if pk := d.passkeyAPI(); pk != nil && !d.AdminOnly {
+					pkLimiter := newIPLimiter(30, time.Minute, time.Hour)
+					r.With(pkLimiter.Middleware).Route("/passkeys", func(r chi.Router) {
+						r.Get("/", pk.list)
+						r.Post("/register/begin", pk.registerBegin)
+						r.Post("/register/finish", pk.registerFinish)
+						r.Patch("/{id}", pk.rename)
+						r.Delete("/{id}", pk.remove)
+					})
+				}
 				if d.AppleNotifications != nil && !d.AdminOnly {
 					// A real notification is ~1 KB and Apple sends few: 30 a minute per address is generous.
 					appleLimiter := newIPLimiter(30, time.Minute, time.Hour)
@@ -502,6 +522,10 @@ func New(d Deps) http.Handler {
 						RememberFor: d.HydraRememberFor,
 						// 10 wrong passwords per address per 15 minutes, from anywhere.
 						Failures: failures,
+					}
+					if pk := d.passkeyAPI(); pk != nil {
+						pk.Failures, pk.Remember = failures, hd.rememberForSeconds()
+						hd.Passkeys = pk
 					}
 					mountHydraBridge(r, hd)
 				}
