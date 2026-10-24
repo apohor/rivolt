@@ -28,7 +28,7 @@ Last updated: October 24, 2026
 - **Open-Meteo**, for weather (where a drive started, or a planned trip's route, rounded to about 11 km, plus the hour; or your truck's location if you turn on outside temperature) and, sometimes, for place search (the place you typed).
 - **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Drive analysis sends the drive's date and time, its figures (distance, speed, energy, battery, climb and descent), temperatures, weather, tire pressures and your vehicle details (tires, wheels, accessories, load, towing); never coordinates or place names. Trip advice sends charger names, or locations rounded to about 11 km, and tire pressures; never the text you type.
 
-We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **We do not sell your data, and there is no advertising** and no third-party analytics script.
+We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We use AI tools to help us run and repair Rivolt; they may process stored data for that purpose and nothing else. We do not share your data with anyone else, except where the law requires it. **We do not sell your data, and there is no advertising** and no third-party analytics script.
 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
