@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { VersionBar } from "./components/VersionBar";
+import { isTermsRequiredError } from "./lib/terms";
 import { registerServiceWorker } from "./pwa";
 // Catches the browser's install prompt early (it fires once, at load); the first-charge card offers it.
 import "./lib/installPrompt";
@@ -13,7 +14,13 @@ import "./lib/installPrompt";
 import "leaflet/dist/leaflet.css";
 import "./index.css";
 
-const queryClient = new QueryClient({
+// A request the server refused with terms_required means the Terms gate should be showing: refetch who we are.
+const termsRequired = (e: unknown) => {
+  if (isTermsRequiredError(e)) void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+};
+const queryClient: QueryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: termsRequired }),
+  mutationCache: new MutationCache({ onError: termsRequired }),
   defaultOptions: {
     queries: { staleTime: 30_000, refetchOnWindowFocus: false },
   },
