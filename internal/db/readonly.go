@@ -75,7 +75,54 @@ func GrantReadonly(ctx context.Context, d *sql.DB, role string) (bool, error) {
 			return true, fmt.Errorf("readonly grant %q: %w", s, err)
 		}
 	}
+	if err := ensureQueryStats(ctx, d, role); err != nil {
+		return true, err
+	}
 	return true, nil
+}
+
+// queryStatsFunc is how the reporting role reads pg_stat_statements (N26): only the normalized text (literals as
+// $1, never values) and counters of the statements this app's role ran in this database. SECURITY DEFINER and
+// owned by the app's role, so it sees that role's own query text without the reporting role holding
+// pg_read_all_stats, which would also show other sessions' pg_stat_activity text with literals in it (DA,
+// Oct 24). Inside the function current_user is the owner, so the filter is the app's own statements.
+const queryStatsFunc = `
+CREATE OR REPLACE FUNCTION rivolt_query_stats()
+RETURNS TABLE (queryid bigint, query text, calls bigint, total_exec_time double precision,
+               mean_exec_time double precision, rows bigint, shared_blks_hit bigint,
+               shared_blks_read bigint, temp_blks_written bigint)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+	SELECT s.queryid, s.query, s.calls, s.total_exec_time, s.mean_exec_time, s.rows,
+	       s.shared_blks_hit, s.shared_blks_read, s.temp_blks_written
+	  FROM pg_stat_statements s
+	 WHERE s.userid = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+	   AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+$$`
+
+// ensureQueryStats creates rivolt_query_stats() for role when the pg_stat_statements extension exists (CNPG
+// creates it once the library is preloaded); without it, nothing. Idempotent, like the grants around it.
+func ensureQueryStats(ctx context.Context, d *sql.DB, role string) error {
+	var ext bool
+	if err := d.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')`,
+	).Scan(&ext); err != nil {
+		return fmt.Errorf("query stats: extension lookup: %w", err)
+	}
+	if !ext {
+		return nil
+	}
+	for _, s := range []string{
+		queryStatsFunc,
+		`REVOKE ALL ON FUNCTION rivolt_query_stats() FROM PUBLIC`,
+		fmt.Sprintf(`GRANT EXECUTE ON FUNCTION rivolt_query_stats() TO %s`, role),
+	} {
+		if _, err := d.ExecContext(ctx, s); err != nil {
+			return fmt.Errorf("query stats: %w", err)
+		}
+	}
+	return nil
 }
 
 // EnsureReadonlyGrants is GrantReadonly with logging, for the boot and
