@@ -44,6 +44,8 @@ struct LedgerSession: Decodable, Equatable {
     let needsRate: Bool?
     let rateSlug: String?
     let flags: [String]
+    /// The energy was lost and worked out from the battery's change in charge level: this session's kWh and cost are estimates.
+    var energyEstimated: Bool? = nil
 }
 
 /// One plug-in: its sessions (top-ups and fragments folded in), what it cost and where the price came from.
@@ -63,6 +65,8 @@ struct LedgerReceipt: Decodable, Equatable, Identifiable {
     let cost: Double?
     let costSource: String
     let rate: Double?
+    /// True when any session of this plug-in has an estimated energy figure.
+    var energyEstimated: Bool? = nil
     let network: String?
     let networkState: String?
     let billedCost: Double?
@@ -117,6 +121,8 @@ struct LedgerMonth: Decodable, Equatable {
         let sessions: Int
         let kwhAdded: Double
         let nullEnergySessions: Int
+        /// True when the month's `kwhAdded` includes a charge whose energy was estimated.
+        var includesEstimated: Bool? = nil
         let byKind: LedgerByKind
         let byPlace: LedgerByPlace?
         let byPlaceKind: LedgerByPlaceKind?

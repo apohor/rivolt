@@ -27,7 +27,7 @@ struct MoneyShareCard: Equatable {
         typealias L = MoneyLogic
         let n0 = { (x: Double) in Int(x.rounded()).formatted() }
         let miles = m.driving.miles
-        var stats = [Stat(label: "Driven", value: "\(n0(miles)) mi"), Stat(label: "Energy added", value: "\(n0(m.energy.kwhAdded)) kWh")]
+        var stats = [Stat(label: "Driven", value: "\(n0(miles)) mi"), Stat(label: "Energy added", value: "\(m.energy.includesEstimated == true ? "~" : "")\(n0(m.energy.kwhAdded)) kWh")]
         let used = m.driving.kwhUsedKnown ?? 0
         let withEnergy = m.driving.milesWithEnergy ?? 0
         if used > 0 && withEnergy > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(withEnergy / used, 2)) mi/kWh")) }
@@ -39,7 +39,7 @@ struct MoneyShareCard: Equatable {
             let cur = m.currency
             let e = m.energy
             title = L.money(L.statementTotal(m), cur)
-            var parts = ["\(L.fixed(e.kwhAdded, 0)) kWh"]
+            var parts = ["\(e.includesEstimated == true ? "~" : "")\(L.fixed(e.kwhAdded, 0)) kWh"]
             if miles > 0 { parts.append("\(L.fixed(miles, 0)) mi") }
             if let cpm = m.driving.costPerMile { parts.append("\(L.money(cpm, cur, digits: 3))/mi") }
             subtitle = parts.joined(separator: " · ")

@@ -259,6 +259,7 @@ struct MoneyContent: View {
             }
             exportButtons(st)
             Text(st.subline).themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            if let n = st.energyNote { Text(n).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true) }
 
             if let z = st.zero {
                 zeroNotice(z)
@@ -790,7 +791,7 @@ private struct MoneyReceiptRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(r.sessions, id: \.chargeId) { s in
                             HStack(alignment: .firstTextBaseline) {
-                                Text("\(MoneyLogic.dateTime(s.startedAt, calendar: calendar)) · \(s.kwh.map { "\(MoneyLogic.fixed($0, 1)) kWh" } ?? "— kWh")\(s.kind == "dcfc" ? " · Fast" : "")")
+                                Text("\(MoneyLogic.dateTime(s.startedAt, calendar: calendar)) · \(s.kwh.map { "\(s.energyEstimated == true ? "~" : "")\(MoneyLogic.fixed($0, 1)) kWh" } ?? "— kWh")\(s.kind == "dcfc" ? " · Fast" : "")")
                                     .themeText(.caption)
                                 Spacer(minLength: 8)
                                 MoneyValueText(value: Self.sessionValue(s, currency: currency), small: true)
@@ -808,7 +809,9 @@ private struct MoneyReceiptRow: View {
 
     /// "27.5 kWh  59% → 80%  7.6 kW peak  1215 mi from home  · no energy recorded".
     private func details(_ r: LedgerReceipt, _ line: MoneyReceiptLine) -> Text {
-        var parts: [Text] = [Text("\(MoneyLogic.fixed(r.kwh, 1)) kWh")]
+        var parts: [Text] = [r.energyEstimated == true
+            ? Text("~\(MoneyLogic.fixed(r.kwh, 1)) kWh").underline(pattern: .dot, color: Theme.textTertiary)
+            : Text("\(MoneyLogic.fixed(r.kwh, 1)) kWh")]
         if let a = r.socStart, let b = r.socEnd { parts.append(Text("\(Int(a.rounded()))% → \(Int(b.rounded()))%")) }
         if let p = r.peakKw { parts.append(Text("\(MoneyLogic.fixed(p, p < 10 ? 1 : 0)) kW peak")) }
         if r.place != "home", r.billedVendor != nil || r.billedCharger != nil {
@@ -847,7 +850,7 @@ private struct MoneyReceiptRow: View {
         case .free: return .free
         case .estimated: return s.cost.map { .estimated(MoneyLogic.money($0, currency)) } ?? .dash
         case .suspect: return s.cost.map { .suspect(MoneyLogic.money($0, currency)) } ?? .dash
-        case .recorded: return s.cost.map { .recorded(MoneyLogic.money($0, currency)) } ?? .dash
+        case .recorded: return s.cost.map { s.energyEstimated == true ? .estimated(MoneyLogic.money($0, currency)) : .recorded(MoneyLogic.money($0, currency)) } ?? .dash
         }
     }
 }
