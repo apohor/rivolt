@@ -679,7 +679,11 @@ func New(d Deps) http.Handler {
 				}))
 				// The iPhone app (bearer only; see push_apns.go).
 				r.Post("/apns/register", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleAPNsRegister(d.PushService, d.Push.For(uid))(w, r)
+					handleAPNsRegister(d.PushService, d.Push.For(uid), func(reason string) {
+						if d.Metrics != nil {
+							d.Metrics.APNsRegisterRefusedTotal.WithLabelValues(reason).Inc()
+						}
+					})(w, r)
 				}))
 				r.Post("/apns/preferences", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)

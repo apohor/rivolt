@@ -112,6 +112,10 @@ type Metrics struct {
 	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
 	ChargeEnergyFloorTotal prometheus.Counter
 
+	// APNs device registrations refused because the token is registered to another account whose session is live and the
+	// caller was not the same install, by reason (install_mismatch or install_missing). No token, user or hash: /metrics is public.
+	APNsRegisterRefusedTotal *prometheus.CounterVec
+
 	// vehicleState frames carrying an otaStatus, by its class (a fixed list of expected words, else "other"): what
 	// states a software update goes through, which only "Idle" has been seen to say so far.
 	OTAStatusFramesTotal *prometheus.CounterVec
@@ -372,6 +376,13 @@ func New() *Metrics {
 			Name: "rivolt_charge_energy_floor_total",
 			Help: "Charges whose energy was replaced by an estimate from the SoC gain (the recorder's integral had lost energy).",
 		}),
+		APNsRegisterRefusedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_apns_register_refused_total",
+				Help: "APNs device registrations refused as belonging to another account's live session, by reason.",
+			},
+			[]string{"reason"},
+		),
 		OTAStatusFramesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_ota_status_frames_total",
@@ -427,6 +438,7 @@ func New() *Metrics {
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
 		m.ChargeEnergyFloorTotal,
+		m.APNsRegisterRefusedTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
 	)
