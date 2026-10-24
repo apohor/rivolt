@@ -22,8 +22,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/paulmach/orb"
@@ -53,7 +55,13 @@ type Archive struct {
 	// download it again every time.
 	stations     int
 	rejectedETag string
+	// tiles lists the tiles that hold data, sorted by x then y, so a query visits those near the route instead of every
+	// tile in the route's box (a coast-to-coast box is 860,000 tiles, of which about 11,000 have data). Nil: walk the box.
+	tiles []tileXY
 }
+
+// tileXY is one tile of the chargers zoom.
+type tileXY struct{ x, y uint32 }
 
 // New returns an empty archive; the caller drives Reload to populate
 // it (so startup wiring can defer the fetch until the URL is known).
@@ -141,6 +149,7 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	// good archive. The candidate is counted before anything is swapped.
 	cand := &Archive{raw: raw, header: header, rootDir: rootDir}
 	n := cand.featureCount()
+	tiles := cand.listTiles()
 	a.mu.RLock()
 	had := a.stations
 	a.mu.RUnlock()
@@ -160,6 +169,7 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	a.etag = resp.Header.Get("ETag")
 	a.stations = n
 	a.rejectedETag = ""
+	a.tiles = tiles
 	a.mu.Unlock()
 	return true, nil
 }
@@ -207,6 +217,35 @@ func (a *Archive) featureCount() int {
 	}
 	walk(a.rootDir)
 	return n
+}
+
+// listTiles walks the directories (no tile is decoded) and returns the tiles that hold data at the chargers zoom, sorted by
+// x then y.
+func (a *Archive) listTiles() []tileXY {
+	var out []tileXY
+	var walk func(es []pm.EntryV3)
+	walk = func(es []pm.EntryV3) {
+		for _, e := range es {
+			if e.RunLength == 0 {
+				walk(a.lookupLeaf(a.header.LeafDirectoryOffset+e.Offset, e.Length))
+				continue
+			}
+			for i := uint32(0); i < e.RunLength; i++ {
+				z, x, y := pm.IDToZxy(e.TileID + uint64(i))
+				if z == chargersZoom {
+					out = append(out, tileXY{x, y})
+				}
+			}
+		}
+	}
+	walk(a.rootDir)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].x != out[j].x {
+			return out[i].x < out[j].x
+		}
+		return out[i].y < out[j].y
+	})
+	return out
 }
 
 // tileBytes returns the decompressed MVT bytes for (z,x,y) or nil
@@ -480,41 +519,68 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	// Project once for perpendicular-distance + arc-length math.
 	proj := projectPath(path)
 
-	// Bounded-concurrency parallel decode. The tile reads are
-	// in-memory; the bottleneck is MVT decoding CPU. Cap at 8 to
-	// avoid lock contention on the leafDirs sync.Map. Tiles are walked, not
-	// listed: the box can be large, the work in flight never is.
-	const concurrency = 8
-	sem := make(chan struct{}, concurrency)
+	// Which tiles to decode. With the list of tiles that hold data, only those near the route (a tile's centre within the
+	// corridor plus the tile's half-diagonal of the path); without it, every tile in the route's box. A box can hold
+	// hundreds of thousands of tiles and the route a few thousand near it: decoding every station in the box and testing
+	// each against every route segment is what made a coast-to-coast query cost seconds of CPU.
+	if err := ctx.Err(); err != nil {
+		return nil, err // a done context wins before the archive is touched
+	}
+	idx := newPathIndex(proj)
+	a.mu.RLock()
+	list := a.tiles
+	a.mu.RUnlock()
+	var todo []tileXY
+	if list != nil {
+		i := sort.Search(len(list), func(i int) bool { return list[i].x >= box.txMin })
+		for ; i < len(list) && list[i].x <= box.txMax; i++ {
+			t := list[i]
+			if t.y < box.tyMin || t.y > box.tyMax {
+				continue
+			}
+			lat, lon := tileCenter(t.x, t.y, chargersZoom)
+			if idx.near(proj, lat, lon, corridorKM*1000+tileSlackM) {
+				todo = append(todo, t)
+			}
+		}
+	} else {
+		for tx := box.txMin; tx <= box.txMax; tx++ {
+			for ty := box.tyMin; ty <= box.tyMax; ty++ {
+				todo = append(todo, tileXY{tx, ty})
+			}
+		}
+	}
+
+	// Bounded-concurrency parallel decode: the tile reads are in-memory; the bottleneck is MVT decoding CPU. A few workers
+	// pull from the list (not a goroutine per tile).
+	workers := runtime.GOMAXPROCS(0)
+	if workers > 8 {
+		workers = 8
+	}
 	var (
 		wg     sync.WaitGroup
 		mu     sync.Mutex
 		chunks [][]POI
+		next   atomic.Int64
 	)
-walk:
-	for tx := box.txMin; tx <= box.txMax; tx++ {
-		for ty := box.tyMin; ty <= box.tyMax; ty++ {
-			if ctx.Err() != nil {
-				break walk // a done context wins over a free slot
-			}
-			select {
-			case <-ctx.Done():
-				break walk
-			case sem <- struct{}{}:
-			}
-			wg.Add(1)
-			go func(tx, ty uint32) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				pois, err := a.featuresInTile(chargersZoom, tx, ty, filter, proj, trimM, corridorKM*1000, opts)
-				if err != nil || len(pois) == 0 {
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				i := int(next.Add(1)) - 1
+				if i >= len(todo) {
 					return
+				}
+				pois, err := a.featuresInTile(chargersZoom, todo[i].x, todo[i].y, filter, proj, idx, trimM, corridorKM*1000, opts)
+				if err != nil || len(pois) == 0 {
+					continue
 				}
 				mu.Lock()
 				chunks = append(chunks, pois)
 				mu.Unlock()
-			}(tx, ty)
-		}
+			}
+		}()
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
@@ -552,7 +618,7 @@ walk:
 // featuresInTile decodes one MVT tile, projects each feature back
 // to WGS84, and returns the subset that passes the filter + corridor
 // distance check.
-func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, trimM, corridorM float64, opts QueryCorridorOptions) ([]POI, error) {
+func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, idx pathIndex, trimM, corridorM float64, opts QueryCorridorOptions) ([]POI, error) {
 	all, err := a.tilePOIs(z, x, y)
 	if err != nil {
 		return nil, err
@@ -570,6 +636,9 @@ func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj proje
 		// outside the band. Tile bbox is wider than the corridor
 		// by design (slippy-map tile grid doesn't align with the
 		// corridor band), so this is the real filter.
+		if !idx.near(proj, poi.Lat, poi.Lon, corridorM) {
+			continue // farther than the corridor from every segment: the exact test below would reject it
+		}
 		perp := proj.perpDistanceM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
 		if perp == math.Inf(1) || perp > corridorM {
 			continue
