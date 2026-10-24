@@ -9,6 +9,9 @@ enum MoneyLogic {
     /// The app's one rounding rule (`NumberText`): a half away from zero, as the web.
     static func money(_ v: Double, _ currency: String, digits: Int = 2) -> String { NumberText.money(v, currency, digits: digits) }
 
+    /// Under a month's energy total that includes an estimated charge (the web's `ENERGY_ESTIMATED_TOTAL_NOTE`).
+    static let energyEstimatedTotalNote = "Some charges this month have an estimated energy figure (marked ~): worked out from the battery's change because a Rivolt bug lost their energy count."
+
     static func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : many }
 
     static func fixed(_ v: Double, _ digits: Int) -> String { NumberText.fixed(v, digits) }
@@ -428,6 +431,8 @@ struct MoneyStatement: Equatable {
     let deltaLabel: String
     /// "spent on charging · 319 kWh · 902 mi · $0.055/mi".
     let subline: String
+    /// Under the month's energy total when it includes a charge whose energy was estimated.
+    let energyNote: String?
     /// "$0 doesn't mean charging was free": sessions, kWh and whether the home rate is missing.
     let zero: (sessions: Int, kwh: Double, noRate: Bool)?
     let toConfirm: Int?
@@ -483,10 +488,11 @@ struct MoneyStatement: Equatable {
             partialFrom = nil
         }
 
-        var sub = "spent on charging · \(L.fixed(m.energy.kwhAdded, 0)) kWh"
+        var sub = "spent on charging · \(m.energy.includesEstimated == true ? "~" : "")\(L.fixed(m.energy.kwhAdded, 0)) kWh"
         if m.driving.miles > 0 { sub += " · \(L.fixed(m.driving.miles, 0)) mi" }
         if hasCharging, let cpm = m.driving.costPerMile { sub += " · \(L.money(cpm, cur, digits: 3))/mi" }
         subline = sub
+        energyNote = m.energy.includesEstimated == true ? MoneyLogic.energyEstimatedTotalNote : nil
 
         let s = m.spend
         let noRate = s.unpricedHomeRateEstimate == nil && s.unpricedKwh > 0
@@ -563,7 +569,9 @@ struct MoneyReceiptLine {
             case .free: value = .free
             case .estimated: value = r.cost.map { .estimated(L.money($0, currency)) } ?? .dash
             case .suspect: value = r.cost.map { .suspect(L.money($0, currency)) } ?? .dash
-            case .recorded: value = r.cost.map { .recorded(L.money($0, currency)) } ?? .dash
+            case .recorded:
+                // A cost that follows from an estimated energy figure is an estimate too.
+                value = r.cost.map { r.energyEstimated == true ? .estimated(L.money($0, currency)) : .recorded(L.money($0, currency)) } ?? .dash
             }
         }
 

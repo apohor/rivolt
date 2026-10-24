@@ -431,6 +431,10 @@ export type Charge = {
   StartSoCPct: number;
   EndSoCPct: number;
   EnergyAddedKWh: number;
+  // The energy was lost and worked out from the battery's change in charge level (lib/energyEstimated). /api/charges sends EnergyEstimated;
+  // the activity feed sends energy_estimated.
+  EnergyEstimated?: boolean;
+  energy_estimated?: boolean;
   MilesAdded: number;
   MaxPowerKW: number;
   AvgPowerKW: number;

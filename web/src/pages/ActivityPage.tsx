@@ -1,4 +1,5 @@
 import { attachRoutes, drivesAllQuery, drivesRoutesQuery, chargesAllQuery } from "../lib/activityLists";
+import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, energyKWhText, isEnergyEstimated } from "../lib/energyEstimated";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { earlyMonthFallback, filterByRange, periodLabel, periodRange, usePeriod } from "../lib/period";
@@ -340,7 +341,8 @@ function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | n
   const where =
     label === "Fast" ? "Fast charge" : label === "Home" ? "Home charge" : label === "Away" ? "Away charge"
     : item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
-  const energy = c.EnergyAddedKWh > 0 ? `${c.EnergyAddedKWh.toFixed(1)} kWh` : "no energy recorded";
+  const energyEst = c.EnergyAddedKWh > 0 && isEnergyEstimated(c);
+  const energy = c.EnergyAddedKWh > 0 ? energyKWhText(c) : "no energy recorded";
   return (
     <Link to={detailPath("charges", c.ID)} className={CARD}>
       <div className="flex items-baseline justify-between gap-2">
@@ -348,7 +350,13 @@ function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | n
           <span aria-hidden className={item.fast ? "text-amber-400" : "text-emerald-400"}>⚡ </span>
           {where} <span className="text-neutral-500">{Math.round(c.StartSoCPct)}→{Math.round(c.EndSoCPct)}%</span>
         </span>
-        <span className={`tabular-nums text-sm ${c.EnergyAddedKWh > 0 ? "text-neutral-200" : "text-amber-300"}`}>{energy}</span>
+        <span
+          className={`tabular-nums text-sm ${c.EnergyAddedKWh > 0 ? "text-neutral-200" : "text-amber-300"} ${energyEst ? ESTIMATED_FIGURE : ""}`}
+          title={energyEst ? ENERGY_ESTIMATED_NOTE : undefined}
+          data-energy-estimated={energyEst ? "true" : undefined}
+        >
+          {energy}
+        </span>
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2 text-xs text-neutral-500">
         <span>{timeRange(c.StartedAt, c.EndedAt)}</span>

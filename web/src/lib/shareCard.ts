@@ -31,7 +31,7 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
   const kwhUsed = m.driving.kwh_used_known;
   const stats: ShareStat[] = [
     { label: "Driven", value: `${n0(miles)} mi` },
-    { label: "Energy added", value: `${n0(m.energy.kwh_added)} kWh` },
+    { label: "Energy added", value: `${m.energy.includes_estimated ? "~" : ""}${n0(m.energy.kwh_added)} kWh` },
   ];
   if (kwhUsed > 0 && m.driving.miles_with_energy > 0) stats.push({ label: "Efficiency", value: `${(m.driving.miles_with_energy / kwhUsed).toFixed(2)} mi/kWh` });
   const notes: string[] = [];

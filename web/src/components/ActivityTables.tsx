@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../lib/energyEstimated";
 import { appPath } from "../lib/demo";
 import { useNavigate } from "react-router-dom";
 import { clickableRowProps } from "./ui";
@@ -146,14 +147,20 @@ export function ChargeTable({
                 {pct(c.StartSoCPct)} → {pct(c.EndSoCPct)}
               </td>
               <td data-col="energy" className="py-2 pr-4 text-neutral-200 tabular-nums">
-                {num(c.EnergyAddedKWh, 1, "kWh")}
+                {isEnergyEstimated(c) && c.EnergyAddedKWh > 0 ? (
+                  <span className={ESTIMATED_FIGURE} title={ENERGY_ESTIMATED_NOTE} data-energy-estimated="true">
+                    ~{num(c.EnergyAddedKWh, 1, "kWh")}
+                  </span>
+                ) : (
+                  num(c.EnergyAddedKWh, 1, "kWh")
+                )}
               </td>
               <td data-col="maxkw" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(c.MaxPowerKW, 1)}
               </td>
               <td data-col="cost" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {c.Cost > 0
-                  ? formatMoney(c.Cost, c.Currency || "USD")
+                  ? `${isEnergyEstimated(c) ? "~" : ""}${formatMoney(c.Cost, c.Currency || "USD")}`
                   : c.estimated_cost && c.estimated_cost > 0
                     ? `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`
                     : "—"}

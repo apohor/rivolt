@@ -59,6 +59,8 @@ export type ReceiptSession = {
   peak_kw: number | null;
   cost: number | null;
   price_per_kwh: number | null;
+  // The energy was lost and worked out from the battery's change in charge level (lib/energyEstimated); absent on an older server.
+  energy_estimated?: boolean;
   cost_source: CostSource;
   // §10 additions; optional so an older server build still parses.
   cost_source_derived?: boolean;
@@ -98,6 +100,8 @@ export type Receipt = {
   kwh: number;
   peak_kw: number | null;
   cost: number | null;
+  // True when any session of this plug-in has an estimated energy figure: its kWh and cost are estimates.
+  energy_estimated?: boolean;
   cost_source: ReceiptCostSource;
   rate: number | null;
   network?: string | null;
@@ -190,6 +194,8 @@ export type MonthSummary = {
   energy: {
     sessions: number;
     kwh_added: number;
+    // True when the month's kwh_added includes a charge whose energy was estimated.
+    includes_estimated?: boolean;
     null_energy_sessions: number;
     by_kind: Record<ChargeKind, KindTotals>;
     // §10: per-session place split; reconciles with the totals.

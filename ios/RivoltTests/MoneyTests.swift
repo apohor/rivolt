@@ -33,6 +33,66 @@ private func receipt(_ index: Int = 0, _ fields: [String: Any], session: [String
     return try XCTUnwrap(m.receipts?[index])
 }
 
+/// A charge whose energy was lost and worked out from the battery's change: Money marks its kWh and cost, and says so under the month's total.
+final class MoneyEstimatedEnergyTests: XCTestCase {
+    private func estimatedMonth() throws -> LedgerMonth {
+        try edited(LedgerMonth.self, "ledger_monthly") { o in
+            var energy = o["energy"] as! [String: Any]
+            energy["includes_estimated"] = true
+            o["energy"] = energy
+            var rs = o["receipts"] as! [[String: Any]]
+            for i in rs.indices where i == 1 {
+                rs[i]["energy_estimated"] = true
+                var ss = rs[i]["sessions"] as! [[String: Any]]
+                for j in ss.indices { ss[j]["energy_estimated"] = true }
+                rs[i]["sessions"] = ss
+            }
+            o["receipts"] = rs
+        }
+    }
+
+    func testTheFlagsDecodeAndAreAbsentOnAnOlderServer() throws {
+        let m = try estimatedMonth()
+        XCTAssertEqual(m.energy.includesEstimated, true)
+        XCTAssertEqual(m.receipts?[1].energyEstimated, true)
+        XCTAssertEqual(m.receipts?[1].sessions.first?.energyEstimated, true)
+        let plain = try Fixture.decode(LedgerMonth.self, "ledger_monthly")
+        XCTAssertNil(plain.energy.includesEstimated)
+        XCTAssertNil(plain.receipts?[1].energyEstimated)
+    }
+
+    func testTheMonthTotalSaysWhenItIncludesAnEstimate() throws {
+        let cal = chicago()
+        let now = JSON.parseDate("2026-10-12T17:00:00Z")!
+        let est = MoneyStatement(month: try estimatedMonth(), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal)
+        XCTAssertTrue(est.subline.hasPrefix("spent on charging · ~"), est.subline)
+        XCTAssertEqual(est.energyNote, MoneyLogic.energyEstimatedTotalNote)
+        let plain = MoneyStatement(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal)
+        XCTAssertNil(plain.energyNote)
+        XCTAssertFalse(plain.subline.contains("~"))
+    }
+
+    func testAnEstimatedReceiptsCostIsAnEstimateAndAFreeOneIsNot() throws {
+        // Receipt 1 is a home charge with a recorded cost; flagged, its cost reads as an estimate.
+        if case .recorded = MoneyReceiptLine(try receipt(1, [:]), currency: "USD").value {} else { return XCTFail("fixture changed: receipt 1 should be a recorded cost") }
+        if case .estimated(let s) = MoneyReceiptLine(try receipt(1, ["energy_estimated": true]), currency: "USD").value {
+            XCTAssertTrue(s.contains("$"), s)
+        } else {
+            XCTFail("a recorded cost on an estimated-energy receipt should read as an estimate")
+        }
+        // Free has no cost to mark.
+        if case .free = MoneyReceiptLine(try receipt(1, ["energy_estimated": true, "cost_source": "user", "cost": 0]), currency: "USD").value {} else { XCTFail("free stays free") }
+    }
+
+    func testTheShareCardMarksTheEnergyTotalOnlyWhenItIncludesAnEstimate() throws {
+        let cal = chicago()
+        let est = MoneyShareCard.month(try estimatedMonth(), includeCost: false, offpeakSharePct: nil, calendar: cal)
+        XCTAssertTrue(est.stats.contains { $0.label == "Energy added" && $0.value.hasPrefix("~") })
+        let plain = MoneyShareCard.month(try Fixture.decode(LedgerMonth.self, "ledger_monthly"), includeCost: false, offpeakSharePct: nil, calendar: cal)
+        XCTAssertFalse(plain.stats.contains { $0.label == "Energy added" && $0.value.hasPrefix("~") })
+    }
+}
+
 final class MoneyLogicTests: XCTestCase {
     private func month() throws -> LedgerMonth { try Fixture.decode(LedgerMonth.self, "ledger_monthly") }
     private func summary() throws -> LedgerSummary { try Fixture.decode(LedgerSummary.self, "ledger_summary") }
