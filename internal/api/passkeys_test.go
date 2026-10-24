@@ -43,7 +43,6 @@ type pkRig struct {
 	mu       sync.Mutex
 	accepted []map[string]any
 	mail     []email.Message
-	refused  []string
 }
 
 func newPKRig(t *testing.T, kratosHasIdentity bool) *pkRig {
