@@ -244,7 +244,7 @@ function TiresCard({ wheels, at }: { wheels: Wheel[]; at: string }) {
             <div key={w.pos} data-tire={w.pos}>
               <dt className="text-xs text-neutral-500">{w.label}</dt>
               <dd className="tabular-nums text-neutral-100">
-                {w.psi == null ? "—" : <>{w.psi.toFixed(0)} psi <span className="text-xs text-neutral-500">· {w.bar!.toFixed(1)} bar</span></>}
+                {w.psi == null ? "—" : <>{w.psi.toFixed(0)} psi <span className="text-xs text-neutral-500">· {w.bar!.toFixed(2)} bar</span></>}
               </dd>
               {(w.low || w.rivianLow) && (
                 <dd data-tire-low className="text-xs text-amber-300">

@@ -707,7 +707,7 @@ struct TruckContent: View {
 
     private func wheelValue(_ w: TruckLogic.Wheel) -> String {
         guard let bar = w.bar, let psi = w.psi else { return "—" }
-        return "\(TruckLogic.fixed(psi, 0)) psi · \(TruckLogic.fixed(bar, 1)) bar"
+        return "\(TruckLogic.fixed(psi, 0)) psi · \(TruckLogic.fixed(bar, 2)) bar"
     }
 
     private func stackedPair<V: View>(_ label: String, @ViewBuilder value: () -> V) -> some View {
