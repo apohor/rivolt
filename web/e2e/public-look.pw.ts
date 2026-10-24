@@ -41,6 +41,7 @@ const PAGES: [string, string, { signedIn?: boolean; landing?: boolean }][] = [
   ["charging-cost", "/charging-cost", { signedIn: false }],
   ["moving-from-electrafi", "/moving-from-electrafi", { signedIn: false }],
   ["safe-to-connect", "/safe-to-connect", { signedIn: false }],
+  ["support", "/support", { signedIn: false }],
 ];
 
 for (const [name, url, opts] of PAGES) {
