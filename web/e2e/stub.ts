@@ -32,6 +32,7 @@ export function vehicleState(s: NowScenario): Record<string, unknown> {
     longitude: HOME.longitude,
     speed_kph: 0,
     power_state: "ready",
+    cabin_temp_c: 28.6,
     tire_pressure_fl_bar: 2.9,
     tire_pressure_fr_bar: 2.9,
     tire_pressure_rl_bar: 2.8,

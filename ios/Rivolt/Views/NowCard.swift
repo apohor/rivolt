@@ -157,13 +157,16 @@ struct NowCard: View {
             if charging { chargingRows }
             if driving { drivingRows }
             if let temp = summary.outsideTempC {
-                readout("Outside", Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .abbreviated, usage: .weather)))
+                readout("Outside", NowComfort.wholeDegrees(celsius: temp))
+            }
+            if let cabin = summary.liveComfort?.cabinValue {
+                readout("Cabin", cabin)
             }
             if let install = summary.liveInstall {
                 Text(install.line(onNow: true)).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
-            if let comfort = summary.liveComfort {
-                Text(comfort.text).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            if let comfort = summary.liveComfort, !comfort.lineText.isEmpty {
+                Text(comfort.lineText).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

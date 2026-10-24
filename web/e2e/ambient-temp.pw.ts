@@ -72,6 +72,9 @@ test("Now: an offer shows the text first, turning it on shows the reading, Not n
   await page.screenshot({ path: path.join(SHOTS, "ambient-offer-iphone-dark.png") });
   await offer.getByRole("button", { name: "Turn on" }).click();
   await expect(page.locator("[data-ambient-temp]")).toContainText(/Outside\s*7\s*°C|Outside 45/);
+  // Cabin is its own row, in whole degrees, in the same style as Outside.
+  await expect(page.getByTestId("now-cabin")).toContainText(/Cabin\s*29\s*°C|Cabin\s*84\s*°F/);
+  await expect(page.getByTestId("now-cabin").locator("dd")).toHaveClass(/text-right/);
   expect(puts).toEqual([{ enabled: true }]);
   await ctx.close();
 

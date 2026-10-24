@@ -22,7 +22,7 @@ import {
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
-import { comfortParts } from "../lib/comfort";
+import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaLine, otaUpdate } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
@@ -240,6 +240,7 @@ export default function NowCard({
   const pill = statusPill(view);
   // Only while the frame is live: a stale or offline truck shows none, so an old "Pet mode on" never reads as current.
   const comfort = offline || view.stale ? [] : comfortParts(state, temperatureUnit);
+  const cabin = offline || view.stale ? null : cabinValue(state, temperatureUnit);
   // While the truck says it is installing a software update and the frame is live: it explains why the truck may stop answering.
   const update = offline || view.stale ? null : otaUpdate(state);
   const installing = update?.phase === "installing" ? update : null;
@@ -351,6 +352,12 @@ export default function NowCard({
               <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
             </div>
           ))}
+          {cabin && (
+            <div data-testid="now-cabin" className="contents">
+              <dt className="text-neutral-500">Cabin</dt>
+              <dd className="text-right tabular-nums text-neutral-200">{cabin}</dd>
+            </div>
+          )}
         </dl>
         <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />
         {installing && (

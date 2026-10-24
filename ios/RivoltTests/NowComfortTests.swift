@@ -20,6 +20,17 @@ final class NowComfortTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(NowComfort(cabinTempC: nil, preconditioning: "preconditioned", petMode: nil, cabinHold: nil)).text, "Preconditioned")
     }
 
+    func testCabinIsItsOwnRowInWholeDegreesAndTheLineHasTheRest() throws {
+        let c = try XCTUnwrap(NowComfort(cabinTempC: 28.6, preconditioning: "preconditioning", petMode: "on", cabinHold: nil))
+        let cabin = try XCTUnwrap(c.cabinValue)
+        XCTAssertFalse(cabin.contains("."), "whole degrees: \(cabin)")
+        XCTAssertTrue(cabin.contains("29") || cabin.contains("84"), cabin)
+        XCTAssertEqual(c.lineText, "Preconditioning · Pet mode on")
+        XCTAssertEqual(try XCTUnwrap(NowComfort(cabinTempC: 20, preconditioning: nil, petMode: nil, cabinHold: nil)).lineText, "", "nothing else to say, no line")
+        XCTAssertNil(NowComfort(cabinTempC: nil, preconditioning: nil, petMode: "on", cabinHold: nil)?.cabinValue, "no reading, no row")
+        XCTAssertFalse(NowComfort.wholeDegrees(celsius: 27.4).contains("."), "Outside is whole degrees too")
+    }
+
     func testUnknownOffDisabledAndFaultyAreLeftOut() {
         for v in ["", "undefined", "unknown", "off", "disabled", "faulty", "not_preconditioning", "false", "0", "garbage"] {
             XCTAssertNil(NowComfort(cabinTempC: nil, preconditioning: v, petMode: v, cabinHold: v), v)

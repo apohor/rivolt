@@ -34,12 +34,20 @@ struct NowComfort: Equatable {
     /// The same words the web's live panel reads as on.
     private static func isOn(_ s: String?) -> Bool { ["true", "on", "active", "1"].contains(clean(s)) }
 
-    /// The parts, in order: cabin temperature, preconditioning, pet mode, climate hold.
-    func parts(spoken: Bool = false) -> [String] {
+    /// A temperature in whole degrees, in the person's unit (the device's temperature setting).
+    static func wholeDegrees(celsius: Double, spoken: Bool = false) -> String {
+        Measurement(value: celsius, unit: UnitTemperature.celsius)
+            .formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .weather, numberFormatStyle: .number.precision(.fractionLength(0))))
+    }
+
+    /// The cabin temperature for its own row beside Outside; nil when the truck gave none.
+    var cabinValue: String? { cabinTempC.map { Self.wholeDegrees(celsius: $0) } }
+
+    /// The parts, in order: cabin temperature (left out when it has its own row), preconditioning, pet mode, climate hold.
+    func parts(spoken: Bool = false, includeCabin: Bool = true) -> [String] {
         var out: [String] = []
-        if let c = cabinTempC {
-            let t = Measurement(value: c, unit: UnitTemperature.celsius).formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .weather))
-            out.append("Cabin \(t)")
+        if includeCabin, let c = cabinTempC {
+            out.append("Cabin \(Self.wholeDegrees(celsius: c, spoken: spoken))")
         }
         switch preconditioning {
         case .under?: out.append("Preconditioning")
@@ -52,6 +60,8 @@ struct NowComfort: Equatable {
     }
 
     var text: String { parts().joined(separator: " · ") }
+    /// The one line under the rows: everything but the cabin temperature, which is a row. Empty when there is nothing else.
+    var lineText: String { parts(includeCabin: false).joined(separator: " · ") }
     var spokenText: String { parts(spoken: true).joined(separator: ", ") }
 }
 
