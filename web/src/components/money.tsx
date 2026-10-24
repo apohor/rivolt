@@ -1,4 +1,5 @@
 import { appPath, detailPath } from "../lib/demo";
+import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE } from "../lib/energyEstimated";
 import { hasOpenNetworkState } from "../lib/autoNetwork";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -34,6 +35,7 @@ export function MoneyValue({
   className = "",
 }: {
   r: Pick<Receipt, "cost" | "cost_source" | "flags"> & {
+    energy_estimated?: boolean;
     sessions?: Receipt["sessions"];
     billed_cost?: number | null;
     billed_currency?: string | null;
@@ -65,6 +67,19 @@ export function MoneyValue({
     );
   }
   if (g === "free") return <span className={className}>Free</span>;
+  // A cost that follows from an estimated energy figure is an estimate too (unless it is already one, below).
+  if (r.energy_estimated && g !== "estimated" && g !== "suspect") {
+    return (
+      <span
+        className={`underline decoration-dotted decoration-neutral-500 underline-offset-4 ${className}`}
+        title="Follows the estimated energy: worked out from the battery's change"
+        data-energy-estimated="true"
+      >
+        ~{formatMoney(r.cost, currency)}
+        <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
+      </span>
+    );
+  }
   if (g === "estimated") {
     return (
       <span
@@ -262,7 +277,13 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             <MoneyValue r={r} currency={currency} className="shrink-0 text-sm font-medium tabular-nums text-neutral-100" />
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-neutral-400">
-            <span className="tabular-nums">{r.kwh.toFixed(1)} kWh</span>
+            {r.energy_estimated ? (
+              <span className={`tabular-nums ${ESTIMATED_FIGURE}`} title={ENERGY_ESTIMATED_NOTE} data-energy-estimated="true">
+                ~{r.kwh.toFixed(1)} kWh
+              </span>
+            ) : (
+              <span className="tabular-nums">{r.kwh.toFixed(1)} kWh</span>
+            )}
             {r.soc_start != null && r.soc_end != null && (
               <span className="tabular-nums">
                 {Math.round(r.soc_start)}% → {Math.round(r.soc_end)}%
@@ -332,7 +353,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
               {r.sessions.map((x) => (
                 <li key={x.charge_id} className="flex justify-between gap-3 tabular-nums">
                   <Link to={detailPath("charges", x.charge_id)} className="hover:text-neutral-200">
-                    {formatDateTime(x.started_at)} · {x.kwh != null ? `${x.kwh.toFixed(1)} kWh` : "— kWh"}
+                    {formatDateTime(x.started_at)} · {x.kwh != null ? `${x.energy_estimated ? "~" : ""}${x.kwh.toFixed(1)} kWh` : "— kWh"}
                     {x.kind === "dcfc" ? " · Fast" : ""}
                   </Link>
                   <MoneyValue r={x} currency={currency} />

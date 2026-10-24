@@ -15,3 +15,7 @@ export function energyKWhText(c: Flag & { EnergyAddedKWh: number }, digits = 1):
 
 // Tailwind classes for an estimated figure, as on the estimated costs.
 export const ESTIMATED_FIGURE = "underline decoration-dotted underline-offset-4";
+
+// Under a month's energy total that includes an estimated charge.
+export const ENERGY_ESTIMATED_TOTAL_NOTE =
+  "Some charges this month have an estimated energy figure (marked ~): worked out from the battery's change because the energy count was lost.";

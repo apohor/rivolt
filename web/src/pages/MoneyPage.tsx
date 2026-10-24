@@ -1,4 +1,5 @@
 import { chargesAllQuery } from "../lib/activityLists";
+import { ENERGY_ESTIMATED_TOTAL_NOTE } from "../lib/energyEstimated";
 import { appPath, inDemo } from "../lib/demo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -299,10 +300,18 @@ function Statement({
           <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
-          spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
+          spent on charging ·{" "}
+          {m.energy.includes_estimated ? (
+            <span className="underline decoration-dotted underline-offset-4" data-energy-estimated="true">~{m.energy.kwh_added.toFixed(0)} kWh</span>
+          ) : (
+            <>{m.energy.kwh_added.toFixed(0)} kWh</>
+          )}
           {m.driving.miles > 0 && <> · {m.driving.miles.toFixed(0)} mi</>}
           {hasCharging && m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
+        {m.energy.includes_estimated && (
+          <p data-energy-estimated-note className="mt-1 text-xs text-neutral-500">{ENERGY_ESTIMATED_TOTAL_NOTE}</p>
+        )}
 
         {headline === 0 && m.spend.unpriced_sessions > 0 && (
           <p data-money-zero className="mt-2 rounded-md border border-neutral-800 px-3 py-2 text-sm text-neutral-300">

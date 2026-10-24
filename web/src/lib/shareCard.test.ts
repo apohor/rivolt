@@ -73,3 +73,12 @@ describe("off-peak share line", () => {
     expect(buildMonthShareModel(month, { includeCost: false, sample: false, offpeakSharePct: -3 }).stats.at(-1)?.value).toBe("0%");
   });
 });
+
+describe("estimated energy on the month card", () => {
+  it("marks the energy total with a tilde only when the month includes an estimated charge", () => {
+    const all = (m: ReturnType<typeof buildMonthShareModel>) => m.stats.map((s) => `${s.label} ${s.value}`).join(" | ");
+    expect(all(buildMonthShareModel(month, { includeCost: false, sample: false }))).not.toMatch(/Energy added ~/);
+    const est = { ...month, energy: { ...month.energy, includes_estimated: true } } as LedgerMonth;
+    expect(all(buildMonthShareModel(est, { includeCost: false, sample: false }))).toMatch(/Energy added ~\d+ kWh/);
+  });
+});
