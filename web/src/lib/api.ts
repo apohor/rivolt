@@ -2681,7 +2681,15 @@ export type OvernightCandidate = {
 
 export type OvernightCandidatesResponse = {
   candidates: OvernightCandidate[];
-  target: { lat: number; lon: number; along_m: number; reaches_end: boolean };
+  target: {
+    lat: number;
+    lon: number;
+    along_m: number;
+    reaches_end: boolean;
+    // Minutes of driving before and after the budget point that the search covered (the widest tried, when nothing was found). Absent on an older server.
+    window_before_min?: number;
+    window_after_min?: number;
+  };
   route_m: number;
   source: string;
   attribution?: string;

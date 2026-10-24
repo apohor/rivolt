@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campgroundPageUrl, campPowerLine, hookupFromAmps, sitesLine, RIDB_CREDIT_TEXT } from "./stays";
+import { campgroundPageUrl, campPowerLine, hookupFromAmps, sitesLine, RIDB_CREDIT_TEXT, offTargetLine, searchedLine } from "./stays";
 
 describe("campground helpers", () => {
   it("links only to a campground page by numeric id", () => {
@@ -27,5 +27,24 @@ describe("campground helpers", () => {
   });
   it("credit text", () => {
     expect(RIDB_CREDIT_TEXT).toBe("Data: Recreation.gov (RIDB), CC BY 4.0; filtered by Rivolt");
+  });
+});
+
+describe("planner search lines", () => {
+  const fmt = (km: number) => `${Math.round(km * 0.621371)} mi`;
+  const route = { route_m: 900_000, drive_sec: 36_000 }; // 25 m/s
+  it("says how far the empty search looked on each side", () => {
+    expect(searchedLine({ window_before_min: 180, window_after_min: 60 }, route, 8, fmt)).toBe(
+      "No hotel or campground with Level 2 or a hookup within about 168 mi before or 56 mi after your 8 h point. Pick a stop by hand.",
+    );
+  });
+  it("falls back to the plain line on an older server", () => {
+    expect(searchedLine({}, route, 8, fmt)).toContain("found near here");
+  });
+  it("names a stay that is not near the point", () => {
+    expect(offTargetLine(400_000, 360_000, 8, fmt)).toBe("about 25 mi before your 8 h point");
+    expect(offTargetLine(400_000, 440_000, 8, fmt)).toBe("about 25 mi after your 8 h point");
+    expect(offTargetLine(400_000, 395_000, 8, fmt)).toBe("");
+    expect(offTargetLine(400_000, undefined, 8, fmt)).toBe("");
   });
 });
