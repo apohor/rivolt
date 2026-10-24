@@ -24,7 +24,7 @@ final class NowComfortTests: XCTestCase {
         let c = try XCTUnwrap(NowComfort(cabinTempC: 28.6, preconditioning: "preconditioning", petMode: "on", cabinHold: nil))
         let cabin = try XCTUnwrap(c.cabinValue)
         XCTAssertFalse(cabin.contains("."), "whole degrees: \(cabin)")
-        XCTAssertTrue(cabin.contains("29") || cabin.contains("84"), cabin)
+        XCTAssertTrue(cabin.contains("29") || cabin.contains("83"), cabin)
         XCTAssertEqual(c.lineText, "Preconditioning · Pet mode on")
         XCTAssertEqual(try XCTUnwrap(NowComfort(cabinTempC: 20, preconditioning: nil, petMode: nil, cabinHold: nil)).lineText, "", "nothing else to say, no line")
         XCTAssertNil(NowComfort(cabinTempC: nil, preconditioning: nil, petMode: "on", cabinHold: nil)?.cabinValue, "no reading, no row")
