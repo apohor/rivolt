@@ -79,7 +79,7 @@ final class DeleteAccountTests: XCTestCase {
         DeleteStub.seen = []
         await s.recheckAfterDeletion()
         XCTAssertEqual(s.phase, .loggedOut)
-        XCTAssertEqual(s.signInNotice, "Your account was deleted.")
+        XCTAssertEqual(s.signInNotice, "Signed out. If you deleted your account, it is gone.")
         XCTAssertNil(tokens.held)
         XCTAssertTrue(DeleteStub.seen.allSatisfy { $0.httpMethod == "GET" }, "no sign-out call goes to a server that has already ended the session")
         s.clearSignInNotice()

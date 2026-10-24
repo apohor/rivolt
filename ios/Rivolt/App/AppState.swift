@@ -248,7 +248,7 @@ final class AppState {
             _ = try await client.me()
         } catch APIError.server(let status, _) where status == 401 {
             awaitingDeletion = false
-            await forgetSession(notice: "Your account was deleted.")
+            await forgetSession(notice: "Signed out. If you deleted your account, it is gone.")
         } catch {
             return
         }
