@@ -10,7 +10,7 @@ enum MoneyLogic {
     static func money(_ v: Double, _ currency: String, digits: Int = 2) -> String { NumberText.money(v, currency, digits: digits) }
 
     /// Under a month's energy total that includes an estimated charge (the web's `ENERGY_ESTIMATED_TOTAL_NOTE`).
-    static let energyEstimatedTotalNote = "Some charges this month have an estimated energy figure (marked ~): worked out from the battery's change because the energy count was lost."
+    static let energyEstimatedTotalNote = "Some charges this month have an estimated energy figure (marked ~): worked out from the battery's change because a Rivolt bug lost their energy count."
 
     static func plural(_ n: Int, _ one: String, _ many: String) -> String { n == 1 ? one : many }
 

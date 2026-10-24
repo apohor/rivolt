@@ -98,7 +98,7 @@ enum ActivityLogic {
     }
 
     /// The words under an estimated energy figure (the web's `ENERGY_ESTIMATED_NOTE`).
-    static let energyEstimatedNote = "Estimated from the battery's change. The energy count for this charge was lost."
+    static let energyEstimatedNote = "Estimated from the battery's change. A Rivolt bug lost the energy count for this charge."
 
     /// "12.3 kWh", or "~12.3 kWh" when the energy is an estimate.
     static func energyText(_ c: ActivityCharge, digits: Int = 1) -> String {

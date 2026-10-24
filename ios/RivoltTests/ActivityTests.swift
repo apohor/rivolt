@@ -50,7 +50,7 @@ final class EnergyEstimatedTests: XCTestCase {
         let c = make(estimated: true)
         let tile = ActivityLogic.tiles(c).first { $0.id == "energy" }
         XCTAssertEqual(tile?.value, "~12.3")
-        XCTAssertEqual(tile?.hint, "Estimated from the battery's change. The energy count for this charge was lost.")
+        XCTAssertEqual(tile?.hint, "Estimated from the battery's change. A Rivolt bug lost the energy count for this charge.")
         XCTAssertTrue(ActivityLogic.spoken(c, calendar: .current).contains("About 12.3 kilowatt hours added, an estimate."))
         XCTAssertNil(ActivityLogic.tiles(make(estimated: nil)).first { $0.id == "energy" }?.hint)
         XCTAssertNil(ActivityLogic.energyEstimatedNote.range(of: "exact|metered|measured|accurate", options: [.regularExpression, .caseInsensitive]))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENERGY_ESTIMATED_NOTE, energyKWhText, isEnergyEstimated } from "./energyEstimated";
+import { ENERGY_ESTIMATED_NOTE, ENERGY_ESTIMATED_TOTAL_NOTE, energyKWhText, isEnergyEstimated } from "./energyEstimated";
 import { chargeCostLine } from "./activityFeed";
 import type { Charge } from "./api";
 
@@ -28,7 +28,11 @@ describe("estimated energy", () => {
     expect(chargeCostLine(charge({ EnergyEstimated: true, CostSource: "network_estimate", MaxPowerKW: 150, Cost: 20 })).text).toBe("~$20.00");
   });
   it("says only what DA's wording says, and never claims the figure is metered or exact", () => {
-    expect(ENERGY_ESTIMATED_NOTE).toBe("Estimated from the battery's change. The energy count for this charge was lost.");
+    expect(ENERGY_ESTIMATED_NOTE).toBe("Estimated from the battery's change. A Rivolt bug lost the energy count for this charge.");
     expect(ENERGY_ESTIMATED_NOTE).not.toMatch(/exact|metered|measured|accurate/i);
+    expect(ENERGY_ESTIMATED_TOTAL_NOTE).toBe(
+      "Some charges this month have an estimated energy figure (marked ~): worked out from the battery's change because a Rivolt bug lost their energy count.",
+    );
+    expect(ENERGY_ESTIMATED_TOTAL_NOTE).not.toMatch(/exact|metered|measured|accurate/i);
   });
 });
