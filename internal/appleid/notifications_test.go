@@ -33,13 +33,12 @@ const (
 )
 
 type fakeStore struct {
-	users       map[string]uuid.UUID
-	seen        map[string]bool
-	tokenDrop   []uuid.UUID
-	undeliv     map[uuid.UUID]bool
-	mail        string
-	failDrop    bool
-	failSetFlag bool
+	users     map[string]uuid.UUID
+	seen      map[string]bool
+	tokenDrop []uuid.UUID
+	undeliv   map[uuid.UUID]bool
+	mail      string
+	failDrop  bool
 }
 
 func (f *fakeStore) UserBySub(_ context.Context, sub string) (uuid.UUID, bool, error) {
