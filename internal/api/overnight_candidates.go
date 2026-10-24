@@ -68,9 +68,13 @@ func handleOvernightCandidates(a *chargers.Archive) http.HandlerFunc {
 func overnightHandler(arch overnight.Archive, ensure func(context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req overnightRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, routeBodyMax)).Decode(&req); err != nil {
 			jsonError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 			return
+		}
+		// A long drive's polyline can have more points than a suggestion needs; thin it, as chargers-along does.
+		if len(req.Path) > overnight.MaxPathPoints && len(req.Path) <= chargers.MaxRoutePoints {
+			req.Path = chargers.ThinPath(req.Path, overnight.MaxPathPoints)
 		}
 		if err := ensure(r.Context()); err != nil {
 			jsonError(w, http.StatusServiceUnavailable, "the charger listing is unavailable right now; try again shortly")
