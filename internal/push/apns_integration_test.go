@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -344,4 +345,85 @@ func untimedLogger(w io.Writer) *slog.Logger {
 		}
 		return a
 	}}))
+}
+
+// A device token moves to another account only for the same install: a row with an install hash under a live session is not
+// taken by someone who merely knows the token. A dead session, or a row from an older app (no hash), moves as it always did.
+func TestAPNsTokenMovesOnlyForTheSameInstall(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	a, _ := db.EnsureUser(ctx, pool, "apns-install-a")
+	b, _ := db.EnsureUser(ctx, pool, "apns-install-b")
+	stA, _ := OpenStore(pool, a)
+	stB, _ := OpenStore(pool, b)
+	dev := func(token, install string) APNsDevice {
+		return APNsDevice{Token: token, Env: EnvSandbox, BundleID: "me.apoh.rivolt", InstallID: install}
+	}
+	owner := func(token string) uuid.UUID {
+		t.Helper()
+		var u uuid.UUID
+		if err := pool.QueryRowContext(ctx, `SELECT user_id FROM push_apns_devices WHERE token = $1`, token).Scan(&u); err != nil {
+			return uuid.Nil
+		}
+		return u
+	}
+	refused := func(err error, reason string) {
+		t.Helper()
+		var e ErrDeviceElsewhere
+		if !errors.As(err, &e) || e.Reason != reason {
+			t.Errorf("err = %v, want ErrDeviceElsewhere(%s)", err, reason)
+		}
+	}
+	sa, sb := session(t, ctx, pool, a), session(t, ctx, pool, b)
+
+	// An install that has a hash: refused without the id, and with another one; the same id moves it.
+	if err := stA.UpsertAPNsDevice(ctx, sa, dev(tok(0), "install-one")); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := pool.QueryRowContext(ctx, `SELECT install_hash FROM push_apns_devices WHERE token = $1`, tok(0)).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == "install-one" || len(stored) != 64 {
+		t.Errorf("stored %q: only a sha256 of the install id belongs in the table", stored)
+	}
+	refused(stB.UpsertAPNsDevice(ctx, sb, dev(tok(0), "")), "install_missing")
+	refused(stB.UpsertAPNsDevice(ctx, sb, dev(tok(0), "install-two")), "install_mismatch")
+	if owner(tok(0)) != a {
+		t.Fatal("a refused register still moved the row")
+	}
+	if err := stB.UpsertAPNsDevice(ctx, sb, dev(tok(0), "install-one")); err != nil {
+		t.Fatalf("the same install signing in as another account: %v", err)
+	}
+	if owner(tok(0)) != b {
+		t.Error("the same install did not move the row")
+	}
+
+	// A row from an older app (no hash) moves for anyone, and registering with an id then pins it.
+	if err := stA.UpsertAPNsDevice(ctx, sa, dev(tok(1), "")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stB.UpsertAPNsDevice(ctx, sb, dev(tok(1), "install-two")); err != nil {
+		t.Fatalf("a legacy row should still move: %v", err)
+	}
+	refused(stA.UpsertAPNsDevice(ctx, sa, dev(tok(1), "install-one")), "install_mismatch")
+
+	// Re-registering without an id keeps the hash (an older build does not erase the protection).
+	if err := stB.UpsertAPNsDevice(ctx, sb, dev(tok(1), "")); err != nil {
+		t.Fatal(err)
+	}
+	refused(stA.UpsertAPNsDevice(ctx, sa, dev(tok(1), "")), "install_missing")
+
+	// A dead session frees the token whatever the hash: expired (a revoked one deletes its device outright).
+	if err := stA.UpsertAPNsDevice(ctx, sa, dev(tok(2), "install-one")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE sessions SET expires_at = now() - interval '1 minute' WHERE id = $1`, sa); err != nil {
+		t.Fatal(err)
+	}
+	if err := stB.UpsertAPNsDevice(ctx, sb, dev(tok(2), "install-two")); err != nil {
+		t.Fatalf("a token whose owner's session expired should be free: %v", err)
+	}
+	if owner(tok(2)) != b {
+		t.Error("the token did not move after the old session expired")
+	}
 }

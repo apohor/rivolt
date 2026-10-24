@@ -42,27 +42,37 @@ func decodeAPNsBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func handleAPNsRegister(svc *push.Service, store *push.Store) http.HandlerFunc {
+// onRefused is told the fixed reason of each register refused as belonging to another account (a count, nothing else).
+func handleAPNsRegister(svc *push.Service, store *push.Store, onRefused func(reason string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sid, ok := apnsGuard(svc, w, r)
 		if !ok {
 			return
 		}
 		var body struct {
-			Token    string `json:"token"`
-			Env      string `json:"env"`
-			BundleID string `json:"bundle_id"`
+			Token     string `json:"token"`
+			Env       string `json:"env"`
+			BundleID  string `json:"bundle_id"`
+			InstallID string `json:"install_id"`
 		}
 		if !decodeAPNsBody(w, r, &body) {
 			return
 		}
 		topic := svc.APNsTopic()
 		if !push.ValidDeviceToken(body.Token) || (body.Env != "sandbox" && body.Env != "production") ||
-			(body.BundleID != "" && body.BundleID != topic) {
+			(body.BundleID != "" && body.BundleID != topic) || len(body.InstallID) > 128 {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid device"})
 			return
 		}
-		if err := store.UpsertAPNsDevice(r.Context(), sid, push.APNsDevice{Token: body.Token, Env: body.Env, BundleID: topic}); err != nil {
+		if err := store.UpsertAPNsDevice(r.Context(), sid, push.APNsDevice{Token: body.Token, Env: body.Env, BundleID: topic, InstallID: body.InstallID}); err != nil {
+			var elsewhere push.ErrDeviceElsewhere
+			if errors.As(err, &elsewhere) {
+				if onRefused != nil {
+					onRefused(elsewhere.Reason)
+				}
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "device_registered_elsewhere"})
+				return
+			}
 			slog.ErrorContext(r.Context(), "apns register", "err", err.Error())
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "unavailable"})
 			return

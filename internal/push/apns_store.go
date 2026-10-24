@@ -2,7 +2,9 @@ package push
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -23,6 +25,26 @@ type APNsDevice struct {
 	Prefs     Preferences
 	CreatedAt time.Time
 	LastOKAt  *time.Time
+	// InstallID is the random id the app keeps in its Keychain, sent on register. Only its hash is stored (install_hash);
+	// the raw value is never kept, logged or exported. Empty from an older app.
+	InstallID string
+}
+
+// ErrDeviceElsewhere is a register refused because the token is registered to another account whose session is live, and
+// the caller did not prove it is the same install (the install id matches). Reason says which: "install_mismatch" or
+// "install_missing" (a fixed list, safe as a metric label).
+type ErrDeviceElsewhere struct{ Reason string }
+
+func (e ErrDeviceElsewhere) Error() string { return "push: device is registered to another account" }
+
+// installHash is what is stored of an install id: sha256, hex. Empty for no id.
+func installHash(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(h[:])
 }
 
 // ErrNotFound is "no such notification (for this user, still fresh)".
@@ -42,20 +64,51 @@ func (s *Store) UpsertAPNsDevice(ctx context.Context, sessionID uuid.UUID, d APN
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	// An Apple token is one install: it belongs to whoever signed in on it last, so
-	// another account's registration of it (a sign-out that never reached the
-	// server) is forgotten.
+	// An Apple token is one install: it belongs to whoever signed in on it last, so another account's registration of it (a
+	// sign-out that never reached the server) is forgotten. Unless that registration still has a live session and a hash
+	// of its install id, and the caller is not that install: then it is not ours to take (ErrDeviceElsewhere). A dead
+	// session frees the token whatever the hash, and a row from an older app (no hash) moves as it always did.
+	callerHash := installHash(d.InstallID)
+	rows, err := tx.QueryContext(ctx, `
+		SELECT COALESCE(d.install_hash, ''), (s.revoked_at IS NULL AND s.expires_at > now())
+		  FROM push_apns_devices d JOIN sessions s ON s.id = d.session_id
+		 WHERE d.token = $1 AND d.user_id <> $2`, d.Token, s.userID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var hash string
+		var live bool
+		if err := rows.Scan(&hash, &live); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if live && hash != "" && hash != callerHash {
+			_ = rows.Close()
+			reason := "install_mismatch"
+			if callerHash == "" {
+				reason = "install_missing"
+			}
+			return ErrDeviceElsewhere{Reason: reason}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM push_apns_devices WHERE token = $1 AND user_id <> $2`, d.Token, s.userID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id, install_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
 		ON CONFLICT (user_id, token) DO UPDATE SET
-			session_id = EXCLUDED.session_id,
-			env        = EXCLUDED.env,
-			bundle_id  = EXCLUDED.bundle_id`,
-		uuid.New(), s.userID, sessionID, d.Token, d.Env, d.BundleID); err != nil {
+			session_id   = EXCLUDED.session_id,
+			env          = EXCLUDED.env,
+			bundle_id    = EXCLUDED.bundle_id,
+			install_hash = COALESCE(EXCLUDED.install_hash, push_apns_devices.install_hash)`,
+		uuid.New(), s.userID, sessionID, d.Token, d.Env, d.BundleID, callerHash); err != nil {
 		return err
 	}
 	return tx.Commit()

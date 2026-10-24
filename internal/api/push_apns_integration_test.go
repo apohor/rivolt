@@ -63,7 +63,7 @@ func TestAPNsEndpoints(t *testing.T) {
 		return uid, st, sid
 	}
 	alice, as, asid := mkUser("apns-api-alice")
-	bob, bs, _ := mkUser("apns-api-bob")
+	bob, bs, bsid := mkUser("apns-api-bob")
 
 	const (
 		tokA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -86,10 +86,10 @@ func TestAPNsEndpoints(t *testing.T) {
 	}
 
 	// A browser session, or a server with APNs off, never registers a device.
-	if code, _ := call(handleAPNsRegister(on, as), alice, asid, false, reg(tokA)); code != 403 {
+	if code, _ := call(handleAPNsRegister(on, as, nil), alice, asid, false, reg(tokA)); code != 403 {
 		t.Errorf("cookie register = %d, want 403", code)
 	}
-	if code, _ := call(handleAPNsRegister(off, as), alice, asid, true, reg(tokA)); code != 404 {
+	if code, _ := call(handleAPNsRegister(off, as, nil), alice, asid, true, reg(tokA)); code != 404 {
 		t.Errorf("apns off register = %d, want 404", code)
 	}
 	// Malformed devices.
@@ -99,16 +99,43 @@ func TestAPNsEndpoints(t *testing.T) {
 		`{"token":"` + tokA + `","env":"sandbox","bundle_id":"com.other.app"}`,
 		`{"token":"` + tokA + `/../x","env":"sandbox"}`,
 	} {
-		if code, _ := call(handleAPNsRegister(on, as), alice, asid, true, body); code != 400 {
+		if code, _ := call(handleAPNsRegister(on, as, nil), alice, asid, true, body); code != 400 {
 			t.Errorf("register %s = %d, want 400", body, code)
 		}
 	}
 
 	// Register: the web's defaults come back, and the device is tied to the session.
-	code, out := call(handleAPNsRegister(on, as), alice, asid, true, reg(tokA))
+	code, out := call(handleAPNsRegister(on, as, nil), alice, asid, true, reg(tokA))
 	p, _ := out["preferences"].(map[string]any)
 	if code != 200 || p["on_charging_done"] != true || p["on_plug_in_reminder"] != false || p["on_milestones"] != false {
 		t.Fatalf("register = %d %v", code, out)
+	}
+
+	// A token registered with an install id is not taken by another account that only knows the token: 409, counted by
+	// reason, the row stays; the same install id moves it.
+	const tokC = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	withInstall := func(install string) string {
+		return `{"token":"` + tokC + `","env":"sandbox","bundle_id":"dev.rivolt.app","install_id":"` + install + `"}`
+	}
+	if code, _ := call(handleAPNsRegister(on, as, nil), alice, asid, true, withInstall("install-alice")); code != 200 {
+		t.Fatalf("register with an install id = %d", code)
+	}
+	var reasons []string
+	count := func(reason string) { reasons = append(reasons, reason) }
+	if code, out := call(handleAPNsRegister(on, bs, count), bob, bsid, true, reg(tokC)); code != 409 || out["error"] != "device_registered_elsewhere" {
+		t.Errorf("a stranger registering the token = %d %v, want 409 device_registered_elsewhere", code, out)
+	}
+	if code, _ := call(handleAPNsRegister(on, bs, count), bob, bsid, true, withInstall("install-bob")); code != 409 {
+		t.Errorf("a stranger with another install id = %d, want 409", code)
+	}
+	if len(reasons) != 2 || reasons[0] != "install_missing" || reasons[1] != "install_mismatch" {
+		t.Errorf("refusals counted as %v", reasons)
+	}
+	if code, _ := call(handleAPNsRegister(on, bs, count), bob, bsid, true, withInstall("install-alice")); code != 200 {
+		t.Errorf("the same install signing in as bob = %d, want 200", code)
+	}
+	if len(reasons) != 2 {
+		t.Errorf("a successful move was counted as a refusal: %v", reasons)
 	}
 
 	// Preferences: all five switches work; another user's token is a 404.
@@ -244,11 +271,11 @@ func TestAPNsLiveActivityEndpoints(t *testing.T) {
 	}
 	reqA := `{"token":"` + dev + `","activity_token":"` + actT + `","vehicle_id":"` + avid.String() + `"}`
 
-	if code, _ := call(handleAPNsRegister(on, as), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`); code != 200 {
+	if code, _ := call(handleAPNsRegister(on, as, nil), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`); code != 200 {
 		t.Fatalf("register device = %d", code)
 	}
 	// Register returns the switch, off.
-	_, out := call(handleAPNsRegister(on, as), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`)
+	_, out := call(handleAPNsRegister(on, as, nil), alice, asid, true, `{"token":"`+dev+`","env":"sandbox"}`)
 	if p, _ := out["preferences"].(map[string]any); p["on_charging_live"] != false {
 		t.Errorf("register preferences = %v, want on_charging_live false", out["preferences"])
 	}
