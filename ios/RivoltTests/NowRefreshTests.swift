@@ -13,6 +13,14 @@ final class NowRefreshTests: XCTestCase {
         return NowSummary(input: input, now: nil, clock: clock)
     }
 
+    func testTheListsAreReadAgainAfterADriveOrChargeEnds() {
+        XCTAssertEqual(NowRefresh.afterSessionEndsDelays, [30, 90, 180, 360], "the server saves the session a little after the truck stops")
+        XCTAssertEqual(NowRefresh.afterSessionEndsDelays, NowRefresh.afterSessionEndsDelays.sorted())
+        XCTAssertTrue(NowRefresh.inFlight(.charging))
+        XCTAssertTrue(NowRefresh.inFlight(.driving))
+        for kind in [NowSnapshot.State.plugged, .parked, .asleep, .unknown] { XCTAssertFalse(NowRefresh.inFlight(kind), "\(kind)") }
+    }
+
     func testTheScreenReadsQuicklyWhileItMovesAndEveryMinuteOtherwise() {
         XCTAssertEqual(NowRefresh.pollInterval(.charging), 10)
         XCTAssertEqual(NowRefresh.pollInterval(.driving), 10)

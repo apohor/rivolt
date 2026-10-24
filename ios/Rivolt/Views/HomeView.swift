@@ -12,6 +12,8 @@ struct HomeView: View {
 
     @AppStorage("rivolt.selected_vehicle") private var selectedID = ""
     @State private var vehicles: [Vehicle] = []
+    /// The re-reads after a drive or charge ends (cancelled when another starts).
+    @State private var settleTask: Task<Void, Never>?
     @State private var vehicleState: VehicleState?
     @State private var now: NowSnapshot?
     @State private var loadError: String?
@@ -108,6 +110,21 @@ struct HomeView: View {
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
+            // A drive or charge just ended: the server saves it a little later, so the lists are read again a few times.
+            .onChange(of: NowRefresh.inFlight(now?.state ?? NowSummary.inferState(from: vehicleState))) { was, isNow in
+                settleTask?.cancel()
+                guard was, !isNow else { return }
+                settleTask = Task {
+                    await load(force: true)
+                    var elapsed: TimeInterval = 0
+                    for at in NowRefresh.afterSessionEndsDelays {
+                        try? await Task.sleep(for: .seconds(at - elapsed))
+                        elapsed = at
+                        if Task.isCancelled { return }
+                        await load(force: true)
+                    }
+                }
+            }
             // The Live Activity follows the switch: on while charging starts it, off ends it.
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
             .safeAreaInset(edge: .top, spacing: 0) {

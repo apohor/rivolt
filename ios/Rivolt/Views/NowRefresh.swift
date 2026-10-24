@@ -6,6 +6,13 @@ import os
 enum NowRefresh {
     /// Seconds between reads while the screen is up: quick while the numbers move (charging, driving), a minute when the
     /// truck is parked, plugged in or asleep.
+    /// The server writes a drive or charge a little after the truck stops, so the lists read the moment it stops can lack it. The
+    /// Now screen reads them again at these delays (seconds) after a drive or charge ends, until another starts.
+    static let afterSessionEndsDelays: [TimeInterval] = [30, 90, 180, 360]
+
+    /// A drive or a charge is under way.
+    static func inFlight(_ kind: NowSnapshot.State) -> Bool { kind == .charging || kind == .driving }
+
     static func pollInterval(_ kind: NowSnapshot.State) -> TimeInterval {
         switch kind {
         case .charging, .driving: return 10
