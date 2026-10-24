@@ -102,21 +102,24 @@ const (
 // fields are nullable columns: nil means "not recorded", which the
 // ledger keeps distinct from zero.
 type Charge struct {
-	ID          string // charges.external_id, the id /api/charges exposes
-	VehicleID   string // Rivian vehicle id
-	StartedAt   time.Time
-	EndedAt     time.Time
-	StartSoC    *float64
-	EndSoC      *float64
-	EnergyKWh   *float64
-	PeakKW      *float64
-	Cost        *float64
-	Currency    string
-	PricePerKWh *float64
-	FinalState  string
-	Source      string
-	Lat, Lon    *float64
-	CreatedAt   time.Time
+	// EnergyEstimated: the energy was estimated from the SoC gain because its metered count had been lost (charges.metadata
+	// "energy_estimated"); the cost, priced from it, is estimated with it.
+	EnergyEstimated bool
+	ID              string // charges.external_id, the id /api/charges exposes
+	VehicleID       string // Rivian vehicle id
+	StartedAt       time.Time
+	EndedAt         time.Time
+	StartSoC        *float64
+	EndSoC          *float64
+	EnergyKWh       *float64
+	PeakKW          *float64
+	Cost            *float64
+	Currency        string
+	PricePerKWh     *float64
+	FinalState      string
+	Source          string
+	Lat, Lon        *float64
+	CreatedAt       time.Time
 	// ActiveSeconds is charges.active_seconds (time actually drawing
 	// power); nil when not recorded. Feeds the shared DCFC rule.
 	ActiveSeconds *float64
@@ -329,6 +332,8 @@ type Energy struct {
 	// classification: summed over places it equals ByKind, over kinds
 	// ByPlace. All six cells are always present.
 	ByPlaceKind map[string]map[string]KindLine `json:"by_place_kind"`
+	// IncludesEstimated is true when kwh_added includes a charge whose energy was estimated from the SoC gain.
+	IncludesEstimated bool `json:"includes_estimated"`
 }
 
 // KindLine is one by_kind / by_place bucket. Sessions are classified
@@ -370,6 +375,8 @@ type Receipt struct {
 	Cost       *float64  `json:"cost"`
 	CostSource string    `json:"cost_source"`
 	Network    *string   `json:"network"`
+	// EnergyEstimated: some session's energy (and so cost) was estimated from the SoC gain.
+	EnergyEstimated bool `json:"energy_estimated"`
 	// NetworkState is the most urgent verify state among the receipt's
 	// sessions (needs_confirmation > estimated > confirmed); the
 	// confidence and evidence are that session's. null when none.
@@ -414,6 +421,8 @@ type ReceiptSession struct {
 	Cost        *float64  `json:"cost"`
 	PricePerKWh *float64  `json:"price_per_kwh"`
 	CostSource  string    `json:"cost_source"`
+	// EnergyEstimated: the energy (and so the cost) was estimated from the SoC gain.
+	EnergyEstimated bool `json:"energy_estimated"`
 	// CostSourceDerived is true when cost_source was derived at query
 	// time (legacy row) rather than persisted by the recorder.
 	CostSourceDerived bool            `json:"cost_source_derived"`
@@ -1006,6 +1015,7 @@ func FromCharge(c charges.Charge) Charge {
 		NetworkState: c.NetworkState, NetworkConfidence: c.NetworkConfidence, NetworkEvidence: c.NetworkEvidence,
 		BilledCost: c.ReceiptCost, BilledCurrency: c.ReceiptCurrency,
 		EstimateMonth: c.EstimateMonth, EstimateURL: c.EstimateURL,
+		EnergyEstimated: c.EnergyEstimated,
 	}
 	if strings.EqualFold(c.CostSource, SourceUser) {
 		cost := c.Cost
@@ -1082,6 +1092,9 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 
 		out.Energy.Sessions++
 		out.Energy.KWhAdded += kwh
+		if c.EnergyEstimated {
+			out.Energy.IncludesEstimated = true
+		}
 		if !hasEnergy(c) {
 			out.Energy.NullEnergySessions++
 		}
@@ -1323,6 +1336,9 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			r.PeakKW = &pk
 		}
 		r.KWh += val(c.EnergyKWh)
+		if c.EnergyEstimated {
+			r.EnergyEstimated = true
+		}
 		// Zero-energy crumbs don't decide the receipt's cost source or
 		// make a priced receipt look unpriced.
 		if hasEnergy(c) || v.spendOK {
@@ -1355,6 +1371,7 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			Cost:              c.Cost,
 			PricePerKWh:       c.PricePerKWh,
 			CostSource:        v.source,
+			EnergyEstimated:   c.EnergyEstimated,
 			CostSourceDerived: v.derived,
 			Network:           networkOf(c),
 			NetworkState:      networkStateOf(c),

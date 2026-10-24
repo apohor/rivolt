@@ -1372,3 +1372,64 @@ func TestUpsert_EnergyEstimatedIsSticky(t *testing.T) {
 		t.Errorf("an update did not mark: %s", md)
 	}
 }
+
+// Every reader of a charge returns the energy_estimated mark: the list, the single get, the open-live lookup and the walk.
+func TestReaders_ReturnEnergyEstimated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "chargestest-readers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	start := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	est := sampleCharge("rd-est", "rv-rd", start, "charging_active")
+	est.EnergyEstimated = true
+	plain := sampleCharge("rd-plain", "rv-rd", start.Add(-5*time.Hour), "charging_complete")
+	for _, c := range []charges.Charge{est, plain} {
+		if err := store.Upsert(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]bool{"rd-est": true, "rd-plain": false}
+	check := func(where string, got map[string]bool) {
+		t.Helper()
+		for id, w := range want {
+			if g, ok := got[id]; !ok || g != w {
+				t.Errorf("%s: %s estimated = %v (found %v), want %v", where, id, g, ok, w)
+			}
+		}
+	}
+	list, err := store.ListRecent(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, c := range list {
+		got[c.ID] = c.EnergyEstimated
+	}
+	check("list", got)
+	got = map[string]bool{}
+	for id := range want {
+		c, err := store.GetByExternalID(ctx, id)
+		if err != nil || c == nil {
+			t.Fatalf("get %s: %v", id, err)
+		}
+		got[id] = c.EnergyEstimated
+	}
+	check("get", got)
+	got = map[string]bool{}
+	if err := store.EachAll(ctx, func(c charges.Charge) error { got[c.ID] = c.EnergyEstimated; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	check("walk", got)
+	open, err := store.LatestOpenLive(ctx, "rv-rd")
+	if err != nil || open == nil || open.ID != "rd-est" || !open.EnergyEstimated {
+		t.Errorf("open-live: %+v %v, want rd-est marked", open, err)
+	}
+}

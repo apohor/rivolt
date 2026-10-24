@@ -75,6 +75,8 @@ type activityCharge struct {
 	Kind              string    `json:"kind"`
 	Place             string    `json:"place"`
 	Network           string    `json:"network"`
+	// EnergyEstimated: the energy was estimated from the SoC gain (its metered count had been lost), so the cost is too.
+	EnergyEstimated bool `json:"energy_estimated"`
 }
 
 type activityResponse struct {
@@ -373,7 +375,7 @@ func handleActivity(ds *drives.Store, cs *charges.Store, settingsStore *settings
 					EnergyAddedKWh: c.EnergyAddedKWh, StartSoCPct: c.StartSoCPct, EndSoCPct: c.EndSoCPct, MaxPowerKW: c.MaxPowerKW,
 					Cost: c.Cost, Currency: c.Currency, CostSourceEff: costSrc,
 					EstimatedCost: c.EstimatedCost, EstimatedCurrency: c.EstimatedCurrency,
-					Kind: kind, Place: place, Network: c.Network,
+					Kind: kind, Place: place, Network: c.Network, EnergyEstimated: c.EnergyEstimated,
 				})
 			}
 		}
