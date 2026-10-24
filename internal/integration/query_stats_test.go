@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,5 +80,22 @@ func TestQueryStatsFunction(t *testing.T) {
 	}
 	if !roleExec || otherExec || publicExec {
 		t.Errorf("EXECUTE: reporting role %v, another role %v, PUBLIC %v; want only the reporting role", roleExec, otherExec, publicExec)
+	}
+
+	// The definer's resolution can't be steered by a caller's temp table: pg_temp is listed last in its
+	// search_path, and every relation it reads is named with its schema.
+	var def string
+	if err := pool.QueryRowContext(ctx, `SELECT pg_get_functiondef(to_regprocedure('rivolt_query_stats()'))`).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`SET search_path TO 'pg_catalog', 'public', 'pg_temp'`,
+		`public.pg_stat_statements`,
+		`pg_catalog.pg_roles`,
+		`pg_catalog.pg_database`,
+	} {
+		if !strings.Contains(def, want) {
+			t.Errorf("rivolt_query_stats() definition lacks %q:\n%s", want, def)
+		}
 	}
 }
