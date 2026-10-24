@@ -18,7 +18,7 @@ export function cabinValue(s: Pick<VehicleState, "cabin_temp_c">, unit: Temperat
 }
 
 // The rest of the comfort line: preconditioning, pet mode, climate hold (the cabin temperature has its own row).
-export function comfortParts(s: Comfort, unit: TemperatureUnit): string[] {
+export function comfortParts(s: Comfort): string[] {
   const out: string[] = [];
   const precon = clean(s.cabin_preconditioning_status);
   if (precon === "preconditioning") out.push("Preconditioning");

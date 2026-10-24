@@ -239,7 +239,7 @@ export default function NowCard({
   const scheduleText = schedStart != null ? `charging starts ${formatScheduleStart(schedStart)} (schedule)` : null;
   const pill = statusPill(view);
   // Only while the frame is live: a stale or offline truck shows none, so an old "Pet mode on" never reads as current.
-  const comfort = offline || view.stale ? [] : comfortParts(state, temperatureUnit);
+  const comfort = offline || view.stale ? [] : comfortParts(state);
   const cabin = offline || view.stale ? null : cabinValue(state, temperatureUnit);
   // While the truck says it is installing a software update and the frame is live: it explains why the truck may stop answering.
   const update = offline || view.stale ? null : otaUpdate(state);
