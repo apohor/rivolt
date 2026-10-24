@@ -96,6 +96,9 @@ type LiveChargeSnapshot struct {
 	// pod handoff so the session duration doesn't reset when a peer
 	// takes over mid-charge.
 	ActiveSeconds float64 `json:"active_seconds"`
+	// EnergyIntKWh carries the energy integral across a handoff. Without it the peer's integral restarted at 0 and
+	// the charge ended with only the energy since the last handoff. Snapshots an older pod wrote lack it (0).
+	EnergyIntKWh float64 `json:"energy_int_kwh,omitempty"`
 }
 
 // LiveStateTTL is how long a snapshot lingers in Redis after the last
@@ -149,6 +152,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			LastMeaningfulAt: c.lastMeaningfulAt,
 			LastProgressAt:   c.lastProgressAt,
 			ActiveSeconds:    c.activeSeconds,
+			EnergyIntKWh:     c.energyIntKWh,
 		}
 	}
 	return snap
@@ -202,8 +206,9 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 			lastMeaningfulAt: lma,
 			lastProgressAt:   lpa,
 			activeSeconds:    c.ActiveSeconds,
-			// The integral isn't carried over (it restarts at 0), so the
-			// progress point is where this pod picks up.
+			energyIntKWh:     c.EnergyIntKWh,
+			// The progress point is where this pod picks up.
+			progressKWh:       c.EnergyIntKWh,
 			progressActiveSec: c.ActiveSeconds,
 		}
 	}

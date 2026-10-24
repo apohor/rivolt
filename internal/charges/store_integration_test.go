@@ -1313,3 +1313,62 @@ func TestApplyNetworkRate(t *testing.T) {
 		t.Errorf("after the user's price: %+v, want user and no estimate report", g)
 	}
 }
+
+// An estimated energy is marked in metadata, the mark survives any later save of the row (including one read back without
+// it), and a row that was never estimated carries none.
+func TestUpsert_EnergyEstimatedIsSticky(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "chargestest-estimated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	marked := func(id string) string {
+		var md string
+		if err := pool.QueryRowContext(ctx, `SELECT metadata::text FROM charges WHERE external_id = $1 AND user_id = $2`, id, uid).Scan(&md); err != nil {
+			t.Fatal(err)
+		}
+		return md
+	}
+
+	plain := sampleCharge("est-plain", "rv-est", start, "charging_complete")
+	if err := store.Upsert(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	if md := marked("est-plain"); strings.Contains(md, "energy_estimated") {
+		t.Errorf("a metered charge was marked: %s", md)
+	}
+
+	est := sampleCharge("est-yes", "rv-est", start.Add(2*time.Hour), "charging_active")
+	est.EnergyEstimated = true
+	if err := store.Upsert(ctx, est); err != nil {
+		t.Fatal(err)
+	}
+	if md := marked("est-yes"); !strings.Contains(md, `"energy_estimated": true`) {
+		t.Errorf("an estimated charge was not marked: %s", md)
+	}
+	// Saved again without the flag (a row read back and re-saved): the mark stays.
+	est.EnergyEstimated = false
+	est.FinalState = "charging_complete"
+	if err := store.Upsert(ctx, est); err != nil {
+		t.Fatal(err)
+	}
+	if md := marked("est-yes"); !strings.Contains(md, `"energy_estimated": true`) {
+		t.Errorf("a later save cleared the mark: %s", md)
+	}
+	// A plain row that is later estimated is marked by the update.
+	plain.EnergyEstimated = true
+	if err := store.Upsert(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	if md := marked("est-plain"); !strings.Contains(md, `"energy_estimated": true`) {
+		t.Errorf("an update did not mark: %s", md)
+	}
+}

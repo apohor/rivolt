@@ -2766,6 +2766,14 @@ func (s *sleepMetrics) OnSleepEnded(_ string, _ time.Duration, failed bool) {
 	s.m.VehicleSleepsTotal.WithLabelValues(outcome).Inc()
 }
 
+// OnChargeEnergyFloor implements rivian.ChargeEnergyObserver.
+func (s *sleepMetrics) OnChargeEnergyFloor() {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.ChargeEnergyFloorTotal.Inc()
+}
+
 // OnOTAStatus implements rivian.OTAObserver. class is from a fixed list or "other" (bounded cardinality).
 func (s *sleepMetrics) OnOTAStatus(class string) {
 	if s == nil || s.m == nil {
