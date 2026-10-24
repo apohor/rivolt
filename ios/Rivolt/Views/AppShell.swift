@@ -17,6 +17,8 @@ extension EnvironmentValues {
 /// own top bar, so its actions sit in it. A tab is built when it is first picked and then kept, so going back to it
 /// doesn't reload everything.
 struct AppShell: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab = "now"
     @State private var visited: Set<String> = ["now"]
 
@@ -42,6 +44,8 @@ struct AppShell: View {
         }
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: tab) { _, new in visited.insert(new) }
+        // Back in front after the account-deletion page: has the account gone? (Nothing happens unless the person went there.)
+        .onChange(of: scenePhase) { _, new in if new == .active { Task { await state.recheckAfterDeletion() } } }
     }
 
     @ViewBuilder

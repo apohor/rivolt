@@ -15,6 +15,7 @@ struct AccountMenu: View {
     @State private var showAcknowledgements = false
     @State private var showRates = false
     @State private var showConnection = false
+    @State private var showDelete = false
     @State private var showAbout = false
 
     var body: some View {
@@ -56,6 +57,7 @@ struct AccountMenu: View {
                 Button("Sign out", role: .destructive) {
                     Task { await state.logout() }
                 }
+                Button("Delete account", role: .destructive) { showDelete = true }
             }
         } label: {
             Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
@@ -64,6 +66,7 @@ struct AccountMenu: View {
         .sheet(isPresented: $showAbout) { DemoAboutSheet() }
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
         .sheet(isPresented: $showRates) { ChargingRatesView() }
+        .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
         .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
