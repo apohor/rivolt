@@ -32,7 +32,8 @@ final class TruckSnapshotTests: XCTestCase {
                    cold: .value(try Fixture.decode(ColdRange.self, "cold_range")),
                    lease: .value(try Fixture.decode(LeaseStatus.self, "lease_status")),
                    leaseTerms: try Fixture.decode(LeaseTerms.self, "lease_terms"),
-                   sleep: .value(try Fixture.decode([DayActivity].self, "sleep_activity")))
+                   sleep: .value(try Fixture.decode([DayActivity].self, "sleep_activity")),
+                   sleepHealth: .value(try Fixture.decode(SleepHealth.self, "sleep_health")))
     }
 
     private func page(_ key: TruckLogic.DrainKey, state: VehicleState? = nil) throws -> some View {

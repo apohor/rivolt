@@ -209,6 +209,61 @@ final class TruckLogicTests: XCTestCase {
         return try JSON.decoder().decode(VehicleState.self, from: JSONSerialization.data(withJSONObject: o))
     }
 
+    // MARK: Sleep health
+
+    func testSleepHealthDecodesTheServersAnswerAndReadsInTheWebsWords() throws {
+        let h = try Fixture.decode(SleepHealth.self, "sleep_health")
+        XCTAssertEqual(h.state, .more)
+        XCTAssertEqual(h.thisWeek.failedSleeps, 9)
+        XCTAssertEqual(h.moreBy, 4)
+        let l = TruckLogic.sleepHealthLines(h)
+        XCTAssertEqual(l.headline, "Woke 4 more times than usual this week.")
+        XCTAssertEqual(l.detail, "9 short sleeps (under a minute) this week; about 5 in a usual week.")
+        XCTAssertEqual(l.basis, "Compared with this truck's own last 30 days.")
+    }
+
+    func testSleepHealthNormalAndNotEnoughHistory() throws {
+        func make(_ state: String, failed: Int = 1, usual: Double? = 0.2) throws -> SleepHealth {
+            var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("sleep_health")) as? [String: Any])
+            o["state"] = state
+            o["this_week"] = ["days": 7, "sleeps": 20, "failed_sleeps": failed]
+            if let usual { o["usual_failed_sleeps"] = usual } else { o.removeValue(forKey: "usual_failed_sleeps") }
+            o["more_by"] = NSNull()
+            return try JSON.decoder().decode(SleepHealth.self, from: JSONSerialization.data(withJSONObject: o))
+        }
+        let normal = TruckLogic.sleepHealthLines(try make("normal"))
+        XCTAssertEqual(normal.headline, "Nothing unusual this week.")
+        XCTAssertEqual(normal.detail, "1 short sleep (under a minute) this week; almost none in a usual week.")
+        let none = TruckLogic.sleepHealthLines(try make("not_enough_data", failed: 3, usual: nil))
+        XCTAssertTrue(none.headline.hasPrefix("Not enough history"))
+        XCTAssertNil(none.detail, "no numbers without enough history")
+    }
+
+    func testSleepHealthNeverOffersACauseOrAVerdictOnTheTruck() throws {
+        for state in ["more", "normal", "not_enough_data"] {
+            var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("sleep_health")) as? [String: Any])
+            o["state"] = state
+            let h = try JSON.decoder().decode(SleepHealth.self, from: JSONSerialization.data(withJSONObject: o))
+            let l = TruckLogic.sleepHealthLines(h)
+            let text = [l.headline, l.detail ?? "", l.basis].joined(separator: " ")
+            XCTAssertNil(text.range(of: #"slept normally|because|caused|key|app|fault|fine|healthy|problem"#, options: [.regularExpression, .caseInsensitive]), text)
+        }
+    }
+
+    @MainActor
+    func testTheSleepHealthCardLoadsApartAndAnOlderServerHasNone() async throws {
+        let src = FakeTruck()
+        let m = TruckModel()
+        await m.load(source: src, vehicleID: "v1", metric: false)
+        XCTAssertEqual(m.sleepHealth?.value?.state, .more)
+        // A failed read keeps nothing (nothing to keep) and fails only its own block.
+        let fail = FakeTruck()
+        fail.fail = 500
+        let m2 = TruckModel()
+        await m2.load(source: fail, vehicleID: "v1", metric: false)
+        XCTAssertEqual(m2.sleepHealth, .failed)
+    }
+
     func testTheTiresCardListsFourWheelsAndMarksLowOnlyByTheFloorOrRivian() throws {
         let w = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_rr_bar"] = 2.8 }))
         XCTAssertEqual(w.map(\.label), ["Front left", "Front right", "Rear left", "Rear right"])
@@ -297,6 +352,9 @@ private final class FakeTruck: TruckSource, @unchecked Sendable {
     func sleepActivity(since: Date, until: Date, vehicleID: String) async throws -> [DayActivity] {
         try check("sleep"); return try Fixture.decode([DayActivity].self, "sleep_activity")
     }
+    func sleepHealth(vehicleID: String) async throws -> SleepHealth? {
+        try check("sleepHealth"); return try Fixture.decode(SleepHealth.self, "sleep_health")
+    }
     func chargePlaces() async throws -> [ChargePlace] {
         try check("places")
         return [ChargePlace(label: "Home", lat: 32.7767, lon: -96.797, sessions: 40, energyKwh: 1500, radiusM: 30)]
@@ -311,7 +369,7 @@ final class TruckModelTests: XCTestCase {
         let src = FakeTruck()
         let model = TruckModel()
         await model.load(source: src, vehicleID: "v1", metric: false, now: now)
-        XCTAssertEqual(Set(src.calls), ["state", "drain", "pack", "trends", "lease", "leaseStatus", "places"])
+        XCTAssertEqual(Set(src.calls), ["state", "drain", "pack", "trends", "lease", "leaseStatus", "places", "sleepHealth"])
         XCTAssertNotNil(model.drain?.value)
         // No trends on this server: the card is left out, not an error.
         XCTAssertEqual(model.trends, .missing)

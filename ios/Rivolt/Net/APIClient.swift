@@ -319,6 +319,11 @@ actor APIClient {
         try await optional("/api/vehicles/\(pathID(vehicleID))/drain")
     }
 
+    /// This week's short sleeps against the truck's own last 30 days; nil from an older server without the endpoint.
+    func sleepHealth(vehicleID: String) async throws -> SleepHealth? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/sleep-health")
+    }
+
     /// The headline (over every sample) and the newest 30 samples, all the sparkline draws. An older server ignores
     /// `limit` and sends every sample.
     func packHealth(vehicleID: String) async throws -> PackHealth {
