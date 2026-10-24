@@ -72,6 +72,8 @@ enum WidgetFetch {
               let http = resp as? HTTPURLResponse else { return .failed }
         switch http.statusCode {
         case 200: return .ok(data)
+        // A 403 for the Terms gate is not a lost session: the widget keeps what it has until the Terms are accepted in the app.
+        case 403 where String(data: data, encoding: .utf8)?.contains("terms_required") == true: return .failed
         case 401, 403, 404: return .gone(http.statusCode)
         default: return .failed
         }

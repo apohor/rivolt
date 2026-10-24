@@ -27,6 +27,17 @@ struct AuthUser: Decodable, Equatable {
     var billingEnabled: Bool? = nil
     /// 90 on free, nil (unlimited) otherwise.
     var historyDays: Int? = nil
+    /// The Terms the server wants accepted; absent on a server without the gate.
+    var terms: Terms? = nil
+
+    struct Terms: Decodable, Equatable {
+        let current: String?
+        let accepted: String?
+        /// True when the person must accept the current Terms before the server answers data routes.
+        let isRequired: Bool
+
+        enum CodingKeys: String, CodingKey { case current, accepted, isRequired = "required" }
+    }
 }
 
 /// `POST /api/auth/app/token`: the app session token (a bearer token, kept in
