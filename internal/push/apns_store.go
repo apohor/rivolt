@@ -66,9 +66,14 @@ func (s *Store) UpsertAPNsDevice(ctx context.Context, sessionID uuid.UUID, d APN
 	defer func() { _ = tx.Rollback() }()
 	// An Apple token is one install: it belongs to whoever signed in on it last, so another account's registration of it (a
 	// sign-out that never reached the server) is forgotten. Unless that registration still has a live session and a hash
-	// of its install id, and the caller is not that install: then it is not ours to take (ErrDeviceElsewhere). A dead
+	// of its install id, and the caller is not that install: then it is not ours to take (ErrDeviceElsewhere). Registrations
+	// of one token are serialized by a transaction advisory lock on it, so two at once cannot both pass the check before either
+	// writes (a row lock would not do: the first takes the row away, and the second would find nothing to refuse). A dead
 	// session frees the token whatever the hash, and a row from an older app (no hash) moves as it always did.
 	callerHash := installHash(d.InstallID)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, d.Token); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT COALESCE(d.install_hash, ''), (s.revoked_at IS NULL AND s.expires_at > now())
 		  FROM push_apns_devices d JOIN sessions s ON s.id = d.session_id

@@ -427,3 +427,56 @@ func TestAPNsTokenMovesOnlyForTheSameInstall(t *testing.T) {
 		t.Error("the token did not move after the old session expired")
 	}
 }
+
+// Two accounts registering the same token at the same moment cannot both take it: the row is locked from the check to the
+// commit, so the second sees the first's registration (hashed, live) and is refused, and one row is left for the token.
+func TestAPNsTokenTakenByOnlyOneOfTwoSimultaneousRegistrations(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	a, _ := db.EnsureUser(ctx, pool, "apns-race-a")
+	b, _ := db.EnsureUser(ctx, pool, "apns-race-b")
+	c, _ := db.EnsureUser(ctx, pool, "apns-race-c")
+	stA, _ := OpenStore(pool, a)
+	stB, _ := OpenStore(pool, b)
+	stC, _ := OpenStore(pool, c)
+	sa, sb, sc := session(t, ctx, pool, a), session(t, ctx, pool, b), session(t, ctx, pool, c)
+	for round := 0; round < 25; round++ {
+		token := strings.Repeat(string(rune('a'+round%26)), 63) + string(rune('0'+round%10))
+		// The token starts on a row from an older app (no hash), which anyone may take.
+		if err := stA.UpsertAPNsDevice(ctx, sa, APNsDevice{Token: token, Env: EnvSandbox, BundleID: "me.apoh.rivolt"}); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		start := make(chan struct{})
+		for i, reg := range []struct {
+			st      *Store
+			session uuid.UUID
+			install string
+		}{{stB, sb, "install-b"}, {stC, sc, "install-c"}} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = reg.st.UpsertAPNsDevice(ctx, reg.session, APNsDevice{Token: token, Env: EnvSandbox, BundleID: "me.apoh.rivolt", InstallID: reg.install})
+			}()
+		}
+		close(start)
+		wg.Wait()
+		refused := 0
+		for _, err := range errs {
+			var e ErrDeviceElsewhere
+			if errors.As(err, &e) {
+				refused++
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		}
+		var rows int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM push_apns_devices WHERE token = $1`, token).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		if refused != 1 || rows != 1 {
+			t.Fatalf("round %d: %d refused and %d rows for the token, want exactly one winner (1 refused, 1 row)", round, refused, rows)
+		}
+	}
+}
