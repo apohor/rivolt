@@ -14,6 +14,8 @@ struct NowCard: View {
     /// The charge in progress and the drive in progress, from their live reads; they add the cost so far and the trip.
     var session: LiveSession?
     var liveDrive: LiveDrive?
+    /// The server's row for the charge in progress, for its cost so far.
+    var charge: ChargeBrief?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
@@ -186,7 +188,7 @@ struct NowCard: View {
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
-            if let cost = ChargingDetail.make(summary: summary, session: session, charge: nil)?.cost {
+            if let cost = ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost {
                 readout("Cost so far", NowFormat.costText(cost))
             }
         }
@@ -221,7 +223,7 @@ struct NowCard: View {
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 parts.append("About \(NowFormat.oneDecimal(added / 100 * pack)) kilowatt hours added.")
             }
-            if let cost = ChargingDetail.make(summary: summary, session: session, charge: nil)?.cost {
+            if let cost = ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost {
                 parts.append("Cost so far, \(NowFormat.spokenCost(cost)).")
             }
         }

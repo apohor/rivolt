@@ -52,7 +52,7 @@ struct HomeView: View {
                             let fresh = summary.freshness != .stale
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
-                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil)
+                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.

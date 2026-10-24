@@ -8,6 +8,19 @@ final class NowDetailTests: XCTestCase {
         return NowSummary(state: st, now: now, clock: try XCTUnwrap(now.at).addingTimeInterval(60))
     }
 
+    /// The energy the battery has gained so far in the summary's charge (percent gained x pack), which an honest session total agrees with.
+    private func gainKwh(_ sum: NowSummary) throws -> Double {
+        let added = try XCTUnwrap(sum.chargeAddedPct, "the fixture summary should know the percent gained")
+        let pack = try XCTUnwrap(sum.packKwh, "the fixture summary should know the pack")
+        return added / 100 * pack
+    }
+
+    private func chargeRow(_ sum: NowSummary, startedAgo: TimeInterval = 0, cost: Double = 0.022, kwh: Double = 0.2) throws -> ChargeBrief {
+        let started = try XCTUnwrap(sum.chargeStartedAt).addingTimeInterval(-startedAgo)
+        let iso = ISO8601DateFormatter().string(from: started)
+        return try decode(ChargeBrief.self, "{\"ID\":\"open\",\"StartedAt\":\"\(iso)\",\"EnergyAddedKWh\":\(kwh),\"Cost\":\(cost),\"Currency\":\"USD\"}")
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSON.decoder().decode(T.self, from: Data(json.utf8))
     }
@@ -44,15 +57,39 @@ final class NowDetailTests: XCTestCase {
     }
 
     func testAChargeInProgressShowsPowerEtaAndAnEstimatedCostMarkedAsOne() throws {
+        let sum = try charging()
         let session = LiveSession(active: true, timeElapsedSeconds: 1800, timeRemainingSeconds: 2400, powerKw: 11.2, kilometersChargedPerHour: 58,
-                                  rangeAddedKm: 29, totalChargedEnergyKwh: 5.6, socPct: 63.4, estimatedCost: 0.9, estimatedCurrency: "USD")
-        let d = try XCTUnwrap(ChargingDetail.make(summary: try charging(), session: session, charge: nil))
+                                  rangeAddedKm: 29, totalChargedEnergyKwh: try gainKwh(sum), socPct: 63.4, estimatedCost: 0.9, estimatedCurrency: "USD")
+        let d = try XCTUnwrap(ChargingDetail.make(summary: sum, session: session, charge: nil))
         XCTAssertEqual(d.powerKw, 11.2)
         XCTAssertEqual(d.remaining, 2400)
         XCTAssertEqual(d.toTargetPct ?? 0, 16.6, accuracy: 0.01)
         XCTAssertEqual(d.cost, .estimate(amount: 0.9, currency: "USD"))
         XCTAssertTrue(NowFormat.costText(try XCTUnwrap(d.cost)).hasSuffix("(estimate)"))
         XCTAssertTrue(d.haveLiveData)
+    }
+
+    /// The owner's screenshot: a minute into a charge that had added 0.2 kWh, "Cost so far ~$9.39" came from a session total far above the 0.2 kWh the charge had added.
+    func testAStaleSessionEstimateIsNeverShownAsTheCostSoFar() throws {
+        let sum = try charging()
+        let stale = LiveSession(active: true, totalChargedEnergyKwh: 85, estimatedCost: 9.39, estimatedCurrency: "USD")
+        XCTAssertNil(ChargingDetail.make(summary: sum, session: stale, charge: nil)?.cost, "the row stays out until there is a real figure")
+    }
+
+    func testTheOpenChargeRowsCostIsTheCostSoFar() throws {
+        let sum = try charging()
+        let stale = LiveSession(active: true, totalChargedEnergyKwh: 85, estimatedCost: 9.39, estimatedCurrency: "USD")
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: stale, charge: try chargeRow(sum))?.cost, .estimate(amount: 0.022, currency: "USD"))
+        // No live session at all: the row alone is enough.
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: nil, charge: try chargeRow(sum))?.cost, .estimate(amount: 0.022, currency: "USD"))
+        // The row's own estimate when its cost is not set yet.
+        let est = try decode(ChargeBrief.self, "{\"ID\":\"o\",\"StartedAt\":\"\(ISO8601DateFormatter().string(from: try XCTUnwrap(sum.chargeStartedAt)))\",\"EnergyAddedKWh\":0.2,\"Cost\":0,\"estimated_cost\":0.022,\"estimated_currency\":\"USD\"}")
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: nil, charge: est)?.cost, .estimate(amount: 0.022, currency: "USD"))
+        // A row from an earlier charge is not this one.
+        XCTAssertNil(ChargingDetail.make(summary: sum, session: nil, charge: try chargeRow(sum, startedAgo: 3 * 3600))?.cost)
+        // What Rivian bills wins over our row.
+        let billed = LiveSession(active: true, currentPrice: "4.10", currentCurrency: "USD")
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: billed, charge: try chargeRow(sum))?.cost, .billed(amount: 4.10, currency: "USD"))
     }
 
     func testRivianBilledFreeAndNoPrice() throws {
@@ -96,7 +133,10 @@ final class NowDetailTests: XCTestCase {
         let billed = try Fixture.decode(LiveSession.self, "live_session")
         XCTAssertEqual(billed.timeRemainingSeconds, 1500)
         XCTAssertEqual(ChargingDetail.make(summary: sum, session: billed, charge: nil)?.cost, .billed(amount: 18.97, currency: "USD"))
-        let home = try Fixture.decode(LiveSession.self, "live_session_home")
+        // The home session's estimate shows while its energy agrees with the battery's gain (the fixture's own energy is for another moment).
+        var homeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("live_session_home")) as? [String: Any])
+        homeJSON["total_charged_energy_kwh"] = try gainKwh(sum)
+        let home = try JSON.decoder().decode(LiveSession.self, from: JSONSerialization.data(withJSONObject: homeJSON))
         XCTAssertEqual(ChargingDetail.make(summary: sum, session: home, charge: nil)?.cost, .estimate(amount: 3.224, currency: "USD"))
         let drive = try Fixture.decode(LiveDrive.self, "live_drive")
         XCTAssertEqual(drive.distanceMi, 17.7)
