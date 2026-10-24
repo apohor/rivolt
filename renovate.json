@@ -66,6 +66,11 @@
       "groupName": "github-actions"
     },
     {
+      "description": "Dockerfile base images are pinned to a digest, so a moved tag cannot change what we build or ship; Renovate adds the pin once the image is 3 days old (the automerge rule's minimumReleaseAge) and keeps it current. Compose images are not pinned.",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
+    },
+    {
       "description": "Container base images (Dockerfile + compose): one PR",
       "matchManagers": ["dockerfile", "docker-compose"],
       "groupName": "container base images"

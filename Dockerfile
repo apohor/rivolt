@@ -50,7 +50,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
 
 # ---- runtime -------------------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot
+# The digest is the multi-arch index the nonroot tag pointed at (uploaded Aug 21, well over Renovate's 3 days): a moved tag
+# cannot change what we ship. Renovate keeps it current (renovate.json, pinDigests on the dockerfile manager).
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /app
 COPY --from=build /out/rivolt /app/rivolt
 COPY --from=build --chown=nonroot:nonroot /out/data /data
