@@ -124,6 +124,28 @@ func TestRender_HonestyLines(t *testing.T) {
 	}
 }
 
+// A month whose energy includes a charge estimated from the battery's change says so, in the text and the HTML, under the
+// total; a month without one does not.
+func TestRender_EstimatedEnergyIsSaid(t *testing.T) {
+	const line = "estimated from the battery's change"
+	in := baseInput()
+	if r := Render(in); strings.Contains(r.Text, line) || strings.Contains(r.HTML, "battery") {
+		t.Errorf("a month with no estimate says it has one:\n%s", r.Text)
+	}
+	in.Month.Energy.IncludesEstimated = true
+	r := Render(in)
+	if !strings.Contains(r.Text, line) {
+		t.Errorf("text lacks the estimated-energy line:\n%s", r.Text)
+	}
+	// The apostrophe is escaped in HTML.
+	if !strings.Contains(r.HTML, "estimated from the battery&#39;s change") {
+		t.Errorf("html lacks the estimated-energy line:\n%s", r.HTML)
+	}
+	if strings.Count(r.Text, line) != 1 {
+		t.Errorf("the line appears %d times in the text", strings.Count(r.Text, line))
+	}
+}
+
 func TestRender_DeltaOnlyWhenBothMonthsFullyPriced(t *testing.T) {
 	in := baseInput()
 	prev := monthly("2026-08")
