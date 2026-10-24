@@ -61,3 +61,31 @@ export function campgroundOfPoi(poi: POI): { hookup: HookupId; kw: number; url: 
   const h = hookupFromAmps(poi.hookupAmps);
   return h ? { ...h, url: campgroundPageUrl(undefined, poi.ridbID) } : null;
 }
+
+// Minutes of driving become a distance at the route's own average speed.
+function windowM(min: number | undefined, route: { route_m: number; drive_sec: number }): number | null {
+  if (min === undefined || !(min > 0) || !(route.drive_sec > 0) || !(route.route_m > 0)) return null;
+  return min * 60 * (route.route_m / route.drive_sec);
+}
+
+// The empty state's second sentence: how far the search looked on each side of the point the day's driving budget runs out.
+export function searchedLine(
+  t: { window_before_min?: number; window_after_min?: number },
+  route: { route_m: number; drive_sec: number },
+  hours: number,
+  fmt: (km: number) => string,
+): string {
+  const before = windowM(t.window_before_min, route);
+  const after = windowM(t.window_after_min, route);
+  if (before === null || after === null) return "No hotels or campgrounds with Level 2 or a hookup found near here. Try a wider distance, or pick a stop by hand.";
+  return `No hotel or campground with Level 2 or a hookup within about ${fmt(before / 1000)} before or ${fmt(after / 1000)} after your ${hours} h point. Pick a stop by hand.`;
+}
+
+// A stay that sits well away from the point the budget runs out says so: "about 40 mi before your 8 h point".
+export const NEAR_TARGET_M = 16_000;
+export function offTargetLine(targetAlongM: number, stayAlongM: number | undefined, hours: number, fmt: (km: number) => string): string {
+  if (stayAlongM === undefined) return "";
+  const d = targetAlongM - stayAlongM;
+  if (Math.abs(d) < NEAR_TARGET_M) return "";
+  return `about ${fmt(Math.abs(d) / 1000)} ${d > 0 ? "before" : "after"} your ${hours} h point`;
+}
