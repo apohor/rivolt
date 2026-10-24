@@ -28,6 +28,7 @@ import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
 import { tilesPMTilesURL, chargersPMTilesURL, ensureConfig } from "./config";
 import { ApiError, backend } from "./api";
+import { thinPath } from "./thinPath";
 
 export type POI = {
   // Snapped coords from the OSM POI node.
@@ -378,7 +379,7 @@ export async function findChargersAlongPath(
   if (inDemo()) return null;
   let resp: { chargers: ServerCharger[]; count: number };
   try {
-    resp = await backend.chargersAlongPath({ path, filter });
+    resp = await backend.chargersAlongPath({ path: thinPath(path), filter });
   } catch (e: unknown) {
     // 404 = server-side archive disabled: no charger source, so the
     // map renders without chargers rather than erroring. Anything
