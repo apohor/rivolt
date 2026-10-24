@@ -30,6 +30,9 @@ struct SignedInGate: View {
 
     var body: some View {
         Group {
+            if state.termsRequired {
+                TermsUpdatedView()
+            } else {
             switch gate {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
@@ -38,13 +41,18 @@ struct SignedInGate: View {
             case .hasTruck:
                 AppShell()
             }
+            }
         }
         .task { await check() }
-        // Back from the web after connecting: look again.
-        .onChange(of: scenePhase) { _, new in if new == .active, gate == .noTruck { Task { await check() } } }
+        // Back from the web after connecting or accepting the Terms: look again.
+        .onChange(of: scenePhase) { _, new in
+            if new == .active, gate == .noTruck || state.termsRequired { Task { await check() } }
+        }
     }
 
     private func check() async {
+        await state.recheckTerms()
+        if state.termsRequired { return }
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
     }

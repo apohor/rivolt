@@ -56,11 +56,15 @@ final class AppState {
         }
     }
 
-    private(set) var phase: Phase = .bootstrapping
+    private(set) var phase: Phase = .bootstrapping {
+        didSet { if case .loggedIn = phase {} else { termsRequired = false } }
+    }
     /// A line the sign-in screen shows once, after the session ended in a way the person should be told about (the account deleted on the web).
     private(set) var signInNotice: String?
     /// Set when the person was sent to the web to delete the account: the next time the app is in front, it checks whether they did.
     private var awaitingDeletion = false
+    /// True while the server says the current Terms must be accepted before it answers data routes (they are accepted on the web).
+    private(set) var termsRequired = false
     /// The account the demo was opened from, when it was opened from one (see `enterDemoFromAccount`).
     private var resumeAfterDemo: String?
     /// What the Connection details screen shows: the last two reads' outcomes and the newest frame, in memory only.
@@ -98,6 +102,7 @@ final class AppState {
         let signedIn = APIClient(baseURL: server, tokens: tokens, session: session)
         self.client = signedIn
         self.signedInClient = signedIn
+        Task { await signedIn.setTermsRequiredHandler { [weak self] in Task { @MainActor in self?.termsRequired = true } } }
     }
 
     var isDemo: Bool { phase == .demo }
@@ -290,6 +295,12 @@ final class AppState {
     }
 
     func clearSignInNotice() { signInNotice = nil }
+
+    /// Asks the server whether the Terms still have to be accepted. An unreachable server leaves the answer as it was.
+    func recheckTerms() async {
+        guard case .loggedIn = phase else { return }
+        if let me = try? await client.me() { termsRequired = me.terms?.isRequired ?? false }
+    }
 
     func logout() async {
         // The demo has no session to end: "Sign in" there just leaves it.

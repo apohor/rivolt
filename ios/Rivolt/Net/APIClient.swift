@@ -47,6 +47,10 @@ actor APIClient {
         self.encoder = encoder
     }
 
+    /// Called when the server answers 403 `terms_required`: the person has to accept the updated Terms on the web.
+    private var onTermsRequired: (@Sendable () -> Void)?
+    func setTermsRequiredHandler(_ handler: (@Sendable () -> Void)?) { onTermsRequired = handler }
+
     func updateBaseURL(_ url: URL) {
         baseURL = url
     }
@@ -537,6 +541,7 @@ actor APIClient {
             } else {
                 message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
             }
+            if http.statusCode == 403, message == APIError.termsRequiredMessage { onTermsRequired?() }
             throw APIError.server(status: http.statusCode, message: message)
         }
         return (data, http)
@@ -548,6 +553,9 @@ enum APIError: LocalizedError {
     case transport(String)
     case server(status: Int, message: String)
     case decoding(Error)
+
+    /// The `error` the server sends with a 403 while the person must accept updated Terms.
+    static let termsRequiredMessage = "terms_required"
 
     var errorDescription: String? {
         switch self {
