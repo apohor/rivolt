@@ -3344,7 +3344,7 @@ func (m *StateMonitor) LatestLiveSession(vehicleID string) *LiveSession {
 // session (Parallax's charge breakdown counts per plug-in and the cloud replays the last snapshot), whose total and power
 // are not this charge's: the recorder already refuses to credit such a session to a row, and the endpoint now does the
 // same. With no open charge (a charge that has not opened yet, or none) there is no session to serve.
-func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, float64) {
+func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, ChargeNow) {
 	m.mu.RLock()
 	sess, bondedTo := m.lastSession[vehicleID], m.lastSessionFor[vehicleID]
 	m.mu.RUnlock()
@@ -3352,17 +3352,31 @@ func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, flo
 	s := m.sessions[vehicleID]
 	if s == nil || s.charge == nil {
 		m.sessMu.Unlock()
-		return nil, 0
+		return nil, ChargeNow{}
 	}
 	c := s.charge
-	energy := m.liveChargeRow(vehicleID, c).EnergyAddedKWh
+	row := m.liveChargeRow(vehicleID, c)
+	now := ChargeNow{EnergyKWh: row.EnergyAddedKWh, PeakKW: row.MaxPowerKW, Place: row.Place}
 	usable := sess != nil && bondedTo == c.id && !sessionPredatesCharge(sess, c)
 	m.sessMu.Unlock()
 	if !usable {
-		return nil, energy
+		return nil, now
 	}
-	return sess, energy
+	return sess, now
 }
+
+// ChargeNow is what the open charge has recorded so far: the energy, the peak power (which says AC from fast charging) and
+// where it is ("home", "away" or "" when unknown), for the live-session estimate.
+type ChargeNow struct {
+	EnergyKWh float64
+	PeakKW    float64
+	Place     string
+}
+
+// HomeRateApplies says whether the user's home $/kWh rate is a fair price for this charge: an AC session (peak under the L2
+// threshold) that is not known to be away from home. A fast charge on another network, or an AC charge at a place that is not
+// home, has a price of its own that we do not know, so no estimate is better than a home-rate one.
+func (c ChargeNow) HomeRateApplies() bool { return c.PeakKW < l2PowerThresholdKW && c.Place != PlaceAway }
 
 // LiveDrive is the wire-friendly snapshot of an in-flight drive
 // session — the recorder's internal `liveDrive` accumulator
