@@ -66,9 +66,11 @@
       "groupName": "github-actions"
     },
     {
-      "description": "Dockerfile base images are pinned to a digest, so a moved tag cannot change what we build or ship; Renovate adds the pin once the image is 3 days old (the automerge rule's minimumReleaseAge) and keeps it current. Compose images are not pinned.",
+      "description": "Dockerfile base images are pinned to a digest, so a moved tag cannot change what we build or ship; Renovate adds the pin once the image is 3 days old (the automerge rule's minimumReleaseAge) and keeps it current. Compose images are not pinned. An image whose registry gives no release timestamp (gcr.io may not) is treated as if it did not exist (timestamp-required), so its age cannot be unknown and a bump waits for a human instead of being let through.",
       "matchManagers": ["dockerfile"],
-      "pinDigests": true
+      "pinDigests": true,
+      "minimumReleaseAge": "3 days",
+      "minimumReleaseAgeBehaviour": "timestamp-required"
     },
     {
       "description": "Container base images (Dockerfile + compose): one PR",
