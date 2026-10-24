@@ -21,8 +21,9 @@ CAPTIONS = [
 ]
 FOOTER = "Sample truck, generated data"
 SKIP_FOOTER = {"trust"}  # the sign-in screen is not the demo truck
-# The sign-in screen is a card at the top of an empty page: only that part is shown (a fraction of the screen's height).
-CROP = {"trust": 0.60}
+# The sign-in screen is a card on an empty page: only the card and a margin are shown (top and bottom as fractions of the
+# screen's height), without the status bar, so it reads as a panel rather than a phone with its bottom cut off.
+CROP = {"trust": (0.085, 0.605)}
 PALETTE = {
     "dark": {"canvas": (11, 15, 21), "text": (245, 245, 245), "muted": (146, 146, 146), "edge": (48, 54, 64)},
     "light": {"canvas": (233, 236, 241), "text": (23, 23, 23), "muted": (99, 99, 99), "edge": (200, 205, 214)},
@@ -52,7 +53,7 @@ def frame(raw_path, caption, footer, mode):
     W, H = shot.size
     crop = CROP.get(os.path.basename(raw_path).split("-")[0])
     if crop:
-        shot = shot.crop((0, 0, W, int(H * crop)))
+        shot = shot.crop((0, int(H * crop[0]), W, int(H * crop[1])))
     canvas = Image.new("RGB", (W, H), pal["canvas"])
     d = ImageDraw.Draw(canvas)
     # Caption: up to two lines, centred, in the app's type.
@@ -67,7 +68,7 @@ def frame(raw_path, caption, footer, mode):
     top = max(y + H * 0.02, H * 0.15)
     bottom = H * (0.945 if footer else 0.975)
     shot_w, shot_h = shot.size
-    scale = min((bottom - top) / shot_h, 0.86)
+    scale = min((bottom - top) / shot_h, 0.92 if crop else 0.86)
     sw, sh = int(shot_w * scale), int(shot_h * scale)
     scr = shot.resize((sw, sh), Image.LANCZOS)
     radius = int(sw * 0.07)
