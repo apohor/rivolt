@@ -39,6 +39,10 @@ export function Footer() {
         <Link to="/terms" className="hover:text-neutral-200">
           Terms
         </Link>
+        <span className="text-neutral-700">·</span>
+        <Link to="/support" className="hover:text-neutral-200">
+          Support
+        </Link>
         {!inDemo() && (
           <>
             <span className="text-neutral-700">·</span>

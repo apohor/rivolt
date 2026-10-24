@@ -36,6 +36,7 @@ const SampleTripsHubPage = lazy(() => import("./pages/SampleTripPage").then((m) 
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPage"));
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
+const SupportPage = lazy(() => import("./pages/SupportPage"));
 const LeaseCalculatorPage = lazy(() => import("./pages/LeaseCalculatorPage"));
 const ChargingCostPage = lazy(() => import("./pages/ChargingCostPage"));
 const HydraLoginPage = lazy(pageLoaders.hydraLogin);
@@ -119,6 +120,7 @@ export default function App() {
       <Route path="terms" element={<TermsPage />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
+      <Route path="support" element={<SupportPage />} />
       <Route path="lease-calculator" element={<LeaseCalculatorPage />} />
       <Route path="charging-cost" element={<ChargingCostPage />} />
       {/*
