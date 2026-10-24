@@ -29,6 +29,7 @@ import {
   type PushPreferences,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
+import { SignedInDevices } from "../components/SignedInDevices";
 import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
@@ -205,6 +206,7 @@ function SettingsPageInner() {
           <AIFeaturesCard />
           <AmbientTempCard />
           <AppearanceCard />
+          <SignedInDevices />
           {/* The tab-bar shell's header has no Sign out; it lives here. */}
           <Card title="Rivolt account">
             <SignOutButton label="Sign out of Rivolt" solid />

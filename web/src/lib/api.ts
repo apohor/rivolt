@@ -16,6 +16,20 @@ import { IMPERSONATE_HEADER, impersonationHeaderID } from "./impersonation";
 // whole span (first, last and the peaks kept), so 2,000 draws the same charts as 20,000 and moves a tenth of the data.
 export const DETAIL_SAMPLE_LIMIT = 2_000;
 
+// One sign-in of the signed-in user: a browser ("web") or the iPhone app ("app").
+export type AuthSession = {
+  id: string;
+  kind: "web" | "app";
+  // As stored: the device type the app reports ("iPhone"), or a browser and system for a browser; may be empty.
+  device_label: string;
+  user_agent?: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  // True for the sign-in making this request, when it has one.
+  current: boolean;
+};
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -1116,6 +1130,11 @@ export const backend = {
     }
   },
   logout: () => api.post<void>("/api/auth/logout"),
+  // The signed-in user's own browsers and iPhone app (GET /api/auth/sessions), one sign-out, and "sign out everywhere else".
+  // Never the token or the address. 404 on an install without sessions, 403 while an admin views as someone.
+  authSessions: () => api.get<{ sessions: AuthSession[] }>("/api/auth/sessions"),
+  revokeAuthSession: (id: string) => api.del<void>(`/api/auth/sessions/${encodeURIComponent(id)}`),
+  revokeOtherAuthSessions: () => api.post<{ revoked: number }>("/api/auth/sessions/revoke-others", {}),
   signup: (body: {
     signup_token: string;
     display_name?: string;
