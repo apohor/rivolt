@@ -15,6 +15,8 @@ struct RootView: View {
             LoginView()
         case .loggedIn:
             AppShell()
+        case .demo:
+            AppShell().environment(\.isDemo, true)
         }
     }
 }

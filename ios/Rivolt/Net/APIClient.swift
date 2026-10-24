@@ -15,15 +15,24 @@ actor APIClient {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    /// The demo truck's client (see `DemoMode`): reads only, and a 401 or 403 means "not part of the demo".
+    private let demo: Bool
 
     /// `session` is for tests (a stubbed URLProtocol); the app uses the default.
-    init(baseURL: URL, tokens: TokenStore, session: URLSession? = nil) {
+    init(baseURL: URL, tokens: TokenStore, session: URLSession? = nil, demo: Bool = false) {
         self.baseURL = baseURL
         self.tokens = tokens
+        self.demo = demo
         let config = URLSessionConfiguration.ephemeral
         // No cookies: the app authenticates with its bearer token only.
         config.httpCookieStorage = nil
         config.httpShouldSetCookies = false
+        if demo {
+            // Nothing is shared or kept: no credentials, no cached answers.
+            config.urlCredentialStorage = nil
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        }
         // Timeouts matter on cellular: the default (60s) leaves a
         // frozen-looking UI for a full minute when a self-hosted server is
         // unreachable. 15s is plenty for the JSON surface.
@@ -478,6 +487,9 @@ actor APIClient {
         body: (any Encodable)? = nil,
         authenticated: Bool = true
     ) async throws -> (Data, HTTPURLResponse) {
+        if demo, method != "GET", method != "HEAD" {
+            throw APIError.transport("The demo truck is read-only.")
+        }
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.badURL
         }
@@ -496,6 +508,11 @@ actor APIClient {
             throw APIError.transport("not an HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
+            // In the demo, a path the sample account isn't served on answers 401: to the screens that is "not here" (a missing card),
+            // never "your sign-in has ended".
+            if demo, http.statusCode == 401 || http.statusCode == 403 {
+                throw APIError.server(status: 404, message: "Not part of the demo.")
+            }
             // Surface the server's error body verbatim when possible.
             // Rivolt returns either JSON `{"error": "..."}` or plain
             // text from http.Error; try the former first.

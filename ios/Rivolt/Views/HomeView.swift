@@ -60,15 +60,15 @@ struct HomeView: View {
                             }
                             // The truck comes first (battery, range, charging, status); the asks and the milestone after
                             // it, so they never push it below the fold (the scroll audit: on an SE they did).
-                            if state.notifications.shouldAskInApp {
+                            if !state.isDemo, state.notifications.shouldAskInApp {
                                 NotificationPromptCard(manager: state.notifications)
                             }
                             if let m = extras.current(vehicleID: vehicle.id) {
-                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }) {
+                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }, canHide: !state.isDemo) {
                                     Task { await extras.dismiss(m, source: state.client) }
                                 }
                             }
-                            threeThings
+                            if !state.isDemo { threeThings }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
                             // The web's order after the tiles: where it charges, then the two charts.
@@ -212,18 +212,22 @@ struct HomeView: View {
         latestCharge = recentCharges.first
         latestDrive = d ?? nil
         await loadLive(id: id)
-        // The widgets read this truck from this server (never the token: that stays in the Keychain).
-        WidgetStore().setSession(vehicleID: id, server: state.serverURL)
-        WidgetCenter.shared.reloadAllTimelines()
+        // The widgets read this truck from this server (never the token: that stays in the Keychain). Never for the demo.
+        if !state.isDemo {
+            WidgetStore().setSession(vehicleID: id, server: state.serverURL)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
         if s == nil && now == nil {
             loadError = "Couldn't load this truck's status."
         }
-        await syncLiveActivity()
+        if !state.isDemo { await syncLiveActivity() }
         await extras.load(source: client, vehicleID: id)
     }
 
     /// The session or drive reads that only make sense while charging or in gear.
     private func loadLive(id: String) async {
+        // The demo truck has no live Rivian connection to read.
+        if state.isDemo { session = nil; liveDrive = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil

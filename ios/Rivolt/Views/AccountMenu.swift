@@ -15,31 +15,53 @@ struct AccountMenu: View {
     @State private var showAcknowledgements = false
     @State private var showRates = false
     @State private var showConnection = false
+    @State private var showAbout = false
 
     var body: some View {
+        HStack(spacing: 2 * Theme.unit) {
+            if state.isDemo { DemoPill() }
+            menu
+        }
+    }
+
+    private var menu: some View {
         Menu {
             if let onRefresh {
                 Button("Refresh", action: onRefresh)
             }
-            if state.notifications.offered {
-                Button("Notifications") { showNotifications = true }
-            }
-            Button("Charging rates") { showRates = true }
-            Picker("Appearance", selection: $appearance) {
-                ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
-            }
-            Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
-            Link("Terms", destination: state.serverURL.appending(path: "terms"))
-            Button("Connection details") { showConnection = true }
-            Button("Acknowledgements") { showAcknowledgements = true }
-            Divider()
-            Button("Sign out", role: .destructive) {
-                Task { await state.logout() }
+            if state.isDemo {
+                // The demo reads only: no notifications, no rates to change, no connection to a Rivian.
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
+                }
+                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
+                Link("Terms", destination: state.serverURL.appending(path: "terms"))
+                Button("About the demo") { showAbout = true }
+                Button("Acknowledgements") { showAcknowledgements = true }
+                Divider()
+                Button("Sign in") { state.leaveDemo() }
+            } else {
+                if state.notifications.offered {
+                    Button("Notifications") { showNotifications = true }
+                }
+                Button("Charging rates") { showRates = true }
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
+                }
+                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
+                Link("Terms", destination: state.serverURL.appending(path: "terms"))
+                Button("Connection details") { showConnection = true }
+                Button("Acknowledgements") { showAcknowledgements = true }
+                Divider()
+                Button("Sign out", role: .destructive) {
+                    Task { await state.logout() }
+                }
             }
         } label: {
             Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
         }
         .accessibilityLabel("Account")
+        .sheet(isPresented: $showAbout) { DemoAboutSheet() }
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
         .sheet(isPresented: $showRates) { ChargingRatesView() }
         .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
