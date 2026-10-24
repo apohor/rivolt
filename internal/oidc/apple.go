@@ -29,7 +29,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -68,9 +70,10 @@ type AppleLinks interface {
 
 // appleConfig is an Apple provider's signing identity.
 type appleConfig struct {
-	teamID string
-	keyID  string
-	key    *ecdsa.PrivateKey
+	teamID    string
+	keyID     string
+	key       *ecdsa.PrivateKey
+	revokeURL string // discovery's revocation_endpoint
 }
 
 // parseAppleKey reads the Sign in with Apple key: the .p8 file's PKCS#8 PEM (an EC P-256 key).
@@ -275,4 +278,68 @@ func (s *Service) appleAccount(w http.ResponseWriter, r *http.Request, sub strin
 		return appleAccountChoice{}, false
 	}
 	return appleAccountChoice{username: key.Username, email: key.Email, isNew: !exists}, true
+}
+
+// ErrAppleNotConfigured is AppleRevoke's answer when no Apple provider is ready (not configured, or discovery still
+// retrying): the caller queues the revoke for later.
+var ErrAppleNotConfigured = errors.New("oidc: no Apple provider ready")
+
+// appleRevokeClient bounds a revoke call; the caller's context may be longer.
+var appleRevokeClient = &http.Client{Timeout: 15 * time.Second}
+
+// AppleRevoke revokes a Sign in with Apple refresh token (and with it the user's authorization of Rivolt) at
+// Apple's revocation endpoint, with a freshly minted client secret. Apple answering invalid_grant (the token is
+// already revoked or expired) counts as done. Errors never include the token.
+func (s *Service) AppleRevoke(ctx context.Context, refreshToken string) error {
+	if s == nil {
+		return ErrAppleNotConfigured
+	}
+	var p *provider
+	s.mu.RLock()
+	for _, cand := range s.providers {
+		if cand.cfg.Kind == kindApple && cand.apple != nil {
+			p = cand
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if p == nil {
+		return ErrAppleNotConfigured
+	}
+	secret, err := exchangeSecretFor(p, time.Now())
+	if err != nil {
+		return err
+	}
+	form := url.Values{
+		"client_id":       {p.cfg.ClientID},
+		"client_secret":   {secret},
+		"token":           {refreshToken},
+		"token_type_hint": {"refresh_token"},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apple.revokeURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("apple revoke: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := appleRevokeClient.Do(req)
+	if err != nil {
+		// *url.Error prints the URL, never the form body.
+		return fmt.Errorf("apple revoke: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	var apiErr struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(body, &apiErr)
+	if resp.StatusCode == http.StatusBadRequest && apiErr.Error == "invalid_grant" {
+		return nil // already revoked or expired: nothing left to revoke
+	}
+	if apiErr.Error != "" {
+		return fmt.Errorf("apple revoke: %s: %s", resp.Status, apiErr.Error)
+	}
+	return fmt.Errorf("apple revoke: %s", resp.Status)
 }

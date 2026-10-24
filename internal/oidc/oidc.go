@@ -413,7 +413,14 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("apple private key: %w", err)
 		}
-		apple = &appleConfig{teamID: pc.AppleTeamID, keyID: pc.AppleKeyID, key: key}
+		apple = &appleConfig{teamID: pc.AppleTeamID, keyID: pc.AppleKeyID, key: key,
+			revokeURL: strings.TrimRight(pc.IssuerURL, "/") + "/auth/revoke"}
+		var disc struct {
+			RevocationEndpoint string `json:"revocation_endpoint"`
+		}
+		if op.Claims(&disc) == nil && disc.RevocationEndpoint != "" {
+			apple.revokeURL = disc.RevocationEndpoint
+		}
 		if len(pc.Scopes) == 0 {
 			scopes = []string{"name", "email"}
 		}

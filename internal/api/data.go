@@ -1269,6 +1269,11 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 		// Runs to the end even if the client goes away (see accountWriteContext).
 		delCtx, cancel := accountWriteContext(r)
 		defer cancel()
+		// Before the cascade: it removes the kept Apple token.
+		if err := d.AppleRevocation.BeforeDelete(delCtx, uid); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "could not revoke or queue the Sign in with Apple token; nothing was deleted"})
+			return
+		}
 		if err := db.DeleteUserAccount(delCtx, d.DB, uid); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return

@@ -95,6 +95,23 @@ type InactivePurge struct {
 	baseURL string
 	logger  *slog.Logger
 	sleep   func(ctx context.Context, d time.Duration)
+	apple   *AppleRevocation
+}
+
+// WithAppleRevocation makes each deletion revoke (or queue the revoke of) the
+// account's Sign in with Apple token first, like every account deletion.
+func (j *InactivePurge) WithAppleRevocation(a *AppleRevocation) *InactivePurge {
+	j.apple = a
+	return j
+}
+
+// appleBefore runs the Apple step for uid; false means skip this account for now.
+func (j *InactivePurge) appleBefore(ctx context.Context, uid uuid.UUID) bool {
+	if err := j.apple.BeforeDelete(ctx, uid); err != nil {
+		j.logger.Warn("inactive purge: apple revoke not done or queued; not deleted this run", "user_id", uid.String())
+		return false
+	}
+	return true
 }
 
 // NewInactivePurge wires the job over the pool. flag reads the live
@@ -195,7 +212,13 @@ func (j *InactivePurge) deleteUnwarnable(ctx context.Context, state flags.Inacti
 		if !state.Enabled(uid.String()) {
 			continue
 		}
+		if !j.appleBefore(ctx, uid) {
+			continue
+		}
 		username, ok, err := j.store.DeleteUnwarnable(ctx, uid)
+		if err != nil || !ok {
+			j.apple.Cancel(ctx, uid) // still here: no queued revoke for a live account
+		}
 		if err != nil {
 			j.logger.Warn("inactive purge: delete unwarnable failed", "user_id", uid.String(), "err", describeSQL(err))
 			continue
@@ -261,7 +284,13 @@ func (j *InactivePurge) delete(ctx context.Context, state flags.InactivePurgeSta
 		if !state.Enabled(uid.String()) {
 			continue
 		}
+		if !j.appleBefore(ctx, uid) {
+			continue
+		}
 		username, ok, err := j.store.Delete(ctx, uid)
+		if err != nil || !ok {
+			j.apple.Cancel(ctx, uid) // still here: no queued revoke for a live account
+		}
 		if err != nil {
 			j.logger.Warn("inactive purge: delete failed", "user_id", uid.String(), "err", describeSQL(err))
 			continue

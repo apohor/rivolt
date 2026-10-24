@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -84,6 +85,10 @@ type fakeApple struct {
 	nonce     string
 	claims    map[string]any // id_token claims on top of iss/aud/sub/nonce/iat/exp
 	exchanges int
+	// revoke endpoint: the status and error it answers, and the tokens it revoked
+	revokeStatus int
+	revokeError  string
+	revoked      []string
 }
 
 func newFakeApple(t *testing.T, clientPK *ecdsa.PublicKey) *fakeApple {
@@ -99,6 +104,7 @@ func newFakeApple(t *testing.T, clientPK *ecdsa.PublicKey) *fakeApple {
 			"authorization_endpoint":                fa.srv.URL + "/auth/authorize",
 			"token_endpoint":                        fa.srv.URL + "/auth/token",
 			"jwks_uri":                              fa.srv.URL + "/auth/keys",
+			"revocation_endpoint":                   fa.srv.URL + "/auth/revoke",
 			"response_modes_supported":              []string{"query", "fragment", "form_post"},
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 		})
@@ -109,6 +115,7 @@ func newFakeApple(t *testing.T, clientPK *ecdsa.PublicKey) *fakeApple {
 		}}})
 	})
 	mux.HandleFunc("/auth/token", fa.token)
+	mux.HandleFunc("/auth/revoke", fa.revoke)
 	fa.srv = httptest.NewServer(mux)
 	t.Cleanup(fa.srv.Close)
 	return fa
@@ -178,6 +185,31 @@ func (fa *fakeApple) token(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (fa *fakeApple) revoke(w http.ResponseWriter, r *http.Request) {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	if r.Method != http.MethodPost || r.ParseForm() != nil {
+		http.Error(w, "bad", http.StatusBadRequest)
+		return
+	}
+	f := r.PostForm
+	sec := f.Get("client_secret")
+	if f.Get("client_id") != testAppleClientID || f.Get("token_type_hint") != "refresh_token" ||
+		!verifyES256(sec, fa.clientPK) || jwtPart(fa.t, sec, 1)["sub"] != testAppleClientID {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client"})
+		return
+	}
+	if fa.revokeStatus != 0 && fa.revokeStatus != http.StatusOK {
+		w.WriteHeader(fa.revokeStatus)
+		if fa.revokeError != "" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": fa.revokeError})
+		}
+		return
+	}
+	fa.revoked = append(fa.revoked, f.Get("token"))
+}
+
 // fakeLinks is AppleLinks over a map.
 type fakeLinks struct {
 	bySub   map[string]string
@@ -213,6 +245,7 @@ type appleHarness struct {
 	ensured  []ensured
 	issued   []uuid.UUID
 	capErr   error
+	svc      *Service
 }
 
 func newAppleHarness(t *testing.T) *appleHarness {
@@ -259,6 +292,7 @@ func newAppleHarness(t *testing.T) *appleHarness {
 	}
 	h.router = chi.NewRouter()
 	h.router.Route("/api/auth", svc.Mount)
+	h.svc = svc
 	return h
 }
 
@@ -684,5 +718,47 @@ func TestParseProvidersFromEnvApple(t *testing.T) {
 	base["RIVOLT_OIDC_APPLE_PRIVATE_KEY"] = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
 	if _, err := ParseProvidersFromEnv(env(base), "https://rivolt.test"); err == nil || strings.Contains(err.Error(), "AAAA") {
 		t.Errorf("bad key: err = %v (must fail without echoing the key)", err)
+	}
+}
+
+func TestAppleRevoke(t *testing.T) {
+	h := newAppleHarness(t)
+	ctx := context.Background()
+	if err := h.svc.AppleRevoke(ctx, "tok-1"); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if len(h.fa.revoked) != 1 || h.fa.revoked[0] != "tok-1" {
+		t.Fatalf("revoked = %v", h.fa.revoked)
+	}
+	// Already revoked or expired at Apple: done.
+	h.fa.revokeStatus, h.fa.revokeError = http.StatusBadRequest, "invalid_grant"
+	if err := h.svc.AppleRevoke(ctx, "tok-2"); err != nil {
+		t.Errorf("invalid_grant: %v, want nil", err)
+	}
+	// Apple down, or rejecting the client: an error that never carries the token.
+	for _, tc := range []struct {
+		status int
+		code   string
+	}{{http.StatusServiceUnavailable, ""}, {http.StatusBadRequest, "invalid_client"}} {
+		h.fa.revokeStatus, h.fa.revokeError = tc.status, tc.code
+		err := h.svc.AppleRevoke(ctx, "tok-secret-3")
+		if err == nil || strings.Contains(err.Error(), "tok-secret-3") {
+			t.Errorf("status %d: err = %v, want an error without the token", tc.status, err)
+		}
+	}
+	var none *Service
+	if err := none.AppleRevoke(ctx, "x"); !errors.Is(err, ErrAppleNotConfigured) {
+		t.Errorf("nil service: %v", err)
+	}
+	gh, err := New(ctx, Config{
+		IssueSession: func(http.ResponseWriter, *http.Request, uuid.UUID) error { return nil },
+		EnsureUser:   func(context.Context, string, string, string, bool) (uuid.UUID, error) { return uuid.Nil, nil },
+		Providers:    []ProviderConfig{{Name: "github", Kind: "oauth2-github", ClientID: "gh", RedirectURL: "https://x/cb"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gh.AppleRevoke(ctx, "x"); !errors.Is(err, ErrAppleNotConfigured) {
+		t.Errorf("no apple provider: %v", err)
 	}
 }
