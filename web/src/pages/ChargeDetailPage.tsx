@@ -974,7 +974,7 @@ function SessionInsights({
             cooling the pack during this session. Rivian's API doesn't
             expose pack temperature directly — high BMS energy means
             the pack was being aggressively conditioned (cold-soak
-            DC fast-charge, hot-ambient L2, preconditioning before
+            DC fast-charge, hot-ambient Level 2, preconditioning before
             departure).
           </p>
         </div>
@@ -1166,14 +1166,14 @@ function computeSessionInsights(
 // then DC slow / standard / fast / ultra.
 function classifyChargingTier(maxKW: number): { label: string; hint: string } {
   if (maxKW <= 0) return { label: "—", hint: "no power data" };
-  if (maxKW <= 2) return { label: "L1 (120 V)", hint: "wall outlet" };
+  if (maxKW <= 2) return { label: "Household outlet (Level 1)", hint: "wall outlet" };
   // Power only: where the charge was is the "Where" row.
-  if (maxKW <= 12) return { label: "L2", hint: "7–12 kW range" };
-  if (maxKW <= 25) return { label: "L2 high power", hint: "12–25 kW range" };
-  if (maxKW <= 60) return { label: "DC slow", hint: "~50 kW DCFC" };
-  if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW DCFC" };
-  if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW DCFC" };
-  return { label: "DC ultra", hint: "350 kW+ DCFC" };
+  if (maxKW <= 12) return { label: "Level 2", hint: "7–12 kW range" };
+  if (maxKW <= 25) return { label: "Level 2, high power", hint: "12–25 kW range" };
+  if (maxKW <= 60) return { label: "DC slow", hint: "~50 kW fast charging" };
+  if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW fast charging" };
+  if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW fast charging" };
+  return { label: "DC ultra", hint: "350 kW+ fast charging" };
 }
 
 // thermalIntensityLabel turns the thermal-share percentage into a

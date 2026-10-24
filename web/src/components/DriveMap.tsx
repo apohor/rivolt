@@ -1548,7 +1548,7 @@ export function ChargesOverviewMap({
       m.bindTooltip(
         `<div style="font:11px/1.3 ui-sans-serif,system-ui">` +
           `<div style="color:${CHARGE_BUCKET_COLOR[bucket]};font-weight:600">` +
-          `${bucket === "fast" ? "DCFC" : bucket === "l2" ? "L2" : "L1"} · ${c.MaxPowerKW.toFixed(1)} kW</div>` +
+          `${bucket === "fast" ? "Fast charging" : bucket === "l2" ? "Level 2" : "Household outlet (Level 1)"} · ${c.MaxPowerKW.toFixed(1)} kW</div>` +
           `<div style="color:#a3a3a3">${when}</div>` +
           `<div style="color:#d4d4d4">${c.EnergyAddedKWh.toFixed(1)} kWh added</div>` +
           `</div>`,
@@ -1571,9 +1571,9 @@ export function ChargesOverviewMap({
         "color:#d4d4d4;backdrop-filter:blur(2px);";
       div.innerHTML = (
         [
-          ["fast", "DCFC"],
-          ["l2", "L2"],
-          ["l1", "L1"],
+          ["fast", "Fast charging"],
+          ["l2", "Level 2"],
+          ["l1", "Household outlet (Level 1)"],
         ] as const
       )
         .map(

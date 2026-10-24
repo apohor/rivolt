@@ -438,9 +438,9 @@ export function TripRouteMap({
   }, [routePath]);
 
   const filterLabels: Record<typeof chargerFilter, string> = {
-    dcfc: "DCFC",
-    l2: "L2",
-    hotels: "Hotels with Level 2",
+    dcfc: "Fast charging",
+    l2: "Level 2",
+    hotels: "Hotels with overnight charging",
     camp: "Campgrounds",
     all: "All",
   };
@@ -474,9 +474,9 @@ export function TripRouteMap({
           )}
           {chargerFilter === "all" && (
             <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
-              <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;
-              <span style={{ color: "#a3e635" }}>●</span> L2 &nbsp;
-              <span style={{ color: "#a78bfa" }}>●</span> Hotel L2 &nbsp;
+              <span style={{ color: "#06b6d4" }}>●</span> Fast charging &nbsp;
+              <span style={{ color: "#a3e635" }}>●</span> Level 2 &nbsp;
+              <span style={{ color: "#a78bfa" }}>●</span> Hotel, overnight charging &nbsp;
               {campCount > 0 && (<><span style={{ color: "#22c55e" }}>●</span> Campground, electric hookup</>)}
             </span>
           )}
@@ -487,7 +487,7 @@ export function TripRouteMap({
           )}
           {chargerFilter === "hotels" && (
             <span className="text-xs text-neutral-600 ml-1">
-              <span style={{ color: "#a78bfa" }}>●</span> Hotel L2
+              <span style={{ color: "#a78bfa" }}>●</span> Hotel, overnight charging
             </span>
           )}
         </div>

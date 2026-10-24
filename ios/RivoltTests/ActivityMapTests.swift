@@ -43,7 +43,7 @@ final class ActivityMapTests: XCTestCase {
         XCTAssertEqual(try decode(MapCharge.self, charge("c", "2026-10-03T12:00:00Z", kw: 150, kind: "ac")).bucket, .l2)
         XCTAssertEqual(try decode(MapCharge.self, charge("d", "2026-10-03T12:00:00Z", kw: 7)).bucket, .l2)
         XCTAssertEqual(try decode(MapCharge.self, charge("e", "2026-10-03T12:00:00Z", kw: 1.4)).bucket, .l1)
-        XCTAssertEqual(MapCharge.Bucket.allCases.map(\.label), ["Fast", "L2", "L1"])
+        XCTAssertEqual(MapCharge.Bucket.allCases.map(\.label), ["Fast", "Level 2", "Household outlet (Level 1)"])
     }
 
     private final class Fake: ActivityMapSource, @unchecked Sendable {

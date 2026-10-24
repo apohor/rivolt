@@ -3,6 +3,7 @@ import { backend, type TripRoute } from "../lib/api";
 import { decodePolyline6 } from "../components/TripRouteMap";
 import { inDemo } from "../lib/demo";
 import { formatDistance, usePreferences } from "../lib/preferences";
+import { rangePerHour } from "../lib/chargeRange";
 import type { OvernightAdder } from "./tripTypes";
 import { StayCard, RidbCredit } from "./StayCard";
 import { CAMP_WARNING, campgroundPageUrl, campPowerLine, hookupForConnector, outletLabel, sitesLine } from "./stays";
@@ -67,7 +68,7 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
                       sitesLine(c.electric_sites, c.sites),
                       c.fee ? `Fee: ${c.fee}` : "",
                     ]
-                  : [`${c.l2_kw_assumed ? `power not listed (${c.l2_kw} kW assumed)` : `up to ${c.l2_kw} kW`} · ${away}`]
+                  : [`Level 2 charger · ${rangePerHour(c.l2_kw, distanceUnit)}`, `${c.l2_kw_assumed ? `power not listed (${c.l2_kw} kW assumed)` : `up to ${c.l2_kw} kW`} · ${away}`]
               }
               warning={camp ? CAMP_WARNING : undefined}
               link={camp && !c.sample ? campgroundPageUrl(c.source_url) : undefined}

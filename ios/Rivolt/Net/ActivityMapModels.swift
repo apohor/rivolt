@@ -47,8 +47,8 @@ struct MapCharge: Decodable, Equatable, Identifiable {
         var label: String {
             switch self {
             case .fast: return "Fast"
-            case .l2: return "L2"
-            case .l1: return "L1"
+            case .l2: return "Level 2"
+            case .l1: return "Household outlet (Level 1)"
             }
         }
     }
