@@ -40,10 +40,11 @@ type Welcome struct {
 }
 
 // emailable is the common eligibility for every welcome/setup email: a
-// deliverable VERIFIED address (the statement email's rule), not disabled, not
-// opted out. The demo account has no email so it never matches.
+// deliverable VERIFIED address (the statement email's rule; not one Apple told us
+// its relay no longer forwards to), not disabled, not opted out. The demo account has no email so it never matches.
 const emailable = `u.disabled = FALSE
 		  AND u.email_verified
+		  AND NOT u.email_undeliverable
 		  AND COALESCE(u.email, '') <> ''
 		  AND u.engagement_emails_off_at IS NULL`
 
