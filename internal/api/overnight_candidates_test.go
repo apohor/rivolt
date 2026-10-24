@@ -158,3 +158,17 @@ func TestOvernightCandidatesCampgrounds(t *testing.T) {
 		t.Errorf("unknown kind = %d, want 400", rec.Code)
 	}
 }
+
+// A route polyline over the suggestion's point limit is thinned, not refused (the page would show no stays).
+func TestOvernightCandidatesTakesALongRoutePolyline(t *testing.T) {
+	noLoad := func(context.Context) error { return nil }
+	h := overnightHandler(hotelArchive{}, noLoad)
+	var path [][2]float64
+	for i := 0; i < 30_000; i++ {
+		path = append(path, [2]float64{34 + 9*float64(i)/29_999, -118})
+	}
+	rec := postOvernight(h, map[string]any{"path": path, "drive_sec": 40000, "budget_hours": 8})
+	if rec.Code != 200 {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}
