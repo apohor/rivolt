@@ -21,6 +21,8 @@ CAPTIONS = [
 ]
 FOOTER = "Sample truck, generated data"
 SKIP_FOOTER = {"trust"}  # the sign-in screen is not the demo truck
+# The sign-in screen is a card at the top of an empty page: only that part is shown (a fraction of the screen's height).
+CROP = {"trust": 0.60}
 PALETTE = {
     "dark": {"canvas": (11, 15, 21), "text": (245, 245, 245), "muted": (146, 146, 146), "edge": (48, 54, 64)},
     "light": {"canvas": (233, 236, 241), "text": (23, 23, 23), "muted": (99, 99, 99), "edge": (200, 205, 214)},
@@ -48,6 +50,9 @@ def frame(raw_path, caption, footer, mode):
     pal = PALETTE[mode]
     shot = Image.open(raw_path).convert("RGB")
     W, H = shot.size
+    crop = CROP.get(os.path.basename(raw_path).split("-")[0])
+    if crop:
+        shot = shot.crop((0, 0, W, int(H * crop)))
     canvas = Image.new("RGB", (W, H), pal["canvas"])
     d = ImageDraw.Draw(canvas)
     # Caption: up to two lines, centred, in the app's type.
@@ -61,13 +66,14 @@ def frame(raw_path, caption, footer, mode):
     # The screen, scaled to fit between the caption and the footer, with rounded corners and a hairline.
     top = max(y + H * 0.02, H * 0.15)
     bottom = H * (0.945 if footer else 0.975)
-    scale = min((bottom - top) / H, 0.86)
-    sw, sh = int(W * scale), int(H * scale)
+    shot_w, shot_h = shot.size
+    scale = min((bottom - top) / shot_h, 0.86)
+    sw, sh = int(shot_w * scale), int(shot_h * scale)
     scr = shot.resize((sw, sh), Image.LANCZOS)
     radius = int(sw * 0.07)
     mask = Image.new("L", (sw, sh), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, sw - 1, sh - 1), radius=radius, fill=255)
-    x0, y0 = (W - sw) // 2, int(top)
+    x0, y0 = (W - sw) // 2, int(top + max(0, (bottom - top - sh) / 2))  # a short (cropped) screen sits centred, not at the top
     canvas.paste(scr, (x0, y0), mask)
     d.rounded_rectangle((x0, y0, x0 + sw - 1, y0 + sh - 1), radius=radius, outline=pal["edge"], width=max(2, W // 400))
     if footer:

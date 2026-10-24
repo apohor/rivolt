@@ -44,6 +44,12 @@ struct TruckView: View {
                 .padding(.horizontal, 4 * Theme.unit)
                 .padding(.vertical, 4 * Theme.unit)
             }
+            .task {
+                // App Store screenshots only: bring the sleep and tires cards to the top once the screen has loaded.
+                guard StoreShots.name == "truck" else { return }
+                try? await Task.sleep(nanoseconds: 25_000_000_000)
+                proxy.scrollTo("sleep", anchor: .top)
+            }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -161,7 +167,7 @@ struct TruckContent: View {
             if let t = model.trends?.value { trendsCard(t) } else if model.trends == .failed { failedCard("Trends for your truck", "Couldn't load trends.") }
             if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") }
             placesCard
-            sleepCard
+            sleepCard.id("sleep")
             tiresCard
             vehicleCard
         }

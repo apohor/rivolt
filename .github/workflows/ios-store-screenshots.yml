@@ -32,7 +32,7 @@ jobs:
   shots:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'store-shots')
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +88,7 @@ jobs:
             -quiet
 
       - name: Shoot the screens
-        timeout-minutes: 40
+        timeout-minutes: 70
         run: |
           set -uo pipefail
           udid="${{ steps.sim.outputs.udid }}"
@@ -115,6 +115,8 @@ jobs:
               sleep 5
             done
             [ -f "$out" ] || failed=1
+            # The demo server limits how many heavy reads one client may make a minute: let the budget refill before the next launch.
+            sleep 70
           }
           for mode in dark light; do
             for name in now money drive charge truck; do shoot "$name" "$mode" -rivolt-store-shot "$name"; done
@@ -127,9 +129,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet pillow
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pillow
           for mode in dark light; do
-            python3 ios/tools/store_shots.py "$RUNNER_TEMP/raw" "$RUNNER_TEMP/store/${{ matrix.size }}" "$mode"
+            "$RUNNER_TEMP/venv/bin/python" ios/tools/store_shots.py "$RUNNER_TEMP/raw" "$RUNNER_TEMP/store/${{ matrix.size }}" "$mode"
           done
 
       - name: Upload
