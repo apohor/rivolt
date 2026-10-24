@@ -51,22 +51,53 @@ struct ChargingDetail: Equatable {
             energyKwh: s.flatMap { $0.totalChargedEnergyKwh > 0 ? $0.totalChargedEnergyKwh : nil },
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
             remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil },
-            cost: s.flatMap(cost(of:)),
+            cost: cost(of: s, summary: summary, charge: charge),
             place: charge?.placeLabel,
             haveLiveData: live
         )
     }
 
-    private static func cost(of s: LiveSession) -> Cost? {
+    /// The charge's cost so far, in order of trust. (1) What Rivian bills for the session: its own figure. (2) The server's open charge row,
+    /// priced from the energy that charge has recorded: the figure the web's Now card is built on. (3) The live session's estimate, only
+    /// while the energy it was made from agrees with the battery's own gain so far: it was once the previous session's total ($9.39 "so far"
+    /// a minute into a charge that had added 0.2 kWh). Otherwise nothing: the row stays out until there is a real figure.
+    static func cost(of s: LiveSession?, summary: NowSummary, charge: ChargeBrief?) -> Cost? {
         // Any price Rivian sent counts as billed, "0.00" included (the web does the same).
-        if let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
+        if let s, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
+        if let open = openCharge(charge, summary: summary) {
+            if open.cost > 0, let cur = usableCurrency(open.currency) { return .estimate(amount: open.cost, currency: cur) }
+            if let est = open.estimatedCost, est > 0, let cur = usableCurrency(open.estimatedCurrency) { return .estimate(amount: est, currency: cur) }
+        }
+        guard let s else { return nil }
         // An estimate with no currency would read as a bare number, so it is left out.
-        if let est = s.estimatedCost, est > 0, let cur = s.estimatedCurrency, cur.count == 3 {
+        if let est = s.estimatedCost, est > 0, let cur = usableCurrency(s.estimatedCurrency), sessionEnergyAgrees(s, summary: summary) {
             return .estimate(amount: est, currency: cur)
         }
         return s.isFreeSession ? .free : nil
+    }
+
+    private static func usableCurrency(_ c: String?) -> String? {
+        guard let c, c.count == 3 else { return nil }
+        return c
+    }
+
+    /// The server's charge row for the charge in progress: the one that began when `/now` says it did (within five minutes), or, with no start
+    /// time from `/now`, one that began in the last 12 hours and was still being written to.
+    private static func openCharge(_ charge: ChargeBrief?, summary: NowSummary) -> ChargeBrief? {
+        guard let charge, let started = charge.startedAt else { return nil }
+        if let begun = summary.chargeStartedAt { return abs(started.timeIntervalSince(begun)) <= 5 * 60 ? charge : nil }
+        guard let age = summary.ageSec, age.isFinite else { return nil }
+        let clock = (summary.lastSeen ?? .now).addingTimeInterval(age)
+        return clock.timeIntervalSince(started) <= 12 * 3600 && (charge.endedAt.map { clock.timeIntervalSince($0) <= 30 * 60 } ?? true) ? charge : nil
+    }
+
+    /// The live session's energy against the battery's gain so far (percent gained x the pack). Unknown gain: no agreement, so no estimate.
+    private static func sessionEnergyAgrees(_ s: LiveSession, summary: NowSummary) -> Bool {
+        guard let added = summary.chargeAddedPct, let pack = summary.packKwh, pack > 0 else { return false }
+        let gain = added / 100 * pack
+        return abs(s.totalChargedEnergyKwh - gain) <= max(1.5, 0.35 * gain)
     }
 }
 
