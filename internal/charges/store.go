@@ -443,7 +443,7 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -512,7 +512,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -737,7 +737,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -979,7 +979,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE((c.metadata->>'energy_estimated')::boolean, false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
