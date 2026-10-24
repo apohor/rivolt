@@ -17,16 +17,18 @@ import (
 // accepted, with the same rule the client uses (termsRequired: an account created on or after termsEffectiveAt that has not
 // accepted currentTermsVersion; older accounts are never gated).
 //
-// Still open to such a user, so they can always agree, take their data and leave: the accept endpoint, the two ways to
-// download their own data (export and backup), and deleting the account. Authentication routes (/api/auth/*, including me
+// Still open to such a user, so they can always agree, take their data and leave, or stop being notified: the accept endpoint, the
+// two ways to download their own data (export and backup), deleting the account, and switching push notifications off. Authentication routes (/api/auth/*, including me
 // and sign-out) and the public routes are outside the gated groups. An admin viewing as a user is not gated (the client
-// does not gate the view either: the admin has accepted nothing for them).
+// does not gate the view either: the admin has accepted nothing for them), and neither is the public demo user.
 const termsRequiredError = "terms_required"
 
 // termsGateExempt are the routes a user who has not accepted the Terms can still call.
 func termsGateExempt(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
-	case "POST /api/terms/accept", "GET /api/export", "GET /api/data/backup", "DELETE /api/data/account":
+	case "POST /api/terms/accept", "GET /api/export", "GET /api/data/backup", "DELETE /api/data/account",
+		// Switching notifications off: someone declining new Terms can still stop pushes (turning them on stays gated).
+		"POST /api/push/off", "POST /api/push/unsubscribe", "POST /api/push/apns/unregister":
 		return true
 	}
 	return false
@@ -44,7 +46,9 @@ func requireTermsMW(lookup termsLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			uid, ok := auth.UserFromContext(r.Context())
-			if !ok || lookup == nil || termsGateExempt(r) || auth.IsImpersonating(r.Context()) {
+			// The anonymous public demo runs as the demo user, who accepts nothing and is never asked to: exempt it here, not by
+			// the luck of its creation date against termsEffectiveAt.
+			if !ok || lookup == nil || isDemoUser(uid) || termsGateExempt(r) || auth.IsImpersonating(r.Context()) {
 				next.ServeHTTP(w, r)
 				return
 			}
