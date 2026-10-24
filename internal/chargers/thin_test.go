@@ -35,12 +35,11 @@ func TestThinPathKeepsTheShape(t *testing.T) {
 	if worst > 300 {
 		t.Errorf("thinned line strays %.0f m from the route", worst)
 	}
-	// And the thinned path is accepted by the corridor planner that refused the original.
-	if _, _, err := planCorridor(in, 10); err == nil {
-		t.Error("the unthinned path should be over the limit")
-	}
-	if _, _, err := planCorridor(out, 10); err != nil {
-		t.Errorf("thinned path refused: %v", err)
+	// The scan thins a long path itself, and takes the thinned one as it is.
+	for name, p := range map[string][][2]float64{"long": in, "thinned": out} {
+		if got, _, err := planCorridor(p, 10); err != nil || len(got) > MaxPathPoints {
+			t.Errorf("%s path: %d points kept, %v", name, len(got), err)
+		}
 	}
 }
 

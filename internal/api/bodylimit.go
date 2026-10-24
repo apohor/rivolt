@@ -19,9 +19,25 @@ func maxBodyBytes(limit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, limit)
+				l := limit
+				if routeBodyPaths[r.URL.Path] && l < routeBodyMax {
+					l = routeBodyMax
+				}
+				r.Body = http.MaxBytesReader(w, r.Body, l)
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// routeBodyMax bounds a request that carries a route polyline: 200,000 points of [lat, lon] at about 25 bytes each is
+// 5 MB, so 8 MiB covers the longest accepted route (chargers.MaxRoutePoints).
+const routeBodyMax = 8 << 20
+
+// routeBodyPaths are the routes that carry a route polyline. They sit in groups that cap JSON bodies at maxJSONBody, and
+// a MaxBytesReader inside another can only lower the limit, never raise it, so the group's own middleware gives these
+// routes routeBodyMax instead.
+var routeBodyPaths = map[string]bool{
+	"/api/maps/chargers-along":        true,
+	"/api/trips/overnight-candidates": true,
 }

@@ -25,10 +25,6 @@ type chargersAlongResponse struct {
 	Count    int            `json:"count"`
 }
 
-// routeBodyMax bounds a request that carries a route polyline: 200,000 points of [lat, lon] at about 25 bytes each is
-// 5 MB, so 8 MiB covers the longest accepted route.
-const routeBodyMax = 8 << 20
-
 // handleChargersAlong serves POST /api/maps/chargers-along. Lazy-loads
 // the archive on first request when the startup warm failed; honours
 // the 30s timeout middleware on the route group.

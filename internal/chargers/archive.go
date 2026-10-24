@@ -375,7 +375,7 @@ type QueryCorridorOptions struct {
 
 // Limits on a corridor query, so one request cannot ask for a continent of tiles.
 const (
-	// MaxPathPoints is the longest route polyline accepted.
+	// MaxPathPoints is the most route points a scan walks; a longer polyline (up to MaxRoutePoints) is thinned to it.
 	MaxPathPoints = 5000
 	// MaxCorridorKm is the widest search band accepted (half-width).
 	MaxCorridorKm = 50.0
@@ -402,13 +402,16 @@ type corridorBox struct {
 
 // planCorridor validates and clamps a query before anything is read: coordinates
 // are clamped to the map (latitude +-85.05, longitude +-180), the corridor to
-// MaxCorridorKm, and the path to MaxPathPoints; a box of more than maxQueryTiles
+// MaxCorridorKm, and the path to MaxPathPoints (thinned, not refused, up to MaxRoutePoints); a box of more than maxQueryTiles
 // tiles is refused. It does not touch the archive. The returned path is a
 // clamped copy.
 func planCorridor(path [][2]float64, corridorKM float64) ([][2]float64, corridorBox, error) {
-	if len(path) > MaxPathPoints {
+	if len(path) > MaxRoutePoints {
 		return nil, corridorBox{}, ErrQueryTooLarge
 	}
+	// A route's own polyline (a long drive has tens of thousands of points) is thinned to what the scan takes, so every
+	// caller gets the same answer instead of a refusal on a long route.
+	path = ThinPath(path, MaxPathPoints)
 	if corridorKM <= 0 {
 		corridorKM = defaultCorridorKM
 	}
