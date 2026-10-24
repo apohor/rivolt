@@ -63,6 +63,7 @@ type StateMonitor struct {
 	// (remoteLatestTTL).
 	remoteMu     sync.Mutex
 	remoteLatest map[string]remoteLatestEntry
+	peerCharge   map[string]peerChargeEntry
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -3352,7 +3353,7 @@ func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, Cha
 	s := m.sessions[vehicleID]
 	if s == nil || s.charge == nil {
 		m.sessMu.Unlock()
-		return nil, ChargeNow{}
+		return nil, m.peerChargeNow(vehicleID)
 	}
 	c := s.charge
 	row := m.liveChargeRow(vehicleID, c)
@@ -3363,6 +3364,56 @@ func (m *StateMonitor) LiveSessionForCharge(vehicleID string) (*LiveSession, Cha
 		return nil, now
 	}
 	return sess, now
+}
+
+// peerChargeNow is the open charge's energy, peak and place on a pod that does not hold the vehicle: the owner pod publishes its
+// accumulator to the shared store on every frame, and this reads it, the way /now reads the owner's published State. It returns
+// a zero ChargeNow when this pod streams the vehicle itself (no open charge here means none), there is no store or snapshot, or
+// the snapshot's charge is stale (the same age limit the restore uses). The cached Rivian session is not part of a snapshot, so
+// the caller serves the zeroed payload with the estimated cost, which is what the owner serves for a home AC charge. The read
+// is cached for remoteLatestTTL per vehicle on this user's monitor, and has no side effects: it neither counts nor logs.
+func (m *StateMonitor) peerChargeNow(vehicleID string) ChargeNow {
+	if m.liveStateStore == nil {
+		return ChargeNow{}
+	}
+	m.mu.RLock()
+	_, streaming := m.active[vehicleID]
+	m.mu.RUnlock()
+	if streaming {
+		return ChargeNow{}
+	}
+	m.remoteMu.Lock()
+	if e, ok := m.peerCharge[vehicleID]; ok && m.since(e.at) < remoteLatestTTL {
+		m.remoteMu.Unlock()
+		return e.now
+	}
+	m.remoteMu.Unlock()
+	var now ChargeNow
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	snap, ok, err := m.liveStateStore.Load(ctx, vehicleID)
+	if err != nil {
+		m.logger.Debug("peer charge snapshot get failed", "vehicle", vehicleID, "err", err.Error())
+		return ChargeNow{}
+	}
+	if ok && snap.Charge != nil && m.clock().Sub(snap.Charge.EndAt) <= liveChargeMaxGap {
+		if c := liveSessionsFromSnapshot(snap).charge; c != nil {
+			row := m.buildChargeRow(vehicleID, c, true)
+			now = ChargeNow{EnergyKWh: row.EnergyAddedKWh, PeakKW: row.MaxPowerKW, Place: row.Place}
+		}
+	}
+	m.remoteMu.Lock()
+	if m.peerCharge == nil {
+		m.peerCharge = make(map[string]peerChargeEntry)
+	}
+	m.peerCharge[vehicleID] = peerChargeEntry{now: now, at: m.clock()}
+	m.remoteMu.Unlock()
+	return now
+}
+
+type peerChargeEntry struct {
+	now ChargeNow
+	at  time.Time
 }
 
 // ChargeNow is what the open charge has recorded so far: the energy, the peak power (which says AC from fast charging) and

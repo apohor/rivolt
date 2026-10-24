@@ -1741,6 +1741,14 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 // Extracted so the post-close hook can snapshot the same shape that
 // upsertLiveCharge writes without having to re-implement the merge.
 func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Charge {
+	return m.buildChargeRow(vehicleID, c, false)
+}
+
+// buildChargeRow is liveChargeRow. With peer set it is the read-only view a pod that does not stream the vehicle takes of the
+// owner's charge (rebuilt from a snapshot): it ignores this pod's own cached Rivian session, which can be a previous plug-in's,
+// stops after the energy, peak and place (no pricing), and does not touch the energy-floor counter or log, whose once-per-charge
+// guard lives on the instance a snapshot read rebuilds every time.
+func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool) charges.Charge {
 	// Prefer real metrics from Rivian's live session feed when we
 	// have them. As of v0.3.6 this map is populated by BOTH the REST
 	// chargingSessionPoller (Rivian chargers / select DC fast) and
@@ -1766,6 +1774,9 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	// incident: stale 4.10 kWh inherited by a 3.5s chargerState
 	// glitch session).
 	if liveSess != nil && bondedTo != c.id {
+		liveSess = nil
+	}
+	if peer {
 		liveSess = nil
 	}
 
@@ -1931,6 +1942,13 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	if liveSess != nil && !stale && liveSess.RivianChargerKnown {
 		v := liveSess.IsRivianCharger
 		row.RivianCharger = &v
+	}
+	if peer {
+		m.mu.RLock()
+		homeNow := m.homeLookup
+		m.mu.RUnlock()
+		row.Place = PlaceOf(row.Lat, row.Lon, homeNow)
+		return row
 	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
 	// (they're the real billed amount). A DC fast charge Rivian didn't
