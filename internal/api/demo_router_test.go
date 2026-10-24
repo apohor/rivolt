@@ -37,7 +37,7 @@ func TestDemoRouter_NoAnonymousWritesAndNoAIOrUpstream(t *testing.T) {
 	never := []string{
 		"/api/trips/plan", "/api/trips/plan-multiday", "/api/trips/plan/advice", "/api/trips/plan/raw",
 		"/api/trips/plan/diag", "/api/geocode", "/api/maps/valhalla", "/api/maps/chargers-along",
-		"/efficiency", "/api/live-drive",
+		"{id}/efficiency", "/api/live-drive",
 	}
 	vin := demo.VehicleID()
 	checked, mutating := 0, 0

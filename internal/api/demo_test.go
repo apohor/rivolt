@@ -60,6 +60,27 @@ func TestDemoAllowed(t *testing.T) {
 		// charger archive tiles
 		{"GET", "/api/vehicles/" + demoVeh + "/drain", true},
 		{"GET", "/api/vehicles/other/drain", false},
+		// The iPhone app's demo truck: the activity feed, milestones, the chart reads and a charge's detail.
+		{"GET", "/api/activity", true},
+		{"HEAD", "/api/activity", true},
+		{"POST", "/api/activity", false},
+		{"GET", "/api/milestones", true},
+		{"POST", "/api/milestones/dismiss", false},
+		{"GET", "/api/chart-points", true},
+		{"GET", "/api/charge-split", true},
+		{"GET", "/api/insights/efficiency", true},
+		{"GET", "/api/insights/efficiency/extra", false},
+		{"GET", "/api/charges/live_" + demoVeh + "_c_1790000000", true},
+		{"GET", "/api/charges/electrafi_x_c_17", true},
+		{"GET", "/api/charges/demo_seed_home", true},
+		{"PUT", "/api/charges/demo_seed_home", false},
+		{"DELETE", "/api/charges/demo_seed_home", false},
+		{"GET", "/api/charges/to-confirm", false},
+		{"GET", "/api/charges/live_" + demoVeh + "_d_1790000000", false},
+		{"GET", "/api/charges/demo_seed_home/extra", false},
+		{"GET", "/api/charges/../drives", false},
+		{"GET", "/api/vehicles/" + demoVeh + "/lease", false},
+		{"GET", "/api/vehicles/" + demoVeh + "/lease/status", false},
 		{"GET", "/api/vehicles/" + demoVeh + "/sleep-health", true},
 		{"GET", "/api/vehicles/other/sleep-health", false},
 		{"POST", "/api/vehicles/" + demoVeh + "/sleep-health", false},
@@ -943,5 +964,42 @@ func TestDemoSavingsIgnoresQueryNoise(t *testing.T) {
 	}
 	if len(seen) != 1 || seen[0] != "" {
 		t.Fatalf("handler saw %q, want one call with no query", seen)
+	}
+}
+
+// The window reads the iPhone demo makes are heavy (a window scan or a join), and their query keeps only the parts it is expected to carry.
+func TestDemoHeavyWindowReads(t *testing.T) {
+	for _, p := range []string{"/api/chart-points", "/api/charge-split", "/api/insights/efficiency"} {
+		if !demoHeavyPath(p, demoVeh) {
+			t.Errorf("%s should be in the heavy, rate-limited set", p)
+		}
+	}
+	for _, p := range []string{"/api/activity", "/api/milestones", "/api/charges", "/api/charges/demo_seed_home"} {
+		if demoHeavyPath(p, demoVeh) {
+			t.Errorf("%s should be in the normal set", p)
+		}
+	}
+	q := func(path, raw string) string {
+		r := httptest.NewRequest("GET", path+"?"+raw, nil)
+		demoHeavyQuery(r)
+		return r.URL.RawQuery
+	}
+	got := q("/api/insights/efficiency", "since=2026-10-01T00:00:00Z&until=2026-10-24T00:00:00Z&units=metric&vehicle="+demoVeh+"&evil=1&tz=Bogus/Zone")
+	for _, want := range []string{"since=2026-10-01T00%3A00%3A00Z", "until=", "units=metric", "vehicle=" + demoVeh} {
+		if !strings.Contains(got, want) {
+			t.Errorf("kept query %q lacks %q", got, want)
+		}
+	}
+	for _, bad := range []string{"evil", "tz="} {
+		if strings.Contains(got, bad) {
+			t.Errorf("kept query %q still has %q", got, bad)
+		}
+	}
+	if got := q("/api/chart-points", "since=yesterday&units=furlongs&vehicle=a%20b%3Bdrop"); got != "" {
+		t.Errorf("malformed window parameters survived: %q", got)
+	}
+	// The older heavy reads still carry only tz.
+	if got := q("/api/vehicles/"+demoVeh+"/drain", "since=2026-10-01T00:00:00Z&tz=UTC"); got != "tz=UTC" {
+		t.Errorf("drain query = %q, want tz=UTC only", got)
 	}
 }

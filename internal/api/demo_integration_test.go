@@ -19,6 +19,7 @@ import (
 	"github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
+	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -136,5 +137,57 @@ func TestDemoPerDriveWeather_ScopedToDemoUser(t *testing.T) {
 	}
 	if got := get("drive-bob"); got != http.StatusNotFound {
 		t.Fatalf("another user's drive through the demo identity = %d, want 404", got)
+	}
+}
+
+// Another user's charge id through the demo identity yields nothing: the id shape the demo allows is not what keeps it scoped, the store is.
+func TestDemoChargeRead_ScopedToDemoUser(t *testing.T) {
+	t.Setenv("RIVOLT_DEMO", "true")
+	t.Setenv("RIVIAN_CLIENT", "replay")
+	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
+	t.Setenv("RIVOLT_REPLAY_SOURCE_VEHICLE", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	demoUID, err := db.EnsureUserFull(ctx, pool, demo.Username, "", "Demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := db.EnsureUser(ctx, pool, "demo-charge-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cf := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool))
+	now := time.Now().UTC().Truncate(time.Minute)
+	for uid, id := range map[uuid.UUID]string{demoUID: "demo_seed_scoping_demo", bob: "demo_seed_scoping_bob"} {
+		c := charges.Charge{ID: id, VehicleID: rivian.DemoVehicleID(uid), StartedAt: now.Add(-3 * time.Hour), EndedAt: now.Add(-2 * time.Hour),
+			StartSoCPct: 20, EndSoCPct: 50, EnergyAddedKWh: 30, FinalState: "charging_complete", Source: "seed", Currency: "USD"}
+		if err := cf.For(uid).Upsert(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both ids are of the shape the demo allows; only the store scoping separates them.
+	vid := rivian.DemoVehicleID(demoUID)
+	for _, id := range []string{"demo_seed_scoping_demo", "demo_seed_scoping_bob"} {
+		if !demoAllowed(http.MethodGet, "/api/charges/"+id, vid) {
+			t.Fatalf("%s is not an allowed demo path", id)
+		}
+	}
+	get := func(id string) int {
+		r := chi.NewRouter()
+		r.Get("/api/charges/{id}", handleGetCharge(cf.For(demoUID), settings.NewFactory(pool).For(demoUID), nil))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/charges/"+id, nil))
+		return rec.Code
+	}
+	if got := get("demo_seed_scoping_demo"); got != http.StatusOK {
+		t.Fatalf("demo's own charge = %d, want 200", got)
+	}
+	if got := get("demo_seed_scoping_bob"); got != http.StatusNotFound {
+		t.Fatalf("another user's charge through the demo identity = %d, want 404", got)
 	}
 }

@@ -52,6 +52,13 @@ var demoExactPaths = map[string]bool{
 	// Curve data for the demo's drive/charge detail views. Results are
 	// scoped to the demo user by the store; the limit is clamped below.
 	"/api/samples": true,
+	// The iPhone app's demo truck reads the same sample account: its activity feed, milestone cards and the three chart reads. Exact
+	// paths, GET and HEAD only, scoped to the demo user by their stores. (The chart reads are heavy; see demoHeavyPath.)
+	"/api/activity":            true,
+	"/api/milestones":          true,
+	"/api/chart-points":        true,
+	"/api/charge-split":        true,
+	"/api/insights/efficiency": true,
 }
 
 // Anonymous /api/samples is the one heavy read (a full reply is 1-2 MB),
@@ -182,13 +189,35 @@ var demoHeavyTZ = map[string]bool{
 // demoHeavyQuery rewrites the query of a heavy anonymous read to the
 // only parameter it may carry (tz, from the fixed set), in place.
 func demoHeavyQuery(r *http.Request) {
-	tz := strings.TrimSpace(r.URL.Query().Get("tz"))
-	if !demoHeavyTZ[tz] {
-		r.URL.RawQuery = ""
-		return
+	q := r.URL.Query()
+	tz := strings.TrimSpace(q.Get("tz"))
+	out := url.Values{}
+	if demoHeavyTZ[tz] {
+		out.Set("tz", tz)
 	}
-	r.URL.RawQuery = url.Values{"tz": {tz}}.Encode()
+	// The window reads may also carry their window, units and vehicle, each only in its expected shape.
+	if demoWindowPaths[strings.TrimSuffix(r.URL.Path, "/")] {
+		for _, name := range []string{"since", "until"} {
+			if v := q.Get(name); v != "" {
+				if _, err := time.Parse(time.RFC3339, v); err == nil {
+					out.Set(name, v)
+				}
+			}
+		}
+		if v := q.Get("units"); v == "imperial" || v == "metric" {
+			out.Set("units", v)
+		}
+		for _, name := range []string{"vehicle", "vehicle_id"} {
+			if v := q.Get(name); v != "" && len(v) <= 128 && demoVehicleParamRe.MatchString(v) {
+				out.Set(name, v)
+			}
+		}
+	}
+	r.URL.RawQuery = out.Encode()
 }
+
+// demoVehicleParamRe is the shape of a vehicle id in a query ("demo-<uuid>"): letters, digits, dash and underscore only.
+var demoVehicleParamRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // The parked-drain read window-scans up to 30 days of vehicle_state and
 // plan-vs-actual joins drives and the ledger over a padded window, so
@@ -282,12 +311,28 @@ func demoPerDrivePath(p string) bool {
 	return false
 }
 
+// demoChargeIDRe is the shape of a demo charge id: a recorded one ("live_<vehicle>_c_<unix>", or an imported "electrafi_...") or one of
+// the demo's own seeded rows ("demo_seed_..."). Anything else, "to-confirm" and the other fixed charge routes included, is not served.
+var demoChargeIDRe = regexp.MustCompile(`^((live|electrafi)_[A-Za-z0-9:._-]+_c_[0-9]+|demo_seed_[a-z0-9_]+)$`)
+
+// demoChargePath reports whether p is /api/charges/{id} for a plain demo charge id. The id reaches the demo user's own charge store, so
+// another account's charge id is a 404, not a read.
+func demoChargePath(p string) bool {
+	id, ok := strings.CutPrefix(p, "/api/charges/")
+	return ok && len(id) <= 160 && demoChargeIDRe.MatchString(id)
+}
+
 // demoHeavyPath reports whether p is one of the anonymous reads that
 // join or window-scan a lot of rows: parked drain, plan-vs-actual and the
 // savings estimate (a month of home sessions against the example schedule).
 func demoHeavyPath(p, vehicleID string) bool {
-	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/vehicles/"+vehicleID+"/sleep-health" || p == "/api/ledger/savings" || demoSavedTripActualPath(p)
+	return p == "/api/vehicles/"+vehicleID+"/drain" || p == "/api/vehicles/"+vehicleID+"/sleep-health" || p == "/api/ledger/savings" ||
+		demoWindowPaths[p] || demoSavedTripActualPath(p)
 }
+
+// demoWindowPaths are the heavy reads that take a time window (the app's chart and efficiency reads). Their window parameters are checked
+// by demoHeavyQuery, and the handlers bound the window themselves (at most 400 days, the demo user's own rows).
+var demoWindowPaths = map[string]bool{"/api/chart-points": true, "/api/charge-split": true, "/api/insights/efficiency": true}
 
 // demoSavedTripActualPath reports whether p is
 // /api/trips/saved/{uuid}/actual. The id must parse as a uuid, so no
@@ -340,7 +385,7 @@ func demoAllowed(method, path, vehicleID string) bool {
 	if demoExactPaths[p] || isDemoTilePath(path) {
 		return true
 	}
-	return demoPerDrivePath(p) || demoSavedTripActualPath(p) ||
+	return demoPerDrivePath(p) || demoSavedTripActualPath(p) || demoChargePath(p) ||
 		p == "/api/vehicles/"+vehicleID+"/drain" ||
 		p == "/api/vehicles/"+vehicleID+"/sleep-health" ||
 		p == "/api/state/"+vehicleID ||
