@@ -33,6 +33,10 @@ func TestOvernightCandidatesRouteBodyCapThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A fresh account must accept the Terms before any data route answers (the server-side gate): this one has.
+	if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil {
+		t.Fatal(err)
+	}
 	ss, err := sessions.New(pool, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatal(err)
