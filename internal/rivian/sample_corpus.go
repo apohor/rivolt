@@ -53,6 +53,16 @@ const (
 // (Truck tab). No update is ever pending.
 const sampleSoftwareVersion = "2026.34.1"
 
+// sampleTrailerErrand is which weekend errand (counting from the corpus start) tows a trailer, so the demo shows one Trailer drive and the
+// efficiency note that leaves it out. The fifth of about six weekends is a couple of weeks before the corpus ends.
+const sampleTrailerErrand = 5
+
+// The sample truck's tire pressures, bar: the fronts sit a little above the rears, as a loaded R1S's placard asks.
+const (
+	sampleTireFrontBar = 2.9
+	sampleTireRearBar  = 2.85
+)
+
 // sampleFlickerDay is the night the truck fails to stay asleep.
 const sampleFlickerDay = 24
 
@@ -144,6 +154,7 @@ type sampleSeg struct {
 	limit      float64
 	billedRate float64 // charge: $/kWh Rivian bills (0: not Rivian-billed)
 	billedBy   string  // charge: the billed session's network name
+	trailer    bool    // drive: a trailer is hitched (the trailer connector reads present)
 }
 
 func (s sampleSeg) frames() int {
@@ -205,6 +216,10 @@ type sampleBuilder struct {
 	at      samplePoint
 	plugged bool
 	limit   float64
+
+	// errands counts the weekend errand drives so far; the sampleTrailerErrand-th one tows a trailer (nextTrailer carries it to drive()).
+	errands     int
+	nextTrailer bool
 
 	tripMiles []float64
 	inTrip    bool
@@ -298,7 +313,8 @@ func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
 	b.plugged = false
 	b.add(sampleSeg{kind: segDrive, start: b.t, end: b.t.Add(dur), step: 5 * time.Second,
 		socA: b.soc, socB: b.soc - drop, odoA: b.odo, odoB: b.odo + miles, path: path, cruise: cruise, power: "go",
-		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise)})
+		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise), trailer: b.nextTrailer})
+	b.nextTrailer = false
 	b.soc -= drop
 	b.odo += miles
 	b.at = to[len(to)-1]
@@ -527,6 +543,8 @@ func (b *sampleBuilder) errand(day int) {
 	if b.t.Before(b.clock(day, 11, 0)) {
 		b.park(b.clock(day, 11, 0).Add(b.jitter(30)), false)
 	}
+	b.errands++
+	b.nextTrailer = b.errands == sampleTrailerErrand
 	b.drive(28, sampleErrand[b.rng.Intn(len(sampleErrand))])
 	b.park(b.t.Add(time.Duration(30+b.rng.Intn(60))*time.Minute), false)
 	b.drive(28, SampleHome)
@@ -557,8 +575,9 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 		At: t, ShiftState: "P", BatteryPct: round1(soc), OdometerMi: round2(odo),
 		RangeMi: round1(soc / 100 * samplePackKWh * sampleMiPerKWh), Lat: round5(pos.Lat), Lon: round5(pos.Lon),
 		ChargingState: "charger_disconnected", PowerState: s.power, LocationFixAt: &fix,
-		DriveMode: "everyday", ChargeLimitPct: s.limit, TirePressureBar: 2.9,
-		OtaCurrentVersion: sampleSoftwareVersion,
+		DriveMode: "everyday", ChargeLimitPct: s.limit, TirePressureBar: sampleTireRearBar,
+		TireFLBar: sampleTireFrontBar, TireFRBar: sampleTireFrontBar, TireRLBar: sampleTireRearBar, TireRRBar: sampleTireRearBar,
+		OtaCurrentVersion: sampleSoftwareVersion, TrailerState: "not_present",
 	}
 	outside := 14 + 7*math.Sin(2*math.Pi*(float64(t.Hour())+float64(t.Minute())/60-9)/24)
 	fr.OutsideTempC = round1(outside)
@@ -568,6 +587,9 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 	case segDrive:
 		fr.ShiftState = "D"
 		fr.PowerState = "go"
+		if s.trailer {
+			fr.TrailerState = "present"
+		}
 		if p := s.prof; p != nil && i >= 0 && i < len(p.speed) {
 			fr.SpeedMph = p.speed[i]
 			if p.modeAt >= 0 && i >= p.modeAt {

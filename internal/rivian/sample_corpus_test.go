@@ -448,3 +448,36 @@ func TestSampleCorpusEnergyBalance(t *testing.T) {
 			added, used, stored, drain, days, 1.5*days)
 	}
 }
+
+// The demo's Truck card needs more than the min tire pressure: four different wheels, and one trailer drive (the connector reading "not
+// present" otherwise) for the efficiency note that leaves it out.
+func TestSampleCorpus_ShowsTheNewerCards(t *testing.T) {
+	t.Parallel()
+	frames := sharedSampleFrames()
+	var trailerRuns, trailerFrames int
+	inTrailer := false
+	for _, s := range frames {
+		if s.TirePressureFLBar != sampleTireFrontBar || s.TirePressureFRBar != sampleTireFrontBar ||
+			s.TirePressureRLBar != sampleTireRearBar || s.TirePressureRRBar != sampleTireRearBar {
+			t.Fatalf("tires at %v: %v %v %v %v", s.At, s.TirePressureFLBar, s.TirePressureFRBar, s.TirePressureRLBar, s.TirePressureRRBar)
+		}
+		switch s.TrailerState {
+		case "present":
+			trailerFrames++
+			if s.Gear != "D" {
+				t.Fatalf("a trailer frame outside a drive at %v (gear %q)", s.At, s.Gear)
+			}
+			if !inTrailer {
+				trailerRuns++
+			}
+			inTrailer = true
+		case "not_present":
+			inTrailer = false
+		default:
+			t.Fatalf("trailer state %q at %v", s.TrailerState, s.At)
+		}
+	}
+	if trailerRuns != 1 || trailerFrames == 0 {
+		t.Errorf("want exactly one trailer drive, got %d runs and %d frames", trailerRuns, trailerFrames)
+	}
+}
