@@ -17,7 +17,7 @@ CAPTIONS = [
     ("drive", "Every drive, route and charts"),
     ("charge", "Every charge, priced at your rate"),
     ("truck", "Tires, sleep and health, from your truck"),
-    ("trust", "Read-only. Your password is never stored."),
+    ("trust", "Sends no commands to your truck. Your Rivian password is never stored."),
 ]
 FOOTER = "Sample truck, generated data"
 SKIP_FOOTER = {"trust"}  # the sign-in screen is not the demo truck
