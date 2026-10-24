@@ -15,7 +15,7 @@ final class KpiLogicTests: XCTestCase {
     func testTheDriveAndChargeStatsAreTheWebs() throws {
         let a = try activity()
         let d = KpiLogic.drives(a.drives)
-        XCTAssertEqual(d.count, 3)
+        XCTAssertEqual(d.count, 4, "drv-2a is a round trip merged from 2 recorded drives; the web counts the recorded ones")
         XCTAssertEqual(d.miles, 18.6 + 61.4 + 42.3, accuracy: 1e-9)
         XCTAssertEqual(d.miPerKwh, d.milesForEnergy / d.energyUsedKwh, accuracy: 1e-9)
         XCTAssertEqual(d.maxSpeedMph, 72)
@@ -37,7 +37,7 @@ final class KpiLogicTests: XCTestCase {
         XCTAssertEqual(byID["since"]?.hint, "no finished charges yet")
         XCTAssertEqual(byID["miles"]?.value, "122.3")
         XCTAssertEqual(byID["miles"]?.unit, "mi")
-        XCTAssertEqual(byID["miles"]?.hint, "3 drives · avg 40.8 mi")
+        XCTAssertEqual(byID["miles"]?.hint, "4 drives · avg 30.6 mi")
         XCTAssertEqual(byID["energy"]?.value, "140.1")
         XCTAssertEqual(byID["energy"]?.hint, "4 charges · peak 198 kW")
         XCTAssertEqual(byID["efficiency"]?.unit, "mi/kWh")
@@ -60,6 +60,18 @@ final class KpiLogicTests: XCTestCase {
                                   ledger: LedgerMonthSpend(currency: "USD", spend: .init(total: 0, billedTotal: nil, estimatedTotal: nil)), ledgerPending: false, metric: false)
         XCTAssertEqual(none.first { $0.id == "cost" }?.hint, "no priced charges yet")
         XCTAssertEqual(none.first { $0.id == "miles" }?.value, "—")
+    }
+
+    func testAMergedRoundTripCountsAsItsRecordedDrivesLikeTheWeb() {
+        func drive(_ id: String, mi: Double, legs: Int?) -> ActivityDrive {
+            ActivityDrive(id: id, vehicleId: "v", startedAt: .now, endedAt: .now, distanceMi: mi, energyUsedKwh: 3, startSocPct: 80, endSocPct: 75,
+                          avgSpeedMph: 40, maxSpeedMph: 66, estimatedCost: nil, estimatedCurrency: nil, estimatedPricePerKwh: nil, roundTripLegs: legs, drivingSeconds: nil)
+        }
+        // One plain drive and a round trip the server merged from three recorded drives: four drives, as the web counts them.
+        let d = KpiLogic.drives([drive("a", mi: 10, legs: nil), drive("b", mi: 30, legs: 3)])
+        XCTAssertEqual(d.count, 4)
+        XCTAssertEqual(d.miles, 40, "the miles are the same either way")
+        XCTAssertEqual(d.avgTripMi, 10, accuracy: 0.001, "the average is over the recorded drives")
     }
 
     func testEfficiencyFallsBackFromThePackToTheWallToMilesPerPercent() {

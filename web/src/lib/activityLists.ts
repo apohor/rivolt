@@ -33,13 +33,27 @@ export function sessionInFlight(s: Pick<VehicleState, "speed_kph" | "gear" | "ch
   );
 }
 
-// Refreshes the lists when a vehicle goes from a session under way to none. It listens to the vehicle-state polls the
-// pages already make, so it adds no requests of its own.
+// The server writes a drive or charge a little after the truck stops, so a read at the moment the session closes can come
+// back without it, and the lists' five minutes of freshness would then keep the old answer. The lists are read again at
+// these delays (ms) after the close, until a new session starts.
+export const REFRESH_AFTER_CLOSE_MS = [30_000, 90_000, 180_000, 360_000];
+
+// Refreshes the lists when a vehicle goes from a session under way to none, at once and again at REFRESH_AFTER_CLOSE_MS. It
+// listens to the vehicle-state polls the pages already make, so it adds no requests of its own beyond those re-reads.
 export function useRefreshListsWhenSessionCloses() {
   const qc = useQueryClient();
   useEffect(() => {
     const was = new Map<string, boolean>();
-    return qc.getQueryCache().subscribe((event) => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>[]>();
+    const refresh = () => {
+      void qc.invalidateQueries({ queryKey: ["drives"] });
+      void qc.invalidateQueries({ queryKey: ["charges"] });
+    };
+    const cancel = (id: string) => {
+      for (const t of timers.get(id) ?? []) clearTimeout(t);
+      timers.delete(id);
+    };
+    const unsubscribe = qc.getQueryCache().subscribe((event) => {
       if (event.type !== "updated" || event.action.type !== "success") return;
       const key = event.query.queryKey;
       if (key[0] !== "rivian" || key[1] !== "state") return;
@@ -48,10 +62,17 @@ export function useRefreshListsWhenSessionCloses() {
       const id = String(key[2] ?? "");
       const now = sessionInFlight(state);
       if (was.get(id) === true && !now) {
-        void qc.invalidateQueries({ queryKey: ["drives"] });
-        void qc.invalidateQueries({ queryKey: ["charges"] });
+        refresh();
+        cancel(id);
+        timers.set(id, REFRESH_AFTER_CLOSE_MS.map((ms) => setTimeout(refresh, ms)));
+      } else if (now) {
+        cancel(id); // a new session: its own close will schedule again
       }
       was.set(id, now);
     });
+    return () => {
+      unsubscribe();
+      for (const id of [...timers.keys()]) cancel(id);
+    };
   }, [qc]);
 }
