@@ -3,7 +3,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -2384,6 +2386,7 @@ func runServer() {
 		}
 	}
 	handler := api.New(api.Deps{
+		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
 		Sessions:              sessionsAPI,
 		SampleRetentionMonths: sampleRetentionMonths,
 		ArchiveRows:           archiveRows,
@@ -2897,4 +2900,15 @@ func hostOnly(addr string) string {
 		return h
 	}
 	return addr
+}
+
+// deriveKey is a key for one purpose, derived from the server's secret (HMAC-SHA256 of the purpose label); nil when the
+// secret is empty.
+func deriveKey(secret []byte, purpose string) []byte {
+	if len(secret) == 0 {
+		return nil
+	}
+	m := hmac.New(sha256.New, secret)
+	_, _ = m.Write([]byte(purpose))
+	return m.Sum(nil)
 }

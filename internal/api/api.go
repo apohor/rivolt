@@ -186,6 +186,9 @@ type Deps struct {
 	// ownership middleware; ownership enforcement is only wired
 	// when DB is non-nil.
 	DB *sql.DB
+	// AuditKey keys the salted hash of a user id in the "account deleted" log line (derived from the cookie secret; empty
+	// means a random key for the process).
+	AuditKey []byte
 	// Logger is the structured logger used by middleware for
 	// infrastructure-class warnings (DB errors on ownership check,
 	// etc.). nil is fine; events are dropped.
