@@ -52,11 +52,12 @@ struct LoginView: View {
                 ThemeLogo(size: 28)
                 Text("Rivolt").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
             }
-            HStack(spacing: 2 * Theme.unit) {
-                Text("Sign in").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
-                ThemePill(text: "BETA", tone: .stale)
+            // No "BETA" pill: the App Store does not take betas (guideline 2.2); the web keeps it.
+            Text("Sign in").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            if let notice = state.signInNotice {
+                Text(notice).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
             }
-            .accessibilityElement(children: .combine)
             Text("Your Rivian companion. Signing in opens your browser, with the account you use on the web; the app never sees your password.")
                 .themeText(.value, color: Theme.textBody)
                 .fixedSize(horizontal: false, vertical: true)
@@ -142,6 +143,7 @@ struct LoginView: View {
 
     private func signIn() async {
         message = nil
+        state.clearSignInNotice()
         isWorking = true
         defer { isWorking = false }
         do {

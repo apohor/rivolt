@@ -57,6 +57,10 @@ final class AppState {
     }
 
     private(set) var phase: Phase = .bootstrapping
+    /// A line the sign-in screen shows once, after the session ended in a way the person should be told about (the account deleted on the web).
+    private(set) var signInNotice: String?
+    /// Set when the person was sent to the web to delete the account: the next time the app is in front, it checks whether they did.
+    private var awaitingDeletion = false
     /// What the Connection details screen shows: the last two reads' outcomes and the newest frame, in memory only.
     let connection = ConnectionDiagnostics()
     private(set) var signInStatus: SignInStatus = .unknown
@@ -80,7 +84,8 @@ final class AppState {
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
     private static let legacyServerDefaultsKey = "rivolt.api_base_url"
 
-    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil, liveActivity: LiveActivityManager? = nil) {
+    init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil, liveActivity: LiveActivityManager? = nil,
+         session: URLSession? = nil) {
         defaults.removeObject(forKey: Self.legacyServerDefaultsKey)
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
@@ -88,7 +93,7 @@ final class AppState {
         self.tokens = tokens
         self.notifications = notifications ?? NotificationManager.shared
         self.liveActivity = liveActivity ?? LiveActivityManager.shared
-        let signedIn = APIClient(baseURL: server, tokens: tokens)
+        let signedIn = APIClient(baseURL: server, tokens: tokens, session: session)
         self.client = signedIn
         self.signedInClient = signedIn
     }
@@ -229,6 +234,42 @@ final class AppState {
         await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
     }
+
+    /// The person is being sent to the web page that deletes the account (Apple's 5.1.1(v) asks for a way to delete it from the app).
+    /// The app never deletes anything itself: its token can't. Coming back to the app, `recheckAfterDeletion` looks.
+    func accountDeletionStarted() { awaitingDeletion = true }
+
+    /// After the web deletion page was opened, and the app is in front again: if the server no longer knows this session (deleting an
+    /// account ends every session), the app signs out here, forgetting what it held, and the sign-in screen says why. Any other answer
+    /// (still signed in, or the server unreachable) leaves things as they were and asks again next time.
+    func recheckAfterDeletion() async {
+        guard awaitingDeletion, case .loggedIn = phase else { return }
+        do {
+            _ = try await client.me()
+        } catch APIError.server(let status, _) where status == 401 {
+            awaitingDeletion = false
+            await forgetSession(notice: "Your account was deleted.")
+        } catch {
+            return
+        }
+    }
+
+    /// Ends this phone's session without asking the server (it has already ended it): the token, the notification registration
+    /// and the widgets' and map's data all go, and the sign-in screen is shown with `notice`.
+    private func forgetSession(notice: String) async {
+        await liveActivity.stop()
+        liveActivity.attach(server: nil)
+        try? tokens.deleteToken(for: serverURL)
+        WidgetStore().clear()
+        MapNetwork.reset()
+        activityMap.clear()
+        efficiency.clear()
+        WidgetCenter.shared.reloadAllTimelines()
+        signInNotice = notice
+        phase = .loggedOut
+    }
+
+    func clearSignInNotice() { signInNotice = nil }
 
     func logout() async {
         // The demo has no session to end: "Sign in" there just leaves it.
