@@ -74,7 +74,7 @@ jobs:
           udid=$(xcrun simctl create "store-${{ matrix.size }}" "$type" "$rt")
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
-      - name: Build for the simulator (debug: it has the launch argument)
+      - name: Build for the simulator (a debug build, which has the launch argument)
         run: |
           set -euo pipefail
           xcodebuild build \
