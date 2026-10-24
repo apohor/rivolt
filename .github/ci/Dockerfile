@@ -7,7 +7,8 @@
 # what self-hosters and local builds use. Keep the two runtime stages identical.
 #
 # Build context: a directory holding `rivolt` (the binary, mode 0755) and an empty `data/` directory.
-FROM gcr.io/distroless/static-debian12:nonroot
+# Same digest as the root Dockerfile's runtime stage (keep them identical; Renovate bumps both in one PR).
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /app
 COPY rivolt /app/rivolt
 # Pre-created /data owned by distroless "nonroot" (uid 65532) so a named volume mounts it with the right ownership.
