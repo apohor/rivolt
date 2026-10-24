@@ -166,3 +166,61 @@ func TestRevokeDeletesPushDevices(t *testing.T) {
 		t.Errorf("RevokeAllExcept: extra=%d keep=%d", devices(extra), devices(keep))
 	}
 }
+
+// RevokeAll signs a user out everywhere (browsers and app, push devices with them) and touches nobody else.
+func TestRevokeAllEndsEverySessionOfOneUser(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	st, err := sessions.New(pool, bytes.Repeat([]byte("r"), 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, _ := db.EnsureUser(ctx, pool, "revokeall-me")
+	other, _ := db.EnsureUser(ctx, pool, "revokeall-other")
+	web, _, err := st.Create(ctx, me, time.Hour, sessions.CreateOpts{Kind: sessions.KindWeb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, _, err := st.Create(ctx, me, time.Hour, sessions.CreateOpts{Kind: sessions.KindApp, DeviceLabel: "iPhone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs, _, err := st.Create(ctx, other, time.Hour, sessions.CreateOpts{Kind: sessions.KindWeb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx,
+		`INSERT INTO push_apns_devices (id, user_id, session_id, token, env, bundle_id) VALUES ($1, $2, $3, $4, 'sandbox', 'dev.rivolt.app')`,
+		uuid.New(), me, app.ID, strings.Repeat("c", 64)); err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.RevokeAll(ctx, me)
+	if err != nil || n != 2 {
+		t.Fatalf("RevokeAll = %d, %v; want 2", n, err)
+	}
+	live := func(id uuid.UUID) bool {
+		var c int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = $1 AND revoked_at IS NULL`, id).Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		return c == 1
+	}
+	if live(web.ID) || live(app.ID) {
+		t.Error("one of my sessions survived")
+	}
+	if !live(theirs.ID) {
+		t.Error("another user's session was revoked")
+	}
+	var dev int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM push_apns_devices WHERE session_id = $1`, app.ID).Scan(&dev); err != nil || dev != 0 {
+		t.Errorf("push devices of a revoked app session: %d, %v", dev, err)
+	}
+	if n, err := st.RevokeAll(ctx, uuid.Nil); err != nil || n != 0 {
+		t.Errorf("nil user: %d, %v", n, err)
+	}
+}

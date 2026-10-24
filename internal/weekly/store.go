@@ -24,7 +24,7 @@ func (s *pgSource) Candidates(ctx context.Context) ([]Candidate, error) {
 		                  ORDER BY v.created_at LIMIT 1), '')
 		  FROM engagement_prefs p
 		  JOIN users u ON u.id = p.user_id
-		 WHERE p.weekly_recap AND NOT u.disabled AND u.email_verified AND COALESCE(u.email, '') <> ''
+		 WHERE p.weekly_recap AND NOT u.disabled AND u.email_verified AND NOT u.email_undeliverable AND COALESCE(u.email, '') <> ''
 		   AND p.user_id <> $1`, s.skip)
 	if err != nil {
 		return nil, err

@@ -111,7 +111,7 @@ func (s *pgStore) OptedIn(ctx context.Context) ([]Candidate, error) {
 		SELECT p.user_id, p.timezone, u.email, COALESCE(u.display_name, '')
 		  FROM statement_email_prefs p
 		  JOIN users u ON u.id = p.user_id
-		 WHERE p.enabled AND COALESCE(u.email, '') <> '' AND u.email_verified AND COALESCE(u.disabled, FALSE) = FALSE
+		 WHERE p.enabled AND COALESCE(u.email, '') <> '' AND u.email_verified AND NOT u.email_undeliverable AND COALESCE(u.disabled, FALSE) = FALSE
 		 ORDER BY p.user_id`)
 	if err != nil {
 		return nil, err
