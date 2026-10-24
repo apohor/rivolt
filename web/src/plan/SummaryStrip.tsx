@@ -4,6 +4,8 @@ import { formatDuration, formatWaypointTime } from "./format";
 import { CostEstimateNote } from "./CostEstimateNote";
 import { estimateLabel, fmtRange, NO_PRICE_TEXT, partialText, spendView } from "../lib/planCost";
 import { Unit } from "./Unit";
+import { usePreferences } from "../lib/preferences";
+import { distanceIn } from "./units";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
 // gas sublines, time, arrival, distance, charging). Used by the planner.
@@ -30,6 +32,7 @@ export function SummaryStrip({
   chargeMinutes: number;
   compact?: boolean;
 }) {
+  const { distanceUnit } = usePreferences();
   const fmtCurrency = (v: number) =>
     new Intl.NumberFormat(undefined, { style: "currency", currency: cost?.currency || "USD" }).format(v);
   const spend = spendView(cost);
@@ -107,7 +110,7 @@ export function SummaryStrip({
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? <>{(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)}<Unit>mi</Unit></> : "—"}</dd>
+          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? <>{distanceIn(route.TotalDriveDistanceMeters, distanceUnit).toFixed(0)}<Unit>{distanceUnit}</Unit></> : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>

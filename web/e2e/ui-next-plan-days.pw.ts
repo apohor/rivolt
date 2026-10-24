@@ -70,6 +70,22 @@ async function plan(page: Page, body: object, edit?: () => Promise<void>) {
   return reqs;
 }
 
+// The plan's own distances follow the unit setting: the total and each day's header.
+test("3-day plan in km: no miles on the plan's distances", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km", temperatureUnit: "c" })));
+  await stubApi(page);
+  await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" });
+  const total = page.getByText("Total distance").locator("..");
+  await expect(total).toContainText("1900 km");
+  await expect(total).not.toContainText(" mi");
+  const header = page.locator("[data-day-card]").first();
+  await expect(header).toContainText(/\d+ km · [\d.]+ h driving/);
+  await expect(header).not.toContainText(/\d mi\b/);
+  await ctx.close();
+});
+
 for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
   { n: "desktop", vp: { width: 1280, height: 900 } },

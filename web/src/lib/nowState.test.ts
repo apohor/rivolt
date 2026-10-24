@@ -205,6 +205,12 @@ describe("computeNow", () => {
     expect(a[0].id).toBe("critical-soc");
     expect(a[1].text).toBe("Tank woke up 12 times today.");
   });
+  it("writes the lowest tire's bar to two decimals, as the Tires card does", () => {
+    const state = st({ tire_pressure_fl_bar: 2.1 });
+    const view = computeNow({ ...inp(), state });
+    const a = nowAlerts({ view, state, vehicleName: "Tank", failedSleepsToday: 0 });
+    expect(a.map((x) => x.text)).toContain("Lowest tire 2.10 bar.");
+  });
   it("hides place when home isn't set", () => {
     const v = computeNow(inp({}, { home: null }));
     expect(v.place).toBe("unknown");
