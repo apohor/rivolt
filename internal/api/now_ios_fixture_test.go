@@ -85,6 +85,8 @@ func iosFixtureTargets() map[string]any {
 		// Activity (item E): drives (one merged round trip) and charges for a
 		// window, with no coordinates.
 		"activity.json": &activityResponse{},
+		// The demo's live answer, trimmed: microsecond timestamps, a null trailer, an AC charge with no network (the shapes the app's decoder met).
+		"activity_live_shape.json": &activityResponse{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},

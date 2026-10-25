@@ -100,6 +100,7 @@ export const _trendsSpread: Wide<TruckTrends> = trendsSpread;
 // imported above nor listed here, so a new fixture cannot skip this check.
 export const iosOnlyFixtures: Record<string, string> = {
   "activity.json": "the activity feed is an iPhone screen; the web has no consumer",
+  "activity_live_shape.json": "the demo's live activity answer, trimmed (microsecond timestamps, a null trailer): the iPhone's decoder is tested against it",
   "trip_plan.json": "the trip planner's iPhone fixture, generated from the server type (trip_fixtures_test.go); the web's TripPlan/SavedTrip types are checked against it in a follow-up",
   "trip_plan_rivian_shape.json": "a long plan in the words Rivian really sends (upper-case waypoint types, DC_CHARGE_STATION stops), generated from the server type (trip_fixtures_test.go); the iPhone's stop finding is tested against it",
   "trip_plan_multiday.json": "the trip planner's iPhone fixture, generated from the server type (trip_fixtures_test.go); the web's TripPlan/SavedTrip types are checked against it in a follow-up",

@@ -191,11 +191,51 @@ final class ActivityModelTests: XCTestCase {
         XCTAssertTrue(model.failed)
     }
 
+    func testTheDemosLiveAnswerReadsAndFillsTheMonth() async throws {
+        // Trimmed from the demo server's own answer: microsecond timestamps, a null trailer correction, AC and fast charges.
+        let live = try Fixture.decode(ActivityResponse.self, "activity_live_shape")
+        XCTAssertEqual(live.drives.count, 3)
+        XCTAssertEqual(live.charges.count, 3)
+        XCTAssertNotNil(live.drives.first?.roundTripLegs)
+        XCTAssertEqual(live.charges.first?.kind, "ac")
+        let model = ActivityModel()
+        await model.load(source: FakeActivity(result: .success(live)), vehicleID: "a", month: month, calendar: cal("UTC"))
+        XCTAssertEqual(model.response?.drives.count, 3)
+        XCTAssertFalse(model.failed)
+        XCTAssertNil(model.problem)
+    }
+
+    func testAFailureSaysWhatKindItWasAndOnlyADroppedReadIsTriedAgain() async throws {
+        let calendar = cal("UTC")
+        let down = FakeActivity(result: .failure(URLError(.notConnectedToInternet)))
+        let a = ActivityModel()
+        await a.load(source: down, vehicleID: "a", month: month, calendar: calendar, retryAfter: .zero)
+        XCTAssertEqual(a.problem, "Couldn't reach Rivolt. Check the connection, then pull to try again.")
+        let calls = await down.counter.calls
+        XCTAssertEqual(calls, 2, "a dropped connection is tried once more")
+        let b = ActivityModel()
+        let unreadable = FakeActivity(result: .failure(APIError.decoding(URLError(.cannotParseResponse))))
+        await b.load(source: unreadable, vehicleID: "a", month: month, calendar: calendar, retryAfter: .zero)
+        XCTAssertEqual(b.problem, "Rivolt couldn't read this month's answer. Updating the app may help.")
+        let unreadableCalls = await unreadable.counter.calls
+        XCTAssertEqual(unreadableCalls, 1, "an unreadable answer would read the same again")
+        let c = ActivityModel()
+        await c.load(source: FakeActivity(result: .failure(APIError.server(status: 503, message: "x"))), vehicleID: "a", month: month, calendar: calendar, retryAfter: .zero)
+        XCTAssertEqual(c.problem, "Rivolt isn't answering right now. Pull to try again.")
+    }
+
+    func testAReadThatWasCancelledIsNotAFailureOfTheMonth() async throws {
+        let model = ActivityModel()
+        await model.load(source: FakeActivity(result: .failure(URLError(.cancelled))), vehicleID: "a", month: month, calendar: cal("UTC"), retryAfter: .zero)
+        XCTAssertFalse(model.failed)
+        XCTAssertNil(model.problem)
+    }
+
     func testAnotherMonthNeverShowsThisMonthsRows() async throws {
         let model = ActivityModel()
         await model.load(source: FakeActivity(result: .success(try sample())), vehicleID: "a", month: month, calendar: cal("UTC"))
         await model.load(source: FakeActivity(result: .failure(APIError.transport("down"))), vehicleID: "a",
-                         month: month.shifted(by: -1, calendar: cal("UTC")), calendar: cal("UTC"))
+                         month: month.shifted(by: -1, calendar: cal("UTC")), calendar: cal("UTC"), retryAfter: .zero)
         XCTAssertNil(model.response)
         XCTAssertTrue(model.failed)
         XCTAssertFalse(model.limited)

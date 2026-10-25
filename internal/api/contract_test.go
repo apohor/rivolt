@@ -102,7 +102,7 @@ var demoServedFixtures = map[string][]string{
 	"/api/vehicles":               {"vehicles.json"},
 	"/api/charges":                {"charges_last.json"},
 	"/api/drives":                 {"drives_last.json"},
-	"/api/activity":               {"activity.json"},
+	"/api/activity":               {"activity.json", "activity_live_shape.json"},
 	"/api/chart-points":           {"chart_points.json"},
 	"/api/charge-split":           {"charge_split.json"},
 	"/api/ledger/summary":         {"ledger_summary.json"},
@@ -234,7 +234,7 @@ func TestResponsesNeverCarryTheseKeys(t *testing.T) {
 				}
 			}
 		}
-		if name == "activity.json" {
+		if name == "activity.json" || name == "activity_live_shape.json" {
 			var places []string
 			collectValues(readFixture(t, name), "place", &places)
 			for _, p := range places {
