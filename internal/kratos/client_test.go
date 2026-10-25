@@ -374,3 +374,21 @@ func TestSetPasswordErrorsNeverCarryAnyFormOfTheSecret(t *testing.T) {
 		}
 	}
 }
+
+// The classification is pinned to Kratos' own wording, so a screen can use its own words for each.
+func TestClassifyRejection(t *testing.T) {
+	for reason, want := range map[string]string{
+		"The password must be at least 8 characters long, but got 3.":               RejectTooShort,
+		"The password must be at most 72 characters long, but got 80.":              RejectTooLong,
+		"The password can not be used because it is too similar to the identifier.": RejectTooSimilar,
+		"The password has been found in data breaches and must no longer be used.":  RejectBreached,
+		"The password can not be used because it contains a forbidden word.":        RejectOther,
+		"": RejectOther,
+		"THE PASSWORD MUST BE AT LEAST 8 CHARACTERS LONG, BUT GOT 3.":               RejectTooShort,
+		"the password can not be used because it is too similar to the <redacted>.": RejectTooSimilar,
+	} {
+		if got := ClassifyRejection(reason); got != want {
+			t.Errorf("%q: %s, want %s", reason, got, want)
+		}
+	}
+}

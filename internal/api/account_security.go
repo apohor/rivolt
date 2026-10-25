@@ -191,7 +191,8 @@ func (a *accountSecurityAPI) serve(w http.ResponseWriter, r *http.Request, secur
 	if err := a.Kratos.SetPassword(r.Context(), identityID, in.New); err != nil {
 		var rej *kratos.RejectedError
 		if errors.As(err, &rej) {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "password_rejected", "reason": rej.Reason})
+			// reason_code is what a screen should use; reason is Kratos' redacted text, for logs and support, never for display.
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "password_rejected", "reason_code": rej.Code, "reason": rej.Reason})
 			return
 		}
 		a.Logger.Error("account security: set password", "err", redactIdentifier(err.Error(), mail))

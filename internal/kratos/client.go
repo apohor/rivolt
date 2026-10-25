@@ -449,7 +449,12 @@ func GeneratePassword() (string, error) { return generatePassword() }
 // RejectedError is Kratos refusing a change as invalid (HTTP 400), most often the password policy: too short, too common,
 // too like the email. Reason is Kratos' own text with the password (as sent, and as JSON escapes it) and the account's email
 // removed, redacted before it is shortened.
-type RejectedError struct{ Reason string }
+type RejectedError struct {
+	Reason string
+	// Code is a stable classification of Reason, so a screen can use its own words and never show Kratos' text: too_short,
+	// too_long, too_similar (to the email), breached, or other.
+	Code string
+}
 
 func (e *RejectedError) Error() string { return "kratos rejected the change: " + e.Reason }
 
@@ -530,7 +535,8 @@ func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error 
 	}
 	if resp.StatusCode == http.StatusBadRequest {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return &RejectedError{Reason: rejectionReason(raw, newPassword, identityEmail)}
+		reason := rejectionReason(raw, newPassword, identityEmail)
+		return &RejectedError{Reason: reason, Code: ClassifyRejection(reason)}
 	}
 	// Not the body: it is Kratos' text about a request that carried a password, and nothing downstream needs it.
 	return fmt.Errorf("kratos set password: status=%d", resp.StatusCode)
@@ -553,6 +559,34 @@ func redactSecrets(text string, secrets ...string) string {
 		}
 	}
 	return text
+}
+
+// Rejection codes (RejectedError.Code).
+const (
+	RejectTooShort   = "too_short"
+	RejectTooLong    = "too_long"
+	RejectTooSimilar = "too_similar"
+	RejectBreached   = "breached"
+	RejectOther      = "other"
+)
+
+// ClassifyRejection maps Kratos' password-policy text to a code. The strings are Kratos' own (text/message_validation.go):
+// "The password must be at least N characters long, but got M.", "... at most N characters ...", "The password can not be used
+// because it is too similar to the identifier.", "The password has been found in data breaches and must no longer be used.".
+// Anything else, or wording a future Kratos changes, is RejectOther: the screen then says only that the password is not accepted.
+func ClassifyRejection(reason string) string {
+	r := strings.ToLower(reason)
+	switch {
+	case strings.Contains(r, "at least") && strings.Contains(r, "characters"):
+		return RejectTooShort
+	case strings.Contains(r, "at most") && strings.Contains(r, "characters"):
+		return RejectTooLong
+	case strings.Contains(r, "too similar"):
+		return RejectTooSimilar
+	case strings.Contains(r, "data breaches"):
+		return RejectBreached
+	}
+	return RejectOther
 }
 
 // rejectionReason pulls Kratos' reason out of an error body ({"error":{"reason":...,"message":...}}), with the password and the

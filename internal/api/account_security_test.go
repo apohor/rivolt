@@ -59,7 +59,7 @@ func (k *secKratos) handler(w http.ResponseWriter, r *http.Request) {
 		raw, _ := json.Marshal(body)
 		if k.rejectNew != "" && strings.Contains(string(raw), k.rejectNew) {
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":{"reason":"the password is too common"}}`))
+			_, _ = w.Write([]byte(`{"error":{"reason":"The password must be at least 8 characters long, but got 7."}}`))
 			return
 		}
 		k.puts = append(k.puts, body)
@@ -339,5 +339,23 @@ func TestPasskeyAddedEmailNamesTheSameButtonAsTheScreen(t *testing.T) {
 	}
 	if strings.Contains(m.sent[0].Text, "Secure my account") {
 		t.Error("the mail must not use a name the screen does not")
+	}
+}
+
+// The 422 carries a stable reason_code, so the screen uses its own words and never shows Kratos' text.
+func TestPasswordRejectionCarriesAReasonCode(t *testing.T) {
+	e := newSecEnv(t)
+	e.k.rejectNew = "weak-pw"
+	rec := e.post(e.api.change, `{"current":"old-pw","new":"weak-pw"}`, nil)
+	var out struct {
+		Error      string `json:"error"`
+		ReasonCode string `json:"reason_code"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != http.StatusUnprocessableEntity || out.Error != "password_rejected" || out.ReasonCode != "too_short" {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+	if len(e.k.puts) != 0 || e.rev.calls != 0 {
+		t.Error("a refused password must change nothing")
 	}
 }
