@@ -8,8 +8,10 @@ The counter below is how we find those routes before a person does.
 ## The signal
 
 `rivolt_request_acquires_without_user_total{route}` counts request-pool connections handed out for a context with no user. `route` is
-the chi route pattern (`/api/vehicles/{vehicleID}/now`), never the path. `none` is a goroutine that is not a request (a job); `unmatched`
-is a 404. With the request pool off (the default, and every self-hosted install) the counter stays at zero: it only means something
+the chi route pattern (`/api/vehicles/{vehicleID}/now`), never the path. `unmatched` is a 404. **`none` on the request pool is a bug
+unless proven otherwise**: production background work (jobs, sweeps, the monitor and recorder) runs on the **system** pool, so a
+request-pool acquire with no route is a detached goroutine or a cache fill that lost the request's context. That is the class of #1099
+and #1102: silent empty background work. With the request pool off (the default, and every self-hosted install) the counter stays at zero: it only means something
 once `RIVOLT_REQUEST_DATABASE_URL` is set.
 
 Because a series only exists after its first increment, an alert on `increase()` alone misses a route's first hit. Use:
@@ -18,6 +20,10 @@ Because a series only exists after its first increment, an alert on `increase()`
 # routes that took a user-less connection in the last 15 minutes, including a route's very first one
 (increase(rivolt_request_acquires_without_user_total{route!="none"}[15m]) > 0)
   or (rivolt_request_acquires_without_user_total{route!="none"} unless rivolt_request_acquires_without_user_total{route!="none"} offset 15m)
+
+# the same for route="none": its own warning rule, a detached context on the request pool (never expected)
+(increase(rivolt_request_acquires_without_user_total{route="none"}[15m]) > 0)
+  or (rivolt_request_acquires_without_user_total{route="none"} unless rivolt_request_acquires_without_user_total{route="none"} offset 15m)
 ```
 
 The numbers that go with it, per route, for the stage-3 soak (the pool must not make anything slower than the `set_config` round trip):
@@ -29,7 +35,10 @@ histogram_quantile(0.95, sum by (le, route) (rate(rivolt_http_request_duration_s
 
 ## When it is non-zero
 
-1. **Find the route.** The `route` label names it. `none` is expected from jobs and is filtered out above.
+1. **Find the route.** The `route` label names it. For `none` there is no route: find the goroutine that queries on a context not
+   derived from a request (a `context.Background()` in a handler-started goroutine, a cache fill, a deferred write). Pass the request's
+   context, or `context.WithoutCancel(r.Context())` to outlive the request (it keeps the user); if the work really is not a user's
+   (a sweep), it belongs on the system pool.
 2. **Is it a signed-in user's page?** Reproduce it as a signed-in user on preview. An empty answer where there should be data is the
    symptom.
 3. **Decide which of two it is:**
@@ -47,7 +56,8 @@ histogram_quantile(0.95, sum by (le, route) (rate(rivolt_http_request_duration_s
 ## In CI
 
 The integration job runs the API tests with a real request pool (`RIVOLT_TEST_REQUEST_POOL=1`). The test harness counts user-less acquires
-by route the same way the metric does and **fails the test** naming the route. A new handler that reads per-user data without a user
+by route the same way the metric does and **fails the test** naming the route. It skips `none` only because direct handler tests have no
+router (so no route); in production `none` is the warning above. A new handler that reads per-user data without a user
 therefore fails in CI, before it reaches preview.
 
 ## Turning the request pool off in an emergency
