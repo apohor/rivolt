@@ -828,6 +828,10 @@ jobs:
       - name: Pull postgres image
         run: docker pull postgres:16-alpine
 
+      # The Hydra the sign-out/revoke test runs against (internal/integration/hydra_remember_test.go).
+      - name: Pull hydra image
+        run: docker pull oryd/hydra:v2.3.0
+
       - name: go test (integration)
         # Every package with an integration-tagged test runs, found from
         # the build tag rather than a hand-kept list: the list missed
