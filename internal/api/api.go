@@ -416,6 +416,7 @@ func (d Deps) logoutHandler() http.HandlerFunc {
 				slog.WarnContext(r.Context(), "logout: could not clear the identity provider's remembered login", "err", logging.ScrubErr(err))
 			}
 		}
+		d.Auth.ClearKratosCookie(w, r) // a browser may hold one (see ForgetLogin)
 		d.Auth.Logout(w, r)
 	}
 }
