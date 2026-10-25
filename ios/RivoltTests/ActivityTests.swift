@@ -159,6 +159,28 @@ private struct FakeActivity: ActivitySource {
     }
 }
 
+/// Busy the first time, fine the second.
+private struct BusyThenFine: ActivitySource {
+    let counter = Counter()
+    let answer: ActivityResponse
+    func activity(since: Date, until: Date, vehicleID: String) async throws -> ActivityResponse {
+        await counter.bump()
+        if await counter.calls == 1 { throw APIError.server(status: 429, message: "slow down") }
+        return answer
+    }
+}
+
+/// An answer that takes a moment, so two asks overlap.
+private struct SlowActivity: ActivitySource {
+    let counter = Counter()
+    let answer: ActivityResponse
+    func activity(since: Date, until: Date, vehicleID: String) async throws -> ActivityResponse {
+        await counter.bump()
+        try await Task.sleep(for: .milliseconds(150))
+        return answer
+    }
+}
+
 @MainActor
 final class ActivityModelTests: XCTestCase {
     private let month = PeriodMonth(containing: at("2026-09-15T00:00:00Z"), calendar: cal("UTC"))
@@ -185,10 +207,39 @@ final class ActivityModelTests: XCTestCase {
         let model = ActivityModel()
         await model.load(source: FakeActivity(result: .success(try sample())), vehicleID: "a", month: month, calendar: cal("UTC"))
         let limited = FakeActivity(result: .failure(APIError.server(status: 429, message: "slow down")))
-        await model.load(source: limited, vehicleID: "a", month: month, force: true, calendar: cal("UTC"))
+        await model.load(source: limited, vehicleID: "a", month: month, force: true, calendar: cal("UTC"), busyRetryAfter: .zero)
         XCTAssertEqual(model.response?.charges.count, 4)
         XCTAssertTrue(model.limited)
         XCTAssertTrue(model.failed)
+        let tried = await limited.counter.calls
+        XCTAssertEqual(tried, 2, "busy is asked again once, after a moment")
+        XCTAssertNil(model.problem, "busy is not 'couldn't load this month'")
+    }
+
+    func testABusyServerThatRecoversOnTheSecondAskShowsTheMonth() async throws {
+        let src = BusyThenFine(answer: try sample())
+        let model = ActivityModel()
+        await model.load(source: src, vehicleID: "a", month: month, calendar: cal("UTC"), busyRetryAfter: .zero)
+        XCTAssertEqual(model.response?.charges.count, 4)
+        XCTAssertFalse(model.failed)
+        XCTAssertFalse(model.limited)
+        let n = await src.counter.calls
+        XCTAssertEqual(n, 2)
+    }
+
+    func testTwoAsksForTheSameMonthAtOnceShareOneRead() async throws {
+        let src = SlowActivity(answer: try sample())
+        let model = ActivityModel()
+        async let a: Void = model.load(source: src, vehicleID: "a", month: month, calendar: cal("UTC"))
+        async let b: Void = model.load(source: src, vehicleID: "a", month: month, force: true, calendar: cal("UTC"))
+        _ = await (a, b)
+        let n = await src.counter.calls
+        XCTAssertEqual(n, 1, "a refresh landing with the appear read does not spend the allowance twice")
+        XCTAssertEqual(model.response?.charges.count, 4)
+        // Another month is its own read.
+        await model.load(source: src, vehicleID: "a", month: month.shifted(by: -1, calendar: cal("UTC")), calendar: cal("UTC"))
+        let m = await src.counter.calls
+        XCTAssertEqual(m, 2)
     }
 
     func testTheDemosLiveAnswerReadsAndFillsTheMonth() async throws {
