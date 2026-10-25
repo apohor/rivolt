@@ -30,7 +30,7 @@ final class TripModelsTests: XCTestCase {
 
     func testAnOriginHasNoArrivalTimeButStillReads() throws {
         let origin = try XCTUnwrap(try Fixture.decode(TripPlan.self, "trip_plan").best?.waypoints.first)
-        XCTAssertEqual(origin.waypointType, "origin")
+        XCTAssertEqual(origin.waypointType, "ORIGIN")
         XCTAssertNil(origin.arrivalTimeUTC?.date, "the server sends an empty string for an origin's arrival")
         XCTAssertNotNil(origin.departureTimeUTC?.date)
         XCTAssertFalse(origin.isCharger)

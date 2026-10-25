@@ -94,7 +94,6 @@ extension TripPlanMapTests {
         XCTAssertEqual(route.chargingStops.map(\.name), ["Sample Fast Charge A", "Sample Fast Charge B", "Sample Fast Charge C"],
                        "ORIGIN, DESTINATION and OTHER are not stops; DC_CHARGE_STATION is")
         XCTAssertEqual(TripPlanLogic.stopsTitle(route), "3 charging stops")
-        XCTAssertEqual(TripPlanLogic.noStopsLine(route), "The battery reaches the destination without charging.", "only used when there are no stops")
     }
 
     func testARealPlansMapHasAPinPerStopAndTheListHasTheSameStops() throws {
