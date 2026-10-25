@@ -7,11 +7,13 @@ export type SecurityFailure = { text: string; noPassword?: boolean; signOutIncom
 
 export function securityFailure(e: unknown): SecurityFailure {
   if (e instanceof ApiError) {
-    const body = (e.body ?? {}) as { error?: string; reason?: string; password_changed?: boolean; incomplete?: string[] };
+    const body = (e.body ?? {}) as { error?: string; reason?: string; password_changed?: boolean; incomplete?: string[]; reason_code?: string };
     if (e.status === 403 && body.error === "password_incorrect") return { text: "That isn't your current password." };
     if (e.status === 429) return { text: "Too many wrong attempts. Wait a few minutes, then try again." };
     // The policy's own reason is never shown (it is the identity service's wording); it only picks which of our lines to say.
-    if (e.status === 422 && body.error === "password_rejected") return { text: rejectedPassword(body.reason) };
+    // A stable `reason_code` from the server (too_short, too_similar, breached, too_long, other) wins when present; the text of the
+    // policy's reason is only the fallback, and only ever picks one of our lines.
+    if (e.status === 422 && body.error === "password_rejected") return { text: rejectedPassword(body.reason, body.reason_code) };
     if (e.status === 400 && body.error === "new_password_must_differ") return { text: "The new password must be different from the current one." };
     if (e.status === 409 && body.error === "needs_an_email_account")
       return { text: "This account signs in with Google, GitHub or Apple, so it has no Rivolt password to change.", noPassword: true };
@@ -30,8 +32,17 @@ export function securityFailure(e: unknown): SecurityFailure {
   return { text: "That didn't work. Try again." };
 }
 
-export function rejectedPassword(reason: unknown): string {
+const REJECTED: Record<string, string> = {
+  too_short: "That new password is too short. Use a longer one.",
+  too_long: "That new password is too long. Use a shorter one.",
+  too_similar: "That new password is too close to your email address. Use something different.",
+  breached: "That new password is too common. Use one you don't use anywhere else.",
+};
+
+export function rejectedPassword(reason: unknown, code?: unknown): string {
+  if (typeof code === "string" && REJECTED[code]) return REJECTED[code];
   const r = typeof reason === "string" ? reason.toLowerCase() : "";
+  if (/at most|too long|maximum/.test(r)) return "That new password is too long. Use a shorter one.";
   if (/short|length|at least|characters/.test(r)) return "That new password is too short. Use a longer one.";
   if (/breach|leak|common|commonly|compromised|pwned/.test(r)) return "That new password is too common. Use one you don't use anywhere else.";
   if (/similar|identifier|email|username/.test(r)) return "That new password is too close to your email address. Use something different.";

@@ -15,7 +15,15 @@ describe("securityFailure", () => {
     expect(say("The password must be at least 8 characters long.")).toBe("That new password is too short. Use a longer one.");
     expect(say("The password has been found in data breaches and must no longer be used.")).toBe("That new password is too common. Use one you don't use anywhere else.");
     expect(say("The password is too similar to the identifier.")).toBe("That new password is too close to your email address. Use something different.");
+    expect(say("The password must be at most 64 characters long, but got 90.")).toBe("That new password is too long. Use a shorter one.");
+    expect(say("The password must be at least 8 characters long, but got 3.")).toBe("That new password is too short. Use a longer one.");
+    expect(say("The password has been found in data breaches and must no longer be used.")).toContain("too common");
     expect(say()).toContain("isn't accepted");
+    // A stable code from the server wins over the text.
+    const coded = (code: string, reason?: string) => securityFailure(err(422, { error: "password_rejected", reason_code: code, ...(reason ? { reason } : {}) })).text;
+    expect(coded("too_similar", "anything")).toContain("too close to your email");
+    expect(coded("breached")).toContain("too common");
+    expect(coded("other")).toContain("isn't accepted");
     expect(say("something odd and secret-ish")).not.toContain("secret-ish");
     for (const reason of ["The password must be at least 8 characters long.", "found in data breaches", "too similar to the identifier"]) expect(say(reason)).not.toContain(reason);
   });
