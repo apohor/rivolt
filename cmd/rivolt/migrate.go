@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -60,6 +61,19 @@ func runMigrate(args []string) int {
 	if err := db.Migrate(ctx, pool); err != nil {
 		fmt.Fprintln(os.Stderr, "migrate:", err)
 		return 1
+	}
+	// The request role's grants, synchronously after the migrations (RIVOLT_APP_ROLE names the role; unset means row-level security
+	// is not in use). A role CNPG has not created yet is a warning: the server's own call at boot, and its loop, catch up.
+	if role := os.Getenv("RIVOLT_APP_ROLE"); role != "" {
+		switch err := db.PrepareRequestRole(ctx, pool, role); {
+		case errors.Is(err, db.ErrRequestRoleMissing):
+			logger.Warn("request role not created yet; grants skipped", "role", role)
+		case err != nil:
+			fmt.Fprintln(os.Stderr, "migrate: request role grants:", err)
+			return 1
+		default:
+			logger.Info("request role grants applied", "role", role)
+		}
 	}
 	logger.Info("migrate done", "applied", len(before.Pending), "ms", time.Since(started).Milliseconds())
 	return 0
