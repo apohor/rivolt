@@ -38,14 +38,19 @@ final class ActivityModel {
         }
     }
 
-    /// A dropped connection or a server error is worth one more try a moment later; a refusal or an unreadable answer is not.
+    /// A dropped connection, a server error or "busy" (429) is worth one more try a moment later; a refusal or an unreadable answer is not.
     private static func isTransient(_ error: Error) -> Bool {
         switch error {
         case let e as URLError: return e.code != .cancelled
         case APIError.transport: return true
-        case APIError.server(let status, _): return (500...599).contains(status)
+        case APIError.server(let status, _): return (500...599).contains(status) || status == 429
         default: return false
         }
+    }
+
+    private static func isBusy(_ error: Error) -> Bool {
+        if case APIError.server(let status, _) = error { return status == 429 }
+        return false
     }
 
     private struct Entry {
@@ -53,11 +58,14 @@ final class ActivityModel {
         let fetchedAt: Date
     }
     @ObservationIgnored private var cache: [String: Entry] = [:]
+    /// Reads under way, by truck and month: a second ask for the same month (on appear, a refresh and a month change can land together)
+    /// shares the first read instead of spending the server's per-minute allowance again.
+    @ObservationIgnored private var inFlight: [String: Task<ActivityResponse, Error>] = [:]
 
     init(response: ActivityResponse? = nil) { self.response = response }
 
     func load(source: some ActivitySource, vehicleID: String, month: PeriodMonth, force: Bool = false,
-              now: Date = .now, calendar: Calendar = .current, retryAfter: Duration = .seconds(2)) async {
+              now: Date = .now, calendar: Calendar = .current, retryAfter: Duration = .seconds(2), busyRetryAfter: Duration = .seconds(3)) async {
         let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             response = hit.response
@@ -69,13 +77,25 @@ final class ActivityModel {
         defer { isLoading = false }
         let (since, until) = month.range(calendar: calendar)
         do {
-            let fresh: ActivityResponse
-            do {
-                fresh = try await source.activity(since: since, until: until, vehicleID: vehicleID)
-            } catch where Self.isTransient(error) && !Task.isCancelled {
-                try await Task.sleep(for: retryAfter)
-                fresh = try await source.activity(since: since, until: until, vehicleID: vehicleID)
+            // One read per month at a time. The read itself is not tied to this caller, so a caller that is cancelled leaves it to finish
+            // for the one that asked second.
+            let read: Task<ActivityResponse, Error>
+            if let running = inFlight[key] {
+                read = running
+            } else {
+                read = Task {
+                    do {
+                        return try await source.activity(since: since, until: until, vehicleID: vehicleID)
+                    } catch where Self.isTransient(error) {
+                        // Busy (the server asked us to slow down) waits a little longer than a dropped connection.
+                        try await Task.sleep(for: Self.isBusy(error) ? busyRetryAfter : retryAfter)
+                        return try await source.activity(since: since, until: until, vehicleID: vehicleID)
+                    }
+                }
+                inFlight[key] = read
             }
+            defer { if inFlight[key] == read { inFlight[key] = nil } }
+            let fresh = try await read.value
             cache[key] = Entry(response: fresh, fetchedAt: now)
             response = fresh
             failed = false

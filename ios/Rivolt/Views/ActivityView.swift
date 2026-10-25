@@ -9,6 +9,7 @@ struct ActivityView: View {
     @AppStorage("rivolt.selected_vehicle") private var selectedID = ""
     @State private var vehicles: [Vehicle] = []
     @State private var model = ActivityModel()
+    @State private var monthLoadedOnce = false
     @State private var month = PeriodMonth(containing: .now, calendar: .current)
     @State private var filter = ActivityFilter.all
     /// List every launch (not kept): the accessible view first, and no map read on a slow connection unless asked.
@@ -52,8 +53,17 @@ struct ActivityView: View {
             }
             // A tap on the map opens the drive or charge, as a row does.
             .navigationDestination(item: $picked) { ActivityDetailView(item: $0, calendar: calendar) }
-            .task(id: "\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") { await load(force: false) }
+            .task(id: "\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") {
+                // Paging through months quickly reads only the one the person stops on: each read spends the server's per-minute allowance.
+                if monthLoadedOnce {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    if Task.isCancelled { return }
+                }
+                monthLoadedOnce = true
+                await load(force: false)
+            }
             .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") {
+                if monthLoadedOnce { try? await Task.sleep(for: .milliseconds(350)); if Task.isCancelled { return } }
                 await loadMap()
                 await loadEfficiency()
             }
@@ -147,7 +157,7 @@ struct ActivityView: View {
     @ViewBuilder
     private var status: some View {
         if model.limited {
-            Text("Slow down a little: Rivolt will refresh this later. Pull to try again.").themeText(.subline, color: Theme.estimate)
+            Text("Rivolt is busy right now. Try again in a moment.").themeText(.subline, color: Theme.estimate)
         } else if model.failed && model.response == nil {
             Text(model.problem ?? "Couldn't load this month. Pull to try again.").themeText(.subline, color: Theme.estimate)
         } else if model.response != nil && days.isEmpty {
