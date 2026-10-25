@@ -270,6 +270,7 @@ struct MultidaySections: View {
     let metric: Bool
 
     var body: some View {
+        PlanDaysMap(days: trip.days)
         ForEach(trip.days) { day in
             ThemeSection(title: "Day \(day.index)") {
                 let line = TripPlanLogic.dayLine(day, since: trip.days.first?.departAt?.date)
