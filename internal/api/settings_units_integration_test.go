@@ -33,6 +33,12 @@ func TestAccountUnits(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 	a, _ := db.EnsureUser(ctx, pool, "units-a")
 	b, _ := db.EnsureUser(ctx, pool, "units-b")
+	// A fresh account must accept the Terms before any data route answers (the server-side gate): these have.
+	for _, uid := range []uuid.UUID{a, b} {
+		if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil {
+			t.Fatal(err)
+		}
+	}
 	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
 	if err != nil {
 		t.Fatal(err)
