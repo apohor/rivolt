@@ -60,8 +60,10 @@ func (p *passkeyAPI) accountOf(ctx context.Context, uid uuid.UUID) (mail, displa
 }
 
 // guard is what every management route checks first: configured, a signed-in user, a browser session of their own (not an
-// admin viewing as them, not the iPhone app's token), not a cross-site request, and JSON when there is a body.
-func (p *passkeyAPI) guard(w http.ResponseWriter, r *http.Request, body bool) (uuid.UUID, bool) {
+// admin viewing as them, not the iPhone app's token), not a cross-site request, and JSON when there is a body. appMayRead lets the
+// iPhone app's token through for a GET only, so the list shows on the phone (a passkey the owner did not add is something to spot
+// there); every route that changes a passkey passes false, and an admin viewing as the user is refused either way.
+func (p *passkeyAPI) guard(w http.ResponseWriter, r *http.Request, body, appMayRead bool) (uuid.UUID, bool) {
 	if p == nil || p.Svc == nil {
 		http.NotFound(w, r)
 		return uuid.Nil, false
@@ -76,8 +78,10 @@ func (p *passkeyAPI) guard(w http.ResponseWriter, r *http.Request, body bool) (u
 		return uuid.Nil, false
 	}
 	if ref, ok := auth.SessionFromContext(r.Context()); ok && ref.Kind == sessions.KindApp || auth.ViaBearer(r.Context()) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": "not_available_from_the_app"})
-		return uuid.Nil, false
+		if !(appMayRead && r.Method == http.MethodGet) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "not_available_from_the_app"})
+			return uuid.Nil, false
+		}
 	}
 	if r.Method != http.MethodGet {
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
@@ -108,7 +112,7 @@ func viewOf(c passkeys.Credential) passkeyView {
 
 // list serves GET /api/auth/passkeys.
 func (p *passkeyAPI) list(w http.ResponseWriter, r *http.Request) {
-	uid, ok := p.guard(w, r, false)
+	uid, ok := p.guard(w, r, false, true)
 	if !ok {
 		return
 	}
@@ -128,7 +132,7 @@ func (p *passkeyAPI) list(w http.ResponseWriter, r *http.Request) {
 // registerBegin serves POST /api/auth/passkeys/register/begin {"password": "..."}: the password is asked again, so a hijacked
 // session alone cannot add a way in.
 func (p *passkeyAPI) registerBegin(w http.ResponseWriter, r *http.Request) {
-	uid, ok := p.guard(w, r, true)
+	uid, ok := p.guard(w, r, true, false)
 	if !ok {
 		return
 	}
@@ -189,7 +193,7 @@ func (p *passkeyAPI) registerBegin(w http.ResponseWriter, r *http.Request) {
 
 // registerFinish serves POST /api/auth/passkeys/register/finish {"ceremony_id", "label", "credential"}.
 func (p *passkeyAPI) registerFinish(w http.ResponseWriter, r *http.Request) {
-	uid, ok := p.guard(w, r, true)
+	uid, ok := p.guard(w, r, true, false)
 	if !ok {
 		return
 	}
@@ -253,7 +257,7 @@ func (p *passkeyAPI) refused(reason string) {
 
 // rename serves PATCH /api/auth/passkeys/{id} {"label": "..."}.
 func (p *passkeyAPI) rename(w http.ResponseWriter, r *http.Request) {
-	uid, ok := p.guard(w, r, true)
+	uid, ok := p.guard(w, r, true, false)
 	if !ok {
 		return
 	}
@@ -283,7 +287,7 @@ func (p *passkeyAPI) rename(w http.ResponseWriter, r *http.Request) {
 
 // remove serves DELETE /api/auth/passkeys/{id}. Removing one needs no password: it only takes a way in away.
 func (p *passkeyAPI) remove(w http.ResponseWriter, r *http.Request) {
-	uid, ok := p.guard(w, r, false)
+	uid, ok := p.guard(w, r, false, false)
 	if !ok {
 		return
 	}
