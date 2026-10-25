@@ -26,6 +26,7 @@ import (
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signuprequests"
@@ -241,10 +242,18 @@ func contractRouter(t *testing.T) chi.Routes {
 		t.Fatal(err)
 	}
 	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	// Passkeys are off in prod today but the web calls their routes, so the check needs them mounted. A configured service on a dead
+	// database: nothing is called.
+	dead := deadDB(t)
+	pk, err := passkeys.New(passkeys.Config{RPID: "example.test", Origins: []string{"https://example.test"}}, passkeys.NewPGStore(dead))
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Handlers are mounted, never called, so zero values stand in for every dependency a route is gated on.
 	return New(Deps{
-		Auth: svc, ValhallaProxy: stub, TilesProxy: stub, AuthEnforced: true,
-		DB: deadDB(t), Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Flags: new(flags.Store), Metrics: nil,
+		Passkeys: pk,
+		Auth:     svc, ValhallaProxy: stub, TilesProxy: stub, AuthEnforced: true,
+		DB: dead, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Flags: new(flags.Store), Metrics: nil,
 		Email: new(email.Client), StatementSigner: new(statement.Signer), WeeklySigner: new(statement.Signer),
 		SignupRequests: new(signuprequests.Store), OIDC: new(oidc.Service), AppAuth: new(AppAuth), Sessions: new(SessionsAPI),
 		Hydra: new(hydra.Client), Kratos: new(kratos.Client), Changelog: new(changelog.Source), ChargersArchive: new(chargers.Archive),
