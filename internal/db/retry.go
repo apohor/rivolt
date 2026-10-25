@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 )
@@ -13,14 +14,10 @@ import (
 // errPermanent marks a failure that retrying cannot fix (bad config).
 var errPermanent = errors.New("permanent")
 
-// OpenWithRetry is Open for the server's startup path: it retries the
-// dial and ping with backoff for up to wait before giving up. A new pod
-// can briefly have no route to Postgres (NetworkPolicy programming lags
-// behind pod start), and exiting there turns a rollout into restarts and
-// 502s. The server only starts listening after this returns, so
-// readiness stays false until the database is reachable. Migrations run
-// once, after the first successful connect, and are not retried.
-func OpenWithRetry(ctx context.Context, dsn string, wait time.Duration, log *slog.Logger) (*sql.DB, error) {
+// ConnectWithRetry dials Postgres and pings, retrying with backoff for up to wait, and never changes the schema. A new pod can
+// briefly have no route to Postgres (NetworkPolicy programming lags behind pod start), and on a fresh install the database may
+// still be initialising; exiting there turns a rollout into restarts and 502s.
+func ConnectWithRetry(ctx context.Context, dsn string, wait time.Duration, log *slog.Logger) (*sql.DB, error) {
 	var d *sql.DB
 	err := retryUntil(ctx, wait, time.Sleep, func(attempt int, err error, next time.Duration) {
 		log.Info("postgres not reachable yet, retrying", "attempt", attempt, "err", err.Error(), "retry_in", next.String())
@@ -34,6 +31,25 @@ func OpenWithRetry(ctx context.Context, dsn string, wait time.Duration, log *slo
 	})
 	if err != nil {
 		return nil, err
+	}
+	return d, nil
+}
+
+// OpenWithRetry is the server's startup path: ConnectWithRetry, then either Migrate (RIVOLT_MIGRATE_ON_START, the default for now)
+// or RequireSchema (a migration job does the migrating; the server only checks, waiting up to 2 minutes for a job that is
+// finishing). The server only starts listening after this returns, so readiness stays false until the database is reachable and
+// current. Migrations run once, after the first successful connect, and are not retried.
+func OpenWithRetry(ctx context.Context, dsn string, wait time.Duration, log *slog.Logger) (*sql.DB, error) {
+	d, err := ConnectWithRetry(ctx, dsn, wait, log)
+	if err != nil {
+		return nil, err
+	}
+	if !MigrateOnStart(os.Getenv) {
+		if err := RequireSchema(ctx, d, 2*time.Minute, log); err != nil {
+			_ = d.Close()
+			return nil, err
+		}
+		return d, nil
 	}
 	if err := Migrate(ctx, d); err != nil {
 		_ = d.Close()
