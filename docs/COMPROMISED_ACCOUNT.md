@@ -16,7 +16,7 @@ The "a passkey was added" email points here.
 
 ## Support, when the owner cannot sign in
 
-Use the admin site (admin.rivolt.dev, behind Access): Users → the account → **Secure this account** (support's own button)
+Use the admin site (admin.rivolt.dev, behind Access): Users → the account → **Reset this account's access…** (support's own button; the audit list shows it as "Reset account access")
 (`POST /api/admin/users/{id}/secure`; the button is ux's, and until it ships the same call is made from the admin session). It is one audited action that:
 
 1. sets a new random password through Kratos;
