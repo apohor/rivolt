@@ -172,6 +172,90 @@ extension TripPlanMapTests {
     }
 }
 
+private final class AlongFake: ChargersAlongSource, @unchecked Sendable {
+    var answer = ChargersAlong()
+    var failure: Error?
+    private(set) var requests: [ChargersAlongRequest] = []
+    func chargersAlong(_ body: ChargersAlongRequest) async throws -> ChargersAlong {
+        requests.append(body)
+        if let failure { throw failure }
+        return answer
+    }
+}
+
+extension TripPlanMapTests {
+    /// A model showing the real-shaped plan, as a reopened saved trip does.
+    @MainActor
+    private func plannedModel() throws -> TripPlanModel {
+        let m = TripPlanModel()
+        let from = PlaceMatch(name: "Example Origin", latitude: 45.52, longitude: -122.68, admin1: nil, country: nil)
+        let to = PlaceMatch(name: "Example Destination", latitude: 38.58, longitude: -121.49, admin1: nil, country: nil)
+        m.open(SavedTripLogic.Restored(origin: from, destination: to, plan: try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape"), multiday: nil, stay: nil))
+        return m
+    }
+
+    private func charger(_ name: String, _ kw: Double) -> AlongCharger { AlongCharger(lat: 44.0, lon: -121.0, name: name, isDCFC: true, maxPowerKW: kw, evNetwork: "Example Network") }
+
+    func testTheChargersAlongRequestFollowsTheRoadAndAsksForFastOnes() throws {
+        let route = try XCTUnwrap(try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape").best)
+        let road = (0..<5000).map { RouteSnap.Coord(lat: 45.5 - Double($0) * 0.001, lon: -122.6) }
+        let req = TripPlanLogic.alongRequest(route, roadLine: road)
+        XCTAssertEqual(req.path.count, 1500)
+        XCTAssertEqual(req.filter, "dcfc")
+        XCTAssertEqual(req.minPowerKw, 100)
+        XCTAssertEqual(TripPlanLogic.alongRequest(route, roadLine: []).path.count, route.waypoints.count, "no road line: the plan's waypoints")
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        XCTAssertTrue(String(decoding: try encoder.encode(req), as: UTF8.self).contains(#""min_power_kw":100"#))
+    }
+
+    func testAChargerPickedOnTheMapIsDescribed() {
+        XCTAssertEqual(TripPlanLogic.alongLine(charger("Sample Fast Charge", 250)), "Sample Fast Charge · 250 kW · Example Network")
+        XCTAssertTrue(TripPlanLogic.alongCount(12).hasPrefix("12 fast chargers of 100 kW or more near the route."))
+        XCTAssertTrue(TripPlanLogic.alongCount(1).hasPrefix("1 fast charger of"))
+        XCTAssertEqual(TripPlanLogic.alongCount(0), "No fast chargers of 100 kW or more are listed near this route.")
+    }
+
+    func testTheAnswerDecodesFromTheServersOwnKeys() throws {
+        let json = #"{"chargers":[{"lat":44.0,"lon":-121.0,"name":"Sample","isDCFC":true,"isL2":false,"maxPowerKW":250,"evNetwork":"Example Network","entityID":"e1"}],"count":1}"#
+        let a = try JSON.decoder().decode(ChargersAlong.self, from: Data(json.utf8))
+        XCTAssertEqual(a.chargers.first?.maxPowerKW, 250)
+        XCTAssertEqual(a.chargers.first?.isDCFC, true)
+    }
+
+    @MainActor
+    func testAskingForChargersAlongShowsThemAndTurningOffClearsThem() async throws {
+        let m = try plannedModel()
+        let src = AlongFake()
+        src.answer = ChargersAlong(chargers: [charger("A", 250), charger("B", 150)])
+        await m.toggleAlong(on: true, source: src)
+        XCTAssertEqual(m.chargers.count, 2)
+        XCTAssertEqual(src.requests.count, 1)
+        // Past the three stop pins, the chargers are numbered 3, 4.
+        m.focusedStop = 4
+        XCTAssertEqual(m.pickedCharger?.name, "B")
+        m.focusedStop = 1
+        XCTAssertNil(m.pickedCharger, "a stop is not a charger")
+        m.focusedStop = 4
+        await m.toggleAlong(on: false, source: src)
+        XCTAssertTrue(m.chargers.isEmpty)
+        XCTAssertNil(m.focusedStop, "the picked charger is gone with them")
+    }
+
+    @MainActor
+    func testNoListingHidesTheControlAndAFailureIsSaid() async throws {
+        let m = try plannedModel()
+        let src = AlongFake()
+        src.failure = APIError.server(status: 404, message: "chargers archive disabled")
+        await m.toggleAlong(on: true, source: src)
+        XCTAssertEqual(m.along, .unavailable)
+        let m2 = try plannedModel()
+        src.failure = APIError.server(status: 500, message: "boom")
+        await m2.toggleAlong(on: true, source: src)
+        XCTAssertEqual(m2.along, .failed("The planner isn't answering right now. Try again in a minute."))
+    }
+}
+
 private extension TripWaypoint {
     static var bare: TripWaypoint { try! JSON.decoder().decode(TripWaypoint.self, from: Data("{}".utf8)) }
 }

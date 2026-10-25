@@ -190,6 +190,8 @@ enum RouteSnap {
         var stops: [Stop] = []
         /// The pin (index in `stops`) the person picked in the list, drawn larger in the accent colour.
         var focus: Int?
+        /// Fast chargers along the route the person asked to see, drawn small under the stops. A focus past the stops points here.
+        var along: [Stop] = []
 
         struct Stop: Equatable {
             var coord: Coord

@@ -134,6 +134,8 @@ struct PlanRouteMap: View {
     let onStop: (Int) -> Void
     /// The stop the person picked in the list, ringed on the map.
     var focus: Int?
+    /// Fast chargers along the route, when the person asked to see them.
+    var along: [AlongCharger] = []
     /// The road line once it is known (for finding a place to sleep along it).
     var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
 
@@ -141,7 +143,7 @@ struct PlanRouteMap: View {
     @State private var drawing: RouteSnap.Drawing?
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; return d }, onStop: onStop)
+        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }; return d }, onStop: onStop)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.

@@ -2,6 +2,13 @@ import Foundation
 import Observation
 
 /// The calls behind the planner screen, kept apart from `APIClient` so a test can see what is sent.
+/// The chargers-along call, kept apart from `APIClient` so a test can see what is sent.
+protocol ChargersAlongSource: Sendable {
+    func chargersAlong(_ body: ChargersAlongRequest) async throws -> ChargersAlong
+}
+
+extension APIClient: ChargersAlongSource {}
+
 protocol TripSource: Sendable {
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan
     func geocode(_ q: String, count: Int) async throws -> [PlaceMatch]
@@ -61,6 +68,40 @@ final class TripPlanModel {
     var focusedStop: Int?
     /// The road line of the plan on screen, once the map has it: the better path for finding a place to sleep.
     var roadLine: [RouteSnap.Coord] = []
+
+    /// Fast chargers along the plan on screen, when the person asked to see them. `nil` until asked; the server may have no listing.
+    enum AlongState: Equatable {
+        case off
+        case loading
+        case shown([AlongCharger])
+        case failed(String)
+        case unavailable
+    }
+
+    private(set) var along = AlongState.off
+    var chargers: [AlongCharger] { if case .shown(let c) = along { return c } else { return [] } }
+
+    func toggleAlong(on: Bool, source: some ChargersAlongSource) async {
+        guard on else { along = .off; if let f = focusedStop, f >= pinCount { focusedStop = nil }; return }
+        guard let route = plan?.best, along != .loading else { return }
+        along = .loading
+        do {
+            along = .shown(try await source.chargersAlong(TripPlanLogic.alongRequest(route, roadLine: roadLine)).chargers)
+        } catch {
+            if Task.isCancelled { along = .off; return }
+            if case APIError.server(404, _) = error { along = .unavailable } else { along = .failed(TripPlanLogic.failure(error)) }
+        }
+    }
+
+    /// How many charging-stop pins the map draws (the chargers along the route are numbered after them).
+    private var pinCount: Int { plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0 }
+
+    /// The charger a tap on the map picked, if the focus is past the stops.
+    var pickedCharger: AlongCharger? {
+        guard let f = focusedStop else { return nil }
+        let j = f - pinCount
+        return chargers.indices.contains(j) && j >= 0 ? chargers[j] : nil
+    }
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
     /// The stay the two-day version was planned around.
@@ -108,6 +149,7 @@ final class TripPlanModel {
         night = .none
         focusedStop = nil
         roadLine = []
+        along = .off
         let start: (lat: Double, lon: Double)
         if let origin {
             start = (origin.latitude, origin.longitude)

@@ -495,3 +495,34 @@ struct OvernightCandidates: Decodable, Equatable {
         case candidates, target, attribution, routeM, nearest, fallbackStays, attributionLicenseUrl, attributionSourceUrl
     }
 }
+
+/// `POST /api/maps/chargers-along`: the chargers within a band either side of a route. The keys are the server's own camel case.
+struct ChargersAlongRequest: Encodable, Equatable {
+    var path: [[Double]]
+    /// "dcfc" for DC fast chargers.
+    var filter: String
+    var minPowerKw: Double?
+}
+
+struct AlongCharger: Decodable, Equatable, Identifiable {
+    var lat: Double
+    var lon: Double
+    var name: String?
+    var isDCFC: Bool?
+    var maxPowerKW: Double?
+    var evNetwork: String?
+    var id: String { "\(lat),\(lon),\(name ?? "")" }
+}
+
+struct ChargersAlong: Decodable, Equatable {
+    var chargers: [AlongCharger] = []
+
+    init(chargers: [AlongCharger] = []) { self.chargers = chargers }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        chargers = (try? c.decode([AlongCharger].self, forKey: .chargers)) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey { case chargers }
+}
