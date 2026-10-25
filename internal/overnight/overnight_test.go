@@ -444,3 +444,109 @@ func TestNearestIsAbsentWhenThereIsNothingToSayOrNothingToFind(t *testing.T) {
 		t.Errorf("reaches_end %v nearest %+v err %v, want none for a day that fits", res.Target.ReachesEnd, res.Nearest, err)
 	}
 }
+
+// lodgingsAt answers a lodging lookup from a fixed list, as OpenStreetMap would near whatever point is asked about (the real finder
+// filters by distance; the search filters again by the route), and counts the lookups.
+type lodgingsAt struct {
+	list  []Lodging
+	err   error
+	calls int
+}
+
+func (l *lodgingsAt) find(_, _, _ float64) ([]Lodging, error) {
+	l.calls++
+	return l.list, l.err
+}
+
+func lodgingAt(name string, km, offKm float64) Lodging {
+	return Lodging{Name: name, ID: "osm:node:" + name, Lat: 34 + km/111.195, Lon: -118 + offKm/111.195/math.Cos(34*math.Pi/180)}
+}
+
+func fastAt(name string, km, offKm float64) chargers.POI {
+	return chargers.POI{Name: name, EntityID: "ev-" + name, Lat: 34 + km/111.195, Lon: -118 + offKm/111.195/math.Cos(34*math.Pi/180), IsDCFC: true, MaxPowerKW: 150}
+}
+
+// A 1000 km route driven in 10 h, budget 8 h: the budget point is at 800 km.
+func suggestWithLodging(t *testing.T, a *fakeArchive, l *lodgingsAt) *Result {
+	t.Helper()
+	req := Request{Path: route(1000), DriveSec: 10 * 3600, BudgetHours: 8}
+	if l != nil {
+		req.FindLodging = l.find
+	}
+	res, err := Suggest(a, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestFallbackStaysAreOfferedOnlyWhenNoListedStayIsInRange(t *testing.T) {
+	a := &fakeArchive{dcfc: []chargers.POI{fastAt("Fast One", 805, 3), fastAt("Fast Two", 742, 1)}}
+	l := &lodgingsAt{list: []Lodging{lodgingAt("Roadside Motel", 790, 1), lodgingAt("Far Inn", 740, 2)}}
+	res := suggestWithLodging(t, a, l)
+	if len(res.Candidates) != 0 || len(res.FallbackStays) != 2 {
+		t.Fatalf("candidates %d fallback %d, want none and two", len(res.Candidates), len(res.FallbackStays))
+	}
+	s := res.FallbackStays[0]
+	if s.Name != "Roadside Motel" || !s.NoOnsiteCharger || s.Kind != KindHotel || s.Attribution != OSMAttribution || s.Source != "OpenStreetMap" {
+		t.Errorf("first fallback stay %+v", s)
+	}
+	if res.FallbackStays[1].Name != "Far Inn" || res.FallbackStays[1].FastCharger.Name != "Fast Two" {
+		t.Errorf("order %q then %q, want nearest the budget point first", res.FallbackStays[0].Name, res.FallbackStays[1].Name)
+	}
+	fc := s.FastCharger
+	if fc.Name != "Fast One" || fc.EntityID != "ev-Fast One" || fc.DistanceM < 14000 || fc.DistanceM > 16500 || fc.MaxPowerKW != 150 {
+		t.Errorf("paired fast charger %+v, want Fast One about 15 km away", fc)
+	}
+	// A stay with a listed charger in range wins, and the lodging lookup is never made.
+	l2 := &lodgingsAt{list: []Lodging{lodgingAt("Roadside Motel", 790, 1)}}
+	res = suggestWithLodging(t, &fakeArchive{hotels: []chargers.POI{hotel("Listed", 790, 0, 7)}, dcfc: a.dcfc}, l2)
+	if len(res.Candidates) != 1 || len(res.FallbackStays) != 0 || l2.calls != 0 {
+		t.Errorf("candidates %d fallback %d lookups %d, want one candidate and no fallback or lookup", len(res.Candidates), len(res.FallbackStays), l2.calls)
+	}
+	// Not asked for: nothing.
+	if res := suggestWithLodging(t, a, nil); len(res.FallbackStays) != 0 {
+		t.Error("a fallback was offered without a lodging finder")
+	}
+}
+
+func TestFallbackStaysNeedAFastChargerAndTheRoute(t *testing.T) {
+	a := &fakeArchive{dcfc: []chargers.POI{fastAt("Fast One", 805, 3)}}
+	l := &lodgingsAt{list: []Lodging{
+		lodgingAt("Off The Road", 790, 40), // 40 km off the route: not on it
+		lodgingAt("Too Far Back", 300, 0),  // more than 3 h before the budget point
+		lodgingAt("Too Far Ahead", 950, 0), // more than an hour past it
+		lodgingAt("Nameless", 790, 0),
+		lodgingAt("Good", 800, 2),
+	}}
+	l.list[3].Name = ""
+	res := suggestWithLodging(t, a, l)
+	if len(res.FallbackStays) != 1 || res.FallbackStays[0].Name != "Good" {
+		t.Fatalf("fallback %+v, want only Good", res.FallbackStays)
+	}
+	// No fast charger near any of them: nothing to offer, since the next morning would have nowhere to start.
+	res = suggestWithLodging(t, &fakeArchive{dcfc: []chargers.POI{fastAt("Too Far Away", 900, 0)}}, &lodgingsAt{list: []Lodging{lodgingAt("Good", 800, 2)}})
+	if len(res.FallbackStays) != 0 {
+		t.Errorf("fallback %+v, want none without a fast charger within %v km", res.FallbackStays, fastNearKm)
+	}
+}
+
+func TestFallbackLookupIsBoundedAndBestEffort(t *testing.T) {
+	a := &fakeArchive{dcfc: []chargers.POI{fastAt("Fast One", 805, 3)}}
+	l := &lodgingsAt{} // nothing found anywhere: every sample point is tried, up to the bound
+	res := suggestWithLodging(t, a, l)
+	if len(res.FallbackStays) != 0 || l.calls == 0 || l.calls > fallbackMaxLookups {
+		t.Errorf("lookups %d (bound %d), fallback %d", l.calls, fallbackMaxLookups, len(res.FallbackStays))
+	}
+	l = &lodgingsAt{err: errors.New("photon: HTTP 502")}
+	res = suggestWithLodging(t, a, l)
+	if len(res.FallbackStays) != 0 || res.Nearest != nil && res.Nearest.Before != nil {
+		// A lodging failure changes nothing else: the nearest listed stays are still reported (there are none in this archive).
+		t.Errorf("fallback %+v nearest %+v", res.FallbackStays, res.Nearest)
+	}
+	// A day that fits has no budget point to be short of.
+	r, err := Suggest(a, Request{Path: route(100), DriveSec: 3600, BudgetHours: 8, FindLodging: (&lodgingsAt{list: []Lodging{lodgingAt("Good", 50, 0)}}).find})
+	if err != nil || len(r.FallbackStays) != 0 {
+		t.Errorf("a day that fits offered %+v (err %v)", r.FallbackStays, err)
+	}
+}

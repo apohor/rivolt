@@ -111,7 +111,7 @@ func TestOvernightCandidatesRefusals(t *testing.T) {
 	}
 	// No archive on this install.
 	rec = httptest.NewRecorder()
-	handleOvernightCandidates(nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString("{}")))
+	handleOvernightCandidates(nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString("{}")))
 	if rec.Code != 404 {
 		t.Errorf("no archive = %d", rec.Code)
 	}

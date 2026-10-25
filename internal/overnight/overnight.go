@@ -52,7 +52,22 @@ type Request struct {
 	// Kinds are the stays to suggest: KindHotel, KindCampground. Empty means
 	// hotels only, as before.
 	Kinds []string
+	// FindLodging, when set, lets the search fall back to hotels and motels with no charger listed (from OpenStreetMap), each paired
+	// with the nearest fast charger, when no stay with a listed charger is in range. nil: no fallback.
+	FindLodging LodgingFinder
 }
+
+// Lodging is a place to sleep from outside the charger listing.
+type Lodging struct {
+	Name     string
+	Lat, Lon float64
+	// ID is its OpenStreetMap element, "osm:node:123".
+	ID       string
+	Locality string
+}
+
+// LodgingFinder returns the hotels and motels within radiusKm of a point. A failure means none are known near it.
+type LodgingFinder func(lat, lon, radiusKm float64) ([]Lodging, error)
 
 // Kinds of stay a candidate can be.
 const (
@@ -139,6 +154,47 @@ type Target struct {
 	WindowAfterMin  float64 `json:"window_after_min"`
 }
 
+// Fast charger pairing and the OpenStreetMap credit for the fallback stays.
+const (
+	fastNearKm            = 30.0 // a fallback stay needs a fast charger this near, or it is not offered
+	fallbackRadiusKm      = 25.0 // how far from a sample point the lodging search looks
+	fallbackStepM         = 40000.0
+	fallbackMaxLookups    = 6
+	OSMAttribution        = "© OpenStreetMap contributors"
+	OSMAttributionURL     = "https://www.openstreetmap.org/copyright"
+	OSMAttributionLicense = "https://opendatacommons.org/licenses/odbl/"
+)
+
+// FastCharger is the DC fast charger a fallback stay is paired with.
+type FastCharger struct {
+	Name       string  `json:"name,omitempty"`
+	Lat        float64 `json:"lat"`
+	Lon        float64 `json:"lon"`
+	EntityID   string  `json:"entity_id,omitempty"`
+	DistanceM  float64 `json:"distance_m"`
+	MaxPowerKW float64 `json:"max_power_kw,omitempty"`
+}
+
+// FallbackStay is a hotel or motel with no charger listed, offered only when no stay with a listed charger is in range. The truck
+// does not charge overnight there: it arrives, sleeps and leaves on the same charge, and the next day starts at FastCharger.
+type FallbackStay struct {
+	Name     string  `json:"name"`
+	Lat      float64 `json:"lat"`
+	Lon      float64 `json:"lon"`
+	ID       string  `json:"id,omitempty"`
+	Kind     string  `json:"kind"`
+	Locality string  `json:"locality,omitempty"`
+	// NoOnsiteCharger is always true: no charger is listed at this place.
+	NoOnsiteCharger bool `json:"no_onsite_charger"`
+	// FastCharger is the nearest DC fast charger in the listing (the first stop of the next day).
+	FastCharger FastCharger `json:"fast_charger"`
+	DetourM     float64     `json:"detour_m"`
+	AlongM      float64     `json:"along_m"`
+	// Source and Attribution credit OpenStreetMap, whose data this is.
+	Source      string `json:"source"`
+	Attribution string `json:"attribution"`
+}
+
 // NearestStay is a listed stay found outside the searched windows.
 type NearestStay struct {
 	Candidate
@@ -162,6 +218,9 @@ type Result struct {
 	RouteM     float64     `json:"route_m"`
 	// Nearest is set when Candidates is empty and the day does not fit in the budget; nil when no listed stay is on the route.
 	Nearest *Nearest `json:"nearest,omitempty"`
+	// FallbackStays are hotels and motels with no listed charger, each paired with the nearest fast charger, offered only when
+	// Candidates is empty and the request allowed the lookup. Never ranked above a stay with a listed charger: there are none then.
+	FallbackStays []FallbackStay `json:"fallback_stays,omitempty"`
 }
 
 // ErrBadRequest marks input the suggestion cannot work from.
@@ -236,8 +295,112 @@ func Suggest(a Archive, req Request) (*Result, error) {
 			return nil, err
 		}
 		res.Nearest = n
+		if req.FindLodging != nil {
+			res.FallbackStays = fallbackStays(a, pth, req.FindLodging, target, secPerM)
+		}
 	}
 	return res, nil
+}
+
+// fallbackStays looks for hotels and motels with no listed charger near where the budget runs out, within the same reach as the
+// stays that have one (up to 3 h before the budget point and 1 h after), nearest the budget point first, each with a fast charger
+// within fastNearKm. It samples the route outward from the budget point, at most fallbackMaxLookups lookups, and stops at three.
+func fallbackStays(a Archive, pth *path, find LodgingFinder, target, secPerM float64) []FallbackStay {
+	last := searchWindows[len(searchWindows)-1]
+	lo := math.Max(0, target-last.beforeMin*60/secPerM)
+	hi := math.Min(pth.total, target+last.afterMin*60/secPerM)
+	points := []float64{target}
+	for k := 1; len(points) < fallbackMaxLookups; k++ {
+		before, after := target-float64(k)*fallbackStepM, target+float64(k)*fallbackStepM
+		if before < lo && after > hi {
+			break
+		}
+		if before >= lo {
+			points = append(points, before)
+		}
+		if after <= hi && len(points) < fallbackMaxLookups {
+			points = append(points, after)
+		}
+	}
+	type found struct {
+		l          Lodging
+		along, off float64
+	}
+	var all []found
+	seen := map[string]bool{}
+	for _, at := range points {
+		lat, lon := pth.at(at)
+		lodgings, err := find(lat, lon, fallbackRadiusKm)
+		if err != nil {
+			continue
+		}
+		for _, l := range lodgings {
+			key := l.ID
+			if key == "" {
+				key = fmt.Sprintf("%s@%.4f,%.4f", l.Name, l.Lat, l.Lon)
+			}
+			if seen[key] || l.Name == "" || math.IsNaN(l.Lat) || math.IsNaN(l.Lon) {
+				continue
+			}
+			seen[key] = true
+			along, off := pth.project(l.Lat, l.Lon)
+			if off > corridorKm*1000 || along < lo || along > hi {
+				continue
+			}
+			all = append(all, found{l, along, off})
+		}
+		if len(all) >= 3*maxCandidates {
+			break
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		di, dj := math.Abs(all[i].along-target), math.Abs(all[j].along-target)
+		if di != dj {
+			return di < dj
+		}
+		if all[i].along != all[j].along {
+			return all[i].along < all[j].along
+		}
+		return all[i].l.ID+all[i].l.Name < all[j].l.ID+all[j].l.Name
+	})
+	var out []FallbackStay
+	for _, f := range all {
+		fc := nearestFastCharger(a, f.l.Lat, f.l.Lon, fastNearKm)
+		if fc == nil {
+			continue // no fast charger near it: the next morning would have nowhere to start
+		}
+		out = append(out, FallbackStay{
+			Name: f.l.Name, Lat: f.l.Lat, Lon: f.l.Lon, ID: f.l.ID, Kind: KindHotel, Locality: f.l.Locality,
+			NoOnsiteCharger: true, FastCharger: *fc, DetourM: math.Round(2 * f.off), AlongM: math.Round(f.along),
+			Source: "OpenStreetMap", Attribution: OSMAttribution,
+		})
+		if len(out) == maxCandidates {
+			break
+		}
+	}
+	return out
+}
+
+// nearestFastCharger is the closest DC fast charger (50 kW or more) within maxKm of a point, or nil.
+func nearestFastCharger(a Archive, lat, lon, maxKm float64) *FastCharger {
+	const eps = 0.0001
+	pois, err := a.QueryCorridor([][2]float64{{lat, lon}, {lat + eps, lon}}, chargers.FilterDCFC, chargers.QueryCorridorOptions{
+		CorridorKm: maxKm, EndpointTrimMeter: 1, IncludeEndpoints: true, MinPowerKW: 50,
+	})
+	if err != nil {
+		return nil
+	}
+	var best *FastCharger
+	for _, p := range pois {
+		d := haversine([2]float64{lat, lon}, [2]float64{p.Lat, p.Lon})
+		if d > maxKm*1000 {
+			continue
+		}
+		if best == nil || d < best.DistanceM {
+			best = &FastCharger{Name: p.Name, Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, DistanceM: math.Round(d), MaxPowerKW: p.MaxPowerKW}
+		}
+	}
+	return best
 }
 
 // nearest finds the closest listed stay before and after the budget point anywhere on the route (nil when there is none), for the

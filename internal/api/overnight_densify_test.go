@@ -142,14 +142,14 @@ func TestOvernightHandlerSnapsASparsePath(t *testing.T) {
 		PathSnapped bool    `json:"path_snapped"`
 		RouteM      float64 `json:"route_m"`
 	}
-	rec := postOvernight(overnightHandlerWith(arch, &bendRouter{}, noLoad), body)
+	rec := postOvernight(overnightHandlerWith(arch, &bendRouter{}, nil, noLoad), body)
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil || !out.PathSnapped {
 		t.Fatalf("%d %s, want path_snapped true", rec.Code, rec.Body.String())
 	}
 	snappedLen := out.RouteM
 
 	out.PathSnapped = false
-	rec = postOvernight(overnightHandlerWith(arch, nil, noLoad), body)
+	rec = postOvernight(overnightHandlerWith(arch, nil, nil, noLoad), body)
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.PathSnapped {
 		t.Fatalf("%d %s, want no path_snapped without a router", rec.Code, rec.Body.String())
 	}
