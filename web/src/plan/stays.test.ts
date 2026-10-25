@@ -68,6 +68,8 @@ describe("hotels with no charger and the nearest listed stay", () => {
       "No charger listed here. Nearest fast charger: Sample Fast Charge A, 2 mi away (250 kW).",
     );
     expect(fastChargerLine(undefined, fmt)).toBe("No charger listed here.");
+    expect(fastChargerLine({ name: "Sample Fast Charge A", distance_m: 0 }, fmt)).toBe("No charger listed here. Nearest fast charger: Sample Fast Charge A, right next to it.");
+    expect(fastChargerLine({ name: "Sample Fast Charge A", distance_m: 3200 }, fmt)).toBe("No charger listed here. Nearest fast charger: Sample Fast Charge A, 2 mi away.");
   });
   it("makes a place the night, and the fast charger a plain stop after it", () => {
     const night = { lat: 43.5, lon: -120.5, label: "Sample Motel" };

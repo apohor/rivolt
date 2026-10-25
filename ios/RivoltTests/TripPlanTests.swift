@@ -352,6 +352,11 @@ final class TripPlanModelTests: XCTestCase {
         let stay = try XCTUnwrap(try answer().fallbackStays.first)
         XCTAssertEqual(TripPlanLogic.fallbackLine(stay, metric: false), "No charger listed here. Nearest fast charger: Sample Fast Charge A, 2 mi away (250 kW).")
         XCTAssertEqual(TripPlanLogic.candidate(stay).l2Kw, 0, "no charging overnight")
+        var next = stay
+        next.fastCharger = .init(name: "Sample Fast Charge A", lat: 43.51, lon: -120.49, entityId: "e1", distanceM: 0, maxPowerKw: nil)
+        XCTAssertEqual(TripPlanLogic.fallbackLine(next, metric: false), "No charger listed here. Nearest fast charger: Sample Fast Charge A, right next to it.", "no power listed: none said; 0 m: next door")
+        next.fastCharger?.distanceM = 3200
+        XCTAssertEqual(TripPlanLogic.fallbackLine(next, metric: false), "No charger listed here. Nearest fast charger: Sample Fast Charge A, 2 mi away.")
         XCTAssertEqual(TripPlanLogic.osmCredit, "© OpenStreetMap contributors")
         XCTAssertEqual(try answer().attributionLicenseUrl, "https://opendatacommons.org/licenses/odbl/1-0/")
     }
