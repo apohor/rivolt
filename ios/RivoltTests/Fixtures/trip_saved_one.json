@@ -104,7 +104,18 @@
         "gas_equivalent": 52.1,
         "gas_price_per_gallon": 3.9,
         "gas_mpg": 24,
-        "home_rate_used": 0.14
+        "home_rate_used": 0.14,
+        "breakdown": [
+          {
+            "network_slug": "example-network",
+            "network_name": "Example Network",
+            "charger_name": "Example Fast Charge, Ellensburg",
+            "energy_kwh": 58.2,
+            "price": null,
+            "cost_low": 11.5,
+            "cost_high": 14
+          }
+        ]
       }
     ]
   },

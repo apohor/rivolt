@@ -54,17 +54,34 @@ enum PlanRouteLogic {
         return places
     }
 
+    /// The pins of one day, in the order they are drawn and numbered: its charging stops that have a place, then its night.
+    static func dayPins(_ day: TripMultiday.Day) -> (stops: [TripWaypoint], night: Bool) {
+        let stops = (day.plan.best?.chargingStops ?? []).filter { $0.latitude != nil && $0.longitude != nil }
+        return (stops, day.overnight != nil && day.end?.latitude != nil && day.end?.longitude != nil)
+    }
+
+    /// Where each day's pins start in the drawing's numbering, so a row in a day card and a pin on the map point at one another.
+    static func pinOffsets(_ days: [TripMultiday.Day]) -> [Int] {
+        var offsets: [Int] = [], n = 0
+        for day in days {
+            offsets.append(n)
+            let p = dayPins(day)
+            n += p.stops.count + (p.night ? 1 : 0)
+        }
+        return offsets
+    }
+
     /// Both days of a two-day trip as one drawing: each day's line, a pin for every charging stop and one for each night.
     static func drawing(days: [TripMultiday.Day], lines: [[RouteSnap.Coord]]) -> RouteSnap.Drawing? {
         let pieces = lines.filter { $0.count >= 2 }.map { RouteSnap.Piece(coords: $0, speed: nil) }
         guard let first = pieces.first?.coords.first, let last = pieces.last?.coords.last else { return nil }
         var stops: [RouteSnap.Drawing.Stop] = []
         for day in days {
-            for s in day.plan.best?.chargingStops ?? [] {
-                guard let la = s.latitude, let lo = s.longitude else { continue }
-                stops.append(.init(coord: RouteSnap.Coord(lat: la, lon: lo), label: stopLabel(s)))
+            let pins = dayPins(day)
+            for s in pins.stops {
+                stops.append(.init(coord: RouteSnap.Coord(lat: s.latitude ?? 0, lon: s.longitude ?? 0), label: stopLabel(s)))
             }
-            if day.overnight != nil, let la = day.end?.latitude, let lo = day.end?.longitude {
+            if pins.night, let la = day.end?.latitude, let lo = day.end?.longitude {
                 stops.append(.init(coord: RouteSnap.Coord(lat: la, lon: lo), label: nightLabel(day.overnight, place: day.end)))
             }
         }
@@ -115,6 +132,8 @@ struct PlanMapCanvas: View {
 struct PlanRouteMap: View {
     let route: TripRoute
     let onStop: (Int) -> Void
+    /// The stop the person picked in the list, ringed on the map.
+    var focus: Int?
     /// The road line once it is known (for finding a place to sleep along it).
     var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
 
@@ -122,7 +141,7 @@ struct PlanRouteMap: View {
     @State private var drawing: RouteSnap.Drawing?
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing, onStop: onStop)
+        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; return d }, onStop: onStop)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.
@@ -136,12 +155,14 @@ struct PlanRouteMap: View {
 /// Both days of a two-day trip, with a pin where each night is spent.
 struct PlanDaysMap: View {
     let days: [TripMultiday.Day]
+    var focus: Int?
+    var onStop: ((Int) -> Void)?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing)
+        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; return d }, onStop: onStop)
             .task(id: days) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 let routes = days.compactMap(\.plan.best)

@@ -124,6 +124,54 @@ extension TripPlanMapTests {
     }
 }
 
+extension TripPlanMapTests {
+    func testEachStopsLegIsTheDistanceSinceTheLastStopAndTheLastLegRunsToTheDestination() throws {
+        let route = try XCTUnwrap(try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape").best)
+        let legs = TripPlanLogic.legs(route)
+        XCTAssertEqual(legs.stops, [290_000, 400_000, 310_000], "290 000, then 690 000 and 1 000 000 m from the start; the OTHER via is not a stop")
+        XCTAssertEqual(legs.last, 530_000)
+        XCTAssertEqual(TripPlanLogic.legLine(legs.stops[0], first: true, metric: false), "180 mi from the start")
+        XCTAssertEqual(TripPlanLogic.legLine(legs.stops[1], first: false, metric: false), "250 mi from the last stop")
+        XCTAssertNil(TripPlanLogic.legLine(nil, first: false, metric: false))
+    }
+
+    func testAStopsPriceIsAnEstimateOrSaysThePriceIsAtTheCharger() throws {
+        let plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        let cost = plan.costs?.first
+        XCTAssertEqual(TripPlanLogic.stopCostLine(cost, index: 0), "About $11.50 to $14.00 (estimate)")
+        XCTAssertNil(TripPlanLogic.stopCostLine(cost, index: 3), "no such stop")
+        XCTAssertNil(TripPlanLogic.stopCostLine(nil, index: 0))
+        var unpriced = try XCTUnwrap(cost)
+        unpriced.breakdown = [.init(networkName: nil, chargerName: "x", energyKwh: 40, costLow: nil, costHigh: nil)]
+        XCTAssertEqual(TripPlanLogic.stopCostLine(unpriced, index: 0), "Price shown at the charger.")
+    }
+
+    func testEachDaysPinsStartWhereTheDaysBeforeEndedSoARowAndAPinMeetOnOneNumber() throws {
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        let offsets = PlanRouteLogic.pinOffsets(trip.days)
+        XCTAssertEqual(offsets.count, trip.days.count)
+        XCTAssertEqual(offsets[0], 0)
+        let first = PlanRouteLogic.dayPins(trip.days[0])
+        XCTAssertEqual(offsets[1], first.stops.count + (first.night ? 1 : 0), "stops then the night")
+        let lines = trip.days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
+        let drawing = try XCTUnwrap(PlanRouteLogic.drawing(days: trip.days, lines: lines))
+        let total = trip.days.map { PlanRouteLogic.dayPins($0) }.reduce(0) { $0 + $1.stops.count + ($1.night ? 1 : 0) }
+        XCTAssertEqual(drawing.stops.count, total, "the drawing numbers its pins the way the rows do")
+        XCTAssertTrue(drawing.stops[first.stops.count].label.hasPrefix("Night"), "the night follows the day's stops")
+    }
+
+    func testPickingAStopOnlyMovesTheRingNotTheDrawing() throws {
+        let route = try XCTUnwrap(try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape").best)
+        var d = try XCTUnwrap(PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route)))
+        XCTAssertNil(d.focus)
+        var picked = d
+        picked.focus = 1
+        XCTAssertNotEqual(d, picked)
+        d.focus = 1
+        XCTAssertEqual(d, picked)
+    }
+}
+
 private extension TripWaypoint {
     static var bare: TripWaypoint { try! JSON.decoder().decode(TripWaypoint.self, from: Data("{}".utf8)) }
 }

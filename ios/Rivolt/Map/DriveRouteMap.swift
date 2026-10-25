@@ -182,8 +182,15 @@ struct RouteMapView: UIViewRepresentable {
                 f.attributes = ["i": i, "label": s.label]
                 return f
             }
+            // The picked stop again on its own, so it can be drawn over the rest.
+            let focus: [MLNPointFeature] = d.focus.flatMap { i in d.stops.indices.contains(i) ? stops[i] : nil }.map { [$0] } ?? []
             return [
                 "stops": MLNShapeCollectionFeature(shapes: stops),
+                "focus": MLNShapeCollectionFeature(shapes: focus.map { f in
+                    let copy = MLNPointFeature()
+                    copy.coordinate = f.coordinate
+                    return copy
+                }),
                 "pieces": MLNShapeCollectionFeature(shapes: pieces),
                 "routed": MLNShapeCollectionFeature(shapes: d.routedGaps.map { line($0) }),
                 "gaps": MLNShapeCollectionFeature(shapes: d.gaps.map { line([$0.from, $0.to]) }),
@@ -246,6 +253,12 @@ struct RouteMapView: UIViewRepresentable {
                 text.textAnchor = NSExpression(forConstantValue: "bottom")
                 text.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: -1.1)))
                 style.addLayer(text)
+                let ring = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-focus", source: sources["focus"]!)
+                ring.circleColor = NSExpression(forConstantValue: UIColor(Theme.accent))
+                ring.circleRadius = NSExpression(forConstantValue: 12)
+                ring.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+                ring.circleStrokeWidth = NSExpression(forConstantValue: 3)
+                style.addLayer(ring)
             }
             fit(map)
             DispatchQueue.main.async { self.onDrawn() }
@@ -263,10 +276,14 @@ struct RouteMapView: UIViewRepresentable {
         /// The snapped drawing replaces the recorded one in the same sources.
         func update(_ d: RouteSnap.Drawing, on map: MLNMapView) {
             guard d != drawing else { return }
+            var sameButFocus = drawing
+            sameButFocus.focus = d.focus
+            let refit = sameButFocus != d
             drawing = d
             guard !sources.isEmpty else { return }
             for (name, shape) in Self.shapes(d) { sources[name]?.shape = shape }
-            fit(map)
+            // Picking a stop only moves the ring: the camera stays where the person left it.
+            if refit { fit(map) }
         }
 
         override func resized(_ map: MLNMapView) { fit(map) }

@@ -143,6 +143,17 @@ struct TripCost: Decodable, Equatable {
     var estimateBasis: String?
     var homeEquivalent: Double?
     var gasEquivalent: Double?
+    /// One entry per charging stop, in the order of the route's stops.
+    var breakdown: [Stop]?
+
+    struct Stop: Decodable, Equatable {
+        var networkName: String?
+        var chargerName: String?
+        var energyKwh: Double?
+        /// Nil when the stop has no price ("price shown at the charger").
+        var costLow: Double?
+        var costHigh: Double?
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,9 +165,10 @@ struct TripCost: Decodable, Equatable {
         estimateBasis = try? c.decode(String.self, forKey: .estimateBasis)
         homeEquivalent = try? c.decode(Double.self, forKey: .homeEquivalent)
         gasEquivalent = try? c.decode(Double.self, forKey: .gasEquivalent)
+        breakdown = try? c.decode([Stop].self, forKey: .breakdown)
     }
 
-    enum CodingKeys: String, CodingKey { case currency, dcfcSpendLow, dcfcSpendHigh, pricedStops, unpricedStops, estimateBasis, homeEquivalent, gasEquivalent }
+    enum CodingKeys: String, CodingKey { case currency, dcfcSpendLow, dcfcSpendHigh, pricedStops, unpricedStops, estimateBasis, homeEquivalent, gasEquivalent, breakdown }
 }
 
 /// `POST /api/trips/plan-multiday`: the days, each with its own plan, and where a failure stopped it (the days before it come back).
@@ -194,6 +206,8 @@ struct TripMultiday: Decodable, Equatable {
         var destinationReached: Bool?
         var socBelowLimit: Bool?
         var overnight: Overnight?
+        /// The day's fast-charging cost estimate, with a price per stop.
+        var costs: [TripCost]?
         /// The IANA zone where this day ends.
         var endTz: String?
         var id: Int { index }

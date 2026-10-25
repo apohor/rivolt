@@ -130,7 +130,7 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric)
         } else {
-            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, onLine: { model.roadLine = $0 })
+            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, onLine: { model.roadLine = $0 })
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -147,18 +147,7 @@ struct TripPlanResult: View {
             }
             if TripPlanLogic.isLongDrive(route) { LongDriveSection(model: model, metric: metric) }
             ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
-                ForEach(Array(route.chargingStops.enumerated()), id: \.element.id) { i, stop in
-                    if i > 0 { Divider().overlay(Theme.border) }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(stop.name ?? "Charger").themeText(.value, color: model.focusedStop == i ? Theme.accent : Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
-                        let detail = TripPlanLogic.stopDetail(stop)
-                        if !detail.isEmpty { Text(detail).themeText(.subline, color: Theme.textSecondary) }
-                        if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
-                    }
-                    .padding(.vertical, Theme.unit)
-                    .accessibilityElement(children: .combine)
-                    .id("stop-\(i)")
-                }
+                StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
             if let cost = TripPlanLogic.costLine(plan.costs?.first) {
@@ -282,7 +271,7 @@ struct LongDriveSection: View {
                 Button("Try again") { Task { await model.findNight(source: state.client) } }.buttonStyle(ThemeSecondaryButtonStyle())
             }
         case .planned(let trip):
-            MultidaySections(trip: trip, metric: metric)
+            MultidaySections(trip: trip, metric: metric, model: model)
             Button("Back to one day") { model.clearNight() }.buttonStyle(ThemeSecondaryButtonStyle())
         }
     }
@@ -291,10 +280,12 @@ struct LongDriveSection: View {
 struct MultidaySections: View {
     let trip: TripMultiday
     let metric: Bool
+    let model: TripPlanModel
 
     var body: some View {
-        PlanDaysMap(days: trip.days)
-        ForEach(trip.days) { day in
+        PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 })
+        let offsets = PlanRouteLogic.pinOffsets(trip.days)
+        ForEach(Array(trip.days.enumerated()), id: \.element.id) { n, day in
             ThemeSection(title: "Day \(day.index)") {
                 let previous = trip.days.first { $0.index == day.index - 1 }
                 let line = TripPlanLogic.dayLine(
@@ -304,14 +295,31 @@ struct MultidaySections: View {
                 if let route = day.plan.best {
                     Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
                     Text(TripPlanLogic.stopsTitle(route)).themeText(.subline, color: Theme.textSecondary)
+                    if route.chargingStops.isEmpty {
+                        Text(TripPlanLogic.noStopsLine(route)).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Divider().overlay(Theme.border)
+                        StopRows(route: route, cost: day.costs?.first, base: offsets[n], focused: model.focusedStop, metric: metric, finish: "where the day ends") { model.focusedStop = $0 }
+                    }
+                    if let cost = TripPlanLogic.costLine(day.costs?.first) {
+                        Text(cost).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 if let low = TripPlanLogic.lowArrival(day.arrivalSoc) {
                     Text(low).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
                 if let o = day.overnight {
                     Divider().overlay(Theme.border)
-                    Text("Night at \(o.name ?? "the stay")").themeText(.value, color: Theme.textPrimary)
-                    Text(TripPlanLogic.nightLine(o)).themeText(.subline, color: Theme.textSecondary)
+                    let nightIndex = offsets[n] + PlanRouteLogic.dayPins(day).stops.count
+                    Button { model.focusedStop = nightIndex } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Night at \(o.name ?? "the stay")").themeText(.value, color: model.focusedStop == nightIndex ? Theme.accent : Theme.textPrimary)
+                            Text(TripPlanLogic.nightLine(o)).themeText(.subline, color: Theme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .id("stop-\(nightIndex)")
                 }
             }
         }
@@ -502,5 +510,59 @@ struct OpenStreetMapCredit: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A route's charging stops as rows: the name, the charge it arrives with and leaves with, the minutes, the leg that led to it and
+/// what it is expected to cost (an estimate, or "price shown at the charger"). A tap rings that stop on the map; a tap on a pin
+/// scrolls here. `base` is where this route's pins start in the map's numbering.
+struct StopRows: View {
+    let route: TripRoute
+    let cost: TripCost?
+    let base: Int
+    let focused: Int?
+    let metric: Bool
+    /// Where the last leg ends: "the destination" for a one-day plan, "where the day ends" for a day of a longer trip.
+    var finish = "the destination"
+    let onPick: (Int) -> Void
+
+    var body: some View {
+        let legs = TripPlanLogic.legs(route)
+        let pins = pinIndexes
+        ForEach(Array(route.chargingStops.enumerated()), id: \.element.id) { i, stop in
+            if i > 0 { Divider().overlay(Theme.border) }
+            let pin = pins[i].map { base + $0 }
+            Button { if let pin { onPick(pin) } } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(stop.name ?? "Charger").themeText(.value, color: pin != nil && focused == pin ? Theme.accent : Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    let detail = TripPlanLogic.stopDetail(stop)
+                    if !detail.isEmpty { Text(detail).themeText(.subline, color: Theme.textSecondary) }
+                    if let leg = TripPlanLogic.legLine(i < legs.stops.count ? legs.stops[i] : nil, first: i == 0, metric: metric) {
+                        Text(leg).themeText(.subline, color: Theme.textSecondary)
+                    }
+                    if let price = TripPlanLogic.stopCostLine(cost, index: i) { Text(price).themeText(.subline, color: Theme.textSecondary) }
+                    if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, Theme.unit)
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .id(pin.map { "stop-\($0)" } ?? "stop-x\(base)-\(i)")
+        }
+        if let last = legs.last, last > 0 {
+            Text("Last leg: \(TripPlanLogic.distance(meters: last, metric: metric)) to \(finish)").themeText(.subline, color: Theme.textSecondary)
+        }
+    }
+
+    /// Each stop's pin on the map (stops with no place have none), counted as the map counts them.
+    private var pinIndexes: [Int?] {
+        var n = 0
+        return route.chargingStops.map { s in
+            guard s.latitude != nil, s.longitude != nil else { return nil }
+            defer { n += 1 }
+            return n
+        }
     }
 }

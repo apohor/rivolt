@@ -77,9 +77,13 @@ func fixtureRivianShapePlan() *rivian.TripPlan {
 	}
 }
 
+func fixtureFloat(v float64) *float64 { return &v }
+
 func fixtureCosts() []tripadvice.CostEstimate {
 	return []tripadvice.CostEstimate{{Currency: "USD", DCFCSpendLow: 11.5, DCFCSpendHigh: 14.0, PricedStops: 1, EstimateBasis: "observed", HomeEquivalent: 9.8,
-		GasEquivalent: 52.1, GasPricePerGallon: 3.9, GasMPG: 24, HomeRateUsed: 0.14}}
+		GasEquivalent: 52.1, GasPricePerGallon: 3.9, GasMPG: 24, HomeRateUsed: 0.14,
+		Breakdown: []tripadvice.CostStop{{NetworkSlug: "example-network", NetworkName: "Example Network", ChargerName: "Example Fast Charge, Ellensburg", EnergyKWh: 58.2,
+			CostLow: fixtureFloat(11.5), CostHigh: fixtureFloat(14.0)}}}}
 }
 
 func fixtureDay(index int, from, to string, dep, arr time.Time, overnight *tripmultiday.OvernightResult) tripPlanMultidayDay {

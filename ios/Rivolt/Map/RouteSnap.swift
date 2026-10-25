@@ -188,6 +188,8 @@ enum RouteSnap {
         var hasSpeed: Bool
         /// Charging stops of a planned trip, numbered from 0 in the order of the plan's list.
         var stops: [Stop] = []
+        /// The pin (index in `stops`) the person picked in the list, drawn larger in the accent colour.
+        var focus: Int?
 
         struct Stop: Equatable {
             var coord: Coord
