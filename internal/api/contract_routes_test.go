@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/statement"
@@ -250,13 +252,18 @@ func contractRouter(t *testing.T) chi.Routes {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The change-password and reset routes need a sessions store behind the sessions API; a store on the dead database is mounted, never called.
+	sessionStore, err := sessions.New(dead, bytes.Repeat([]byte{1}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Handlers are mounted, never called, so zero values stand in for every dependency a route is gated on.
 	return New(Deps{
 		Passkeys: pk,
 		Auth:     svc, ValhallaProxy: stub, TilesProxy: stub, AuthEnforced: true,
 		DB: dead, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Flags: new(flags.Store), Metrics: nil,
 		Email: new(email.Client), StatementSigner: new(statement.Signer), WeeklySigner: new(statement.Signer),
-		SignupRequests: new(signuprequests.Store), OIDC: new(oidc.Service), AppAuth: new(AppAuth), Sessions: new(SessionsAPI),
+		SignupRequests: new(signuprequests.Store), OIDC: new(oidc.Service), AppAuth: new(AppAuth), Sessions: &SessionsAPI{Store: sessionStore},
 		Hydra: new(hydra.Client), Kratos: new(kratos.Client), Changelog: new(changelog.Source), ChargersArchive: new(chargers.Archive),
 		Trips: new(trips.Factory), Drives: new(drives.Factory), Charges: new(charges.Factory), Samples: new(samples.Factory),
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
