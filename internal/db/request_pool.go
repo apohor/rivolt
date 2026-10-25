@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,10 +29,18 @@ import (
 // RequestConnHook is the PrepareConn hook: it sets app.user_id to the context's user, or to '' (no rows under
 // the tenant policies) when there is none, on every connection before it's used.
 func RequestConnHook(userFrom func(context.Context) (uuid.UUID, bool)) func(context.Context, *pgx.Conn) (bool, error) {
+	return requestConnHook(userFrom, nil)
+}
+
+// requestConnHook is RequestConnHook plus noUser, called (with the acquire's context) each time a connection is handed out with
+// no user: such a query sees no rows, so on a route that should have a user it is a missed route, and the count is stage 3's gate.
+func requestConnHook(userFrom func(context.Context) (uuid.UUID, bool), noUser func(context.Context)) func(context.Context, *pgx.Conn) (bool, error) {
 	return func(ctx context.Context, c *pgx.Conn) (bool, error) {
 		id := ""
 		if u, ok := userFrom(ctx); ok && u != uuid.Nil {
 			id = u.String()
+		} else if noUser != nil {
+			noUser(ctx)
 		}
 		if _, err := c.Exec(ctx, `SELECT set_config('app.user_id', $1, false)`, id); err != nil {
 			// false: destroy this connection rather than hand it out with an unknown setting.
@@ -38,6 +48,31 @@ func RequestConnHook(userFrom func(context.Context) (uuid.UUID, bool)) func(cont
 		}
 		return true, nil
 	}
+}
+
+type requestPoolOptions struct{ noUser func(context.Context) }
+
+// RequestPoolOption configures OpenRequestPool.
+type RequestPoolOption func(*requestPoolOptions)
+
+// WithNoUserCounter calls fn each time the pool hands out a connection for a context with no user. fn must be cheap and must not
+// query the pool. The server passes the metrics counter, labelled by the route pattern of the request (never its path).
+func WithNoUserCounter(fn func(context.Context)) RequestPoolOption {
+	return func(o *requestPoolOptions) { o.noUser = fn }
+}
+
+// DefaultRequestMaxConns is the request pool's size per process. database/sql keeps no limit of its own here, so this is the
+// real cap. The role has a connection limit (50 on preview) and Postgres has max_connections (100): replicas, plus one for the
+// surge of a rolling update, times this must stay inside the role's limit, and with each pod's system pool (20) inside
+// max_connections. 10 per pod keeps three pods at 30 of 50.
+const DefaultRequestMaxConns int32 = 10
+
+// RequestPoolMaxConns reads RIVOLT_REQUEST_DB_MAX_CONNS (1 to 100); anything else is DefaultRequestMaxConns.
+func RequestPoolMaxConns(getenv func(string) string) int32 {
+	if n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_REQUEST_DB_MAX_CONNS"))); err == nil && n >= 1 && n <= 100 {
+		return int32(n)
+	}
+	return DefaultRequestMaxConns
 }
 
 // ErrRequestRoleBypassesRLS is returned when the request pool's role would see past the tenant policies: the
@@ -61,8 +96,12 @@ func (p *RequestPool) Close() {
 
 // OpenRequestPool opens the request pool at dsn (the request role's credentials) and checks the role: it
 // returns ErrRequestRoleBypassesRLS (wrapped) if the role owns the tables, is a superuser or has BYPASSRLS.
-// maxConns <= 0 means 20, the system pool's own limit.
-func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom func(context.Context) (uuid.UUID, bool)) (*RequestPool, error) {
+// maxConns <= 0 means DefaultRequestMaxConns.
+func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom func(context.Context) (uuid.UUID, bool), opts ...RequestPoolOption) (*RequestPool, error) {
+	var o requestPoolOptions
+	for _, f := range opts {
+		f(&o)
+	}
 	if userFrom == nil {
 		return nil, errors.New("request pool: no user source")
 	}
@@ -71,10 +110,10 @@ func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom f
 		return nil, fmt.Errorf("request pool: %w", err)
 	}
 	if maxConns <= 0 {
-		maxConns = 20
+		maxConns = DefaultRequestMaxConns
 	}
 	cfg.MaxConns = maxConns
-	cfg.PrepareConn = RequestConnHook(userFrom)
+	cfg.PrepareConn = requestConnHook(userFrom, o.noUser)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("request pool: %w", err)
@@ -98,7 +137,7 @@ func checkRequestRole(ctx context.Context, d *sql.DB) error {
 		SELECT r.rolname, r.rolsuper, r.rolbypassrls,
 		       EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-		                  AND pg_has_role(r.oid, c.relowner, 'USAGE'))
+		                  AND pg_has_role(r.oid, c.relowner, 'MEMBER'))
 		  FROM pg_roles r WHERE r.rolname = current_user`).Scan(&role, &super, &bypass, &owns)
 	if err != nil {
 		return fmt.Errorf("request pool: check role: %w", err)

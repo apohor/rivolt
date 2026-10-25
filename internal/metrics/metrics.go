@@ -128,6 +128,8 @@ type Metrics struct {
 	// not_low (normal or ok), other (any other word) or missing (a pressure with no status). A fixed list; no vehicle,
 	// user or raw word. It tells whether prod trucks ever say low before any alert relies on it.
 	TireStatusTotal *prometheus.CounterVec
+	// RequestAcquiresWithoutUser counts request-pool connections handed out for a context with no user, by route pattern.
+	RequestAcquiresWithoutUser *prometheus.CounterVec
 
 	// Demo rate-limit bucket keys by source: "cf" / "lb" when the direct
 	// peer is a Cloudflare edge / our private load-balancer hop and
@@ -408,6 +410,13 @@ func New() *Metrics {
 			},
 			[]string{"status"},
 		),
+		RequestAcquiresWithoutUser: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_request_acquires_without_user_total",
+				Help: "Request-pool connections handed out for a request context with no user (those queries see no rows), by chi route pattern (never the path; \"none\" off a request, \"unmatched\" for a 404).",
+			},
+			[]string{"route"},
+		),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_vehicle_sleeps_total",
@@ -453,6 +462,7 @@ func New() *Metrics {
 		m.PasskeyRefusedTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
+		m.RequestAcquiresWithoutUser,
 	)
 	return m
 }
