@@ -93,8 +93,10 @@ func TestAppSessionWritesThroughTheRouter(t *testing.T) {
 		if t := strings.TrimSuffix(path, "/"); t != path && appWrites[method+" "+t] {
 			listed[method+" "+t] = true
 		}
-		if appWrites[method+" "+path] {
-			listed[method+" "+path] = true
+		if appWriteAllowed(method, path) {
+			if appWrites[method+" "+path] {
+				listed[method+" "+path] = true
+			}
 			if rec := send(sessions.KindApp, method, path); denied(rec) {
 				t.Errorf("%s %s is on the list but refused", method, path)
 			}
@@ -162,6 +164,29 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"PATCH", "/api/milestones/dismiss", 403},
 		{"POST", "/api/milestones/dismiss", 204},
 		{"POST", "/api/settings/charging", 403},
+		{"PUT", "/api/settings/home-location", 204}, // Essential Settings on iPhone
+		{"POST", "/api/settings/home-location/restore", 204},
+		{"POST", "/api/settings/home-location/search", 204},
+		{"PUT", "/api/settings/home-location/", 403},
+		{"PATCH", "/api/settings/home-location", 403},
+		{"DELETE", "/api/settings/home-location", 403},
+		{"POST", "/api/settings/home-location/search/", 403},
+		{"PUT", "/api/settings/home-location/restore", 403},
+		{"POST", "/api/settings/home-location/other", 403},
+		{"PUT", "/api/vehicles/01-000000001/profile", 204},
+		{"PUT", "/api/vehicles/veh_x.1/profile", 204},
+		{"PUT", "/api/vehicles/01-000000001/profile/", 403},
+		{"PUT", "/api/vehicles//profile", 403},
+		{"PUT", "/api/vehicles/../profile", 403},
+		{"PUT", "/api/vehicles/a/b/profile", 403},
+		{"PUT", "/api/vehicles/a%2Fb/profile", 403},
+		{"PUT", "/api/vehicles/" + strings.Repeat("a", 65) + "/profile", 403},
+		{"POST", "/api/vehicles/01-000000001/profile", 403},
+		{"PATCH", "/api/vehicles/01-000000001/profile", 403},
+		{"DELETE", "/api/vehicles/01-000000001/profile", 403},
+		{"PUT", "/api/vehicles/01-000000001", 403},
+		{"PUT", "/api/vehicles/01-000000001/trailer", 403},
+		{"GET", "/api/vehicles/01-000000001/profile", 204},
 		{"POST", "/api/rivian/logout", 403},
 		{"DELETE", "/api/account", 403},
 		{"GET", "/api/settings/charging", 204},

@@ -32,7 +32,7 @@ func TestHomeLocationKeepsThePreviousHomeAndRestoresIt(t *testing.T) {
 
 	put := func(body string) homeLocationResponse {
 		w := httptest.NewRecorder()
-		handleHomeLocationPut(store, nil)(w, httptest.NewRequest("PUT", "/", strings.NewReader(body)))
+		handleHomeLocationPut(store, nil, nil)(w, httptest.NewRequest("PUT", "/", strings.NewReader(body)))
 		if w.Code != http.StatusOK {
 			t.Fatalf("put %s: %d %s", body, w.Code, w.Body.String())
 		}
@@ -42,7 +42,7 @@ func TestHomeLocationKeepsThePreviousHomeAndRestoresIt(t *testing.T) {
 	}
 	restore := func() (int, homeLocationResponse) {
 		w := httptest.NewRecorder()
-		handleHomeLocationRestore(store, nil)(w, httptest.NewRequest("POST", "/", nil))
+		handleHomeLocationRestore(store, nil, nil)(w, httptest.NewRequest("POST", "/", nil))
 		var out homeLocationResponse
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out

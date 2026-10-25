@@ -27,18 +27,24 @@ var appWrites = map[string]bool{
 	// Also allowed, by pattern (appSessionRevokePath): DELETE /api/auth/sessions/{uuid}, to sign one device out from the phone.
 	// Not allowed: POST /api/auth/sessions/revoke-others, which from a leaked phone token would sign the owner out everywhere
 	// at once and leave the attacker's session as the last one standing.
-	"POST /api/push/apns/register":        true, // notifications
-	"POST /api/push/apns/unregister":      true,
-	"POST /api/push/apns/preferences":     true,
-	"POST /api/push/apns/test":            true,
-	"POST /api/push/apns/activity":        true, // charging Live Activity
-	"POST /api/push/apns/activity/end":    true,
-	"POST /api/push/apns/activity/test":   true,
-	"POST /api/milestones/dismiss":        true, // hide a milestone card
-	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
-	"PATCH /api/settings/units":           true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
-	"POST /api/maps/valhalla/route":       true, // routing for the map: computed, nothing stored
-	"POST /api/maps/valhalla/trace_route": true,
+	"POST /api/push/apns/register":      true, // notifications
+	"POST /api/push/apns/unregister":    true,
+	"POST /api/push/apns/preferences":   true,
+	"POST /api/push/apns/test":          true,
+	"POST /api/push/apns/activity":      true, // charging Live Activity
+	"POST /api/push/apns/activity/end":  true,
+	"POST /api/push/apns/activity/test": true,
+	"POST /api/milestones/dismiss":      true, // hide a milestone card
+	"PATCH /api/settings/charging":      true, // the home rate, merged field by field (settings_charging.go)
+	"PATCH /api/settings/units":         true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
+	// Home location (Essential Settings on iPhone, DA-approved Oct 25): set, clear, restore and the address search. The worst a
+	// leaked token can do is move "home", which relabels and re-prices new charges and is undone by restore; it cannot read more
+	// than the app's GET already does. Audited by field names, limited per user, and the account is emailed when the app sets it.
+	"PUT /api/settings/home-location":          true,
+	"POST /api/settings/home-location/restore": true,
+	"POST /api/settings/home-location/search":  true,
+	"POST /api/maps/valhalla/route":            true, // routing for the map: computed, nothing stored
+	"POST /api/maps/valhalla/trace_route":      true,
 }
 
 // sessionsPrefix is where a single sign-in is addressed: DELETE /api/auth/sessions/{id}.
@@ -57,9 +63,40 @@ func appSessionRevokePath(p string) bool {
 	return err == nil && u.String() == id
 }
 
-// appWriteAllowed is the whole list: the exact routes in appWrites, and signing one device out by its id.
+// vehicleProfileSuffix ends PUT /api/vehicles/{id}/profile: the truck's tire, wheel and load profile, which only feeds the
+// efficiency and planner calculations.
+const (
+	vehiclesPrefix       = "/api/vehicles/"
+	vehicleProfileSuffix = "/profile"
+)
+
+// appVehicleProfilePath reports whether p is exactly /api/vehicles/{id}/profile with {id} the gateway's vehicle id shape (letters,
+// digits, dot, dash, underscore; 1 to 64 characters). Whose vehicle it is stays the ownership middleware's decision: another
+// user's id is a 404.
+func appVehicleProfilePath(p string) bool {
+	rest, ok := strings.CutPrefix(p, vehiclesPrefix)
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(rest, vehicleProfileSuffix)
+	if !ok || id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return id != "." && id != ".."
+}
+
+// appWriteAllowed is the whole list: the exact routes in appWrites, signing one device out by its id, and a vehicle's profile.
 func appWriteAllowed(method, p string) bool {
-	return appWrites[method+" "+p] || (method == http.MethodDelete && appSessionRevokePath(p))
+	return appWrites[method+" "+p] ||
+		(method == http.MethodDelete && appSessionRevokePath(p)) ||
+		(method == http.MethodPut && appVehicleProfilePath(p))
 }
 
 // appWriteDenied is the body of the refusal; tests look for it.

@@ -113,10 +113,10 @@ func homeChangedFields(old, h settings.HomeLocation) []string {
 	return f
 }
 
-// handleHomeLocationPut writes the user's home location (web only: not on the app's write allowlist). Body shape
+// handleHomeLocationPut writes the user's home location (the iPhone app may too: app_write_allowlist.go; `after` then emails the account). Body shape
 // matches HomeLocation; Set=false clears it. A latitude or longitude that isn't finite and in range is a 400. The
 // home it replaces is kept for "restore". The audit line names the fields changed, never their values.
-func handleHomeLocationPut(store *settings.Store, photon *geocoding.PhotonClient) http.HandlerFunc {
+func handleHomeLocationPut(store *settings.Store, photon *geocoding.PhotonClient, after func(*http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var h settings.HomeLocation
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&h); err != nil {
@@ -132,7 +132,10 @@ func handleHomeLocationPut(store *settings.Store, photon *geocoding.PhotonClient
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		slog.InfoContext(r.Context(), "home location saved", "fields", homeChangedFields(old, h), "source", h.Source)
+		slog.InfoContext(r.Context(), "home location saved", "fields", homeChangedFields(old, h), "source", h.Source, "from", requestSource(r))
+		if after != nil {
+			after(r)
+		}
 		// Echo back what's now stored so the SPA can update its in-memory copy without a second GET.
 		out, _ := homeLocationOut(r.Context(), store, photon)
 		writeJSON(w, http.StatusOK, out)
@@ -141,7 +144,7 @@ func handleHomeLocationPut(store *settings.Store, photon *geocoding.PhotonClient
 
 // handleHomeLocationRestore serves POST /api/settings/home-location/restore: back to the home the latest change
 // replaced (404 when there's none). Web only, audited like a save.
-func handleHomeLocationRestore(store *settings.Store, photon *geocoding.PhotonClient) http.HandlerFunc {
+func handleHomeLocationRestore(store *settings.Store, photon *geocoding.PhotonClient, after func(*http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, err := settings.RestorePreviousHomeLocation(r.Context(), store); err != nil {
 			if errors.Is(err, settings.ErrNoPreviousHome) {
@@ -151,7 +154,10 @@ func handleHomeLocationRestore(store *settings.Store, photon *geocoding.PhotonCl
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		slog.InfoContext(r.Context(), "home location restored", "fields", []string{"latitude", "longitude", "label", "address", "source"})
+		slog.InfoContext(r.Context(), "home location restored", "fields", []string{"latitude", "longitude", "label", "address", "source"}, "from", requestSource(r))
+		if after != nil {
+			after(r)
+		}
 		out, _ := homeLocationOut(r.Context(), store, photon)
 		writeJSON(w, http.StatusOK, out)
 	}

@@ -959,19 +959,26 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/statement-email", withUser(stm.putSettings))
 				r.Get("/statement-email/preview", withUser(stm.preview))
 			}
+			homeWriteLimiter, homeSearchLimiter := mapsUserLimiter(10), mapsUserLimiter(20)
+			var homeNotice *homeChangeNotice
+			if d.Email != nil {
+				homeNotice = &homeChangeNotice{mail: d.Email, db: d.DB}
+			}
 			r.Route("/settings/home-location", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleHomeLocationGet(d.Settings.For(uid), d.Photon)(w, r)
 				}))
-				// Writes are web only: none is on the iPhone app's write allowlist.
-				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleHomeLocationPut(d.Settings.For(uid), d.Photon)(w, r)
+				// Writes: the web, and the iPhone app (app_write_allowlist.go). 10 a minute per user for set, clear and restore;
+				// the address search is the costliest call and has its own per-user limit. The account is emailed when the app
+				// changes the home (home_notice.go).
+				r.With(homeWriteLimiter.Middleware).Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeLocationPut(d.Settings.For(uid), d.Photon, homeNotice.afterHomeChange)(w, r)
 				}))
-				r.Post("/restore", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleHomeLocationRestore(d.Settings.For(uid), d.Photon)(w, r)
+				r.With(homeWriteLimiter.Middleware).Post("/restore", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeLocationRestore(d.Settings.For(uid), d.Photon, homeNotice.afterHomeChange)(w, r)
 				}))
 				// A street address through the self-hosted Photon only (the address in the body, never logged).
-				r.Post("/search", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(homeSearchLimiter.Middleware).Post("/search", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleHomeAddressSearch(d.Photon)(w, r)
 				}))
 			})
