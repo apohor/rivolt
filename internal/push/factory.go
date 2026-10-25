@@ -12,7 +12,8 @@ import (
 // per-user-VAPID — the VAPID keypair is global (push_vapid.id = 1)
 // and any *Store can read it.
 type Factory struct {
-	db *sql.DB
+	db  *sql.DB
+	sys *sql.DB // the system pool for cross-user statements (Store.sys); nil means db
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*Store
@@ -24,6 +25,14 @@ func NewFactory(d *sql.DB) *Factory {
 		db:    d,
 		cache: make(map[uuid.UUID]*Store),
 	}
+}
+
+// NewFactoryWithSystem is NewFactory for request handling under row-level security: d is the request pool and sys the system
+// pool the stores use for the statements that must see other users' rows (APNs token registration).
+func NewFactoryWithSystem(d, sys *sql.DB) *Factory {
+	f := NewFactory(d)
+	f.sys = sys
+	return f
 }
 
 // For returns the *Store for userID, constructing one on first sight.
@@ -42,7 +51,7 @@ func (f *Factory) For(userID uuid.UUID) *Store {
 	if s, ok := f.cache[userID]; ok {
 		return s
 	}
-	s, err := OpenStore(f.db, userID)
+	s, err := openStore(f.db, f.sys, userID)
 	if err != nil {
 		return nil
 	}

@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -478,5 +480,83 @@ func TestAPNsTokenTakenByOnlyOneOfTwoSimultaneousRegistrations(t *testing.T) {
 		if refused != 1 || rows != 1 {
 			t.Fatalf("round %d: %d refused and %d rows for the token, want exactly one winner (1 refused, 1 row)", round, refused, rows)
 		}
+	}
+}
+
+// Under row-level security the request pool shows one user's rows, so the cross-user checks in token registration must run on the
+// system pool. With a store that has no system pool the check finds nothing and a second account silently takes a token whose
+// install it does not own (the negative control); with one, it is refused as without RLS.
+func TestAPNsTokenGuardHoldsOnTheRequestPool(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	t.Cleanup(cancel)
+	baseDSN := testpg.DSN(ctx, t)
+	pool, err := db.Open(ctx, baseDSN)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	a, _ := db.EnsureUser(ctx, pool, "apns-rls-a")
+	b, _ := db.EnsureUser(ctx, pool, "apns-rls-b")
+	sa := session(t, ctx, pool, a)
+	sb := session(t, ctx, pool, b)
+
+	role := "rivolt_app_push_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	if _, err := pool.ExecContext(ctx, `CREATE ROLE `+role+` LOGIN PASSWORD 'pw'`); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.GrantApp(ctx, pool, role); err != nil || !ok {
+		t.Fatalf("GrantApp: %v %v", ok, err)
+	}
+	u, err := url.Parse(baseDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(role, "pw")
+	reqDSN := u.String()
+	rp, err := db.OpenRequestPool(ctx, reqDSN, 4, auth.UserFromContext)
+	if err != nil {
+		t.Fatalf("OpenRequestPool: %v", err)
+	}
+	t.Cleanup(rp.Close)
+
+	owner := func(token string) uuid.UUID {
+		var u uuid.UUID
+		if err := pool.QueryRowContext(ctx, `SELECT user_id FROM push_apns_devices WHERE token = $1 LIMIT 1`, token).Scan(&u); err != nil {
+			return uuid.Nil
+		}
+		return u
+	}
+	dev := func(install string) APNsDevice {
+		return APNsDevice{Token: tok(7), Env: EnvSandbox, BundleID: "me.apoh.rivolt", InstallID: install}
+	}
+
+	// A registers the token from its install (on the system pool: the setup, not the subject).
+	stA, _ := OpenStore(pool, a)
+	if err := stA.UpsertAPNsDevice(ctx, sa, dev("install-a")); err != nil {
+		t.Fatal(err)
+	}
+
+	// With the system pool, B on the request pool is refused: A's registration is live and the install differs.
+	stB, _ := openStore(rp.DB, pool, b)
+	err = stB.UpsertAPNsDevice(auth.WithUser(ctx, b), sb, dev("install-b"))
+	var elsewhere ErrDeviceElsewhere
+	if !errors.As(err, &elsewhere) {
+		t.Fatalf("with the system pool: err = %v, want ErrDeviceElsewhere", err)
+	}
+	if owner(tok(7)) != a {
+		t.Fatal("the token left its owner")
+	}
+
+	// Negative control: without it, the request pool cannot see A's row, so B takes the token (two accounts, one install).
+	stBare, _ := openStore(rp.DB, nil, b)
+	if err := stBare.UpsertAPNsDevice(auth.WithUser(ctx, b), sb, dev("install-b")); err != nil {
+		t.Fatalf("negative control: expected the unguarded request pool to let the second account register, got %v", err)
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM push_apns_devices WHERE token = $1`, tok(7)).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("negative control: %d rows for the token, want 2 (the duplicate this change prevents)", n)
 	}
 }

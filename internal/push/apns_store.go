@@ -59,7 +59,8 @@ const NotificationTTL = 24 * time.Hour
 // what is stored for every switch (only SetAPNsOptIns/SetAPNsPrefs change them), so a
 // stale app posting its local defaults cannot opt anyone in.
 func (s *Store) UpsertAPNsDevice(ctx context.Context, sessionID uuid.UUID, d APNsDevice) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	// System pool: the whole check below reads other users' registrations and sessions, which the request pool cannot see.
+	tx, err := s.crossUser().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

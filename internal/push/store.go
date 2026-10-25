@@ -53,18 +53,36 @@ type VAPID struct {
 type Store struct {
 	db     *sql.DB
 	userID uuid.UUID
+	// sys is the owner-role pool, for the few statements that must see other users' rows: a device or activity token is one
+	// install, so registering it checks and clears another account's registration of it. Under row-level security the request
+	// pool shows this user's rows only, so that check would find nothing and silently allow a duplicate. nil means db (no
+	// request pool). Every statement run on it still names s.userID explicitly.
+	sys *sql.DB
+}
+
+// crossUser is the pool for statements that must span users (see Store.sys).
+func (s *Store) crossUser() *sql.DB {
+	if s.sys != nil {
+		return s.sys
+	}
+	return s.db
 }
 
 // OpenStore binds a pooled connection to a user_id. The pool is owned
 // by the caller.
 func OpenStore(db *sql.DB, userID uuid.UUID) (*Store, error) {
+	return openStore(db, nil, userID)
+}
+
+// openStore is OpenStore with the system pool for the cross-user statements.
+func openStore(db, sys *sql.DB, userID uuid.UUID) (*Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("push: db is nil")
 	}
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("push: userID is zero")
 	}
-	return &Store{db: db, userID: userID}, nil
+	return &Store{db: db, sys: sys, userID: userID}, nil
 }
 
 // Close is a no-op; the pool is managed by main.

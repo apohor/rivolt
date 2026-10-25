@@ -75,7 +75,8 @@ func (s *Store) SetAPNsLive(ctx context.Context, token string, on bool) (bool, e
 // user's; ErrLiveOff when the device's switch is off. Idempotent: the same token
 // again re-points it at the device and vehicle but keeps its start time.
 func (s *Store) RegisterActivity(ctx context.Context, deviceToken, activityToken string, vehicleID uuid.UUID) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	// System pool: it clears another account's registration of the same activity token, which the request pool cannot see.
+	tx, err := s.crossUser().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
