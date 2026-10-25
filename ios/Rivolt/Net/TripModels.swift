@@ -280,3 +280,103 @@ struct SavedTripBody: Encodable, Equatable {
     var inputs: JSONValue
     var plan: JSONValue?
 }
+
+/// A place in a multi-day request.
+struct TripPoint: Encodable, Equatable {
+    var lat: Double
+    var lon: Double
+    var label: String?
+}
+
+/// One day of a multi-day trip: where it ends and, unless it is the last, the night that follows.
+struct TripDayRequest: Encodable, Equatable {
+    struct Overnight: Encodable, Equatable {
+        /// Available AC power in kW at the stay.
+        var l2Kw: Double
+        /// Local time ("08:00") the truck is wanted the next morning.
+        var until: String
+        /// Cap on the charge after the night, percent.
+        var maxSocPct: Double
+        var name: String
+    }
+
+    var end: TripPoint
+    var targetArrivalSocPct: Double?
+    var overnight: Overnight?
+}
+
+/// `POST /api/trips/plan-multiday`. The truck, its charge and its pack are filled in by the server when left out.
+struct TripMultidayRequest: Encodable, Equatable {
+    var vehicleId: String?
+    var startingSoc: Double?
+    var packKwh: Double?
+    /// RFC 3339.
+    var startAt: String
+    /// The phone's zone, which the "until" times and the day boundaries are read in.
+    var tz: String
+    var targetArrivalSocPercent: Double?
+    var origin: TripPoint
+    var days: [TripDayRequest]
+    var maxOvernightSocPct: Double?
+}
+
+/// `POST /api/trips/overnight-candidates`: stays near where a day's driving budget runs out.
+struct OvernightCandidatesRequest: Encodable, Equatable {
+    var path: [[Double]]
+    var driveSec: Double?
+    var budgetHours: Double?
+    var kinds: [String]?
+}
+
+struct OvernightCandidates: Decodable, Equatable {
+    struct Candidate: Decodable, Equatable, Identifiable {
+        var name: String
+        var lat: Double
+        var lon: Double
+        var l2Kw: Double?
+        var l2KwAssumed: Bool?
+        /// The round trip off the route, in metres.
+        var detourM: Double?
+        var kind: String?
+        var id: String { "\(lat),\(lon),\(name)" }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = (try? c.decode(String.self, forKey: .name)) ?? "Stay"
+            lat = try c.decode(Double.self, forKey: .lat)
+            lon = try c.decode(Double.self, forKey: .lon)
+            l2Kw = try? c.decode(Double.self, forKey: .l2Kw)
+            l2KwAssumed = try? c.decode(Bool.self, forKey: .l2KwAssumed)
+            detourM = try? c.decode(Double.self, forKey: .detourM)
+            kind = try? c.decode(String.self, forKey: .kind)
+        }
+
+        init(name: String, lat: Double, lon: Double, l2Kw: Double? = nil, l2KwAssumed: Bool? = nil, detourM: Double? = nil, kind: String? = nil) {
+            self.name = name; self.lat = lat; self.lon = lon; self.l2Kw = l2Kw; self.l2KwAssumed = l2KwAssumed; self.detourM = detourM; self.kind = kind
+        }
+
+        private enum CodingKeys: String, CodingKey { case name, lat, lon, l2Kw, l2KwAssumed, detourM, kind }
+    }
+
+    struct Target: Decodable, Equatable {
+        /// True when the whole trip fits in the driving budget, so no night is needed.
+        var reachesEnd: Bool?
+    }
+
+    var candidates: [Candidate] = []
+    var target: Target?
+    var attribution: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        candidates = (try? c.decode([Candidate].self, forKey: .candidates)) ?? []
+        target = try? c.decode(Target.self, forKey: .target)
+        attribution = try? c.decode(String.self, forKey: .attribution)
+    }
+
+    init(candidates: [Candidate] = [], target: Target? = nil, attribution: String? = nil) {
+        self.candidates = candidates; self.target = target; self.attribution = attribution
+    }
+
+    private enum CodingKeys: String, CodingKey { case candidates, target, attribution }
+}

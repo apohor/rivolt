@@ -448,6 +448,16 @@ actor APIClient {
         try await request("POST", "/api/trips/plan", body: body)
     }
 
+    /// The trip as days with a night between: each day planned from where the last ended.
+    func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday {
+        try await request("POST", "/api/trips/plan-multiday", body: body)
+    }
+
+    /// Hotels and campgrounds with a listed charger near where a day's driving budget runs out.
+    func overnightCandidates(_ body: OvernightCandidatesRequest) async throws -> OvernightCandidates {
+        try await request("POST", "/api/trips/overnight-candidates", body: body)
+    }
+
     /// Places matching a typed name, for an origin or a destination (the server's own geocoder).
     func geocode(_ q: String, count: Int = 5) async throws -> [PlaceMatch] {
         try await request("GET", "/api/geocode?q=\(queryValue(q))&count=\(count)")
