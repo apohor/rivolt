@@ -35,7 +35,7 @@ func TestAdminSecureDeletesPasskeysWithWebAuthnOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `UPDATE users SET email = 'secure-owner@example.test' WHERE id = $1`, owner); err != nil {
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET email = 'owner@x.test' WHERE id = $1`, owner); err != nil {
 		t.Fatal(err)
 	}
 	store := passkeys.NewPGStore(pool)
