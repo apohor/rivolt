@@ -24,9 +24,16 @@ notBefore is more than 2 hours ago. At most 5 per run: more matches mean the
 filter is wrong, so none is revoked and the step fails. Log-only unless
 RIVOLT_CERT_SWEEP=delete.
 
+Then a one-time cleanup of a backlog the sweep refuses (more than 5): only
+the certificates whose serials end in the listed suffixes (as the sweep's
+log prints them), each of which must match exactly one old "Created via
+API" development certificate, or nothing is revoked. Dry run unless
+RIVOLT_CERT_CLEANUP=delete. Run by hand (.github/workflows/ios-dev-cert-cleanup.yml).
+
 usage:
   revoke-runner-dev-certs.py snapshot <file>
   revoke-runner-dev-certs.py revoke <snapshot file> <AuthKey.p8> <key id> <issuer id>
+  revoke-runner-dev-certs.py cleanup <AuthKey.p8> <key id> <issuer id> <suffix,suffix,...>
 Standard library plus the openssl, security and curl command-line tools only.
 """
 import base64
@@ -192,6 +199,67 @@ def sweep(jwt: str, revoked: set, now: float, delete: bool) -> int:
     return 0
 
 
+def select_listed(certs: list, suffixes: list, now: float, nb_of=None):
+    """(ids to revoke, problems) for the cleanup. Every suffix must match exactly
+    one certificate that is a development certificate named SWEEP_NAME and
+    older than SWEEP_MIN_AGE; any problem means the caller revokes nothing."""
+    nb_of = nb_of or (lambda c: not_before(c["attributes"].get("certificateContent") or ""))
+    picked, problems = [], []
+    for suf in suffixes:
+        suf = suf.strip().lstrip("…").upper()
+        if len(suf) < 6 or any(ch not in "0123456789ABCDEF" for ch in suf):
+            problems.append(f"{suf!r}: not a hex serial suffix of at least 6 characters")
+            continue
+        hits = [c for c in certs if norm(c["attributes"].get("serialNumber") or "").endswith(suf)]
+        if len(hits) != 1:
+            problems.append(f"…{suf}: matches {len(hits)} development certificates, not exactly one")
+            continue
+        c = hits[0]
+        a = c["attributes"]
+        if a.get("certificateType") not in DEV_TYPES or a.get("displayName") != SWEEP_NAME:
+            problems.append(f"…{suf}: not a development certificate named {SWEEP_NAME!r}")
+            continue
+        nb = nb_of(c)
+        if nb is None or now - nb < SWEEP_MIN_AGE:
+            problems.append(f"…{suf}: younger than 2 h or no readable notBefore")
+            continue
+        picked.append(c)
+    ids = [c["id"] for c in picked]
+    if len(set(ids)) != len(ids):
+        problems.append("two suffixes matched the same certificate")
+    return ([] if problems else ids), problems
+
+
+def cleanup(key_path: str, key_id: str, issuer: str, suffixes: str) -> int:
+    wanted = [x for x in suffixes.replace(" ", ",").split(",") if x.strip()]
+    if not wanted:
+        print("::error::no serial suffixes given: nothing revoked")
+        return 1
+    jwt = token(key_path, key_id, issuer)
+    q = urllib.parse.urlencode({"filter[certificateType]": ",".join(DEV_TYPES), "limit": "200",
+                                "fields[certificates]": "certificateType,displayName,serialNumber,expirationDate,certificateContent"})
+    certs = api("GET", f"/certificates?{q}", jwt)["data"]
+    ids, problems = select_listed(certs, wanted, time.time())
+    if problems:
+        for p in problems:
+            print(f"::error::cleanup: {p}")
+        print(f"cleanup: {len(problems)} problem(s): nothing revoked")
+        return 1
+    delete = os.environ.get("RIVOLT_CERT_CLEANUP") == "delete"
+    by_id = {c["id"]: c for c in certs}
+    for cid in ids:
+        a = by_id[cid]["attributes"]
+        line = f"{a.get('certificateType')} displayName={a.get('displayName')!r} expires={a.get('expirationDate')} {tail(norm(a.get('serialNumber') or ''))}"
+        if not delete:
+            print(f"cleanup would revoke (dry run): {line}")
+            continue
+        api("DELETE", f"/certificates/{urllib.parse.quote(cid)}", jwt)
+        print(f"cleanup revoked: {line}")
+    left = len(api("GET", f"/certificates?{q}", jwt)["data"])
+    print(f"cleanup: {len(ids)} {'revoked' if delete else 'would be revoked'}; development certificates on the team now: {left}")
+    return 0
+
+
 def revoke(snapshot: str, key_path: str, key_id: str, issuer: str) -> int:
     try:
         with open(snapshot) as f:
@@ -251,6 +319,8 @@ def main() -> int:
         return 0
     if sys.argv[1:2] == ["revoke"]:
         return revoke(*sys.argv[2:6])
+    if sys.argv[1:2] == ["cleanup"] and len(sys.argv) == 6:
+        return cleanup(*sys.argv[2:6])
     print(__doc__)
     return 2
 
