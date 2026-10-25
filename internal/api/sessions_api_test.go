@@ -133,9 +133,10 @@ func TestSessionsAPI(t *testing.T) {
 	}
 }
 
-// An account with dozens of old browser sessions lists the most recent ten plus every app session and the current one, counts the
-// rest, and ?all=1 lists everything. Revocation is not affected: "sign out everywhere else" still takes them all.
-func TestSessionsListCapsOldWebSessions(t *testing.T) {
+// The list is whole by default (a client that does not show "N older browsers not shown" must never get a cut list). A client that
+// does ask ?recent=N gets every app session, the current one and the N newest other browsers, with the rest counted. Revocation is
+// not affected: "sign out everywhere else" still takes them all.
+func TestSessionsListIsWholeUnlessTheClientAsksForRecent(t *testing.T) {
 	me := uuid.New()
 	now := time.Now()
 	var rows []sessions.Session
@@ -163,15 +164,19 @@ func TestSessionsListCapsOldWebSessions(t *testing.T) {
 		}
 		return ids, out.Total, out.HiddenWeb
 	}
-	ids, total, hidden := list("/api/auth/sessions")
-	if len(ids) != webSessionsShown+2 || total != 41 || hidden != 40-webSessionsShown-1 {
-		t.Errorf("capped: %d shown, total %d, hidden %d, want %d shown, 41, %d", len(ids), total, hidden, webSessionsShown+2, 40-webSessionsShown-1)
+	for _, path := range []string{"/api/auth/sessions", "/api/auth/sessions?recent=", "/api/auth/sessions?recent=x", "/api/auth/sessions?recent=-1", "/api/auth/sessions?recent=51", "/api/auth/sessions?all=1"} {
+		if ids, total, hidden := list(path); len(ids) != 41 || total != 41 || hidden != 0 {
+			t.Errorf("%s: %d shown, total %d, hidden %d, want the whole list (41, 41, 0)", path, len(ids), total, hidden)
+		}
+	}
+	ids, total, hidden := list("/api/auth/sessions?recent=10")
+	if len(ids) != 10+2 || total != 41 || hidden != 40-10-1 {
+		t.Errorf("recent=10: %d shown, total %d, hidden %d, want 12 shown, 41, 29", len(ids), total, hidden)
 	}
 	if !ids[app.ID] || !ids[current.ID] || !ids[rows[0].ID] || ids[rows[20].ID] {
-		t.Error("the list must keep the app session, the current one and the newest, and drop old browsers")
+		t.Error("recent must keep the app session, the current one and the newest, and drop old browsers")
 	}
-	ids, total, hidden = list("/api/auth/sessions?all=1")
-	if len(ids) != 41 || total != 41 || hidden != 0 {
-		t.Errorf("all=1: %d shown, total %d, hidden %d, want 41, 41, 0", len(ids), total, hidden)
+	if ids, _, hidden := list("/api/auth/sessions?recent=0"); len(ids) != 2 || hidden != 39 {
+		t.Errorf("recent=0: %d shown, hidden %d, want the app session and the current one, 39 hidden", len(ids), hidden)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -89,12 +90,13 @@ func (a *SessionsAPI) current(r *http.Request) (uuid.UUID, bool) {
 	return a.Current(r)
 }
 
-// webSessionsShown is how many web sessions (other than this one) the list shows by default, most recently seen first. Every app
-// session and the current one are always shown. A browser that never signs out leaves a row each time, so an account can hold
-// dozens; the rest are counted in "hidden_web" and all of them are still revoked by "sign out everywhere else". ?all=1 lists them.
-const webSessionsShown = 10
+// maxRecentWeb bounds ?recent=N: the most other web sessions a client can ask the list to be cut to.
+const maxRecentWeb = 50
 
-// List serves GET /api/auth/sessions: {sessions, total, hidden_web}. Rows are ordered by last use; see webSessionsShown.
+// List serves GET /api/auth/sessions: {sessions, total, hidden_web}. By default it is the whole list, ordered by last use, and
+// hidden_web is 0. A client that shows "N older browsers not shown · Show all" may ask for ?recent=N: every app session and the
+// current one, plus the N most recently seen other web sessions, with the rest counted in hidden_web. A client that does not show
+// that line must not send it, or an old session would simply not be there to be noticed. Revocation covers every session either way.
 func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := a.user(w, r)
 	if !ok {
@@ -106,13 +108,18 @@ func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur, _ := a.current(r)
-	all := r.URL.Query().Get("all") == "1"
+	recent := -1 // -1: the whole list
+	if v := r.URL.Query().Get("recent"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= maxRecentWeb {
+			recent = n
+		}
+	}
 	out := make([]sessionJSON, 0, len(rows))
 	otherWeb, hidden := 0, 0
 	for _, s := range rows {
 		isCurrent := cur != uuid.Nil && s.ID == cur
-		if !all && s.Kind == sessions.KindWeb && !isCurrent {
-			if otherWeb >= webSessionsShown {
+		if recent >= 0 && s.Kind == sessions.KindWeb && !isCurrent {
+			if otherWeb >= recent {
 				hidden++
 				continue
 			}
