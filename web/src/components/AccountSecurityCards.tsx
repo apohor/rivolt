@@ -57,7 +57,12 @@ export function AccountSecurityCards() {
             {passkeysLeft && (
               <>
                 <p className="text-xs text-neutral-400">Your password is changed. Some passkeys are still on your account.</p>
-                <button type="button" onClick={() => void removeAllPasskeys()} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600">
+                <button
+                  type="button"
+                  disabled={cleanup === "Removing…"}
+                  onClick={() => void removeAllPasskeys()}
+                  className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+                >
                   Remove all passkeys
                 </button>
               </>

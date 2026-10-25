@@ -581,7 +581,7 @@ actor APIClient {
             // A 401 that names a `class` is Rivian's, not this session's: the person has to reconnect their Rivian (on the web), and the
             // phone's own sign-in is fine. Only a bare 401 means the session is dead.
             if http.statusCode == 401, let json, json["class"] is String {
-                throw APIError.rivianReauth(message: (json["error"] as? String) ?? "Rivian needs to be reconnected.")
+                throw APIError.rivianReauth
             }
             if let j = json, let e = j["error"] as? String, !e.isEmpty {
                 message = e
@@ -599,7 +599,7 @@ enum APIError: LocalizedError {
     case transport(String)
     case server(status: Int, message: String)
     /// A 401 whose body names an upstream `class`: Rivian needs reconnecting. Not a dead Rivolt session.
-    case rivianReauth(message: String)
+    case rivianReauth
     case decoding(Error)
 
     var errorDescription: String? {
@@ -607,7 +607,7 @@ enum APIError: LocalizedError {
         case .badURL: return "Invalid server URL."
         case .transport(let m): return m
         case .server(_, let m): return m
-        case .rivianReauth(let m): return m
+        case .rivianReauth: return "Rivian needs to be reconnected."
         case .decoding(let e): return "Could not parse response: \(e.localizedDescription)"
         }
     }
