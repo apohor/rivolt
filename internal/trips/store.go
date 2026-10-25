@@ -105,8 +105,18 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*SavedTrip, error) {
 // turns a duplicate name into a Postgres unique-violation error; the
 // caller (handler) is responsible for surfacing that as 409.
 func (s *Store) Create(ctx context.Context, name string, inputs, plan, advice json.RawMessage) (*SavedTrip, error) {
-	// The cap is part of the insert, so two simultaneous saves cannot both slip under it.
-	row := s.db.QueryRowContext(ctx, `
+	// The count and the insert run under a per-user advisory lock held to the end of the transaction. Under READ COMMITTED two
+	// concurrent saves at 99 would each count 99 and both insert; the lock makes the second wait and see 100. It serialises only
+	// this user's saves, and needs no grant beyond the table's.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('saved_trips:' || $1::text, 0))`, s.userID); err != nil {
+		return nil, err
+	}
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO saved_trips (user_id, name, inputs, plan, advice)
 		SELECT $1, $2, $3, $4, $5
 		 WHERE (SELECT count(*) FROM saved_trips WHERE user_id = $1) < $6
@@ -118,6 +128,9 @@ func (s *Store) Create(ctx context.Context, name string, inputs, plan, advice js
 		return nil, ErrLimit
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &t, nil

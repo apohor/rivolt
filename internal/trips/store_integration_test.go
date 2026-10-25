@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,5 +313,55 @@ func TestCreateStopsAtThePerUserCap(t *testing.T) {
 	}
 	if _, err := sa.Create(ctx, "room again", inputs, nil, nil); err != nil {
 		t.Errorf("after a delete: %v", err)
+	}
+}
+
+// Ten saves at once from 95 trips end at exactly 100: the second to count must see the first's row (READ COMMITTED alone would let
+// them all pass the count, which is why Create takes a per-user advisory lock).
+func TestConcurrentCreatesCannotPassTheCap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, _ := db.EnsureUser(ctx, pool, "cap-race")
+	st, _ := trips.OpenStore(pool, uid)
+	inputs := json.RawMessage(`{"n":1}`)
+	for i := 0; i < trips.MaxPerUser-5; i++ {
+		if _, err := st.Create(ctx, fmt.Sprintf("seed %03d", i), inputs, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	results := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := st.Create(ctx, fmt.Sprintf("race %02d", i), inputs, nil, nil)
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	ok, limited := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, trips.ErrLimit):
+			limited++
+		default:
+			t.Errorf("unexpected: %v", err)
+		}
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM saved_trips WHERE user_id = $1`, uid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != trips.MaxPerUser || ok != 5 || limited != 5 {
+		t.Errorf("rows=%d created=%d refused=%d, want %d rows, 5 created, 5 refused", n, ok, limited, trips.MaxPerUser)
 	}
 }
