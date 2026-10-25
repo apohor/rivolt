@@ -416,9 +416,12 @@ func (d Deps) checkSystemSide() error {
 // The Rivolt sign-out always happens: a Hydra failure is logged and not allowed to keep someone signed in (when Hydra is down the
 // skip path that makes the remembered login dangerous is down with it).
 func (d Deps) logoutHandler() http.HandlerFunc {
+	observe := NewForgetObserver(d.Metrics)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if uid, ok := auth.UserFromContext(r.Context()); ok && d.LoginForgetter != nil && !auth.ViaBearer(r.Context()) && !auth.IsImpersonating(r.Context()) {
-			if err := d.LoginForgetter.ForgetLogin(r.Context(), uid); err != nil {
+			err := d.LoginForgetter.ForgetLogin(r.Context(), uid)
+			observe.observe("logout", err)
+			if err != nil {
 				slog.WarnContext(r.Context(), "logout: could not clear the identity provider's remembered login", "err", logging.ScrubErr(err))
 			}
 		}
@@ -1251,7 +1254,7 @@ func New(d Deps) http.Handler {
 							err := d.SystemDB.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&m) // system pool: another user's account
 							return m.String, err
 						},
-						Kratos: d.Kratos, Remembered: d.RememberedRevoker, Sessions: d.SessionRevoker, Logger: d.Logger,
+						Kratos: d.Kratos, Remembered: d.RememberedRevoker, Sessions: d.SessionRevoker, Logger: d.Logger, Observe: NewForgetObserver(d.Metrics),
 					}
 					if d.Passkeys != nil {
 						sec.Passkeys = d.Passkeys.Store()

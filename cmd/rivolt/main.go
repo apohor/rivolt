@@ -2472,6 +2472,7 @@ func runServer() {
 				return ref.ID, ok
 			},
 			Remembered: rememberedRevoker,
+			Observe:    api.NewForgetObserver(appMetrics),
 		}
 	}
 	handler := api.New(api.Deps{

@@ -34,17 +34,21 @@ type SessionsAPI struct {
 	// Remembered, when set, also forgets the identity provider's remembered logins after a revoke, so a revoked browser cannot
 	// sign straight back in with no password (see RememberedRevoker). nil: nothing is remembered outside Rivolt (no Hydra).
 	Remembered RememberedRevoker
+	// Observe counts each clearing and its failures (see ForgetObserver); nil is a no-op.
+	Observe ForgetObserver
 }
 
 // forget clears what the identity provider remembers. It runs BEFORE Rivolt's own sessions are revoked, in both handlers: a failure
 // is reported and nothing has changed yet, so the retry runs the whole thing again (run after, the revoked row would be a 404 on the
 // retry and the browser would stay remembered, behind a message that said to try again). Forgetting first also means a session a
 // remembered browser opens in between is revoked by the call that follows. The user is always the caller's own.
-func (a *SessionsAPI) forget(w http.ResponseWriter, r *http.Request, uid uuid.UUID) bool {
+func (a *SessionsAPI) forget(w http.ResponseWriter, r *http.Request, uid uuid.UUID, entry string) bool {
 	if a.Remembered == nil {
 		return true
 	}
-	if err := a.Remembered.RevokeRemembered(r.Context(), uid); err != nil {
+	err := a.Remembered.RevokeRemembered(r.Context(), uid)
+	a.Observe.observe(entry, err)
+	if err != nil {
 		slog.WarnContext(r.Context(), "sessions: could not clear the identity provider's remembered sign-in", "err", logging.ScrubErr(err))
 		http.Error(w, "signed out of Rivolt, but the sign-in memory could not be cleared; try again", http.StatusBadGateway)
 		return false
@@ -121,7 +125,7 @@ func (a *SessionsAPI) Revoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.forget(w, r, uid) {
+	if !a.forget(w, r, uid, "sign_out_one") {
 		return
 	}
 	done, err := a.Store.RevokeOwned(r.Context(), uid, id)
@@ -148,7 +152,7 @@ func (a *SessionsAPI) RevokeOthers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this sign-in has no session to keep; sign in with a browser or the app first", http.StatusConflict)
 		return
 	}
-	if !a.forget(w, r, uid) {
+	if !a.forget(w, r, uid, "sign_out_others") {
 		return
 	}
 	n, err := a.Store.RevokeOthers(r.Context(), uid, cur)
