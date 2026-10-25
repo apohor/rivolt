@@ -33,6 +33,8 @@ enum RouteSnap {
         }
 
         var label: String { ["<5", "5–25", "25–50", "50–65", "65+"][rawValue] }
+        /// The band named by its lower bound, for the small legend: "<5", "5", "25", "50", "65+".
+        var shortLabel: String { ["<5", "5", "25", "50", "65+"][rawValue] }
     }
 
     // MARK: Trace cleaning (trace.ts)
@@ -199,6 +201,9 @@ enum RouteSnap {
         }
 
         var allCoords: [Coord] { pieces.flatMap(\.coords) + routedGaps.flatMap { $0 } }
+
+        /// The speed bands this drive uses, slowest first (what the legend lists).
+        var usedSpeeds: [Speed] { Speed.allCases.filter { band in pieces.contains { $0.speed == band } } }
     }
 
     /// The line coloured by speed: a new piece whenever the bucket changes, each sharing its first point with the

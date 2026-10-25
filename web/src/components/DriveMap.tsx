@@ -24,6 +24,7 @@ import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { appMapFlavor, onAppMapFlavor, type MapFlavor } from "../lib/mapTheme";
 import { findNearestCharger, type POI } from "../lib/poi";
+import { SPEED_BUCKETS, speedBucketIndex, usedSpeedBuckets } from "../lib/speedBuckets";
 import {
   cleanTrace,
   classifySegment,
@@ -624,21 +625,9 @@ function circleIcon(color: string): L.DivIcon {
   });
 }
 
-// Speed-bucket palette. Reads roughly as: gray crawl → cyan city →
-// emerald suburban → amber highway → rose interstate. Tuned for
-// US units (mph) with thresholds at common speed-limit boundaries.
-const SPEED_BUCKETS: { max: number; color: string; label: string }[] = [
-  { max: 5, color: "#6b7280", label: "<5" },
-  { max: 25, color: "#06b6d4", label: "5–25" },
-  { max: 50, color: "#34d399", label: "25–50" },
-  { max: 65, color: "#f59e0b", label: "50–65" },
-  { max: Infinity, color: "#f43f5e", label: "65+" },
-];
-
 function speedColor(mph: number | undefined): string {
   if (mph == null || !Number.isFinite(mph)) return "#34d399";
-  for (const b of SPEED_BUCKETS) if (mph < b.max) return b.color;
-  return SPEED_BUCKETS[SPEED_BUCKETS.length - 1].color;
+  return SPEED_BUCKETS[speedBucketIndex(mph)].color;
 }
 
 // drawRoute renders the polyline as a wide low-opacity glow underneath
@@ -720,26 +709,31 @@ function fitOptions(map: L.Map): L.FitBoundsOptions {
   return { paddingTopLeft: [20, 44], paddingBottomRight: [72, bottom] };
 }
 
-// addSpeedLegend adds a compact bottom-left swatch row showing what
-// each color band means. Pure DOM control, no Leaflet pane reflow.
-function addSpeedLegend(map: L.Map): L.Control {
+// addSpeedLegend adds a small bottom-left chip showing what the colors
+// on this drive mean: only the bands the drive uses, each named by its
+// lower bound ("mph  <5  25  50  65+"), with the full range on hover.
+// Pure DOM control, no Leaflet pane reflow.
+function addSpeedLegend(map: L.Map, speeds: (number | undefined)[]): L.Control {
+  const bands = usedSpeedBuckets(speeds);
   const ctl = new L.Control({ position: "bottomleft" });
   ctl.onAdd = () => {
     const div = L.DomUtil.create("div", "rivolt-speed-legend");
     div.style.cssText =
       "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
-      "border-radius:6px;padding:2px 5px;display:flex;gap:5px;" +
-      "align-items:center;font:9px/1.1 ui-sans-serif,system-ui;" +
+      "border-radius:5px;padding:1px 4px;display:flex;gap:4px;" +
+      "align-items:center;font:8px/1.1 ui-sans-serif,system-ui;" +
       "color:#d4d4d4;backdrop-filter:blur(2px);opacity:0.8;" +
       "pointer-events:none;";
     div.innerHTML =
-      '<span style="color:#737373;margin-right:2px">mph</span>' +
-      SPEED_BUCKETS.map(
-        (b) =>
-          `<span style="display:inline-flex;align-items:center;gap:3px">` +
-          `<span style="display:inline-block;width:8px;height:3px;background:${b.color};border-radius:2px"></span>` +
-          `${b.label}</span>`,
-      ).join("");
+      '<span style="color:#737373">mph</span>' +
+      bands
+        .map(
+          (b) =>
+            `<span title="${b.range}" style="display:inline-flex;align-items:center;gap:2px">` +
+            `<span style="display:inline-block;width:6px;height:3px;background:${b.color};border-radius:2px"></span>` +
+            `${b.label}</span>`,
+        )
+        .join("");
     L.DomEvent.disableClickPropagation(div);
     return div;
   };
@@ -940,7 +934,7 @@ export function DriveMap({
     }
     // Show the speed legend whenever we have any per-point speed data.
     const hasSpeed = speeds.some((s) => s != null && Number.isFinite(s));
-    const legend = hasSpeed ? addSpeedLegend(map) : null;
+    const legend = hasSpeed ? addSpeedLegend(map, speeds) : null;
 
     // Optional GPS staleness badge for drives. Mounted alongside
     // (not instead of) the speed legend; positions don't collide.

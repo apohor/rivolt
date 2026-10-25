@@ -31,7 +31,7 @@ struct DriveRouteMap: View {
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay(alignment: .bottomLeading) {
-                        if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend().padding(4) }
+                        if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend(bands: drawing.usedSpeeds).padding(4) }
                     }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
@@ -83,26 +83,35 @@ struct DriveRouteMap: View {
     }
 }
 
-/// The web's speed legend: "mph" and the five buckets' swatches.
+/// The speed legend as a small corner chip: "mph" and a bar of the bands this drive uses, each named by its lower bound. It used to
+/// be a wide pill with every band written out across the bottom of the map.
 struct SpeedLegend: View {
+    let bands: [RouteSnap.Speed]
+    private let cell: CGFloat = 17
+
     var body: some View {
-        HStack(spacing: 5) {
-            Text("mph").foregroundStyle(Theme.textTertiary)
-            ForEach(RouteSnap.Speed.allCases, id: \.rawValue) { b in
-                HStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 2).fill(RouteMapView.color(b)).frame(width: 8, height: 3)
-                    Text(b.label)
+        if !bands.isEmpty {
+            HStack(alignment: .bottom, spacing: 4) {
+                Text("mph").foregroundStyle(Theme.textTertiary)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 1) {
+                        ForEach(bands, id: \.rawValue) { b in
+                            RoundedRectangle(cornerRadius: 1.5).fill(RouteMapView.color(b)).frame(width: cell, height: 3)
+                        }
+                    }
+                    HStack(spacing: 1) {
+                        ForEach(bands, id: \.rawValue) { b in Text(b.shortLabel).frame(width: cell) }
+                    }
                 }
             }
+            .font(Theme.sans(ThemeTokens.typeCaption - 3, .regular, relativeTo: .caption2))
+            .foregroundStyle(Theme.textBody)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.border, lineWidth: 1))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Route coloured by speed in miles per hour: \(bands.map(\.label).joined(separator: ", "))")
         }
-        .font(Theme.sans(ThemeTokens.typeCaption - 2, .regular, relativeTo: .caption2))
-        .foregroundStyle(Theme.textBody)
-        .padding(.horizontal, 5).padding(.vertical, 2)
-        .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
-        .padding(.bottom, 20)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Route coloured by speed in miles per hour")
     }
 }
 
