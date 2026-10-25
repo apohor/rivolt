@@ -139,11 +139,29 @@ type Target struct {
 	WindowAfterMin  float64 `json:"window_after_min"`
 }
 
+// NearestStay is a listed stay found outside the searched windows.
+type NearestStay struct {
+	Candidate
+	// DriveSec is the driving time from the start to the stay.
+	DriveSec float64 `json:"drive_sec"`
+	// OffsetSec is the driving time from the budget point, negative for a stay before it (a shorter day) and positive after it.
+	OffsetSec float64 `json:"offset_sec"`
+}
+
+// Nearest is the closest listed stay on each side of the budget point, anywhere on the route. It is set only when the windows
+// found no stay, so a screen can say "nearest listed stay: 160 mi back, about 2 h short of the day" instead of "none".
+type Nearest struct {
+	Before *NearestStay `json:"before,omitempty"`
+	After  *NearestStay `json:"after,omitempty"`
+}
+
 // Result is the suggestion.
 type Result struct {
 	Candidates []Candidate `json:"candidates"`
 	Target     Target      `json:"target"`
 	RouteM     float64     `json:"route_m"`
+	// Nearest is set when Candidates is empty and the day does not fit in the budget; nil when no listed stay is on the route.
+	Nearest *Nearest `json:"nearest,omitempty"`
 }
 
 // ErrBadRequest marks input the suggestion cannot work from.
@@ -212,7 +230,46 @@ func Suggest(a Archive, req Request) (*Result, error) {
 			break
 		}
 	}
+	if len(res.Candidates) == 0 && !reachesEnd {
+		n, err := nearest(a, pth, kinds, target, secPerM)
+		if err != nil {
+			return nil, err
+		}
+		res.Nearest = n
+	}
 	return res, nil
+}
+
+// nearest finds the closest listed stay before and after the budget point anywhere on the route (nil when there is none), for the
+// answer when the windows found nothing. Stays after the point are reported as they are: this is information for the person
+// deciding, and OffsetSec says how far past the budget they are.
+func nearest(a Archive, pth *path, kinds []string, target, secPerM float64) (*Nearest, error) {
+	all, err := collect(a, pth, kinds, 0, pth.total)
+	if err != nil {
+		return nil, err
+	}
+	var before, after *scored
+	for i := range all {
+		c := &all[i]
+		if c.c.AlongM < target {
+			if before == nil || c.c.AlongM > before.c.AlongM {
+				before = c
+			}
+		} else if after == nil || c.c.AlongM < after.c.AlongM {
+			after = c
+		}
+	}
+	if before == nil && after == nil {
+		return nil, nil
+	}
+	mk := func(s *scored) *NearestStay {
+		if s == nil {
+			return nil
+		}
+		s.c.DCFCNearby = nearbyDCFC(a, s.c)
+		return &NearestStay{Candidate: s.c, DriveSec: math.Round(s.c.AlongM * secPerM), OffsetSec: math.Round((s.c.AlongM - target) * secPerM)}
+	}
+	return &Nearest{Before: mk(before), After: mk(after)}, nil
 }
 
 // searchWindows are the half-widths, in minutes of driving, tried in turn: the day's budget point plus or minus the
@@ -224,10 +281,6 @@ var searchWindows = []struct{ beforeMin, afterMin float64 }{{30, 30}, {60, 60}, 
 // nearest the budget point come first, an earlier stop winning a tie; in the first window they are ranked on the
 // listing as always.
 func search(a Archive, pth *path, kinds []string, lo, hi, target float64, byDist bool) ([]Candidate, error) {
-	sub := pth.slice(lo, hi)
-	if len(sub) < 2 {
-		return nil, nil
-	}
 	less := rankBefore
 	if byDist {
 		less = func(x, y scored) bool {
@@ -240,6 +293,61 @@ func search(a Archive, pth *path, kinds []string, lo, hi, target float64, byDist
 			}
 			return x.c.EntityID+x.c.Name < y.c.EntityID+y.c.Name
 		}
+	}
+	all, err := collect(a, pth, kinds, lo, hi)
+	if err != nil {
+		return nil, err
+	}
+	// Rank on the listing alone first, then look for a morning fast charger
+	// for the few that are in the running.
+	for i := range all {
+		all[i].score = score(all[i].c, false)
+	}
+	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
+	wantCamp := false
+	for _, k := range kinds {
+		wantCamp = wantCamp || k == KindCampground
+	}
+	if len(all) > 10 {
+		// The best campground stays in the running even when ten hotels score
+		// higher: it is kept a slot below.
+		pool := all[:10:10]
+		if wantCamp && indexOfKind(pool, KindCampground) < 0 {
+			if i := indexOfKind(all[10:], KindCampground); i >= 0 {
+				pool = append(pool, all[10+i])
+			}
+		}
+		all = pool
+	}
+	for i := range all {
+		all[i].c.DCFCNearby = nearbyDCFC(a, all[i].c)
+		all[i].score = score(all[i].c, all[i].c.DCFCNearby != nil)
+	}
+	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
+	top := all
+	if len(top) > maxCandidates {
+		top = top[:maxCandidates]
+		// When campgrounds are asked for, one of the three goes to the best
+		// campground in reach (the others stay the best-ranked); none in reach
+		// leaves the hotels alone.
+		if wantCamp && indexOfKind(top, KindCampground) < 0 {
+			if i := indexOfKind(all, KindCampground); i >= 0 {
+				top = append(top[:maxCandidates-1:maxCandidates-1], all[i])
+			}
+		}
+	}
+	out := make([]Candidate, 0, len(top))
+	for _, sc := range top {
+		out = append(out, sc.c)
+	}
+	return out, nil
+}
+
+// collect is every stay of the wanted kinds within the corridor of the route between lo and hi metres along it, unranked.
+func collect(a Archive, pth *path, kinds []string, lo, hi float64) ([]scored, error) {
+	sub := pth.slice(lo, hi)
+	if len(sub) < 2 {
+		return nil, nil
 	}
 	var all []scored
 	for _, kind := range kinds {
@@ -287,49 +395,7 @@ func search(a Archive, pth *path, kinds []string, lo, hi, target float64, byDist
 			all = append(all, scored{c: c})
 		}
 	}
-	// Rank on the listing alone first, then look for a morning fast charger
-	// for the few that are in the running.
-	for i := range all {
-		all[i].score = score(all[i].c, false)
-	}
-	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
-	wantCamp := false
-	for _, k := range kinds {
-		wantCamp = wantCamp || k == KindCampground
-	}
-	if len(all) > 10 {
-		// The best campground stays in the running even when ten hotels score
-		// higher: it is kept a slot below.
-		pool := all[:10:10]
-		if wantCamp && indexOfKind(pool, KindCampground) < 0 {
-			if i := indexOfKind(all[10:], KindCampground); i >= 0 {
-				pool = append(pool, all[10+i])
-			}
-		}
-		all = pool
-	}
-	for i := range all {
-		all[i].c.DCFCNearby = nearbyDCFC(a, all[i].c)
-		all[i].score = score(all[i].c, all[i].c.DCFCNearby != nil)
-	}
-	sort.SliceStable(all, func(i, j int) bool { return less(all[i], all[j]) })
-	top := all
-	if len(top) > maxCandidates {
-		top = top[:maxCandidates]
-		// When campgrounds are asked for, one of the three goes to the best
-		// campground in reach (the others stay the best-ranked); none in reach
-		// leaves the hotels alone.
-		if wantCamp && indexOfKind(top, KindCampground) < 0 {
-			if i := indexOfKind(all, KindCampground); i >= 0 {
-				top = append(top[:maxCandidates-1:maxCandidates-1], all[i])
-			}
-		}
-	}
-	out := make([]Candidate, 0, len(top))
-	for _, sc := range top {
-		out = append(out, sc.c)
-	}
-	return out, nil
+	return all, nil
 }
 
 // indexOfKind is the first stay of the given kind, or -1.

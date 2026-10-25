@@ -400,3 +400,47 @@ func TestWidenedWindowRanksByDistanceFromTheBudgetPoint(t *testing.T) {
 		t.Errorf("order %v: nearest to the budget point should come first", names)
 	}
 }
+
+// When the windows find nothing, the nearest listed stay on each side of the budget point (anywhere on the route) comes back, with
+// the driving time from the start and from the budget point, so the screen can say how far off the nearest stay is.
+func TestNearestStaysWhenTheWindowsFindNone(t *testing.T) {
+	// A 1000 km route driven in 10 h, budget 8 h: the point is at 800 km, 36 s per km. The windows reach 500 to 860 km.
+	res := suggestHotels(t, hotel("Far back", 100, 0, 7), hotel("Further back", 40, 0, 7), hotel("Far ahead", 950, 0, 7), hotel("Further ahead", 990, 0, 7))
+	if len(res.Candidates) != 0 {
+		t.Fatalf("candidates %+v, want none in the windows", res.Candidates)
+	}
+	n := res.Nearest
+	if n == nil || n.Before == nil || n.After == nil {
+		t.Fatalf("nearest %+v, want a stay on each side", n)
+	}
+	if n.Before.Name != "Far back" || n.After.Name != "Far ahead" {
+		t.Errorf("nearest before %q after %q, want the closest of each", n.Before.Name, n.After.Name)
+	}
+	if math.Abs(n.Before.DriveSec-3600) > 60 || math.Abs(n.Before.OffsetSec-(-25200)) > 60 {
+		t.Errorf("before: drive %v offset %v, want about 3600 and -25200", n.Before.DriveSec, n.Before.OffsetSec)
+	}
+	if math.Abs(n.After.DriveSec-34200) > 60 || math.Abs(n.After.OffsetSec-5400) > 60 {
+		t.Errorf("after: drive %v offset %v, want about 34200 and 5400", n.After.DriveSec, n.After.OffsetSec)
+	}
+	// One side only.
+	res = suggestHotels(t, hotel("Far back", 100, 0, 7))
+	if res.Nearest == nil || res.Nearest.Before == nil || res.Nearest.After != nil {
+		t.Errorf("nearest %+v, want only a stay before", res.Nearest)
+	}
+}
+
+func TestNearestIsAbsentWhenThereIsNothingToSayOrNothingToFind(t *testing.T) {
+	// A stay in the windows: no nearest.
+	if res := suggestHotels(t, hotel("In reach", 780, 0, 7), hotel("Far back", 100, 0, 7)); len(res.Candidates) != 1 || res.Nearest != nil {
+		t.Errorf("candidates %d nearest %+v, want one candidate and no nearest", len(res.Candidates), res.Nearest)
+	}
+	// No listed stay anywhere on the route.
+	if res := suggestHotels(t); len(res.Candidates) != 0 || res.Nearest != nil {
+		t.Errorf("nearest %+v, want none", res.Nearest)
+	}
+	// The whole day fits in the budget: there is no budget point to be short of.
+	res, err := Suggest(&fakeArchive{hotels: []chargers.POI{hotel("Far back", 10, 0, 7)}}, Request{Path: route(100), DriveSec: 3600, BudgetHours: 8})
+	if err != nil || !res.Target.ReachesEnd || res.Nearest != nil {
+		t.Errorf("reaches_end %v nearest %+v err %v, want none for a day that fits", res.Target.ReachesEnd, res.Nearest, err)
+	}
+}

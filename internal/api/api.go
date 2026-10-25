@@ -39,6 +39,7 @@ import (
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -325,6 +326,8 @@ type Deps struct {
 	// leaves the route unmounted; the SPA renders raw GPS chords
 	// without snapping.
 	ValhallaProxy http.Handler
+	// Valhalla is the self-hosted router the server itself calls (the overnight search puts a sparse path on the road with it); nil: none.
+	Valhalla *maps.Valhalla
 	// TilesProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/tiles/* that forwards to a self-hosted
 	// PMTiles file server (nginx serving the .pmtiles bundle
@@ -369,6 +372,14 @@ func (d Deps) passkeyStore() passkeys.Store {
 		return d.Passkeys.Store()
 	}
 	return nil
+}
+
+// pathRouter is Valhalla as the interface the overnight search takes; nil (not a typed nil) when none is configured.
+func (d Deps) pathRouter() pathRouter {
+	if d.Valhalla == nil {
+		return nil
+	}
+	return d.Valhalla
 }
 
 // systemSettings is the settings factory background sweeps use: the system-pool one when there is a separate request pool.
@@ -1495,7 +1506,7 @@ func New(d Deps) http.Handler {
 			// Where to sleep: hotels with a listed Level 2 charger near the
 			// day's drive budget. Archive-only, no Rivian call.
 			if d.ChargersArchive != nil {
-				r.With(requireTripPlannerEnabledMW(d.Flags), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive))
+				r.With(requireTripPlannerEnabledMW(d.Flags), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter()))
 			}
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
