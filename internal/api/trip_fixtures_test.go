@@ -184,3 +184,17 @@ func TestTripFixturesAreTheServersOwnAnswers(t *testing.T) {
 		}
 	}
 }
+
+// A rate-limited upstream answer carries Retry-After, so a client has one rule for every 429 (the planner quota already did); the
+// other upstream answers do not.
+func TestUpstreamRateLimitedCarriesRetryAfter(t *testing.T) {
+	for class, want := range map[rivian.ErrorClass]string{
+		rivian.ClassRateLimited: "60", rivian.ClassTransient: "", rivian.ClassOutage: "", rivian.ClassUserAction: "",
+	} {
+		rec := httptest.NewRecorder()
+		writeUpstreamError(rec, &rivian.UpstreamError{Class: class})
+		if got := rec.Header().Get("Retry-After"); got != want {
+			t.Errorf("%s: Retry-After %q, want %q", class, got, want)
+		}
+	}
+}

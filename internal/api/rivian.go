@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,8 +90,15 @@ func httpStatusForUpstream(err error) int {
 // stamp that class explicitly.
 func writeUpstreamError(w http.ResponseWriter, err error) {
 	status, body := upstreamErrorBody(err)
+	if status == http.StatusTooManyRequests {
+		// One rule for a client: a 429 says how long to wait. Rivian's throttle does not tell us, so this is the planner's own backoff.
+		w.Header().Set("Retry-After", strconv.Itoa(upstreamRetryAfterSec))
+	}
 	writeJSON(w, status, body)
 }
+
+// upstreamRetryAfterSec is the wait suggested with a rate-limited upstream answer (Retry-After).
+const upstreamRetryAfterSec = 60
 
 // upstreamErrorBody is the status and JSON body writeUpstreamError sends: the
 // error text plus, when known, the failure class and reason the SPA reads.
