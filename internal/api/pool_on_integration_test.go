@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,11 +59,34 @@ func poolOn(t *testing.T, d Deps) Deps {
 		t.Fatal(err)
 	}
 	u.User = url.UserPassword(role, "pw")
-	rp, err := db.OpenRequestPool(ctx, u.String(), 8, auth.UserFromContext)
+	// The production no-user counter's job, as a test failure: a request-pool connection handed out for a request with no user is a route
+	// that reads without knowing whose data it is (it returns nothing, so it shows up as an empty page, not an error). Counted by chi
+	// route pattern, as the metric is; background work and tests with no router ("none") are not requests. A route that must do this
+	// belongs on the system pool, or in noUserAcquireAllowed with the reason.
+	var mu sync.Mutex
+	noUser := map[string]int{}
+	rp, err := db.OpenRequestPool(ctx, u.String(), 8, auth.UserFromContext, db.WithNoUserCounter(func(c context.Context) {
+		if route := RoutePatternFromContext(c); route != "none" {
+			mu.Lock()
+			noUser[route]++
+			mu.Unlock()
+		}
+	}))
 	if err != nil {
 		t.Fatalf("poolOn: request pool: %v", err)
 	}
 	t.Cleanup(rp.Close)
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for route, n := range noUser {
+			if why, ok := noUserAcquireAllowed[route]; ok && strings.TrimSpace(why) != "" {
+				continue
+			}
+			t.Errorf("request pool: %d connection(s) handed out with no user for route %q: it reads per-user tables without knowing whose; "+
+				"use the system pool for it (with a comment) or fix the context, or list it in noUserAcquireAllowed with why (docs/RLS_NO_USER.md)", n, route)
+		}
+	})
 
 	// The system side first (the originals), then the request side from the one constructor main uses (api.NewRequestStores), so the
 	// stores CI exercises are the ones production wires. Only the stores the test already has are moved.
@@ -100,3 +124,7 @@ func poolOn(t *testing.T, d Deps) Deps {
 	d.RequestPoolOn = true
 	return d
 }
+
+// noUserAcquireAllowed are chi route patterns that may take a request-pool connection with no user, each with why. Empty means none:
+// every such acquire is a bug (an empty page under row-level security) until a route is proven to need it.
+var noUserAcquireAllowed = map[string]string{}
