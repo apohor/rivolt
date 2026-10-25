@@ -67,7 +67,7 @@ test("a wrong password, an unfinished sign-out and a provider account each get t
   await page.route("**/api/auth/password", (r) => r.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "password_changed_but_sign_out_incomplete", password_changed: true }) }));
   await fill();
   await form.getByRole("button", { name: "Change password" }).click();
-  await expect(form.locator("[data-security-note]")).toContainText("Your password was changed, but signing out your other devices didn't finish");
+  await expect(form.locator("[data-security-note]")).toContainText("Your password was changed, and the old one no longer works, but signing out your other devices didn't finish");
   await page.unroute("**/api/auth/password");
   await page.route("**/api/auth/password", (r) => r.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "needs_an_email_account" }) }));
   await fill();

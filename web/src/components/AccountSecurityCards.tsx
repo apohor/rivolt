@@ -51,13 +51,17 @@ export function AccountSecurityCards() {
           return `Password changed. ${plural(r.sessions_revoked, "other device was", "other devices were")} signed out.${left > 0 ? ` Your passkeys are listed below: remove any you don't recognise.` : ""}`;
         }}
       />
-      {passkeysLeft && (
+      {(passkeysLeft || cleanup) && (
         <Card title="Finish removing passkeys" id="reset-cleanup">
           <div data-passkeys-cleanup className="space-y-2">
-            <p className="text-xs text-neutral-400">Your password is changed. Some passkeys are still on your account.</p>
-            <button type="button" onClick={() => void removeAllPasskeys()} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600">
-              Remove all passkeys
-            </button>
+            {passkeysLeft && (
+              <>
+                <p className="text-xs text-neutral-400">Your password is changed. Some passkeys are still on your account.</p>
+                <button type="button" onClick={() => void removeAllPasskeys()} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600">
+                  Remove all passkeys
+                </button>
+              </>
+            )}
             {cleanup && <p role="status" className="text-xs text-neutral-400">{cleanup}</p>}
           </div>
         </Card>

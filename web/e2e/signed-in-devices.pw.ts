@@ -129,7 +129,7 @@ for (const status of [404, 403]) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, { list: status });
-    await expect(page.getByText("Rivolt account")).toBeVisible(); // the tab rendered
+    await expect(page.locator("[data-security-form=password]")).toBeVisible(); // the Security tab rendered
     await expect(page.locator("[data-signed-in-devices]")).toHaveCount(0);
     await expect(page.getByText("Signed-in devices")).toHaveCount(0);
     await ctx.close();
