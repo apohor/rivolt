@@ -29,14 +29,7 @@ func TestOvernightCandidatesRouteBodyCapThroughTheRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	uid, err := db.EnsureUser(ctx, pool, "route-body")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A fresh account must accept the Terms before any data route answers (the server-side gate): this one has.
-	if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil {
-		t.Fatal(err)
-	}
+	uid := acceptedUser(ctx, t, pool, "route-body")
 	ss, err := sessions.New(pool, []byte("0123456789abcdef0123456789abcdef"))
 	if err != nil {
 		t.Fatal(err)
