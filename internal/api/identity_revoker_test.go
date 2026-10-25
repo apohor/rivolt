@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -132,5 +133,68 @@ func TestSessionsAPIRevokeAlsoForgetsTheRememberedLogin(t *testing.T) {
 		if rec := sessReq(c.h(a), c.method, c.path, me, false); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "hydra down") {
 			t.Errorf("%s: a failed forget must be a 502 that does not echo the error: %d %s", c.name, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// The point of all this, end to end against a model of Hydra's remember behavior: a browser Hydra remembers is "skipped" through
+// sign-in with no password; after the revoke, the same browser is shown the password form. The fake keeps Hydra's state (the
+// subjects it remembers), answers a login request with skip=true while the subject is remembered, and forgets it when the login
+// session is deleted, as the real admin API does. The handler under test is the real hydraLoginGET.
+func TestRevokedBrowserGetsThePasswordForm(t *testing.T) {
+	remembered := map[string]bool{"kid-1": true}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/oauth2/auth/requests/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			_, _ = w.Write([]byte(`{"redirect_to":"https://hydra/cb"}`))
+			return
+		}
+		skip := remembered["kid-1"]
+		sub := ""
+		if skip {
+			sub = "kid-1" // Hydra only reports a subject on a skipped request
+		}
+		_, _ = w.Write([]byte(`{"challenge":"c","subject":"` + sub + `","skip":` + map[bool]string{true: "true", false: "false"}[skip] + `,"client":{"client_id":"rivolt","client_name":"Rivolt"}}`))
+	})
+	mux.HandleFunc("/admin/oauth2/auth/requests/login/accept", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"redirect_to":"https://hydra/cb"}`))
+	})
+	mux.HandleFunc("/admin/oauth2/auth/sessions/login", func(w http.ResponseWriter, r *http.Request) {
+		delete(remembered, r.URL.Query().Get("subject"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/admin/oauth2/auth/sessions/consent", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("/admin/identities", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"kid-1","traits":{"email":"owner@x.test"}}]`))
+	})
+	mux.HandleFunc("/admin/identities/kid-1/sessions", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	h, err := hydra.New(hydra.Config{AdminURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := kratos.New(kratos.Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func() hydraLoginGetResponse {
+		rr := httptest.NewRecorder()
+		hydraLoginGET(hydraDeps{Hydra: h, Kratos: k, Logger: discardLogger()}).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/login?login_challenge=c", nil))
+		var out hydraLoginGetResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v (%s)", err, rr.Body.String())
+		}
+		return out
+	}
+
+	if got := login(); !got.Skip || got.RedirectTo == "" {
+		t.Fatalf("before the revoke the remembered browser is signed straight in (the bug): %+v", got)
+	}
+	rev := &IdentityRevoker{Hydra: h, Kratos: k, Username: func(context.Context, uuid.UUID) (string, error) { return "owner@x.test", nil }}
+	if err := rev.RevokeRemembered(context.Background(), uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	if got := login(); got.Skip || got.Challenge == "" {
+		t.Fatalf("after the revoke the same browser must get the password form, not a skip: %+v", got)
 	}
 }
