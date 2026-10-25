@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
@@ -465,6 +466,25 @@ func demoOnlyGateMW(vehicleID string) func(http.Handler) http.Handler {
 	}
 }
 
+// demoPlainDownstream asks what is below it for an uncompressed answer: the response cache keeps the body it is given, so that body
+// must not depend on one client's Accept-Encoding.
+func demoPlainDownstream(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("Accept-Encoding")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// demoNegotiateEncoding compresses the JSON of a heavy anonymous read for a client that accepts gzip (or deflate), and says the answer
+// varies by it.
+func demoNegotiateEncoding(next http.Handler) http.Handler {
+	compress := middleware.Compress(5, "application/json")(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Accept-Encoding")
+		compress.ServeHTTP(w, r)
+	})
+}
+
 // demoAccessMW serves allowlisted anonymous requests as the demo user.
 // It runs after authentication resolves the real identity and before
 // impersonation, so a real session always wins and impersonation sees
@@ -575,7 +595,13 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				// rate). Only a miss, which reads the database, is charged, per client first, then install-wide. Before this, hits
 				// drew on the client's budget, and a phone switching tabs and months re-asked for what it already had and was
 				// refused (429) on the demo's Activity tab.
-				serve = heavyCache.Middleware(heavy.Middleware(serve))
+				//
+				// Compression is negotiated outside the cache, not inside it: the route compresses its own answer (r.With(gz)), and
+				// a cache under that kept the compressed bytes of whoever came first with no Content-Encoding, so the next hit sent
+				// gzip bytes as JSON (compressed again by an edge that compresses JSON, unreadable to the app) and a client that
+				// takes no gzip got them too. The route is asked for plain bytes, the cache keeps those, and each client gets its
+				// own encoding on a hit and on a miss alike.
+				serve = demoNegotiateEncoding(heavyCache.Middleware(demoPlainDownstream(heavy.Middleware(serve))))
 			}
 			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
