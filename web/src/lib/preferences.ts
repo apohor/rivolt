@@ -110,27 +110,63 @@ if (typeof window !== "undefined") {
   });
 }
 
-export function setTemperatureUnit(unit: TemperatureUnit): void {
-  if (current.temperatureUnit === unit && current.temperatureUnitSet) return;
-  current = { ...current, temperatureUnit: unit, temperatureUnitSet: true };
+// A signed-in account keeps the units too (accountUnits.ts): it hears about every pick made here, and applies the account's
+// units back with applyAccountUnits, which does not tell it again.
+type UnitPick = { distance_unit?: DistanceUnit; temperature_unit?: TemperatureUnit };
+const pickListeners = new Set<(p: UnitPick) => void>();
+export function onUnitPick(fn: (p: UnitPick) => void): () => void {
+  pickListeners.add(fn);
+  return () => {
+    pickListeners.delete(fn);
+  };
+}
+
+function store() {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
     // quota exceeded / disabled — silently ignore, in-memory value
     // still applies for this tab.
   }
+}
+
+export function setTemperatureUnit(unit: TemperatureUnit): void {
+  if (current.temperatureUnit === unit && current.temperatureUnitSet) return;
+  current = { ...current, temperatureUnit: unit, temperatureUnitSet: true };
+  store();
   emit();
+  for (const l of pickListeners) l({ temperature_unit: unit });
 }
 
 export function setDistanceUnit(unit: DistanceUnit): void {
   if (current.distanceUnit === unit) return;
   current = { ...current, distanceUnit: unit, temperatureUnit: current.temperatureUnitSet ? current.temperatureUnit : defaultTemperatureUnit(unit) };
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
-    // see setTemperatureUnit
-  }
+  store();
   emit();
+  for (const l of pickListeners) l({ distance_unit: unit });
+}
+
+// The account's units become this browser's, without a pick being reported back: the temperature is the account's own choice
+// ("user") or follows the distance.
+export function applyAccountUnits(distance: DistanceUnit, temperature: TemperatureUnit, temperatureSet: boolean): void {
+  const next = { ...current, distanceUnit: distance, temperatureUnit: temperatureSet ? temperature : defaultTemperatureUnit(distance), temperatureUnitSet: temperatureSet };
+  if (next.distanceUnit === current.distanceUnit && next.temperatureUnit === current.temperatureUnit && next.temperatureUnitSet === current.temperatureUnitSet) return;
+  current = next;
+  store();
+  emit();
+}
+
+// Whether this browser has a saved choice (the preferences were written at some point), as opposed to the defaults.
+export function hasLocalUnitPick(): boolean {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function localUnits(): { distanceUnit: DistanceUnit; temperatureUnit: TemperatureUnit; temperatureUnitSet: boolean } {
+  return { distanceUnit: current.distanceUnit, temperatureUnit: current.temperatureUnit, temperatureUnitSet: current.temperatureUnitSet };
 }
 
 export function setTimeZone(tz: TimeZonePref): void {
