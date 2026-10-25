@@ -51,7 +51,7 @@ test("the full reset needs a second press and says it removes the person's own p
 });
 
 test("a wrong password, an unfinished sign-out and a provider account each get the right words", async ({ page }) => {
-  let sent = await open(page, { password: { status: 403, body: { error: "password_incorrect" } } });
+  const sent = await open(page, { password: { status: 403, body: { error: "password_incorrect" } } });
   await page.goto("/settings?tab=security");
   const form = page.locator("[data-security-form=password]");
   const fill = async () => {
@@ -73,5 +73,4 @@ test("a wrong password, an unfinished sign-out and a provider account each get t
   await fill();
   await form.getByRole("button", { name: "Change password" }).click();
   await expect(page.locator("[data-security-form]")).toHaveCount(0);
-  sent = {};
 });
