@@ -63,7 +63,7 @@ func TestElectrafiImportHonoursSampleRetention(t *testing.T) {
 		return res
 	}
 	count := func() int {
-		n, err := ss.Count(ctx)
+		n, err := ss.Count(auth.WithUser(ctx, uid)) // the request pool shows a context with no user nothing
 		if err != nil {
 			t.Fatal(err)
 		}
