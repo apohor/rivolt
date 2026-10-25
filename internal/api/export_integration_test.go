@@ -69,7 +69,7 @@ func TestExport_UserScopedNoSecretsAndEffectiveColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := Deps{DB: pool, Charges: cf, Drives: df, Settings: sf, Version: "test"}
+	d := poolOn(t, Deps{DB: pool, Charges: cf, Drives: df, Settings: sf, Version: "test"})
 	get := func(format string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/api/export"+format, nil)
 		req = req.WithContext(auth.WithUser(ctx, alice))

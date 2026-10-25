@@ -54,7 +54,7 @@ func TestAppSignInFlow(t *testing.T) {
 			return raw, s.ExpiresAt, err
 		},
 	}
-	d := Deps{DB: pool, AppAuth: a}
+	d := poolOn(t, Deps{DB: pool, AppAuth: a})
 	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	challenge := appauth.Challenge(verifier)
 	signedIn := func(r *http.Request) *http.Request { return r.WithContext(auth.WithUser(r.Context(), uid)) }

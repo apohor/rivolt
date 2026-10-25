@@ -88,7 +88,7 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	const n = 100_000
 	restoreHeartbeat = 100 * time.Millisecond
 	defer func() { restoreHeartbeat = 3 * time.Second }()
-	h := handleDataRestore(backupTestDeps(pool))
+	h := handleDataRestore(backupTestDepsFor(t, pool))
 
 	runtime.GC()
 	var base runtime.MemStats
@@ -219,7 +219,7 @@ func TestRestoreFormatsAndLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 	mkDst := func(name string) uuid.UUID {
 		u, err := db.EnsureUser(ctx, pool, name)
 		if err != nil {
@@ -290,7 +290,7 @@ func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 	partitions := func() int {
 		var n int
 		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent WHERE p.relname = 'vehicle_state'`).Scan(&n); err != nil {
@@ -366,7 +366,7 @@ func TestRestoreRefusalsDoNotConsumeTheSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 	uid, err := db.EnsureUser(ctx, pool, "slot-user")
 	if err != nil {
 		t.Fatal(err)
@@ -444,7 +444,7 @@ func TestRestoreRefusalCooldownThroughTheHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := handleDataRestore(backupTestDeps(pool)) // one handler: one guard
+	h := handleDataRestore(backupTestDepsFor(t, pool)) // one handler: one guard
 	post := func(body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		h(rec, httptest.NewRequest("POST", "/api/data/restore", strings.NewReader(body)).WithContext(auth.WithUser(ctx, uid)))

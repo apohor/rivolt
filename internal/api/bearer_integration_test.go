@@ -88,7 +88,7 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := New(Deps{
+	router := New(poolOn(t, Deps{
 		Auth: authSvc,
 		DB:   pool,
 		OIDC: oidcSvc,
@@ -100,7 +100,7 @@ func TestAppBearerThroughTheRouter(t *testing.T) {
 				return raw, s.ExpiresAt, err
 			},
 		},
-	})
+	}))
 	do := func(r *http.Request) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)

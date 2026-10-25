@@ -84,6 +84,9 @@ func seedBackupUser(t *testing.T, ctx context.Context, pool *sql.DB, name string
 	return uid
 }
 
+// backupTestDepsFor is backupTestDeps on the request pool when RIVOLT_TEST_REQUEST_POOL is set (see poolOn).
+func backupTestDepsFor(t *testing.T, pool *sql.DB) Deps { return poolOn(t, backupTestDeps(pool)) }
+
 func backupTestDeps(pool *sql.DB) Deps {
 	rf := db.NewVehicleResolverFactory(pool)
 	return Deps{
@@ -106,7 +109,7 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 	const nSamples, nDrives, nCharges = 100_000, 300, 200
 	uid := seedBackupUser(t, ctx, pool, "bk-big", nSamples, nDrives, nCharges)
-	h := handleDataBackup(backupTestDeps(pool))
+	h := handleDataBackup(backupTestDepsFor(t, pool))
 
 	// The peak is HeapAlloc, which counts garbage the collector has not freed yet. At the default GOGC the slack
 	// is as large as the live heap, so a busy runner's bigger base heap (21 MB over, against a 15 MB limit, with
@@ -223,7 +226,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 
 	rec := httptest.NewRecorder()
 	handleDataBackup(deps)(rec, httptest.NewRequest("GET", "/api/data/backup", nil).WithContext(auth.WithUser(ctx, src)))
@@ -278,7 +281,7 @@ func TestBackupStopsWhenClientDisconnects(t *testing.T) {
 	finished := make(chan any, 1)
 	go func() {
 		defer func() { finished <- recover(); pw.Close() }()
-		handleDataBackup(backupTestDeps(pool))(resp, httptest.NewRequest("GET", "/api/data/backup", nil).WithContext(reqCtx))
+		handleDataBackup(backupTestDepsFor(t, pool))(resp, httptest.NewRequest("GET", "/api/data/backup", nil).WithContext(reqCtx))
 	}()
 	buf := make([]byte, 1<<20)
 	if _, err := io.ReadFull(pr, buf); err != nil { // take some of it, then hang up

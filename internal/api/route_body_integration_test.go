@@ -50,7 +50,7 @@ func TestOvernightCandidatesRouteBodyCapThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := New(Deps{Auth: authSvc, AuthEnforced: true, DB: pool, Flags: fl, ChargersArchive: emptyArchive(t)})
+	router := New(poolOn(t, Deps{Auth: authSvc, AuthEnforced: true, DB: pool, Flags: fl, ChargersArchive: emptyArchive(t)}))
 	post := func(path string, body []byte) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")

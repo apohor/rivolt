@@ -33,7 +33,7 @@ func TestElectrafiImportHonoursSampleRetention(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-imp-ret')`, uid); err != nil {
 		t.Fatal(err)
 	}
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 	ds, ss := deps.Drives.For(uid), deps.Samples.For(uid)
 
 	now := time.Now().UTC()
