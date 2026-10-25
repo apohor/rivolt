@@ -1,0 +1,10 @@
+# CI render: the migrate Job on, with in-cluster Postgres via CloudNativePG.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true
+migrate:
+  job:
+    enabled: true
+image:
+  tag: "0.40.0-dev.1+sha-abc1234"

@@ -291,6 +291,27 @@ jobs:
             echo "::endgroup::"
           done
 
+      # The migrate Job's pod must never match the Service's (or the PDB's,
+      # or the Deployment's) selector: with no readiness probe it would count
+      # as Ready and receive traffic (migrations-job design, architect).
+      - name: Migrate Job pods are no Service endpoint
+        run: |
+          set -o pipefail
+          out=$(helm template rivolt "$CHART" -f "$CHART/ci/migrate-job-values.yaml")
+          labels=$(echo "$out" | yq 'select(.kind == "Job") | .spec.template.metadata.labels')
+          [ -n "$labels" ] && [ "$labels" != "null" ] || { echo "::error::no migrate Job rendered"; exit 1; }
+          for kind in Service PodDisruptionBudget Deployment; do
+            sel=$(echo "$out" | yq "select(.kind == \"$kind\") | (.spec.selector.matchLabels // .spec.selector) | to_entries | .[] | .key + \"=\" + .value")
+            [ -n "$sel" ] || continue
+            all=1
+            while IFS= read -r kv; do
+              k=${kv%%=*}; v=${kv#*=}
+              [ "$(echo "$labels" | yq ".[\"$k\"] // \"\"")" = "$v" ] || all=0
+            done <<< "$sel"
+            if [ "$all" = 1 ]; then echo "::error::the migrate Job's pod matches the $kind selector"; exit 1; fi
+            echo "$kind selector: not matched by the migrate Job's pod"
+          done
+
       - name: No KEK, no render
         run: |
           if out=$(helm template rivolt "$CHART" --set externalDatabase.host=db.invalid 2>&1); then
