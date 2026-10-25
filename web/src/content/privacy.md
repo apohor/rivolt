@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: October 24, 2026
+Last updated: October 25, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **ZeroDowntime LLC, a Texas limited liability company** ("we"). Contact: support@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
@@ -8,6 +8,7 @@ Last updated: October 24, 2026
 
 **What we collect, and why**
 - **Your account:** email, display name and your sign-in provider's account id, to sign you in; for each sign-in, the IP address and browser it came from, to keep you signed in and spot stolen sessions (for the Rivolt iPhone app, the device type it reports, such as "iPhone", so you can recognise it in your list of signed-in devices and sign it out); we delete these 30 days after the sign-in expires or you sign out. If you asked for access, your request (email and message): deleted after 90 days if it is not approved, and if it is approved, once you sign up or 30 days after the invite expires unused.
+- **Passkeys**, only if you add one in Settings: the passkey's public key and identifier, the name you give it, when it was added and last used, and whether it can be backed up (iCloud Keychain or a password manager). The private key stays on your device or in your password manager and never reaches us. We email you when one is added. Removing a passkey deletes this, and so does deleting your account.
 - **Your Rivian sign-in:** your Rivian email and the session tokens Rivian issues, stored encrypted, so we can keep reading your vehicle. **Your Rivian password is never stored**; it is used once to sign in to Rivian.
 - **Your vehicle's data**, read from Rivian: charge level, range, odometer, speed, temperatures, tire pressure, software version, trim and picture, whether a trailer is connected, and **GPS location**. We turn it into drives, charges and costs. Location is the most sensitive data we hold. It is never shown to other users. Rivolt records the vehicle, not the driver: if someone else drives it, their trips are recorded too. Altitude on recorded drives comes from a copy of the public Terrarium elevation dataset (Mapzen, via AWS Open Data) that we download in bulk and host ourselves; no request about your drives leaves our servers.
 - **Rivian charging receipts**, only if you turn them on in Settings (off by default; turning them off deletes the stored receipts): amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.

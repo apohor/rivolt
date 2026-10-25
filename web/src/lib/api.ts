@@ -1135,6 +1135,20 @@ export const backend = {
   authSessions: () => api.get<{ sessions: AuthSession[] }>("/api/auth/sessions"),
   revokeAuthSession: (id: string) => api.del<void>(`/api/auth/sessions/${encodeURIComponent(id)}`),
   revokeOtherAuthSessions: () => api.post<{ revoked: number }>("/api/auth/sessions/revoke-others", {}),
+  // Passkeys (WebAuthn) for email accounts. Management is for a browser session only (404 where passkeys are off, 403 for the app
+  // and for an admin viewing as someone); adding asks for the password again. The ceremony options and credentials are the
+  // browser's own JSON forms.
+  passkeys: () => api.get<{ passkeys: Passkey[]; max: number }>("/api/auth/passkeys"),
+  passkeyRegisterBegin: (password: string) =>
+    api.post<{ ceremony_id: string; options: { publicKey: unknown } }>("/api/auth/passkeys/register/begin", { password }),
+  passkeyRegisterFinish: (body: { ceremony_id: string; label: string; credential: unknown }) =>
+    api.post<{ passkey: Passkey }>("/api/auth/passkeys/register/finish", body),
+  passkeyRename: (id: string, label: string) => api.patch<{ ok: boolean }>(`/api/auth/passkeys/${encodeURIComponent(id)}`, { label }),
+  passkeyDelete: (id: string) => api.del<void>(`/api/auth/passkeys/${encodeURIComponent(id)}`),
+  hydraPasskeyBegin: (challenge: string) =>
+    api.post<{ ceremony_id: string; options: { publicKey: unknown } }>("/api/auth/hydra/passkey/begin", { challenge }),
+  hydraPasskeyFinish: (body: { challenge: string; ceremony_id: string; credential: unknown }) =>
+    api.post<{ redirect_to: string }>("/api/auth/hydra/passkey/finish", body),
   signup: (body: {
     signup_token: string;
     display_name?: string;
@@ -1165,6 +1179,8 @@ export const backend = {
       client_name?: string;
       requested_scope?: string[];
       login_hint?: string;
+      // Whether this install lets the person sign in with a passkey (absent: no).
+      passkeys?: boolean;
     }>(`/api/auth/hydra/login?login_challenge=${encodeURIComponent(challenge)}`),
   // hydraLoginPost authenticates the user against Kratos via
   // Rivolt's backend and asks Hydra to accept the login. The
@@ -2168,6 +2184,10 @@ export type ImportProgress = {
 // AuthUser is whatever /api/auth/me returns — user_id, the
 // display username, and the role flag the SPA uses to decide
 // whether to render the /admin route + nav link.
+// One of the account's passkeys: a name the person gave, when it was added and last used, and whether it can be backed up (iCloud
+// Keychain, a password manager) rather than living on one device.
+export type Passkey = { id: string; label: string; created_at: string; last_used_at: string | null; synced: boolean };
+
 export type AuthUser = {
   user_id: string;
   username: string;

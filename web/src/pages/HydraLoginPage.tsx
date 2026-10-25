@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError, backend } from "../lib/api";
 import Logo from "../components/Logo";
+import { getPasskey, passkeysSupported, signInFailureMessage } from "../lib/passkeys";
 
 // HydraLoginPage handles the browser side of an OIDC code flow when
 // a third-party app (Grafana, ArgoCD, …) hands the user off to Hydra
@@ -21,6 +22,7 @@ type LoginMeta = {
   client_name: string;
   requested_scope: string[];
   login_hint?: string;
+  passkeys: boolean;
 };
 
 // Hydra "skip" responses bypass the form: a remembered prior login
@@ -66,6 +68,7 @@ export default function HydraLoginPage() {
           client_name: m.client_name ?? m.client_id,
           requested_scope: m.requested_scope ?? [],
           login_hint: m.login_hint,
+          passkeys: m.passkeys === true,
         });
         if (m.login_hint) setEmail(m.login_hint);
       })
@@ -112,7 +115,29 @@ export default function HydraLoginPage() {
     }
   }
 
+  // Sign in with a passkey: the browser's own prompt picks one this site knows (no email needed), the server checks it and
+  // accepts the login exactly as the password does.
+  async function onPasskey() {
+    if (!meta || submitting) return;
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const begin = await backend.hydraPasskeyBegin(meta.challenge);
+      const credential = await getPasskey(begin.options);
+      if (credential === null) {
+        setSubmitting(false); // cancelled: back to the form
+        return;
+      }
+      const out = await backend.hydraPasskeyFinish({ challenge: meta.challenge, ceremony_id: begin.ceremony_id, credential });
+      window.location.assign(out.redirect_to);
+    } catch (err: unknown) {
+      setFormError(signInFailureMessage(err));
+      setSubmitting(false);
+    }
+  }
+
   const ready = meta !== null && metaError === null;
+  const passkeyOffered = ready && meta.passkeys && passkeysSupported();
 
   return (
     <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
@@ -185,6 +210,17 @@ export default function HydraLoginPage() {
             >
               {submitting ? "Signing in…" : "Sign in"}
             </button>
+            {passkeyOffered && (
+              <button
+                type="button"
+                data-passkey-signin
+                onClick={onPasskey}
+                disabled={submitting}
+                className="w-full rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Use a passkey
+              </button>
+            )}
           </form>
         )}
 

@@ -30,6 +30,7 @@ import {
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { SignedInDevices } from "../components/SignedInDevices";
+import { PasskeysCard } from "../components/PasskeysCard";
 import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
@@ -67,6 +68,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
   "ai-features": "account",
   "ambient-temp": "account",
+  passkeys: "account",
   display: "vehicle",
   home: "vehicle",
   profile: "vehicle",
@@ -206,6 +208,7 @@ function SettingsPageInner() {
           <AIFeaturesCard />
           <AmbientTempCard />
           <AppearanceCard />
+          <PasskeysCard />
           <SignedInDevices />
           {/* The tab-bar shell's header has no Sign out; it lives here. */}
           <Card title="Rivolt account">
