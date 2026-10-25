@@ -42,8 +42,8 @@ func TestServerSpansLoseTheVisitorsAddressAndUserAgent(t *testing.T) {
 		case trace.SpanKindServer:
 			servers++
 			for _, a := range sp.Attributes {
-				if personalServerAttrs[a.Key] || a.Value.Emit() == "203.0.113.77" || a.Value.Emit() == "Mozilla/5.0 (a visitor's browser)" {
-					t.Errorf("server span still carries %s=%s", a.Key, a.Value.Emit())
+				if personalServerAttrs[a.Key] || a.Value.String() == "203.0.113.77" || a.Value.String() == "Mozilla/5.0 (a visitor's browser)" {
+					t.Errorf("server span still carries %s=%s", a.Key, a.Value.String())
 				}
 			}
 			if len(sp.Attributes) == 0 {
