@@ -19,6 +19,9 @@ type fastArchive struct {
 
 func (f fastArchive) QueryCorridor(p [][2]float64, flt chargers.Filter, o chargers.QueryCorridorOptions) ([]chargers.POI, error) {
 	if flt == chargers.FilterDCFC {
+		if len(p) < 2 || chordKm(p[0], p[len(p)-1]) < 2*o.CorridorKm {
+			return nil, nil // as in the real archive: a path too short for its corridor finds nothing
+		}
 		return f.fast, nil
 	}
 	return f.hotelArchive.QueryCorridor(p, flt, o)

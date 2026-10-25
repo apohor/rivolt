@@ -383,8 +383,7 @@ func fallbackStays(a Archive, pth *path, find LodgingFinder, target, secPerM flo
 
 // nearestFastCharger is the closest DC fast charger (50 kW or more) within maxKm of a point, or nil.
 func nearestFastCharger(a Archive, lat, lon, maxKm float64) *FastCharger {
-	const eps = 0.0001
-	pois, err := a.QueryCorridor([][2]float64{{lat, lon}, {lat + eps, lon}}, chargers.FilterDCFC, chargers.QueryCorridorOptions{
+	pois, err := a.QueryCorridor(chargers.PointQueryPath(lat, lon, maxKm), chargers.FilterDCFC, chargers.QueryCorridorOptions{
 		CorridorKm: maxKm, EndpointTrimMeter: 1, IncludeEndpoints: true, MinPowerKW: 50,
 	})
 	if err != nil {
@@ -687,8 +686,7 @@ func rankBefore(a, b scored) bool {
 
 // nearbyDCFC is the closest DC fast charger within a few miles of the hotel.
 func nearbyDCFC(a Archive, c Candidate) *DCFC {
-	const eps = 0.0001
-	pois, err := a.QueryCorridor([][2]float64{{c.Lat, c.Lon}, {c.Lat + eps, c.Lon}}, chargers.FilterDCFC, chargers.QueryCorridorOptions{
+	pois, err := a.QueryCorridor(chargers.PointQueryPath(c.Lat, c.Lon, dcfcNearKm), chargers.FilterDCFC, chargers.QueryCorridorOptions{
 		CorridorKm: dcfcNearKm, EndpointTrimMeter: 1, IncludeEndpoints: true, MinPowerKW: 50,
 	})
 	if err != nil {
