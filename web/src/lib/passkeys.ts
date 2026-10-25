@@ -62,6 +62,6 @@ export function addFailureMessage(e: unknown): string {
 
 export function signInFailureMessage(e: unknown): string {
   if (e instanceof ApiError && e.status === 429) return "Too many attempts. Wait a few minutes, then try again.";
-  if (e instanceof ApiError && e.status === 401) return "That passkey isn't registered to an account any more. Sign in with your email and password.";
+  if (e instanceof ApiError && e.status === 401) return "That passkey didn't work. It may have been removed. Sign in with your email and password.";
   return "Couldn't sign in with a passkey. Use your password instead.";
 }

@@ -164,7 +164,7 @@ test("a passkey the server no longer knows says so on the login page, and stays 
   await page.route("**/api/auth/hydra/passkey/begin", (r) => r.fulfill({ status: 401, contentType: "text/plain", body: "invalid credentials" }));
   await page.goto("/auth/hydra/login?login_challenge=ch1");
   await page.locator("[data-passkey-signin]").click();
-  await expect(page.getByRole("alert")).toHaveText("That passkey isn't registered to an account any more. Sign in with your email and password.");
+  await expect(page.getByRole("alert")).toHaveText("That passkey didn't work. It may have been removed. Sign in with your email and password.");
   // Not bounced to the first screen: the login challenge is still in the URL and the form is still there.
   await expect(page).toHaveURL(/\/auth\/hydra\/login\?login_challenge=ch1/);
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();

@@ -16,7 +16,7 @@ describe("passkey messages", () => {
     }
   });
   it("sign-in failures point back to the password", () => {
-    expect(signInFailureMessage(err(401))).toBe("That passkey isn't registered to an account any more. Sign in with your email and password.");
+    expect(signInFailureMessage(err(401))).toBe("That passkey didn't work. It may have been removed. Sign in with your email and password.");
     expect(signInFailureMessage(err(429))).toContain("Too many attempts");
     expect(signInFailureMessage(new Error("x"))).toContain("password");
   });
