@@ -441,3 +441,140 @@ func (c *Client) RevokeIdentitySessions(ctx context.Context, id string) error {
 	}
 	return apiError("revoke identity sessions", resp)
 }
+
+// GeneratePassword returns a fresh random password (128 bits, 22 URL-safe characters), for the identity provider's own use: a
+// support reset hands it over once and never stores it.
+func GeneratePassword() (string, error) { return generatePassword() }
+
+// RejectedError is Kratos refusing a change as invalid (HTTP 400), most often the password policy: too short, too common,
+// too like the email. Reason is Kratos' own text with the password (as sent, and as JSON escapes it) and the account's email
+// removed, redacted before it is shortened.
+type RejectedError struct{ Reason string }
+
+func (e *RejectedError) Error() string { return "kratos rejected the change: " + e.Reason }
+
+// identityKeepKeys are the fields a full replace of an identity must carry through unchanged. Kratos' PUT replaces the identity;
+// PATCH (JSON-Patch) cannot change credentials, so a password change has to be a PUT. verifiable_addresses and recovery_addresses
+// are derived from the traits and are not sent.
+var identityKeepKeys = []string{"schema_id", "state", "traits", "metadata_public", "metadata_admin", "external_id"}
+
+// SetPassword sets the identity's password (PUT /admin/identities/{id}). It reads the identity first and sends back every field it
+// must keep (schema, state, traits, both metadata blocks, external id) byte for byte, so nothing else changes; only
+// credentials.password.config.password is new. The password is never logged. Kratos applies its own password policy: a refusal is
+// a *RejectedError, whose reason has the password and the email removed; any other failure carries the status only, never the
+// body. The read and the write are two calls, so a concurrent edit of the traits in between would be lost; nothing edits traits
+// concurrently today (the identity is only created, and its password changed here).
+func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error {
+	if !c.Enabled() {
+		return errors.New("kratos: client not configured")
+	}
+	if strings.TrimSpace(id) == "" {
+		return errors.New("kratos: id is required")
+	}
+	if newPassword == "" {
+		return errors.New("kratos: password is required")
+	}
+	target := c.cfg.AdminURL + "/admin/identities/" + url.PathEscape(id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("kratos get identity: %w", err)
+	}
+	var current map[string]json.RawMessage
+	switch resp.StatusCode {
+	case http.StatusOK:
+		err = json.NewDecoder(resp.Body).Decode(&current)
+	case http.StatusNotFound:
+		err = ErrNotFound
+	default:
+		err = apiError("get identity", resp)
+	}
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	var identityEmail string
+	var traits struct {
+		Email string `json:"email"`
+	}
+	if json.Unmarshal(current["traits"], &traits) == nil {
+		identityEmail = traits.Email
+	}
+	body := map[string]any{}
+	for _, k := range identityKeepKeys {
+		if v, ok := current[k]; ok && string(v) != "null" {
+			body[k] = v
+		}
+	}
+	body["credentials"] = map[string]any{"password": map[string]any{"config": map[string]any{"password": newPassword}}}
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	put, err := http.NewRequestWithContext(ctx, http.MethodPut, target, bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	put.Header.Set("Content-Type", "application/json")
+	resp, err = c.http.Do(put)
+	if err != nil {
+		// A transport error prints the URL (the identity id), never the body.
+		return fmt.Errorf("kratos set password: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	if resp.StatusCode == http.StatusBadRequest {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &RejectedError{Reason: rejectionReason(raw, newPassword, identityEmail)}
+	}
+	// Not the body: it is Kratos' text about a request that carried a password, and nothing downstream needs it.
+	return fmt.Errorf("kratos set password: status=%d", resp.StatusCode)
+}
+
+// redactSecrets removes each secret from text in every form it can appear: as given, and as JSON writes it inside a string
+// (quotes, backslashes, angle brackets and non-ASCII escaped). It is applied to the whole reason before it is shortened, so a
+// secret cannot be cut in half by the limit and left as a readable prefix.
+func redactSecrets(text string, secrets ...string) string {
+	for _, s := range secrets {
+		if s == "" {
+			continue
+		}
+		forms := []string{s}
+		if b, err := json.Marshal(s); err == nil && len(b) >= 2 {
+			forms = append(forms, string(b[1:len(b)-1]))
+		}
+		for _, f := range forms {
+			text = strings.ReplaceAll(text, f, "<redacted>")
+		}
+	}
+	return text
+}
+
+// rejectionReason pulls Kratos' reason out of an error body ({"error":{"reason":...,"message":...}}), with the password and the
+// account's email removed before it is shortened.
+func rejectionReason(raw []byte, password, email string) string {
+	var e struct {
+		Error struct {
+			Reason  string `json:"reason"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &e)
+	r := e.Error.Reason
+	if r == "" {
+		r = e.Error.Message
+	}
+	if r == "" {
+		r = "invalid"
+	}
+	r = redactSecrets(r, password, email)
+	if len(r) > 200 {
+		r = r[:200] + "…"
+	}
+	return r
+}
