@@ -7,6 +7,7 @@ struct DevicesView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @State private var model = DevicesModel()
+    @State private var passkeys = PasskeysModel()
 
     var body: some View {
         NavigationStack {
@@ -16,6 +17,8 @@ struct DevicesView: View {
                                onReload: { Task { await model.load(source: state.client) } },
                                onShowAll: { Task { await model.showAll(source: state.client) } })
                     .padding(4 * Theme.unit)
+                PasskeysSection(model: passkeys, serverURL: state.serverURL, onReload: { Task { await passkeys.load(source: state.client) } })
+                    .padding(.horizontal, 4 * Theme.unit).padding(.bottom, 4 * Theme.unit)
             }
             .themePage()
             .navigationTitle("Signed-in devices")
@@ -31,6 +34,53 @@ struct DevicesView: View {
             }
         }
         .task { await model.load(source: state.client) }
+        .task { await passkeys.load(source: state.client) }
+    }
+}
+
+/// The account's passkeys, read only, with the way to add or remove one (on the web). Left out when the server has passkeys off.
+struct PasskeysSection: View {
+    let model: PasskeysModel
+    let serverURL: URL
+    let onReload: () -> Void
+    var now: Date = .now
+
+    var body: some View {
+        switch model.phase {
+        case .off:
+            EmptyView()
+        case .loading:
+            ThemeSection(title: "Passkeys") {
+                HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Loading…").themeText(.value, color: Theme.textSecondary) }
+            }
+        case .failed(let words):
+            ThemeSection(title: "Passkeys") {
+                Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                Button("Try again", action: onReload).buttonStyle(ThemeSecondaryButtonStyle())
+            }
+        case .loaded(let list):
+            ThemeSection(title: "Passkeys") {
+                ForEach(Array(list.passkeys.enumerated()), id: \.element.id) { i, p in
+                    if i > 0 { Divider().overlay(Theme.border) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(p.label).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                        Text(PasskeysModel.kind(p)).themeText(.subline, color: Theme.textTertiary)
+                        Text(PasskeysModel.detail(p, now: now)).themeText(.subline, color: Theme.textSecondary)
+                    }
+                    .padding(.vertical, 3 * Theme.unit)
+                    .accessibilityElement(children: .combine)
+                }
+                if list.passkeys.isEmpty {
+                    Text("No passkeys yet.").themeText(.value, color: Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Add or remove a passkey on the web, in Settings under Security. Your password keeps working.")
+                    .themeText(.caption).fixedSize(horizontal: false, vertical: true)
+                if let url = URL(string: "/settings", relativeTo: serverURL)?.absoluteURL {
+                    Link("Open Settings on the web", destination: url).font(Theme.sans(ThemeTokens.typeSubline)).tint(Theme.accent)
+                }
+            }
+        }
     }
 }
 
