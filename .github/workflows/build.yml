@@ -311,6 +311,13 @@ jobs:
             if [ "$all" = 1 ]; then echo "::error::the migrate Job's pod matches the $kind selector"; exit 1; fi
             echo "$kind selector: not matched by the migrate Job's pod"
           done
+          # The grant roles reach the migrator; nothing else from config.extraEnv does.
+          env=$(echo "$out" | yq 'select(.kind == "Job") | .spec.template.spec.containers[0].env[].name')
+          for want in RIVOLT_APP_ROLE RIVOLT_READONLY_ROLE; do
+            echo "$env" | grep -qx "$want" || { echo "::error::the migrate Job lacks $want"; exit 1; }
+          done
+          if echo "$env" | grep -qx RIVOLT_OIDC_GOOGLE_DISPLAY_NAME; then echo "::error::config.extraEnv leaked into the migrate Job"; exit 1; fi
+          echo "migrate Job env: the grant roles, and nothing else from config.extraEnv"
 
       - name: No KEK, no render
         run: |

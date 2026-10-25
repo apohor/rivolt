@@ -6,10 +6,10 @@
 # its own transaction). BeforeHookCreation replaces the previous run's Job at
 # the next sync; the failed one stays until then for its log.
 #
-# Minimal env: only the database connection (host, port, name and TLS mode as
-# literals, the credentials through rivolt.dbCredentialsEnv). No envFrom: the
-# migrator needs none of the app's other settings or secrets. It logs migration
-# ids and timings only.
+# Minimal env: the database connection (host, port, name and TLS mode as
+# literals, the credentials through rivolt.dbCredentialsEnv) and the two grant
+# roles when configured. No envFrom: the migrator needs none of the app's other
+# settings or secrets. It logs migration ids and timings only.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -64,6 +64,16 @@ spec:
             - name: DB_SSLMODE
               value: {{ include "rivolt.dbSslMode" . | quote }}
             {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
+            # The roles `rivolt migrate` grants to after migrating (the request
+            # role for row-level security, the read-only reporting role), from
+            # the same config.extraEnv the Deployment reads, only when set.
+            # Nothing else from config.extraEnv reaches the migrator.
+            {{- range $k := list "RIVOLT_APP_ROLE" "RIVOLT_READONLY_ROLE" }}
+            {{- with index $.Values.config.extraEnv $k }}
+            - name: {{ $k }}
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:
