@@ -185,6 +185,10 @@ type Deps struct {
 	// Passkeys, when non-nil, adds WebAuthn sign-in to Rivolt's email accounts: the management routes under /api/auth/passkeys
 	// and, with Hydra and Kratos wired, the passkey sign-in on the Hydra login page. nil: no passkey route exists.
 	Passkeys *passkeys.Service
+	// PasskeyStore is the passkey tables on the system pool, present whenever there is a database, whether or not WebAuthn is
+	// configured. "Secure my account" and support's reset delete credentials through it: a deployment with passkeys off (the admin
+	// site, or prod before the enable) can still hold rows, and must not skip the deletion because the sign-in service is not built.
+	PasskeyStore passkeys.Store
 	// PasskeyAccount replaces the database read of the signed-in account's email and name for the passkey routes (tests).
 	PasskeyAccount func(ctx context.Context, uid uuid.UUID) (mail, display string, err error)
 	// PasskeyMailer replaces the mailer for the "a passkey was added" notice (tests).
@@ -354,6 +358,17 @@ func (d Deps) sysDB() *sql.DB {
 		return d.SystemDB
 	}
 	return d.DB
+}
+
+// passkeyStore is the passkey tables for the security actions: PasskeyStore, else the sign-in service's own, else nil (no database).
+func (d Deps) passkeyStore() passkeys.Store {
+	if d.PasskeyStore != nil {
+		return d.PasskeyStore
+	}
+	if d.Passkeys != nil {
+		return d.Passkeys.Store()
+	}
+	return nil
 }
 
 // systemSettings is the settings factory background sweeps use: the system-pool one when there is a separate request pool.
@@ -1248,20 +1263,7 @@ func New(d Deps) http.Handler {
 				// Support's "secure this account": password, remembered logins, sessions and passkeys in one audited action. The audit
 				// row holds the action and the target only; the temporary password is in the response and nowhere else.
 				if d.Kratos != nil && d.Kratos.Enabled() && d.SessionRevoker != nil {
-					sec := &adminSecure{
-						Account: func(ctx context.Context, uid uuid.UUID) (string, error) {
-							var m sql.NullString
-							err := d.SystemDB.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&m) // system pool: another user's account
-							return m.String, err
-						},
-						Kratos: d.Kratos, Remembered: d.RememberedRevoker, Sessions: d.SessionRevoker, Logger: d.Logger, Observe: NewForgetObserver(d.Metrics),
-					}
-					if d.Passkeys != nil {
-						sec.Passkeys = d.Passkeys.Store()
-					}
-					if d.Email != nil {
-						sec.Mail = d.Email
-					}
+					sec := d.adminSecure()
 					r.With(audit(auditSpec{action: "user.secure", targetType: "user", idParam: "id", userTarget: true})).
 						Post("/users/{id}/secure", sec.handle)
 				}

@@ -1858,8 +1858,15 @@ func runServer() {
 	// Passkeys (WebAuthn) for the email accounts: only with RIVOLT_WEBAUTHN_RP_ID and _ORIGINS set, a database, and not on the
 	// admin or demo-only deployments. The pointer stays nil otherwise, so no passkey route exists.
 	var passkeySvc *passkeys.Service
+	// The passkey tables on the system pool, built whenever there is a database, WebAuthn configured or not: "Secure my account"
+	// and support's reset delete credentials through it. A deployment with passkeys off (the admin site, prod before the enable)
+	// can still hold rows, and must not skip their deletion.
+	var passkeyStore passkeys.Store
+	if pgPool != nil {
+		passkeyStore = passkeys.NewPGStore(pgPool)
+	}
 	if cfg := passkeys.ConfigFromEnv(os.Getenv); cfg.Enabled() && pgPool != nil && !adminOnlyMode && !demo.OnlyEnabled() {
-		svc, perr := passkeys.New(cfg, passkeys.NewPGStore(pgPool))
+		svc, perr := passkeys.New(cfg, passkeyStore)
 		if perr != nil {
 			logger.Error("passkeys init", "err", perr.Error())
 			os.Exit(1)
@@ -2546,6 +2553,7 @@ func runServer() {
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,
 		Passkeys:         passkeySvc,
+		PasskeyStore:     passkeyStore,
 		HydraRememberFor: hydraRememberFor,
 	})
 

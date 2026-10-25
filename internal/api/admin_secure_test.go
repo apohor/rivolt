@@ -166,3 +166,37 @@ func TestAdminSecureAuditRowHoldsNoSecret(t *testing.T) {
 		t.Errorf("the audit details must be empty for this action, got %v", got)
 	}
 }
+
+// Passkeys off on the admin deployment (no WebAuthn service) must not skip the deletion: the store comes from the database, not
+// from the sign-in service (qa's attacker story on admin-preview: "removed 0 passkeys" with one credential left).
+func TestAdminSecureTakesThePasskeyStoreWithoutWebAuthn(t *testing.T) {
+	e := newSecureEnv(t)
+	d := Deps{PasskeyStore: e.pk, Kratos: e.a.Kratos, SessionRevoker: e.sess, Logger: discardLogger()} // Passkeys (the service) is nil
+	d.Passkeys = nil
+	sec := d.adminSecure()
+	if sec.Passkeys != passkeys.Store(e.pk) {
+		t.Fatal("the reset did not take the passkey store from Deps.PasskeyStore")
+	}
+	sec.Account = e.a.Account
+	e.a = sec
+	rec := e.post(uuid.NewString())
+	if rec.Code != http.StatusOK || e.pk.deleted != 2 || !strings.Contains(rec.Body.String(), `"passkeys_removed":2`) {
+		t.Fatalf("%d %s deleted=%d, want both credentials removed and reported", rec.Code, rec.Body.String(), e.pk.deleted)
+	}
+	if got := (Deps{}).adminSecure().Passkeys; got != nil {
+		t.Errorf("no database must leave a nil store (not a typed nil), got %v", got)
+	}
+}
+
+// With no way to look at the passkeys, the reset refuses before it changes anything, instead of reporting success.
+func TestAdminSecureWithoutAPasskeyStoreChangesNothing(t *testing.T) {
+	e := newSecureEnv(t)
+	e.a.Passkeys = nil
+	rec := e.post(uuid.NewString())
+	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "temporary_password") {
+		t.Fatalf("%d %s, want 503 and no password", rec.Code, rec.Body.String())
+	}
+	if len(e.k.puts) != 0 || len(e.sess.users) != 0 || len(e.mail.sent) != 0 {
+		t.Error("a refused reset must change nothing")
+	}
+}
