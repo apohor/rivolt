@@ -49,6 +49,7 @@ var forbidden = []struct{ name, why string }{
 	{"RIVOLT_ENGAGEMENT_EMAILS", "engagement mail and the inactive purge (workers)"},
 	{"RIVOLT_READONLY_ROLE", "the reporting-role grant loop (a worker)"},
 	{"RIVOLT_APP_ROLE", "the request-role grant loop (a worker)"},
+	{"RIVOLT_REQUEST_DATABASE_URL", "the request pool (row-level security for request handling); the admin site runs on the system pool"},
 }
 
 // Problems lists everything wrong with the environment for an admin-only

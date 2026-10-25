@@ -418,6 +418,21 @@ func runServer() {
 		}
 	}
 
+	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
+	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
+	appMetrics := metrics.New()
+
+	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
+	// pgPool stays the system pool: the monitor and recorder, background jobs, admin and pre-auth paths.
+	requestDB, closeRequestDB, rerr := openRequestSide(ctx, os.Getenv, pgPool, func(c context.Context) {
+		appMetrics.RequestAcquiresWithoutUser.WithLabelValues(api.RoutePatternFromContext(c)).Inc()
+	}, logger)
+	if rerr != nil {
+		logger.Error("request pool", "err", rerr.Error())
+		os.Exit(1)
+	}
+	defer closeRequestDB()
+
 	// Per-user data-plane factories. Each handler/recorder
 	// resolves f.For(uid) on demand so writes always land under
 	// the correct user_id. Factories are cheap; *Store
@@ -428,7 +443,15 @@ func runServer() {
 	samplesFactory := samples.NewFactory(pgPool, resolverFactory)
 	settingsFactory := settings.NewFactory(pgPool)
 	pushFactory := push.NewFactory(pgPool)
-	tripsFactory := trips.NewFactory(pgPool)
+	// The same factories on the request pool, for api.Deps (request handling). With the pool off they are equivalent to the ones
+	// above, on the same *sql.DB. The monitor, recorder and jobs keep the system ones.
+	reqResolverFactory := db.NewVehicleResolverFactory(requestDB)
+	reqDrivesFactory := drives.NewFactory(requestDB, reqResolverFactory)
+	reqChargesFactory := charges.NewFactory(requestDB, reqResolverFactory)
+	reqSamplesFactory := samples.NewFactory(requestDB, reqResolverFactory)
+	reqSettingsFactory := settings.NewFactory(requestDB)
+	reqPushFactory := push.NewFactory(requestDB)
+	reqTripsFactory := trips.NewFactory(requestDB)
 
 	// Envelope-encrypted secret store. Backs the rivian.Session
 	// blob (previously plaintext in settings_kv) and, later, AI
@@ -554,7 +577,6 @@ func runServer() {
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
-	appMetrics := metrics.New()
 	db.ServerEventObserver = func(event, outcome string) { appMetrics.ServerEventsTotal.WithLabelValues(event, outcome).Inc() }
 	rivian.RecorderWriteFailureObserver = func(kind string) { appMetrics.RecorderWriteFailuresTotal.WithLabelValues(kind).Inc() }
 	rivian.WSFrameDropObserver = appMetrics.WSFramesDroppedTotal.Inc
@@ -2456,12 +2478,12 @@ func runServer() {
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
 		PushService:           pushSvc,
-		Drives:                drivesFactory,
-		Charges:               chargesFactory,
-		Samples:               samplesFactory,
-		Settings:              settingsFactory,
-		Push:                  pushFactory,
-		Trips:                 tripsFactory,
+		Drives:                reqDrivesFactory,
+		Charges:               reqChargesFactory,
+		Samples:               reqSamplesFactory,
+		Settings:              reqSettingsFactory,
+		Push:                  reqPushFactory,
+		Trips:                 reqTripsFactory,
 		PackHealth:            packhealth.NewStore(pgPool),
 		Monitors:              monitorRegistry,
 		SettingsMgr:           settingsMgr,
@@ -2485,7 +2507,8 @@ func runServer() {
 		IOSAppIDs:          iosAppIDs,
 		WebFS:              webFS,
 		Version:            version,
-		DB:                 pgPool,
+		DB:                 requestDB, // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
+		SystemDB:           pgPool,    // login, admin and the other system paths (S2-3 moves them here one by one)
 		Logger:             logger,
 		Flags:              flagsStore,
 		AIBudget:           aibudget.New(pgPool),

@@ -202,7 +202,14 @@ type Deps struct {
 	// Safe to be nil in legacy code paths that predate the
 	// ownership middleware; ownership enforcement is only wired
 	// when DB is non-nil.
+	// DB is what request handling reads and writes: with RIVOLT_REQUEST_DATABASE_URL set it is the request pool (row-level security
+	// applies, app.user_id comes from the request's context), otherwise the same pool as SystemDB. A site that forgot to say
+	// otherwise therefore fails closed (an empty answer), never open.
 	DB *sql.DB
+	// SystemDB is the owner-role pool for paths that legitimately span users or run before a user is known: login, session and
+	// token lookups, signup, account deletion, admin, signed links, pre-auth GETs. Using it is a decision with a comment at the
+	// site (DA's RLS ruling). nil means DB (tests, and every deployment without the request pool).
+	SystemDB *sql.DB
 	// AuditKey keys the salted hash of a user id in the "account deleted" log line (derived from the cookie secret; empty
 	// means a random key for the process).
 	AuditKey []byte
@@ -305,6 +312,9 @@ type Deps struct {
 
 // New builds the root mux with all routes mounted.
 func New(d Deps) http.Handler {
+	if d.SystemDB == nil {
+		d.SystemDB = d.DB
+	}
 	r := chi.NewRouter()
 
 	// The real client address, from CF-Connecting-IP and only when a trusted
