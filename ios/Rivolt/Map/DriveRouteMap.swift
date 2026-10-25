@@ -23,7 +23,7 @@ struct DriveRouteMap: View {
         ZStack {
             if empty {
                 MapMessage(text: "No route was recorded for this drive.")
-            } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+            } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
                 RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true })
                     .allowsHitTesting(false)
@@ -50,7 +50,7 @@ struct DriveRouteMap: View {
     }
 
     private func load() async {
-        MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
+        MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
         health = .ok
         routeDrawn = false
         let client = state.client
