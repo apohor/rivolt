@@ -97,6 +97,11 @@ actor APIClient {
     /// The browsers and iPhones signed in as this person (newest first as the server sends them).
     /// With `recent`, the list is cut to every iPhone sign-in, this one and the newest N other browsers, and `hiddenWeb` counts the
     /// rest (the screen says so and offers the whole list). Without it, everything.
+    /// The passkeys on the account (a read; adding and removing are on the web).
+    func passkeys() async throws -> PasskeyList {
+        try await request("GET", "/api/auth/passkeys")
+    }
+
     func signedInDevices(recent: Int? = nil) async throws -> SignedInDevices {
         try await request("GET", "/api/auth/sessions" + (recent.map { "?recent=\($0)" } ?? ""))
     }
