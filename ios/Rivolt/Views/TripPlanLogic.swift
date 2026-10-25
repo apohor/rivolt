@@ -94,6 +94,41 @@ enum TripPlanLogic {
         return line + ". Pick a stop by hand on the web."
     }
 
+    /// "Nearest listed stay: Name, about 3.3 h short of the day (about 5 h in)." for each side the server found one, before first.
+    static func nearestLines(_ found: OvernightCandidates) -> [String] {
+        func hours(_ s: Double) -> String { NumberText.fixed(abs(s) / 3600, 1) }
+        return [found.nearest?.before, found.nearest?.after].compactMap { n -> String? in
+            guard let n, let off = n.offsetSec else { return nil }
+            let name = n.name ?? "a stay"
+            let side = off < 0 ? "\(hours(off)) h short of the day" : "\(hours(off)) h past the day"
+            let into = n.driveSec.map { " (about \(hours($0)) h in)" } ?? ""
+            return "Nearest listed stay: \(name), about \(side)\(into)."
+        }
+    }
+
+    /// The whole empty answer: how far the search looked, then the nearest listed stay on each side.
+    static func noStaysMessage(_ found: OvernightCandidates, driveSec: Double?, metric: Bool) -> String {
+        ([noStaysLine(found, driveSec: driveSec, metric: metric)] + nearestLines(found)).joined(separator: "\n")
+    }
+
+    /// A hotel with no charger listed: says so, and names the fast charger the next morning starts at.
+    static func fallbackLine(_ s: OvernightCandidates.FallbackStay, metric: Bool) -> String {
+        guard let f = s.fastCharger else { return "No charger listed here." }
+        var line = "No charger listed here. Nearest fast charger: \(f.name ?? "a fast charger")"
+        if let d = f.distanceM, d > 0 { line += ", \(distance(meters: d, metric: metric)) away" }
+        if let kw = f.maxPowerKw, kw > 0 { line += " (\(Int(kw.rounded())) kW)" }
+        return line + "."
+    }
+
+    /// The credit the OpenStreetMap hotels need wherever they show, and the licence it links to.
+    static let osmCredit = "© OpenStreetMap contributors"
+    static let odblURL = "https://opendatacommons.org/licenses/odbl/1-0/"
+
+    /// A stay with no listed charger as a night: no charging there, so the truck leaves on what it arrived with.
+    static func candidate(_ s: OvernightCandidates.FallbackStay) -> OvernightCandidates.Candidate {
+        .init(name: s.name, lat: s.lat, lon: s.lon, l2Kw: 0, detourM: s.detourM, kind: "hotel")
+    }
+
     /// "Hotel · Level 2 charger, about 7 kW" for the list of places to sleep; the power is the listing's, never a promise.
     static func candidateLine(_ c: OvernightCandidates.Candidate, metric: Bool) -> String {
         var parts: [String] = [c.kind == "campground" ? "Campground" : "Hotel"]
@@ -105,14 +140,17 @@ enum TripPlanLogic {
     /// Two days, split at the stay the person picked. The charge and the truck are the server's to fill in.
     static func multidayRequest(vehicleID: String?, startingSoc: Double?, packKwh: Double?, startAt: Date,
                                 origin: (lat: Double, lon: Double), destination: (lat: Double, lon: Double),
-                                stay: OvernightCandidates.Candidate, timeZone: TimeZone = .current) -> TripMultidayRequest {
+                                stay: OvernightCandidates.Candidate, morningCharger: OvernightCandidates.FastCharger? = nil,
+                                timeZone: TimeZone = .current) -> TripMultidayRequest {
+        // A stay with no charger of its own starts the next day at a fast charger, planned as that day's first stop.
+        let morning = morningCharger.flatMap { c in c.lat.flatMap { la in c.lon.map { TripPoint(lat: la, lon: $0, label: c.name, entityId: c.entityId) } } }
         TripMultidayRequest(
             vehicleId: vehicleID, startingSoc: startingSoc, packKwh: packKwh, startAt: rfc3339(startAt), tz: timeZone.identifier,
             targetArrivalSocPercent: arrivalTargetPercent, origin: TripPoint(lat: origin.lat, lon: origin.lon),
             days: [
                 TripDayRequest(end: TripPoint(lat: stay.lat, lon: stay.lon, label: stay.name), targetArrivalSocPct: arrivalTargetPercent,
                                overnight: .init(l2Kw: stay.l2Kw ?? 0, until: "08:00", maxSocPct: 80, name: stay.name)),
-                TripDayRequest(end: TripPoint(lat: destination.lat, lon: destination.lon), targetArrivalSocPct: arrivalTargetPercent),
+                TripDayRequest(vias: morning.map { [$0] }, end: TripPoint(lat: destination.lat, lon: destination.lon), targetArrivalSocPct: arrivalTargetPercent),
             ],
             maxOvernightSocPct: 80)
     }

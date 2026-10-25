@@ -329,6 +329,7 @@ struct TripPoint: Encodable, Equatable {
     var lat: Double
     var lon: Double
     var label: String?
+    var entityId: String?
 }
 
 /// One day of a multi-day trip: where it ends and, unless it is the last, the night that follows.
@@ -343,6 +344,8 @@ struct TripDayRequest: Encodable, Equatable {
         var name: String
     }
 
+    /// Stops on the way to this day's end (a fast charger to start the morning with, say).
+    var vias: [TripPoint]?
     var end: TripPoint
     var targetArrivalSocPct: Double?
     var overnight: Overnight?
@@ -401,6 +404,41 @@ struct OvernightCandidates: Decodable, Equatable {
         private enum CodingKeys: String, CodingKey { case name, lat, lon, l2Kw, l2KwAssumed, detourM, kind }
     }
 
+    /// A listed stay found outside the searched windows, with how far from the day's end it is.
+    struct Nearest: Decodable, Equatable {
+        var name: String?
+        /// Driving time from the start to the stay.
+        var driveSec: Double?
+        /// Driving time from the budget point: negative before it (a shorter day), positive after it.
+        var offsetSec: Double?
+    }
+
+    struct NearestStays: Decodable, Equatable {
+        var before: Nearest?
+        var after: Nearest?
+    }
+
+    /// The nearest DC fast charger to a stay with none of its own: where the next morning starts.
+    struct FastCharger: Decodable, Equatable {
+        var name: String?
+        var lat: Double?
+        var lon: Double?
+        var entityId: String?
+        var distanceM: Double?
+        var maxPowerKw: Double?
+    }
+
+    /// A hotel with no charger listed (OpenStreetMap), offered only when no stay with a listed charger is in range.
+    struct FallbackStay: Decodable, Equatable, Identifiable {
+        var name: String
+        var lat: Double
+        var lon: Double
+        var locality: String?
+        var fastCharger: FastCharger?
+        var detourM: Double?
+        var id: String { "\(lat),\(lon),\(name)" }
+    }
+
     struct Target: Decodable, Equatable {
         /// True when the whole trip fits in the driving budget, so no night is needed.
         var reachesEnd: Bool?
@@ -412,22 +450,34 @@ struct OvernightCandidates: Decodable, Equatable {
     }
 
     var candidates: [Candidate] = []
+    var nearest: NearestStays?
+    var fallbackStays: [FallbackStay] = []
     /// The route's length in metres.
     var routeM: Double?
     var target: Target?
     var attribution: String?
+    var attributionLicenseUrl: String?
+    var attributionSourceUrl: String?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         candidates = (try? c.decode([Candidate].self, forKey: .candidates)) ?? []
+        nearest = try? c.decode(NearestStays.self, forKey: .nearest)
+        fallbackStays = (try? c.decode([FallbackStay].self, forKey: .fallbackStays)) ?? []
         target = try? c.decode(Target.self, forKey: .target)
         routeM = try? c.decode(Double.self, forKey: .routeM)
         attribution = try? c.decode(String.self, forKey: .attribution)
+        attributionLicenseUrl = try? c.decode(String.self, forKey: .attributionLicenseUrl)
+        attributionSourceUrl = try? c.decode(String.self, forKey: .attributionSourceUrl)
     }
 
-    init(candidates: [Candidate] = [], target: Target? = nil, attribution: String? = nil, routeM: Double? = nil) {
-        self.candidates = candidates; self.target = target; self.attribution = attribution; self.routeM = routeM
+    init(candidates: [Candidate] = [], target: Target? = nil, attribution: String? = nil, routeM: Double? = nil, nearest: NearestStays? = nil,
+         fallbackStays: [FallbackStay] = [], attributionLicenseUrl: String? = nil, attributionSourceUrl: String? = nil) {
+        self.candidates = candidates; self.target = target; self.attribution = attribution; self.routeM = routeM; self.nearest = nearest
+        self.fallbackStays = fallbackStays; self.attributionLicenseUrl = attributionLicenseUrl; self.attributionSourceUrl = attributionSourceUrl
     }
 
-    private enum CodingKeys: String, CodingKey { case candidates, target, attribution, routeM }
+    private enum CodingKeys: String, CodingKey {
+        case candidates, target, attribution, routeM, nearest, fallbackStays, attributionLicenseUrl, attributionSourceUrl
+    }
 }
