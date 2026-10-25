@@ -9,10 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/netip"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
@@ -49,10 +52,9 @@ func startHydra(ctx context.Context, t *testing.T) (public, admin string) {
 	public, admin = "http://127.0.0.1:"+pubPort, "http://127.0.0.1:"+admPort
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image: hydraImage,
-			Cmd:   []string{"serve", "all", "--dev"},
-			// "host:container" pins the host port, which Hydra's issuer URL has to match.
-			ExposedPorts: []string{pubPort + ":4444/tcp", admPort + ":4445/tcp"},
+			Image:        hydraImage,
+			Cmd:          []string{"serve", "all", "--dev"},
+			ExposedPorts: []string{"4444/tcp", "4445/tcp"},
 			Env: map[string]string{
 				"DSN":                       "memory",
 				"URLS_SELF_ISSUER":          public,
@@ -60,6 +62,13 @@ func startHydra(ctx context.Context, t *testing.T) (public, admin string) {
 				"URLS_CONSENT":              "http://127.0.0.1:1/consent",
 				"SECRETS_SYSTEM":            "rivolt-test-secret-0123456789abcdef",
 				"LOG_LEAK_SENSITIVE_VALUES": "false",
+			},
+			// Pin the host ports: Hydra puts its issuer URL into every redirect, so it must be reachable on the port it is told.
+			HostConfigModifier: func(hc *container.HostConfig) {
+				hc.PortBindings = network.PortMap{
+					network.MustParsePort("4444/tcp"): {{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: pubPort}},
+					network.MustParsePort("4445/tcp"): {{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: admPort}},
+				}
 			},
 			WaitingFor: wait.ForHTTP("/health/ready").WithPort("4445/tcp").WithStartupTimeout(90 * time.Second),
 		},
