@@ -2513,6 +2513,7 @@ func runServer() {
 		Version:            version,
 		DB:                 requestDB, // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
 		SystemDB:           pgPool,    // login, admin and the other system paths (S2-3 moves them here one by one)
+		RequestPoolOn:      requestDB != pgPool,
 		Logger:             logger,
 		Flags:              flagsStore,
 		AIBudget:           aibudget.New(requestDB), // request pool: one (user_id, day) row per caller
