@@ -29,7 +29,7 @@ type fakeArchive struct {
 	last   [][2]float64
 }
 
-func (f *fakeArchive) QueryCorridor(path [][2]float64, filter chargers.Filter, _ chargers.QueryCorridorOptions) ([]chargers.POI, error) {
+func (f *fakeArchive) QueryCorridor(path [][2]float64, filter chargers.Filter, o chargers.QueryCorridorOptions) ([]chargers.POI, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
@@ -40,6 +40,9 @@ func (f *fakeArchive) QueryCorridor(path [][2]float64, filter chargers.Filter, _
 	}
 	if filter == chargers.FilterCamp {
 		return f.camps, nil
+	}
+	if filter == chargers.FilterDCFC && len(path) >= 2 && haversine(path[0], path[len(path)-1]) < 2*o.CorridorKm*1000 {
+		return nil, nil // a path too short for its corridor finds nothing in the real archive (see perHotelArchive)
 	}
 	return f.dcfc, nil
 }
@@ -158,8 +161,15 @@ func (p *perHotelArchive) QueryCorridor(path [][2]float64, filter chargers.Filte
 	if filter != chargers.FilterDCFC {
 		return p.fakeArchive.QueryCorridor(path, filter, o)
 	}
+	// The real archive drops a station whose nearest point on the path is an end of it, so a lookup around a point only works with a
+	// path that runs through the point for more than the corridor on each side (chargers.PointQueryPath). Mirror that here, so a
+	// regression to a tiny path finds nothing, as it did in production.
+	if len(path) < 2 || haversine(path[0], path[len(path)-1]) < 2*o.CorridorKm*1000 {
+		return nil, nil
+	}
+	mid := [2]float64{(path[0][0] + path[len(path)-1][0]) / 2, (path[0][1] + path[len(path)-1][1]) / 2}
 	for _, h := range p.hotels {
-		if p.dcfcFor[h.Name] && math.Abs(h.Lat-path[0][0]) < 1e-6 && math.Abs(h.Lon-path[0][1]) < 1e-6 {
+		if p.dcfcFor[h.Name] && math.Abs(h.Lat-mid[0]) < 1e-6 && math.Abs(h.Lon-mid[1]) < 1e-6 {
 			return p.dcfc, nil
 		}
 	}
