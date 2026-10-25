@@ -585,7 +585,9 @@ func (s *Service) HasCredentials(r *http.Request) bool {
 			return true
 		}
 	}
-	if s.kratosCookieName != "" && s.kratosHostOK(r) {
+	// The Kratos cookie is a credential only where a resolver can turn it into a user; with the resolver off it is ignored, like any
+	// other cookie the app does not use.
+	if s.kratosResolver != nil && s.kratosCookieName != "" && s.kratosHostOK(r) {
 		if _, err := r.Cookie(s.kratosCookieName); err == nil {
 			return true
 		}

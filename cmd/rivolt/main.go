@@ -1777,7 +1777,11 @@ func runServer() {
 		// (uid, true, nil) on hit, (zero, false, nil) on no
 		// session, (zero, false, err) on transient infra error
 		// (which middleware treats as no session).
-		KratosResolver: func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error) {
+		//
+		// OFF unless RIVOLT_ACCEPT_KRATOS_COOKIE=true. Nothing in the app starts a Kratos browser flow, so no legitimate user holds this
+		// cookie; its only effect was that anyone with a password could mint one through the public Kratos route and be signed in for
+		// 30 days with no Rivolt session (found Oct 25, ended on logout in #1117). A request carrying only the cookie is anonymous.
+		KratosResolver: kratosCookieResolver(os.Getenv, func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error) {
 			if kratosClient == nil || !kratosClient.Enabled() {
 				return uuid.Nil, false, nil
 			}
@@ -1820,7 +1824,7 @@ func runServer() {
 				return uid, true, nil
 			}
 			return db.UserIDFor(email), true, nil
-		},
+		}),
 	})
 	if err != nil {
 		logger.Error("auth init", "err", err.Error())
