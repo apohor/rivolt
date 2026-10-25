@@ -285,6 +285,7 @@ func TestTypeKeysWalker(t *testing.T) {
 		At     time.Time         `json:"at"`
 		hidden string
 	}
+	_ = sample{hidden: "read, so the compiler and the linter see it used"}.hidden
 	keys := map[string]bool{}
 	typeKeys(reflect.TypeOf(&sample{}), keys, map[reflect.Type]bool{})
 	for _, want := range []string{"rows", "note", "at", "lat", "email"} {
