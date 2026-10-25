@@ -58,6 +58,26 @@ struct ActivityView: View {
                 await loadEfficiency()
             }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
+            // App Store screenshots only: open the first drive or charge of the month once the list is there.
+            .task(id: days.count) {
+                guard let kind = StoreShots.open, picked == nil, !days.isEmpty else { return }
+                // The biggest one of the month: the longest drive, or the charge that added the most energy.
+                let items = days.flatMap(\.items)
+                switch kind {
+                case "drive":
+                    picked = items.compactMap { item -> (ActivityItem, Double)? in if case .drive(let d) = item { return (item, d.distanceMi) }; return nil }
+                        .max { $0.1 < $1.1 }?.0
+                default:
+                    picked = items.compactMap { item -> (ActivityItem, Double)? in if case .charge(let c) = item { return (item, c.energyAddedKwh) }; return nil }
+                        .max { $0.1 < $1.1 }?.0
+                }
+            }
+            // App Store screenshots only: the demo server limits heavy reads a minute, so if the first read lost out, read again once it has refilled.
+            .task {
+                guard StoreShots.open != nil else { return }
+                try? await Task.sleep(nanoseconds: 65_000_000_000)
+                if days.isEmpty { await load(force: true) }
+            }
         }
     }
 

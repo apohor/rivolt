@@ -102,6 +102,13 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await load(force: true) }
             .task { await load() }
+            // App Store screenshots only: the demo server limits heavy reads a minute and Now makes many, so read everything again once
+            // the allowance has refilled.
+            .task {
+                guard StoreShots.name == "now" else { return }
+                try? await Task.sleep(nanoseconds: 65_000_000_000)
+                await load(force: true)
+            }
             // While the screen is up and the app is in front, the truck is read again: every 10 s while charging or
             // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
             .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }

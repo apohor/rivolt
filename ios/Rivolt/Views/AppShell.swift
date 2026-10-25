@@ -19,8 +19,8 @@ extension EnvironmentValues {
 struct AppShell: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
-    @State private var tab = "now"
-    @State private var visited: Set<String> = ["now"]
+    @State private var tab = StoreShots.tab
+    @State private var visited: Set<String> = [StoreShots.tab]
 
     private var tabs: [ThemeTabItem] {
         [ThemeTabItem(id: "now", label: "Now", icon: "now"), ThemeTabItem(id: "activity", label: "Activity", icon: "activity"),

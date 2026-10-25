@@ -41,7 +41,11 @@ struct RivoltApp: App {
             // Kick a session-restore probe on cold launch. If the stored
             // token is still valid, the user lands directly on HomeView
             // instead of the login screen.
-            .task { await state.bootstrap() }
+            .task {
+                await state.bootstrap()
+                // Screenshots for the App Store (debug builds, launch argument only): open the demo truck.
+                if StoreShots.name != nil { state.enterDemo() }
+            }
             // Sign-in callbacks reach the app only through the in-flight
             // browser session (SignInFlow). A rivolt.dev/app/callback link
             // opened any other way holds no verifier to use: dropped, and
