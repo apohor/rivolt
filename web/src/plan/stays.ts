@@ -89,3 +89,45 @@ export function offTargetLine(targetAlongM: number, stayAlongM: number | undefin
   if (Math.abs(d) < NEAR_TARGET_M) return "";
   return `about ${fmt(Math.abs(d) / 1000)} ${d > 0 ? "before" : "after"} your ${hours} h point`;
 }
+
+// "Nearest listed stay: Name, about 3.3 h short of the day (about 5.0 h in)." for each side the server found one, before first.
+export function nearestLines(n: { before?: { name: string; drive_sec: number; offset_sec: number }; after?: { name: string; drive_sec: number; offset_sec: number } } | undefined): string[] {
+  const h = (sec: number) => (Math.abs(sec) / 3600).toFixed(1);
+  return [n?.before, n?.after].flatMap((s) =>
+    s ? [`Nearest listed stay: ${s.name}, about ${h(s.offset_sec)} h ${s.offset_sec < 0 ? "short of the day" : "past the day"} (about ${h(s.drive_sec)} h in).`] : [],
+  );
+}
+
+// A hotel with no charger listed says so, and names the fast charger the next morning starts at.
+export function fastChargerLine(f: { name?: string; distance_m: number; max_power_kw?: number } | undefined, fmtKm: (km: number) => string): string {
+  if (!f) return "No charger listed here.";
+  const away = f.distance_m > 0 ? `, ${fmtKm(f.distance_m / 1000)} away` : "";
+  const kw = f.max_power_kw ? ` (${Math.round(f.max_power_kw)} kW)` : "";
+  return `No charger listed here. Nearest fast charger: ${f.name || "a fast charger"}${away}${kw}.`;
+}
+
+// The ODbL licence page, used when the answer carries no licence link of its own.
+export const ODBL_URL = "https://opendatacommons.org/licenses/odbl/1-0/";
+export const OSM_CREDIT = "© OpenStreetMap contributors";
+
+type Stop = { lat: number; lon: number; label: string };
+const near = (a: Stop, b: Stop) => Math.abs(a.lat - b.lat) < 0.0005 && Math.abs(a.lon - b.lon) < 0.0005;
+
+// The trip's stops after a place becomes the night of a day, and then (for a hotel with no charger) the fast charger the next
+// morning starts at as a plain stop after it. The flags run parallel to the stops. A place already on the trip becomes the night
+// instead of being added twice.
+export function withNight<S extends Stop>(stops: S[], flags: boolean[], night: S, thenVia?: S): { stops: S[]; flags: boolean[] } {
+  const outStops = [...stops];
+  const outFlags = stops.map((_, j) => !!flags[j]);
+  const at = outStops.findIndex((s) => near(s, night));
+  if (at >= 0) outFlags[at] = true;
+  else {
+    outStops.push(night);
+    outFlags.push(true);
+  }
+  if (thenVia && !outStops.some((s) => near(s, thenVia))) {
+    outStops.push(thenVia);
+    outFlags.push(false);
+  }
+  return { stops: outStops, flags: outFlags };
+}
