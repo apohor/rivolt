@@ -420,14 +420,14 @@ func (p *passkeyAPI) hydraFinish(w http.ResponseWriter, r *http.Request) {
 // passkeyAPI builds the handlers' dependencies from the Deps, or nil when passkeys are not configured (or there is no database
 // to keep them in).
 func (d Deps) passkeyAPI() *passkeyAPI {
-	if d.Passkeys == nil || (d.DB == nil && d.PasskeyAccount == nil) {
+	if d.Passkeys == nil || (d.sysDB() == nil && d.PasskeyAccount == nil) {
 		return nil
 	}
 	logger := d.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	p := &passkeyAPI{Svc: d.Passkeys, Kratos: d.Kratos, Hydra: d.Hydra, DB: d.DB, Account: d.PasskeyAccount, Logger: logger, BaseURL: d.BaseURL}
+	p := &passkeyAPI{Svc: d.Passkeys, Kratos: d.Kratos, Hydra: d.Hydra, DB: d.sysDB() /* system pool: the sign-in ceremony looks the account up before a user is known */, Account: d.PasskeyAccount, Logger: logger, BaseURL: d.BaseURL}
 	switch {
 	case d.PasskeyMailer != nil:
 		p.Mail = d.PasskeyMailer

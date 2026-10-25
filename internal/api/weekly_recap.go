@@ -115,8 +115,8 @@ func emailSweepsAllowed(d Deps) (statement, weekly bool) {
 	if d.AdminOnly {
 		return false, false
 	}
-	statement = d.DB != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil
-	weekly = d.DB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled()
+	statement = d.sysDB() != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil
+	weekly = d.sysDB() != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled()
 	return statement, weekly
 }
 
@@ -124,13 +124,14 @@ func emailSweepsAllowed(d Deps) (statement, weekly bool) {
 // replica: the engage claim makes each (account, week) once.
 func startWeeklyJob(d Deps) {
 	j := &weekly.Job{
-		Source:    weekly.NewSource(d.DB, demo.UserID()),
-		Summarize: newWeeklySummary(newLedgerAPI(d.DB, d.Settings), d.DB),
+		// System pool throughout: a sweep across every opted-in user, with no request and so no user in context.
+		Source:    weekly.NewSource(d.sysDB(), demo.UserID()),
+		Summarize: newWeeklySummary(newLedgerAPI(d.sysDB(), d.systemSettings()), d.sysDB()),
 		Mailer:    d.Email,
 		Signer:    d.WeeklySigner,
 		BaseURL:   d.BaseURL,
 		Logger:    d.Logger,
-		Engage: &engage.Engage{Store: engage.NewStore(d.DB), Observe: func(kind, outcome string) {
+		Engage: &engage.Engage{Store: engage.NewStore(d.sysDB()), Observe: func(kind, outcome string) {
 			if d.Metrics != nil {
 				d.Metrics.EngagementSendsTotal.WithLabelValues(kind, outcome).Inc()
 			}
