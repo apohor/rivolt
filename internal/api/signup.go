@@ -227,7 +227,7 @@ func meRole(role string, hideAdmin bool) string {
 // hideAdmin (RIVOLT_ADMIN_DISABLED) reports an admin's role as "user": the
 // public site has no admin surface, so the SPA mustn't link to one.
 func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.HandlerFunc {
-	return handleMeEnrichedWith(svc, d, hideAdmin, nil)
+	return handleMeEnrichedWith(svc, d, hideAdmin, nil, false)
 }
 
 // meResponse is GET /api/auth/me for a signed-in user. Units is the account's resolved display units (a settings.Units) when
@@ -240,6 +240,9 @@ type meResponse struct {
 	OnboardingCompleted bool            `json:"onboarding_completed"`
 	Terms               termsState      `json:"terms"`
 	Units               *settings.Units `json:"units,omitempty"`
+	// Passkeys is true when this server offers passkeys to the signed-in user (the routes under /api/auth/passkeys exist), so
+	// Settings shows the card only where it can work. Absent (false) where passkeys are off, such as prod today.
+	Passkeys bool `json:"passkeys,omitempty"`
 }
 
 // meSignedOut is the answer for a visitor with no session credential at all.
@@ -247,8 +250,8 @@ type meSignedOut struct {
 	Authenticated bool `json:"authenticated"`
 }
 
-// handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set.
-func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units) http.HandlerFunc {
+// handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set, and `passkeys`.
+func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -291,6 +294,7 @@ func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 			Role:                role,
 			OnboardingCompleted: onboardingDone,
 			Terms:               termsView(r.Context(), d, uid),
+			Passkeys:            passkeys,
 		}
 		if unitsFor != nil {
 			me.Units = unitsFor(r.Context(), uid)

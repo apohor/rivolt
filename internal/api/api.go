@@ -476,7 +476,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
-				r.Get("/me", handleMeEnrichedWith(d.Auth, d.DB, d.AdminDisabled, d.unitsFor()))
+				r.Get("/me", handleMeEnrichedWith(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
