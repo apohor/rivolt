@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// Settings → Account → Signed-in devices: the browsers and the iPhone app signed in as this user, "This device", one sign-out
+// Settings → Security → Signed-in devices: the browsers and the iPhone app signed in as this user, "This device", one sign-out
 // with a confirm, "Sign out everywhere else", the 409 note, and nothing at all where the server has no sessions (404) or an
 // admin is viewing as someone (403).
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
@@ -41,7 +41,7 @@ async function open(page: Page, o: { list?: object[] | number; revokeOthers?: nu
     rows = rows.filter((x) => (x as { id: string }).id !== id);
     return r.fulfill({ status: 204 });
   });
-  await page.goto("/settings?tab=account");
+  await page.goto("/settings?tab=security");
   return calls;
 }
 

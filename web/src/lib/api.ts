@@ -1140,6 +1140,12 @@ export const backend = {
   // Passkeys (WebAuthn) for email accounts. Management is for a browser session only (404 where passkeys are off, 403 for the app
   // and for an admin viewing as someone); adding asks for the password again. The ceremony options and credentials are the
   // browser's own JSON forms.
+  // Change the password (passkeys stay), or reset everything: a new password and every passkey removed. Both ask for the current
+  // password, answer for a browser session of an email account only, and sign the other devices out.
+  changePassword: (body: { current: string; new: string }) =>
+    api.post<{ ok: boolean; sessions_revoked: number; passkeys: Passkey[] }>("/api/auth/password", body),
+  resetAccountAccess: (body: { current: string; new: string }) =>
+    api.post<{ ok: boolean; passkeys_removed: number; sessions_revoked: number }>("/api/auth/secure", body),
   passkeys: () => api.get<{ passkeys: Passkey[]; max: number }>("/api/auth/passkeys"),
   passkeyRegisterBegin: (password: string) =>
     api.post<{ ceremony_id: string; options: { publicKey: unknown } }>("/api/auth/passkeys/register/begin", { password }),
