@@ -2452,10 +2452,16 @@ func runServer() {
 		archiveRestorer = rs
 	}
 	// What the identity provider remembers about a user (Hydra's remembered logins, Kratos' sessions): revoking sessions must forget it
-	// too, or the browser signs straight back in. Shared by sign-out-others, sign-out and the password routes.
+	// too, or the browser signs straight back in. Shared by sign-out-others, sign-out, the password routes and support's secure-account.
 	rememberedRevoker := &api.IdentityRevoker{
 		Hydra: hydraClient, Kratos: kratosClient,
 		Username: func(ctx context.Context, uid uuid.UUID) (string, error) { return db.RawUsernameByID(ctx, pgPool, uid) }, // system pool
+	}
+	var sessionRevoker interface {
+		RevokeAll(ctx context.Context, userID uuid.UUID) (int64, error)
+	}
+	if sessionStore != nil {
+		sessionRevoker = sessionStore // a nil *Store in the interface would not be nil
 	}
 	var sessionsAPI *api.SessionsAPI
 	if sessionStore != nil {
@@ -2512,6 +2518,8 @@ func runServer() {
 		DB:                 requestDB,         // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
 		SystemDB:           pgPool,            // login, admin and the other system paths (S2-3 moves them here one by one)
 		LoginForgetter:     rememberedRevoker, // plain sign-out also forgets Hydra's remembered login (shared computers)
+		SessionRevoker:     sessionRevoker,    // support's "secure this account" revokes every session and app token
+		RememberedRevoker:  rememberedRevoker,
 		RequestPoolOn:      requestDB != pgPool,
 		Logger:             logger,
 		Flags:              flagsStore,

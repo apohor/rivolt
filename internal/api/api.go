@@ -236,6 +236,12 @@ type Deps struct {
 	RequestPoolOn bool
 	// LoginForgetter forgets Hydra's remembered login for a user at plain sign-out (an IdentityRevoker). nil: nothing to forget.
 	LoginForgetter LoginForgetter
+	// SessionRevoker revokes every session and app token of a user (sessions.Store.RevokeAll), for support's "secure this account".
+	SessionRevoker interface {
+		RevokeAll(ctx context.Context, userID uuid.UUID) (int64, error)
+	}
+	// RememberedRevoker forgets the identity provider's remembered logins for a user (an IdentityRevoker), for the same.
+	RememberedRevoker RememberedRevoker
 	// SystemSettings is the settings factory on the system pool, for the sweeps that run without a request (the statement and weekly
 	// recap emails). nil means Settings (no request pool).
 	SystemSettings *settings.Factory
@@ -1236,6 +1242,26 @@ func New(d Deps) http.Handler {
 					Post("/users/{id}/role", handleAdminUserSetRole(d.SystemDB))
 				r.With(audit(auditSpec{action: "user.set_disabled", targetType: "user", idParam: "id", userTarget: true, keys: []string{"disabled"}})).
 					Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.SystemDB))
+				// Support's "secure this account": password, remembered logins, sessions and passkeys in one audited action. The audit
+				// row holds the action and the target only; the temporary password is in the response and nowhere else.
+				if d.Kratos != nil && d.Kratos.Enabled() && d.SessionRevoker != nil {
+					sec := &adminSecure{
+						Account: func(ctx context.Context, uid uuid.UUID) (string, error) {
+							var m sql.NullString
+							err := d.SystemDB.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&m) // system pool: another user's account
+							return m.String, err
+						},
+						Kratos: d.Kratos, Remembered: d.RememberedRevoker, Sessions: d.SessionRevoker, Logger: d.Logger,
+					}
+					if d.Passkeys != nil {
+						sec.Passkeys = d.Passkeys.Store()
+					}
+					if d.Email != nil {
+						sec.Mail = d.Email
+					}
+					r.With(audit(auditSpec{action: "user.secure", targetType: "user", idParam: "id", userTarget: true})).
+						Post("/users/{id}/secure", sec.handle)
+				}
 				r.With(audit(auditSpec{action: "user.sync_rivian", targetType: "user", idParam: "id", userTarget: true})).
 					Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.SystemDB, d.Logger))
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
