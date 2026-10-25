@@ -18,11 +18,13 @@ test("adds a passkey from Settings, then signs in with it on the login page", as
   const page = await ctx.newPage();
   await authenticator(page);
   await stubApi(page);
-  const rpId = "localhost";
+  // The relying party id is the page's own host (the e2e server may be localhost or 127.0.0.1).
+  const rpIdOf = (url: string) => new URL(url).hostname;
   const list: { id: string; label: string; created_at: string; last_used_at: string | null; synced: boolean }[] = [];
   const sent: Record<string, unknown> = {};
   await page.route("**/api/auth/passkeys", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ passkeys: list, max: 10 }) }));
   await page.route("**/api/auth/passkeys/register/begin", (r) => {
+    const rpId = rpIdOf(r.request().url());
     sent.password = (r.request().postDataJSON() as { password: string }).password;
     return r.fulfill({
       status: 200,
@@ -70,6 +72,7 @@ test("adds a passkey from Settings, then signs in with it on the login page", as
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ challenge: "ch1", client_id: "grafana", client_name: "Grafana", requested_scope: ["openid"], passkeys: true }) }),
   );
   await page.route("**/api/auth/hydra/passkey/begin", (r) => {
+    const rpId = rpIdOf(r.request().url());
     sent.hydraBegin = r.request().postDataJSON();
     return r.fulfill({
       status: 200,
