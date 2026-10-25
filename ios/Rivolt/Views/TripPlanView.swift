@@ -130,7 +130,8 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric)
         } else {
-            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, onLine: { model.roadLine = $0 })
+            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 })
+            AlongToggle(model: model)
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -563,6 +564,32 @@ struct StopRows: View {
             guard s.latitude != nil, s.longitude != nil else { return nil }
             defer { n += 1 }
             return n
+        }
+    }
+}
+
+/// "Show fast chargers along the route": the DC fast chargers of 100 kW or more near it, drawn small on the map. A tap on one says
+/// what it is. Hidden when the server has no charger listing.
+struct AlongToggle: View {
+    @Environment(AppState.self) private var state
+    let model: TripPlanModel
+
+    var body: some View {
+        if model.along != .unavailable {
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Show fast chargers along the route", isOn: Binding(
+                    get: { model.along != .off },
+                    set: { on in Task { await model.toggleAlong(on: on, source: state.client) } }))
+                    .tint(Theme.accent).frame(minHeight: 44)
+                    .disabled(model.along == .loading)
+                switch model.along {
+                case .loading: Text("Looking…").themeText(.subline, color: Theme.textSecondary)
+                case .shown(let c): Text(TripPlanLogic.alongCount(c.count)).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                case .failed(let words): Text(words).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                default: EmptyView()
+                }
+                if let picked = model.pickedCharger { Text(TripPlanLogic.alongLine(picked)).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
+            }
         }
     }
 }

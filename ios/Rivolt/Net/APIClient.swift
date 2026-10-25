@@ -448,6 +448,11 @@ actor APIClient {
         try await request("POST", "/api/trips/plan", body: body)
     }
 
+    /// The DC fast chargers within a band either side of a route (the server's own charger listing).
+    func chargersAlong(_ body: ChargersAlongRequest) async throws -> ChargersAlong {
+        try await request("POST", "/api/maps/chargers-along", body: body)
+    }
+
     /// The trip as days with a night between: each day planned from where the last ended.
     func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday {
         try await request("POST", "/api/trips/plan-multiday", body: body)

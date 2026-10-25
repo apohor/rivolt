@@ -129,6 +129,28 @@ enum TripPlanLogic {
         .init(name: s.name, lat: s.lat, lon: s.lon, l2Kw: 0, detourM: s.detourM, kind: "hotel")
     }
 
+    /// DC fast chargers of at least this power are shown along a route; slower ones are clutter for a truck.
+    static let alongMinKw = 100.0
+
+    /// The request for the chargers along a route: the road line when there is one (thinned), else the plan's waypoints.
+    static func alongRequest(_ route: TripRoute, roadLine: [RouteSnap.Coord]) -> ChargersAlongRequest {
+        let line = thin(roadLine, to: 1500).map { [$0.lat, $0.lon] }
+        return ChargersAlongRequest(path: line.count >= 2 ? line : path(route), filter: "dcfc", minPowerKw: alongMinKw)
+    }
+
+    /// "Sample Fast Charge · 250 kW · Example Network" for a charger picked on the map.
+    static func alongLine(_ c: AlongCharger) -> String {
+        var parts = [c.name ?? "Fast charger"]
+        if let kw = c.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
+        if let n = c.evNetwork, !n.isEmpty { parts.append(n) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "12 fast chargers within reach of the route" (a listing; whether one is free or working isn't checked).
+    static func alongCount(_ n: Int) -> String {
+        n == 0 ? "No fast chargers of 100 kW or more are listed near this route." : "\(n) fast charger\(n == 1 ? "" : "s") of 100 kW or more near the route. Listings only: Rivolt can't tell whether one is free or working."
+    }
+
     /// "Hotel · Level 2 charger, about 7 kW" for the list of places to sleep; the power is the listing's, never a promise.
     static func candidateLine(_ c: OvernightCandidates.Candidate, metric: Bool) -> String {
         var parts: [String] = [c.kind == "campground" ? "Campground" : "Hotel"]

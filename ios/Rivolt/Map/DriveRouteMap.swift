@@ -182,10 +182,21 @@ struct RouteMapView: UIViewRepresentable {
                 f.attributes = ["i": i, "label": s.label]
                 return f
             }
-            // The picked stop again on its own, so it can be drawn over the rest.
-            let focus: [MLNPointFeature] = d.focus.flatMap { i in d.stops.indices.contains(i) ? stops[i] : nil }.map { [$0] } ?? []
+            let along: [MLNPointFeature] = d.along.enumerated().map { i, s in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: s.coord.lat, longitude: s.coord.lon)
+                f.attributes = ["i": i, "label": s.label]
+                return f
+            }
+            // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.
+            let focus: [MLNPointFeature] = d.focus.flatMap { i -> MLNPointFeature? in
+                if d.stops.indices.contains(i) { return stops[i] }
+                let j = i - d.stops.count
+                return along.indices.contains(j) ? along[j] : nil
+            }.map { [$0] } ?? []
             return [
                 "stops": MLNShapeCollectionFeature(shapes: stops),
+                "along": MLNShapeCollectionFeature(shapes: along),
                 "focus": MLNShapeCollectionFeature(shapes: focus.map { f in
                     let copy = MLNPointFeature()
                     copy.coordinate = f.coordinate
@@ -236,7 +247,16 @@ struct RouteMapView: UIViewRepresentable {
                 c.circleStrokeWidth = NSExpression(forConstantValue: 2)
                 style.addLayer(c)
             }
-            if !drawing.stops.isEmpty {
+            do {
+                let small = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-along", source: sources["along"]!)
+                small.circleColor = NSExpression(forConstantValue: UIColor(Theme.chargePin))
+                small.circleOpacity = NSExpression(forConstantValue: 0.75)
+                small.circleRadius = NSExpression(forConstantValue: 5)
+                small.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.chargePinInk))
+                small.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
+                style.addLayer(small)
+            }
+            do {
                 let dot = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop", source: sources["stops"]!)
                 dot.circleColor = NSExpression(forConstantValue: UIColor(Theme.chargePin))
                 dot.circleRadius = NSExpression(forConstantValue: 8)
@@ -269,8 +289,12 @@ struct RouteMapView: UIViewRepresentable {
             guard let map = g.view as? MLNMapView else { return }
             let p = g.location(in: map)
             let box = CGRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)
-            let hit = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-stop"]).first
-            if let i = hit?.attribute(forKey: "i") as? Int { onStop?(i) }
+            // A stop pin wins over a charger under it; a charger is numbered after the stops.
+            if let i = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-stop"]).first?.attribute(forKey: "i") as? Int {
+                onStop?(i)
+            } else if let j = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-along"]).first?.attribute(forKey: "i") as? Int {
+                onStop?(drawing.stops.count + j)
+            }
         }
 
         /// The snapped drawing replaces the recorded one in the same sources.
