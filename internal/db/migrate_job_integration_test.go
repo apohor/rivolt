@@ -28,8 +28,11 @@ func TestRequireSchemaBehindCurrentAndAhead(t *testing.T) {
 	defer d.Close()
 
 	st, err := db.CheckSchema(ctx, d)
-	if err != nil || len(st.Pending) < 90 || len(st.Unknown) != 0 {
-		t.Fatalf("fresh database: %+v %v", st, err)
+	// A fresh database has everything pending. The count is whatever this tree ships (the files are not numbered gaplessly), so
+	// compare against the embedded list, not a constant.
+	latest, lerr := db.LatestEmbedded()
+	if err != nil || lerr != nil || len(st.Pending) < 50 || len(st.Unknown) != 0 || st.Pending[len(st.Pending)-1] != latest {
+		t.Fatalf("fresh database: pending=%d unknown=%d latest=%q err=%v/%v", len(st.Pending), len(st.Unknown), latest, err, lerr)
 	}
 	err = db.RequireSchema(ctx, d, 0, quiet)
 	if !errors.Is(err, db.ErrSchemaBehind) {
@@ -97,6 +100,10 @@ func TestMigrateLockWaitsAndTimesOut(t *testing.T) {
 	}
 	defer d.Close()
 
+	before, err := db.CheckSchema(ctx, d)
+	if err != nil || len(before.Pending) < 50 {
+		t.Fatalf("fresh database: pending=%d err=%v", len(before.Pending), err)
+	}
 	holder, err := d.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -110,8 +117,8 @@ func TestMigrateLockWaitsAndTimesOut(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "another migrator") || !strings.Contains(err.Error(), "backend pid") {
 		t.Fatalf("a held lock should time out naming the holder, got %v", err)
 	}
-	if st, _ := db.CheckSchema(ctx, d); len(st.Pending) < 90 {
-		t.Fatalf("a migrator that never got the lock must have changed nothing, pending=%d", len(st.Pending))
+	if after, _ := db.CheckSchema(ctx, d); len(after.Pending) != len(before.Pending) {
+		t.Fatalf("a migrator that never got the lock must have changed nothing: pending %d before, %d after", len(before.Pending), len(after.Pending))
 	}
 
 	if _, err := holder.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", db.MigrationLockIDForTest); err != nil {
