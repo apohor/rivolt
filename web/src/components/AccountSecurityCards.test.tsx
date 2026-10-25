@@ -1,14 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Component, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountSecurityCards } from "./AccountSecurityCards";
 import { stubFetchRoutes } from "../test/fetchRoutes";
+
+// A render error (a hook count that changed, say) lands here, so a crash cannot pass for "the cards went away".
+class Boundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() {
+    return { crashed: true };
+  }
+  render() {
+    return this.state.crashed ? <div data-crashed /> : this.props.children;
+  }
+}
 
 function renderCards() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <AccountSecurityCards />
+      <Boundary>
+        <AccountSecurityCards />
+      </Boundary>
     </QueryClientProvider>,
   );
 }
@@ -35,6 +49,7 @@ describe("AccountSecurityCards", () => {
     expect(document.querySelector("[data-security-form=password]")).not.toBeNull();
     fillAndSubmit();
     await waitFor(() => expect(document.querySelector("[data-security-form]")).toBeNull());
+    expect(document.querySelector("[data-crashed]")).toBeNull();
     // React reports a hooks-order or render error through console.error; there must be none.
     expect(errors.mock.calls.filter((c) => String(c[0]).includes("hooks") || String(c[0]).includes("Rendered fewer"))).toEqual([]);
     errors.mockRestore();
