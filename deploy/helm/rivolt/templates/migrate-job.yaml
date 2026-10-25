@@ -1,0 +1,71 @@
+{{- if .Values.migrate.job.enabled }}
+# Database migrations (design: migrations-job-design.md, DA-approved Oct 25).
+# An Argo CD Sync hook at wave 0: after the CNPG Cluster (wave -1), before the
+# Deployment (wave 1). A failed Job fails the sync, so the Deployment isn't
+# updated and the old pods keep serving on the old schema (each migration is
+# its own transaction). BeforeHookCreation replaces the previous run's Job at
+# the next sync; the failed one stays until then for its log.
+#
+# Minimal env: only the database connection (host, port, name and TLS mode as
+# literals, the credentials through rivolt.dbCredentialsEnv). No envFrom: the
+# migrator needs none of the app's other settings or secrets. It logs migration
+# ids and timings only.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "rivolt.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.migrateLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  backoffLimit: {{ .Values.migrate.job.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrate.job.activeDeadlineSeconds }}
+  parallelism: 1
+  completions: 1
+  template:
+    metadata:
+      labels:
+        {{- include "rivolt.migrateLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
+      # The migrator never talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: DB_HOST
+              value: {{ include "rivolt.dbHost" . | quote }}
+            - name: DB_PORT
+              value: {{ include "rivolt.dbPort" . | quote }}
+            - name: DB_NAME
+              value: {{ include "rivolt.dbName" . | quote }}
+            - name: DB_SSLMODE
+              value: {{ include "rivolt.dbSslMode" . | quote }}
+            {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.job.resources | nindent 12 }}
+{{- end }}

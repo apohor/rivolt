@@ -5,6 +5,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "rivolt.labels" . | nindent 4 }}
+  {{- if .Values.migrate.job.enabled }}
+  annotations:
+    # After the migrate Job (sync wave 0): Argo applies this only once the
+    # Job has completed, so a failed migration leaves the old pods serving.
+    argocd.argoproj.io/sync-wave: "1"
+  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -191,28 +197,17 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
-            # DB_USER. CNPG: from the auto-generated <cluster>-app
-            # Secret. External w/ existingSecret + UserKey: from
-            # there. Otherwise the literal in externalDatabase.user.
-            {{- $dbUserSecret := include "rivolt.dbUserSecretName" . }}
-            {{- if $dbUserSecret }}
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $dbUserSecret }}
-                  key: {{ include "rivolt.dbUserSecretKey" . }}
-            {{- else }}
-            - name: DB_USER
-              value: {{ include "rivolt.dbUserLiteral" . | quote }}
+            # DB_USER and DB_PASSWORD (CNPG's <cluster>-app Secret, a
+            # user-supplied one, or the chart's): rivolt.dbCredentialsEnv,
+            # shared with the migrate Job.
+            {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
+            {{- if .Values.migrate.job.enabled }}
+            # The migrate Job (templates/migrate-job.yaml) changes the
+            # schema before this Deployment rolls; the server only checks
+            # that the schema is current and refuses to start if not.
+            - name: RIVOLT_MIGRATE_ON_START
+              value: "false"
             {{- end }}
-            # DB_PASSWORD. Always via secretKeyRef — either the
-            # CNPG-managed Secret, the user-supplied one, or the
-            # chart-managed `<release>-app` Secret.
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "rivolt.dbPasswordSecretName" . }}
-                  key: {{ include "rivolt.dbPasswordSecretKey" . }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -145,3 +145,53 @@ DB user / password sourcing.
 {{- define "rivolt.dbSslMode" -}}
 {{- if .Values.cnpg.enabled -}}require{{- else -}}{{ .Values.externalDatabase.sslmode }}{{- end -}}
 {{- end -}}
+
+{{/*
+DB_USER and DB_PASSWORD env entries, shared by the Deployment and the
+migrate Job. DB_USER: from CNPG's <cluster>-app Secret, a user-supplied
+Secret, or the literal externalDatabase.user. DB_PASSWORD: always a
+secretKeyRef.
+*/}}
+{{- define "rivolt.dbCredentialsEnv" -}}
+{{- $dbUserSecret := include "rivolt.dbUserSecretName" . }}
+{{- if $dbUserSecret }}
+- name: DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ $dbUserSecret }}
+      key: {{ include "rivolt.dbUserSecretKey" . }}
+{{- else }}
+- name: DB_USER
+  value: {{ include "rivolt.dbUserLiteral" . | quote }}
+{{- end }}
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "rivolt.dbPasswordSecretName" . }}
+      key: {{ include "rivolt.dbPasswordSecretKey" . }}
+{{- end }}
+
+{{/*
+The image tag as a label value (labels allow [A-Za-z0-9._-], 63 chars):
+"+" in a semver build suffix becomes "_".
+*/}}
+{{- define "rivolt.versionLabel" -}}
+{{- .Values.image.tag | default .Chart.AppVersion | toString | replace "+" "_" | trunc 63 | trimSuffix "-" | trimSuffix "." -}}
+{{- end }}
+
+{{/*
+Labels for the migrate Job and its pod. Deliberately NOT the selector
+labels (app.kubernetes.io/name is "<name>-migrate"): a Job pod has no
+readiness probe, so with the app's labels it would count as Ready and
+become a Service endpoint, the PDB would count it, and network policies
+written for the app would apply to it. rivolt.dev/version lets a deploy
+script wait for this release's Job rather than the previous one.
+*/}}
+{{- define "rivolt.migrateLabels" -}}
+helm.sh/chart: {{ include "rivolt.chart" . }}
+app.kubernetes.io/name: {{ include "rivolt.name" . }}-migrate
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: migrate
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+rivolt.dev/version: {{ include "rivolt.versionLabel" . | quote }}
+{{- end }}

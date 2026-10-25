@@ -22,6 +22,10 @@ metadata:
   # the data cluster deliberately separate from the app's release.
   annotations:
     helm.sh/resource-policy: keep
+    {{- if .Values.migrate.job.enabled }}
+    # Before the migrate Job (wave 0), which needs the database.
+    argocd.argoproj.io/sync-wave: "-1"
+    {{- end }}
 spec:
   instances: {{ .Values.cnpg.instances }}
   imageName: {{ .Values.cnpg.imageName | quote }}
