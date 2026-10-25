@@ -38,23 +38,23 @@ func (r *IdentityRevoker) ForgetLogin(ctx context.Context, uid uuid.UUID) error 
 	}
 	username, err := r.Username(ctx, uid)
 	if err != nil {
-		return fmt.Errorf("look up the account: %w", err)
+		return forgetStep("account_lookup", fmt.Errorf("look up the account: %w", err))
 	}
 	if username == "" {
 		return nil
 	}
 	id, err := r.Kratos.IdentityIDByEmail(ctx, username)
 	if err != nil {
-		return fmt.Errorf("find the identity: %w", err)
+		return forgetStep("identity_lookup", fmt.Errorf("find the identity: %w", err))
 	}
 	if id == "" {
 		return nil
 	}
 	var errs []error
 	if r.Hydra.Enabled() {
-		errs = append(errs, r.Hydra.RevokeLoginSessions(ctx, id))
+		errs = append(errs, forgetStep("hydra_login", r.Hydra.RevokeLoginSessions(ctx, id)))
 	}
-	errs = append(errs, r.Kratos.RevokeIdentitySessions(ctx, id))
+	errs = append(errs, forgetStep("kratos_sessions", r.Kratos.RevokeIdentitySessions(ctx, id)))
 	return errors.Join(errs...)
 }
 
@@ -75,22 +75,22 @@ func (r *IdentityRevoker) RevokeRemembered(ctx context.Context, uid uuid.UUID) e
 	}
 	username, err := r.Username(ctx, uid)
 	if err != nil {
-		return fmt.Errorf("look up the account: %w", err)
+		return forgetStep("account_lookup", fmt.Errorf("look up the account: %w", err))
 	}
 	if username == "" {
 		return nil
 	}
 	id, err := r.Kratos.IdentityIDByEmail(ctx, username)
 	if err != nil {
-		return fmt.Errorf("find the identity: %w", err)
+		return forgetStep("identity_lookup", fmt.Errorf("find the identity: %w", err))
 	}
 	if id == "" {
 		return nil
 	}
 	var errs []error
 	if r.Hydra.Enabled() {
-		errs = append(errs, r.Hydra.RevokeLoginSessions(ctx, id), r.Hydra.RevokeConsentSessions(ctx, id))
+		errs = append(errs, forgetStep("hydra_login", r.Hydra.RevokeLoginSessions(ctx, id)), forgetStep("hydra_consent", r.Hydra.RevokeConsentSessions(ctx, id)))
 	}
-	errs = append(errs, r.Kratos.RevokeIdentitySessions(ctx, id))
+	errs = append(errs, forgetStep("kratos_sessions", r.Kratos.RevokeIdentitySessions(ctx, id)))
 	return errors.Join(errs...)
 }

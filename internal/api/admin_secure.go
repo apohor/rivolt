@@ -42,6 +42,8 @@ type adminSecure struct {
 		Send(context.Context, email.Message) error
 	}
 	Logger *slog.Logger
+	// Observe counts each clearing of the identity provider's memory and its failures; nil is a no-op.
+	Observe ForgetObserver
 }
 
 func (a *adminSecure) handle(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +97,9 @@ func (a *adminSecure) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Remembered != nil {
-		if err := a.Remembered.RevokeRemembered(r.Context(), target); err != nil {
+		err := a.Remembered.RevokeRemembered(r.Context(), target)
+		a.Observe.observe("admin_secure", err)
+		if err != nil {
 			fail("forget_remembered_logins", err)
 			return
 		}

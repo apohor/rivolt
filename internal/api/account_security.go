@@ -50,6 +50,8 @@ type accountSecurityAPI struct {
 	}
 	Failures *failLimiter
 	Logger   *slog.Logger
+	// Observe counts each clearing of the identity provider's memory and its failures; nil is a no-op.
+	Observe ForgetObserver
 }
 
 func (a *accountSecurityAPI) guard(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
@@ -99,6 +101,7 @@ func (d Deps) accountSecurityAPI() *accountSecurityAPI {
 		// 10 wrong current-passwords per address per 15 minutes, and per client address.
 		Failures: newFailLimiter(10, 15*time.Minute),
 		Logger:   logger,
+		Observe:  NewForgetObserver(d.Metrics),
 	}
 	if d.Email != nil {
 		a.Mail = d.Email
@@ -209,7 +212,13 @@ func (a *accountSecurityAPI) serve(w http.ResponseWriter, r *http.Request, secur
 	var incomplete []string
 	signOutOK := true
 	if a.Remembered != nil {
-		if err := a.Remembered.RevokeRemembered(r.Context(), uid); err != nil {
+		err := a.Remembered.RevokeRemembered(r.Context(), uid)
+		entry := "password"
+		if secure {
+			entry = "secure"
+		}
+		a.Observe.observe(entry, err)
+		if err != nil {
 			a.Logger.Error("account security: could not clear the remembered sign-in", "secure", secure, "err", redactIdentifier(err.Error(), mail))
 			signOutOK = false
 		}

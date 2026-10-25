@@ -119,6 +119,10 @@ type Metrics struct {
 	// Passkey registrations and sign-ins refused, by a fixed reason (ceremony, unknown_credential, assertion,
 	// no_user_verification, sign_count, registration). No credential, user or address: /metrics is public.
 	PasskeyRefusedTotal *prometheus.CounterVec
+	// LogoutForgetAttemptsTotal and LogoutForgetFailuresTotal count the identity provider's "forget" step (Hydra's remembered login,
+	// Kratos' sessions) wherever Rivolt revokes sessions: by entry point and, for failures, which step failed. No identity labels.
+	LogoutForgetAttemptsTotal *prometheus.CounterVec
+	LogoutForgetFailuresTotal *prometheus.CounterVec
 
 	// vehicleState frames carrying an otaStatus, by its class (a fixed list of expected words, else "other"): what
 	// states a software update goes through, which only "Idle" has been seen to say so far.
@@ -382,6 +386,20 @@ func New() *Metrics {
 			Name: "rivolt_charge_energy_floor_total",
 			Help: "Charges whose energy was replaced by an estimate from the SoC gain (the recorder's integral had lost energy).",
 		}),
+		LogoutForgetAttemptsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_logout_forget_attempts_total",
+				Help: "Times the identity provider's remembered login and sessions were cleared after a revoke, by entry point (logout|sign_out_one|sign_out_others|password|secure|admin_secure).",
+			},
+			[]string{"entry"},
+		),
+		LogoutForgetFailuresTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_logout_forget_failures_total",
+				Help: "Failures of that clearing, by entry point and step (account_lookup|identity_lookup|hydra_login|hydra_consent|kratos_sessions|other). A failure leaves a remembered browser able to sign back in.",
+			},
+			[]string{"entry", "step"},
+		),
 		PasskeyRefusedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_passkey_refused_total",
@@ -460,6 +478,8 @@ func New() *Metrics {
 		m.ChargeEnergyFloorTotal,
 		m.APNsRegisterRefusedTotal,
 		m.PasskeyRefusedTotal,
+		m.LogoutForgetAttemptsTotal,
+		m.LogoutForgetFailuresTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
 		m.RequestAcquiresWithoutUser,
