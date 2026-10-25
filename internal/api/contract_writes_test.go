@@ -26,6 +26,10 @@ var appAllowedButNotYetSent = map[string]string{
 	"POST /api/trips/plan-multiday":        "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
 	"POST /api/trips/overnight-candidates": "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
 	"POST /api/maps/chargers-along":        "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/trips/saved":                "saved trips on the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"PUT /api/trips/saved/{id}":            "saved trips on the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/trips/saved/{id}/link":      "plan vs actual on the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/trips/saved/{id}/unlink":    "plan vs actual on the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
 }
 
 // samplePaths gives the spellings a {x} in an app path can take, so the pattern rules (a UUID, a vehicle id) are exercised.
@@ -80,10 +84,10 @@ func TestAppWritesAreAllowedByTheServer(t *testing.T) {
 	for k := range appWrites {
 		entries = append(entries, k)
 	}
-	entries = append(entries, "DELETE /api/auth/sessions/{x}", "PUT /api/vehicles/{id}/profile")
+	entries = append(entries, "DELETE /api/auth/sessions/{x}", "PUT /api/vehicles/{id}/profile", "PUT /api/trips/saved/{id}", "POST /api/trips/saved/{id}/link", "POST /api/trips/saved/{id}/unlink")
 	sort.Strings(entries)
 	for _, e := range entries {
-		called := seen[e] || (strings.HasSuffix(e, "/{id}/profile") && seen["PUT /api/vehicles/{x}/profile"])
+		called := seen[e] || seen[strings.ReplaceAll(e, "{id}", "{x}")]
 		_, listed := appAllowedButNotYetSent[e]
 		switch {
 		case !called && !listed:
@@ -93,7 +97,11 @@ func TestAppWritesAreAllowedByTheServer(t *testing.T) {
 		}
 	}
 	for e, why := range appAllowedButNotYetSent {
-		if !appWriteAllowed(strings.SplitN(e, " ", 2)[0], strings.NewReplacer("{id}", "veh-fixture").Replace(strings.SplitN(e, " ", 2)[1])) {
+		id := "veh-fixture"
+		if strings.Contains(e, "/trips/saved/") {
+			id = "3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b"
+		}
+		if !appWriteAllowed(strings.SplitN(e, " ", 2)[0], strings.NewReplacer("{id}", id).Replace(strings.SplitN(e, " ", 2)[1])) {
 			t.Errorf("appAllowedButNotYetSent %q (%s) is not on the allowlist at all: delete it", e, why)
 		}
 	}

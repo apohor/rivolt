@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -270,5 +271,97 @@ func TestDelete(t *testing.T) {
 	}
 	if err := store.Delete(ctx, created.ID); !errors.Is(err, trips.ErrNotFound) {
 		t.Errorf("second Delete: want ErrNotFound, got %v", err)
+	}
+}
+
+// A phone token must not be able to store without bound: Create refuses the (MaxPerUser+1)th trip, atomically, per account; an
+// edit at the cap still works, and deleting one makes room.
+func TestCreateStopsAtThePerUserCap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	a, _ := db.EnsureUser(ctx, pool, "cap-a")
+	b, _ := db.EnsureUser(ctx, pool, "cap-b")
+	sa, _ := trips.OpenStore(pool, a)
+	sb, _ := trips.OpenStore(pool, b)
+	inputs := json.RawMessage(`{"n":1}`)
+	var first uuid.UUID
+	for i := 0; i < trips.MaxPerUser; i++ {
+		tr, err := sa.Create(ctx, fmt.Sprintf("trip %03d", i), inputs, nil, nil)
+		if err != nil {
+			t.Fatalf("trip %d: %v", i, err)
+		}
+		if i == 0 {
+			first = tr.ID
+		}
+	}
+	if _, err := sa.Create(ctx, "one too many", inputs, nil, nil); !errors.Is(err, trips.ErrLimit) {
+		t.Fatalf("past the cap: %v, want ErrLimit", err)
+	}
+	if _, err := sb.Create(ctx, "someone else's first", inputs, nil, nil); err != nil {
+		t.Errorf("another account is limited by this one: %v", err)
+	}
+	if _, err := sa.Update(ctx, first, "renamed at the cap", inputs, nil, nil); err != nil {
+		t.Errorf("an edit at the cap was refused: %v", err)
+	}
+	if err := sa.Delete(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sa.Create(ctx, "room again", inputs, nil, nil); err != nil {
+		t.Errorf("after a delete: %v", err)
+	}
+}
+
+// Ten saves at once from 95 trips end at exactly 100: the second to count must see the first's row (READ COMMITTED alone would let
+// them all pass the count, which is why Create takes a per-user advisory lock).
+func TestConcurrentCreatesCannotPassTheCap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, _ := db.EnsureUser(ctx, pool, "cap-race")
+	st, _ := trips.OpenStore(pool, uid)
+	inputs := json.RawMessage(`{"n":1}`)
+	for i := 0; i < trips.MaxPerUser-5; i++ {
+		if _, err := st.Create(ctx, fmt.Sprintf("seed %03d", i), inputs, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	results := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := st.Create(ctx, fmt.Sprintf("race %02d", i), inputs, nil, nil)
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	ok, limited := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, trips.ErrLimit):
+			limited++
+		default:
+			t.Errorf("unexpected: %v", err)
+		}
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM saved_trips WHERE user_id = $1`, uid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != trips.MaxPerUser || ok != 5 || limited != 5 {
+		t.Errorf("rows=%d created=%d refused=%d, want %d rows, 5 created, 5 refused", n, ok, limited, trips.MaxPerUser)
 	}
 }

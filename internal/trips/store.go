@@ -28,6 +28,13 @@ type SavedTrip struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+// MaxPerUser is how many saved trips one account may keep. A browser user never gets near it; the cap bounds what a leaked phone
+// token can store.
+const MaxPerUser = 100
+
+// ErrLimit is returned by Create when the account already keeps MaxPerUser trips.
+var ErrLimit = errors.New("trips: saved trip limit reached")
+
 // ErrNotFound is returned when Get/Delete/Update target a row that
 // either does not exist or belongs to a different user.
 var ErrNotFound = errors.New("trips: not found")
@@ -98,14 +105,32 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*SavedTrip, error) {
 // turns a duplicate name into a Postgres unique-violation error; the
 // caller (handler) is responsible for surfacing that as 409.
 func (s *Store) Create(ctx context.Context, name string, inputs, plan, advice json.RawMessage) (*SavedTrip, error) {
-	row := s.db.QueryRowContext(ctx, `
+	// The count and the insert run under a per-user advisory lock held to the end of the transaction. Under READ COMMITTED two
+	// concurrent saves at 99 would each count 99 and both insert; the lock makes the second wait and see 100. It serialises only
+	// this user's saves, and needs no grant beyond the table's.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('saved_trips:' || $1::text, 0))`, s.userID); err != nil {
+		return nil, err
+	}
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO saved_trips (user_id, name, inputs, plan, advice)
-		VALUES ($1, $2, $3, $4, $5)
+		SELECT $1, $2, $3, $4, $5
+		 WHERE (SELECT count(*) FROM saved_trips WHERE user_id = $1) < $6
 		RETURNING id, name, inputs, plan, advice, created_at, updated_at`,
-		s.userID, name, inputs, nilIfEmpty(plan), nilIfEmpty(advice),
+		s.userID, name, inputs, nilIfEmpty(plan), nilIfEmpty(advice), MaxPerUser,
 	)
 	t, err := scanRow(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrLimit
+	}
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &t, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -278,15 +279,47 @@ type savedTripBody struct {
 	Advice json.RawMessage `json:"advice,omitempty"`
 }
 
+// savedTripMaxBytes bounds one saved trip (name, inputs, plan and advice together). A real multi-day plan is a few KB to a few tens
+// of KB; the cap leaves headroom for a long one and bounds what a leaked phone token can store: MaxPerUser trips of this size.
+const (
+	savedTripMaxBytes = 256 << 10
+	savedTripSlack    = 4 << 10 // the JSON around the four fields
+)
+
+// tripError is the answer for the saved-trip and plan-vs-actual routes: {error, class}, like the plan routes, so a client can read
+// the class (name_taken, trip_limit, too_large, invalid, not_found) instead of matching text. The web shows error as before.
+func tripError(w http.ResponseWriter, status int, class, msg string) {
+	writeJSON(w, status, map[string]any{"error": msg, "class": class})
+}
+
+// tripBodyError answers a body that did not decode: too large (the reader's limit) or malformed.
+func tripBodyError(w http.ResponseWriter, err error) {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		tripError(w, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("a saved trip can be at most %d KiB", savedTripMaxBytes>>10))
+		return
+	}
+	tripError(w, http.StatusBadRequest, "invalid", "invalid body: "+err.Error())
+}
+
+// savedTripTooLarge answers 413 and reports true when the four fields together are over the cap.
+func savedTripTooLarge(w http.ResponseWriter, name string, b savedTripBody) bool {
+	if len(name)+len(b.Inputs)+len(b.Plan)+len(b.Advice) <= savedTripMaxBytes {
+		return false
+	}
+	tripError(w, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("a saved trip can be at most %d KiB", savedTripMaxBytes>>10))
+	return true
+}
+
 func handleSavedTripsList(store *trips.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
-			http.Error(w, "no user", http.StatusUnauthorized)
+			tripError(w, http.StatusUnauthorized, "no_user", "no user")
 			return
 		}
 		out, err := store.List(r.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
 			return
 		}
 		if out == nil {
@@ -299,36 +332,43 @@ func handleSavedTripsList(store *trips.Store) http.HandlerFunc {
 func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
-			http.Error(w, "no user", http.StatusUnauthorized)
+			tripError(w, http.StatusUnauthorized, "no_user", "no user")
 			return
 		}
 		var b savedTripBody
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, savedTripMaxBytes+savedTripSlack)).Decode(&b); err != nil {
+			tripBodyError(w, err)
 			return
 		}
 		name := strings.TrimSpace(b.Name)
 		if name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "name required")
 			return
 		}
 		if len(b.Inputs) == 0 {
-			http.Error(w, "inputs required", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "inputs required")
 			return
 		}
 		if err := validateSavedPlan(b.Plan); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", err.Error())
+			return
+		}
+		if savedTripTooLarge(w, name, b) {
 			return
 		}
 		t, err := store.Create(r.Context(), name, b.Inputs, b.Plan, b.Advice)
+		if errors.Is(err, trips.ErrLimit) {
+			tripError(w, http.StatusUnprocessableEntity, "trip_limit", fmt.Sprintf("you can keep up to %d saved trips; delete one on the web to save another", trips.MaxPerUser))
+			return
+		}
 		if err != nil {
 			// Surface the unique (user_id, name) violation as 409 so
 			// the SPA can prompt "name already exists, overwrite?".
 			if isUniqueViolation(err) {
-				http.Error(w, "trip name already in use", http.StatusConflict)
+				tripError(w, http.StatusConflict, "name_taken", "trip name already in use")
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
 			return
 		}
 		writeJSON(w, http.StatusCreated, t)
@@ -338,43 +378,46 @@ func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
 func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
-			http.Error(w, "no user", http.StatusUnauthorized)
+			tripError(w, http.StatusUnauthorized, "no_user", "no user")
 			return
 		}
 		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "invalid id")
 			return
 		}
 		var b savedTripBody
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, savedTripMaxBytes+savedTripSlack)).Decode(&b); err != nil {
+			tripBodyError(w, err)
 			return
 		}
 		name := strings.TrimSpace(b.Name)
 		if name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "name required")
 			return
 		}
 		if len(b.Inputs) == 0 {
-			http.Error(w, "inputs required", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "inputs required")
 			return
 		}
 		if err := validateSavedPlan(b.Plan); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", err.Error())
+			return
+		}
+		if savedTripTooLarge(w, name, b) {
 			return
 		}
 		t, err := store.Update(r.Context(), id, name, b.Inputs, b.Plan, b.Advice)
 		if errors.Is(err, trips.ErrNotFound) {
-			http.Error(w, "not found", http.StatusNotFound)
+			tripError(w, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 		if err != nil {
 			if isUniqueViolation(err) {
-				http.Error(w, "trip name already in use", http.StatusConflict)
+				tripError(w, http.StatusConflict, "name_taken", "trip name already in use")
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
 			return
 		}
 		writeJSON(w, http.StatusOK, t)
@@ -384,21 +427,21 @@ func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
 func handleSavedTripDelete(store *trips.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
-			http.Error(w, "no user", http.StatusUnauthorized)
+			tripError(w, http.StatusUnauthorized, "no_user", "no user")
 			return
 		}
 		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "invalid id")
 			return
 		}
 		err = store.Delete(r.Context(), id)
 		if errors.Is(err, trips.ErrNotFound) {
-			http.Error(w, "not found", http.StatusNotFound)
+			tripError(w, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

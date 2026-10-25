@@ -145,16 +145,16 @@ func bandFor(conf float64) string {
 func (a *planActualAPI) loadTrip(w http.ResponseWriter, r *http.Request, uid uuid.UUID) (*trips.SavedTrip, bool) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		http.NotFound(w, r)
+		tripError(w, http.StatusNotFound, "not_found", "not found")
 		return nil, false
 	}
 	st, err := a.getTrip(r.Context(), uid, id)
 	if err != nil {
 		if errors.Is(err, trips.ErrNotFound) {
-			http.NotFound(w, r)
+			tripError(w, http.StatusNotFound, "not_found", "not found")
 			return nil, false
 		}
-		http.Error(w, "trip lookup failed", http.StatusInternalServerError)
+		tripError(w, http.StatusInternalServerError, "internal", "trip lookup failed")
 		return nil, false
 	}
 	return st, true
@@ -338,7 +338,7 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 		Day    int    `json:"day"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || strings.TrimSpace(body.TripID) == "" {
-		http.Error(w, "trip_id is required", http.StatusBadRequest)
+		tripError(w, http.StatusBadRequest, "invalid", "trip_id is required")
 		return
 	}
 	tripID := strings.TrimSpace(body.TripID)
@@ -348,7 +348,7 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 	}
 	cur, err := a.parse(sub.inputs, sub.plan, st.CreatedAt)
 	if err != nil {
-		http.Error(w, "plan: "+err.Error(), http.StatusUnprocessableEntity)
+		tripError(w, http.StatusUnprocessableEntity, "plan_unreadable", "plan: "+err.Error())
 		return
 	}
 	from, to := a.window(cur)
@@ -366,7 +366,7 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if picked == nil {
-		http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
+		tripError(w, http.StatusConflict, "not_a_candidate", "trip_id is not a candidate for this plan")
 		return
 	}
 	conf := picked.Confidence
@@ -408,7 +408,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	raw, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 	if len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(raw, &body); err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
+			tripError(w, http.StatusBadRequest, "invalid", "bad json")
 			return
 		}
 	}
@@ -437,7 +437,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	default:
 		cur, perr := a.parse(sub.inputs, sub.plan, st.CreatedAt)
 		if perr != nil {
-			http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
+			tripError(w, http.StatusConflict, "not_a_candidate", "trip_id is not a candidate for this plan")
 			return
 		}
 		from, to := a.window(cur)
@@ -455,7 +455,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 			}
 		}
 		if target == nil {
-			http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
+			tripError(w, http.StatusConflict, "not_a_candidate", "trip_id is not a candidate for this plan")
 			return
 		}
 	}
@@ -478,7 +478,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 // stay out of response bodies).
 func (a *planActualAPI) fail(w http.ResponseWriter, r *http.Request, what string, err error) {
 	slog.ErrorContext(r.Context(), "plan vs actual", "op", what, "err", err.Error(), "path", r.URL.Path)
-	http.Error(w, "plan vs actual unavailable", http.StatusInternalServerError)
+	tripError(w, http.StatusInternalServerError, "internal", "plan vs actual unavailable")
 }
 
 // ---- Postgres store -----------------------------------------------------
