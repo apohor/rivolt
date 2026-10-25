@@ -19,8 +19,9 @@ import (
 	"github.com/apohor/rivolt/internal/hydra"
 )
 
-// hydraImage is the Hydra the test runs against. Keep it on the minor prod runs (rivolt-infra, apps/platform/ory).
-const hydraImage = "oryd/hydra:v2.3.0"
+// hydraImage is the Hydra the test runs against: the version prod and preview run (docker.io/oryd/hydra). Bump it with the Ory
+// chart appVersion; the pre-pull step in build.yml names the same tag.
+const hydraImage = "oryd/hydra:v26.2.0"
 
 const (
 	hydraClientID    = "rivolt-test"
