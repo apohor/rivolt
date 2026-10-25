@@ -30,15 +30,26 @@ func termsRequired(t db.Terms) bool {
 	return !accepted && !t.CreatedAt.IsZero() && !t.CreatedAt.Before(termsEffectiveAt)
 }
 
-// termsView is the "terms" object of /api/me and the accept response.
-func termsView(ctx context.Context, d *sql.DB, uid uuid.UUID) map[string]any {
+// termsState is the "terms" object of /api/auth/me and the accept response. The Go type is the producer contract: the web and
+// the app decode the same shape from a shared fixture (contract_test.go).
+type termsState struct {
+	Current    string  `json:"current"`
+	Accepted   *string `json:"accepted"` // null until a version is accepted
+	AcceptedAt *string `json:"accepted_at"`
+	Required   bool    `json:"required"`
+}
+
+// termsView is the termsState of a user.
+func termsView(ctx context.Context, d *sql.DB, uid uuid.UUID) termsState {
 	t, _ := db.TermsFor(ctx, d, uid)
-	out := map[string]any{"current": currentTermsVersion, "accepted": nil, "accepted_at": nil, "required": termsRequired(t)}
+	out := termsState{Current: currentTermsVersion, Required: termsRequired(t)}
 	if t.Version != nil {
-		out["accepted"] = *t.Version
+		v := *t.Version
+		out.Accepted = &v
 	}
 	if t.At != nil {
-		out["accepted_at"] = t.At.UTC().Format(time.RFC3339)
+		at := t.At.UTC().Format(time.RFC3339)
+		out.AcceptedAt = &at
 	}
 	return out
 }

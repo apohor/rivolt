@@ -112,13 +112,13 @@ func handleUnitsPatch(store *settings.Store) http.HandlerFunc {
 
 // unitsFor is the resolver for the `units` object of GET /api/auth/me: nil without a settings store (the object is then left
 // out), and the placeholder defaults if the read fails (it is logged by the units route, not here).
-func (d Deps) unitsFor() func(ctx context.Context, uid uuid.UUID) any {
+func (d Deps) unitsFor() func(ctx context.Context, uid uuid.UUID) *settings.Units {
 	if d.Settings == nil {
 		return nil
 	}
-	return func(ctx context.Context, uid uuid.UUID) any {
+	return func(ctx context.Context, uid uuid.UUID) *settings.Units {
 		u, _ := settings.GetUnits(ctx, d.Settings.For(uid))
-		return u
+		return &u
 	}
 }
 

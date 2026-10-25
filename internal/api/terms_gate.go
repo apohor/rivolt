@@ -23,6 +23,12 @@ import (
 // does not gate the view either: the admin has accepted nothing for them), and neither is the public demo user.
 const termsRequiredError = "terms_required"
 
+// termsRequiredBody is the 403 answer: {"error": "terms_required", "current": "<version>"}.
+type termsRequiredBody struct {
+	Error   string `json:"error"`
+	Current string `json:"current"`
+}
+
 // termsGateExempt are the routes a user who has not accepted the Terms can still call.
 func termsGateExempt(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
@@ -65,7 +71,7 @@ func requireTermsMW(lookup termsLookup) func(http.Handler) http.Handler {
 				return
 			}
 			if termsRequired(t) {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": termsRequiredError, "current": currentTermsVersion})
+				writeJSON(w, http.StatusForbidden, termsRequiredBody{Error: termsRequiredError, Current: currentTermsVersion})
 				return
 			}
 			mu.Lock()

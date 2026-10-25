@@ -16,21 +16,34 @@ import (
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/vehiclelease"
 )
 
-// The iOS app decodes these server responses from fixtures in
-// ios/RivoltTests/Fixtures (its unit tests run them through the real
-// decoder). Decoding the same files strictly into the server's own types
-// means a renamed or removed field the app reads fails here, in Go CI, before
-// it reaches a phone. Adding a field doesn't: the app ignores unknown keys.
-func TestIOSFixturesMatchServerTypes(t *testing.T) {
-	for name, target := range map[string]any{
+// iosFixtureTargets maps each fixture in ios/RivoltTests/Fixtures to the server type it must decode into. The set is the
+// server side of the contract: TestEveryIOSFixtureIsChecked fails for a fixture that is in neither this map nor
+// fixturesCheckedElsewhere, so a new fixture cannot skip the check.
+func iosFixtureTargets() map[string]any {
+	return map[string]any{
 		"now_v1.json":         &nowResponse{},
 		"now_v1_minimal.json": &nowResponse{},
 		"state.json":          &rivian.State{},
-		"vehicles.json":       &[]rivian.Vehicle{},
-		"app_token.json":      &appTokenResponse{},
+		// Captures of what prod sent, kept for the app's tolerance tests.
+		"now_prod_shape.json":   &nowResponse{},
+		"state_prod_shape.json": &rivian.State{},
+		"vehicles.json":         &[]rivian.Vehicle{},
+		"app_token.json":        &appTokenResponse{},
+		// Sprint 11: who you are (with the Terms state and the account's units), and the answers the clients read as states.
+		"me.json":                     &meResponse{},
+		"me_unaccepted.json":          &meResponse{},
+		"me_signed_out.json":          &meSignedOut{},
+		"error_terms_required.json":   &termsRequiredBody{},
+		"error_not_connected.json":    &notConnectedBody{},
+		"error_app_refused.json":      &errorBody{},
+		"settings_units.json":         &settings.Units{},
+		"settings_charging.json":      &settings.ChargingConfig{},
+		"settings_home_location.json": &homeLocationResponse{},
+		"app_config.json":             &appConfigResponse{},
 		// Slice B (the Home charts): the idle-awake bars, as the web's tile reads them.
 		"sleep_activity.json": &[]samples.DayActivity{},
 		// The miles-per-day and charge-level charts. The handler's response is an
@@ -84,7 +97,16 @@ func TestIOSFixturesMatchServerTypes(t *testing.T) {
 		"charge_clusters.json": &[]chargeClusterResponse{},
 		// Money's "To confirm" list: the open auto-detected networks, without coordinates.
 		"charges_to_confirm.json": &[]toConfirmCharge{},
-	} {
+	}
+}
+
+// The iOS app decodes these server responses from fixtures in
+// ios/RivoltTests/Fixtures (its unit tests run them through the real
+// decoder). Decoding the same files strictly into the server's own types
+// means a renamed or removed field the app reads fails here, in Go CI, before
+// it reaches a phone. Adding a field doesn't: the app ignores unknown keys.
+func TestIOSFixturesMatchServerTypes(t *testing.T) {
+	for name, target := range iosFixtureTargets() {
 		t.Run(name, func(t *testing.T) {
 			b, err := os.ReadFile(filepath.Join("..", "..", "ios", "RivoltTests", "Fixtures", name))
 			if err != nil {

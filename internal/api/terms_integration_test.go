@@ -35,13 +35,13 @@ func TestTermsAcceptEndToEnd(t *testing.T) {
 	}
 	// A brand-new account (created after the effective time) is asked;
 	// one created before it is not, and is not backfilled.
-	if v := termsView(ctx, pool, uid); v["accepted"] != nil || v["accepted_at"] != nil || v["current"] != currentTermsVersion || v["required"] != true {
+	if v := termsView(ctx, pool, uid); v.Accepted != nil || v.AcceptedAt != nil || v.Current != currentTermsVersion || !v.Required {
 		t.Fatalf("before accepting: %v", v)
 	}
 	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, uid, termsEffectiveAt.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if v := termsView(ctx, pool, uid); v["required"] != false || v["accepted"] != nil {
+	if v := termsView(ctx, pool, uid); v.Required || v.Accepted != nil {
 		t.Fatalf("an existing account must not be gated or backfilled: %v", v)
 	}
 	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, uid, termsEffectiveAt.Add(time.Hour)); err != nil {
@@ -58,7 +58,7 @@ func TestTermsAcceptEndToEnd(t *testing.T) {
 	if code != 409 {
 		t.Fatalf("stale version = %d, want 409", code)
 	}
-	if v := termsView(ctx, pool, uid); v["accepted"] != nil {
+	if v := termsView(ctx, pool, uid); v.Accepted != nil {
 		t.Fatalf("a refused accept was recorded: %v", v)
 	}
 	code, body := accept(currentTermsVersion)
@@ -76,7 +76,7 @@ func TestTermsAcceptEndToEnd(t *testing.T) {
 	if err := db.AcceptTerms(ctx, pool, uid, "2027-01-01"); err != nil {
 		t.Fatal(err)
 	}
-	if v := termsView(ctx, pool, uid); v["accepted"] != "2027-01-01" || v["accepted_at"] == first["accepted_at"] {
+	if v := termsView(ctx, pool, uid); v.Accepted == nil || *v.Accepted != "2027-01-01" || v.AcceptedAt == nil || *v.AcceptedAt == first["accepted_at"] {
 		t.Errorf("new version not recorded: %v", v)
 	}
 	terms, err := db.TermsFor(ctx, pool, uid)
