@@ -526,3 +526,34 @@ struct ChargersAlong: Decodable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case chargers }
 }
+
+/// `GET /api/demo/trips`: the sample trips the demo offers as read-only examples (the web's /sample-trips), each with the figures its
+/// card shows and the shape of its route. Static on the server: no planner call, nothing stored.
+struct DemoTripPreset: Decodable, Equatable, Identifiable {
+    struct Summary: Decodable, Equatable {
+        var distanceMi: Double?
+        var durationMin: Double?
+        var chargeStops: Int?
+        var arrivalSocPct: Double?
+    }
+
+    var id: String
+    var name: String
+    var inputs: JSONValue?
+    var summary: Summary?
+    /// The route's shape (encoded, precision 6), so the map follows the roads with no routing call.
+    var routePolyline: String?
+}
+
+struct DemoTrips: Decodable, Equatable {
+    var trips: [DemoTripPreset] = []
+
+    init(trips: [DemoTripPreset] = []) { self.trips = trips }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        trips = (try? c.decode([DemoTripPreset].self, forKey: .trips)) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey { case trips }
+}

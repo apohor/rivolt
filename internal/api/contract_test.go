@@ -28,6 +28,9 @@ var fixturesCheckedElsewhere = map[string]string{
 	"err_upstream_transient.json":    "an error answer generated from writeUpstreamError, checked in trip_fixtures_test.go",
 	"err_upstream_rate_limited.json": "an error answer generated from writeUpstreamError, checked in trip_fixtures_test.go",
 	"err_no_position.json":           "an error answer generated from noPosition, checked in trip_fixtures_test.go",
+	"demo_trips.json":                "the demo's sample trip list, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
+	"demo_trip_plan_single.json":     "a demo sample trip's stored plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
+	"demo_trip_plan_two_days.json":   "a demo sample trip's stored two-day plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
 }
 
 func fixtureNames(t *testing.T) []string {

@@ -7,6 +7,7 @@ struct TripPlanView: View {
     @Environment(AppState.self) private var state
     @State private var model = TripPlanModel()
     @State private var saved = SavedTripsModel()
+    @State private var demoTrips = DemoTripsModel()
     @State private var picking: Picking?
 
     enum Picking: Identifiable {
@@ -19,11 +20,17 @@ struct TripPlanView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4 * Theme.unit) {
-                        TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
-                        TripPlanResult(model: model, metric: NowFormat.usesMetric)
-                        if model.plan != nil { SaveTripSection(model: model, saved: saved) }
-                        if let active = saved.active { PlanVsActualSection(saved: active) }
-                        SavedTripsList(model: model, saved: saved)
+                        if state.isDemo {
+                            // The demo plans nothing and saves nothing: it shows the sample trips, as the web's /sample-trips does.
+                            DemoTripsList(model: demoTrips, plan: model)
+                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                        } else {
+                            TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
+                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                            if model.plan != nil { SaveTripSection(model: model, saved: saved) }
+                            if let active = saved.active { PlanVsActualSection(saved: active) }
+                            SavedTripsList(model: model, saved: saved)
+                        }
                     }
                     .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
                 }
@@ -46,6 +53,7 @@ struct TripPlanView: View {
                 }
             }
             .task {
+                if state.isDemo { await demoTrips.load(source: state.client); return }
                 let vehicles = (try? await state.client.vehicles()) ?? []
                 await model.loadTruck(source: state.client, vehicles: vehicles)
                 await saved.load(source: state.client)
@@ -109,6 +117,7 @@ struct TripPlanForm: View {
 }
 
 struct TripPlanResult: View {
+    @Environment(AppState.self) private var state
     let model: TripPlanModel
     let metric: Bool
 
@@ -131,7 +140,7 @@ struct TripPlanResult: View {
             LongDriveSection(model: model, metric: metric)
         } else {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 })
-            AlongToggle(model: model)
+            if !state.isDemo { AlongToggle(model: model) }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -146,7 +155,7 @@ struct TripPlanResult: View {
                     Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if TripPlanLogic.isLongDrive(route) { LongDriveSection(model: model, metric: metric) }
+            if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }
             ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
                 StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
@@ -273,7 +282,7 @@ struct LongDriveSection: View {
             }
         case .planned(let trip):
             MultidaySections(trip: trip, metric: metric, model: model)
-            Button("Back to one day") { model.clearNight() }.buttonStyle(ThemeSecondaryButtonStyle())
+            if !state.isDemo { Button("Back to one day") { model.clearNight() }.buttonStyle(ThemeSecondaryButtonStyle()) }
         }
     }
 }
@@ -590,6 +599,43 @@ struct AlongToggle: View {
                 }
                 if let picked = model.pickedCharger { Text(TripPlanLogic.alongLine(picked)).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
             }
+        }
+    }
+}
+
+/// The demo's sample trips: tap one to open it, read only. Its plan is the one stored on the server; nothing is planned or saved.
+struct DemoTripsList: View {
+    @Environment(AppState.self) private var state
+    let model: DemoTripsModel
+    let plan: TripPlanModel
+
+    var body: some View {
+        ThemeSection(title: "Sample trips") {
+            Text("Examples to open. In the demo nothing is planned or saved.").themeText(.subline, color: Theme.textSecondary)
+            switch model.phase {
+            case .loading:
+                HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Loading…").themeText(.value, color: Theme.textSecondary) }
+            case .failed(let words):
+                Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                Button("Try again") { Task { await model.load(source: state.client) } }.buttonStyle(ThemeSecondaryButtonStyle())
+            case .loaded(let presets):
+                ForEach(Array(presets.enumerated()), id: \.element.id) { _, preset in
+                    Divider().overlay(Theme.border)
+                    Button { Task { await model.open(preset, source: state.client, on: plan) } } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(preset.name).themeText(.value, color: model.openedID == preset.id ? Theme.accent : Theme.textPrimary)
+                                .multilineTextAlignment(.leading)
+                            Text(DemoTripLogic.summary(preset.summary, metric: NowFormat.usesMetric)).themeText(.subline, color: Theme.textSecondary)
+                                .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.opening != nil)
+                    .overlay(alignment: .trailing) { if model.opening == preset.id { ProgressView().tint(Theme.textSecondary) } }
+                }
+            }
+            if let m = model.message { Text(m).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
         }
     }
 }
