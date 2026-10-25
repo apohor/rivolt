@@ -2554,6 +2554,7 @@ func runServer() {
 		// them off; the admin deployment never serves them.
 		Changelog:        changelogSource(adminOnlyMode),
 		ValhallaProxy:    valhallaProxy,
+		Valhalla:         maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")), // the server calls it itself (overnight search); nil without the URL
 		TilesProxy:       tilesProxy,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,

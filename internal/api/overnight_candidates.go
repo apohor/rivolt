@@ -40,6 +40,9 @@ type overnightResponse struct {
 	// needs: the dataset and the licence.
 	AttributionSourceURL  string `json:"attribution_source_url,omitempty"`
 	AttributionLicenseURL string `json:"attribution_license_url,omitempty"`
+	// PathSnapped is true when the request's path had straight stretches over 30 km and they were replaced by the road between their ends,
+	// so the day-end point and the corridor are on the road (a planner's waypoints are far apart).
+	PathSnapped bool `json:"path_snapped,omitempty"`
 }
 
 // handleOvernightCandidates serves POST /api/trips/overnight-candidates: up to
@@ -47,13 +50,13 @@ type overnightResponse struct {
 // runs out. It reads only the charger archive (no Rivian call) and never
 // commits anything: the user picks. The list is a snapshot of a public
 // listing, not availability, and says so.
-func handleOvernightCandidates(a *chargers.Archive) http.HandlerFunc {
+func handleOvernightCandidates(a *chargers.Archive, router pathRouter) http.HandlerFunc {
 	if a == nil {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			jsonError(w, http.StatusNotFound, "overnight suggestions are not available here")
 		}
 	}
-	return overnightHandler(a, func(ctx context.Context) error {
+	return overnightHandlerWith(a, router, func(ctx context.Context) error {
 		// Lazy load if the startup warm failed, as chargers-along does.
 		if !a.LoadedAt().IsZero() {
 			return nil
@@ -64,14 +67,22 @@ func handleOvernightCandidates(a *chargers.Archive) http.HandlerFunc {
 	})
 }
 
-// overnightHandler is the handler over any archive; ensure loads it if needed.
+// overnightHandler is the handler over any archive, with no router to put a sparse path on the road; ensure loads the archive if needed.
 func overnightHandler(arch overnight.Archive, ensure func(context.Context) error) http.HandlerFunc {
+	return overnightHandlerWith(arch, nil, ensure)
+}
+
+// overnightHandlerWith is overnightHandler with a router (our own Valhalla; nil leaves a sparse path as it came).
+func overnightHandlerWith(arch overnight.Archive, router pathRouter, ensure func(context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req overnightRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, routeBodyMax)).Decode(&req); err != nil {
 			jsonError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 			return
 		}
+		// A path of a few waypoints has chords that leave the road: put them on it before measuring where the day ends.
+		var snapped bool
+		req.Path, snapped = densifyPath(r.Context(), router, req.Path)
 		// A long drive's polyline can have more points than a suggestion needs; thin it, as chargers-along does.
 		if len(req.Path) > overnight.MaxPathPoints && len(req.Path) <= chargers.MaxRoutePoints {
 			req.Path = chargers.ThinPath(req.Path, overnight.MaxPathPoints)
@@ -92,7 +103,7 @@ func overnightHandler(arch overnight.Archive, ensure func(context.Context) error
 			jsonError(w, http.StatusInternalServerError, "could not look up hotels")
 			return
 		}
-		out := overnightResponse{Result: res, Source: "NREL charging-station listing (a snapshot; availability is not checked)"}
+		out := overnightResponse{Result: res, PathSnapped: snapped, Source: "NREL charging-station listing (a snapshot; availability is not checked)"}
 		for _, c := range res.Candidates {
 			if c.Attribution != "" {
 				out.Source = "NREL charging-station listing and Recreation.gov campgrounds (a snapshot; availability is not checked)"
