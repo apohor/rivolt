@@ -76,7 +76,8 @@ func TestEveryIOSFixtureIsChecked(t *testing.T) {
 // The lists are deliberate; changing one needs the devils-advocate's ack.
 var (
 	// The activity feed carries no places: "no coordinates, no place name". Its `place` key is the home/away CLASS ("home",
-	// "away" or ""), not a name, so it is allowed and its values are pinned instead (activityPlaceClasses).
+	// "away" or ""), not a name, so it is allowed and its values are pinned instead (activityPlaceClasses). A change that lets `place`
+	// carry a name (or widens the pinned set) needs the devils-advocate's approval.
 	activityNeverKeys    = []string{"lat", "lon", "latitude", "longitude", "address", "place_name", "city", "street"}
 	activityPlaceClasses = map[string]bool{"home": true, "away": true, "": true}
 	// What the anonymous demo serves, and /api/app/config, carries nothing about a person or a session.
