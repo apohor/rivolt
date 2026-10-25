@@ -22,6 +22,7 @@ struct TripPlanView: View {
                         TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
                         TripPlanResult(model: model, metric: NowFormat.usesMetric)
                         if model.plan != nil { SaveTripSection(model: model, saved: saved) }
+                        if let active = saved.active { PlanVsActualSection(saved: active) }
                         SavedTripsList(model: model, saved: saved)
                     }
                     .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
@@ -378,5 +379,95 @@ struct SavedTripsList: View {
         message = nil
         model.open(r)
         saved.opened(trip)
+    }
+}
+
+/// How the saved trip on screen compared with the outing that was driven: a suggestion to confirm, or the figures once a drive is
+/// linked. Figures only where the server gave one; an unfinished trip isn't compared.
+struct PlanVsActualSection: View {
+    @Environment(AppState.self) private var state
+    let saved: SavedTrip
+    @State private var model = PlanVsActualModel()
+
+    var body: some View {
+        ThemeSection(title: "Plan vs actual") {
+            switch model.phase {
+            case .idle, .loading:
+                HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Looking…").themeText(.value, color: Theme.textSecondary) }
+            case .failed(let words):
+                Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                Button("Try again") { Task { await model.load(source: state.client, savedID: saved.id) } }.buttonStyle(ThemeSecondaryButtonStyle())
+            case .loaded(let parts):
+                ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
+                    if i > 0 { Divider().overlay(Theme.border) }
+                    if parts.count > 1 { Text("Day \(part.day ?? i + 1)").themeText(.title, color: Theme.textPrimary) }
+                    PlanVsActualPart(part: part, busy: model.busy) { tripID, link in
+                        Task {
+                            if link { await model.link(source: state.client, savedID: saved.id, tripID: tripID, day: parts.count > 1 ? part.day : nil) }
+                            else { await model.unlink(source: state.client, savedID: saved.id, tripID: tripID, day: parts.count > 1 ? part.day : nil) }
+                        }
+                    }
+                }
+            }
+            if let m = model.message { Text(m).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
+        }
+        .task(id: saved.id) { await model.load(source: state.client, savedID: saved.id) }
+    }
+}
+
+struct PlanVsActualPart: View {
+    let part: PlanVsActual
+    let busy: Bool
+    /// (the outing's id, true to link or false to unlink)
+    let act: (String, Bool) -> Void
+
+    var body: some View {
+        let top = part.candidates?.first
+        switch PlanVsActualLogic.state(part) {
+        case .none:
+            Text("We'll compare once you've driven it.").themeText(.value, color: Theme.textSecondary)
+        case .linkLost:
+            Text("We can't find the trip you linked any more.").themeText(.value, color: Theme.textSecondary)
+            if let id = part.link?.tripId { Button("Unlink") { act(id, false) }.buttonStyle(ThemeSecondaryButtonStyle()).disabled(busy) }
+        case .inProgress:
+            Text("Trip in progress. We'll compare when you're home.").themeText(.value, color: Theme.textSecondary)
+        case .suggested:
+            Text(PlanVsActualLogic.question(top)).themeText(.value, color: Theme.textPrimary)
+            if let c = part.comparison { Figures(comparison: c, candidateMiles: top?.miles) }
+            if let id = top?.tripId {
+                Button("Confirm") { act(id, true) }.buttonStyle(ThemeSecondaryButtonStyle()).disabled(busy)
+                Button("Not this trip") { act(id, false) }.buttonStyle(ThemeSecondaryButtonStyle()).disabled(busy)
+            }
+        case .linkedFull, .linkedPartial:
+            if let c = part.comparison { Figures(comparison: c, candidateMiles: nil) }
+            if part.link?.linkStale == true {
+                Text("This match was re-found after your data changed; check it still looks right.").themeText(.subline, color: Theme.textSecondary)
+            }
+            if let id = part.link?.tripId { Button("Not this trip? Unlink") { act(id, false) }.buttonStyle(ThemeSecondaryButtonStyle()).disabled(busy) }
+        }
+    }
+}
+
+private struct Figures: View {
+    let comparison: PlanVsActual.Comparison
+    let candidateMiles: Double?
+
+    var body: some View {
+        if let header = PlanVsActualLogic.costHeader(comparison) { Text(header).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
+        Text(PlanVsActualLogic.driven(comparison, candidateMiles: candidateMiles)).themeText(.subline, color: Theme.textSecondary)
+        ForEach(Array(PlanVsActualLogic.rows(comparison).enumerated()), id: \.offset) { _, row in
+            Divider().overlay(Theme.border)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.label).themeText(.value, color: Theme.textPrimary)
+                if let incomplete = row.incomplete {
+                    Text("Not final yet. \(incomplete).").themeText(.subline, color: Theme.estimate)
+                }
+                let line = [row.planned.map { "Planned \($0)" }, row.actual.map { "actual \($0)\(row.estimated ? " (estimated)" : "")" }, row.delta]
+                    .compactMap { $0 }.joined(separator: " · ")
+                if !line.isEmpty { Text(line).themeText(.subline, color: row.watch ? Theme.estimate : Theme.textSecondary) }
+                ForEach(row.reasons, id: \.self) { Text($0).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 }
