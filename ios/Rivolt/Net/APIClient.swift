@@ -476,6 +476,21 @@ actor APIClient {
         try await request("PUT", "/api/trips/saved/\(pathID(id))", body: body)
     }
 
+    /// A saved trip against the outing that was driven (one comparison, or one per day).
+    func planVsActual(savedID: String) async throws -> PlanVsActualAnswer {
+        try await request("GET", "/api/trips/saved/\(pathID(savedID))/actual")
+    }
+
+    /// Says a drive was this saved trip (`day` for a multi-day trip's day).
+    func linkPlanVsActual(savedID: String, _ body: PlanVsActualLinkBody) async throws {
+        let _: PlanVsActual = try await request("POST", "/api/trips/saved/\(pathID(savedID))/link", body: body)
+    }
+
+    /// Says a suggested or linked drive was not this saved trip.
+    func unlinkPlanVsActual(savedID: String, _ body: PlanVsActualLinkBody) async throws {
+        let _: PlanVsActual = try await request("POST", "/api/trips/saved/\(pathID(savedID))/unlink", body: body)
+    }
+
     // MARK: Essential settings
 
     func homeLocation() async throws -> HomeLocation {
