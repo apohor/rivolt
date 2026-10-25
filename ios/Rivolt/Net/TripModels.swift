@@ -21,9 +21,11 @@ struct TripPlan: Decodable, Equatable {
     var soCBelowLimit: Bool?
     var routes: [TripRoute] = []
     var costs: [TripCost]? = nil
+    /// The destination's IANA zone ("America/Denver"); absent when the coordinates name none, and on plans from before it existed.
+    var destinationTz: String?
 
     enum CodingKeys: String, CodingKey {
-        case status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
+        case destinationTz, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +35,7 @@ struct TripPlan: Decodable, Equatable {
         soCBelowLimit = try? c.decode(Bool.self, forKey: .soCBelowLimit)
         routes = (try? c.decode([TripRoute].self, forKey: .routes)) ?? []
         costs = try? c.decode([TripCost].self, forKey: .costs)
+        destinationTz = try? c.decode(String.self, forKey: .destinationTz)
     }
 
     /// The route the planner recommends.
@@ -183,12 +186,16 @@ struct TripMultiday: Decodable, Equatable {
         var destinationReached: Bool?
         var socBelowLimit: Bool?
         var overnight: Overnight?
+        /// The IANA zone where this day ends.
+        var endTz: String?
         var id: Int { index }
     }
 
     var days: [Day] = []
     var total: Total?
     var tz: String?
+    /// The final destination's IANA zone.
+    var destinationTz: String?
     /// 1-based; set when a day could not be planned. `error` is the server's sentence for the person, `errorClass` its kind.
     var failedDay: Int?
     var error: String?

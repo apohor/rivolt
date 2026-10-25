@@ -8,27 +8,43 @@ enum TripPlanLogic {
     /// A distance in metres in the account's unit, whole and (from 60 mi / 100 km) rounded as the web's, so a route's length never gives a position away.
     static func distance(meters: Double, metric: Bool) -> String { MoneyLogic.distance(km: meters / 1000, metric: metric) }
 
-    /// "Arrive 3:20 PM" at the last waypoint, or nil when the plan has no times. When the arrival is not on the day of departure it
-    /// names the day: "Sat 2:45 AM", or "Oct 31, 2:45 AM" from a week out. Times are in `timeZone` (the phone's; the plan does not
-    /// say which zone the destination is in).
-    static func arrival(_ route: TripRoute, departure: Date? = nil, timeZone: TimeZone = .current) -> String? {
+    /// "Arrive 3:20 PM" at the last waypoint, or nil when the plan has no times. The time is the destination's own clock (`timeZone`,
+    /// the plan's `destination_tz`; the phone's when the plan names none), with the zone said ("MDT") when it is not the phone's.
+    /// When the arrival is not on the day of departure it names the day: "Sat 2:45 AM", or "Oct 31, 2:45 AM" from a week out.
+    static func arrival(_ route: TripRoute, departure: Date? = nil, timeZone: TimeZone = .current, phoneZone: TimeZone = .current) -> String? {
         guard let at = route.waypoints.last?.arrivalTimeUTC?.date else { return nil }
-        return when(at, since: departure ?? route.waypoints.first?.departureTimeUTC?.date, timeZone: timeZone)
+        return when(at, since: departure ?? route.waypoints.first?.departureTimeUTC?.date, timeZone: timeZone, sinceZone: phoneZone, labelAgainst: phoneZone)
     }
 
-    /// A time of day, with the day in front when it is not the day of `since`.
-    static func when(_ at: Date, since: Date?, timeZone: TimeZone = .current) -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = timeZone
-        guard let since, !cal.isDate(at, inSameDayAs: since) else {
-            return at.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+    /// A zone from a plan's IANA name; nil when it names none or an unknown one (the caller then keeps the phone's).
+    static func zone(_ name: String?) -> TimeZone? { name.flatMap { $0.isEmpty ? nil : TimeZone(identifier: $0) } }
+
+    /// A time of day in `timeZone`, with the day in front when it is not the day of `since` (read in `sinceZone`), and the zone's
+    /// abbreviation after it when `labelAgainst` is given and its clock differs.
+    static func when(_ at: Date, since: Date?, timeZone: TimeZone = .current, sinceZone: TimeZone? = nil, labelAgainst: TimeZone? = nil) -> String {
+        func parts(_ d: Date, _ z: TimeZone) -> DateComponents {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = z
+            return cal.dateComponents([.year, .month, .day], from: d)
         }
-        let days = cal.dateComponents([.day], from: cal.startOfDay(for: since), to: cal.startOfDay(for: at)).day ?? 0
-        let time = at.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
-        if days > 0 && days < 7 {
-            return "\(at.formatted(Date.FormatStyle(timeZone: timeZone).weekday(.abbreviated))) \(time)"
+        var text = at.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+        if let since {
+            let a = parts(at, timeZone), b = parts(since, sinceZone ?? timeZone)
+            if a != b {
+                var utc = Calendar(identifier: .gregorian)
+                utc.timeZone = TimeZone(identifier: "UTC")!
+                let days = utc.dateComponents([.day], from: utc.date(from: b)!, to: utc.date(from: a)!).day ?? 0
+                if days > 0 && days < 7 {
+                    text = "\(at.formatted(Date.FormatStyle(timeZone: timeZone).weekday(.abbreviated))) \(text)"
+                } else {
+                    text = "\(at.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day())), \(text)"
+                }
+            }
         }
-        return "\(at.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day())), \(time)"
+        if let other = labelAgainst, other.secondsFromGMT(for: at) != timeZone.secondsFromGMT(for: at), let abbr = timeZone.abbreviation(for: at) {
+            text += " \(abbr)"
+        }
+        return text
     }
 
     /// The charge to arrive with that the planner is asked for, as on the web.
@@ -79,11 +95,15 @@ enum TripPlanLogic {
             maxOvernightSocPct: 80)
     }
 
-    /// "Leave 8:43 AM · arrive 5:10 PM at about 18%" for one day.
-    static func dayLine(_ day: TripMultiday.Day, since: Date?, timeZone: TimeZone = .current) -> String {
+    /// "Leave 8:43 AM · arrive 5:10 PM at about 18%" for one day. The day leaves on the clock of `departZone` and arrives on the
+    /// clock of `arriveZone` (the day's `end_tz`); a zone that is not the phone's is named.
+    static func dayLine(_ day: TripMultiday.Day, since: Date?, departZone: TimeZone = .current, arriveZone: TimeZone = .current,
+                        phoneZone: TimeZone = .current) -> String {
         var parts: [String] = []
-        if let d = day.departAt?.date { parts.append("Leave \(when(d, since: since, timeZone: timeZone))") }
-        if let a = day.arriveAt?.date { parts.append("arrive \(when(a, since: day.departAt?.date, timeZone: timeZone))") }
+        if let d = day.departAt?.date { parts.append("Leave \(when(d, since: since, timeZone: departZone, sinceZone: phoneZone, labelAgainst: phoneZone))") }
+        if let a = day.arriveAt?.date {
+            parts.append("arrive \(when(a, since: day.departAt?.date, timeZone: arriveZone, sinceZone: departZone, labelAgainst: phoneZone))")
+        }
         var line = parts.joined(separator: " · ")
         if let soc = day.arrivalSoc { line += "\(line.isEmpty ? "A" : " a")t about \(Int(soc.rounded()))%" }
         return line

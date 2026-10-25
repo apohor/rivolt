@@ -127,7 +127,7 @@ struct TripPlanResult: View {
         } else {
             PlanRouteMap(route: route) { model.focusedStop = $0 }
             ThemeSection(title: "The plan") {
-                if let arrive = TripPlanLogic.arrival(route) {
+                if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
                 }
                 Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
@@ -273,7 +273,10 @@ struct MultidaySections: View {
         PlanDaysMap(days: trip.days)
         ForEach(trip.days) { day in
             ThemeSection(title: "Day \(day.index)") {
-                let line = TripPlanLogic.dayLine(day, since: trip.days.first?.departAt?.date)
+                let previous = trip.days.first { $0.index == day.index - 1 }
+                let line = TripPlanLogic.dayLine(
+                    day, since: trip.days.first?.departAt?.date,
+                    departZone: TripPlanLogic.zone(previous?.endTz) ?? .current, arriveZone: TripPlanLogic.zone(day.endTz) ?? .current)
                 if !line.isEmpty { Text(line).themeText(.title, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
                 if let route = day.plan.best {
                     Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
