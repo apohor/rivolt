@@ -2468,6 +2468,11 @@ func runServer() {
 				ref, ok := auth.SessionFromContext(r.Context())
 				return ref.ID, ok
 			},
+			// Revoking sessions must also forget Hydra's remembered logins, or the browser signs straight back in (DA, Oct 25).
+			Remembered: &api.IdentityRevoker{
+				Hydra: hydraClient, Kratos: kratosClient,
+				Username: func(ctx context.Context, uid uuid.UUID) (string, error) { return db.RawUsernameByID(ctx, pgPool, uid) }, // system pool
+			},
 		}
 	}
 	handler := api.New(api.Deps{

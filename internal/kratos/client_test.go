@@ -190,3 +190,31 @@ func TestIdentity_EmailVerified(t *testing.T) {
 		t.Fatal("a different verified address must not verify the trait email")
 	}
 }
+
+func TestRevokeIdentitySessions(t *testing.T) {
+	var got string
+	status := http.StatusNoContent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Method + " " + r.URL.Path
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RevokeIdentitySessions(context.Background(), "id-1"); err != nil || got != "DELETE /admin/identities/id-1/sessions" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	status = http.StatusNotFound
+	if err := c.RevokeIdentitySessions(context.Background(), "id-1"); err != nil {
+		t.Errorf("a gone identity is success: %v", err)
+	}
+	status = http.StatusInternalServerError
+	if err := c.RevokeIdentitySessions(context.Background(), "id-1"); err == nil {
+		t.Error("a 500 must be an error")
+	}
+	if err := c.RevokeIdentitySessions(context.Background(), ""); err == nil {
+		t.Error("an empty id must be refused")
+	}
+}

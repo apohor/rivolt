@@ -122,3 +122,40 @@ func TestErrorBubblesUp(t *testing.T) {
 		t.Errorf("expected error on 5xx")
 	}
 }
+
+// The two revocations Hydra needs so a revoked user is not signed straight back in from a remembered login.
+func TestRevokeLoginAndConsentSessions(t *testing.T) {
+	var got []string
+	status := http.StatusNoContent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := c.RevokeLoginSessions(ctx, "sub-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RevokeConsentSessions(ctx, "sub-1"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"DELETE /admin/oauth2/auth/sessions/login?subject=sub-1", "DELETE /admin/oauth2/auth/sessions/consent?all=true&subject=sub-1"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("requests %v, want %v", got, want)
+	}
+	status = http.StatusNotFound // nothing remembered is success
+	if err := c.RevokeLoginSessions(ctx, "sub-2"); err != nil {
+		t.Errorf("404: %v", err)
+	}
+	status = http.StatusInternalServerError
+	if err := c.RevokeLoginSessions(ctx, "sub-2"); err == nil {
+		t.Error("a 500 must be an error: the revoke did not happen")
+	}
+	if err := c.RevokeLoginSessions(ctx, " "); err == nil {
+		t.Error("an empty subject must be refused, not sent (Hydra would read it as no filter)")
+	}
+}

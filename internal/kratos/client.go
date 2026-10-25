@@ -417,3 +417,27 @@ func truncate(b []byte, n int) string {
 	}
 	return string(b[:n]) + "…"
 }
+
+// RevokeIdentitySessions deletes every Kratos session of the identity (DELETE /admin/identities/{id}/sessions), including the ones
+// LoginByPassword itself creates. Idempotent: an identity with none, or one that is gone, is success.
+func (c *Client) RevokeIdentitySessions(ctx context.Context, id string) error {
+	if !c.Enabled() {
+		return errors.New("kratos: client not configured")
+	}
+	if strings.TrimSpace(id) == "" {
+		return errors.New("kratos: id is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.cfg.AdminURL+"/admin/identities/"+url.PathEscape(id)+"/sessions", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("kratos revoke sessions: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		return nil
+	}
+	return apiError("revoke identity sessions", resp)
+}

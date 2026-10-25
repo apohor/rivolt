@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/sessions"
 )
 
@@ -29,6 +31,23 @@ type SessionsAPI struct {
 	// "current" is not marked and sign-out-everywhere-else is refused, since it
 	// could not tell which session to keep.
 	Current func(r *http.Request) (uuid.UUID, bool)
+	// Remembered, when set, also forgets the identity provider's remembered logins after a revoke, so a revoked browser cannot
+	// sign straight back in with no password (see RememberedRevoker). nil: nothing is remembered outside Rivolt (no Hydra).
+	Remembered RememberedRevoker
+}
+
+// forget clears what the identity provider remembers after Rivolt's own sessions were revoked. A failure is reported, not
+// swallowed: the sessions are gone but the browser could still sign back in, and retrying is safe (every step is idempotent).
+func (a *SessionsAPI) forget(w http.ResponseWriter, r *http.Request, uid uuid.UUID) bool {
+	if a.Remembered == nil {
+		return true
+	}
+	if err := a.Remembered.RevokeRemembered(r.Context(), uid); err != nil {
+		slog.WarnContext(r.Context(), "sessions: could not clear the identity provider's remembered sign-in", "err", logging.ScrubErr(err))
+		http.Error(w, "signed out of Rivolt, but the sign-in memory could not be cleared; try again", http.StatusBadGateway)
+		return false
+	}
+	return true
 }
 
 type sessionJSON struct {
@@ -109,6 +128,9 @@ func (a *SessionsAPI) Revoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !a.forget(w, r, uid) {
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -127,6 +149,9 @@ func (a *SessionsAPI) RevokeOthers(w http.ResponseWriter, r *http.Request) {
 	n, err := a.Store.RevokeOthers(r.Context(), uid, cur)
 	if err != nil {
 		http.Error(w, "couldn't revoke", http.StatusInternalServerError)
+		return
+	}
+	if !a.forget(w, r, uid) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revoked": n})
