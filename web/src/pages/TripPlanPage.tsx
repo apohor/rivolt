@@ -25,6 +25,7 @@ import { SaveTripBar } from "../plan/SaveTripBar";
 import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
+import { withNight } from "../plan/stays";
 
 
 // Preset destinations come from the user's saved favorites
@@ -170,18 +171,16 @@ export default function TripPlanPage() {
   );
   // Makes a place the night of a day: a new stop flagged as an overnight, or the existing stop at
   // that place. A listed charger's power (from a hotel pick) belongs to that night alone.
-  const addOvernightStop = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean }) => {
+  const addOvernightStop = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean; thenVia?: { lat: number; lon: number; label: string } }) => {
     const labeled = { ...relabelIfHome(stop, home) };
     const at = extraStops.findIndex(
       (s) => Math.abs(s.lat - labeled.lat) < 0.0005 && Math.abs(s.lon - labeled.lon) < 0.0005,
     );
-    if (at >= 0) {
-      // Already a stop on the trip: it becomes the night.
-      setOvernightFlags((prev) => extraStops.map((_, j) => (j === at ? true : !!prev[j])));
-    } else {
-      setExtraStops((prev) => [...prev, labeled]);
-      setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
-    }
+    // Already a stop on the trip: it becomes the night. Else a new stop flagged as the night, and the fast charger after a hotel with
+    // no charger as the plain stop the next day starts at.
+    const next = withNight(extraStops, overnightFlags, labeled, stop.thenVia);
+    setExtraStops(next.stops);
+    setOvernightFlags(next.flags);
     // A place of your own starts as a J1772 station at 7.0 kW (you pick the hookup); a listed charger keeps its own power.
     const target = at >= 0 ? extraStops[at] : labeled;
     if (stop.hookup && stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw, hookup: stop.hookup, campground: !!stop.campground }, false);

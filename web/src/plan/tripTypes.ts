@@ -3,7 +3,8 @@ import type { HookupId } from "./hookups";
 
 export type StopAdder = (stop: { lat: number; lon: number; label: string }) => void;
 // An overnight can arrive with the charger power the listing gave (kW).
-export type OvernightAdder = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean }) => void;
+// `thenVia` is a place the next day starts at (the fast charger after a hotel with no charger), added as a plain stop after the night.
+export type OvernightAdder = (stop: { lat: number; lon: number; label: string; l2Kw?: number; hookup?: HookupId; campground?: boolean; thenVia?: { lat: number; lon: number; label: string } }) => void;
 
 // PreviewResult is the deltas the map's "Preview impact" popup uses
 // to show what adding a candidate stop would do BEFORE the user

@@ -5,8 +5,8 @@ import { inDemo } from "../lib/demo";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { rangePerHour } from "../lib/chargeRange";
 import type { OvernightAdder } from "./tripTypes";
-import { StayCard, RidbCredit } from "./StayCard";
-import { CAMP_WARNING, campgroundPageUrl, campPowerLine, hookupForConnector, offTargetLine, outletLabel, searchedLine, sitesLine } from "./stays";
+import { StayCard, RidbCredit, OsmCredit } from "./StayCard";
+import { CAMP_WARNING, campgroundPageUrl, campPowerLine, fastChargerLine, hookupForConnector, nearestLines, offTargetLine, outletLabel, searchedLine, sitesLine } from "./stays";
 
 // A day that drives longer than this gets a suggestion of where to sleep.
 export const SLEEP_AFTER_HOURS = 8;
@@ -29,6 +29,50 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
   const d = q.data;
   if (!d || d.target.reaches_end) return null;
   const aboutIn = formatDistance(d.target.along_m / 1000, distanceUnit);
+  const fallback = d.fallback_stays ?? [];
+  if (d.candidates.length === 0 && fallback.length > 0) {
+    // Hotels with no charger listed (OpenStreetMap): said plainly, with the fast charger the next morning starts at, never styled like a
+    // stay that lists one. Using one makes it the night with no charging, and the charger the first stop of the next day.
+    const fmtKm = (km: number) => formatDistance(km, distanceUnit);
+    return (
+      <section data-overnight-suggestions data-overnight-fallback className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3 text-sm" aria-label={`Where to sleep on day ${day}`}>
+        <h3 className="font-medium text-neutral-100">Where to sleep on day {day}</h3>
+        <p className="mt-0.5 text-xs text-neutral-400">
+          About {aboutIn} in. No hotel with a listed charger is in range. These hotels list no charger: you would sleep without charging and start the next day at a fast charger.
+        </p>
+        <ul className="mt-2 space-y-3">
+          {fallback.map((s) => (
+            <StayCard
+              key={`${s.lat},${s.lon}`}
+              name={s.name}
+              kind="hotel"
+              lines={[s.locality ?? "", <span key="f" data-no-charger className="text-amber-400">{fastChargerLine(s.fast_charger, fmtKm)}</span>]}
+              action={
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUse?.({
+                      lat: s.lat,
+                      lon: s.lon,
+                      label: s.name,
+                      l2Kw: 0,
+                      thenVia: { lat: s.fast_charger.lat, lon: s.fast_charger.lon, label: s.fast_charger.name || "Fast charger" },
+                    })
+                  }
+                  aria-label={`Use ${s.name} as the overnight stop, with no charging`}
+                  className="shrink-0 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
+                >
+                  Use
+                </button>
+              }
+            />
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-neutral-500">Listings only; availability isn&apos;t checked.</p>
+        <OsmCredit attribution={d.attribution} licenceUrl={d.attribution_license_url} sourceUrl={d.attribution_source_url} className="mt-1 text-xs text-neutral-500" />
+      </section>
+    );
+  }
   if (d.candidates.length === 0) {
     return (
       <section data-overnight-suggestions className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3 text-sm" aria-label={`Where to sleep on day ${day}`}>
@@ -36,6 +80,9 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
         <p className="mt-0.5 text-xs text-neutral-400">
           About {aboutIn} in. {searchedLine(d.target, { route_m: d.route_m, drive_sec: route.TotalDriveDurationSec }, SLEEP_AFTER_HOURS, (km) => formatDistance(km, distanceUnit))}
         </p>
+        {nearestLines(d.nearest).map((l) => (
+          <p key={l} className="mt-0.5 text-xs text-neutral-400">{l}</p>
+        ))}
       </section>
     );
   }
