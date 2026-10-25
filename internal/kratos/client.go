@@ -447,7 +447,8 @@ func (c *Client) RevokeIdentitySessions(ctx context.Context, id string) error {
 func GeneratePassword() (string, error) { return generatePassword() }
 
 // RejectedError is Kratos refusing a change as invalid (HTTP 400), most often the password policy: too short, too common,
-// too like the email. Reason is Kratos' own text with the password and the identifier removed.
+// too like the email. Reason is Kratos' own text with the password (as sent, and as JSON escapes it) and the account's email
+// removed, redacted before it is shortened.
 type RejectedError struct{ Reason string }
 
 func (e *RejectedError) Error() string { return "kratos rejected the change: " + e.Reason }
@@ -459,8 +460,10 @@ var identityKeepKeys = []string{"schema_id", "state", "traits", "metadata_public
 
 // SetPassword sets the identity's password (PUT /admin/identities/{id}). It reads the identity first and sends back every field it
 // must keep (schema, state, traits, both metadata blocks, external id) byte for byte, so nothing else changes; only
-// credentials.password.config.password is new. The password is never logged, and is removed from any Kratos error text. Kratos
-// applies its own password policy: a refusal is a *RejectedError.
+// credentials.password.config.password is new. The password is never logged. Kratos applies its own password policy: a refusal is
+// a *RejectedError, whose reason has the password and the email removed; any other failure carries the status only, never the
+// body. The read and the write are two calls, so a concurrent edit of the traits in between would be lost; nothing edits traits
+// concurrently today (the identity is only created, and its password changed here).
 func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error {
 	if !c.Enabled() {
 		return errors.New("kratos: client not configured")
@@ -493,6 +496,13 @@ func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error 
 	if err != nil {
 		return err
 	}
+	var identityEmail string
+	var traits struct {
+		Email string `json:"email"`
+	}
+	if json.Unmarshal(current["traits"], &traits) == nil {
+		identityEmail = traits.Email
+	}
 	body := map[string]any{}
 	for _, k := range identityKeepKeys {
 		if v, ok := current[k]; ok && string(v) != "null" {
@@ -518,16 +528,36 @@ func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	text := strings.ReplaceAll(truncate(raw, 512), newPassword, "<redacted>")
 	if resp.StatusCode == http.StatusBadRequest {
-		return &RejectedError{Reason: rejectionReason(raw, newPassword)}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &RejectedError{Reason: rejectionReason(raw, newPassword, identityEmail)}
 	}
-	return fmt.Errorf("kratos set password: status=%d body=%s", resp.StatusCode, text)
+	// Not the body: it is Kratos' text about a request that carried a password, and nothing downstream needs it.
+	return fmt.Errorf("kratos set password: status=%d", resp.StatusCode)
 }
 
-// rejectionReason pulls Kratos' reason out of an error body ({"error":{"reason":...,"message":...}}), with the password removed.
-func rejectionReason(raw []byte, password string) string {
+// redactSecrets removes each secret from text in every form it can appear: as given, and as JSON writes it inside a string
+// (quotes, backslashes, angle brackets and non-ASCII escaped). It is applied to the whole reason before it is shortened, so a
+// secret cannot be cut in half by the limit and left as a readable prefix.
+func redactSecrets(text string, secrets ...string) string {
+	for _, s := range secrets {
+		if s == "" {
+			continue
+		}
+		forms := []string{s}
+		if b, err := json.Marshal(s); err == nil && len(b) >= 2 {
+			forms = append(forms, string(b[1:len(b)-1]))
+		}
+		for _, f := range forms {
+			text = strings.ReplaceAll(text, f, "<redacted>")
+		}
+	}
+	return text
+}
+
+// rejectionReason pulls Kratos' reason out of an error body ({"error":{"reason":...,"message":...}}), with the password and the
+// account's email removed before it is shortened.
+func rejectionReason(raw []byte, password, email string) string {
 	var e struct {
 		Error struct {
 			Reason  string `json:"reason"`
@@ -542,7 +572,7 @@ func rejectionReason(raw []byte, password string) string {
 	if r == "" {
 		r = "invalid"
 	}
-	r = strings.ReplaceAll(r, password, "<redacted>")
+	r = redactSecrets(r, password, email)
 	if len(r) > 200 {
 		r = r[:200] + "…"
 	}

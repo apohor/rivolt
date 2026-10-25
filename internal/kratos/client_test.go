@@ -322,3 +322,55 @@ func TestSetPasswordErrorsDoNotEchoTheSecret(t *testing.T) {
 		t.Errorf("generated password %q: %v", pw, err)
 	}
 }
+
+// Neither the password, in any form, nor a readable piece of it, nor the account's email, may come out in an error. The secrets
+// here are awkward on purpose: quotes, a backslash, angle brackets and non-ASCII (all escaped differently in JSON), long enough
+// that a 512-byte cut falls inside them, and the Kratos text echoes them both raw and JSON-escaped.
+func TestSetPasswordErrorsNeverCarryAnyFormOfTheSecret(t *testing.T) {
+	password := `pa"ss\wo<rd>é-` + strings.Repeat("Xy9", 40)
+	escaped, _ := json.Marshal(password)
+	esc := string(escaped[1 : len(escaped)-1])
+	const mail = "owner@x.test"
+	fragments := []string{password, esc, password[:12], esc[:12], mail, strings.Repeat("Xy9", 8)}
+
+	status := http.StatusBadRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"schema_id":"default","state":"active","traits":{"email":"` + mail + `"}}`))
+			return
+		}
+		w.WriteHeader(status)
+		// 500 bytes of padding first, so the password straddles the old 512-byte cut; the reason echoes it raw and escaped.
+		pad := strings.Repeat("p", 500)
+		reason := "the password " + password + " is too common for " + mail
+		rb, _ := json.Marshal(reason)
+		_, _ = w.Write([]byte(`{"pad":"` + pad + `","debug":"` + esc + `","error":{"reason":` + string(rb) + `,"message":"invalid"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []int{http.StatusBadRequest, http.StatusInternalServerError, http.StatusConflict} {
+		status = code
+		err := c.SetPassword(context.Background(), "kid-1", password)
+		if err == nil {
+			t.Fatalf("status %d: no error", code)
+		}
+		for _, f := range fragments {
+			if strings.Contains(err.Error(), f) {
+				t.Errorf("status %d: the error carries %q: %v", code, f, err)
+			}
+		}
+		var rej *RejectedError
+		if (code == http.StatusBadRequest) != errors.As(err, &rej) {
+			t.Errorf("status %d: typed refusal = %v", code, errors.As(err, &rej))
+		}
+		if code == http.StatusBadRequest && !strings.Contains(rej.Reason, "too common") {
+			t.Errorf("the useful part of the reason must survive: %q", rej.Reason)
+		}
+		if code != http.StatusBadRequest && !strings.Contains(err.Error(), "status=") {
+			t.Errorf("a plain error names the status: %v", err)
+		}
+	}
+}
