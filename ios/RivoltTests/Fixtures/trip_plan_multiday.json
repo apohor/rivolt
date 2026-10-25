@@ -1,0 +1,240 @@
+{
+  "days": [
+    {
+      "index": 1,
+      "plan": {
+        "Status": "SUCCESS",
+        "ChargeStationsAvailable": true,
+        "SoCBelowLimit": false,
+        "Routes": [
+          {
+            "DestinationReached": true,
+            "TotalChargingDurationSec": 1500,
+            "TotalDriveDurationSec": 16200,
+            "TotalTripDurationSec": 17700,
+            "TotalDriveDistanceMeters": 448000,
+            "ArrivalSoC": 22,
+            "ArrivalReachableMeters": 61000,
+            "EnergyConsumptionKWh": 168.2,
+            "BatteryEmptyToDestMeters": 0,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "RouteResponseRaw": {
+              "geometry": "placeholder-encoded-polyline",
+              "precision": 6
+            },
+            "Waypoints": [
+              {
+                "WaypointType": "origin",
+                "EntityID": "",
+                "Name": "Example Origin",
+                "Latitude": 47.6205,
+                "Longitude": -122.3493,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 88,
+                "DepartureSoC": 88,
+                "ArrivalReachableMeters": 0,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "",
+                "DepartureTimeUTC": "2027-01-12T16:00:00Z",
+                "DistanceFromOriginMeters": 0
+              },
+              {
+                "WaypointType": "charger",
+                "EntityID": "00000000-0000-4000-8000-0000000000c1",
+                "Name": "Example Fast Charge, Ellensburg",
+                "Latitude": 46.9965,
+                "Longitude": -120.5478,
+                "MaxPowerKW": 200,
+                "ChargeDurationSec": 1500,
+                "ArrivalSoC": 31,
+                "DepartureSoC": 72,
+                "ArrivalReachableMeters": 98000,
+                "DepartureReachableMeters": 301000,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2027-01-12T18:10:00Z",
+                "DepartureTimeUTC": "2027-01-12T18:35:00Z",
+                "DistanceFromOriginMeters": 172000
+              },
+              {
+                "WaypointType": "destination",
+                "EntityID": "",
+                "Name": "Example Destination",
+                "Latitude": 47.6588,
+                "Longitude": -117.426,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 22,
+                "DepartureSoC": 0,
+                "ArrivalReachableMeters": 61000,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2027-01-12T20:55:00Z",
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 448000
+              }
+            ]
+          }
+        ]
+      },
+      "depart_at": "2027-01-12T16:00:00Z",
+      "arrive_at": "2027-01-12T21:00:00Z",
+      "start": {
+        "latitude": 47.6205,
+        "longitude": -122.3493,
+        "label": "Example Origin"
+      },
+      "end": {
+        "latitude": 47.6588,
+        "longitude": -117.426,
+        "label": "Example Hotel"
+      },
+      "departure_soc": 88,
+      "arrival_soc": 22,
+      "destination_reached": true,
+      "soc_below_limit": false,
+      "overnight": {
+        "name": "Example Hotel with L2",
+        "parked_hours": 11,
+        "l2_kw": 7.2,
+        "added_kwh": 56,
+        "post_charge_soc_pct": 80,
+        "capped": false
+      },
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend_low": 11.5,
+          "dcfc_spend_high": 14,
+          "priced_stops": 1,
+          "unpriced_stops": 0,
+          "estimate_basis": "observed",
+          "home_equivalent": 9.8,
+          "gas_equivalent": 52.1,
+          "gas_price_per_gallon": 3.9,
+          "gas_mpg": 24,
+          "home_rate_used": 0.14
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "plan": {
+        "Status": "SUCCESS",
+        "ChargeStationsAvailable": true,
+        "SoCBelowLimit": false,
+        "Routes": [
+          {
+            "DestinationReached": true,
+            "TotalChargingDurationSec": 1500,
+            "TotalDriveDurationSec": 16200,
+            "TotalTripDurationSec": 17700,
+            "TotalDriveDistanceMeters": 448000,
+            "ArrivalSoC": 22,
+            "ArrivalReachableMeters": 61000,
+            "EnergyConsumptionKWh": 168.2,
+            "BatteryEmptyToDestMeters": 0,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "RouteResponseRaw": {
+              "geometry": "placeholder-encoded-polyline",
+              "precision": 6
+            },
+            "Waypoints": [
+              {
+                "WaypointType": "origin",
+                "EntityID": "",
+                "Name": "Example Origin",
+                "Latitude": 47.6205,
+                "Longitude": -122.3493,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 88,
+                "DepartureSoC": 88,
+                "ArrivalReachableMeters": 0,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "",
+                "DepartureTimeUTC": "2027-01-12T16:00:00Z",
+                "DistanceFromOriginMeters": 0
+              },
+              {
+                "WaypointType": "charger",
+                "EntityID": "00000000-0000-4000-8000-0000000000c1",
+                "Name": "Example Fast Charge, Ellensburg",
+                "Latitude": 46.9965,
+                "Longitude": -120.5478,
+                "MaxPowerKW": 200,
+                "ChargeDurationSec": 1500,
+                "ArrivalSoC": 31,
+                "DepartureSoC": 72,
+                "ArrivalReachableMeters": 98000,
+                "DepartureReachableMeters": 301000,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2027-01-12T18:10:00Z",
+                "DepartureTimeUTC": "2027-01-12T18:35:00Z",
+                "DistanceFromOriginMeters": 172000
+              },
+              {
+                "WaypointType": "destination",
+                "EntityID": "",
+                "Name": "Example Destination",
+                "Latitude": 47.6588,
+                "Longitude": -117.426,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 22,
+                "DepartureSoC": 0,
+                "ArrivalReachableMeters": 61000,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2027-01-12T20:55:00Z",
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 448000
+              }
+            ]
+          }
+        ]
+      },
+      "depart_at": "2027-01-13T16:00:00Z",
+      "arrive_at": "2027-01-13T21:00:00Z",
+      "start": {
+        "latitude": 47.6205,
+        "longitude": -122.3493,
+        "label": "Example Hotel"
+      },
+      "end": {
+        "latitude": 47.6588,
+        "longitude": -117.426,
+        "label": "Example Destination"
+      },
+      "departure_soc": 88,
+      "arrival_soc": 22,
+      "destination_reached": true,
+      "soc_below_limit": false,
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend_low": 11.5,
+          "dcfc_spend_high": 14,
+          "priced_stops": 1,
+          "unpriced_stops": 0,
+          "estimate_basis": "observed",
+          "home_equivalent": 9.8,
+          "gas_equivalent": 52.1,
+          "gas_price_per_gallon": 3.9,
+          "gas_mpg": 24,
+          "home_rate_used": 0.14
+        }
+      ]
+    }
+  ],
+  "total": {
+    "distance_meters": 896000,
+    "drive_duration_sec": 32400,
+    "charging_duration_sec": 3000
+  },
+  "tz": "America/Los_Angeles"
+}
