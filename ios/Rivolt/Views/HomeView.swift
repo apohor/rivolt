@@ -117,6 +117,8 @@ struct HomeView: View {
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
+            // A closed Now screen doesn't keep re-reading after a drive or charge ends.
+            .onDisappear { settleTask?.cancel() }
             // A drive or charge just ended: the server saves it a little later, so the lists are read again a few times.
             .onChange(of: NowRefresh.inFlight(now?.state ?? NowSummary.inferState(from: vehicleState))) { was, isNow in
                 settleTask?.cancel()

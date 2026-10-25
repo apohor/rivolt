@@ -439,6 +439,40 @@ actor APIClient {
         try await request("PATCH", "/api/settings/charging", body: ChargingRatesPatch(homePricePerKwh: pricePerKwh, homeCurrency: currency))
     }
 
+    // MARK: Essential settings
+
+    func homeLocation() async throws -> HomeLocation {
+        try await request("GET", "/api/settings/home-location")
+    }
+
+    /// Sets the home (or, with `HomeLocationBody.clear`, removes it); the answer is the home as the server now has it. The server
+    /// limits this to 10 a minute (429).
+    func setHomeLocation(_ body: HomeLocationBody) async throws -> HomeLocation {
+        try await request("PUT", "/api/settings/home-location", body: body)
+    }
+
+    /// Back to the home the last change replaced; 404 when there is none.
+    func restoreHomeLocation() async throws -> HomeLocation {
+        try await request("POST", "/api/settings/home-location/restore")
+    }
+
+    /// A street address on the server's own geocoder (the address goes in the body, never the URL). 404 without one.
+    func searchHomeAddress(_ q: String) async throws -> [PlaceMatch] {
+        try await request("POST", "/api/settings/home-location/search", body: HomeSearchBody(q: q))
+    }
+
+    func vehicleProfile(id: String) async throws -> VehicleProfile {
+        try await request("GET", "/api/vehicles/\(pathID(id))/profile")
+    }
+
+    func saveVehicleProfile(id: String, _ profile: VehicleProfile) async throws -> VehicleProfile {
+        try await request("PUT", "/api/vehicles/\(pathID(id))/profile", body: profile)
+    }
+
+    func truckPosition(id: String) async throws -> TruckPosition {
+        try await request("GET", "/api/state/\(pathID(id))")
+    }
+
     /// Valhalla's map matching through our proxy (in-cluster on prod).
     func valhallaTrace(_ body: ValhallaTraceRequest) async throws -> ValhallaTraceResponse {
         try await request("POST", "/api/maps/valhalla/trace_route", body: body)

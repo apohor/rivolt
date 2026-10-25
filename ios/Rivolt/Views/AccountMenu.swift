@@ -19,6 +19,9 @@ struct AccountMenu: View {
     @State private var showAbout = false
     @State private var showDevices = false
     @State private var showUnits = false
+    @State private var showHome = false
+    @State private var showProfile = false
+    @State private var showExport = false
 
     var body: some View {
         HStack(spacing: 2 * Theme.unit) {
@@ -48,7 +51,10 @@ struct AccountMenu: View {
                     Button("Notifications") { showNotifications = true }
                 }
                 Button("Charging rates") { showRates = true }
+                Button("Home location") { showHome = true }
+                Button("Vehicle profile") { showProfile = true }
                 Button("Units") { showUnits = true }
+                Button("Export your data") { showExport = true }
                 Button("Signed-in devices") { showDevices = true }
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
@@ -73,6 +79,9 @@ struct AccountMenu: View {
         .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
         .sheet(isPresented: $showDevices) { DevicesView() }
         .sheet(isPresented: $showUnits) { UnitsView() }
+        .sheet(isPresented: $showHome) { HomeLocationView(vehicleID: vehicleID) }
+        .sheet(isPresented: $showProfile) { VehicleProfileView(vehicleID: vehicleID) }
+        .sheet(isPresented: $showExport) { ExportDataView() }
         .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
