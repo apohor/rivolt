@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -50,14 +51,39 @@ func TestAuthMe_SignedOutIs200Unauthenticated(t *testing.T) {
 // An expired or invalid session (a credential was presented but did
 // not resolve) keeps the 401 the SPA relies on.
 func TestAuthMe_PresentedButUnresolvedCredentialStays401(t *testing.T) {
-	for _, name := range []string{"rivolt_session", "ory_kratos_session"} {
-		code, _ := meGet(t, newMeAuth(t), func(r *http.Request) *http.Request {
-			r.AddCookie(&http.Cookie{Name: name, Value: "stale"})
-			return r
-		})
-		if code != http.StatusUnauthorized {
-			t.Errorf("cookie %s unresolved: code %d, want 401", name, code)
-		}
+	code, _ := meGet(t, newMeAuth(t), func(r *http.Request) *http.Request {
+		r.AddCookie(&http.Cookie{Name: "rivolt_session", Value: "stale"})
+		return r
+	})
+	if code != http.StatusUnauthorized {
+		t.Errorf("cookie rivolt_session unresolved: code %d, want 401", code)
+	}
+	// A Kratos cookie is a credential only where a resolver can turn it into a user (RIVOLT_ACCEPT_KRATOS_COOKIE). Default off, so
+	// it is ignored: signed out, not a 401.
+	code, body := meGet(t, newMeAuth(t), func(r *http.Request) *http.Request {
+		r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "stale"})
+		return r
+	})
+	if code != http.StatusOK || body["authenticated"] != false {
+		t.Errorf("a Kratos cookie with the resolver off: code %d body %v, want 200 {authenticated:false}", code, body)
+	}
+	// With the resolver on, a stale Kratos cookie is a presented-but-unresolved credential: 401.
+	s, err := auth.New(auth.Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    func(string) uuid.UUID { return uuid.New() },
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			return uuid.Nil, false, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ = meGet(t, s, func(r *http.Request) *http.Request {
+		r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "stale"})
+		return r
+	})
+	if code != http.StatusUnauthorized {
+		t.Errorf("a stale Kratos cookie with the resolver on: code %d, want 401", code)
 	}
 }
 
