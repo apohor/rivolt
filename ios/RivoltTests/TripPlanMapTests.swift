@@ -84,6 +84,47 @@ extension TripPlanMapTests {
     }
 }
 
+extension TripPlanMapTests {
+    /// The plan as Rivian sends it: upper-case waypoint types, "DC_CHARGE_STATION" for a charging stop, an "OTHER" via. (Synthetic
+    /// values; the structure is the web's `isChargingWaypoint` input.)
+    private func rivianPlan() throws -> TripPlan { try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape") }
+
+    func testARealPlansChargersAreFoundWhateverTheCaseOrTheStationWord() throws {
+        let route = try XCTUnwrap(try rivianPlan().best)
+        XCTAssertEqual(route.chargingStops.map(\.name), ["Sample Fast Charge A", "Sample Fast Charge B", "Sample Fast Charge C"],
+                       "ORIGIN, DESTINATION and OTHER are not stops; DC_CHARGE_STATION is")
+        XCTAssertEqual(TripPlanLogic.stopsTitle(route), "3 charging stops")
+        XCTAssertEqual(TripPlanLogic.noStopsLine(route), "The battery reaches the destination without charging.", "only used when there are no stops")
+    }
+
+    func testARealPlansMapHasAPinPerStopAndTheListHasTheSameStops() throws {
+        let route = try XCTUnwrap(try rivianPlan().best)
+        let drawing = try XCTUnwrap(PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route)))
+        XCTAssertEqual(drawing.stops.count, route.chargingStops.count)
+        XCTAssertEqual(drawing.stops.map(\.label), ["to 78% · 40 min", "to 81% · 46 min", "to 75% · 52 min"])
+    }
+
+    func testAPlanThatChargesNeverSaysNoChargingIsNeeded() throws {
+        var route = try XCTUnwrap(try rivianPlan().best)
+        route.waypoints = route.waypoints.filter { !$0.isCharger }
+        XCTAssertTrue(route.chargingStops.isEmpty)
+        XCTAssertEqual(TripPlanLogic.stopsTitle(route), "Charging")
+        XCTAssertEqual(TripPlanLogic.noStopsLine(route), "This plan charges for about 2 h 18 min, but its stops aren't listed here. Open it on the web to see them.")
+        route.totalChargingDurationSec = 0
+        XCTAssertEqual(TripPlanLogic.stopsTitle(route), "No charging stop needed")
+    }
+
+    func testTheSleepSearchRunsAlongTheRoadLineWhenThereIsOne() throws {
+        let route = try XCTUnwrap(try rivianPlan().best)
+        let road = (0..<5000).map { RouteSnap.Coord(lat: 45.5 - Double($0) * 0.001, lon: -122.6) }
+        let along = TripPlanLogic.overnightRequest(route, roadLine: road)
+        XCTAssertEqual(along.path.count, 600, "thinned")
+        XCTAssertEqual(along.path.first, [45.5, -122.6])
+        XCTAssertEqual(along.path.last?.first ?? 0, 45.5 - 4999 * 0.001, accuracy: 1e-9, "both ends kept")
+        XCTAssertEqual(TripPlanLogic.overnightRequest(route).path.count, route.waypoints.count, "no road line: the plan's waypoints, as the web does")
+    }
+}
+
 private extension TripWaypoint {
     static var bare: TripWaypoint { try! JSON.decoder().decode(TripWaypoint.self, from: Data("{}".utf8)) }
 }

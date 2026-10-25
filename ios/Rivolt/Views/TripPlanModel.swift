@@ -57,6 +57,8 @@ final class TripPlanModel {
     private(set) var night = NightState.none
     /// The charging stop (index in the plan's stops) a tap on the map pointed at; the list scrolls to it.
     var focusedStop: Int?
+    /// The road line of the plan on screen, once the map has it: the better path for finding a place to sleep.
+    var roadLine: [RouteSnap.Coord] = []
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
     private var lastLeave = Date()
@@ -101,6 +103,7 @@ final class TripPlanModel {
         state = .planning
         night = .none
         focusedStop = nil
+        roadLine = []
         let start: (lat: Double, lon: Double)
         if let origin {
             start = (origin.latitude, origin.longitude)
@@ -130,7 +133,7 @@ final class TripPlanModel {
         guard let route = plan?.best, night == .none || isFailedNight else { return }
         night = .looking
         do {
-            let found = try await source.overnightCandidates(TripPlanLogic.overnightRequest(route))
+            let found = try await source.overnightCandidates(TripPlanLogic.overnightRequest(route, roadLine: roadLine))
             if found.target?.reachesEnd == true {
                 night = .failed("This trip fits in one day.")
             } else if found.candidates.isEmpty {

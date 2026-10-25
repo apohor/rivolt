@@ -115,6 +115,8 @@ struct PlanMapCanvas: View {
 struct PlanRouteMap: View {
     let route: TripRoute
     let onStop: (Int) -> Void
+    /// The road line once it is known (for finding a place to sleep along it).
+    var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
@@ -126,7 +128,7 @@ struct PlanRouteMap: View {
                 // The straight legs show at once; the roads replace them when they arrive.
                 drawing = PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route))
                 let line = await PlanRouteLogic.line(route: route, source: state.client)
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: route, line: line) { drawing = d }
+                if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: route, line: line) { drawing = d; onLine(line) }
             }
     }
 }

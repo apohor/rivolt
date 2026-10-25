@@ -1,0 +1,82 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "destination_tz": "America/Los_Angeles",
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 8280,
+      "TotalDriveDurationSec": 55800,
+      "TotalTripDurationSec": 64080,
+      "TotalDriveDistanceMeters": 1530000,
+      "ArrivalSoC": 24.0,
+      "EnergyConsumptionKWh": 410.0,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "Name": "Example Origin",
+          "Latitude": 45.52,
+          "Longitude": -122.68,
+          "DepartureTimeUTC": "2026-11-02T15:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "Name": "Sample Fast Charge A",
+          "Latitude": 44.05,
+          "Longitude": -121.31,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 2400,
+          "ArrivalSoC": 22.5,
+          "DepartureSoC": 78.0,
+          "ArrivalTimeUTC": "2026-11-02T18:10:00Z",
+          "DepartureTimeUTC": "2026-11-02T18:50:00Z",
+          "DistanceFromOriginMeters": 290000
+        },
+        {
+          "WaypointType": "OTHER",
+          "Name": "Via",
+          "Latitude": 43.6,
+          "Longitude": -120.9,
+          "DistanceFromOriginMeters": 400000
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "Name": "Sample Fast Charge B",
+          "Latitude": 42.2,
+          "Longitude": -121.78,
+          "MaxPowerKW": 200,
+          "ChargeDurationSec": 2760,
+          "ArrivalSoC": 18.0,
+          "DepartureSoC": 81.0,
+          "ArrivalTimeUTC": "2026-11-02T23:00:00Z",
+          "DepartureTimeUTC": "2026-11-02T23:46:00Z",
+          "DistanceFromOriginMeters": 690000
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "Name": "Sample Fast Charge C",
+          "Latitude": 40.6,
+          "Longitude": -122.39,
+          "MaxPowerKW": 150,
+          "ChargeDurationSec": 3120,
+          "ArrivalSoC": 20.0,
+          "DepartureSoC": 75.0,
+          "ArrivalTimeUTC": "2026-11-03T03:40:00Z",
+          "DepartureTimeUTC": "2026-11-03T04:32:00Z",
+          "DistanceFromOriginMeters": 1000000
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "Name": "Example Destination",
+          "Latitude": 38.58,
+          "Longitude": -121.49,
+          "ArrivalSoC": 24.0,
+          "ArrivalTimeUTC": "2026-11-03T08:45:00Z",
+          "DistanceFromOriginMeters": 1530000
+        }
+      ]
+    }
+  ]
+}
