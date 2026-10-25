@@ -607,6 +607,11 @@ actor APIClient {
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             // A 401 that names a `class` is Rivian's, not this session's: the person has to reconnect their Rivian (on the web), and the
             // phone's own sign-in is fine. Only a bare 401 means the session is dead.
+            // The planner's hourly allowance (Rivian's quota, per account): 429 with that class and how long until it refills.
+            if http.statusCode == 429, let json, json["class"] as? String == "plan_quota" {
+                let after = (json["retry_after_sec"] as? Double).map { Int($0) } ?? Int(http.value(forHTTPHeaderField: "Retry-After") ?? "")
+                throw APIError.planQuota(retryAfterSeconds: after)
+            }
             if http.statusCode == 401, let json, json["class"] is String {
                 throw APIError.rivianReauth
             }
@@ -627,6 +632,8 @@ enum APIError: LocalizedError {
     case server(status: Int, message: String)
     /// A 401 whose body names an upstream `class`: Rivian needs reconnecting. Not a dead Rivolt session.
     case rivianReauth
+    /// 429 with the class `plan_quota`: this account has used the planner's allowance for the hour.
+    case planQuota(retryAfterSeconds: Int?)
     case decoding(Error)
 
     var errorDescription: String? {
@@ -635,6 +642,7 @@ enum APIError: LocalizedError {
         case .transport(let m): return m
         case .server(_, let m): return m
         case .rivianReauth: return "Rivian needs to be reconnected."
+        case .planQuota: return "The planner's hourly allowance is used."
         case .decoding(let e): return "Could not parse response: \(e.localizedDescription)"
         }
     }

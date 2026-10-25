@@ -53,8 +53,14 @@ final class RivianReauthTests: XCTestCase {
         }
     }
 
-    func testOtherClassedAnswersKeepTheirStatus() async throws {
+    func testThePlannersHourlyAllowanceCarriesHowLongToWait() async throws {
         let failure = await call(429, #"{"error":"quota","class":"plan_quota","retry_after_sec":600}"#)
+        guard case APIError.planQuota(let after)? = failure else { return XCTFail("\(String(describing: failure))") }
+        XCTAssertEqual(after, 600)
+    }
+
+    func testOtherClassedAnswersKeepTheirStatus() async throws {
+        let failure = await call(429, #"{"error":"slow","class":"rate_limited"}"#)
         let e = try XCTUnwrap(failure)
         guard case APIError.server(let status, _) = e else { return XCTFail("\(e)") }
         XCTAssertEqual(status, 429)
