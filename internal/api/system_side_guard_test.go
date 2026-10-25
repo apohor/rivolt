@@ -42,6 +42,19 @@ func TestNewRefusesARequestPoolWithoutItsSystemSide(t *testing.T) {
 		}()
 	}
 
+	// Present but the same object as the request side: one pool under two names.
+	for name, mutate := range map[string]func(*Deps){
+		"SystemDB is DB":             func(d *Deps) { d.SystemDB = d.DB },
+		"SystemSettings is Settings": func(d *Deps) { d.SystemSettings = d.Settings },
+		"SystemSecrets is Secrets":   func(d *Deps) { d.SystemSecrets = d.Secrets },
+	} {
+		d := full
+		mutate(&d)
+		if err := d.checkSystemSide(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: err = %v, want a refusal naming it", name, err)
+		}
+	}
+
 	// Pool off: nothing is required, and the fallbacks apply (every deployment today).
 	off := Deps{DB: req}
 	if err := off.checkSystemSide(); err != nil {

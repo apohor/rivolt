@@ -382,6 +382,20 @@ func (d Deps) checkSystemSide() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("api.New: the request pool is on but %s is not set; the system sites would run on the request pool", strings.Join(missing, ", "))
 	}
+	// Present but wrong: the same object under both names is one pool, so the "system" sites would still run on the request pool.
+	var same []string
+	if d.SystemDB == d.DB {
+		same = append(same, "SystemDB is DB")
+	}
+	if d.Settings != nil && d.SystemSettings == d.Settings {
+		same = append(same, "SystemSettings is Settings")
+	}
+	if d.Secrets != nil && d.SystemSecrets == d.Secrets {
+		same = append(same, "SystemSecrets is Secrets")
+	}
+	if len(same) > 0 {
+		return fmt.Errorf("api.New: the request pool is on but %s; a system-side store must be a different one", strings.Join(same, ", "))
+	}
 	return nil
 }
 
