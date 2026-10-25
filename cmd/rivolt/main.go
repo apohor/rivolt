@@ -2482,6 +2482,7 @@ func runServer() {
 		Charges:               reqChargesFactory,
 		Samples:               reqSamplesFactory,
 		Settings:              reqSettingsFactory,
+		SystemSettings:        settingsFactory, // the sweeps started in api.New (statement and weekly emails) run with no user in context
 		Push:                  reqPushFactory,
 		Trips:                 reqTripsFactory,
 		PackHealth:            packhealth.NewStore(pgPool),

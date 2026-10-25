@@ -210,6 +210,9 @@ type Deps struct {
 	// token lookups, signup, account deletion, admin, signed links, pre-auth GETs. Using it is a decision with a comment at the
 	// site (DA's RLS ruling). nil means DB (tests, and every deployment without the request pool).
 	SystemDB *sql.DB
+	// SystemSettings is the settings factory on the system pool, for the sweeps that run without a request (the statement and weekly
+	// recap emails). nil means Settings (no request pool).
+	SystemSettings *settings.Factory
 	// AuditKey keys the salted hash of a user id in the "account deleted" log line (derived from the cookie secret; empty
 	// means a random key for the process).
 	AuditKey []byte
@@ -311,6 +314,22 @@ type Deps struct {
 }
 
 // New builds the root mux with all routes mounted.
+// sysDB is SystemDB, or DB where New has not defaulted it (code that takes a Deps without going through New).
+func (d Deps) sysDB() *sql.DB {
+	if d.SystemDB != nil {
+		return d.SystemDB
+	}
+	return d.DB
+}
+
+// systemSettings is the settings factory background sweeps use: the system-pool one when there is a separate request pool.
+func (d Deps) systemSettings() *settings.Factory {
+	if d.SystemSettings != nil {
+		return d.SystemSettings
+	}
+	return d.Settings
+}
+
 func New(d Deps) http.Handler {
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
