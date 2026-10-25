@@ -22,7 +22,8 @@ struct AppShell: View {
     @State private var tab = StoreShots.tab
     @State private var visited: Set<String> = [StoreShots.tab]
 
-    /// Whether this server has the trip planner (it answers the saved-trips list; 404 where the flag is off). Never in the demo.
+    /// Whether this server has the trip planner (it answers the saved-trips list; 404 where the flag is off). In the demo, always:
+    /// it holds the sample trips.
     @State private var plannerOn = false
 
     private var tabs: [ThemeTabItem] {
@@ -50,7 +51,8 @@ struct AppShell: View {
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: tab) { _, new in visited.insert(new) }
         .task {
-            guard !state.isDemo else { return }
+            // The demo shows the sample trips, read only; elsewhere the tab appears where the server has the planner.
+            guard !state.isDemo else { plannerOn = true; return }
             plannerOn = (try? await state.client.savedTrips()) != nil
         }
         // Back in front after the account-deletion page: has the account gone? (Nothing happens unless the person went there.)

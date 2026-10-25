@@ -453,6 +453,16 @@ actor APIClient {
         try await request("POST", "/api/trips/plan", body: body)
     }
 
+    /// The sample trips the demo offers (static, read only).
+    func demoTrips() async throws -> DemoTrips {
+        try await request("GET", "/api/demo/trips")
+    }
+
+    /// A sample trip's stored plan, as the planner answered it (a one-day plan, or a two-day one with `kind: "multiday"`).
+    func demoTripPlan(id: String) async throws -> JSONValue {
+        try await request("GET", "/api/demo/trips/\(pathID(id))/plan")
+    }
+
     /// The DC fast chargers within a band either side of a route (the server's own charger listing).
     func chargersAlong(_ body: ChargersAlongRequest) async throws -> ChargersAlong {
         try await request("POST", "/api/maps/chargers-along", body: body)

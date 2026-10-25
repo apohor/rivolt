@@ -99,6 +99,9 @@ export const _trendsSpread: Wide<TruckTrends> = trendsSpread;
 // Fixtures with no web type to check, each with why. The guard in fixtures.contract.test.ts fails for a fixture that is neither
 // imported above nor listed here, so a new fixture cannot skip this check.
 export const iosOnlyFixtures: Record<string, string> = {
+  "demo_trips.json": "the demo's sample trip list, the embedded bytes verbatim (demo_trip_fixtures_test.go); the iPhone's demo Plan tab opens them",
+  "demo_trip_plan_single.json": "a demo sample trip's stored plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
+  "demo_trip_plan_two_days.json": "a demo sample trip's stored two-day plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "activity.json": "the activity feed is an iPhone screen; the web has no consumer",
   "activity_live_shape.json": "the demo's live activity answer, trimmed (microsecond timestamps, a null trailer): the iPhone's decoder is tested against it",
   "trip_plan.json": "the trip planner's iPhone fixture, generated from the server type (trip_fixtures_test.go); the web's TripPlan/SavedTrip types are checked against it in a follow-up",
