@@ -1026,7 +1026,7 @@ private struct TruckPlacesCard: View {
     var body: some View {
         ThemeSection(title: "Where you charge") {
             VStack(alignment: .leading, spacing: 12) {
-                if health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+                if health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                     ChargePlacesMapView(styleJSON: style, places: places, onHealth: { health = $0 })
                         .allowsHitTesting(false)
                         .frame(height: 220)
@@ -1036,7 +1036,7 @@ private struct TruckPlacesCard: View {
                         .overlay { if health == .noTiles { MapUnavailableOverlay() } }
                         .accessibilityElement()
                         .accessibilityLabel("Map of the places you charge")
-                        .onAppear { MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL)) }
+                        .onAppear { MapNetwork.prepare(server: state.mapServer, token: state.mapToken) }
                 } else {
                     MapMessage(text: "Map unavailable.")
                 }

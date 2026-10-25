@@ -132,7 +132,7 @@ struct ActivityMapView: View {
 
     var body: some View {
         ZStack {
-            if health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.serverURL) {
+            if health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 ActivityMapRepresentable(styleJSON: style, drives: drives, charges: charges, filter: filter,
                                          onHealth: { health = $0 }, onPick: onPick)
                     .accessibilityElement()
@@ -156,7 +156,7 @@ struct ActivityMapView: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
-        .onAppear { MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL)) }
+        .onAppear { MapNetwork.prepare(server: state.mapServer, token: state.mapToken) }
     }
 }
 
