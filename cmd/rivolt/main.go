@@ -450,7 +450,7 @@ func runServer() {
 	reqChargesFactory := charges.NewFactory(requestDB, reqResolverFactory)
 	reqSamplesFactory := samples.NewFactory(requestDB, reqResolverFactory)
 	reqSettingsFactory := settings.NewFactory(requestDB)
-	reqPushFactory := push.NewFactory(requestDB)
+	reqPushFactory := push.NewFactoryWithSystem(requestDB, pgPool) // APNs token registration spans users: system pool for those statements
 	reqTripsFactory := trips.NewFactory(requestDB)
 
 	// Envelope-encrypted secret store. Backs the rivian.Session
