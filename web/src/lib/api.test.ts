@@ -48,6 +48,14 @@ describe("api 401 handling", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
+  it("never redirects on a 401 from the Hydra sign-in (the password form or a passkey)", async () => {
+    mockFetch(401, "invalid credentials", "text/plain");
+    for (const url of ["/api/auth/hydra/login", "/api/auth/hydra/passkey/finish", "/api/auth/hydra/passkey/begin"]) {
+      await expect(api.post(url, {})).rejects.toBeInstanceOf(ApiError);
+    }
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it("never redirects on /api/auth/me", async () => {
     mockFetch(401, "unauthorized", "text/plain");
     await expect(api.get("/api/auth/me")).rejects.toBeInstanceOf(ApiError);

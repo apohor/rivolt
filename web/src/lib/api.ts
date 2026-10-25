@@ -135,7 +135,9 @@ async function request<T>(
       !closedSignup &&
       !isUpstreamErr &&
       !url.endsWith("/api/auth/me") &&
-      !url.startsWith("/api/auth/hydra/login") &&
+      // The whole Hydra sign-in (the password form and the passkey ceremony) runs signed out, keyed by a login_challenge in the URL:
+      // a 401 from it is "that sign-in didn't work", for the page to say, and a bounce would drop the challenge and the message.
+      !url.startsWith("/api/auth/hydra/") &&
       // The public demo is signed out on purpose; a 401 for something
       // outside its read-only allowlist is not "your login expired".
       !window.location.pathname.startsWith("/demo")
