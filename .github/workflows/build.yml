@@ -850,6 +850,10 @@ jobs:
           # style role under the tenant policies), the way the server runs with row-level security on. See poolOn.
           RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=1 -timeout=10m $pkgs
 
+      - name: scratch tz rss
+        run: |
+          for m in default fuzzy latlong; do echo "== $m"; PROBE=$m go test ./internal/zonelookup -run RSSProbe -v -count=1 | grep -E 'before|after'; done
+
       - name: go test (integration, request pool off)
         # The self-hosted shape, where RIVOLT_REQUEST_DATABASE_URL is never set and everything runs on the one owner pool. A small
         # run is enough to keep that fallback from rotting; the full suite above runs with the pool on.
