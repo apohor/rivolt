@@ -8,3 +8,9 @@ migrate:
     enabled: true
 image:
   tag: "0.40.0-dev.1+sha-abc1234"
+config:
+  extraEnv:
+    RIVOLT_APP_ROLE: rivolt_app
+    RIVOLT_READONLY_ROLE: grafana_ro
+    # Must NOT reach the migrate Job (CI asserts it).
+    RIVOLT_OIDC_GOOGLE_DISPLAY_NAME: Google
