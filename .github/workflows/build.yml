@@ -1211,13 +1211,27 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A one-hour token from the rivolt-infra GitHub App (contents:write on
+      # apohor/rivolt-infra only), replacing the long-lived personal access
+      # token (owner N17). Until the App is configured (vars.RIVOLT_INFRA_APP_CLIENT_ID
+      # unset) this step is skipped and the old token is used; once the PAT is
+      # revoked, the fallback below goes too.
+      - name: Token for rivolt-infra (GitHub App)
+        id: infra-token
+        if: vars.RIVOLT_INFRA_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: write
       - name: Checkout rivolt-infra
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: apohor/rivolt-infra
-          # Fine-scoped PAT with contents:write on apohor/rivolt-infra.
           # The default GITHUB_TOKEN only has access to this repo.
-          token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
+          token: ${{ steps.infra-token.outputs.token || secrets.RIVOLT_INFRA_TOKEN }}
 
       - name: Bump preview image.tag (newest wins)
         env:
@@ -1390,11 +1404,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # A one-hour token from the rivolt-infra GitHub App (contents:write on
+      # apohor/rivolt-infra only), replacing the long-lived personal access
+      # token (owner N17). Until the App is configured (vars.RIVOLT_INFRA_APP_CLIENT_ID
+      # unset) this step is skipped and the old token is used; once the PAT is
+      # revoked, the fallback below goes too.
+      - name: Token for rivolt-infra (GitHub App)
+        id: infra-token
+        if: vars.RIVOLT_INFRA_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: write
       - name: Checkout rivolt-infra
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: apohor/rivolt-infra
-          token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
+          token: ${{ steps.infra-token.outputs.token || secrets.RIVOLT_INFRA_TOKEN }}
 
       - name: Bump prod image.tag + chart.version
         env:
