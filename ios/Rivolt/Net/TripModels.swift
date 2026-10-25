@@ -404,9 +404,16 @@ struct OvernightCandidates: Decodable, Equatable {
     struct Target: Decodable, Equatable {
         /// True when the whole trip fits in the driving budget, so no night is needed.
         var reachesEnd: Bool?
+        /// How far along the route the driving budget runs out, in metres.
+        var alongM: Double?
+        /// Minutes of driving before and after that point that the search covered (the widest tried, when it found nothing).
+        var windowBeforeMin: Double?
+        var windowAfterMin: Double?
     }
 
     var candidates: [Candidate] = []
+    /// The route's length in metres.
+    var routeM: Double?
     var target: Target?
     var attribution: String?
 
@@ -414,12 +421,13 @@ struct OvernightCandidates: Decodable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         candidates = (try? c.decode([Candidate].self, forKey: .candidates)) ?? []
         target = try? c.decode(Target.self, forKey: .target)
+        routeM = try? c.decode(Double.self, forKey: .routeM)
         attribution = try? c.decode(String.self, forKey: .attribution)
     }
 
-    init(candidates: [Candidate] = [], target: Target? = nil, attribution: String? = nil) {
-        self.candidates = candidates; self.target = target; self.attribution = attribution
+    init(candidates: [Candidate] = [], target: Target? = nil, attribution: String? = nil, routeM: Double? = nil) {
+        self.candidates = candidates; self.target = target; self.attribution = attribution; self.routeM = routeM
     }
 
-    private enum CodingKeys: String, CodingKey { case candidates, target, attribution }
+    private enum CodingKeys: String, CodingKey { case candidates, target, attribution, routeM }
 }

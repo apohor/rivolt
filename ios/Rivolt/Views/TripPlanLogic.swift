@@ -82,6 +82,18 @@ enum TripPlanLogic {
         return (0..<limit).map { line[min(line.count - 1, Int((Double($0) * step).rounded()))] }
     }
 
+    /// What to say when no stay is in range, as the web does: how far the search looked on each side of the point the day's driving
+    /// budget runs out (minutes become a distance at the route's own average speed), and how far in that point is.
+    static func noStaysLine(_ found: OvernightCandidates, driveSec: Double?, metric: Bool) -> String {
+        let generic = "No hotel or campground with a listed charger near where the first day would end. Pick a stop by hand on the web."
+        guard let t = found.target, let route = found.routeM, route > 0, let drive = driveSec, drive > 0,
+              let before = t.windowBeforeMin, before > 0, let after = t.windowAfterMin, after > 0 else { return generic }
+        func metres(_ min: Double) -> String { distance(meters: min * 60 * route / drive, metric: metric) }
+        var line = "No hotel or campground with a listed charger within about \(metres(before)) before or \(metres(after)) after your \(Int(longDriveSeconds / 3600)) h point"
+        if let along = t.alongM, along > 0 { line += " (about \(distance(meters: along, metric: metric)) in)" }
+        return line + ". Pick a stop by hand on the web."
+    }
+
     /// "Hotel · Level 2 charger, about 7 kW" for the list of places to sleep; the power is the listing's, never a promise.
     static func candidateLine(_ c: OvernightCandidates.Candidate, metric: Bool) -> String {
         var parts: [String] = [c.kind == "campground" ? "Campground" : "Hotel"]

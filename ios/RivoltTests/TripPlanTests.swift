@@ -280,7 +280,7 @@ final class TripPlanModelTests: XCTestCase {
         let m = TripPlanModel()
         await planned(src, m)
         await m.findNight(source: src)
-        XCTAssertEqual(m.night, .failed("No hotel or campground with a listed charger near where the first day would end."))
+        XCTAssertEqual(m.night, .failed("No hotel or campground with a listed charger near where the first day would end. Pick a stop by hand on the web."), "no windows from the server: the plain line")
         src.stays = OvernightCandidates(candidates: [], target: .init(reachesEnd: true))
         await m.findNight(source: src)
         XCTAssertEqual(m.night, .failed("This trip fits in one day."))
@@ -312,5 +312,14 @@ final class TripPlanModelTests: XCTestCase {
         let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
         XCTAssertEqual(trip.destinationTz, "America/Los_Angeles")
         XCTAssertEqual(trip.days.first?.endTz, "America/Los_Angeles")
+    }
+
+    func testNoStaysSaysHowFarTheSearchLookedAsTheWebDoes() {
+        // 10 m/s over the route: 30 min is 18 km, 60 min is 36 km.
+        let found = OvernightCandidates(candidates: [], target: .init(reachesEnd: false, alongM: 288_000, windowBeforeMin: 30, windowAfterMin: 60), routeM: 36_000)
+        let d = TripPlanLogic.distance
+        XCTAssertEqual(TripPlanLogic.noStaysLine(found, driveSec: 3600, metric: true),
+                       "No hotel or campground with a listed charger within about \(d(18_000, true)) before or \(d(36_000, true)) after your 8 h point (about \(d(288_000, true)) in). Pick a stop by hand on the web.")
+        XCTAssertTrue(TripPlanLogic.noStaysLine(found, driveSec: nil, metric: true).hasPrefix("No hotel or campground with a listed charger near"), "no drive time: the plain line")
     }
 }
