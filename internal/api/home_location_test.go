@@ -33,7 +33,7 @@ func TestHomeLocationValidation(t *testing.T) {
 	}
 	// JSON can't carry NaN, so the handler's 400 is for out-of-range values (before anything is read or written).
 	w := httptest.NewRecorder()
-	handleHomeLocationPut(nil, nil)(w, httptest.NewRequest("PUT", "/api/settings/home-location", strings.NewReader(`{"set":true,"latitude":91,"longitude":10}`)))
+	handleHomeLocationPut(nil, nil, nil)(w, httptest.NewRequest("PUT", "/api/settings/home-location", strings.NewReader(`{"set":true,"latitude":91,"longitude":10}`)))
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "latitude must be between") {
 		t.Errorf("out of range: %d %s", w.Code, w.Body.String())
 	}
