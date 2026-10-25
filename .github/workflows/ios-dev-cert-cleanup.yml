@@ -1,0 +1,53 @@
+name: ios-dev-cert-cleanup
+
+# One-time, by hand: revoke a backlog of old development certificates that CI
+# runs minted before ios-testflight revoked its own (Oct 21; the sweep refuses
+# more than 5, so it never clears them). Only the certificates whose serials
+# end in the listed suffixes, as ios-testflight's sweep log prints them; each
+# must match exactly one development certificate named "Created via API" and
+# older than 2 hours, or nothing is revoked. Revoking is irreversible: DA's ack
+# and the owner's OK on the exact list first, and a dry run before delete.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suffixes:
+        description: "Serial suffixes from the sweep log, comma-separated (e.g. 4C654C,227BE7)"
+        required: true
+        type: string
+      mode:
+        description: "dry-run lists what would be revoked; delete revokes"
+        type: choice
+        options: [dry-run, delete]
+        default: dry-run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testflight
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Revoke the listed development certificates
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          SUFFIXES: ${{ inputs.suffixes }}
+          RIVOLT_CERT_CLEANUP: ${{ inputs.mode == 'delete' && 'delete' || '' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key=$(mktemp "$RUNNER_TEMP/cleanup-key.XXXXXX")
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$ASC_KEY_P8" > "$key"
+          python3 -I ios/revoke-runner-dev-certs.py cleanup "$key" "$ASC_KEY_ID" "$ASC_ISSUER_ID" "$SUFFIXES"

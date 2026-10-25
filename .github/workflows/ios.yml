@@ -41,6 +41,16 @@ env:
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
 jobs:
+  # The Python tooling under ios/ (stdlib only): the certificate revoke and
+  # cleanup selection, whose mistakes would revoke the wrong certificate.
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Certificate revoke selection tests
+        run: python3 -I ios/test_revoke_runner_dev_certs.py -v
+
   # The required check. Kept short so a PR hears back fast: build, unit tests
   # and the Now card renders (uploaded as soon as the tests finish). The slow
   # simulator screenshots and the Release device build run beside it.
