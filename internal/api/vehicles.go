@@ -19,6 +19,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/secrets"
 )
 
 // handleOwnedVehicles returns the calling user's vehicles straight
@@ -475,7 +476,7 @@ func liveFieldSupport(fs map[string]string, st *rivian.State) {
 // it does NOT open its own subscription. Two pods subscribed to the
 // same Rivian session token would kick each other repeatedly and
 // fragment drives at every WS bounce.
-func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
+func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession func(context.Context) (bool, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			http.Error(w, "no rivian client configured", http.StatusNotFound)
@@ -514,7 +515,7 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			writeUpstreamError(w, err)
+			writeStateError(w, r, err, hasSession)
 			return
 		}
 		if mon != nil {
@@ -552,7 +553,7 @@ func handleVehicleStateDebug(c rivian.Client) http.HandlerFunc {
 // typed State from a direct REST call. Used to diagnose cache-vs-parse
 // issues when /api/state shows zeros but /api/state/.../debug shows
 // populated upstream fields.
-func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
+func handleVehicleStateFresh(c rivian.Client, hasSession func(context.Context) (bool, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			http.Error(w, "no rivian client configured", http.StatusNotFound)
@@ -565,11 +566,31 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
-			writeUpstreamError(w, err)
+			writeStateError(w, r, err, hasSession)
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
 	}
+}
+
+// writeStateError answers a failed read of one of the account's vehicles. A vehicle of an account that has never linked a
+// Rivian session (a seeded vehicle, a user who has not connected yet) is the user's state, not a failing gateway: 409 with
+// class user_action and reason not_connected, which the UI can show as "connect your Rivian" and which the metrics and alerts
+// do not count as a server failure. It is told apart from "linked, but this pod could not restore the session" (also
+// ErrNotAuthenticated) by asking whether a session is stored: if one is, or it cannot be read, the error stays a 502, so a
+// user is never told to reconnect when the truth is that we could not look (the /api/vehicles list makes the same call).
+func writeStateError(w http.ResponseWriter, r *http.Request, err error, hasSession func(context.Context) (bool, error)) {
+	if errors.Is(err, rivian.ErrNotAuthenticated) && hasSession != nil {
+		if linked, lerr := hasSession(r.Context()); lerr == nil && !linked {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":  "Rivian is not connected to this account",
+				"class":  rivian.ClassUserAction.String(),
+				"reason": "not_connected",
+			})
+			return
+		}
+	}
+	writeUpstreamError(w, err)
 }
 
 // attachOTA sets each vehicle's OTA details from the stored JSON and adds
@@ -603,5 +624,16 @@ func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, live func
 			continue
 		}
 		vs[i].OTA = &info
+	}
+}
+
+// rivianSessionCheck says whether the user has a Rivian session stored (nil without a secrets store).
+func (d Deps) rivianSessionCheck(uid uuid.UUID) func(context.Context) (bool, error) {
+	if d.Secrets == nil {
+		return nil
+	}
+	return func(ctx context.Context) (bool, error) {
+		sess, err := secrets.LoadRivianSession(ctx, d.Secrets, uid)
+		return sess.UserSessionToken != "", err
 	}
 }
