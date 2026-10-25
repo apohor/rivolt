@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -89,7 +90,13 @@ func (a *SessionsAPI) current(r *http.Request) (uuid.UUID, bool) {
 	return a.Current(r)
 }
 
-// List serves GET /api/auth/sessions.
+// maxRecentWeb bounds ?recent=N: the most other web sessions a client can ask the list to be cut to.
+const maxRecentWeb = 50
+
+// List serves GET /api/auth/sessions: {sessions, total, hidden_web}. By default it is the whole list, ordered by last use, and
+// hidden_web is 0. A client that shows "N older browsers not shown · Show all" may ask for ?recent=N: every app session and the
+// current one, plus the N most recently seen other web sessions, with the rest counted in hidden_web. A client that does not show
+// that line must not send it, or an old session would simply not be there to be noticed. Revocation covers every session either way.
 func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := a.user(w, r)
 	if !ok {
@@ -101,16 +108,31 @@ func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur, _ := a.current(r)
+	recent := -1 // -1: the whole list
+	if v := r.URL.Query().Get("recent"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= maxRecentWeb {
+			recent = n
+		}
+	}
 	out := make([]sessionJSON, 0, len(rows))
+	otherWeb, hidden := 0, 0
 	for _, s := range rows {
+		isCurrent := cur != uuid.Nil && s.ID == cur
+		if recent >= 0 && s.Kind == sessions.KindWeb && !isCurrent {
+			if otherWeb >= recent {
+				hidden++
+				continue
+			}
+			otherWeb++
+		}
 		out = append(out, sessionJSON{
 			ID: s.ID, Kind: s.Kind, DeviceLabel: s.DeviceLabel, UserAgent: truncateRunes(s.UserAgent, 200),
 			CreatedAt: s.CreatedAt.UTC(), LastSeenAt: s.LastSeenAt.UTC(), ExpiresAt: s.ExpiresAt.UTC(),
-			Current: cur != uuid.Nil && s.ID == cur,
+			Current: isCurrent,
 		})
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out, "total": len(rows), "hidden_web": hidden})
 }
 
 // Revoke serves DELETE /api/auth/sessions/{id}: one of the caller's own sessions.

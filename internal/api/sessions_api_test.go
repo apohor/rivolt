@@ -132,3 +132,51 @@ func TestSessionsAPI(t *testing.T) {
 		t.Errorf("revoke others without a current session = %d (kept %v)", rec.Code, f.keptOther)
 	}
 }
+
+// The list is whole by default (a client that does not show "N older browsers not shown" must never get a cut list). A client that
+// does ask ?recent=N gets every app session, the current one and the N newest other browsers, with the rest counted. Revocation is
+// not affected: "sign out everywhere else" still takes them all.
+func TestSessionsListIsWholeUnlessTheClientAsksForRecent(t *testing.T) {
+	me := uuid.New()
+	now := time.Now()
+	var rows []sessions.Session
+	for i := 0; i < 40; i++ { // newest first, as the store returns them
+		rows = append(rows, sessions.Session{ID: uuid.New(), UserID: me, Kind: sessions.KindWeb, CreatedAt: now, LastSeenAt: now.Add(-time.Duration(i) * time.Hour), ExpiresAt: now.Add(time.Hour)})
+	}
+	app := sessions.Session{ID: uuid.New(), UserID: me, Kind: sessions.KindApp, DeviceLabel: "Phone", CreatedAt: now, LastSeenAt: now.Add(-100 * time.Hour), ExpiresAt: now.Add(time.Hour)}
+	rows = append(rows, app) // older than every web row: it must still be shown
+	current := rows[30]      // an old web session that is the caller's own: it must still be shown
+	f := &fakeSessions{rows: rows, owner: me}
+	a := &SessionsAPI{Store: f, Current: func(*http.Request) (uuid.UUID, bool) { return current.ID, true }}
+	list := func(path string) (ids map[uuid.UUID]bool, total, hidden int) {
+		rec := sessReq(a.List, "GET", path, me, false)
+		var out struct {
+			Sessions  []sessionJSON `json:"sessions"`
+			Total     int           `json:"total"`
+			HiddenWeb int           `json:"hidden_web"`
+		}
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+		ids = map[uuid.UUID]bool{}
+		for _, s := range out.Sessions {
+			ids[s.ID] = true
+		}
+		return ids, out.Total, out.HiddenWeb
+	}
+	for _, path := range []string{"/api/auth/sessions", "/api/auth/sessions?recent=", "/api/auth/sessions?recent=x", "/api/auth/sessions?recent=-1", "/api/auth/sessions?recent=51", "/api/auth/sessions?all=1"} {
+		if ids, total, hidden := list(path); len(ids) != 41 || total != 41 || hidden != 0 {
+			t.Errorf("%s: %d shown, total %d, hidden %d, want the whole list (41, 41, 0)", path, len(ids), total, hidden)
+		}
+	}
+	ids, total, hidden := list("/api/auth/sessions?recent=10")
+	if len(ids) != 10+2 || total != 41 || hidden != 40-10-1 {
+		t.Errorf("recent=10: %d shown, total %d, hidden %d, want 12 shown, 41, 29", len(ids), total, hidden)
+	}
+	if !ids[app.ID] || !ids[current.ID] || !ids[rows[0].ID] || ids[rows[20].ID] {
+		t.Error("recent must keep the app session, the current one and the newest, and drop old browsers")
+	}
+	if ids, _, hidden := list("/api/auth/sessions?recent=0"); len(ids) != 2 || hidden != 39 {
+		t.Errorf("recent=0: %d shown, hidden %d, want the app session and the current one, 39 hidden", len(ids), hidden)
+	}
+}
