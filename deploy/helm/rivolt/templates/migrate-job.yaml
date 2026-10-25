@@ -1,20 +1,27 @@
 {{- if .Values.migrate.job.enabled }}
-# Database migrations (design: migrations-job-design.md, DA-approved Oct 25).
-# An Argo CD Sync hook at wave 0: after the CNPG Cluster (wave -1), before the
-# Deployment (wave 1). A failed Job fails the sync, so the Deployment isn't
-# updated and the old pods keep serving on the old schema (each migration is
-# its own transaction).
+# Database migrations (design: migrations-job-design.md + its Oct 25 addendum, DA-approved).
+# A plain resource at sync wave 0, not a hook: after the CNPG Cluster (wave -1),
+# before the Deployment (wave 1). Argo waits on its health before wave 1:
+# Progressing while it runs, Healthy when complete; Degraded (failed) fails the
+# sync, so the Deployment isn't updated and the old pods keep serving on the old
+# schema (each migration is its own transaction). A Degraded app also holds the
+# platform ApplicationSet's RollingSync step, so later waves' apps don't sync
+# until it's resolved.
+#
+# Not a hook, because Argo deletes and recreates a hook that has no delete
+# policy (the default is BeforeHookCreation) on every sync and every retry: the
+# migration re-ran 2-4 times per revision and up to 6 times after a failure.
+# As a resource, an unchanged Job re-applies as a no-op.
 #
 # One Job per release and Job spec: the name is <fullname>-migrate-<version>-<hash
-# of this Job's spec>. A second sync of the same revision (the ApplicationSet's
-# progressive sync starts two, Oct 25) finds the Job by name and reuses it,
-# finished, instead of running again or replacing the run that applied the
-# migrations: Argo creates a named hook once. Any change to the image or to this
-# spec gives a new name, so a changed Job is never patched in place (a Job's
-# template is immutable). ttlSecondsAfterFinished removes Jobs a day after they
-# finish. A failed Job stays failed until a new release, or until it's deleted
-# (then a re-sync runs it again). Every Job carries rivolt.dev/version
-# (ship-release.sh waits on it).
+# of this Job's spec>, so it runs once per new image or spec, and a changed Job is
+# never patched in place (a Job's template is immutable). The previous Job is no
+# longer rendered; IgnoreExtraneous keeps it from making the app OutOfSync (our
+# syncs don't prune), and ttlSecondsAfterFinished removes it 7 days after it
+# finished. A failed Job stays failed, and retries fail fast on it, until it's
+# deleted (then the next sync runs it again) or its TTL expires: after 7 days the
+# next sync reruns a failed migration on its own. Every Job carries
+# rivolt.dev/version (ship-release.sh waits on it).
 #
 # Minimal env: the database connection (host, port, name and TLS mode as
 # literals, the credentials through rivolt.dbCredentialsEnv) and the two grant
@@ -29,8 +36,8 @@ metadata:
   labels:
     {{- include "rivolt.migrateLabels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
 spec:
   {{- $spec | nindent 2 }}
 {{- end }}
