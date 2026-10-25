@@ -3,79 +3,34 @@
 # An Argo CD Sync hook at wave 0: after the CNPG Cluster (wave -1), before the
 # Deployment (wave 1). A failed Job fails the sync, so the Deployment isn't
 # updated and the old pods keep serving on the old schema (each migration is
-# its own transaction). BeforeHookCreation replaces the previous run's Job at
-# the next sync; the failed one stays until then for its log.
+# its own transaction).
+#
+# One Job per release and Job spec: the name is <fullname>-migrate-<version>-<hash
+# of this Job's spec>. A second sync of the same revision (the ApplicationSet's
+# progressive sync starts two, Oct 25) finds the Job by name and reuses it,
+# finished, instead of running again or replacing the run that applied the
+# migrations: Argo creates a named hook once. Any change to the image or to this
+# spec gives a new name, so a changed Job is never patched in place (a Job's
+# template is immutable). ttlSecondsAfterFinished removes Jobs a day after they
+# finish. A failed Job stays failed until a new release, or until it's deleted
+# (then a re-sync runs it again). Every Job carries rivolt.dev/version
+# (ship-release.sh waits on it).
 #
 # Minimal env: the database connection (host, port, name and TLS mode as
 # literals, the credentials through rivolt.dbCredentialsEnv) and the two grant
 # roles when configured. No envFrom: the migrator needs none of the app's other
 # settings or secrets. It logs migration ids and timings only.
+{{- $spec := include "rivolt.migrateJobSpec" . }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "rivolt.fullname" . }}-migrate
+  name: {{ include "rivolt.migrateJobName" (dict "root" . "spec" $spec) }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "rivolt.migrateLabels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  backoffLimit: {{ .Values.migrate.job.backoffLimit }}
-  activeDeadlineSeconds: {{ .Values.migrate.job.activeDeadlineSeconds }}
-  parallelism: 1
-  completions: 1
-  template:
-    metadata:
-      labels:
-        {{- include "rivolt.migrateLabels" . | nindent 8 }}
-    spec:
-      restartPolicy: Never
-      serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
-      # The migrator never talks to the Kubernetes API.
-      automountServiceAccountToken: false
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      containers:
-        - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["migrate"]
-          env:
-            - name: DB_HOST
-              value: {{ include "rivolt.dbHost" . | quote }}
-            - name: DB_PORT
-              value: {{ include "rivolt.dbPort" . | quote }}
-            - name: DB_NAME
-              value: {{ include "rivolt.dbName" . | quote }}
-            - name: DB_SSLMODE
-              value: {{ include "rivolt.dbSslMode" . | quote }}
-            {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
-            # The roles `rivolt migrate` grants to after migrating (the request
-            # role for row-level security, the read-only reporting role), from
-            # the same config.extraEnv the Deployment reads, only when set.
-            # Nothing else from config.extraEnv reaches the migrator.
-            {{- range $k := list "RIVOLT_APP_ROLE" "RIVOLT_READONLY_ROLE" }}
-            {{- with index $.Values.config.extraEnv $k }}
-            - name: {{ $k }}
-              value: {{ . | quote }}
-            {{- end }}
-            {{- end }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          resources:
-            {{- toYaml .Values.migrate.job.resources | nindent 12 }}
+  {{- $spec | nindent 2 }}
 {{- end }}

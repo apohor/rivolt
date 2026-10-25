@@ -402,6 +402,9 @@ migrate:
     # Hard ceiling for the whole run, above `rivolt migrate`'s own
     # 15-minute timeout and 5-minute lock and connect waits.
     activeDeadlineSeconds: 1200
+    # Each Job is kept this long after it finishes (with its log: the run that
+    # applied migrations shows applied= above 0), then removed.
+    ttlSecondsAfterFinished: 86400
     resources:
       requests:
         cpu: 50m

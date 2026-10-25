@@ -195,3 +195,80 @@ app.kubernetes.io/component: migrate
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 rivolt.dev/version: {{ include "rivolt.versionLabel" . | quote }}
 {{- end }}
+
+{{/*
+The migrate Job's spec (templates/migrate-job.yaml), rendered once so that
+its hash can be part of the Job's name.
+*/}}
+{{- define "rivolt.migrateJobSpec" -}}
+backoffLimit: {{ .Values.migrate.job.backoffLimit }}
+activeDeadlineSeconds: {{ .Values.migrate.job.activeDeadlineSeconds }}
+ttlSecondsAfterFinished: {{ .Values.migrate.job.ttlSecondsAfterFinished }}
+parallelism: 1
+completions: 1
+template:
+  metadata:
+    labels:
+      {{- include "rivolt.migrateLabels" . | nindent 6 }}
+  spec:
+    restartPolicy: Never
+    serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
+    # The migrator never talks to the Kubernetes API.
+    automountServiceAccountToken: false
+    {{- with .Values.imagePullSecrets }}
+    imagePullSecrets:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    securityContext:
+      {{- toYaml .Values.podSecurityContext | nindent 6 }}
+    {{- with .Values.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    containers:
+      - name: migrate
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args: ["migrate"]
+        env:
+          - name: DB_HOST
+            value: {{ include "rivolt.dbHost" . | quote }}
+          - name: DB_PORT
+            value: {{ include "rivolt.dbPort" . | quote }}
+          - name: DB_NAME
+            value: {{ include "rivolt.dbName" . | quote }}
+          - name: DB_SSLMODE
+            value: {{ include "rivolt.dbSslMode" . | quote }}
+          {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 10 }}
+          # The roles `rivolt migrate` grants to after migrating (the request
+          # role for row-level security, the read-only reporting role), from
+          # the same config.extraEnv the Deployment reads, only when set.
+          # Nothing else from config.extraEnv reaches the migrator.
+          {{- range $k := list "RIVOLT_APP_ROLE" "RIVOLT_READONLY_ROLE" }}
+          {{- with index $.Values.config.extraEnv $k }}
+          - name: {{ $k }}
+            value: {{ . | quote }}
+          {{- end }}
+          {{- end }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        resources:
+          {{- toYaml .Values.migrate.job.resources | nindent 10 }}
+{{- end }}
+
+{{/*
+The migrate Job's name: <fullname>-migrate-<version>-<first 8 of sha256(spec)>,
+DNS-safe (the version lowercased, "+" and "_" turned into "-") and at most 63
+characters. Called with (dict "root" . "spec" <the rendered spec>).
+*/}}
+{{- define "rivolt.migrateJobName" -}}
+{{- $v := .root.Values.image.tag | default .root.Chart.AppVersion | toString | lower | replace "+" "-" | replace "_" "-" -}}
+{{- $h := .spec | sha256sum | trunc 8 -}}
+{{- $prefix := printf "%s-migrate-" (include "rivolt.fullname" .root) -}}
+{{- $room := sub 63 (add (len $prefix) 9) | int -}}
+{{- printf "%s%s-%s" $prefix ($v | trunc $room | trimSuffix "-" | trimSuffix ".") $h -}}
+{{- end }}

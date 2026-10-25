@@ -318,6 +318,19 @@ jobs:
           done
           if echo "$env" | grep -qx RIVOLT_OIDC_GOOGLE_DISPLAY_NAME; then echo "::error::config.extraEnv leaked into the migrate Job"; exit 1; fi
           echo "migrate Job env: the grant roles, and nothing else from config.extraEnv"
+          # The Job's name is per release and spec (Argo reuses a finished named hook on a second
+          # sync of the same revision): stable for the same input, new when the spec changes, a
+          # DNS-1123 subdomain of at most 63 characters even for a long tag.
+          name() { helm template rivolt "$CHART" -f "$CHART/ci/migrate-job-values.yaml" "$@" | yq 'select(.kind == "Job") | .metadata.name'; }
+          a=$(name); b=$(name); c=$(name --set migrate.job.backoffLimit=2)
+          long=$(name --set image.tag=v0.40.0-dev.14+sha-96e8eda.a-very-long-build-suffix-for-the-length-cap)
+          [ -n "$a" ] && [ "$a" = "$b" ] || { echo "::error::migrate Job name isn't stable: $a / $b"; exit 1; }
+          [ "$a" != "$c" ] || { echo "::error::migrate Job name didn't change with its spec"; exit 1; }
+          for n in "$a" "$long"; do
+            [ "${#n}" -le 63 ] && echo "$n" | grep -Eq '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$' \
+              || { echo "::error::invalid migrate Job name: $n"; exit 1; }
+          done
+          echo "migrate Job name: $a (stable, per spec, valid; long tags capped: ${#long} chars)"
 
       - name: No KEK, no render
         run: |
