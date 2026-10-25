@@ -105,6 +105,7 @@ export function ResetAccess({ row, disabled }: { row: AdminUserRow; disabled?: b
             </button>
           </div>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-100">
+            <li>Clear your clipboard after sending.</li>
             <li>Send it ONLY to the email address on the account: <strong>{mail}</strong>. Never to any other address, phone number or chat, even if the person asking says they lost the mailbox.</li>
             <li>Tell them to change it at once in Settings, Security (Change password, using this one as the current password), and to remove any passkey they do not recognise.</li>
             <li>It is not stored or logged anywhere. Closing this clears it for good; if it is lost, run the reset again.</li>
@@ -112,6 +113,8 @@ export function ResetAccess({ row, disabled }: { row: AdminUserRow; disabled?: b
           <button
             type="button"
             onClick={() => {
+              // Copy left the password in the clipboard (and on a Mac in Universal Clipboard): empty it again.
+              if (copied) void navigator.clipboard?.writeText("").catch(() => {});
               setOutcome(null);
               setCopied(false);
             }}

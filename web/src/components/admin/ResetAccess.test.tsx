@@ -36,6 +36,31 @@ describe("ResetAccess", () => {
     expect(document.body.textContent).not.toContain("Zq7-temp-pass");
   });
 
+  it("empties the clipboard on Done after a Copy, and says to clear it", async () => {
+    stubFetchRoutes({ "/api/admin/users/u2/secure": { body: { ok: true, temporary_password: "Zq7-temp-pass", sessions_revoked: 0, passkeys_removed: 0 } } });
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    render(<ResetAccess row={row} />);
+    await confirm();
+    await screen.findByText("Zq7-temp-pass");
+    expect(screen.getByText("Clear your clipboard after sending.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Zq7-temp-pass"));
+    fireEvent.click(screen.getByRole("button", { name: "Done, clear it" }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(""));
+  });
+
+  it("leaves the clipboard alone on Done when Copy was never used", async () => {
+    stubFetchRoutes({ "/api/admin/users/u2/secure": { body: { ok: true, temporary_password: "Zq7-temp-pass", sessions_revoked: 0, passkeys_removed: 0 } } });
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    render(<ResetAccess row={row} />);
+    await confirm();
+    await screen.findByText("Zq7-temp-pass");
+    fireEvent.click(screen.getByRole("button", { name: "Done, clear it" }));
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("copies the password to the clipboard on request", async () => {
     stubFetchRoutes({ "/api/admin/users/u2/secure": { body: { ok: true, temporary_password: "Zq7-temp-pass", sessions_revoked: 0, passkeys_removed: 0 } } });
     const writeText = vi.fn(async () => {});

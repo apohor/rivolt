@@ -39,6 +39,8 @@ final class RivianReauthTests: XCTestCase {
         let words = UserFacingError.words(e)
         XCTAssertEqual(words, "Rivian needs to be reconnected. Do that in Rivolt on the web, then try again.")
         XCTAssertFalse(words.contains("sign-in has ended"), "the phone's own sign-in is fine")
+        XCTAssertEqual(e.localizedDescription, "Rivian needs to be reconnected.", "a fixed sentence: never the server's own text, wherever it is shown")
+        XCTAssertFalse(e.localizedDescription.contains("attention"))
     }
 
     func testABare401IsStillADeadSession() async throws {
