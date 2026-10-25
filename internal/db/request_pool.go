@@ -67,6 +67,10 @@ func WithNoUserCounter(fn func(context.Context)) RequestPoolOption {
 // max_connections. 10 per pod keeps three pods at 30 of 50.
 const DefaultRequestMaxConns int32 = 10
 
+// RequestConnBudget is what the request pool may use of the role's connection limit (50): per pod times pods (replicas plus a
+// surge pod) stays at or under it, leaving headroom for the grant loop and a hand-run migrate.
+const RequestConnBudget = 45
+
 // RequestPoolMaxConns reads RIVOLT_REQUEST_DB_MAX_CONNS (1 to 100); anything else is DefaultRequestMaxConns.
 func RequestPoolMaxConns(getenv func(string) string) int32 {
 	if n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_REQUEST_DB_MAX_CONNS"))); err == nil && n >= 1 && n <= 100 {
