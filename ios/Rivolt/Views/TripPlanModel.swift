@@ -49,6 +49,8 @@ final class TripPlanModel {
         case none
         case looking
         case choose([OvernightCandidates.Candidate])
+        /// Hotels with no charger listed, offered only when none with one is in range (the answer keeps the OpenStreetMap credit).
+        case chooseFallback(OvernightCandidates)
         case planning
         case planned(TripMultiday)
         case failed(String)
@@ -138,8 +140,12 @@ final class TripPlanModel {
             let found = try await source.overnightCandidates(TripPlanLogic.overnightRequest(route, roadLine: roadLine))
             if found.target?.reachesEnd == true {
                 night = .failed("This trip fits in one day.")
+            } else if found.candidates.isEmpty, !found.fallbackStays.isEmpty {
+                var shown = found
+                shown.fallbackStays = Array(found.fallbackStays.prefix(5))
+                night = .chooseFallback(shown)
             } else if found.candidates.isEmpty {
-                night = .failed(TripPlanLogic.noStaysLine(found, driveSec: route.totalDriveDurationSec, metric: NowFormat.usesMetric))
+                night = .failed(TripPlanLogic.noStaysMessage(found, driveSec: route.totalDriveDurationSec, metric: NowFormat.usesMetric))
             } else {
                 night = .choose(Array(found.candidates.prefix(5)))
             }
@@ -150,13 +156,13 @@ final class TripPlanModel {
     }
 
     /// Plans two days with the night at `stay`.
-    func planNight(source: some TripSource, at stay: OvernightCandidates.Candidate) async {
+    func planNight(source: some TripSource, at stay: OvernightCandidates.Candidate, morning: OvernightCandidates.FastCharger? = nil) async {
         guard let destination, let start = lastStart else { return }
         night = .planning
         chosenStay = stay
         let body = TripPlanLogic.multidayRequest(
             vehicleID: vehicleID, startingSoc: useTruckCharge ? nil : startingSoc, packKwh: packKwh, startAt: lastLeave,
-            origin: start, destination: (destination.latitude, destination.longitude), stay: stay)
+            origin: start, destination: (destination.latitude, destination.longitude), stay: stay, morningCharger: morning)
         do {
             let result = try await source.planMultiday(body)
             night = result.days.isEmpty ? .failed("The planner found no route for that trip.") : .planned(result)

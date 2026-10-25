@@ -254,6 +254,24 @@ struct LongDriveSection: View {
                 }
                 Text("Listings only. Rivolt can't tell whether a charger is free or working.").themeText(.subline, color: Theme.textSecondary)
             }
+        case .chooseFallback(let found):
+            ThemeSection(title: "Where to sleep") {
+                Text("No hotel with a listed charger is in range. These hotels list no charger: you would sleep without charging and start the next day at a fast charger.")
+                    .themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(found.fallbackStays.enumerated()), id: \.element.id) { i, stay in
+                    Divider().overlay(Theme.border)
+                    Button { Task { await model.planNight(source: state.client, at: TripPlanLogic.candidate(stay), morning: stay.fastCharger) } } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stay.name).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.leading)
+                            Text(TripPlanLogic.fallbackLine(stay, metric: metric)).themeText(.subline, color: Theme.estimate)
+                                .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                OpenStreetMapCredit(found: found)
+            }
         case .planning:
             ThemeSection(title: "Two days") {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Asking the planner…").themeText(.value, color: Theme.textSecondary) }
@@ -469,5 +487,20 @@ private struct Figures: View {
             }
             .accessibilityElement(children: .combine)
         }
+    }
+}
+
+/// The credit these hotels need wherever they show: "© OpenStreetMap contributors", with the ODbL licence it is under as a link.
+struct OpenStreetMapCredit: View {
+    let found: OvernightCandidates
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(found.attribution ?? TripPlanLogic.osmCredit).themeText(.subline, color: Theme.textSecondary)
+            if let url = URL(string: found.attributionLicenseUrl ?? TripPlanLogic.odblURL), url.scheme == "https" {
+                Link("ODbL licence", destination: url).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).tint(Theme.accent)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }

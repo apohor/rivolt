@@ -322,4 +322,72 @@ final class TripPlanModelTests: XCTestCase {
                        "No hotel or campground with a listed charger within about \(d(18_000, true)) before or \(d(36_000, true)) after your 8 h point (about \(d(288_000, true)) in). Pick a stop by hand on the web.")
         XCTAssertTrue(TripPlanLogic.noStaysLine(found, driveSec: nil, metric: true).hasPrefix("No hotel or campground with a listed charger near"), "no drive time: the plain line")
     }
+
+    // MARK: nearest stays and hotels with no charger
+
+    private let fallbackAnswer = #"""
+    {"candidates":[],"target":{"reaches_end":false,"along_m":288000,"window_before_min":180,"window_after_min":60},"route_m":1530000,
+     "nearest":{"before":{"name":"Sample Inn West","lat":44.0,"lon":-121.0,"drive_sec":18000,"offset_sec":-11880},
+                "after":{"name":"Sample Inn East","lat":43.0,"lon":-120.0,"drive_sec":35000,"offset_sec":5760}},
+     "fallback_stays":[{"name":"Sample Motel","lat":43.5,"lon":-120.5,"id":"n1","kind":"hotel","no_onsite_charger":true,"detour_m":1200,"along_m":300000,
+       "fast_charger":{"name":"Sample Fast Charge A","lat":43.51,"lon":-120.49,"entity_id":"e1","distance_m":3200,"max_power_kw":250},
+       "source":"openstreetmap","attribution":"© OpenStreetMap contributors"}],
+     "attribution":"© OpenStreetMap contributors","attribution_license_url":"https://opendatacommons.org/licenses/odbl/1-0/",
+     "attribution_source_url":"https://www.openstreetmap.org/copyright"}
+    """#
+
+    private func answer() throws -> OvernightCandidates { try JSON.decoder().decode(OvernightCandidates.self, from: Data(fallbackAnswer.utf8)) }
+
+    func testTheNearestListedStayIsSaidOnEachSide() throws {
+        let found = try answer()
+        XCTAssertEqual(TripPlanLogic.nearestLines(found), [
+            "Nearest listed stay: Sample Inn West, about 3.3 h short of the day (about 5.0 h in).",
+            "Nearest listed stay: Sample Inn East, about 1.6 h past the day (about 9.7 h in).",
+        ])
+        XCTAssertEqual(TripPlanLogic.nearestLines(OvernightCandidates()), [], "an older server sends none")
+        XCTAssertTrue(TripPlanLogic.noStaysMessage(found, driveSec: 55_800, metric: false).contains("\nNearest listed stay: Sample Inn West"))
+    }
+
+    func testAHotelWithNoChargerSaysSoAndNamesTheMorningCharger() throws {
+        let stay = try XCTUnwrap(try answer().fallbackStays.first)
+        XCTAssertEqual(TripPlanLogic.fallbackLine(stay, metric: false), "No charger listed here. Nearest fast charger: Sample Fast Charge A, 2 mi away (250 kW).")
+        XCTAssertEqual(TripPlanLogic.candidate(stay).l2Kw, 0, "no charging overnight")
+        XCTAssertEqual(TripPlanLogic.osmCredit, "© OpenStreetMap contributors")
+        XCTAssertEqual(try answer().attributionLicenseUrl, "https://opendatacommons.org/licenses/odbl/1-0/")
+    }
+
+    func testTheMorningChargerIsDayTwosFirstStop() throws {
+        let found = try answer()
+        let stay = try XCTUnwrap(found.fallbackStays.first)
+        let req = TripPlanLogic.multidayRequest(
+            vehicleID: nil, startingSoc: nil, packKwh: nil, startAt: Date(timeIntervalSince1970: 1_800_000_000),
+            origin: (45.52, -122.68), destination: (38.58, -121.49), stay: TripPlanLogic.candidate(stay), morningCharger: stay.fastCharger)
+        XCTAssertEqual(req.days[0].overnight?.l2Kw, 0)
+        XCTAssertNil(req.days[0].vias)
+        XCTAssertEqual(req.days[1].vias, [TripPoint(lat: 43.51, lon: -120.49, label: "Sample Fast Charge A", entityId: "e1")])
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let text = String(decoding: try encoder.encode(req), as: UTF8.self)
+        XCTAssertTrue(text.contains(#""entity_id":"e1""#), text)
+        let plain = TripPlanLogic.multidayRequest(vehicleID: nil, startingSoc: nil, packKwh: nil, startAt: Date(), origin: (45.52, -122.68), destination: (38.58, -121.49),
+                                                  stay: .init(name: "Sample Inn", lat: 45.9, lon: -121.0, l2Kw: 7))
+        XCTAssertNil(plain.days[1].vias, "a stay with a charger starts the day as before")
+    }
+
+    func testWithNoListedStayInRangeTheModelOffersTheHotelsWithNoCharger() async throws {
+        let src = FakeTrips()
+        src.plan = try longPlan()
+        src.stays = try answer()
+        let m = TripPlanModel()
+        await planned(src, m)
+        await m.findNight(source: src)
+        guard case .chooseFallback(let shown) = m.night else { return XCTFail("\(m.night)") }
+        XCTAssertEqual(shown.fallbackStays.map(\.name), ["Sample Motel"])
+        XCTAssertTrue(src.dayRequests.isEmpty, "nothing is planned until one is picked")
+        let stay = try XCTUnwrap(shown.fallbackStays.first)
+        src.days = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        await m.planNight(source: src, at: TripPlanLogic.candidate(stay), morning: stay.fastCharger)
+        XCTAssertEqual(src.dayRequests.first?.days[1].vias?.first?.entityId, "e1")
+        guard case .planned = m.night else { return XCTFail("\(m.night)") }
+    }
 }
