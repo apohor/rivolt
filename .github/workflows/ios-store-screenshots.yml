@@ -138,7 +138,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet pillow
+          # Pillow is pinned by version and hash (ios/tools/requirements.txt): a release more than 3 days old, never "whatever is newest".
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --only-binary=:all: -r ios/tools/requirements.txt
           for mode in dark light; do
             "$RUNNER_TEMP/venv/bin/python" ios/tools/store_shots.py "$RUNNER_TEMP/raw" "$RUNNER_TEMP/store/${{ matrix.size }}" "$mode"
           done
