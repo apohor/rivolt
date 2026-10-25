@@ -5,6 +5,7 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/archive/s3"
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/samples"
@@ -103,11 +105,19 @@ func TestBackupFromArchive(t *testing.T) {
 	reader.OnCorrupt = func(uuid.UUID, uuid.UUID, time.Time, error) { corrupt++ }
 	collect := func() (map[string]int, []string, error) {
 		got := map[string]int{}
-		reduced, err := store.EachAllArchived(ctx, reader, func(v samples.Sample) error {
+		reduced, err := store.EachAllArchived(auth.WithUser(ctx, uid), reader, func(v samples.Sample) error {
 			got[v.VehicleID+" "+v.At.Format("2006-01")]++
 			return nil
 		})
 		return got, reduced, err
+	}
+	// A context with no user (or another user) must fail, never come back as a backup missing its archived months: under the request
+	// pool it would read no archive objects at all.
+	if _, err := store.EachAllArchived(ctx, reader, func(samples.Sample) error { return nil }); !errors.Is(err, samples.ErrBackupUnavailable) {
+		t.Fatalf("no user in the context: err = %v, want ErrBackupUnavailable", err)
+	}
+	if _, err := store.EachAllArchived(auth.WithUser(ctx, uuid.New()), reader, func(samples.Sample) error { return nil }); !errors.Is(err, samples.ErrBackupUnavailable) {
+		t.Fatalf("another user in the context: err = %v, want ErrBackupUnavailable", err)
 	}
 	key := func(v, m string) string { return v + " " + m }
 	thinM, recentM := archive.MonthString(thin), archive.MonthString(recent)

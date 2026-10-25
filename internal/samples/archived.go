@@ -12,6 +12,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/archive/s3"
+	"github.com/apohor/rivolt/internal/auth"
 )
 
 // ArchiveRows is what the backup reads the telemetry archive through
@@ -20,6 +21,10 @@ type ArchiveRows interface {
 	Objects(ctx context.Context, uid uuid.UUID) ([]archive.ObjectRef, error)
 	EachRow(ctx context.Context, uid, vehicleID uuid.UUID, month time.Time, fn func(archive.Row) error) error
 }
+
+// ErrBackupUnavailable means the archive cannot be read for this user: the context carries no user, or another one. A backup that
+// went ahead would be missing months without saying so, so it fails.
+var ErrBackupUnavailable = errors.New("backup unavailable: the request carries no user for the archive")
 
 // EachAllArchived is EachAll with full detail for thinned months (N19): a
 // month thinning has reduced is read from the user's archive objects, plus
@@ -37,6 +42,11 @@ type ArchiveRows interface {
 func (s *Store) EachAllArchived(ctx context.Context, src ArchiveRows, fn func(Sample) error) (reduced []string, err error) {
 	if src == nil {
 		return nil, s.EachAll(ctx, fn)
+	}
+	// The archive is read through the request pool when row-level security is on, which shows a context with no user nothing: no
+	// archive objects, so thinned months would quietly come back reduced and the backup would look complete. Refuse instead.
+	if u, ok := auth.UserFromContext(ctx); !ok || u != s.userID {
+		return nil, ErrBackupUnavailable
 	}
 	thinned := map[time.Time]bool{}
 	if err := eachTime(ctx, s.db, `SELECT month FROM sample_tiers`, nil, func(m time.Time) { thinned[monthOf(m)] = true }); err != nil {

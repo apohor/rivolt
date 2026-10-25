@@ -56,6 +56,24 @@ import (
 	"github.com/apohor/rivolt/internal/weather"
 )
 
+// Pools (row-level security, stage 2). DB, Drives, Charges, Samples, Settings, Push, Trips, Secrets, PackHealth, AIBudget and
+// ArchiveRows (the backup's archive reader; a request with no user fails the backup instead of dropping months) are built in
+// main on the request pool when RIVOLT_REQUEST_DATABASE_URL is set (otherwise on the system pool, as before): they serve per-user
+// routes and every table they touch carries the tenant policy. SystemDB, SystemSettings and SystemSecrets are the owner-role
+// counterparts for the few places that must span users or run before a user is known. Every other store below is built on the
+// system pool, each for a reason (DA asked for this list in the S2-2 review):
+//
+//   - Flags: install-wide switches, no tenant data. Request handlers read an in-memory snapshot; admin writes go through SystemDB.
+//   - SettingsMgr: app_settings, which the request role cannot read (provider keys).
+//   - SignupRequests: signup_requests, denied to the request role; signup and admin only.
+//   - Users: the identity provider's admin API, not a database.
+//   - Sessions, AppAuth, OIDC, Passkeys, AppleNotifications, AppleRevocation: sign-in, token and session paths. They run before a
+//     user is known, or manage the session store the auth middleware itself reads; each statement names the user it acts for.
+//   - Accounts, Monitors: the per-user Rivian clients and recorders (the monitor and recorder are system by policy).
+//   - ArchiveRestorer: the admin restore of one user's archived month; admin, so system.
+//   - Changelog, ChargersArchive, WeatherCache: not tenant data (a feed URL, the charger archive, an in-memory weather cache keyed by
+//     place and time).
+//
 // Deps is the bag of dependencies the API router needs. Keep this
 // small; avoid accumulating a "dependency soup" pattern.
 //
@@ -238,6 +256,9 @@ type Deps struct {
 	// sealer; the Rivian sign-in surface becomes read-only
 	// when it's absent.
 	Secrets *secrets.Store
+	// SystemSecrets is the secret store on the system pool, for the admin route that refreshes another user's Rivian session.
+	// nil means Secrets (no request pool).
+	SystemSecrets *secrets.Store
 	// Metrics is the Prometheus instrumentation surface. When non-nil
 	// the router wires per-handler latency + count tracking and
 	// mounts /metrics. nil disables both — useful for tests that
@@ -313,7 +334,6 @@ type Deps struct {
 	WeatherCache *weather.MemCache
 }
 
-// New builds the root mux with all routes mounted.
 // sysDB is SystemDB, or DB where New has not defaulted it (code that takes a Deps without going through New).
 func (d Deps) sysDB() *sql.DB {
 	if d.SystemDB != nil {
@@ -330,6 +350,15 @@ func (d Deps) systemSettings() *settings.Factory {
 	return d.Settings
 }
 
+// systemSecrets is the secret store admin routes use: the system-pool one when there is a separate request pool.
+func (d Deps) systemSecrets() *secrets.Store {
+	if d.SystemSecrets != nil {
+		return d.SystemSecrets
+	}
+	return d.Secrets
+}
+
+// New builds the root mux with all routes mounted.
 func New(d Deps) http.Handler {
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
@@ -1136,7 +1165,7 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "user.sync_rivian", targetType: "user", idParam: "id", userTarget: true})).
 					Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.SystemDB, d.Logger))
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
-					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.SystemDB, d.Logger))
+					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.systemSecrets(), d.SystemDB, d.Logger)) // system pool: another user's secrets
 				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
 					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.AppleRevocation, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
