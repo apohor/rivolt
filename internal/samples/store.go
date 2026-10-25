@@ -87,10 +87,27 @@ type Store struct {
 	db       *sql.DB
 	userID   uuid.UUID
 	vehicles *db.VehicleResolver
+	// sys is the owner-role pool, for the one statement that is DDL: rivolt_ensure_vehicle_state_partition creates a monthly
+	// partition (CREATE TABLE ... PARTITION OF), which only the table's owner may do. Under row-level security the request role
+	// is not the owner, so an import or restore into a month with no partition yet would fail. nil means db (no request pool).
+	sys *sql.DB
+}
+
+// ddlPool is the pool for creating a month's partition (see Store.sys).
+func (s *Store) ddlPool() *sql.DB {
+	if s.sys != nil {
+		return s.sys
+	}
+	return s.db
 }
 
 // OpenStore binds a pooled connection to a user + vehicle resolver.
 func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, error) {
+	return openStore(d, nil, userID, v)
+}
+
+// openStore is OpenStore with the system pool for partition creation.
+func openStore(d, sys *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, error) {
 	if d == nil {
 		return nil, fmt.Errorf("samples: db is nil")
 	}
@@ -100,7 +117,7 @@ func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, erro
 	if v == nil {
 		return nil, fmt.Errorf("samples: vehicle resolver is nil")
 	}
-	return &Store{db: d, userID: userID, vehicles: v}, nil
+	return &Store{db: d, sys: sys, userID: userID, vehicles: v}, nil
 }
 
 // Close is a no-op; the pool is managed by main.
@@ -292,7 +309,8 @@ func (s *Store) prepareBatch(ctx context.Context, batch []Sample) (map[string]uu
 		return nil, err
 	}
 	for m := range months {
-		if _, err := s.db.ExecContext(ctx,
+		// System pool: creating a partition is DDL, which the request role may not do.
+		if _, err := s.ddlPool().ExecContext(ctx,
 			`SELECT rivolt_ensure_vehicle_state_partition($1)`, m,
 		); err != nil {
 			return nil, fmt.Errorf("ensure partition for %s: %w", m.Format("2006-01"), err)

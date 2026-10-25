@@ -448,7 +448,7 @@ func runServer() {
 	reqResolverFactory := db.NewVehicleResolverFactory(requestDB)
 	reqDrivesFactory := drives.NewFactory(requestDB, reqResolverFactory)
 	reqChargesFactory := charges.NewFactory(requestDB, reqResolverFactory)
-	reqSamplesFactory := samples.NewFactory(requestDB, reqResolverFactory)
+	reqSamplesFactory := samples.NewFactoryWithSystem(requestDB, pgPool, reqResolverFactory) // a month's partition is DDL: system pool
 	reqSettingsFactory := settings.NewFactory(requestDB)
 	reqPushFactory := push.NewFactoryWithSystem(requestDB, pgPool) // APNs token registration spans users: system pool for those statements
 	reqTripsFactory := trips.NewFactory(requestDB)

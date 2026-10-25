@@ -84,7 +84,7 @@ func poolOn(t *testing.T, d Deps) Deps {
 		d.Charges = charges.NewFactory(rp.DB, rf)
 	}
 	if d.Samples != nil {
-		d.Samples = samples.NewFactory(rp.DB, rf)
+		d.Samples = samples.NewFactoryWithSystem(rp.DB, owner, rf)
 	}
 	if d.Push != nil {
 		d.Push = push.NewFactory(rp.DB)

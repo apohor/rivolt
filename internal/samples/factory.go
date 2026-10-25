@@ -13,6 +13,7 @@ import (
 // for the rationale.
 type Factory struct {
 	db        *sql.DB
+	sys       *sql.DB // the system pool for partition creation (Store.sys); nil means db
 	resolvers *db.VehicleResolverFactory
 
 	mu    sync.RWMutex
@@ -26,6 +27,14 @@ func NewFactory(d *sql.DB, resolvers *db.VehicleResolverFactory) *Factory {
 		resolvers: resolvers,
 		cache:     make(map[uuid.UUID]*Store),
 	}
+}
+
+// NewFactoryWithSystem is NewFactory for request handling under row-level security: d is the request pool and sys the owner-role
+// pool the stores use to create a month's partition.
+func NewFactoryWithSystem(d, sys *sql.DB, resolvers *db.VehicleResolverFactory) *Factory {
+	f := NewFactory(d, resolvers)
+	f.sys = sys
+	return f
 }
 
 // For returns the *Store for userID, constructing one on first sight.
@@ -45,7 +54,7 @@ func (f *Factory) For(userID uuid.UUID) *Store {
 		return s
 	}
 	resolver := f.resolvers.For(userID)
-	s, err := OpenStore(f.db, userID, resolver)
+	s, err := openStore(f.db, f.sys, userID, resolver)
 	if err != nil {
 		return nil
 	}

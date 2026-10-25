@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/samples"
@@ -53,7 +54,9 @@ func TestElectrafiImportHonoursSampleRetention(t *testing.T) {
 
 	run := func(from time.Time) electrafi.Result {
 		imp := &electrafi.Importer{Drives: ds, Samples: ss, VehicleID: "rv-imp-ret", Location: time.UTC, SampleFrom: from}
-		res, err := imp.ImportReader(ctx, "t.csv", strings.NewReader(csv))
+		// The handler runs under the request context, which carries the user; on the request pool a context without one sees no
+		// vehicle and cannot create one.
+		res, err := imp.ImportReader(auth.WithUser(ctx, uid), "t.csv", strings.NewReader(csv))
 		if err != nil {
 			t.Fatalf("ImportReader: %v", err)
 		}
