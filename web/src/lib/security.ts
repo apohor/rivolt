@@ -1,7 +1,6 @@
 import { ApiError } from "./api";
 
-// What to tell the person when the password change or the full reset did not work. The server's own text is never shown, apart from
-// the password policy's reason (which exists to be read: "too short", "too common"), and that is capped.
+// What to tell the person when the password change or the full reset did not work. The server's own text is never shown.
 // `incomplete` names what a changed password left undone: "sign_out" (other devices still signed in) and, after the full reset,
 // "passkeys" (some still not removed).
 export type SecurityFailure = { text: string; noPassword?: boolean; signOutIncomplete?: boolean; passkeysIncomplete?: boolean };
@@ -11,10 +10,9 @@ export function securityFailure(e: unknown): SecurityFailure {
     const body = (e.body ?? {}) as { error?: string; reason?: string; password_changed?: boolean; incomplete?: string[] };
     if (e.status === 403 && body.error === "password_incorrect") return { text: "That isn't your current password." };
     if (e.status === 429) return { text: "Too many wrong attempts. Wait a few minutes, then try again." };
-    if (e.status === 422 && body.error === "password_rejected") {
-      const why = typeof body.reason === "string" ? body.reason.slice(0, 200) : "";
-      return { text: `That new password isn't accepted.${why ? ` ${why}` : " Use a longer one that is less common."}` };
-    }
+    // The policy's own reason is not shown (it is the identity service's wording): one plain line covers what it can mean.
+    if (e.status === 422 && body.error === "password_rejected")
+      return { text: "That new password isn't accepted. Use a longer one that is less common and that you don't use anywhere else." };
     if (e.status === 400 && body.error === "new_password_must_differ") return { text: "The new password must be different from the current one." };
     if (e.status === 409 && body.error === "needs_an_email_account")
       return { text: "This account signs in with Google, GitHub or Apple, so it has no Rivolt password to change.", noPassword: true };

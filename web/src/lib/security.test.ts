@@ -10,10 +10,10 @@ describe("securityFailure", () => {
     expect(securityFailure(err(429, null)).text).toContain("Too many wrong attempts");
     expect(securityFailure(err(400, { error: "new_password_must_differ" })).text).toContain("different");
   });
-  it("shows the password policy's reason, capped, and a fallback without one", () => {
-    expect(securityFailure(err(422, { error: "password_rejected", reason: "The password is too short." })).text).toContain("too short");
-    expect(securityFailure(err(422, { error: "password_rejected" })).text).toContain("less common");
-    expect(securityFailure(err(422, { error: "password_rejected", reason: "x".repeat(900) })).text.length).toBeLessThan(260);
+  it("says a rejected new password in its own words, never the policy's reason", () => {
+    const f = securityFailure(err(422, { error: "password_rejected", reason: "The password is too similar to your email." }));
+    expect(f.text).toBe("That new password isn't accepted. Use a longer one that is less common and that you don't use anywhere else.");
+    expect(f.text).not.toContain("similar");
   });
   it("marks an account without a Rivolt password so the cards hide", () => {
     const f = securityFailure(err(409, { error: "needs_an_email_account" }));
