@@ -1,4 +1,5 @@
 import { useRefreshListsWhenSessionCloses } from "../lib/activityLists";
+import { useAccountUnits } from "../lib/accountUnits";
 import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
 import { useEffect } from "react";
@@ -43,6 +44,8 @@ function UserLayout() {
   // Never while an admin is viewing as someone: the target's onboarding can't be completed from a
   // read-only view (POST /api/onboarding/complete is refused), so the redirect would trap the admin.
   const impersonating = useImpersonationTarget();
+  // The units follow the account (not while an admin views as someone: that must not change their units).
+  useAccountUnits(impersonating ? null : me.data);
   useEffect(() => {
     if (impersonating) return;
     if (me.data && me.data.onboarding_completed === false) {

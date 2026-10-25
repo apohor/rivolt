@@ -34,10 +34,9 @@ struct NowWidgetView: View {
     }
 }
 
-/// The range in the phone's road unit (miles in the US and UK, as the app's Now card), whole, rounded as the web does.
+/// The range in the account's distance unit (as the app's Now card), whole, rounded as the web does.
 private func rangeText(_ km: Double, spoken: Bool = false) -> String {
-    let system = Locale.current.measurementSystem
-    let miles = system == .us || system == .uk
+    let miles = !DisplayUnits.distanceMetric
     let unit = spoken ? (miles ? "miles" : "kilometres") : (miles ? "mi" : "km")
     return "\(NumberText.fixed(miles ? km / 1.609344 : km, 0)) \(unit)"
 }

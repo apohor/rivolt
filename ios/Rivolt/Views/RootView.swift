@@ -14,7 +14,8 @@ struct RootView: View {
         case .loggedOut:
             LoginView()
         case .loggedIn:
-            SignedInGate()
+            // The units shown are read again when they change.
+            SignedInGate().id(state.unitsRevision)
         case .demo:
             AppShell().environment(\.isDemo, true)
         }

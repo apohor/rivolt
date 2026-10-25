@@ -163,6 +163,9 @@ targets:
       - path: Rivolt/LiveActivity/ChargingActivity.swift
       - path: Rivolt/LiveActivity/ChargingActivityViews.swift
       - path: Rivolt/Net/Models.swift
+      - path: Rivolt/Net/AccountUnits.swift
+      # The units the widgets show are the account's, read from the App Group.
+      - path: Rivolt/Net/DisplayUnits.swift
       - path: Rivolt/Net/JSON.swift
       - path: Rivolt/Net/ServerURL.swift
       - path: Rivolt/Auth/TokenStore.swift

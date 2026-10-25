@@ -212,10 +212,7 @@ extension NowFormat {
         }
     }
 
-    static var usesMetric: Bool {
-        let system = Locale.current.measurementSystem
-        return system != .us && system != .uk
-    }
+    static var usesMetric: Bool { DisplayUnits.distanceMetric }
 
     /// A distance recorded in miles, shown (or said, with `spoken`) the way the phone's units say.
     static func distance(mi: Double, spoken: Bool = false) -> String {

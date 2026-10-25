@@ -34,10 +34,10 @@ struct NowComfort: Equatable {
     /// The same words the web's live panel reads as on.
     private static func isOn(_ s: String?) -> Bool { ["true", "on", "active", "1"].contains(clean(s)) }
 
-    /// A temperature in whole degrees, in the person's unit (the device's temperature setting).
+    /// A temperature in whole degrees, in the account's temperature unit.
     static func wholeDegrees(celsius: Double, spoken: Bool = false) -> String {
-        Measurement(value: celsius, unit: UnitTemperature.celsius)
-            .formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .weather, numberFormatStyle: .number.precision(.fractionLength(0))))
+        let shown = DisplayUnits.celsius ? Measurement(value: celsius, unit: UnitTemperature.celsius) : Measurement(value: celsius, unit: UnitTemperature.celsius).converted(to: .fahrenheit)
+        return shown.formatted(.measurement(width: spoken ? .wide : .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))))
     }
 
     /// The cabin temperature for its own row beside Outside; nil when the truck gave none.

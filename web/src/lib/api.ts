@@ -1353,6 +1353,8 @@ export const backend = {
     api.post<{ vehicle_count: number }>("/api/settings/rivian/refresh-vehicles"),
   rivianLogout: () =>
     api.post<{ authenticated: boolean }>("/api/settings/rivian/logout"),
+  getUnits: () => api.get<AccountUnits>("/api/settings/units"),
+  patchUnits: (body: UnitsPatch) => api.patch<AccountUnits>("/api/settings/units", body),
   getChargingSettings: () =>
     api.get<ChargingSettings>("/api/settings/charging/"),
   setChargingSettings: (cfg: ChargingSettings) =>
@@ -2173,7 +2175,19 @@ export type AuthUser = {
   onboarding_completed: boolean;
   // The Terms version the user has accepted vs the current one; absent on older servers.
   terms?: TermsState;
+  // The account's display units (absent on a server without the setting); the same object as GET /api/settings/units.
+  units?: AccountUnits;
 };
+
+// How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was
+// chosen yet and the values are placeholders; "region" was seeded once from the client's region; "user" is a pick.
+export type AccountUnits = {
+  distance_unit: "mi" | "km";
+  temperature_unit: "c" | "f";
+  distance_source: "user" | "region" | "unset";
+  temperature_source: "user" | "follows_distance";
+};
+export type UnitsPatch = { distance_unit?: "mi" | "km"; temperature_unit?: "c" | "f" | "auto"; seed?: true };
 
 // required: only new accounts (created after the terms took effect) must accept; existing users never see the gate.
 export type TermsState = { current: string; accepted: string | null; accepted_at: string | null; required?: boolean };

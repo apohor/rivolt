@@ -80,6 +80,18 @@ actor APIClient {
         try await request("GET", "/api/auth/me")
     }
 
+    // MARK: Units
+
+    /// How the account shows distance and temperature.
+    func accountUnits() async throws -> AccountUnits {
+        try await request("GET", "/api/settings/units")
+    }
+
+    /// A pick (or the one first-time seed from the phone's region); the server answers with the units now in force.
+    func setUnits(_ patch: UnitsPatch) async throws -> AccountUnits {
+        try await request("PATCH", "/api/settings/units", body: patch)
+    }
+
     // MARK: Signed-in devices
 
     /// The browsers and iPhones signed in as this person (newest first as the server sends them).

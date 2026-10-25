@@ -547,8 +547,7 @@ export function DisplayPreferences() {
           })}
         </div>
         <p className="mt-1 text-xs text-neutral-500">
-          Backend always stores Celsius; this only affects how temperatures are
-          displayed.
+          Only how temperatures are shown changes; Rivolt stores them in Celsius.
         </p>
       </div>
 
@@ -575,7 +574,7 @@ export function DisplayPreferences() {
           })}
         </div>
         <p className="mt-1 text-xs text-neutral-500">
-          Miles by default. Saved on this device only.
+          Saved to your account, so the web and the iPhone app agree. Temperature follows distance until you choose one.
         </p>
       </div>
 
