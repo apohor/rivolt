@@ -531,7 +531,9 @@ func (g *backupGuard) forgetWithCooldown(uid uuid.UUID) {
 // forget gives uid's slot back (a run that broke should not cost the user
 // the wait).
 func (g *backupGuard) forget(uid uuid.UUID) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The user rides in the context: the gap is a column on the user's own row, which a context with no user cannot see under row-level
+	// security (the wait would not be given back).
+	ctx, cancel := context.WithTimeout(auth.WithUser(context.Background(), uid), 5*time.Second)
 	defer cancel()
 	g.gaps.clear(ctx, uid)
 }

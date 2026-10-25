@@ -225,7 +225,9 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 		// Fire-and-forget — the response has already gone out.
 		if authd && !needs && sqlDB != nil && shouldAttemptPrime(uid) {
 			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				// Detached from the response, so the user rides in the context (request pool: a context with no user counts 0 vehicles
+				// and the prime would run for an account that has them).
+				ctx, cancel := context.WithTimeout(auth.WithUser(context.Background(), uid), 30*time.Second)
 				defer cancel()
 				var n int
 				if err := sqlDB.QueryRowContext(ctx,
