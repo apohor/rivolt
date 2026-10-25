@@ -13,14 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
-	"github.com/apohor/rivolt/internal/drives"
-	"github.com/apohor/rivolt/internal/push"
-	"github.com/apohor/rivolt/internal/samples"
-	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/testpg"
-	"github.com/apohor/rivolt/internal/trips"
 )
 
 // requestPoolTests is RIVOLT_TEST_REQUEST_POOL: CI sets it so these integration tests run the way the server will with row-level
@@ -70,27 +64,38 @@ func poolOn(t *testing.T, d Deps) Deps {
 	}
 	t.Cleanup(rp.Close)
 
-	// The system side first (the originals), then the request side on the new pool.
+	// The system side first (the originals), then the request side from the one constructor main uses (api.NewRequestStores), so the
+	// stores CI exercises are the ones production wires. Only the stores the test already has are moved.
 	d.SystemDB, d.SystemSettings, d.SystemSecrets = owner, d.Settings, d.Secrets
 	d.DB = rp.DB
-	rf := db.NewVehicleResolverFactory(rp.DB)
+	rs := NewRequestStores(rp.DB, owner, nil)
 	if d.Settings != nil {
-		d.Settings = settings.NewFactory(rp.DB)
+		d.Settings = rs.Settings
 	}
 	if d.Drives != nil {
-		d.Drives = drives.NewFactory(rp.DB, rf)
+		d.Drives = rs.Drives
 	}
 	if d.Charges != nil {
-		d.Charges = charges.NewFactory(rp.DB, rf)
+		d.Charges = rs.Charges
 	}
 	if d.Samples != nil {
-		d.Samples = samples.NewFactoryWithSystem(rp.DB, owner, rf)
+		d.Samples = rs.Samples
 	}
 	if d.Push != nil {
-		d.Push = push.NewFactory(rp.DB)
+		d.Push = rs.Push
 	}
 	if d.Trips != nil {
-		d.Trips = trips.NewFactory(rp.DB)
+		d.Trips = rs.Trips
+	}
+	if d.PackHealth != nil {
+		d.PackHealth = rs.PackHealth
+	}
+	if d.AIBudget != nil {
+		d.AIBudget = rs.AIBudget
+	}
+	// These need a sealer or an archive configuration the helper does not have: say so rather than quietly leave them on the owner.
+	if d.Secrets != nil || d.ArchiveRows != nil {
+		t.Fatal("poolOn: a test with Secrets or ArchiveRows set needs poolOn to build them on the request pool (give it a sealer / an archive config)")
 	}
 	d.RequestPoolOn = true
 	return d
