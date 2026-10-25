@@ -236,7 +236,7 @@ struct NowCard: View {
             if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
         }
         if let temp = summary.outsideTempC {
-            parts.append("\(Measurement(value: temp, unit: UnitTemperature.celsius).formatted(.measurement(width: .wide, usage: .weather))) outside.")
+            parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
         }
         if let install = summary.liveInstall { parts.append(install.line(onNow: true) + ".") }
         if let comfort = summary.liveComfort { parts.append(comfort.spokenText + ".") }

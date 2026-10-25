@@ -35,7 +35,8 @@ struct ChargeCurveView: View {
     let endPct: Double
     let peakKw: Double
     var calendar: Calendar = .current
-    var metric: Bool = NowFormat.usesMetric
+    /// °C rather than °F (the view shows only temperatures in this unit): the account's temperature unit by default.
+    var metric: Bool = DisplayUnits.celsius
 
     @State private var showBattery = true
     @State private var showPower = true
@@ -46,7 +47,7 @@ struct ChargeCurveView: View {
 
     /// The two temperature overlays start hidden, as on the web; a test can start them shown.
     init(series: ChargeCurve.Series, startPct: Double, endPct: Double, peakKw: Double, calendar: Calendar = .current,
-         metric: Bool = NowFormat.usesMetric, showPack: Bool = false, showOutside: Bool = false) {
+         metric: Bool = DisplayUnits.celsius, showPack: Bool = false, showOutside: Bool = false) {
         self.series = series
         self.startPct = startPct
         self.endPct = endPct

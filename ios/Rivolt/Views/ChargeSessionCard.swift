@@ -19,7 +19,7 @@ enum ChargeSessionRows {
         let rows: [InsightRow]
     }
 
-    static func groups(_ c: ActivityCharge, _ i: ChargeInsights, metric: Bool = NowFormat.usesMetric) -> [Group] {
+    static func groups(_ c: ActivityCharge, _ i: ChargeInsights, metric: Bool = NowFormat.usesMetric, celsius: Bool = DisplayUnits.celsius) -> [Group] {
         func f(_ v: Double, _ d: Int) -> String { NumberText.fixed(v, d) }
         var groups: [Group] = []
 
@@ -77,7 +77,7 @@ enum ChargeSessionRows {
         if i.outsideTempC != nil || i.insideTempC != nil {
             func t(_ c: Double?) -> String {
                 guard let c else { return "—" }
-                return "\(f(metric ? c : c * 1.8 + 32, 0))\(metric ? "°C" : "°F")"
+                return "\(f(celsius ? c : c * 1.8 + 32, 0))\(celsius ? "°C" : "°F")"
             }
             groups.append(Group(title: "Environment", rows: [
                 InsightRow(label: "Outside temperature", value: t(i.outsideTempC)),

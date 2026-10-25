@@ -20,7 +20,7 @@ struct TruckView: View {
 
     private var selected: Vehicle? { vehicles.first { $0.id == selectedID } ?? vehicles.first }
     private var metric: Bool { NowFormat.usesMetric }
-    private var fahrenheit: Bool { !metric }
+    private var fahrenheit: Bool { !DisplayUnits.celsius }
     private var temp: Double { pickedTemp ?? autoTemp ?? TruckLogic.grid(fahrenheit: fahrenheit)[2] }
 
     var body: some View {
@@ -148,7 +148,7 @@ struct TruckContent: View {
     private var stacked: Bool { typeSize.isAccessibilitySize }
     private var chartHeight: CGFloat { stacked ? 200 : 140 }
 
-    private var fahrenheit: Bool { !metric }
+    private var fahrenheit: Bool { !DisplayUnits.celsius }
 
     var body: some View {
         VStack(spacing: 16) {

@@ -18,6 +18,7 @@ struct AccountMenu: View {
     @State private var showDelete = false
     @State private var showAbout = false
     @State private var showDevices = false
+    @State private var showUnits = false
 
     var body: some View {
         HStack(spacing: 2 * Theme.unit) {
@@ -47,6 +48,7 @@ struct AccountMenu: View {
                     Button("Notifications") { showNotifications = true }
                 }
                 Button("Charging rates") { showRates = true }
+                Button("Units") { showUnits = true }
                 Button("Signed-in devices") { showDevices = true }
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
@@ -70,6 +72,7 @@ struct AccountMenu: View {
         .sheet(isPresented: $showRates) { ChargingRatesView() }
         .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
         .sheet(isPresented: $showDevices) { DevicesView() }
+        .sheet(isPresented: $showUnits) { UnitsView() }
         .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
         .sheet(isPresented: $showNotifications) {
             NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,

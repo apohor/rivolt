@@ -81,7 +81,7 @@ final class ChargeInsightsTests: XCTestCase {
     func testTheSessionRowsAreInThePhonesUnitsAndSayDashWhenUnknown() throws {
         let c = try charge(maxKw: 142, energy: 20.456, soc: (41, 80), cost: 6.4, source: "rivian", minutes: 60)
         let i = ChargeInsights.compute(c, samples: [s(0, kw: 142, limit: 80, out: 10, inside: 20), s(60, kw: 142, limit: 80, out: 10, inside: 20)])
-        let g = ChargeSessionRows.groups(c, i, metric: false)
+        let g = ChargeSessionRows.groups(c, i, metric: false, celsius: false)
         XCTAssertEqual(g.map(\.title), ["Session", "Power & timing", "Battery & energy", "Environment"])
         let rows = Dictionary(uniqueKeysWithValues: g.flatMap(\.rows).map { ($0.label, $0.value) })
         XCTAssertEqual(rows["Type"], "Fast charge")
@@ -92,9 +92,9 @@ final class ChargeInsightsTests: XCTestCase {
         XCTAssertEqual(rows["Energy added"], "20.46 kWh")
         XCTAssertEqual(rows["Outside temperature"], "50°F")
         XCTAssertEqual(rows["Inside temperature"], "68°F")
-        let metric = ChargeSessionRows.groups(c, i, metric: true).flatMap(\.rows).first { $0.label == "Outside temperature" }
+        let metric = ChargeSessionRows.groups(c, i, metric: true, celsius: true).flatMap(\.rows).first { $0.label == "Outside temperature" }
         XCTAssertEqual(metric?.value, "10°C")
-        let bare = ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: []), metric: false)
+        let bare = ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: []), metric: false, celsius: false)
         XCTAssertEqual(bare.map(\.title), ["Session", "Power & timing", "Battery & energy"], "no temperatures: no Environment group")
         let dashes = Dictionary(uniqueKeysWithValues: bare.flatMap(\.rows).map { ($0.label, $0.value) })
         XCTAssertEqual(dashes["Time to peak"], "—")
@@ -176,7 +176,7 @@ final class ChargeInsightsTests: XCTestCase {
         let mine = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":"home"}"#.utf8))
         let auto = try JSON.decoder().decode(ChargeRow.self, from: Data(#"{"Lat":1,"Lon":2,"PlaceOverride":""}"#.utf8))
         func typeRow(_ row: ChargeRow?) -> InsightRow? {
-            ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: [], row: row), metric: false).flatMap(\.rows).first { $0.label == "Type" }
+            ChargeSessionRows.groups(c, ChargeInsights.compute(c, samples: [], row: row), metric: false, celsius: false).flatMap(\.rows).first { $0.label == "Type" }
         }
         // The pill says what was chosen: the Type value ("Fast charge", "Home") is the ledger's kind, not the choice.
         XCTAssertEqual(typeRow(mine)?.tag, "Home · set by you")
@@ -200,7 +200,7 @@ final class ChargeInsightsTests: XCTestCase {
         XCTAssertEqual(i.thermalKwh, 3.2)
         XCTAssertEqual(i.thermalSharePct ?? 0, 3.2 / 81.4 * 100, accuracy: 1e-9)
         XCTAssertEqual(ChargeInsights.thermalIntensity(i.thermalSharePct), "Moderate")
-        let rows = Dictionary(uniqueKeysWithValues: ChargeSessionRows.groups(c, i, metric: false).flatMap(\.rows).map { ($0.label, $0) })
+        let rows = Dictionary(uniqueKeysWithValues: ChargeSessionRows.groups(c, i, metric: false, celsius: false).flatMap(\.rows).map { ($0.label, $0) })
         XCTAssertEqual(rows["Average power"]?.value, "118.6 kW")
         XCTAssertEqual(rows["Final state"]?.value, "Charging complete")
         XCTAssertEqual(rows["Source"]?.value, "Recorded live")
@@ -212,7 +212,7 @@ final class ChargeInsightsTests: XCTestCase {
         // A home charge: no thermal group.
         let ac = try charge(maxKw: 11.5, energy: 58.1, soc: (42, 86), cost: 7.55, source: "home_rate", kind: "ac", place: "home", minutes: 420)
         let acInsights = ChargeInsights.compute(ac, samples: [], row: try Fixture.decode(ChargeRow.self, "charge_one_ac"))
-        let titles = ChargeSessionRows.groups(ac, acInsights, metric: false).map(\.title)
+        let titles = ChargeSessionRows.groups(ac, acInsights, metric: false, celsius: false).map(\.title)
         XCTAssertFalse(titles.contains("Thermal management"))
         XCTAssertEqual(acInsights.activeSec, 19_200)
     }

@@ -155,6 +155,7 @@ final class AppState {
         do {
             let me = try await client.me()
             phase = .loggedIn(username: me.username)
+            await refreshUnits(known: me.units)
             await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
         } catch {
@@ -201,6 +202,7 @@ final class AppState {
         if verdict == .ready || verdict == .noAppSignIn {
             // Another server: the widgets must not keep the old one's truck or numbers, nor the map its tiles.
             WidgetStore().clear()
+            DisplayUnits.reset()
             WidgetCenter.shared.reloadAllTimelines()
             MapNetwork.reset()
             activityMap.clear()
@@ -249,6 +251,7 @@ final class AppState {
         // setting changed meanwhile, stay signed out of the new one.
         guard serverURL == server else { return }
         phase = .loggedIn(username: username)
+        await refreshUnits()
         // The widgets were showing "sign in"; they can fetch now.
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
@@ -281,6 +284,7 @@ final class AppState {
         liveActivity.attach(server: nil)
         try? tokens.deleteToken(for: serverURL)
         WidgetStore().clear()
+        DisplayUnits.reset()
         MapNetwork.reset()
         activityMap.clear()
         efficiency.clear()
@@ -290,6 +294,43 @@ final class AppState {
     }
 
     func clearSignInNotice() { signInNotice = nil }
+
+    /// Bumped when the units shown change, so the screens read them again.
+    private(set) var unitsRevision = 0
+
+    /// The account's units become the phone's. An account that has none yet is seeded once from the phone's region (a server that
+    /// has no such setting leaves the phone's region in charge).
+    func refreshUnits(known: AccountUnits? = nil) async {
+        guard case .loggedIn = phase else { return }
+        var units = known
+        if units == nil { units = try? await client.accountUnits() }
+        guard var u = units else { return }
+        if u.isUnset, let seeded = try? await client.setUnits(UnitsPatch(distanceUnit: DisplayUnits.regionIsMetric ? "km" : "mi", temperatureUnit: nil, seed: true)) { u = seeded }
+        applyUnits(u, deferRevision: false)
+    }
+
+    /// A pick on the Units screen: saved to the account, then shown. False when the server refused or could not be reached.
+    func setUnits(distance: String? = nil, temperature: String? = nil) async -> Bool {
+        guard case .loggedIn = phase, let u = try? await client.setUnits(UnitsPatch(distanceUnit: distance, temperatureUnit: temperature, seed: nil)) else { return false }
+        applyUnits(u, deferRevision: true)
+        return true
+    }
+
+    /// The units were picked on the Units screen, which stays open while the screens behind it are rebuilt when it closes.
+    private var unitsChangePending = false
+
+    func unitsScreenClosed() {
+        guard unitsChangePending else { return }
+        unitsChangePending = false
+        unitsRevision += 1
+    }
+
+    private func applyUnits(_ u: AccountUnits, deferRevision: Bool) {
+        let before = (DisplayUnits.distanceMetric, DisplayUnits.celsius)
+        DisplayUnits.apply(distance: u.distanceUnit, temperature: u.temperatureForDisplay)
+        guard before != (DisplayUnits.distanceMetric, DisplayUnits.celsius) else { return }
+        if deferRevision { unitsChangePending = true } else { unitsRevision += 1 }
+    }
 
     func logout() async {
         // The demo has no session to end: "Sign in" there just leaves it.
@@ -304,6 +345,7 @@ final class AppState {
         try? tokens.deleteToken(for: serverURL)
         // The widgets forget the truck and its last numbers with the session; the map forgets its token and cached tiles.
         WidgetStore().clear()
+        DisplayUnits.reset()
         MapNetwork.reset()
         activityMap.clear()
         efficiency.clear()

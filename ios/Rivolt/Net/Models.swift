@@ -6,6 +6,8 @@ import Foundation
 struct AuthUser: Decodable, Equatable {
     let username: String
     let userId: String?
+    /// The account's display units, when the server has the setting.
+    var units: AccountUnits? = nil
 }
 
 /// `POST /api/auth/app/token`: the app session token (a bearer token, kept in
