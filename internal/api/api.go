@@ -599,6 +599,13 @@ func New(d Deps) http.Handler {
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
 					r.Delete("/sessions/{id}", d.Sessions.Revoke)
 				}
+				if as := d.accountSecurityAPI(); as != nil {
+					// Change the password, or secure the account: the owner's way back in from a hijacked session. Not on the
+					// admin deployment; the app token and view-as are refused in the handler.
+					asLimiter := newIPLimiter(20, time.Minute, time.Hour)
+					r.With(asLimiter.Middleware).Post("/password", as.change)
+					r.With(asLimiter.Middleware).Post("/secure", as.secure)
+				}
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
