@@ -186,6 +186,13 @@ enum RouteSnap {
         var end: Coord?
         /// Whether any point had a speed (then the legend shows).
         var hasSpeed: Bool
+        /// Charging stops of a planned trip, numbered from 0 in the order of the plan's list.
+        var stops: [Stop] = []
+
+        struct Stop: Equatable {
+            var coord: Coord
+            var label: String
+        }
 
         var allCoords: [Coord] { pieces.flatMap(\.coords) + routedGaps.flatMap { $0 } }
     }

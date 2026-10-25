@@ -50,9 +50,11 @@ struct TripRoute: Decodable, Equatable {
     /// How far short of the destination the battery would run out, when it would.
     var batteryEmptyToDestMeters: Double?
     var waypoints: [TripWaypoint] = []
+    /// The route's stored shape (encoded, precision 6), when the server has one (the demo's).
+    var routePolyline: String?
 
     enum CodingKeys: String, CodingKey {
-        case destinationReached = "DestinationReached", totalChargingDurationSec = "TotalChargingDurationSec", totalDriveDurationSec = "TotalDriveDurationSec"
+        case routePolyline, destinationReached = "DestinationReached", totalChargingDurationSec = "TotalChargingDurationSec", totalDriveDurationSec = "TotalDriveDurationSec"
         case totalTripDurationSec = "TotalTripDurationSec", totalDriveDistanceMeters = "TotalDriveDistanceMeters", arrivalSoC = "ArrivalSoC"
         case energyConsumptionKWh = "EnergyConsumptionKWh", batteryEmptyToDestMeters = "BatteryEmptyToDestMeters", waypoints = "Waypoints"
     }
@@ -68,6 +70,7 @@ struct TripRoute: Decodable, Equatable {
         energyConsumptionKWh = try? c.decode(Double.self, forKey: .energyConsumptionKWh)
         batteryEmptyToDestMeters = try? c.decode(Double.self, forKey: .batteryEmptyToDestMeters)
         waypoints = (try? c.decode([TripWaypoint].self, forKey: .waypoints)) ?? []
+        routePolyline = try? c.decode(String.self, forKey: .routePolyline)
     }
 
     /// The charging stops, in order.

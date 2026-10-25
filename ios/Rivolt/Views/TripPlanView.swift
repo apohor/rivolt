@@ -15,12 +15,18 @@ struct TripPlanView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4 * Theme.unit) {
-                    TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
-                    TripPlanResult(model: model, metric: NowFormat.usesMetric)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4 * Theme.unit) {
+                        TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
+                        TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                    }
+                    .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
                 }
-                .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
+                .onChange(of: model.focusedStop) { _, i in
+                    guard let i else { return }
+                    withAnimation { proxy.scrollTo("stop-\(i)", anchor: .center) }
+                }
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -119,6 +125,7 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric)
         } else {
+            PlanRouteMap(route: route) { model.focusedStop = $0 }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -138,13 +145,14 @@ struct TripPlanResult: View {
                 ForEach(Array(route.chargingStops.enumerated()), id: \.element.id) { i, stop in
                     if i > 0 { Divider().overlay(Theme.border) }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(stop.name ?? "Charger").themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                        Text(stop.name ?? "Charger").themeText(.value, color: model.focusedStop == i ? Theme.accent : Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
                         let detail = TripPlanLogic.stopDetail(stop)
                         if !detail.isEmpty { Text(detail).themeText(.subline, color: Theme.textSecondary) }
                         if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
                     }
                     .padding(.vertical, Theme.unit)
                     .accessibilityElement(children: .combine)
+                    .id("stop-\(i)")
                 }
                 if route.chargingStops.isEmpty { Text("The battery reaches the destination without charging.").themeText(.value, color: Theme.textSecondary) }
             }

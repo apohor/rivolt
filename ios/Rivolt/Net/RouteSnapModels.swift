@@ -60,7 +60,7 @@ struct ValhallaRouteRequest: Encodable {
     struct Location: Encodable {
         let lat: Double
         let lon: Double
-        let type = "break"
+        var type = "break"
     }
 
     struct DirectionsOptions: Encodable { let units = "miles" }
