@@ -44,6 +44,7 @@ var demoExactPaths = map[string]bool{
 	"/api/sleep-activity":         true,
 	"/api/charges/clusters":       true,
 	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
+	"/api/settings/units":         true, // GET only: the sample account's units (a visitor's client falls back to its own region)
 	"/api/settings/home-location": true,
 	// Demo parity: the price book (read only) and the seeded saved trip
 	// list. Both are scoped to the demo user by their stores.

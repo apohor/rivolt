@@ -226,6 +226,11 @@ func meRole(role string, hideAdmin bool) string {
 // hideAdmin (RIVOLT_ADMIN_DISABLED) reports an admin's role as "user": the
 // public site has no admin surface, so the SPA mustn't link to one.
 func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.HandlerFunc {
+	return handleMeEnrichedWith(svc, d, hideAdmin, nil)
+}
+
+// handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set.
+func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -261,14 +266,18 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.Handler
 		role = meRole(role, hideAdmin)
 		onboardingDone, _ := db.OnboardingCompleted(r.Context(), d, uid)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		me := map[string]any{
 			"authenticated":        true,
 			"user_id":              uid.String(),
 			"username":             username,
 			"role":                 role,
 			"onboarding_completed": onboardingDone,
 			"terms":                termsView(r.Context(), d, uid),
-		})
+		}
+		if unitsFor != nil {
+			me["units"] = unitsFor(r.Context(), uid)
+		}
+		_ = json.NewEncoder(w).Encode(me)
 	}
 }
 
