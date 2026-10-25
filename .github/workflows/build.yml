@@ -122,6 +122,13 @@ jobs:
           # The web suite also reads the shared charger-network vectors
           # (chargerNetwork.vectors.test.ts), so a change there runs web too.
           if echo "$files" | grep -q '^internal/dcfcrates/testdata/'; then web=true; fi
+          # The API contract checks read across the two halves. The Go check that every route the web calls exists on the server
+          # (internal/api/contract_routes_test.go) scans web/src's non-test .ts/.tsx, so a web-only PR that adds or changes an
+          # "/api/..." literal must run the Go job (#1115 went red on main because it did not). Conversely the web check that the
+          # types match the server fixtures (src/contract/*) reads ios/RivoltTests/Fixtures, so a fixture-only PR must run the web job
+          # (iOS and fixture changes already count as Go: they are not under web/).
+          if echo "$files" | grep -E '^web/src/.*\.tsx?$' | grep -v -E '\.test\.tsx?$' | grep -q .; then go=true; fi
+          if echo "$files" | grep -q '^ios/RivoltTests/Fixtures/'; then web=true; fi
           if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
           # chart: the Helm chart, which the filter above drops with the rest of
           # deploy/ (no Go or web suite needs it), so it is matched on the full
