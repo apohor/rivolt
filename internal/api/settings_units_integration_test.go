@@ -38,7 +38,7 @@ func TestAccountUnits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := New(Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: settings.NewFactory(pool)})
+	router := New(poolOn(t, Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: settings.NewFactory(pool)}))
 	cookie := func(uid uuid.UUID) *http.Cookie {
 		rec := httptest.NewRecorder()
 		if err := svc.IssueSession(rec, httptest.NewRequest(http.MethodGet, "/", nil), uid); err != nil {
@@ -145,7 +145,7 @@ func TestInsightsFollowTheAccountUnits(t *testing.T) {
 	}
 	rf := db.NewVehicleResolverFactory(pool)
 	sf := settings.NewFactory(pool)
-	router := New(Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: sf, Samples: samples.NewFactory(pool, rf)})
+	router := New(poolOn(t, Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: sf, Samples: samples.NewFactory(pool, rf)}))
 	rec := httptest.NewRecorder()
 	if err := svc.IssueSession(rec, httptest.NewRequest(http.MethodGet, "/", nil), uid); err != nil {
 		t.Fatal(err)

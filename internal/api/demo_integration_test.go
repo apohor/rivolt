@@ -198,7 +198,7 @@ func TestDemoAnonymousCannotReadAnotherUsersChargeOrDrive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := New(Deps{Auth: authSvc, AuthEnforced: true, DB: pool, Drives: driveFactory, Charges: chargeFactory, Settings: settings.NewFactory(pool)})
+	router := New(poolOn(t, Deps{Auth: authSvc, AuthEnforced: true, DB: pool, Drives: driveFactory, Charges: chargeFactory, Settings: settings.NewFactory(pool)}))
 	get := func(path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev"+path, nil)
 		req.RemoteAddr = "203.0.113.9:4000"

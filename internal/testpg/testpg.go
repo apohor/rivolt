@@ -37,6 +37,10 @@ var (
 	createMu sync.Mutex // CREATE DATABASE ... TEMPLATE wants the template unshared
 )
 
+// DSNForDatabase is the connection string for a database on the test server, as the test server's own user. It is valid once a
+// test has called DSN or Fresh (which start the server).
+func DSNForDatabase(database string) string { return dsnFor(database) }
+
 func dsnFor(database string) string {
 	return fmt.Sprintf("postgres://rivolt:rivolt@%s/%s?sslmode=disable", hostPort, database)
 }

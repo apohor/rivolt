@@ -831,7 +831,14 @@ jobs:
           pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' internal cmd 2>/dev/null | xargs -n1 dirname | sort -u | sed 's#^#./#')
           [ -n "$pkgs" ] || { echo "no integration packages found" >&2; exit 1; }
           echo "integration packages:"; echo "$pkgs"
-          go test -tags=integration -count=1 -timeout=10m $pkgs
+          # RIVOLT_TEST_REQUEST_POOL: the api tests that build a router or a handler run on a real request pool (a rivolt_app
+          # style role under the tenant policies), the way the server runs with row-level security on. See poolOn.
+          RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=1 -timeout=10m $pkgs
+
+      - name: go test (integration, request pool off)
+        # The self-hosted shape, where RIVOLT_REQUEST_DATABASE_URL is never set and everything runs on the one owner pool. A small
+        # run is enough to keep that fallback from rotting; the full suite above runs with the pool on.
+        run: go test -tags=integration -count=1 -timeout=5m -run 'TestSelfDelete_|TestAppBearerThroughTheRouter|TestAccountUnits|TestBackupRestoreRoundTrip|TestBackupStreamsWithBoundedMemory' ./internal/api
 
       - name: Save Go build cache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'

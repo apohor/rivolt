@@ -283,7 +283,7 @@ func TestSelfDelete_RevokesEverythingAndLogsOnlyAHash(t *testing.T) {
 	}
 
 	var logs bytes.Buffer
-	h := handleDataAccountDelete(Deps{DB: pool, Logger: slog.New(slog.NewJSONHandler(&logs, nil)), AuditKey: []byte("test-key")})
+	h := handleDataAccountDelete(poolOn(t, Deps{DB: pool, Logger: slog.New(slog.NewJSONHandler(&logs, nil)), AuditKey: []byte("test-key")}))
 	send := func(body, ct string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodDelete, "https://rivolt.dev/api/data/account", strings.NewReader(body))
 		if ct != "" {

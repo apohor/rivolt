@@ -54,7 +54,7 @@ func TestAppTokenEssentialSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := New(Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: settings.NewFactory(pool)})
+	router := New(poolOn(t, Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: settings.NewFactory(pool)}))
 	call := func(method, path, body string) (int, string) {
 		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+token)

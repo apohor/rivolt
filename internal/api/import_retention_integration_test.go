@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/samples"
@@ -33,7 +34,7 @@ func TestElectrafiImportHonoursSampleRetention(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-imp-ret')`, uid); err != nil {
 		t.Fatal(err)
 	}
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 	ds, ss := deps.Drives.For(uid), deps.Samples.For(uid)
 
 	now := time.Now().UTC()
@@ -53,14 +54,16 @@ func TestElectrafiImportHonoursSampleRetention(t *testing.T) {
 
 	run := func(from time.Time) electrafi.Result {
 		imp := &electrafi.Importer{Drives: ds, Samples: ss, VehicleID: "rv-imp-ret", Location: time.UTC, SampleFrom: from}
-		res, err := imp.ImportReader(ctx, "t.csv", strings.NewReader(csv))
+		// The handler runs under the request context, which carries the user; on the request pool a context without one sees no
+		// vehicle and cannot create one.
+		res, err := imp.ImportReader(auth.WithUser(ctx, uid), "t.csv", strings.NewReader(csv))
 		if err != nil {
 			t.Fatalf("ImportReader: %v", err)
 		}
 		return res
 	}
 	count := func() int {
-		n, err := ss.Count(ctx)
+		n, err := ss.Count(auth.WithUser(ctx, uid)) // the request pool shows a context with no user nothing
 		if err != nil {
 			t.Fatal(err)
 		}

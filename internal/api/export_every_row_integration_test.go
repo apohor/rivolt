@@ -82,7 +82,7 @@ func TestBackupAndExportHoldEveryStoredRow(t *testing.T) {
 	if wantWeather["drive_weather"] != 2 || wantWeather["drive_weather_series"] != 3 {
 		t.Fatalf("weather seed = %v", wantWeather)
 	}
-	deps := backupTestDeps(pool)
+	deps := backupTestDepsFor(t, pool)
 
 	// Backup.
 	rec := httptest.NewRecorder()
