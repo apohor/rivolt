@@ -56,7 +56,8 @@ import (
 	"github.com/apohor/rivolt/internal/weather"
 )
 
-// Pools (row-level security, stage 2). DB, Drives, Charges, Samples, Settings, Push, Trips, Secrets, PackHealth and AIBudget are built in
+// Pools (row-level security, stage 2). DB, Drives, Charges, Samples, Settings, Push, Trips, Secrets, PackHealth, AIBudget and
+// ArchiveRows (the backup's archive reader; a request with no user fails the backup instead of dropping months) are built in
 // main on the request pool when RIVOLT_REQUEST_DATABASE_URL is set (otherwise on the system pool, as before): they serve per-user
 // routes and every table they touch carries the tenant policy. SystemDB, SystemSettings and SystemSecrets are the owner-role
 // counterparts for the few places that must span users or run before a user is known. Every other store below is built on the
@@ -69,8 +70,7 @@ import (
 //   - Sessions, AppAuth, OIDC, Passkeys, AppleNotifications, AppleRevocation: sign-in, token and session paths. They run before a
 //     user is known, or manage the session store the auth middleware itself reads; each statement names the user it acts for.
 //   - Accounts, Monitors: the per-user Rivian clients and recorders (the monitor and recorder are system by policy).
-//   - ArchiveRows, ArchiveRestorer: the telemetry archive reader and the admin restore. Both name the user in every query; the
-//     reader stays on the system pool so a request whose context lost its user cannot silently drop archived months from a backup.
+//   - ArchiveRestorer: the admin restore of one user's archived month; admin, so system.
 //   - Changelog, ChargersArchive, WeatherCache: not tenant data (a feed URL, the charger archive, an in-memory weather cache keyed by
 //     place and time).
 //

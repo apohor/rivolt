@@ -2440,7 +2440,9 @@ func runServer() {
 	var archiveRows samples.ArchiveRows
 	var archiveRestorer api.ArchiveRestorer
 	if archiveOn && pgPool != nil {
-		rd, err := archive.NewReader(pgPool, archiveCfg, sealer)
+		// Request pool: the backup reads the archive as the signed-in user, so row-level security backstops a query that drops its
+		// user filter. A request that lost its user fails the backup (samples.ErrBackupUnavailable) rather than returning no archive.
+		rd, err := archive.NewReader(requestDB, archiveCfg, sealer)
 		if err != nil {
 			logger.Error("telemetry archive reader", "err", err.Error())
 			os.Exit(1)
