@@ -116,34 +116,43 @@ struct TripPlanResult: View {
 
     @ViewBuilder
     private func content(_ route: TripRoute, plan: TripPlan) -> some View {
-        ThemeSection(title: "The plan") {
-            if let arrive = TripPlanLogic.arrival(route) {
-                Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
-            }
-            Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
-            if let soc = route.arrivalSoC { Text("Arrive with about \(Int(soc.rounded()))%").themeText(.subline, color: Theme.textSecondary) }
-            if let warning = TripPlanLogic.shortfall(route, metric: metric) {
-                Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
-            ForEach(Array(route.chargingStops.enumerated()), id: \.element.id) { i, stop in
-                if i > 0 { Divider().overlay(Theme.border) }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(stop.name ?? "Charger").themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
-                    let detail = TripPlanLogic.stopDetail(stop)
-                    if !detail.isEmpty { Text(detail).themeText(.subline, color: Theme.textSecondary) }
-                    if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
+        if case .planned = model.night {
+            LongDriveSection(model: model, metric: metric)
+        } else {
+            ThemeSection(title: "The plan") {
+                if let arrive = TripPlanLogic.arrival(route) {
+                    Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
                 }
-                .padding(.vertical, Theme.unit)
-                .accessibilityElement(children: .combine)
+                Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
+                if let soc = route.arrivalSoC {
+                    let low = TripPlanLogic.lowArrival(soc)
+                    Text("Arrive with about \(Int(soc.rounded()))%").themeText(.subline, color: low == nil ? Theme.textSecondary : Theme.estimate)
+                    if let low { Text(low).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
+                }
+                if let warning = TripPlanLogic.shortfall(route, metric: metric) {
+                    Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                }
             }
-            if route.chargingStops.isEmpty { Text("The battery reaches the destination without charging.").themeText(.value, color: Theme.textSecondary) }
-        }
-        if let cost = TripPlanLogic.costLine(plan.costs?.first) {
-            ThemeSection(title: "Cost") {
-                Text(cost).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
-                if let home = TripPlanLogic.homeLine(plan.costs?.first) { Text(home).themeText(.subline, color: Theme.textSecondary) }
+            if TripPlanLogic.isLongDrive(route) { LongDriveSection(model: model, metric: metric) }
+            ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
+                ForEach(Array(route.chargingStops.enumerated()), id: \.element.id) { i, stop in
+                    if i > 0 { Divider().overlay(Theme.border) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(stop.name ?? "Charger").themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                        let detail = TripPlanLogic.stopDetail(stop)
+                        if !detail.isEmpty { Text(detail).themeText(.subline, color: Theme.textSecondary) }
+                        if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
+                    }
+                    .padding(.vertical, Theme.unit)
+                    .accessibilityElement(children: .combine)
+                }
+                if route.chargingStops.isEmpty { Text("The battery reaches the destination without charging.").themeText(.value, color: Theme.textSecondary) }
+            }
+            if let cost = TripPlanLogic.costLine(plan.costs?.first) {
+                ThemeSection(title: "Cost") {
+                    Text(cost).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+                    if let home = TripPlanLogic.homeLine(plan.costs?.first) { Text(home).themeText(.subline, color: Theme.textSecondary) }
+                }
             }
         }
     }
@@ -196,5 +205,84 @@ struct PlaceSearchSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { model.clearSearch(); dismiss() }.tint(Theme.accent) } }
         }
         .presentationDetents([.large])
+    }
+}
+
+/// A drive of more than eight hours: offer the same trip over two days, with a night at a stay the person picks.
+struct LongDriveSection: View {
+    @Environment(AppState.self) private var state
+    let model: TripPlanModel
+    let metric: Bool
+
+    var body: some View {
+        switch model.night {
+        case .none:
+            ThemeSection(title: "Long drive") {
+                Text("Plan it over two days?").themeText(.value, color: Theme.textPrimary)
+                Button("Find a place to sleep") { Task { await model.findNight(source: state.client) } }
+                    .buttonStyle(ThemeSecondaryButtonStyle())
+            }
+        case .looking:
+            ThemeSection(title: "Long drive") {
+                HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Looking for places to sleep…").themeText(.value, color: Theme.textSecondary) }
+            }
+        case .choose(let stays):
+            ThemeSection(title: "Where to sleep") {
+                ForEach(Array(stays.enumerated()), id: \.element.id) { i, stay in
+                    if i > 0 { Divider().overlay(Theme.border) }
+                    Button { Task { await model.planNight(source: state.client, at: stay) } } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stay.name).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.leading)
+                            Text(TripPlanLogic.candidateLine(stay, metric: metric)).themeText(.subline, color: Theme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text("Listings only. Rivolt can't tell whether a charger is free or working.").themeText(.subline, color: Theme.textSecondary)
+            }
+        case .planning:
+            ThemeSection(title: "Two days") {
+                HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Asking the planner…").themeText(.value, color: Theme.textSecondary) }
+            }
+        case .failed(let words):
+            ThemeSection(title: "Long drive") {
+                Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                Button("Try again") { Task { await model.findNight(source: state.client) } }.buttonStyle(ThemeSecondaryButtonStyle())
+            }
+        case .planned(let trip):
+            MultidaySections(trip: trip, metric: metric)
+            Button("Back to one day") { model.clearNight() }.buttonStyle(ThemeSecondaryButtonStyle())
+        }
+    }
+}
+
+struct MultidaySections: View {
+    let trip: TripMultiday
+    let metric: Bool
+
+    var body: some View {
+        ForEach(trip.days) { day in
+            ThemeSection(title: "Day \(day.index)") {
+                let line = TripPlanLogic.dayLine(day, since: trip.days.first?.departAt?.date)
+                if !line.isEmpty { Text(line).themeText(.title, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
+                if let route = day.plan.best {
+                    Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
+                    Text(TripPlanLogic.stopsTitle(route)).themeText(.subline, color: Theme.textSecondary)
+                }
+                if let low = TripPlanLogic.lowArrival(day.arrivalSoc) {
+                    Text(low).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                }
+                if let o = day.overnight {
+                    Divider().overlay(Theme.border)
+                    Text("Night at \(o.name ?? "the stay")").themeText(.value, color: Theme.textPrimary)
+                    Text(TripPlanLogic.nightLine(o)).themeText(.subline, color: Theme.textSecondary)
+                }
+            }
+        }
+        if trip.failed {
+            Text("Day \(trip.failedDay ?? 0) couldn't be planned, so the days after it are missing. Try another place to sleep.")
+                .themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

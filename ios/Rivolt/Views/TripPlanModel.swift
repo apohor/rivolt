@@ -7,6 +7,8 @@ protocol TripSource: Sendable {
     func geocode(_ q: String, count: Int) async throws -> [PlaceMatch]
     func vehicleState(id: String) async throws -> VehicleState
     func truckPosition(id: String) async throws -> TruckPosition
+    func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday
+    func overnightCandidates(_ body: OvernightCandidatesRequest) async throws -> OvernightCandidates
 }
 
 extension APIClient: TripSource {}
@@ -41,6 +43,21 @@ final class TripPlanModel {
     private(set) var results: [PlaceMatch] = []
     private(set) var searchMessage: String?
     private(set) var searching = false
+
+    /// The two-day version of a long drive: choosing where to sleep, then the days.
+    enum NightState: Equatable {
+        case none
+        case looking
+        case choose([OvernightCandidates.Candidate])
+        case planning
+        case planned(TripMultiday)
+        case failed(String)
+    }
+
+    private(set) var night = NightState.none
+    /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
+    private var lastStart: (lat: Double, lon: Double)?
+    private var lastLeave = Date()
 
     var plan: TripPlan? { if case .planned(let p) = state { return p } else { return nil } }
 
@@ -80,6 +97,7 @@ final class TripPlanModel {
     func plan(source: some TripSource) async {
         guard let destination, state != .planning else { return }
         state = .planning
+        night = .none
         let start: (lat: Double, lon: Double)
         if let origin {
             start = (origin.latitude, origin.longitude)
@@ -90,6 +108,8 @@ final class TripPlanModel {
             }
             start = (c.latitude, c.longitude)
         }
+        lastStart = start
+        lastLeave = leaveNow ? Date() : departAt
         let body = TripPlanLogic.request(
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
             startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt, packKwh: packKwh)
@@ -101,4 +121,43 @@ final class TripPlanModel {
             state = .failed(TripPlanLogic.failure(error))
         }
     }
+
+    /// Looks for stays near where a day's driving runs out, for the person to choose from.
+    func findNight(source: some TripSource) async {
+        guard let route = plan?.best, night == .none || isFailedNight else { return }
+        night = .looking
+        do {
+            let found = try await source.overnightCandidates(TripPlanLogic.overnightRequest(route))
+            if found.target?.reachesEnd == true {
+                night = .failed("This trip fits in one day.")
+            } else if found.candidates.isEmpty {
+                night = .failed("No hotel or campground with a listed charger near where the first day would end.")
+            } else {
+                night = .choose(Array(found.candidates.prefix(5)))
+            }
+        } catch {
+            if Task.isCancelled { night = .none; return }
+            night = .failed(TripPlanLogic.failure(error))
+        }
+    }
+
+    /// Plans two days with the night at `stay`.
+    func planNight(source: some TripSource, at stay: OvernightCandidates.Candidate) async {
+        guard let destination, let start = lastStart else { return }
+        night = .planning
+        let body = TripPlanLogic.multidayRequest(
+            vehicleID: vehicleID, startingSoc: useTruckCharge ? nil : startingSoc, packKwh: packKwh, startAt: lastLeave,
+            origin: start, destination: (destination.latitude, destination.longitude), stay: stay)
+        do {
+            let result = try await source.planMultiday(body)
+            night = result.days.isEmpty ? .failed("The planner found no route for that trip.") : .planned(result)
+        } catch {
+            if Task.isCancelled { night = .none; return }
+            night = .failed(TripPlanLogic.failure(error))
+        }
+    }
+
+    func clearNight() { night = .none }
+
+    private var isFailedNight: Bool { if case .failed = night { return true } else { return false } }
 }

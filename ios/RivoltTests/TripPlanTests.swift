@@ -8,6 +8,11 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
     var position = TruckPosition(latitude: 47.62, longitude: -122.35)
     private(set) var requests: [TripPlanRequest] = []
     private(set) var searches: [String] = []
+    var stays = OvernightCandidates()
+    var stayError: Error?
+    var days: TripMultiday?
+    private(set) var stayRequests: [OvernightCandidatesRequest] = []
+    private(set) var dayRequests: [TripMultidayRequest] = []
 
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan {
         requests.append(body)
@@ -19,6 +24,15 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
         try JSON.decoder().decode(VehicleState.self, from: Data(#"{"vehicle_id":"v1","battery_level_pct":64.4,"distance_to_empty":300,"battery_capacity_kwh":135}"#.utf8))
     }
     func truckPosition(id: String) async throws -> TruckPosition { position }
+    func overnightCandidates(_ body: OvernightCandidatesRequest) async throws -> OvernightCandidates {
+        stayRequests.append(body)
+        if let stayError { throw stayError }
+        return stays
+    }
+    func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday {
+        dayRequests.append(body)
+        return days ?? TripMultiday()
+    }
 }
 
 private extension TripPlan {
@@ -76,6 +90,7 @@ final class TripPlanLogicTests: XCTestCase {
         XCTAssertNil(now.startingSoc)
         XCTAssertNil(now.departAt)
         XCTAssertEqual(now.waypoints.map(\.waypointType), ["origin", "destination"])
+        XCTAssertEqual(now.targetArrivalSocPercent, 20, "the web's arrival target")
         let set = TripPlanLogic.request(vehicleID: "v", origin: (47.6, -122.3), destination: (47.7, -117.4), startingSoc: 55, departAt: Date(timeIntervalSince1970: 1_800_000_000), packKwh: nil)
         XCTAssertEqual(set.startingSoc, 55)
         XCTAssertEqual(set.departAt, "2027-01-15T08:00:00Z")
@@ -169,5 +184,108 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(m.results.count, 1)
         m.clearSearch()
         XCTAssertTrue(m.results.isEmpty)
+    }
+
+    // MARK: arrival day, low arrival, long drives
+
+    private func routeJSON(drive: Double, soc: Double = 40, depart: String, arrive: String) throws -> TripRoute {
+        let json = """
+        {"DestinationReached":true,"TotalDriveDurationSec":\(drive),"ArrivalSoC":\(soc),"Waypoints":[
+        {"WaypointType":"origin","Latitude":47.6,"Longitude":-122.3,"DepartureTimeUTC":"\(depart)"},
+        {"WaypointType":"destination","Latitude":47.66,"Longitude":-117.43,"ArrivalTimeUTC":"\(arrive)"}]}
+        """
+        return try JSON.decoder().decode(TripRoute.self, from: Data(json.utf8))
+    }
+
+    private func plain(_ s: String?) -> String? { s?.replacingOccurrences(of: "\u{202F}", with: " ") }
+
+    func testAnArrivalOnAnotherDayNamesTheDay() throws {
+        let la = TimeZone(identifier: "America/Los_Angeles")!
+        let sameDay = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-30T20:10:00Z")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(sameDay, timeZone: la)), "1:10 PM")
+        let nextDay = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-31T09:45:00Z")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(nextDay, timeZone: la)), "Sat 2:45 AM", "leaves Friday morning, arrives after midnight")
+        let nextWeek = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-11-08T09:45:00Z")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(nextWeek, timeZone: la)), "Nov 8, 1:45 AM")
+        let given = TripPlanLogic.arrival(nextDay, departure: ISO8601DateFormatter().date(from: "2026-10-31T01:00:00Z"), timeZone: la)
+        XCTAssertEqual(plain(given), "Sat 2:45 AM", "a departure from the form beats the plan's own")
+    }
+
+    func testALowArrivalChargeGetsTheWebsThresholdAndWords() {
+        XCTAssertNil(TripPlanLogic.lowArrival(20))
+        XCTAssertNil(TripPlanLogic.lowArrival(nil))
+        XCTAssertEqual(TripPlanLogic.lowArrival(8), "That is below the 20% arrival target. Add a charging stop or start with more charge.")
+    }
+
+    func testOnlyADriveOverEightHoursIsOfferedInTwoDays() throws {
+        XCTAssertFalse(TripPlanLogic.isLongDrive(try routeJSON(drive: 8 * 3600, depart: "2026-10-30T15:00:00Z", arrive: "2026-10-30T23:00:00Z")))
+        XCTAssertTrue(TripPlanLogic.isLongDrive(try routeJSON(drive: 8 * 3600 + 1, depart: "2026-10-30T15:00:00Z", arrive: "2026-10-30T23:00:00Z")))
+    }
+
+    func testTheTwoDayRequestEndsDayOneAtTheStayAndLeavesTheTruckToTheServer() throws {
+        let stay = OvernightCandidates.Candidate(name: "Sample Inn", lat: 45.52, lon: -122.68, l2Kw: 7, l2KwAssumed: true)
+        let req = TripPlanLogic.multidayRequest(
+            vehicleID: nil, startingSoc: nil, packKwh: nil, startAt: Date(timeIntervalSince1970: 1_800_000_000),
+            origin: (47.6, -122.3), destination: (47.7, -117.4), stay: stay, timeZone: TimeZone(identifier: "America/Los_Angeles")!)
+        XCTAssertEqual(req.days.count, 2)
+        XCTAssertEqual(req.days[0].end, TripPoint(lat: 45.52, lon: -122.68, label: "Sample Inn"))
+        XCTAssertEqual(req.days[0].overnight?.l2Kw, 7)
+        XCTAssertEqual(req.days[0].overnight?.until, "08:00")
+        XCTAssertNil(req.days[1].overnight, "the last day has no night")
+        XCTAssertEqual(req.tz, "America/Los_Angeles")
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(req)
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("\"start_at\""), text)
+        XCTAssertTrue(text.contains("\"l2_kw\":7"), text)
+        XCTAssertTrue(text.contains("\"target_arrival_soc_pct\":20"), text)
+        XCTAssertFalse(text.contains("vehicle_id"), "left to the server")
+    }
+
+    private func longPlan() throws -> TripPlan {
+        let route = """
+        {"Routes":[{"DestinationReached":true,"TotalDriveDurationSec":57000,"ArrivalSoC":30,"Waypoints":[
+        {"WaypointType":"origin","Latitude":47.62,"Longitude":-122.35},{"WaypointType":"destination","Latitude":47.66,"Longitude":-117.43}]}]}
+        """
+        return try JSON.decoder().decode(TripPlan.self, from: Data(route.utf8))
+    }
+
+    func testALongPlanFindsStaysThenPlansTwoDaysAtTheOneChosen() async throws {
+        let src = FakeTrips()
+        src.plan = try longPlan()
+        let stay = OvernightCandidates.Candidate(name: "Sample Inn", lat: 45.52, lon: -122.68, l2Kw: 7)
+        src.stays = OvernightCandidates(candidates: [stay], target: .init(reachesEnd: false))
+        let m = TripPlanModel()
+        await planned(src, m)
+        await m.findNight(source: src)
+        XCTAssertEqual(m.night, .choose([stay]))
+        XCTAssertEqual(src.stayRequests.first?.path.count, 2)
+        XCTAssertEqual(src.stayRequests.first?.budgetHours, 8)
+        XCTAssertTrue(src.dayRequests.isEmpty, "nothing is planned until a stay is picked")
+        src.days = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        await m.planNight(source: src, at: stay)
+        let req = try XCTUnwrap(src.dayRequests.first)
+        XCTAssertEqual(req.origin, TripPoint(lat: 47.62, lon: -122.35))
+        XCTAssertEqual(req.days.first?.end.label, "Sample Inn")
+        guard case .planned(let trip) = m.night else { return XCTFail("\(m.night)") }
+        XCTAssertFalse(trip.days.isEmpty)
+        m.clearNight()
+        XCTAssertEqual(m.night, .none)
+    }
+
+    func testNoStaysOrAWholeTripInOneDayOrARefusalIsSaidInOurOwnWords() async throws {
+        let src = FakeTrips()
+        src.plan = try longPlan()
+        let m = TripPlanModel()
+        await planned(src, m)
+        await m.findNight(source: src)
+        XCTAssertEqual(m.night, .failed("No hotel or campground with a listed charger near where the first day would end."))
+        src.stays = OvernightCandidates(candidates: [], target: .init(reachesEnd: true))
+        await m.findNight(source: src)
+        XCTAssertEqual(m.night, .failed("This trip fits in one day."))
+        src.stayError = APIError.planQuota(retryAfterSeconds: nil)
+        await m.findNight(source: src)
+        XCTAssertEqual(m.night, .failed("You've used this hour's planning allowance. Try again in a while."))
     }
 }
