@@ -463,7 +463,7 @@ func runServer() {
 	// for the local dev workstation; the env-var name is
 	// deliberately long and ugly so it never ends up in a helm
 	// chart or compose file.
-	var secretsStore *secrets.Store
+	var secretsStore, reqSecretsStore *secrets.Store // system pool (the monitor, auth, admin) and request pool (api.Deps)
 	var sealer rivoltcrypto.Sealer
 	if pgPool != nil {
 		s, serr := buildSealer(logger)
@@ -473,6 +473,7 @@ func runServer() {
 		}
 		sealer = s
 		secretsStore = secrets.New(pgPool, sealer)
+		reqSecretsStore = secrets.New(requestDB, sealer)
 		logger.Info("secret store ready", "kek_id", sealer.KEKID())
 	}
 
@@ -2485,7 +2486,7 @@ func runServer() {
 		SystemSettings:        settingsFactory, // the sweeps started in api.New (statement and weekly emails) run with no user in context
 		Push:                  reqPushFactory,
 		Trips:                 reqTripsFactory,
-		PackHealth:            packhealth.NewStore(pgPool),
+		PackHealth:            packhealth.NewStore(requestDB), // request pool: per-vehicle samples reached through the vehicle's owner (the monitor's own store stays on the system pool)
 		Monitors:              monitorRegistry,
 		SettingsMgr:           settingsMgr,
 		Auth:                  authSvc,
@@ -2512,8 +2513,9 @@ func runServer() {
 		SystemDB:           pgPool,    // login, admin and the other system paths (S2-3 moves them here one by one)
 		Logger:             logger,
 		Flags:              flagsStore,
-		AIBudget:           aibudget.New(pgPool),
-		Secrets:            secretsStore,
+		AIBudget:           aibudget.New(requestDB), // request pool: one (user_id, day) row per caller
+		Secrets:            reqSecretsStore,         // request pool: the Rivian sign-in surface reads and writes the caller's own session
+		SystemSecrets:      secretsStore,            // admin refresh of another user's Rivian session
 		Metrics:            appMetrics,
 		Users:              userProvider,
 		AppleRevocation:    appleRevocation,
