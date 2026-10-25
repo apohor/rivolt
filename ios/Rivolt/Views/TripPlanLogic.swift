@@ -212,6 +212,42 @@ enum TripPlanLogic {
         return parts.joined(separator: " · ")
     }
 
+    /// Each charging stop's leg (metres from the stop before it, or from the start) and the last leg to the destination, from the
+    /// plan's distances from the start. A leg is nil where the plan gives none (a distance of 0 past the start means missing).
+    static func legs(_ route: TripRoute) -> (stops: [Double?], last: Double?) {
+        var prev = 0.0
+        var stops: [Double?] = []
+        var last: Double?
+        for w in route.waypoints {
+            guard let d = w.distanceFromOriginMeters, d > 0 else {
+                if w.isCharger { stops.append(nil) }
+                continue
+            }
+            if w.isCharger {
+                stops.append(d >= prev ? d - prev : nil)
+                prev = d
+            } else if w.waypointType?.lowercased() == "destination" {
+                last = d >= prev ? d - prev : nil
+            }
+        }
+        return (stops, last)
+    }
+
+    /// "172 mi from the start", "130 mi from the last stop".
+    static func legLine(_ meters: Double?, first: Bool, metric: Bool) -> String? {
+        guard let meters, meters > 0 else { return nil }
+        return "\(distance(meters: meters, metric: metric)) from \(first ? "the start" : "the last stop")"
+    }
+
+    /// What charging at stop `index` is expected to cost, always an estimate; the stop's own price at the charger when there is none.
+    static func stopCostLine(_ cost: TripCost?, index: Int) -> String? {
+        guard let stops = cost?.breakdown, stops.indices.contains(index), let cur = cost?.currency else { return nil }
+        let s = stops[index]
+        guard let low = s.costLow, let high = s.costHigh else { return "Price shown at the charger." }
+        let l = NumberText.money(low, cur), h = NumberText.money(high, cur)
+        return "About \(abs(high - low) < 0.005 ? l : "\(l) to \(h)") (estimate)"
+    }
+
     /// What to say when the battery would not reach the destination; nil when it does (or the plan does not say).
     static func shortfall(_ route: TripRoute, metric: Bool) -> String? {
         guard route.destinationReached == false || (route.batteryEmptyToDestMeters ?? 0) > 0 else { return nil }
