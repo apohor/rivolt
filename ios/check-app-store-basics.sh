@@ -30,6 +30,28 @@ for ext in "$app"/PlugIns/*.appex; do
 done
 ls "$app"/AppIcon60x60@2x.png >/dev/null 2>&1 || { echo "FAIL: no compiled 120x120 icon (AppIcon60x60@2x.png)"; fail=1; }
 
+# Privacy manifests (ITMS-91053): the app and each extension carry one, tracking is off, and the required-reason
+# APIs we use (UserDefaults: the app's own CA92.1 and the App Group's 1C8F.1) are declared.
+for bundle in "$app" "$app"/PlugIns/*.appex; do
+  [ -d "$bundle" ] || continue
+  m="$bundle/PrivacyInfo.xcprivacy"
+  if [ ! -f "$m" ]; then echo "FAIL: $(basename "$bundle") has no PrivacyInfo.xcprivacy"; fail=1; continue; fi
+  plutil -lint "$m" >/dev/null || { echo "FAIL: $(basename "$bundle") PrivacyInfo.xcprivacy is not a valid plist"; fail=1; }
+  [ "$(/usr/libexec/PlistBuddy -c "Print :NSPrivacyTracking" "$m" 2>/dev/null)" = false ] \
+    || { echo "FAIL: $(basename "$bundle") PrivacyInfo.xcprivacy does not say NSPrivacyTracking false"; fail=1; }
+done
+for want in CA92.1 1C8F.1; do
+  plutil -p "$app/PrivacyInfo.xcprivacy" 2>/dev/null | grep -q "\"$want\"" || { echo "FAIL: the app's manifest lacks the UserDefaults reason $want"; fail=1; }
+done
+for ext in "$app"/PlugIns/RivoltWidgets.appex; do
+  [ -d "$ext" ] && { plutil -p "$ext/PrivacyInfo.xcprivacy" 2>/dev/null | grep -q '"1C8F.1"' || { echo "FAIL: the widgets' manifest lacks the App Group reason 1C8F.1"; fail=1; }; }
+done
+# What the embedded frameworks carry (MapLibre): printed so the log answers it; a missing one is a note, not ours to add.
+for fw in "$app"/Frameworks/*.framework; do
+  [ -d "$fw" ] || continue
+  if [ -f "$fw/PrivacyInfo.xcprivacy" ]; then echo "privacy manifest: $(basename "$fw") ships its own"; else echo "NOTE: $(basename "$fw") ships no PrivacyInfo.xcprivacy"; fi
+done
+
 # A signed build (ios-testflight.yml sets REQUIRE_SIGNED_ENTITLEMENTS=1): print
 # what each bundle was signed with, so the log answers "did it ship with X",
 # and require the sign-in's associated domains (webcredentials is what the
