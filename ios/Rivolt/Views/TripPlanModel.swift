@@ -88,7 +88,7 @@ final class TripPlanModel {
                 state = .failed("The truck hasn't reported where it is. Pick a starting place.")
                 return
             }
-            start = c
+            start = (c.latitude, c.longitude)
         }
         let body = TripPlanLogic.request(
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
