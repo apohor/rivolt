@@ -1041,3 +1041,50 @@ func TestDemoOnlyPublicServesTheAppConfigOnly(t *testing.T) {
 		t.Error("POST /api/app/config is open on the demo")
 	}
 }
+
+// The demo response cache is keyed by path and query only, so it must never see a signed-in request: one user's answer cached under
+// a bare path would be served to the next. demoAccessMW sends any request that already has a user straight to the handler, ahead of
+// the cache (RLS stage 2, architect's S2-4 condition). Two signed-in users read the same heavy paths: every read reaches the
+// handler, each gets its own body, and none carries the cache's hit header. The control: an anonymous visitor's second read is a hit.
+func TestDemoHeavyCacheNeverSeesASignedInRequest(t *testing.T) {
+	demoUID := uuid.New()
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		u, _ := auth.UserFromContext(r.Context())
+		_, _ = w.Write([]byte("for " + u.String()))
+	})
+	mw := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	as := func(u uuid.UUID) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mw.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), u)))
+		})
+	}
+	a, b := uuid.New(), uuid.New()
+	for _, path := range []string{
+		"/api/vehicles/" + demoVeh + "/drain",
+		"/api/vehicles/" + demoVeh + "/sleep-health",
+		"/api/ledger/savings",
+	} {
+		calls = 0
+		for _, u := range []uuid.UUID{a, b, a} {
+			rec := demoReq(as(u), "GET", path)
+			if rec.Code != 200 || rec.Header().Get("X-Rivolt-Demo-Cache") != "" || rec.Header().Get(demoHeader) != "" {
+				t.Fatalf("%s as %s: code %d, cache header %q, demo header %q; a signed-in request must pass straight through", path, u, rec.Code, rec.Header().Get("X-Rivolt-Demo-Cache"), rec.Header().Get(demoHeader))
+			}
+			if got := rec.Body.String(); got != "for "+u.String() {
+				t.Fatalf("%s: user %s was served %q", path, u, got)
+			}
+		}
+		if calls != 3 {
+			t.Errorf("%s: handler reached %d times for 3 signed-in reads, want 3 (none cached)", path, calls)
+		}
+	}
+
+	// Control: anonymous reads of a heavy path are cached, so the test would notice if signed-in ones were too.
+	calls = 0
+	demoReq(mw, "GET", "/api/vehicles/"+demoVeh+"/drain")
+	if rec := demoReq(mw, "GET", "/api/vehicles/"+demoVeh+"/drain"); calls != 1 || rec.Header().Get("X-Rivolt-Demo-Cache") != "hit" {
+		t.Errorf("control: anonymous second read not a cache hit (calls %d)", calls)
+	}
+}
