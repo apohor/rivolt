@@ -2451,6 +2451,12 @@ func runServer() {
 		}
 		archiveRestorer = rs
 	}
+	// What the identity provider remembers about a user (Hydra's remembered logins, Kratos' sessions): revoking sessions must forget it
+	// too, or the browser signs straight back in. Shared by sign-out-others, sign-out and the password routes.
+	rememberedRevoker := &api.IdentityRevoker{
+		Hydra: hydraClient, Kratos: kratosClient,
+		Username: func(ctx context.Context, uid uuid.UUID) (string, error) { return db.RawUsernameByID(ctx, pgPool, uid) }, // system pool
+	}
 	var sessionsAPI *api.SessionsAPI
 	if sessionStore != nil {
 		sessionsAPI = &api.SessionsAPI{
@@ -2459,11 +2465,7 @@ func runServer() {
 				ref, ok := auth.SessionFromContext(r.Context())
 				return ref.ID, ok
 			},
-			// Revoking sessions must also forget Hydra's remembered logins, or the browser signs straight back in (DA, Oct 25).
-			Remembered: &api.IdentityRevoker{
-				Hydra: hydraClient, Kratos: kratosClient,
-				Username: func(ctx context.Context, uid uuid.UUID) (string, error) { return db.RawUsernameByID(ctx, pgPool, uid) }, // system pool
-			},
+			Remembered: rememberedRevoker,
 		}
 	}
 	handler := api.New(api.Deps{
@@ -2507,8 +2509,9 @@ func runServer() {
 		IOSAppIDs:          iosAppIDs,
 		WebFS:              webFS,
 		Version:            version,
-		DB:                 requestDB, // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
-		SystemDB:           pgPool,    // login, admin and the other system paths (S2-3 moves them here one by one)
+		DB:                 requestDB,         // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
+		SystemDB:           pgPool,            // login, admin and the other system paths (S2-3 moves them here one by one)
+		LoginForgetter:     rememberedRevoker, // plain sign-out also forgets Hydra's remembered login (shared computers)
 		RequestPoolOn:      requestDB != pgPool,
 		Logger:             logger,
 		Flags:              flagsStore,

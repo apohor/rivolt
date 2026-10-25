@@ -234,6 +234,8 @@ type Deps struct {
 	// unless every system-side store is set too: the fallbacks (sysDB, systemSettings, systemSecrets) would otherwise run the system
 	// sites on the request pool, where, for example, account deletion's last-admin count sees only the caller.
 	RequestPoolOn bool
+	// LoginForgetter forgets Hydra's remembered login for a user at plain sign-out (an IdentityRevoker). nil: nothing to forget.
+	LoginForgetter LoginForgetter
 	// SystemSettings is the settings factory on the system pool, for the sweeps that run without a request (the statement and weekly
 	// recap emails). nil means Settings (no request pool).
 	SystemSettings *settings.Factory
@@ -397,6 +399,25 @@ func (d Deps) checkSystemSide() error {
 		return fmt.Errorf("api.New: the request pool is on but %s; a system-side store must be a different one", strings.Join(same, ", "))
 	}
 	return nil
+}
+
+// logoutHandler is POST /api/auth/logout: Rivolt's own sign-out (revoke the session row, clear the cookie), preceded by forgetting
+// what Hydra remembers about the user's login. Without that, "Sign out" leaves Hydra's remembered login in place and the next
+// "Continue with Email" on a shared computer is signed straight back in with no password. The cost: the user's other browsers lose
+// their remembered login too (they type the password next time). The iPhone app's bearer sign-out ends only the app token and
+// leaves the browser's login alone; a viewing-as admin signs out of nothing of the target's.
+//
+// The Rivolt sign-out always happens: a Hydra failure is logged and not allowed to keep someone signed in (when Hydra is down the
+// skip path that makes the remembered login dangerous is down with it).
+func (d Deps) logoutHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if uid, ok := auth.UserFromContext(r.Context()); ok && d.LoginForgetter != nil && !auth.ViaBearer(r.Context()) && !auth.IsImpersonating(r.Context()) {
+			if err := d.LoginForgetter.ForgetLogin(r.Context(), uid); err != nil {
+				slog.WarnContext(r.Context(), "logout: could not clear the identity provider's remembered login", "err", logging.ScrubErr(err))
+			}
+		}
+		d.Auth.Logout(w, r)
+	}
 }
 
 // New builds the root mux with all routes mounted. It panics if the request pool is on but a system-side store is missing (a startup
@@ -570,7 +591,7 @@ func New(d Deps) http.Handler {
 		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
-				r.Post("/logout", d.Auth.Logout)
+				r.Post("/logout", d.logoutHandler())
 				r.Get("/me", handleMeEnrichedWith(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)

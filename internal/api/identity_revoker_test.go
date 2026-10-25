@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/sessions"
@@ -215,5 +217,108 @@ func TestRevokedBrowserGetsThePasswordForm(t *testing.T) {
 	}
 	if got := login(); got.Skip || got.Challenge == "" {
 		t.Fatalf("after the revoke the same browser must get the password form, not a skip: %+v", got)
+	}
+}
+
+// Plain "Sign out" must end the browser's Hydra login too, or the shared-computer case is open: Rivolt's session is gone but the next
+// "Continue with Email" is skipped through with no password. The real logout handler and the real login handler, against a model of
+// Hydra's remember state.
+func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
+	remembered := map[string]bool{"kid-1": true}
+	var deletes []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/oauth2/auth/requests/login", func(w http.ResponseWriter, r *http.Request) {
+		skip := remembered["kid-1"]
+		sub := ""
+		if skip {
+			sub = "kid-1"
+		}
+		_, _ = w.Write([]byte(`{"challenge":"c","subject":"` + sub + `","skip":` + map[bool]string{true: "true", false: "false"}[skip] + `,"client":{"client_id":"rivolt","client_name":"Rivolt"}}`))
+	})
+	mux.HandleFunc("/admin/oauth2/auth/requests/login/accept", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"redirect_to":"https://hydra/cb"}`))
+	})
+	mux.HandleFunc("/admin/oauth2/auth/sessions/login", func(w http.ResponseWriter, r *http.Request) {
+		deletes = append(deletes, r.URL.Path)
+		delete(remembered, r.URL.Query().Get("subject"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/admin/oauth2/auth/sessions/consent", func(w http.ResponseWriter, r *http.Request) {
+		deletes = append(deletes, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/admin/identities", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"kid-1","traits":{"email":"owner@x.test"}}]`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	h, err := hydra.New(hydra.Config{AdminURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := kratos.New(kratos.Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := &IdentityRevoker{Hydra: h, Kratos: k, Username: func(context.Context, uuid.UUID) (string, error) { return "owner@x.test", nil }}
+	uid := uuid.New()
+	loginSkips := func() bool {
+		rr := httptest.NewRecorder()
+		hydraLoginGET(hydraDeps{Hydra: h, Kratos: k, Logger: discardLogger()}).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/login?login_challenge=c", nil))
+		var out hydraLoginGetResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return out.Skip
+	}
+	logout := func(d Deps, mutate func(*http.Request) *http.Request) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+		req = req.WithContext(auth.WithUser(req.Context(), uid))
+		if mutate != nil {
+			req = mutate(req)
+		}
+		rec := httptest.NewRecorder()
+		d.logoutHandler()(rec, req)
+		return rec
+	}
+	d := Deps{Auth: svc, LoginForgetter: rev}
+
+	if !loginSkips() {
+		t.Fatal("before sign-out the remembered browser is skipped through with no password (the bug)")
+	}
+	if rec := logout(d, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d", rec.Code)
+	}
+	if loginSkips() {
+		t.Error("after Sign out the same browser must get the password form, not a skip")
+	}
+	if len(deletes) != 1 || deletes[0] != "/admin/oauth2/auth/sessions/login" {
+		t.Errorf("sign-out must forget the login only, not the consent grants: %v", deletes)
+	}
+
+	// An admin viewing as the user signs out of nothing of the target's (the app's bearer sign-out is skipped the same way).
+	remembered["kid-1"] = true
+	deletes = nil
+	if rec := logout(d, func(r *http.Request) *http.Request {
+		return r.WithContext(auth.WithImpersonation(r.Context(), uuid.New(), uid))
+	}); rec.Code != http.StatusNoContent {
+		t.Fatalf("view-as logout = %d", rec.Code)
+	}
+	if len(deletes) != 0 || !remembered["kid-1"] {
+		t.Errorf("a viewing-as admin's sign-out must not touch the target's remembered login: %v", deletes)
+	}
+
+	// A Hydra failure never keeps anyone signed in: the Rivolt sign-out still happens.
+	srv.Close()
+	if rec := logout(d, nil); rec.Code != http.StatusNoContent {
+		t.Errorf("logout with Hydra down = %d, want the Rivolt sign-out to go ahead", rec.Code)
+	}
+	// And with nothing configured it is the old behavior.
+	if rec := logout(Deps{Auth: svc}, nil); rec.Code != http.StatusNoContent {
+		t.Errorf("logout without a forgetter = %d", rec.Code)
 	}
 }
