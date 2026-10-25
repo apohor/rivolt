@@ -745,6 +745,8 @@ func New(d Deps) http.Handler {
 			// user" into a 404 before any handler runs, so
 			// /api/state/{someone-elses-id} can't read tenant data
 			// even if Rivian upstream would honor the call.
+			// The insight endpoints take ?units=imperial|metric; without one they follow the account's setting (settings_units.go).
+			defaultUnits := defaultUnitsParam(d.accountUnitsLookup())
 			var vehicleScoped func(http.Handler) http.Handler
 			if d.DB != nil {
 				vehicleScoped = requireVehicleOwnershipMW(d.DB, d.Logger)
@@ -832,8 +834,8 @@ func New(d Deps) http.Handler {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
 			// One truck's own efficiency and battery trend by month (the Truck page chart).
-			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
-			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
+			r.With(vehicleScoped, defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
+			r.With(vehicleScoped, defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
 			}))
@@ -1308,7 +1310,7 @@ func New(d Deps) http.Handler {
 			// Efficiency breakdowns (Insights): mi/kWh by outside
 			// temperature, average speed and drive mode over a period,
 			// from the user's own drives and samples.
-			r.Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				var store driveConditionLister
 				if st := d.Samples.For(uid); st != nil {
 					store = st

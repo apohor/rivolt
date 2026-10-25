@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -130,5 +131,69 @@ func TestAccountUnits(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("%d concurrent seeds wrote, want exactly 1", n)
+	}
+}
+
+// Through the real router and Postgres: the efficiency insight answers in the account's units when the request names none, and
+// an explicit units parameter still overrides.
+func TestInsightsFollowTheAccountUnits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, _ := db.EnsureUser(ctx, pool, "units-insights")
+	if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf := db.NewVehicleResolverFactory(pool)
+	sf := settings.NewFactory(pool)
+	router := New(Deps{Auth: svc, AuthEnforced: true, DB: pool, Settings: sf, Samples: samples.NewFactory(pool, rf)})
+	rec := httptest.NewRecorder()
+	if err := svc.IssueSession(rec, httptest.NewRequest(http.MethodGet, "/", nil), uid); err != nil {
+		t.Fatal(err)
+	}
+	c := rec.Result().Cookies()[0]
+	unitsOf := func(query string) string {
+		req := httptest.NewRequest(http.MethodGet, "/api/insights/efficiency"+query, nil)
+		req.AddCookie(c)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		var out struct {
+			Units string `json:"units"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil {
+			t.Fatalf("efficiency%s = %d %s", query, w.Code, w.Body.String())
+		}
+		return out.Units
+	}
+	if got := unitsOf(""); got != "imperial" {
+		t.Errorf("an unset account: units = %q, want imperial", got)
+	}
+	km := "km"
+	if err := settings.PatchUnits(ctx, sf.For(uid), &km, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := unitsOf(""); got != "metric" {
+		t.Errorf("a km account: units = %q, want metric", got)
+	}
+	if got := unitsOf("?units=imperial"); got != "imperial" {
+		t.Errorf("explicit imperial on a km account: units = %q", got)
+	}
+	mi := "mi"
+	if err := settings.PatchUnits(ctx, sf.For(uid), &mi, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := unitsOf(""); got != "imperial" {
+		t.Errorf("a mi account: units = %q, want imperial", got)
+	}
+	if got := unitsOf("?units=metric"); got != "metric" {
+		t.Errorf("explicit metric on a mi account: units = %q", got)
 	}
 }

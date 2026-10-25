@@ -1,10 +1,16 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/auth"
 )
 
 func TestDecodeUnitsPatch(t *testing.T) {
@@ -48,5 +54,47 @@ func TestUnitsHandlersWithoutAStore(t *testing.T) {
 	handleUnitsPatch(nil)(rec, httptest.NewRequest(http.MethodPatch, "/api/settings/units", strings.NewReader(`{"distance_unit":"km"}`)))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("PATCH = %d, want 503", rec.Code)
+	}
+}
+
+// The insight endpoints follow the account's units when the request names none; an explicit imperial or metric stays an
+// override; an unrecognised value counts as absent; other query parameters survive.
+func TestDefaultUnitsParam(t *testing.T) {
+	uid := uuid.New()
+	run := func(lookup func(context.Context, uuid.UUID) string, target string, withUser bool) url.Values {
+		var got url.Values
+		h := defaultUnitsParam(lookup)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.URL.Query() }))
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		if withUser {
+			req = req.WithContext(auth.WithUser(req.Context(), uid))
+		}
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		return got
+	}
+	km := func(context.Context, uuid.UUID) string { return "metric" }
+	mi := func(context.Context, uuid.UUID) string { return "imperial" }
+	cases := []struct {
+		name   string
+		lookup func(context.Context, uuid.UUID) string
+		target string
+		user   bool
+		want   string
+	}{
+		{"absent follows a km account", km, "/api/insights/efficiency?since=2026-10-01T00:00:00Z", true, "metric"},
+		{"absent follows a mi account", mi, "/api/insights/efficiency", true, "imperial"},
+		{"explicit imperial overrides a km account", km, "/api/insights/efficiency?units=imperial", true, "imperial"},
+		{"explicit metric overrides a mi account", mi, "/api/insights/efficiency?units=metric", true, "metric"},
+		{"an unrecognised value counts as absent", km, "/api/insights/efficiency?units=furlongs", true, "metric"},
+		{"an empty value counts as absent", km, "/api/insights/efficiency?units=", true, "metric"},
+		{"no signed-in user leaves the request alone", km, "/api/insights/efficiency", false, ""},
+		{"no lookup leaves the request alone", nil, "/api/insights/efficiency", true, ""},
+	}
+	for _, c := range cases {
+		if got := run(c.lookup, c.target, c.user).Get("units"); got != c.want {
+			t.Errorf("%s: units=%q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := run(km, "/x?months=6&grid=1,2", true); got.Get("months") != "6" || got.Get("grid") != "1,2" || got.Get("units") != "metric" {
+		t.Errorf("other parameters were lost: %v", got)
 	}
 }
