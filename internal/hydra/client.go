@@ -291,3 +291,41 @@ func truncate(b []byte, n int) string {
 	}
 	return string(b[:n]) + "…"
 }
+
+// RevokeLoginSessions forgets the subject's remembered login at Hydra (DELETE /admin/oauth2/auth/sessions/login?subject=). Without
+// it, a browser Hydra remembers is "skipped" through sign-in with no password (the login request comes back with skip=true), so
+// revoking Rivolt's own sessions would not lock anyone out for up to the remember period. Idempotent: nothing remembered is success.
+func (c *Client) RevokeLoginSessions(ctx context.Context, subject string) error {
+	return c.revoke(ctx, "/admin/oauth2/auth/sessions/login", url.Values{"subject": {subject}})
+}
+
+// RevokeConsentSessions forgets the subject's consent grants (DELETE /admin/oauth2/auth/sessions/consent?subject=&all=true), which
+// also revokes the OAuth tokens issued under them.
+func (c *Client) RevokeConsentSessions(ctx context.Context, subject string) error {
+	return c.revoke(ctx, "/admin/oauth2/auth/sessions/consent", url.Values{"subject": {subject}, "all": {"true"}})
+}
+
+func (c *Client) revoke(ctx context.Context, path string, q url.Values) error {
+	if !c.Enabled() {
+		return errors.New("hydra: client not configured")
+	}
+	if strings.TrimSpace(q.Get("subject")) == "" {
+		return errors.New("hydra: subject is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.cfg.AdminURL+path+"?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("hydra DELETE %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300, resp.StatusCode == http.StatusNotFound:
+		return nil
+	default:
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("hydra DELETE %s: status=%d body=%s", path, resp.StatusCode, truncate(raw, 256))
+	}
+}
