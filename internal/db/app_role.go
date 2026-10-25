@@ -143,3 +143,21 @@ func quoteIdent(s string) string {
 	}
 	return string(append(out, '"'))
 }
+
+// ErrRequestRoleMissing means the request role does not exist yet (CNPG creates managed roles on its own schedule).
+var ErrRequestRoleMissing = fmt.Errorf("the request role does not exist")
+
+// PrepareRequestRole applies the request role's grants synchronously: call it after the migrations have run and before the
+// request pool opens, so a table a migration just created is reachable the moment requests start. (The periodic loop in main only
+// catches later changes, such as a partition created at runtime.) ErrRequestRoleMissing when the role is not there, so the caller
+// chooses between waiting (the migration job warns) and refusing to start (the server, when the request pool is on).
+func PrepareRequestRole(ctx context.Context, owner *sql.DB, role string) error {
+	ok, err := GrantApp(ctx, owner, role)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrRequestRoleMissing, role)
+	}
+	return nil
+}

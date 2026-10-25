@@ -413,3 +413,95 @@ func TestGrantAppPrivileges(t *testing.T) {
 		}
 	}
 }
+
+// A member of the owner role through NOINHERIT does not inherit its rights, but can SET ROLE to it: refused too (DA's nit on
+// #1003: pg_has_role MEMBER, not USAGE).
+func TestRequestPoolRefusesNoInheritMemberOfOwner(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	f := newRLSFixture(ctx, t)
+	var owner string
+	if err := f.owner.QueryRowContext(ctx, `SELECT current_user`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	m := "rivolt_noinherit_" + randHex(t, 6)
+	for _, q := range []string{
+		fmt.Sprintf(`CREATE ROLE %s LOGIN NOINHERIT PASSWORD 'pw'`, m),
+		fmt.Sprintf(`GRANT %s TO %s`, owner, m),
+	} {
+		if _, err := f.owner.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if rp, err := db.OpenRequestPool(ctx, asRole(t, f.ownerDN, m, "pw"), 1, auth.UserFromContext); !errors.Is(err, db.ErrRequestRoleBypassesRLS) {
+		if rp != nil {
+			rp.Close()
+		}
+		t.Errorf("as a NOINHERIT member of the owner role: err %v, want ErrRequestRoleBypassesRLS", err)
+	}
+}
+
+// The no-user counter fires once per connection handed out for a context without a user, and not for one with a user.
+func TestRequestPoolCountsAcquiresWithoutUser(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	f := newRLSFixture(ctx, t)
+	var n atomic.Int64
+	rp, err := db.OpenRequestPool(ctx, f.appDSN, 1, auth.UserFromContext, db.WithNoUserCounter(func(context.Context) { n.Add(1) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rp.Close)
+	base := n.Load() // the role check at open ran without a user
+	if _, err := rp.DB.ExecContext(auth.WithUser(ctx, f.a), `SELECT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.Load() - base; got != 0 {
+		t.Errorf("a query with a user counted %d no-user acquires", got)
+	}
+	if _, err := rp.DB.ExecContext(ctx, `SELECT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.Load() - base; got != 1 {
+		t.Errorf("a query without a user counted %d, want 1", got)
+	}
+}
+
+// PrepareRequestRole grants synchronously: a table created after the first grants is reachable the moment it returns, and a
+// role that does not exist yet is ErrRequestRoleMissing (so the caller picks between waiting and refusing).
+func TestPrepareRequestRoleGrantsALaterTable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	f := newRLSFixture(ctx, t)
+	if err := db.PrepareRequestRole(ctx, f.owner, "rivolt_app_missing"); !errors.Is(err, db.ErrRequestRoleMissing) {
+		t.Errorf("missing role: %v, want ErrRequestRoleMissing", err)
+	}
+	if ok, err := db.GrantApp(ctx, f.owner, f.role); err != nil || !ok {
+		t.Fatalf("first grants: %v %v", ok, err)
+	}
+	for _, q := range []string{
+		`CREATE TABLE prep_later (id serial PRIMARY KEY, user_id uuid NOT NULL)`,
+		`ALTER TABLE prep_later ENABLE ROW LEVEL SECURITY`,
+		`CREATE POLICY tenant ON prep_later USING (user_id = rivolt_current_user_id()) WITH CHECK (user_id = rivolt_current_user_id())`,
+	} {
+		if _, err := f.owner.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	can := func() bool {
+		var ok bool
+		if err := f.owner.QueryRowContext(ctx, `SELECT has_table_privilege($1, 'prep_later', 'INSERT')`, f.role).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if can() {
+		t.Fatal("the role has access to a table it was never granted")
+	}
+	if err := db.PrepareRequestRole(ctx, f.owner, f.role); err != nil {
+		t.Fatal(err)
+	}
+	if !can() {
+		t.Error("PrepareRequestRole returned but the new table is not granted")
+	}
+}
