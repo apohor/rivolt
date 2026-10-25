@@ -76,7 +76,7 @@ func TestHandleVehicleState_NonOwner(t *testing.T) {
 	store := &peerStore{}
 	mon := rivian.NewStateMonitor(nil, nil)
 	mon.SetLiveStateStore(store)
-	h := handleVehicleState(client, mon)
+	h := handleVehicleState(client, mon, nil)
 
 	get := func() (int, time.Time) {
 		t.Helper()
@@ -121,7 +121,7 @@ func TestHandleVehicleState_FetchFailure(t *testing.T) {
 	const vid = "veh-1"
 	client := &restStateClient{err: errors.New("upstream down")}
 	mon := rivian.NewStateMonitor(nil, nil)
-	h := handleVehicleState(client, mon)
+	h := handleVehicleState(client, mon, nil)
 	codes := map[int]int{}
 	for i := 0; i < 5; i++ {
 		r := httptest.NewRequest(http.MethodGet, "/api/state/"+vid, nil)
