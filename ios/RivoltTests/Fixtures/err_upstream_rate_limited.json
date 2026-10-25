@@ -3,5 +3,6 @@
     "class": "rate_limited",
     "error": "rivian planTripWithMultiStopV2: rate_limited: HTTP 429"
   },
+  "retry_after_header": "60",
   "status": 429
 }
