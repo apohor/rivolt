@@ -110,6 +110,12 @@ export function fastChargerLine(f: { name?: string; distance_m: number; max_powe
 export const ODBL_URL = "https://opendatacommons.org/licenses/odbl/1-0/";
 export const OSM_CREDIT = "© OpenStreetMap contributors";
 
+// A link from a response is used only when it is an https URL; anything else (a javascript: URL, say) is replaced by `fallback`
+// (or dropped, with none). Defence in depth: the values are our own server's today.
+export function httpsOr(url: string | undefined, fallback?: string): string | undefined {
+  return url && url.startsWith("https://") ? url : fallback;
+}
+
 type Stop = { lat: number; lon: number; label: string };
 const near = (a: Stop, b: Stop) => Math.abs(a.lat - b.lat) < 0.0005 && Math.abs(a.lon - b.lon) < 0.0005;
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ODBL_URL, OSM_CREDIT, RIDB_CREDIT } from "./stays";
+import { ODBL_URL, OSM_CREDIT, RIDB_CREDIT, httpsOr } from "./stays";
 
 // RidbCredit is the CC BY credit for Recreation.gov (RIDB) data. Shown wherever a campground from it is.
 export function RidbCredit({ className = "text-xs text-neutral-500" }: { className?: string }) {
@@ -16,15 +16,16 @@ export function RidbCredit({ className = "text-xs text-neutral-500" }: { classNa
 
 // OsmCredit is the credit OpenStreetMap's data needs (ODbL), shown wherever a hotel from it is: the answer's own credit and licence link.
 export function OsmCredit({ attribution, licenceUrl, sourceUrl, className = "text-xs text-neutral-500" }: { attribution?: string; licenceUrl?: string; sourceUrl?: string; className?: string }) {
+  const source = httpsOr(sourceUrl);
   return (
     <p data-osm-credit className={className}>
-      {sourceUrl ? (
-        <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-neutral-300">{attribution || OSM_CREDIT}</a>
+      {source ? (
+        <a href={source} target="_blank" rel="noopener noreferrer" className="underline hover:text-neutral-300">{attribution || OSM_CREDIT}</a>
       ) : (
         attribution || OSM_CREDIT
       )}
       {", under the "}
-      <a href={licenceUrl || ODBL_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-neutral-300">ODbL licence</a>.
+      <a href={httpsOr(licenceUrl, ODBL_URL)} target="_blank" rel="noopener noreferrer" className="underline hover:text-neutral-300">ODbL licence</a>.
     </p>
   );
 }
