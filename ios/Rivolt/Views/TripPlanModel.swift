@@ -59,6 +59,8 @@ final class TripPlanModel {
     var focusedStop: Int?
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
+    /// The stay the two-day version was planned around.
+    private(set) var chosenStay: OvernightCandidates.Candidate?
     private var lastLeave = Date()
 
     var plan: TripPlan? { if case .planned(let p) = state { return p } else { return nil } }
@@ -148,6 +150,7 @@ final class TripPlanModel {
     func planNight(source: some TripSource, at stay: OvernightCandidates.Candidate) async {
         guard let destination, let start = lastStart else { return }
         night = .planning
+        chosenStay = stay
         let body = TripPlanLogic.multidayRequest(
             vehicleID: vehicleID, startingSoc: useTruckCharge ? nil : startingSoc, packKwh: packKwh, startAt: lastLeave,
             origin: start, destination: (destination.latitude, destination.longitude), stay: stay)
@@ -160,7 +163,39 @@ final class TripPlanModel {
         }
     }
 
-    func clearNight() { night = .none }
+    func clearNight() { night = .none; chosenStay = nil }
+
+    /// Shows a saved trip as it was saved, with no planner call. The form takes its places, so planning again starts from them.
+    func open(_ r: SavedTripLogic.Restored) {
+        origin = r.origin
+        destination = r.destination
+        lastStart = (r.origin.latitude, r.origin.longitude)
+        focusedStop = nil
+        chosenStay = r.stay
+        state = .planned(r.plan)
+        night = r.multiday.map { .planned($0) } ?? .none
+    }
+
+    /// What to save for the trip on screen; nil until there is a plan and a place to leave from.
+    func savedInputs() -> JSONValue? {
+        guard let destination, let start = lastStart else { return nil }
+        let from = origin?.line ?? "Where the truck was"
+        return SavedTripLogic.inputs(
+            origin: (start.lat, start.lon, from), destination: (destination.latitude, destination.longitude, destination.line),
+            stay: planned2Days ? chosenStay : nil, startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt)
+    }
+
+    func savedPlan() -> JSONValue? {
+        if case .planned(let trip) = night { return SavedTripLogic.planBlob(plan: plan, multiday: trip) }
+        return SavedTripLogic.planBlob(plan: plan, multiday: nil)
+    }
+
+    var planned2Days: Bool { if case .planned = night { return true } else { return false } }
+
+    /// "Seattle to Spokane", for a name field.
+    var suggestedName: String? {
+        destination.map { SavedTripLogic.suggestedName(origin: origin?.line, destination: $0.line) }
+    }
 
     private var isFailedNight: Bool { if case .failed = night { return true } else { return false } }
 }

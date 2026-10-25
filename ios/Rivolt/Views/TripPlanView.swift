@@ -6,6 +6,7 @@ import SwiftUI
 struct TripPlanView: View {
     @Environment(AppState.self) private var state
     @State private var model = TripPlanModel()
+    @State private var saved = SavedTripsModel()
     @State private var picking: Picking?
 
     enum Picking: Identifiable {
@@ -20,6 +21,8 @@ struct TripPlanView: View {
                     VStack(alignment: .leading, spacing: 4 * Theme.unit) {
                         TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
                         TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                        if model.plan != nil { SaveTripSection(model: model, saved: saved) }
+                        SavedTripsList(model: model, saved: saved)
                     }
                     .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
                 }
@@ -44,6 +47,7 @@ struct TripPlanView: View {
             .task {
                 let vehicles = (try? await state.client.vehicles()) ?? []
                 await model.loadTruck(source: state.client, vehicles: vehicles)
+                await saved.load(source: state.client)
             }
         }
     }
@@ -296,5 +300,83 @@ struct MultidaySections: View {
             Text("Day \(trip.failedDay ?? 0) couldn't be planned, so the days after it are missing. Try another place to sleep.")
                 .themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Save the trip on screen under a name, or over the saved trip it was opened from.
+struct SaveTripSection: View {
+    @Environment(AppState.self) private var state
+    let model: TripPlanModel
+    let saved: SavedTripsModel
+    @State private var name = ""
+
+    var body: some View {
+        ThemeSection(title: "Save this trip") {
+            TextField("Name", text: $name)
+                .submitLabel(.done).autocorrectionDisabled()
+                .padding(.horizontal, 3 * Theme.unit).frame(minHeight: 44)
+                .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
+            Button(saved.saveState == .saving ? "Saving…" : "Save as a new trip") { Task { await save(overwrite: false) } }
+                .buttonStyle(ThemeSecondaryButtonStyle())
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || saved.saveState == .saving)
+            if let active = saved.active {
+                Button("Update “\(active.name)”") { Task { await save(overwrite: true) } }
+                    .buttonStyle(ThemeSecondaryButtonStyle())
+                    .disabled(saved.saveState == .saving)
+            }
+            switch saved.saveState {
+            case .saved(let n): Text("Saved as “\(n)”.").themeText(.subline, color: Theme.textSecondary)
+            case .failed(let words): Text(words).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+            default: EmptyView()
+            }
+        }
+        .onAppear { if name.isEmpty { name = saved.active?.name ?? model.suggestedName ?? "" } }
+        .onChange(of: model.destination) { _, _ in if saved.active == nil { name = model.suggestedName ?? "" } }
+    }
+
+    private func save(overwrite: Bool) async {
+        guard let inputs = model.savedInputs() else { return }
+        await saved.save(source: state.client, name: overwrite ? (saved.active?.name ?? name) : name, inputs: inputs, plan: model.savedPlan(), overwrite: overwrite)
+    }
+}
+
+/// The saved trips, newest first as the server lists them. A tap shows one as it was saved, with no planner call.
+struct SavedTripsList: View {
+    let model: TripPlanModel
+    let saved: SavedTripsModel
+    @State private var message: String?
+
+    var body: some View {
+        if !saved.trips.isEmpty || saved.phase != .loaded {
+            ThemeSection(title: "Saved trips") {
+                if saved.trips.isEmpty, case .failed(let words) = saved.phase {
+                    Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
+                } else if saved.trips.isEmpty {
+                    HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Loading…").themeText(.value, color: Theme.textSecondary) }
+                } else {
+                    ForEach(Array(saved.trips.enumerated()), id: \.element.id) { i, trip in
+                        if i > 0 { Divider().overlay(Theme.border) }
+                        Button { open(trip) } label: {
+                            Text(trip.name).themeText(.value, color: saved.active?.id == trip.id ? Theme.accent : Theme.textPrimary)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                if let message { Text(message).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
+            }
+        }
+    }
+
+    private func open(_ trip: SavedTrip) {
+        guard let r = SavedTripLogic.restore(trip) else {
+            message = "“\(trip.name)” can't be opened here. Open it on the web."
+            return
+        }
+        message = nil
+        model.open(r)
+        saved.opened(trip)
     }
 }

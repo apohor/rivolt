@@ -23,6 +23,8 @@ struct TripPlan: Decodable, Equatable {
     var costs: [TripCost]? = nil
     /// The destination's IANA zone ("America/Denver"); absent when the coordinates name none, and on plans from before it existed.
     var destinationTz: String?
+    /// The answer exactly as it came, for saving it back as the web does.
+    var raw: JSONValue?
 
     enum CodingKeys: String, CodingKey {
         case destinationTz, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
@@ -36,6 +38,7 @@ struct TripPlan: Decodable, Equatable {
         routes = (try? c.decode([TripRoute].self, forKey: .routes)) ?? []
         costs = try? c.decode([TripCost].self, forKey: .costs)
         destinationTz = try? c.decode(String.self, forKey: .destinationTz)
+        raw = try? JSONValue(from: decoder)
     }
 
     /// The route the planner recommends.
@@ -201,6 +204,25 @@ struct TripMultiday: Decodable, Equatable {
     var error: String?
     var errorClass: String?
     var errorReason: String?
+    /// The answer exactly as it came, for saving it back as the web does.
+    var raw: JSONValue?
+
+    enum CodingKeys: String, CodingKey { case days, total, tz, destinationTz, failedDay, error, errorClass, errorReason }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        days = (try? c.decode([Day].self, forKey: .days)) ?? []
+        total = try? c.decode(Total.self, forKey: .total)
+        tz = try? c.decode(String.self, forKey: .tz)
+        destinationTz = try? c.decode(String.self, forKey: .destinationTz)
+        failedDay = try? c.decode(Int.self, forKey: .failedDay)
+        error = try? c.decode(String.self, forKey: .error)
+        errorClass = try? c.decode(String.self, forKey: .errorClass)
+        errorReason = try? c.decode(String.self, forKey: .errorReason)
+        raw = try? JSONValue(from: decoder)
+    }
 
     var failed: Bool { failedDay != nil }
 }
@@ -214,6 +236,12 @@ struct SavedTrip: Decodable, Equatable, Identifiable {
     var plan: JSONValue?
     var createdAt: Date?
     var updatedAt: Date?
+
+    init(id: String, name: String, inputs: JSONValue? = nil, plan: JSONValue? = nil, createdAt: Date? = nil, updatedAt: Date? = nil) {
+        self.id = id; self.name = name; self.inputs = inputs; self.plan = plan; self.createdAt = createdAt; self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, inputs, plan, createdAt, updatedAt }
 }
 
 /// Any JSON value, kept as it came (so a saved trip's blobs round-trip without the app knowing their shape).
