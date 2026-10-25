@@ -466,7 +466,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
-				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
+				r.Get("/me", handleMeEnrichedWith(d.Auth, d.DB, d.AdminDisabled, d.unitsFor()))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
@@ -925,6 +925,16 @@ func New(d Deps) http.Handler {
 				}))
 				r.Put("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleFlatRatePut(d.Settings.For(uid))(w, r)
+				}))
+			})
+
+			// The account's display units (mi/km, °C/°F), one setting for the web and the iPhone app (settings_units.go).
+			r.Route("/settings/units", func(r chi.Router) {
+				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleUnitsGet(d.Settings.For(uid))(w, r)
+				}))
+				r.With(settingsWriteLimiter.Middleware).Patch("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleUnitsPatch(d.Settings.For(uid))(w, r)
 				}))
 			})
 

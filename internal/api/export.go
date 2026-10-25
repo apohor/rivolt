@@ -70,6 +70,10 @@ var exportedSettingKeys = map[string]bool{
 	"privacy.ambient_temp":          true,
 	"privacy.ai_advice":             true,
 	"recap.weather_enabled":         true,
+	// The account's display units (settings/units): the user's own choice, exported with the rest.
+	"display.distance_unit":    true,
+	"display.temperature_unit": true,
+	"display.units_source":     true,
 }
 
 // notExportedSettingKeys are keys known to exist that are deliberately
