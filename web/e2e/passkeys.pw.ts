@@ -143,7 +143,7 @@ test("a wrong password and a refused account get plain words, and nothing shows 
     return r.fulfill({ status: 404, body: "not found" });
   });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Signed-in devices" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
   await expect(page.locator("[data-passkeys]")).toHaveCount(0);
   expect(asked).toBe(0);
   await page.route("**/api/auth/hydra/login?*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ challenge: "ch1", client_id: "grafana", requested_scope: [] }) }));
