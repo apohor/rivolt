@@ -66,6 +66,24 @@ final class TripPlanMapTests: XCTestCase {
     }
 }
 
+extension TripPlanMapTests {
+    func testTwoDaysAreOneDrawingWithAPinForTheNight() throws {
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        let lines = trip.days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
+        let d = try XCTUnwrap(PlanRouteLogic.drawing(days: trip.days, lines: lines))
+        XCTAssertEqual(d.pieces.count, trip.days.count)
+        let nights = d.stops.filter { $0.label.hasPrefix("Night") }
+        XCTAssertEqual(nights.count, trip.days.filter { $0.overnight != nil }.count)
+        XCTAssertNil(PlanRouteLogic.drawing(days: trip.days, lines: []), "nothing to draw without a line")
+    }
+
+    func testTheNightPinNamesTheStayOrJustSaysNight() {
+        XCTAssertEqual(PlanRouteLogic.nightLabel(nil, place: nil), "Night")
+        let o = try! JSON.decoder().decode(TripMultiday.Overnight.self, from: Data(#"{"name":"Sample Inn"}"#.utf8))
+        XCTAssertEqual(PlanRouteLogic.nightLabel(o, place: nil), "Night: Sample Inn")
+    }
+}
+
 private extension TripWaypoint {
     static var bare: TripWaypoint { try! JSON.decoder().decode(TripWaypoint.self, from: Data("{}".utf8)) }
 }
