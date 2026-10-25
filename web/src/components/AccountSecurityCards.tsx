@@ -10,7 +10,6 @@ import { Card } from "./ui";
 export function AccountSecurityCards() {
   const qc = useQueryClient();
   const [noPassword, setNoPassword] = useState(false);
-  if (noPassword) return null;
   const [passkeysLeft, setPasskeysLeft] = useState(false);
   const [cleanup, setCleanup] = useState<string | null>(null);
   const onFailure = (f: SecurityFailure) => {
@@ -34,6 +33,8 @@ export function AccountSecurityCards() {
     void qc.invalidateQueries({ queryKey: ["auth", "passkeys"] });
     void qc.invalidateQueries({ queryKey: ["auth", "sessions"] });
   };
+  // After every hook (the early return comes last, so a 409 that flips this changes nothing about the hooks that run).
+  if (noPassword) return null;
   return (
     <>
       <PasswordForm
