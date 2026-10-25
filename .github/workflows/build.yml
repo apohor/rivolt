@@ -131,8 +131,11 @@ jobs:
           echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"; echo "chart=$chart" >> "$GITHUB_OUTPUT"
       # Personal data that must never come back into the tree (real coordinates, ids), one fixed string per
       # line in the PRIVACY_DENYLIST secret, so the values themselves are never in the repo. Only file names
-      # are printed. Skipped where the secret isn't available (a fork, or not set yet). Real Rivian ids are
-      # also caught without the secret by internal/privacy's test.
+      # and commit ids are printed. Skipped where the secret isn't available (a fork, or not set yet). Real
+      # Rivian ids are also caught without the secret by internal/privacy's test.
+      # On a PR it also checks every commit's added lines, not just the final tree: a value added in one
+      # commit and removed in a later one is still in the branch's history, and our merge commits carry
+      # that history onto main (#1079, Oct 24). Such a PR stays red until its history is rewritten.
       - name: Personal-data denylist
         env:
           DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
@@ -140,10 +143,33 @@ jobs:
           if [ -z "$DENYLIST" ]; then echo "PRIVACY_DENYLIST is not set: skipped"; exit 0; fi
           deny="$RUNNER_TEMP/deny"
           printf '%s\n' "$DENYLIST" | sed '/^[[:space:]]*$/d' > "$deny"
+          trap 'rm -f "$deny"' EXIT
+          fail=0
           hits=$(git grep -l -F -f "$deny" -- . || true)
-          rm -f "$deny"
-          if [ -n "$hits" ]; then echo "Personal data from the denylist is in:"; echo "$hits"; exit 1; fi
-          echo "No denylisted values in the tree."
+          if [ -n "$hits" ]; then echo "Personal data from the denylist is in:"; echo "$hits"; fail=1; fi
+          # A PR checks out its merge commit: HEAD^1 is the base tip, HEAD^2 the PR head.
+          if [ "${{ github.event_name }}" = "pull_request" ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
+            for c in $(git rev-list --no-merges HEAD^1..HEAD^2); do
+              # Added lines only, tagged with their file; print the file names, never the matched text.
+              files=$(git show --no-color --format= --unified=0 "$c" \
+                | awk '/^\+\+\+ /{f=substr($0,5); sub(/^b\//,"",f); next} /^\+/{print f "\t" substr($0,2)}' \
+                | grep -F -f "$deny" | cut -f1 | sort -u || true)
+              if [ -n "$files" ]; then
+                echo "Commit $(git rev-parse --short "$c") adds a denylisted value in:"
+                echo "$files" | sed 's/^/  /'
+                fail=1; history=1
+              fi
+            done
+            if [ "${history:-0}" = 1 ]; then
+              echo
+              echo "Removing the value in a later commit is not enough: the commit above still carries it, and"
+              echo "merging the PR would put it on main. Rewrite the branch so no commit ever adds it (for example"
+              echo "git rebase -i origin/main and fold the fix into that commit, or squash the branch to one"
+              echo "commit), then force-push. Don't paste the value anywhere while fixing it."
+            fi
+          fi
+          if [ "$fail" = 1 ]; then exit 1; fi
+          echo "No denylisted values in the tree or in this PR's commits."
 
   web:
     name: web
