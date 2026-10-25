@@ -487,6 +487,8 @@ private struct Figures: View {
             }
             .accessibilityElement(children: .combine)
         }
+    }
+}
 
 /// The credit these hotels need wherever they show: "© OpenStreetMap contributors", with the ODbL licence it is under as a link.
 struct OpenStreetMapCredit: View {

@@ -144,7 +144,7 @@ enum TripPlanLogic {
                                 timeZone: TimeZone = .current) -> TripMultidayRequest {
         // A stay with no charger of its own starts the next day at a fast charger, planned as that day's first stop.
         let morning = morningCharger.flatMap { c in c.lat.flatMap { la in c.lon.map { TripPoint(lat: la, lon: $0, label: c.name, entityId: c.entityId) } } }
-        TripMultidayRequest(
+        return TripMultidayRequest(
             vehicleId: vehicleID, startingSoc: startingSoc, packKwh: packKwh, startAt: rfc3339(startAt), tz: timeZone.identifier,
             targetArrivalSocPercent: arrivalTargetPercent, origin: TripPoint(lat: origin.lat, lon: origin.lon),
             days: [
