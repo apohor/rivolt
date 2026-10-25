@@ -51,7 +51,7 @@ final class TripPlanLogicTests: XCTestCase {
         XCTAssertEqual(TripPlanLogic.summary(r, metric: true), "450 km · 4 h 30 min driving · 25 min charging")
         let la = TimeZone(identifier: "America/Los_Angeles")!
         // Newer iOS puts a narrow no-break space before "PM".
-        let arrival = TripPlanLogic.arrival(r, timeZone: la)?.replacingOccurrences(of: "\u{202F}", with: " ")
+        let arrival = TripPlanLogic.arrival(r, timeZone: la, phoneZone: la)?.replacingOccurrences(of: "\u{202F}", with: " ")
         XCTAssertEqual(arrival, "12:55 PM", "the destination's arrival, in the zone asked")
         XCTAssertEqual(TripPlanLogic.stopsTitle(r), "1 charging stop")
         let stop = try XCTUnwrap(r.chargingStops.first)
@@ -202,12 +202,12 @@ final class TripPlanModelTests: XCTestCase {
     func testAnArrivalOnAnotherDayNamesTheDay() throws {
         let la = TimeZone(identifier: "America/Los_Angeles")!
         let sameDay = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-30T20:10:00Z")
-        XCTAssertEqual(plain(TripPlanLogic.arrival(sameDay, timeZone: la)), "1:10 PM")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(sameDay, timeZone: la, phoneZone: la)), "1:10 PM")
         let nextDay = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-31T09:45:00Z")
-        XCTAssertEqual(plain(TripPlanLogic.arrival(nextDay, timeZone: la)), "Sat 2:45 AM", "leaves Friday morning, arrives after midnight")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(nextDay, timeZone: la, phoneZone: la)), "Sat 2:45 AM", "leaves Friday morning, arrives after midnight")
         let nextWeek = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-11-08T09:45:00Z")
-        XCTAssertEqual(plain(TripPlanLogic.arrival(nextWeek, timeZone: la)), "Nov 8, 1:45 AM")
-        let given = TripPlanLogic.arrival(nextDay, departure: ISO8601DateFormatter().date(from: "2026-10-31T01:00:00Z"), timeZone: la)
+        XCTAssertEqual(plain(TripPlanLogic.arrival(nextWeek, timeZone: la, phoneZone: la)), "Nov 8, 1:45 AM")
+        let given = TripPlanLogic.arrival(nextDay, departure: ISO8601DateFormatter().date(from: "2026-10-31T01:00:00Z"), timeZone: la, phoneZone: la)
         XCTAssertEqual(plain(given), "Sat 2:45 AM", "a departure from the form beats the plan's own")
     }
 
@@ -287,5 +287,30 @@ final class TripPlanModelTests: XCTestCase {
         src.stayError = APIError.planQuota(retryAfterSeconds: nil)
         await m.findNight(source: src)
         XCTAssertEqual(m.night, .failed("You've used this hour's planning allowance. Try again in a while."))
+    }
+
+    // MARK: the destination's own clock
+
+    func testAnArrivalInAnotherZoneIsOnThatClockAndSaysWhich() throws {
+        let la = TimeZone(identifier: "America/Los_Angeles")!, denver = TimeZone(identifier: "America/Denver")!
+        // 20:10Z is 1:10 PM in Los Angeles and 2:10 PM in Denver (both on daylight time).
+        let r = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-30T20:10:00Z")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(r, timeZone: denver, phoneZone: la)), "2:10 PM MDT")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(r, timeZone: la, phoneZone: la)), "1:10 PM", "the phone's own zone is not named")
+        let late = try routeJSON(drive: 3600, depart: "2026-10-30T15:43:00Z", arrive: "2026-10-31T05:45:00Z")
+        XCTAssertEqual(plain(TripPlanLogic.arrival(late, timeZone: denver, phoneZone: la)), "11:45 PM MDT",
+                       "11:45 PM in Denver is still Friday, the day it left, so no day is named")
+    }
+
+    func testAPlansZoneNameIsReadAndAMissingOrUnknownOneKeepsThePhones() throws {
+        XCTAssertEqual(TripPlanLogic.zone("America/Denver")?.identifier, "America/Denver")
+        XCTAssertNil(TripPlanLogic.zone(nil))
+        XCTAssertNil(TripPlanLogic.zone(""))
+        XCTAssertNil(TripPlanLogic.zone("Mars/Olympus"))
+        let plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        XCTAssertEqual(plan.destinationTz, "America/Los_Angeles")
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        XCTAssertEqual(trip.destinationTz, "America/Los_Angeles")
+        XCTAssertEqual(trip.days.first?.endTz, "America/Los_Angeles")
     }
 }
