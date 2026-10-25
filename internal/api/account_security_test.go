@@ -249,6 +249,9 @@ func TestChangePasswordRefusedBeforeAnythingChanges(t *testing.T) {
 		want   int
 	}{
 		{"the policy refuses the new password", `{"current":"old-pw","new":"weak-pw"}`, nil, http.StatusUnprocessableEntity},
+		{"qa's six-character password (Kratos' policy does not run on the admin API)", `{"current":"old-pw","new":"short1"}`, nil, http.StatusUnprocessableEntity},
+		{"over the 72-byte limit", `{"current":"old-pw","new":"` + strings.Repeat("x", 80) + `"}`, nil, http.StatusUnprocessableEntity},
+		{"too like the email", `{"current":"old-pw","new":"owner@x.test9"}`, nil, http.StatusUnprocessableEntity},
 		{"same password", `{"current":"old-pw","new":"old-pw"}`, nil, http.StatusBadRequest},
 		{"missing field", `{"current":"old-pw"}`, nil, http.StatusBadRequest},
 		{"the app token", `{"current":"old-pw","new":"a-better-pw-9"}`, func(r *http.Request) *http.Request {

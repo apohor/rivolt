@@ -327,7 +327,7 @@ func TestSetPasswordErrorsDoNotEchoTheSecret(t *testing.T) {
 // here are awkward on purpose: quotes, a backslash, angle brackets and non-ASCII (all escaped differently in JSON), long enough
 // that a 512-byte cut falls inside them, and the Kratos text echoes them both raw and JSON-escaped.
 func TestSetPasswordErrorsNeverCarryAnyFormOfTheSecret(t *testing.T) {
-	password := `pa"ss\wo<rd>é-` + strings.Repeat("Xy9", 40)
+	password := `pa"ss\wo<rd>é-` + strings.Repeat("Xy9", 15) // within the 72-byte policy limit, so it reaches Kratos
 	escaped, _ := json.Marshal(password)
 	esc := string(escaped[1 : len(escaped)-1])
 	const mail = "owner@x.test"
@@ -390,5 +390,60 @@ func TestClassifyRejection(t *testing.T) {
 		if got := ClassifyRejection(reason); got != want {
 			t.Errorf("%q: %s, want %s", reason, got, want)
 		}
+	}
+}
+
+// Kratos does not apply its password policy to the admin API (qa: a 6-character password was accepted on preview), so Rivolt does,
+// with Kratos' own defaults, before anything is written.
+func TestCheckPasswordIsKratosPolicy(t *testing.T) {
+	const mail = "owner@x.test"
+	for _, c := range []struct {
+		name, password, want string
+	}{
+		{"qa's six characters", "short1", RejectTooShort},
+		{"empty", "", RejectTooShort},
+		{"seven bytes", "abcdef7", RejectTooShort},
+		{"exactly eight", "q7!Zk2#m", ""},
+		{"exactly 72 bytes", strings.Repeat("aB3$", 18), ""},
+		{"73 bytes", strings.Repeat("aB3$", 18) + "x", RejectTooLong},
+		{"far too long", strings.Repeat("x", 500), RejectTooLong},
+		{"the email itself", "owner@x.test", RejectTooSimilar},
+		{"the email with a digit", "owner@x.test1", RejectTooSimilar},
+		{"the local part and digits (shares exactly half: Kratos allows it)", "owner12345", ""},
+		{"most of the email", "owner@x.tes1", RejectTooSimilar},
+		{"upper case of the email", "OWNER@X.TEST", RejectTooSimilar},
+		{"a normal good one", "a-better-pw-9", ""},
+		{"a passphrase", "correct horse battery staple", ""},
+		{"non-ASCII counts in bytes", "é€é€é€", ""}, // 3 + 9... bytes: 2+3+2+3+2+3 = 15
+	} {
+		if got := CheckPassword(c.password, mail); got != c.want {
+			t.Errorf("%s (%q): %q, want %q", c.name, c.password, got, c.want)
+		}
+	}
+}
+
+// SetPassword refuses a weak password before it writes anything, and says why as a typed refusal.
+func TestSetPasswordEnforcesThePolicyBeforeWriting(t *testing.T) {
+	wrote := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			wrote = true
+		}
+		_, _ = w.Write([]byte(`{"schema_id":"default","state":"active","traits":{"email":"owner@x.test"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for password, code := range map[string]string{"short1": RejectTooShort, strings.Repeat("x", 80): RejectTooLong, "owner@x.test9": RejectTooSimilar} {
+		err := c.SetPassword(context.Background(), "kid-1", password)
+		var rej *RejectedError
+		if !errors.As(err, &rej) || rej.Code != code || rej.Reason == "" || strings.Contains(err.Error(), password) {
+			t.Errorf("%q: err = %v, want a *RejectedError with code %s and no password in it", password, err, code)
+		}
+	}
+	if wrote {
+		t.Error("a refused password must not reach Kratos")
 	}
 }

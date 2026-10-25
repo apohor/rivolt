@@ -508,6 +508,10 @@ func (c *Client) SetPassword(ctx context.Context, id, newPassword string) error 
 	if json.Unmarshal(current["traits"], &traits) == nil {
 		identityEmail = traits.Email
 	}
+	// Kratos does not apply its password policy to the admin API (see policy.go), so Rivolt does, before anything is written.
+	if code := CheckPassword(newPassword, identityEmail); code != "" {
+		return &RejectedError{Reason: ReasonFor(code), Code: code}
+	}
 	body := map[string]any{}
 	for _, k := range identityKeepKeys {
 		if v, ok := current[k]; ok && string(v) != "null" {
