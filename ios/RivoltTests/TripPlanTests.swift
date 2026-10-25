@@ -36,7 +36,9 @@ final class TripPlanLogicTests: XCTestCase {
         XCTAssertEqual(TripPlanLogic.summary(r, metric: false), "280 mi · 4 h 30 min driving · 25 min charging")
         XCTAssertEqual(TripPlanLogic.summary(r, metric: true), "450 km · 4 h 30 min driving · 25 min charging")
         let la = TimeZone(identifier: "America/Los_Angeles")!
-        XCTAssertEqual(TripPlanLogic.arrival(r, timeZone: la), "12:55 PM", "the destination's arrival, in the zone asked")
+        // Newer iOS puts a narrow no-break space before "PM".
+        let arrival = TripPlanLogic.arrival(r, timeZone: la)?.replacingOccurrences(of: "\u{202F}", with: " ")
+        XCTAssertEqual(arrival, "12:55 PM", "the destination's arrival, in the zone asked")
         XCTAssertEqual(TripPlanLogic.stopsTitle(r), "1 charging stop")
         let stop = try XCTUnwrap(r.chargingStops.first)
         XCTAssertEqual(TripPlanLogic.stopDetail(stop), "200 kW · 25 min · 31% to 72%")
