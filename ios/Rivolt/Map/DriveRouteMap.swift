@@ -87,7 +87,7 @@ struct DriveRouteMap: View {
 /// be a wide pill with every band written out across the bottom of the map.
 struct SpeedLegend: View {
     let bands: [RouteSnap.Speed]
-    private let cell: CGFloat = 17
+    private let cell: CGFloat = 22
 
     var body: some View {
         if !bands.isEmpty {
@@ -104,7 +104,7 @@ struct SpeedLegend: View {
                     }
                 }
             }
-            .font(Theme.sans(ThemeTokens.typeCaption - 3, .regular, relativeTo: .caption2))
+            .mapCaption()
             .foregroundStyle(Theme.textBody)
             .padding(.horizontal, 4).padding(.vertical, 2)
             .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 5))
@@ -275,7 +275,7 @@ struct RouteMapView: UIViewRepresentable {
                 let text = MLNSymbolStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-label", source: sources["stops"]!)
                 text.text = NSExpression(forKeyPath: "label")
                 text.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
-                text.textFontSize = NSExpression(forConstantValue: 12)
+                text.textFontSize = NSExpression(forConstantValue: ThemeTokens.typeMapCaption)
                 text.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
                 text.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
                 text.textHaloWidth = NSExpression(forConstantValue: 1.5)
@@ -346,12 +346,19 @@ struct MapAttribution: View {
 
     var body: some View {
         Text(Self.text)
-            .font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2))
+            .mapCaption()
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 3).padding(.vertical, 1)
             .background(Theme.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
             .padding(4)
             .accessibilityLabel("Map data OpenStreetMap")
+    }
+}
+
+extension View {
+    /// The one size of text over a map (`type.mapCaption`): the speed chip, the credit, the legends and the pin labels all read the same.
+    func mapCaption() -> some View {
+        font(Theme.sans(ThemeTokens.typeMapCaption, .regular, relativeTo: .caption2))
     }
 }
 

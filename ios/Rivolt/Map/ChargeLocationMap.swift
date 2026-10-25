@@ -199,7 +199,7 @@ struct ChargeMapView: UIViewRepresentable {
             charger.iconAllowsOverlap = NSExpression(forConstantValue: true)
             charger.text = NSExpression(forKeyPath: "label")
             charger.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
-            charger.textFontSize = NSExpression(forConstantValue: 12)
+            charger.textFontSize = NSExpression(forConstantValue: ThemeTokens.typeMapCaption)
             charger.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
             charger.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
             charger.textHaloWidth = NSExpression(forConstantValue: 1.5)

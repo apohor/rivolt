@@ -24,6 +24,7 @@ import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { appMapFlavor, onAppMapFlavor, type MapFlavor } from "../lib/mapTheme";
 import { findNearestCharger, type POI } from "../lib/poi";
+import { MAP_CAPTION_PX } from "../lib/mapCaption";
 import { SPEED_BUCKETS, speedBucketIndex, usedSpeedBuckets } from "../lib/speedBuckets";
 import {
   cleanTrace,
@@ -468,7 +469,7 @@ function flavorControl(
     div.style.cssText =
       "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
       "border-radius:6px;padding:2px;display:inline-flex;gap:2px;" +
-      "font:10px/1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);" +
+      `font:${MAP_CAPTION_PX}px/1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);` +
       "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
     for (const f of FLAVORS) {
       const btn = L.DomUtil.create("button", "", div) as HTMLButtonElement;
@@ -721,7 +722,7 @@ function addSpeedLegend(map: L.Map, speeds: (number | undefined)[]): L.Control {
     div.style.cssText =
       "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
       "border-radius:5px;padding:1px 4px;display:flex;gap:4px;" +
-      "align-items:center;font:8px/1.1 ui-sans-serif,system-ui;" +
+      `align-items:center;font:${MAP_CAPTION_PX}px/1.1 ui-sans-serif,system-ui;` +
       "color:#d4d4d4;backdrop-filter:blur(2px);opacity:0.8;" +
       "pointer-events:none;";
     div.innerHTML =
@@ -766,7 +767,7 @@ function stalenessBadge(map: L.Map, fixAgeSeconds: number): L.Control {
     div.style.cssText =
       "background:rgba(120,53,15,0.85);border:1px solid #b45309;" +
       "border-radius:6px;padding:3px 7px;display:inline-flex;gap:4px;" +
-      "align-items:center;font:11px/1.1 ui-sans-serif,system-ui;" +
+      `align-items:center;font:${MAP_CAPTION_PX}px/1.1 ui-sans-serif,system-ui;` +
       "color:#fde68a;backdrop-filter:blur(2px);" +
       "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
     div.title =
@@ -1561,7 +1562,7 @@ export function ChargesOverviewMap({
       div.style.cssText =
         "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
         "border-radius:6px;padding:4px 6px;display:flex;gap:8px;" +
-        "align-items:center;font:10px/1.1 ui-sans-serif,system-ui;" +
+        `align-items:center;font:${MAP_CAPTION_PX}px/1.1 ui-sans-serif,system-ui;` +
         "color:#d4d4d4;backdrop-filter:blur(2px);";
       div.innerHTML = (
         [

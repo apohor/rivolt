@@ -19,4 +19,10 @@ final class SpeedLegendTests: XCTestCase {
         let none = RouteSnap.Drawing(pieces: [piece(nil)], routedGaps: [], gaps: [], start: nil, end: nil, hasSpeed: false)
         XCTAssertEqual(none.usedSpeeds, [])
     }
+
+    func testTextOverAMapHasOneSizeTheAppsCaptionSize() {
+        // The speed chip, the credit, the legends and the pin labels all read `type.mapCaption`: a chip never reads smaller than the credit.
+        XCTAssertEqual(ThemeTokens.typeMapCaption, 11)
+        XCTAssertEqual(ThemeTokens.typeMapCaption, ThemeTokens.typeCaption)
+    }
 }

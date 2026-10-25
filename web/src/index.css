@@ -66,6 +66,8 @@
   .leaflet-control-attribution {
     background: rgba(10, 10, 10, 0.7) !important;
     color: #a3a3a3 !important;
+    /* The one map-caption size (src/lib/mapCaption.ts, type.mapCaption): Leaflet's own is 12 px. */
+    font-size: 11px !important;
   }
   .leaflet-control-attribution a {
     color: #10b981 !important;

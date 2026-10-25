@@ -202,7 +202,7 @@ struct ActivityMapLegend: View {
                     }
                 }
             }
-            .font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2))
+            .mapCaption()
             .foregroundStyle(Theme.textBody)
             .padding(.horizontal, 1.5 * Theme.unit).padding(.vertical, 0.5 * Theme.unit)
             .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: Theme.radiusInner))
