@@ -55,6 +55,8 @@ final class TripPlanModel {
     }
 
     private(set) var night = NightState.none
+    /// The charging stop (index in the plan's stops) a tap on the map pointed at; the list scrolls to it.
+    var focusedStop: Int?
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
     private var lastLeave = Date()
@@ -98,6 +100,7 @@ final class TripPlanModel {
         guard let destination, state != .planning else { return }
         state = .planning
         night = .none
+        focusedStop = nil
         let start: (lat: Double, lon: Double)
         if let origin {
             start = (origin.latitude, origin.longitude)

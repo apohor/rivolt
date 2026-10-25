@@ -114,6 +114,8 @@ struct RouteMapView: UIViewRepresentable {
     var onHealth: (MapHealth) -> Void = { _ in }
     /// The route's layers went onto the map.
     var onDrawn: () -> Void = {}
+    /// A tap on a charging stop's pin (its index in `drawing.stops`).
+    var onStop: ((Int) -> Void)?
 
     static let sourceID = "rivolt-route"
 
@@ -132,10 +134,15 @@ struct RouteMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
+        let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
+        if onStop != nil {
+            map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
+        }
+        return map
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
+        context.coordinator.onStop = onStop
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.update(drawing, on: map)
     }
@@ -144,6 +151,7 @@ struct RouteMapView: UIViewRepresentable {
         private var drawing: RouteSnap.Drawing
         private var sources: [String: MLNShapeSource] = [:]
         private let onDrawn: () -> Void
+        var onStop: ((Int) -> Void)?
 
         init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}) {
             self.drawing = drawing
@@ -168,7 +176,14 @@ struct RouteMapView: UIViewRepresentable {
                 f.attributes = ["kind": kind]
                 return f
             }
+            let stops: [MLNPointFeature] = d.stops.enumerated().map { i, s in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: s.coord.lat, longitude: s.coord.lon)
+                f.attributes = ["i": i, "label": s.label]
+                return f
+            }
             return [
+                "stops": MLNShapeCollectionFeature(shapes: stops),
                 "pieces": MLNShapeCollectionFeature(shapes: pieces),
                 "routed": MLNShapeCollectionFeature(shapes: d.routedGaps.map { line($0) }),
                 "gaps": MLNShapeCollectionFeature(shapes: d.gaps.map { line([$0.from, $0.to]) }),
@@ -214,8 +229,35 @@ struct RouteMapView: UIViewRepresentable {
                 c.circleStrokeWidth = NSExpression(forConstantValue: 2)
                 style.addLayer(c)
             }
+            if !drawing.stops.isEmpty {
+                let dot = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop", source: sources["stops"]!)
+                dot.circleColor = NSExpression(forConstantValue: UIColor(Theme.chargePin))
+                dot.circleRadius = NSExpression(forConstantValue: 8)
+                dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.chargePinInk))
+                dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
+                style.addLayer(dot)
+                let text = MLNSymbolStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-label", source: sources["stops"]!)
+                text.text = NSExpression(forKeyPath: "label")
+                text.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
+                text.textFontSize = NSExpression(forConstantValue: 12)
+                text.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
+                text.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
+                text.textHaloWidth = NSExpression(forConstantValue: 1.5)
+                text.textAnchor = NSExpression(forConstantValue: "bottom")
+                text.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: -1.1)))
+                style.addLayer(text)
+            }
             fit(map)
             DispatchQueue.main.async { self.onDrawn() }
+        }
+
+        /// The stop under a tap, if any (a generous 22 pt box, for a thumb).
+        @objc func tapped(_ g: UITapGestureRecognizer) {
+            guard let map = g.view as? MLNMapView else { return }
+            let p = g.location(in: map)
+            let box = CGRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)
+            let hit = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-stop"]).first
+            if let i = hit?.attribute(forKey: "i") as? Int { onStop?(i) }
         }
 
         /// The snapped drawing replaces the recorded one in the same sources.
