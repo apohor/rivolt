@@ -8,11 +8,17 @@ import { Card } from "./ui";
 // The browsers and the iPhone app signed in as this user, so a lost phone or a borrowed computer can be signed out. A device is
 // named as the server stored it (a device type, a browser and system), with when it signed in and was last used; no address
 // and no place. Revoking the one in hand signs this browser out.
+// How many other browsers show before "Show all" (the server keeps every app session and the current one in view regardless).
+export const RECENT_BROWSERS = 10;
+
 export function SignedInDevices() {
   const qc = useQueryClient();
+  // The list is cut to the newest other browsers (every app session and this one always show); "N older browsers not shown · Show all"
+  // asks for the rest. The line is the point of the cut being honest: a long list must not look complete when it is not.
+  const [showAll, setShowAll] = useState(false);
   const list = useQuery({
-    queryKey: ["auth", "sessions"],
-    queryFn: () => backend.authSessions(),
+    queryKey: ["auth", "sessions", showAll ? "all" : "recent"],
+    queryFn: () => backend.authSessions(showAll ? undefined : RECENT_BROWSERS),
     retry: 0,
     staleTime: 15_000,
   });
@@ -69,8 +75,10 @@ export function SignedInDevices() {
     );
 
   const rows = list.data.sessions;
-  const others = rows.filter((s) => !s.current).length;
   const hasCurrent = rows.some((s) => s.current);
+  // Everyone else signed in, including those the cut hides: "Sign out everywhere else" ends all of them.
+  const hidden = showAll ? 0 : list.data.hidden_web ?? 0;
+  const others = Math.max(rows.filter((s) => !s.current).length + hidden, 0);
   const busy = revoke.isPending || revokeOthers.isPending;
 
   return (
@@ -141,6 +149,16 @@ export function SignedInDevices() {
               </li>
             ))}
           </ul>
+        )}
+        {hidden > 0 && (
+          <p data-devices-hidden className="flex flex-wrap items-center gap-x-2 text-xs text-neutral-400">
+            <span>
+              {hidden} older {hidden === 1 ? "browser" : "browsers"} not shown
+            </span>
+            <button type="button" onClick={() => setShowAll(true)} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">
+              Show all
+            </button>
+          </p>
         )}
         {others > 0 &&
           (confirming === "others" ? (

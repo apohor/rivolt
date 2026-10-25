@@ -3,7 +3,7 @@ import Observation
 
 /// The two calls behind the devices screen, kept apart from `APIClient` so a test can see what is sent.
 protocol DevicesSource: Sendable {
-    func signedInDevices() async throws -> [SignedInDevice]
+    func signedInDevices(recent: Int?) async throws -> SignedInDevices
     func signOutDevice(id: String) async throws
 }
 
@@ -26,15 +26,29 @@ final class DevicesModel {
     private(set) var signingOut: String?
     /// What went wrong signing a device out, or nil.
     private(set) var signOutError: String?
+    /// How many older browsers the list leaves out, and whether the whole list was asked for.
+    private(set) var hiddenWeb = 0
+    private(set) var showingAll = false
+
+    /// How many other browsers show before "Show all".
+    static let recentBrowsers = 10
 
     func load(source: some DevicesSource) async {
         do {
-            loadState = .loaded(Self.ordered(try await source.signedInDevices()))
+            let list = try await source.signedInDevices(recent: showingAll ? nil : Self.recentBrowsers)
+            hiddenWeb = showingAll ? 0 : list.hiddenWeb
+            loadState = .loaded(Self.ordered(list.sessions))
         } catch {
             // With a list already shown, a failed refresh keeps it.
             if case .loaded = loadState { return }
             loadState = .failed(UserFacingError.words(error))
         }
+    }
+
+    /// "Show all": the whole list, which stays whole until the screen is opened again.
+    func showAll(source: some DevicesSource) async {
+        showingAll = true
+        await load(source: source)
     }
 
     func signOut(_ device: SignedInDevice, source: some DevicesSource) async {
