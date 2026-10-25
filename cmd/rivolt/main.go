@@ -107,6 +107,8 @@ func main() {
 		case "--help", "-h", "help":
 			printUsage()
 			return
+		case "migrate":
+			os.Exit(runMigrate(os.Args[2:]))
 		case "reprice":
 			os.Exit(runReprice(os.Args[2:]))
 		case "repair-charge-fragments":
@@ -138,6 +140,7 @@ Usage:
                   carry a running energy total into one row. Dry run
                   unless --apply; --apply needs --user/--since/--until
                   and writes a CSV backup first.
+  rivolt migrate [--check]    apply pending database migrations (or list them); for deployments that migrate in a job
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -52,8 +53,8 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("acquire migration conn: %w", err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+	if err := acquireMigrationLock(ctx, conn); err != nil {
+		return err
 	}
 	defer func() {
 		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID)
@@ -84,6 +85,130 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrationLockWait bounds how long Migrate waits for another migrator to finish (a var so tests can shorten it). A migrator that
+// hangs holding the lock fails the next one visibly instead of wedging every boot or job behind it.
+var (
+	migrationLockWait = 5 * time.Minute
+	migrationLockPoll = 2 * time.Second
+)
+
+// acquireMigrationLock takes the session-level advisory lock on conn, polling pg_try_advisory_lock until migrationLockWait. On
+// timeout the error names the holder's backend pid (nothing else about it: no query text).
+func acquireMigrationLock(ctx context.Context, conn *sql.Conn) error {
+	deadline := time.Now().Add(migrationLockWait)
+	for {
+		var got bool
+		if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", migrationLockID).Scan(&got); err != nil {
+			return fmt.Errorf("acquire migration lock: %w", err)
+		}
+		if got {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			var pid sql.NullInt64
+			// A bigint advisory key is stored as classid (high 32 bits) and objid (low 32 bits).
+			_ = conn.QueryRowContext(ctx, `SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 1
+				AND classid::bigint = $1 AND objid::bigint = $2 LIMIT 1`,
+				int64(uint32(uint64(migrationLockID)>>32)), int64(uint32(uint64(migrationLockID)&0xffffffff))).Scan(&pid)
+			if pid.Valid {
+				return fmt.Errorf("another migrator (backend pid %d) has held the migration lock for over %s", pid.Int64, migrationLockWait)
+			}
+			return fmt.Errorf("the migration lock was not free after %s", migrationLockWait)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("acquire migration lock: %w", ctx.Err())
+		case <-time.After(migrationLockPoll):
+		}
+	}
+}
+
+// SchemaState is what a database has against what this binary ships.
+type SchemaState struct {
+	Pending []string // shipped here, not applied there (oldest first)
+	Unknown []string // applied there, not shipped here: the database is ahead (a rolled-back binary)
+}
+
+// CheckSchema reads, and changes nothing. A database with no migrations table has everything pending.
+func CheckSchema(ctx context.Context, d *sql.DB) (SchemaState, error) {
+	steps, err := loadMigrations()
+	if err != nil {
+		return SchemaState{}, fmt.Errorf("load embedded migrations: %w", err)
+	}
+	var reg sql.NullString
+	if err := d.QueryRowContext(ctx, `SELECT to_regclass('public.migrations')::text`).Scan(&reg); err != nil {
+		return SchemaState{}, err
+	}
+	applied := map[string]bool{}
+	if reg.Valid {
+		if applied, err = loadApplied(ctx, d); err != nil {
+			return SchemaState{}, err
+		}
+	}
+	var st SchemaState
+	shipped := map[string]bool{}
+	for _, m := range steps {
+		shipped[m.id] = true
+		if !applied[m.id] {
+			st.Pending = append(st.Pending, m.id)
+		}
+	}
+	for id := range applied {
+		if !shipped[id] {
+			st.Unknown = append(st.Unknown, id)
+		}
+	}
+	sort.Strings(st.Unknown)
+	return st, nil
+}
+
+// schemaPoll is how often RequireSchema looks again while the schema is behind (a var for tests).
+var schemaPoll = 5 * time.Second
+
+// RequireSchema is the server's startup check when it does not migrate itself: every migration this binary ships must already be
+// applied. A schema that is behind is polled for up to wait (a migration job may be finishing), then it is an error. A schema
+// that is AHEAD (applied migrations this binary does not ship) is fine: that is a rollback to an older image, which the
+// expand-only rule for migrations makes safe, and it is logged.
+func RequireSchema(ctx context.Context, d *sql.DB, wait time.Duration, log *slog.Logger) error {
+	deadline := time.Now().Add(wait)
+	warned := false
+	for {
+		st, err := CheckSchema(ctx, d)
+		if err != nil {
+			return fmt.Errorf("check schema: %w", err)
+		}
+		if len(st.Unknown) > 0 && !warned {
+			log.Warn("database schema is ahead of this binary (a rollback?)", "unknown_migrations", len(st.Unknown), "newest", st.Unknown[len(st.Unknown)-1])
+			warned = true
+		}
+		if len(st.Pending) == 0 {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w (%d pending, next %s)", ErrSchemaBehind, len(st.Pending), st.Pending[0])
+		}
+		log.Info("schema is behind this binary, waiting for the migration job", "pending", len(st.Pending), "next", st.Pending[0])
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(schemaPoll):
+		}
+	}
+}
+
+// ErrSchemaBehind names the fix in one line; the server prints it and exits.
+var ErrSchemaBehind = errors.New(`schema is behind this binary: run "rivolt migrate", or set RIVOLT_MIGRATE_ON_START=true for a single-node install`)
+
+// MigrateOnStart reports whether the server migrates the schema itself at startup (RIVOLT_MIGRATE_ON_START). Unset means yes for
+// now: the chart turns it off where a migration Job runs, and a later release flips the default.
+func MigrateOnStart(getenv func(string) string) bool {
+	switch strings.ToLower(strings.TrimSpace(getenv("RIVOLT_MIGRATE_ON_START"))) {
+	case "false", "0", "no", "off":
+		return false
+	}
+	return true
 }
 
 type migration struct {
@@ -136,6 +261,7 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 // pgx uses for `Exec`) runs them serially. A failure rolls everything
 // back and the migration will retry on the next boot.
 func run(ctx context.Context, db *sql.DB, m migration) error {
+	started := time.Now()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -158,7 +284,7 @@ func run(ctx context.Context, db *sql.DB, m migration) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	slog.Info("db migration applied", "id", m.id)
+	slog.Info("db migration applied", "id", m.id, "ms", time.Since(started).Milliseconds())
 	return nil
 }
 
