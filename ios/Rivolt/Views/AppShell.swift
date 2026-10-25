@@ -22,9 +22,14 @@ struct AppShell: View {
     @State private var tab = StoreShots.tab
     @State private var visited: Set<String> = [StoreShots.tab]
 
+    /// Whether this server has the trip planner (it answers the saved-trips list; 404 where the flag is off). Never in the demo.
+    @State private var plannerOn = false
+
     private var tabs: [ThemeTabItem] {
         [ThemeTabItem(id: "now", label: "Now", icon: "now"), ThemeTabItem(id: "activity", label: "Activity", icon: "activity"),
-         ThemeTabItem(id: "money", label: "Money", icon: "money"), ThemeTabItem(id: "truck", label: "Truck", icon: "truck")]
+         ThemeTabItem(id: "money", label: "Money", icon: "money")]
+            + (plannerOn ? [ThemeTabItem(id: "plan", label: "Plan", icon: "plan")] : [])
+            + [ThemeTabItem(id: "truck", label: "Truck", icon: "truck")]
     }
 
     var body: some View {
@@ -44,6 +49,10 @@ struct AppShell: View {
         }
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: tab) { _, new in visited.insert(new) }
+        .task {
+            guard !state.isDemo else { return }
+            plannerOn = (try? await state.client.savedTrips()) != nil
+        }
         // Back in front after the account-deletion page: has the account gone? (Nothing happens unless the person went there.)
         .onChange(of: scenePhase) { _, new in if new == .active { Task { await state.recheckAfterDeletion() } } }
     }
@@ -53,6 +62,7 @@ struct AppShell: View {
         switch id {
         case "activity": ActivityView()
         case "money": MoneyView()
+        case "plan": TripPlanView()
         case "truck": TruckView()
         default: HomeView()
         }
