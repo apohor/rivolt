@@ -1134,7 +1134,9 @@ export const backend = {
   logout: () => api.post<void>("/api/auth/logout"),
   // The signed-in user's own browsers and iPhone app (GET /api/auth/sessions), one sign-out, and "sign out everywhere else".
   // Never the token or the address. 404 on an install without sessions, 403 while an admin views as someone.
-  authSessions: () => api.get<{ sessions: AuthSession[] }>("/api/auth/sessions"),
+  // By default the 10 most recent other browsers plus every app session and this one; hidden_web counts the rest, ?all=1 lists them.
+  authSessions: (all = false) =>
+    api.get<{ sessions: AuthSession[]; total?: number; hidden_web?: number }>(`/api/auth/sessions${all ? "?all=1" : ""}`),
   revokeAuthSession: (id: string) => api.del<void>(`/api/auth/sessions/${encodeURIComponent(id)}`),
   revokeOtherAuthSessions: () => api.post<{ revoked: number }>("/api/auth/sessions/revoke-others", {}),
   // Passkeys (WebAuthn) for email accounts. Management is for a browser session only (404 where passkeys are off, 403 for the app

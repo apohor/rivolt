@@ -89,7 +89,12 @@ func (a *SessionsAPI) current(r *http.Request) (uuid.UUID, bool) {
 	return a.Current(r)
 }
 
-// List serves GET /api/auth/sessions.
+// webSessionsShown is how many web sessions (other than this one) the list shows by default, most recently seen first. Every app
+// session and the current one are always shown. A browser that never signs out leaves a row each time, so an account can hold
+// dozens; the rest are counted in "hidden_web" and all of them are still revoked by "sign out everywhere else". ?all=1 lists them.
+const webSessionsShown = 10
+
+// List serves GET /api/auth/sessions: {sessions, total, hidden_web}. Rows are ordered by last use; see webSessionsShown.
 func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 	uid, ok := a.user(w, r)
 	if !ok {
@@ -101,16 +106,26 @@ func (a *SessionsAPI) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur, _ := a.current(r)
+	all := r.URL.Query().Get("all") == "1"
 	out := make([]sessionJSON, 0, len(rows))
+	otherWeb, hidden := 0, 0
 	for _, s := range rows {
+		isCurrent := cur != uuid.Nil && s.ID == cur
+		if !all && s.Kind == sessions.KindWeb && !isCurrent {
+			if otherWeb >= webSessionsShown {
+				hidden++
+				continue
+			}
+			otherWeb++
+		}
 		out = append(out, sessionJSON{
 			ID: s.ID, Kind: s.Kind, DeviceLabel: s.DeviceLabel, UserAgent: truncateRunes(s.UserAgent, 200),
 			CreatedAt: s.CreatedAt.UTC(), LastSeenAt: s.LastSeenAt.UTC(), ExpiresAt: s.ExpiresAt.UTC(),
-			Current: cur != uuid.Nil && s.ID == cur,
+			Current: isCurrent,
 		})
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out, "total": len(rows), "hidden_web": hidden})
 }
 
 // Revoke serves DELETE /api/auth/sessions/{id}: one of the caller's own sessions.
