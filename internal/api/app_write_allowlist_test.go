@@ -164,6 +164,16 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"PATCH", "/api/milestones/dismiss", 403},
 		{"POST", "/api/milestones/dismiss", 204},
 		{"POST", "/api/settings/charging", 403},
+		{"POST", "/api/trips/plan", 204}, // the iPhone trip planner: computes, stores nothing
+		{"POST", "/api/trips/plan-multiday", 204},
+		{"POST", "/api/trips/overnight-candidates", 204},
+		{"POST", "/api/maps/chargers-along", 204},
+		{"POST", "/api/trips/plan/", 403},
+		{"POST", "/api/trips/plan/advice", 403}, // the LLM route stays web-only
+		{"PUT", "/api/trips/plan", 403},
+		{"POST", "/api/trips/saved", 403}, // saved trips are their own PR
+		{"POST", "/api/trips/plan-multiday/", 403},
+		{"GET", "/api/geocode", 204},
 		{"PUT", "/api/settings/home-location", 204}, // Essential Settings on iPhone
 		{"POST", "/api/settings/home-location/restore", 204},
 		{"POST", "/api/settings/home-location/search", 204},
@@ -317,5 +327,34 @@ func TestAppSessionRevokeThroughTheRouter(t *testing.T) {
 	}
 	if rec := send(me, "DELETE", "/api/auth/sessions/"+mine.String(), true); rec.Code != http.StatusForbidden || len(store.revoked) != 1 {
 		t.Errorf("under view-as: %d, revoked %v, want 403 and nothing more revoked", rec.Code, store.revoked)
+	}
+}
+
+// The place search is limited per user (20 a minute), so a phone that sends as people type cannot hammer the geocoder. An empty
+// query answers [] without going upstream, so the test never leaves the machine.
+func TestGeocodeIsLimitedPerUser(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := asSession(New(Deps{Auth: svc}), sessions.KindApp) // one user for every call
+	answered, limited := 0, 0
+	for i := 0; i < 2*geocodePerMin; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev/api/geocode?q=", nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		h.ServeHTTP(rec, req)
+		switch rec.Code {
+		case http.StatusOK:
+			answered++
+		case http.StatusTooManyRequests:
+			limited++
+		default:
+			t.Fatalf("status %d", rec.Code)
+		}
+	}
+	// The bucket allows its ceiling plus at most a couple of calls of burst; what matters is that it closes well before 2x.
+	if answered < geocodePerMin || answered > geocodePerMin+2 || limited == 0 {
+		t.Errorf("%d answered and %d limited of %d, want about %d answered then limited", answered, limited, 2*geocodePerMin, geocodePerMin)
 	}
 }

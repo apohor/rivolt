@@ -21,7 +21,12 @@ var appWritesNotCheckedByAllowlist = map[string]string{
 // appAllowedButNotYetSent lists allowlist entries (and patterns) that no app source calls today, each with why it stays. An
 // entry that the app does call fails the test, so this list shrinks as the app catches up. An allowed write nothing sends is attack
 // surface with no benefit, so each reason carries a deadline: the end of Sprint 11.
-var appAllowedButNotYetSent = map[string]string{}
+var appAllowedButNotYetSent = map[string]string{
+	"POST /api/trips/plan":                 "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/trips/plan-multiday":        "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/trips/overnight-candidates": "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+	"POST /api/maps/chargers-along":        "the iPhone trip planner (Sprint 10 board item); ux sends it when the screens land, before the end of Sprint 11",
+}
 
 // samplePaths gives the spellings a {x} in an app path can take, so the pattern rules (a UUID, a vehicle id) are exercised.
 func samplePaths(p string) []string {

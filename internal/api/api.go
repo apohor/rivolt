@@ -1538,7 +1538,7 @@ func New(d Deps) http.Handler {
 			// provider as weather; privacy trade-off is identical).
 			// Returns city-level matches sorted by population so the
 			// SPA can render a sensible suggestion dropdown.
-			r.Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(mapsUserLimiter(geocodePerMin).Middleware).Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleGeocode(d.Photon)(w, r)
 			}))
 		}) // end of timed authenticated /api group
