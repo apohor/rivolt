@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { settled } from "./settle";
 import { stubApi } from "./stub";
 
 // Plan (the demo's preset planner stands in for a signed-in
@@ -43,7 +44,10 @@ test("next-mode on a phone: map first, then the summary and itinerary; Saved and
   await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   // The page smooth-scrolls the map into view as the plan arrives, so the four tops are read in one frame and in
-  // page coordinates: separate boundingBox() calls each landed at a different point of the scroll.
+  // page coordinates: separate boundingBox() calls each landed at a different point of the scroll. They are read once the
+  // page has stopped moving, and each area has to be there first.
+  for (const area of ["map", "summary", "itinerary"]) await expect(page.locator(`[data-plan-area='${area}']`)).toBeAttached();
+  await settled(page, ["[data-plan-bar]", "[data-plan-area='map']", "[data-plan-area='summary']", "[data-plan-area='itinerary']"]);
   const [bar, map, summary, itinerary] = await page.evaluate(() =>
     ["[data-plan-bar]", "[data-plan-area='map']", "[data-plan-area='summary']", "[data-plan-area='itinerary']"].map(
       (sel) => document.querySelector(sel)!.getBoundingClientRect().top + window.scrollY,

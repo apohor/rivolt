@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { settled } from "./settle";
 import { stubApi } from "./stub";
 
 // Phone, map-first: when a plan arrives the page brings the map into view by itself, so
@@ -15,7 +16,9 @@ for (const theme of ["dark", "light"] as const) {
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
     await expect(page.locator("[data-plan-area='map'] .leaflet-marker-icon").first()).toBeVisible();
-    await page.waitForTimeout(800);
+    // The page brings the map into view by itself; wait for the scroll and the map's fit to finish, not for a guessed time.
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await settled(page, ["[data-plan-area='map']", "[data-plan-sheet]"]);
     const res = await page.evaluate(() => {
       const sheet = document.querySelector("[data-plan-sheet]")!.getBoundingClientRect();
       const bar = document.querySelector("header.sticky")!.getBoundingClientRect();
