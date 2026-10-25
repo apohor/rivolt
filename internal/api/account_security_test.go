@@ -195,6 +195,9 @@ func TestSecureMyAccountAlsoRemovesEveryPasskey(t *testing.T) {
 	if len(e.mail.sent) != 1 || !strings.Contains(e.mail.sent[0].Subject, "secured") {
 		t.Errorf("mail: %+v", e.mail.sent)
 	}
+	if !strings.Contains(e.mail.sent[0].Text, SecureAccountLabel) || strings.Contains(e.mail.sent[0].Text, "Secure my account") {
+		t.Errorf("the secured-account email must name the button as the screen does: %q", e.mail.sent[0].Text)
+	}
 }
 
 // The current password is the re-authentication, counted per address and per client, so a stolen session cannot guess it.

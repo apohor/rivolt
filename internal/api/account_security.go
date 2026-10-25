@@ -281,7 +281,7 @@ func (a *accountSecurityAPI) notify(ctx context.Context, to string, secure bool,
 		"If this was you, there is nothing to do. If it wasn't, write to support@rivolt.dev right away.\n"
 	if secure {
 		subject = "Your Rivolt account was secured"
-		text = "You chose \"Secure my account\": the password was changed, every passkey was removed, and every other device was signed out.\n\n" +
+		text = "You chose \"" + SecureAccountLabel + "\": the password was changed, every passkey was removed, and every other device was signed out.\n\n" +
 			"If this wasn't you, write to support@rivolt.dev right away.\n"
 	}
 	if err := a.Mail.Send(ctx, email.Message{To: to, Subject: subject, Text: text, IdempotencyKey: "account-security-" + uuid.NewString()}); err != nil {
