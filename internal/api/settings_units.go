@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/insights"
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -118,5 +119,45 @@ func (d Deps) unitsFor() func(ctx context.Context, uid uuid.UUID) any {
 	return func(ctx context.Context, uid uuid.UUID) any {
 		u, _ := settings.GetUnits(ctx, d.Settings.For(uid))
 		return u
+	}
+}
+
+// defaultUnitsParam fills in the `units` query parameter of the insight endpoints (efficiency, trends, cold range) from the
+// account's setting when the request does not carry a valid one: km gives metric, anything else imperial. An explicit
+// `units=imperial` or `units=metric` is left alone, so it stays an override; an unrecognised value counts as absent. The
+// handlers behind it are unchanged. Those endpoints bundle temperature with distance in one switch, so a temperature
+// choice that differs from the distance one is not honoured there yet (distance decides).
+func defaultUnitsParam(lookup func(ctx context.Context, uid uuid.UUID) string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if u := q.Get("units"); u == string(insights.Imperial) || u == string(insights.Metric) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			uid, ok := auth.UserFromContext(r.Context())
+			if !ok || lookup == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			q.Set("units", lookup(r.Context(), uid))
+			r2 := r.Clone(r.Context())
+			r2.URL.RawQuery = q.Encode()
+			next.ServeHTTP(w, r2)
+		})
+	}
+}
+
+// accountUnitsLookup is the middleware's lookup for these Deps: "metric" when the account's distance unit is km, else
+// "imperial" (also when the settings cannot be read or there is no store).
+func (d Deps) accountUnitsLookup() func(ctx context.Context, uid uuid.UUID) string {
+	if d.Settings == nil {
+		return nil
+	}
+	return func(ctx context.Context, uid uuid.UUID) string {
+		if u, _ := settings.GetUnits(ctx, d.Settings.For(uid)); u.DistanceUnit == settings.DistanceKm {
+			return string(insights.Metric)
+		}
+		return string(insights.Imperial)
 	}
 }
