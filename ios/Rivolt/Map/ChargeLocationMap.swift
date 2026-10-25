@@ -60,8 +60,8 @@ struct ChargeLocationMap: View {
         ZStack {
             if let location, !location.hasFix {
                 MapMessage(text: "No location was recorded for this charge.")
-            } else if let location, !failed, health != .failed, let base = MapStyle.json(dark: scheme == .dark, server: state.serverURL),
-                      let style = MapStyle.withChargers(base, server: state.serverURL) {
+            } else if let location, !failed, health != .failed, let base = MapStyle.json(dark: scheme == .dark, server: state.mapServer),
+                      let style = MapStyle.withChargers(base, server: state.mapServer) {
                 ChargeMapView(styleJSON: style, location: location, onHealth: { health = $0 }, onPin: { pinLabel = $0.label })
                     .allowsHitTesting(false)
                     .accessibilityElement()
@@ -88,7 +88,7 @@ struct ChargeLocationMap: View {
     }
 
     private func load() async {
-        MapNetwork.prepare(server: state.serverURL, token: try? state.tokens.token(for: state.serverURL))
+        MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
         health = .ok
         pinLabel = nil
         switch row {

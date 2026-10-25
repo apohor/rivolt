@@ -119,6 +119,18 @@ final class DemoStateTests: XCTestCase {
         XCTAssertEqual(spy.touches, 0, "the demo reads and writes no sign-in")
     }
 
+    func testTheDemoMapsDrawFromTheDemoServerWithNoToken() throws {
+        let spy = TokenSpy()
+        let s = try state(spy)
+        XCTAssertEqual(s.mapServer, s.serverURL)
+        s.enterDemo()
+        XCTAssertEqual(s.mapServer, DemoMode.baseURL, "the signed-in server would refuse the demo's anonymous tile requests")
+        XCTAssertNil(s.mapToken)
+        XCTAssertEqual(spy.touches, 0, "no token is read for a demo map")
+        s.leaveDemo()
+        XCTAssertEqual(s.mapServer, s.serverURL)
+    }
+
     func testSignInFromInsideTheDemoLeavesItWithoutEndingAnySession() async throws {
         let spy = TokenSpy()
         let s = try state(spy)

@@ -102,6 +102,11 @@ final class AppState {
 
     var isDemo: Bool { phase == .demo }
 
+    /// The server the maps draw their tiles from, and the token they send: the signed-in server and its token, or, in the demo, the
+    /// demo server's open tile archive with no token (the signed-in server would refuse the demo's anonymous tile requests).
+    var mapServer: URL { isDemo ? DemoMode.baseURL : serverURL }
+    var mapToken: String? { isDemo ? nil : (try? tokens.token(for: serverURL)) ?? nil }
+
     /// Opens the demo truck from the sign-in screen. Nothing is stored and nothing is registered: no token, no notification permission,
     /// no widget or Live Activity.
     func enterDemo() {
