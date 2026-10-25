@@ -521,13 +521,36 @@ func TestDemoDrainLimitAndCache(t *testing.T) {
 	})
 	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	path := "/api/vehicles/" + demoVeh + "/drain"
+	// Identical reads inside the TTL are cache hits: they reached the handler once and spent none of the client's heavy budget, so
+	// well over the budget's worth of them all succeed (a phone re-asking for what it already has is not throttled).
+	for i := 0; i < demoHeavyPerClientPerMin*2; i++ {
+		rec := demoReq(h, "GET", path)
+		if rec.Code != 200 || rec.Header().Get(demoHeader) != "1" || rec.Body.String() != `{"ok":true}` {
+			t.Fatalf("response %d: %d header %q body %q", i, rec.Code, rec.Header().Get(demoHeader), rec.Body.String())
+		}
+	}
+	if calls != 1 {
+		t.Errorf("handler called %d times, want 1 (cached)", calls)
+	}
+}
+
+// What does spend the client's heavy budget is a miss: a different window each time reads the database. After
+// demoHeavyPerClientPerMin of them the client is refused, and a window it already has still answers.
+func TestDemoHeavyMissesSpendTheClientBudget(t *testing.T) {
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{}`))
+	})
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	window := func(i int) string { // distinct windows 10 minutes apart (the edges snap to 5 minutes)
+		since := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i) * 10 * time.Minute)
+		return "/api/activity?since=" + since.Format(time.RFC3339) + "&until=" + since.Add(24*time.Hour).Format(time.RFC3339)
+	}
 	var codes []int
 	for i := 0; i < demoHeavyPerClientPerMin+3; i++ {
-		rec := demoReq(h, "GET", path)
-		codes = append(codes, rec.Code)
-		if rec.Code == 200 && (rec.Header().Get(demoHeader) != "1" || rec.Body.String() != `{"ok":true}`) {
-			t.Fatalf("response %d: header %q body %q", i, rec.Header().Get(demoHeader), rec.Body.String())
-		}
+		codes = append(codes, demoReq(h, "GET", window(i)).Code)
 	}
 	for i, c := range codes {
 		want := 200
@@ -535,12 +558,15 @@ func TestDemoDrainLimitAndCache(t *testing.T) {
 			want = 429
 		}
 		if c != want {
-			t.Fatalf("codes = %v, want 200s then 429s", codes)
+			t.Fatalf("codes = %v, want %d 200s then 429s", codes, demoHeavyPerClientPerMin)
 		}
 	}
-	// Ten identical reads inside the TTL reached the handler once.
-	if calls != 1 {
-		t.Errorf("handler called %d times, want 1 (cached)", calls)
+	if calls != demoHeavyPerClientPerMin {
+		t.Errorf("handler called %d times, want %d", calls, demoHeavyPerClientPerMin)
+	}
+	// A window already cached still answers, though the client is out of budget.
+	if c := demoReq(h, "GET", window(0)).Code; c != 200 {
+		t.Errorf("a cached window answered %d after the budget was spent, want 200", c)
 	}
 }
 
@@ -727,12 +753,11 @@ func TestDemoPlanActualSharesHeavyBudgetAndCache(t *testing.T) {
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
 	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
 	path := "/api/trips/saved/" + demoTripID + "/actual"
-	var codes []int
+	// Cache-busting params are dropped, so every one is the same key: one read of the database, and the rest are free hits.
 	for i := 0; i < demoHeavyPerClientPerMin+2; i++ {
-		codes = append(codes, demoReq(h, "GET", path+"?cachebust="+strconv.Itoa(i)).Code)
-	}
-	if codes[demoHeavyPerClientPerMin-1] != 200 || codes[demoHeavyPerClientPerMin] != 429 {
-		t.Fatalf("codes = %v", codes)
+		if c := demoReq(h, "GET", path+"?cachebust="+strconv.Itoa(i)).Code; c != 200 {
+			t.Fatalf("read %d = %d, want 200", i, c)
+		}
 	}
 	if calls != 1 {
 		t.Errorf("cache-busting params reached the handler %d times", calls)
@@ -886,9 +911,10 @@ func TestDemoRateLimitedObserverCountsByClassAndScope(t *testing.T) {
 	for i := 0; i < demoSamplesPerClientPerMin+2; i++ {
 		demoReq(h2, "GET", "/api/samples")
 	}
-	// heavy: 10/min per client, then 429
+	// heavy: a budget of cache misses per client (distinct windows), then 429
 	for i := 0; i < demoHeavyPerClientPerMin+2; i++ {
-		demoReq(h2, "GET", "/api/vehicles/"+demoVeh+"/drain")
+		since := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i) * 10 * time.Minute)
+		demoReq(h2, "GET", "/api/activity?since="+since.Format(time.RFC3339)+"&until="+since.Add(24*time.Hour).Format(time.RFC3339))
 	}
 	if got[k{"general", "client"}] != 1 {
 		t.Errorf("general/client = %d", got[k{"general", "client"}])

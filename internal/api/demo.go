@@ -261,7 +261,7 @@ func demoHeavyQuery(r *http.Request) {
 // both get a small shared budget and a short response cache on top of
 // the general demo limits.
 const (
-	demoHeavyPerClientPerMin = 10
+	demoHeavyPerClientPerMin = 20 // cache misses only; a month of the app's tabs is several distinct reads
 	demoHeavyGlobalPerMin    = 60
 	demoHeavyCacheTTL        = 5 * time.Minute
 )
@@ -563,16 +563,19 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				serve = samplesGlobal.Middleware(serve)
 			}
 			if isHeavy {
-				// Cache hits are served before the install-wide budget, so they
-				// never spend it; only misses (which hit the database) do.
-				serve = heavyCache.Middleware(heavyGlobal.Middleware(serve))
+				serve = heavyGlobal.Middleware(serve)
 			}
 			serve = global.Middleware(serve)
 			if isSamples {
 				serve = samples.Middleware(serve)
 			}
 			if isHeavy {
-				serve = heavy.Middleware(serve)
+				// The cache is outermost of the heavy chain: a hit is served from memory before the per-client and the
+				// install-wide heavy budgets, so it spends neither (the general per-client limit above still bounds the request
+				// rate). Only a miss, which reads the database, is charged, per client first, then install-wide. Before this, hits
+				// drew on the client's budget, and a phone switching tabs and months re-asked for what it already had and was
+				// refused (429) on the demo's Activity tab.
+				serve = heavyCache.Middleware(heavy.Middleware(serve))
 			}
 			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
