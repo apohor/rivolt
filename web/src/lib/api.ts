@@ -2751,6 +2751,31 @@ export type OvernightCandidatesResponse = {
   route_m: number;
   source: string;
   attribution?: string;
+  attribution_source_url?: string;
+  attribution_license_url?: string;
+  // Set when the day does not fit the budget and `candidates` is empty: the closest listed stay on each side of the budget point.
+  nearest?: { before?: OvernightNearestStay; after?: OvernightNearestStay };
+  // Set when `candidates` is empty: hotels and motels with NO charger listed (OpenStreetMap), each with the nearest fast charger. Credit
+  // `attribution`. The truck does not charge overnight there; the next day starts at `fast_charger`.
+  fallback_stays?: OvernightFallbackStay[];
+  path_snapped?: boolean;
+};
+
+export type OvernightNearestStay = OvernightCandidate & { drive_sec: number; offset_sec: number };
+
+export type OvernightFallbackStay = {
+  name: string;
+  lat: number;
+  lon: number;
+  id?: string;
+  kind: "hotel";
+  locality?: string;
+  no_onsite_charger: true;
+  fast_charger: { name?: string; lat: number; lon: number; entity_id?: string; distance_m: number; max_power_kw?: number };
+  detour_m: number;
+  along_m: number;
+  source: string;
+  attribution: string;
 };
 
 export type TripPlanWaypointEcho = { latitude: number; longitude: number; label?: string; entity_id?: string };

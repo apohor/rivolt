@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/chargers"
+	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/overnight"
 )
 
@@ -50,13 +51,13 @@ type overnightResponse struct {
 // runs out. It reads only the charger archive (no Rivian call) and never
 // commits anything: the user picks. The list is a snapshot of a public
 // listing, not availability, and says so.
-func handleOvernightCandidates(a *chargers.Archive, router pathRouter) http.HandlerFunc {
+func handleOvernightCandidates(a *chargers.Archive, router pathRouter, lodging lodgingSource) http.HandlerFunc {
 	if a == nil {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			jsonError(w, http.StatusNotFound, "overnight suggestions are not available here")
 		}
 	}
-	return overnightHandlerWith(a, router, func(ctx context.Context) error {
+	return overnightHandlerWith(a, router, lodging, func(ctx context.Context) error {
 		// Lazy load if the startup warm failed, as chargers-along does.
 		if !a.LoadedAt().IsZero() {
 			return nil
@@ -69,11 +70,21 @@ func handleOvernightCandidates(a *chargers.Archive, router pathRouter) http.Hand
 
 // overnightHandler is the handler over any archive, with no router to put a sparse path on the road; ensure loads the archive if needed.
 func overnightHandler(arch overnight.Archive, ensure func(context.Context) error) http.HandlerFunc {
-	return overnightHandlerWith(arch, nil, ensure)
+	return overnightHandlerWith(arch, nil, nil, ensure)
 }
 
-// overnightHandlerWith is overnightHandler with a router (our own Valhalla; nil leaves a sparse path as it came).
-func overnightHandlerWith(arch overnight.Archive, router pathRouter, ensure func(context.Context) error) http.HandlerFunc {
+// lodgingSource is the self-hosted Photon's hotel and motel lookup (nil: no fallback to stays with no listed charger).
+type lodgingSource interface {
+	Enabled() bool
+	Lodging(ctx context.Context, lat, lon, radiusKm float64, limit int) ([]geocoding.Lodging, error)
+}
+
+// lodgingTimeout bounds all the lodging lookups of one request together.
+const lodgingTimeout = 8 * time.Second
+
+// overnightHandlerWith is overnightHandler with a router (our own Valhalla; nil leaves a sparse path as it came) and a lodging source
+// (our own Photon; nil leaves out the fallback to hotels with no listed charger).
+func overnightHandlerWith(arch overnight.Archive, router pathRouter, lodging lodgingSource, ensure func(context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req overnightRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, routeBodyMax)).Decode(&req); err != nil {
@@ -91,10 +102,26 @@ func overnightHandlerWith(arch overnight.Archive, router pathRouter, ensure func
 			jsonError(w, http.StatusServiceUnavailable, "the charger listing is unavailable right now; try again shortly")
 			return
 		}
-		res, err := overnight.Suggest(arch, overnight.Request{
+		oreq := overnight.Request{
 			Path: req.Path, DriveSec: req.DriveSec, BudgetHours: req.BudgetHours, BudgetMiles: req.BudgetMiles,
 			Kinds: req.Kinds,
-		})
+		}
+		if lodging != nil && lodging.Enabled() {
+			lctx, cancel := context.WithTimeout(r.Context(), lodgingTimeout)
+			defer cancel()
+			oreq.FindLodging = func(lat, lon, radiusKm float64) ([]overnight.Lodging, error) {
+				found, err := lodging.Lodging(lctx, lat, lon, radiusKm, 20)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]overnight.Lodging, 0, len(found))
+				for _, f := range found {
+					out = append(out, overnight.Lodging{Name: f.Name, Lat: f.Lat, Lon: f.Lon, ID: f.ID, Locality: f.Locality})
+				}
+				return out, nil
+			}
+		}
+		res, err := overnight.Suggest(arch, oreq)
 		if err != nil {
 			if errors.Is(err, overnight.ErrBadRequest) {
 				jsonError(w, http.StatusBadRequest, err.Error())
@@ -112,6 +139,13 @@ func overnightHandlerWith(arch overnight.Archive, router pathRouter, ensure func
 				out.AttributionLicenseURL = overnight.AttributionLicenseURL
 				break
 			}
+		}
+		if len(res.FallbackStays) > 0 {
+			// Hotels with no listed charger come from OpenStreetMap (ODbL): credit it, with the licence and source.
+			out.Source = "OpenStreetMap hotels and motels with no charger listed, paired with the nearest fast charger in the NREL listing (a snapshot; availability is not checked)"
+			out.Attribution = overnight.OSMAttribution
+			out.AttributionSourceURL = overnight.OSMAttributionURL
+			out.AttributionLicenseURL = overnight.OSMAttributionLicense
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

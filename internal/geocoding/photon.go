@@ -172,3 +172,91 @@ func distanceM(lat1, lon1, lat2, lon2 float64) float64 {
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
 	return 2 * 6371008.8 * math.Asin(math.Min(1, math.Sqrt(a)))
 }
+
+// Lodging is a hotel or motel from the OpenStreetMap data Photon serves.
+type Lodging struct {
+	Name string
+	Lat  float64
+	Lon  float64
+	// ID is the OpenStreetMap element, such as "osm:node:123456".
+	ID string
+	// Locality is the town, when Photon has one.
+	Locality string
+}
+
+// Lodging lists hotels and motels within radiusKm of a point through Photon's /reverse endpoint with an osm_tag filter (the text
+// search only biases by location, so it returns hotels nationwide). Nameless places are dropped. Best effort for the caller: an
+// error means "none found". limit is capped at 20 and radiusKm at 50.
+func (c *PhotonClient) Lodging(ctx context.Context, lat, lon, radiusKm float64, limit int) ([]Lodging, error) {
+	if !c.Enabled() {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	if radiusKm <= 0 || radiusKm > 50 {
+		radiusKm = 50
+	}
+	q := url.Values{}
+	q.Set("lat", strconv.FormatFloat(lat, 'f', 5, 64))
+	q.Set("lon", strconv.FormatFloat(lon, 'f', 5, 64))
+	q.Set("radius", strconv.FormatFloat(radiusKm, 'f', 1, 64))
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("lang", "en")
+	q.Add("osm_tag", "tourism:hotel")
+	q.Add("osm_tag", "tourism:motel")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/reverse?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("photon: build request: %w", err)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("photon: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("photon: upstream HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		Features []struct {
+			Geometry struct {
+				Coordinates [2]float64 `json:"coordinates"` // [lon, lat]
+			} `json:"geometry"`
+			Properties struct {
+				Name     string `json:"name"`
+				City     string `json:"city"`
+				OSMID    int64  `json:"osm_id"`
+				OSMType  string `json:"osm_type"` // "N", "W" or "R"
+				District string `json:"district"`
+			} `json:"properties"`
+		} `json:"features"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 1<<20)).Decode(&body); err != nil {
+		return nil, fmt.Errorf("photon: decode: %w", err)
+	}
+	var out []Lodging
+	seen := map[string]bool{}
+	for _, f := range body.Features {
+		p := f.Properties
+		name := strings.TrimSpace(p.Name)
+		lat, lon := f.Geometry.Coordinates[1], f.Geometry.Coordinates[0]
+		if name == "" || math.IsNaN(lat) || math.IsNaN(lon) || (lat == 0 && lon == 0) {
+			continue
+		}
+		kind := map[string]string{"N": "node", "W": "way", "R": "relation"}[strings.ToUpper(p.OSMType)]
+		id := ""
+		if kind != "" && p.OSMID != 0 {
+			id = "osm:" + kind + ":" + strconv.FormatInt(p.OSMID, 10)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+		}
+		loc := p.City
+		if loc == "" {
+			loc = p.District
+		}
+		out = append(out, Lodging{Name: name, Lat: lat, Lon: lon, ID: id, Locality: loc})
+	}
+	return out, nil
+}

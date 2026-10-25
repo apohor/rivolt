@@ -314,3 +314,32 @@ func TestMultidayRoutePreferencesGoToEveryDay(t *testing.T) {
 		t.Error("no preference must leave the input unset")
 	}
 }
+
+// The overnight model of a fast-charger fallback stay: the stay is the day's end with no charging there (l2_kw 0), so the truck
+// arrives, sleeps and leaves on the same charge, and day 2 starts at the fast charger, which goes to the planner as the first stop
+// of the day (a charger waypoint with its entity id).
+func TestMultidayNoOvernightChargeAndTheNextDayStartsAtAFastCharger(t *testing.T) {
+	p := &daysPlanner{}
+	code, out := runMultiday(t, p, `{`+mdVehicle+`"start_at":"2026-10-20T08:00:00Z","tz":"America/Denver",
+	  "origin":{"latitude":34,"longitude":-118},
+	  "days":[{"end":{"latitude":35,"longitude":-117,"label":"Example Motor Inn"},"overnight":{"l2_kw":0,"until":"08:00","max_soc_pct":80,"name":"Example Motor Inn"}},
+	          {"vias":[{"latitude":35.1,"longitude":-117.1,"entity_id":"ev-1","label":"Example Fast"}],"end":{"latitude":36,"longitude":-115}}]}`)
+	if code != 200 {
+		t.Fatalf("status %d: %v", code, out["_body"])
+	}
+	days := out["days"].([]any)
+	if len(days) != 2 {
+		t.Fatalf("%d days", len(days))
+	}
+	ov := days[0].(map[string]any)["overnight"].(map[string]any)
+	if ov["l2_kw"] != float64(0) || ov["added_kwh"] != float64(0) {
+		t.Errorf("overnight %v, want no energy added at a stay with no charger", ov)
+	}
+	d1, d2 := days[0].(map[string]any), days[1].(map[string]any)
+	if d2["departure_soc"] != d1["arrival_soc"] {
+		t.Errorf("day 2 leaves at %v %%, want day 1's arrival %v %% (no overnight charge)", d2["departure_soc"], d1["arrival_soc"])
+	}
+	if len(p.calls) != 2 || len(p.calls[1].Waypoints) != 3 || p.calls[1].Waypoints[1].EntityID != "ev-1" || p.calls[1].Waypoints[1].WaypointType != "waypoint" {
+		t.Errorf("day 2 was planned with %+v, want the fast charger as the first stop", p.calls[len(p.calls)-1].Waypoints)
+	}
+}
