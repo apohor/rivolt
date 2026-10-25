@@ -3,9 +3,11 @@ package kratos
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -216,5 +218,107 @@ func TestRevokeIdentitySessions(t *testing.T) {
 	}
 	if err := c.RevokeIdentitySessions(context.Background(), ""); err == nil {
 		t.Error("an empty id must be refused")
+	}
+}
+
+// SetPassword is a full replace (Kratos' PATCH cannot touch credentials), so everything else on the identity must come back
+// unchanged: the test sends back exactly what the server held, except for the password.
+func TestSetPasswordKeepsEveryOtherField(t *testing.T) {
+	const held = `{
+		"id": "kid-1", "schema_id": "default", "state": "active", "state_changed_at": "2026-10-01T00:00:00Z",
+		"traits": {"email": "owner@x.test", "display_name": "Owner", "future_trait": {"a": [1, 2, 3]}},
+		"metadata_public": {"role": "admin", "extra": true},
+		"metadata_admin": {"note": "kept", "n": 7},
+		"external_id": "ext-9",
+		"verifiable_addresses": [{"value": "owner@x.test", "verified": true}],
+		"recovery_addresses": [{"value": "owner@x.test"}],
+		"credentials": {"password": {"type": "password"}}
+	}`
+	var put map[string]json.RawMessage
+	var method, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(held))
+		case http.MethodPut:
+			method, path = r.Method, r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&put)
+			_, _ = w.Write([]byte(held))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetPassword(context.Background(), "kid-1", "a-new-password-1"); err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodPut || path != "/admin/identities/kid-1" {
+		t.Fatalf("%s %s", method, path)
+	}
+	var heldMap map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(held), &heldMap)
+	for _, k := range []string{"schema_id", "state", "traits", "metadata_public", "metadata_admin", "external_id"} {
+		var a, b any
+		_ = json.Unmarshal(heldMap[k], &a)
+		if err := json.Unmarshal(put[k], &b); err != nil || !reflect.DeepEqual(a, b) {
+			t.Errorf("%s changed: held %s, sent %s", k, heldMap[k], put[k])
+		}
+	}
+	// Only the kept fields and the new credential are sent: nothing derived, nothing that Kratos would refuse.
+	for k := range put {
+		switch k {
+		case "schema_id", "state", "traits", "metadata_public", "metadata_admin", "external_id", "credentials":
+		default:
+			t.Errorf("unexpected field %q in the replace", k)
+		}
+	}
+	var cred struct {
+		Password struct {
+			Config struct {
+				Password string `json:"password"`
+			} `json:"config"`
+		} `json:"password"`
+	}
+	if err := json.Unmarshal(put["credentials"], &cred); err != nil || cred.Password.Config.Password != "a-new-password-1" {
+		t.Errorf("credentials %s: %v", put["credentials"], err)
+	}
+}
+
+// A refusal never carries the password or the email back to the caller or the logs; a 400 is a typed policy refusal.
+func TestSetPasswordErrorsDoNotEchoTheSecret(t *testing.T) {
+	status := http.StatusBadRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"schema_id":"default","state":"active","traits":{"email":"owner@x.test"}}`))
+			return
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"error":{"code":400,"reason":"The password can not be used because ` + "hunter2-hunter2" + ` is too similar to the email","message":"invalid"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.SetPassword(context.Background(), "kid-1", "hunter2-hunter2")
+	var rej *RejectedError
+	if !errors.As(err, &rej) || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("a 400 must be a *RejectedError without the password: %v", err)
+	}
+	status = http.StatusInternalServerError
+	err = c.SetPassword(context.Background(), "kid-1", "hunter2-hunter2")
+	if err == nil || errors.As(err, &rej) || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("a 500 is a plain error without the password: %v", err)
+	}
+	if err := c.SetPassword(context.Background(), "", "x"); err == nil {
+		t.Error("an empty id must be refused")
+	}
+	if err := c.SetPassword(context.Background(), "kid-1", ""); err == nil {
+		t.Error("an empty password must be refused")
+	}
+	if pw, err := GeneratePassword(); err != nil || len(pw) < 20 {
+		t.Errorf("generated password %q: %v", pw, err)
 	}
 }
