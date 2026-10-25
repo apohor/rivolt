@@ -138,10 +138,7 @@ func TestInsightsFollowTheAccountUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	uid, _ := db.EnsureUser(ctx, pool, "units-insights")
-	if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil {
-		t.Fatal(err)
-	}
+	uid := acceptedUser(ctx, t, pool, "units-insights")
 	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
 	if err != nil {
 		t.Fatal(err)
