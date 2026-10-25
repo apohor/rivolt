@@ -8,6 +8,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY web/ ./
+# The build type-checks src/contract/fixtures.contract.ts, which imports the iOS fixtures (../../../ios from /web/src/contract).
+COPY ios/RivoltTests/Fixtures/ /ios/RivoltTests/Fixtures/
 # Vite writes to ../internal/web/dist (relative to /web), so mirror that path.
 RUN mkdir -p /internal/web && npm run build
 
