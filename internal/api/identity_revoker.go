@@ -19,6 +19,36 @@ type RememberedRevoker interface {
 	RevokeRemembered(ctx context.Context, uid uuid.UUID) error
 }
 
+// LoginForgetter forgets only the identity provider's remembered LOGIN for a user, which is what a plain sign-out needs: without
+// it, "Sign out" ends Rivolt's session but Hydra still remembers the browser, and the next "Continue with Email" is signed straight
+// back in with no password (the shared-computer case). It leaves the consent grants and the Kratos sessions alone, so signing out
+// does not break an admin's other OAuth sessions.
+type LoginForgetter interface {
+	ForgetLogin(ctx context.Context, uid uuid.UUID) error
+}
+
+// ForgetLogin deletes the Hydra login sessions of the user's identity (see LoginForgetter).
+func (r *IdentityRevoker) ForgetLogin(ctx context.Context, uid uuid.UUID) error {
+	if r == nil || !r.Kratos.Enabled() || !r.Hydra.Enabled() || r.Username == nil {
+		return nil
+	}
+	username, err := r.Username(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("look up the account: %w", err)
+	}
+	if username == "" {
+		return nil
+	}
+	id, err := r.Kratos.IdentityIDByEmail(ctx, username)
+	if err != nil {
+		return fmt.Errorf("find the identity: %w", err)
+	}
+	if id == "" {
+		return nil
+	}
+	return r.Hydra.RevokeLoginSessions(ctx, id)
+}
+
 // IdentityRevoker clears, for one user: Hydra's remembered logins, its consent grants (which revokes the OAuth tokens issued under
 // them), and the Kratos sessions (LoginByPassword creates one per sign-in). It finds the Kratos identity from the account's
 // username, which is the email. An account with no Kratos identity (Google, GitHub or Apple only) has nothing remembered here.
