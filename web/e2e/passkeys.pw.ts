@@ -8,6 +8,17 @@ test.use({ baseURL: `http://localhost:${process.env.E2E_PORT || 4173}` });
 
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
+// The account says whether passkeys are on (`passkeys` in /api/auth/me); the Settings card asks for nothing otherwise.
+async function meWithPasskeys(page: Page, on: boolean) {
+  await page.route("**/api/auth/me", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ authenticated: true, user_id: "u1", username: "owner", role: "user", onboarding_completed: true, ...(on ? { passkeys: true } : {}) }),
+    }),
+  );
+}
+
 async function authenticator(page: Page) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -21,6 +32,7 @@ test("adds a passkey from Settings, then signs in with it on the login page", as
   const page = await ctx.newPage();
   await authenticator(page);
   await stubApi(page);
+  await meWithPasskeys(page, true);
   // The relying party id is the page's own host (the e2e server may be localhost or 127.0.0.1).
   const rpIdOf = (url: string) => new URL(url).hostname;
   const list: { id: string; label: string; created_at: string; last_used_at: string | null; synced: boolean }[] = [];
@@ -104,6 +116,7 @@ test("a wrong password and a refused account get plain words, and nothing shows 
   const page = await ctx.newPage();
   await authenticator(page);
   await stubApi(page);
+  await meWithPasskeys(page, true);
   await page.route("**/api/auth/passkeys", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ passkeys: [], max: 10 }) }));
   let answer: { status: number; body: unknown } = { status: 403, body: { error: "password_incorrect" } };
   await page.route("**/api/auth/passkeys/register/begin", (r) => r.fulfill({ status: answer.status, contentType: "application/json", body: JSON.stringify(answer.body) }));
@@ -119,11 +132,20 @@ test("a wrong password and a refused account get plain words, and nothing shows 
   await expect(card.locator("[data-passkeys-note]")).toContainText("Google, GitHub or Apple");
   await expect(card.locator("[data-passkeys-note]")).not.toContainText("passkeys_need_an_email_account");
 
-  // Off: the list route is absent (404) and the login GET has no flag.
+  // Off: the account says nothing about passkeys, so the page asks for no list at all (no failed request on any page), and the
+  // login GET has no flag.
   await page.unroute("**/api/auth/passkeys");
-  await page.route("**/api/auth/passkeys", (r) => r.fulfill({ status: 404, body: "not found" }));
+  await page.unroute("**/api/auth/me");
+  await meWithPasskeys(page, false);
+  let asked = 0;
+  await page.route("**/api/auth/passkeys", (r) => {
+    asked++;
+    return r.fulfill({ status: 404, body: "not found" });
+  });
   await page.reload();
+  await page.waitForLoadState("networkidle");
   await expect(page.locator("[data-passkeys]")).toHaveCount(0);
+  expect(asked).toBe(0);
   await page.route("**/api/auth/hydra/login?*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ challenge: "ch1", client_id: "grafana", requested_scope: [] }) }));
   await page.goto("/auth/hydra/login?login_challenge=ch1");
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();

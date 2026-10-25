@@ -2197,6 +2197,8 @@ export type AuthUser = {
   terms?: TermsState;
   // The account's display units (absent on a server without the setting); the same object as GET /api/settings/units.
   units?: AccountUnits;
+  // True when this server offers passkeys to the user (absent where they are off): the Passkeys card asks nothing otherwise.
+  passkeys?: boolean;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was
