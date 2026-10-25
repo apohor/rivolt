@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campgroundPageUrl, campPowerLine, hookupFromAmps, sitesLine, RIDB_CREDIT_TEXT, offTargetLine, searchedLine, fastChargerLine, nearestLines, withNight } from "./stays";
+import { campgroundPageUrl, campPowerLine, hookupFromAmps, sitesLine, RIDB_CREDIT_TEXT, offTargetLine, searchedLine, fastChargerLine, httpsOr, nearestLines, withNight } from "./stays";
 
 describe("campground helpers", () => {
   it("links only to a campground page by numeric id", () => {
@@ -85,5 +85,14 @@ describe("hotels with no charger and the nearest listed stay", () => {
   it("leaves a plain night as it was", () => {
     const r = withNight([], [], { lat: 45.9, lon: -121, label: "Sample Inn" });
     expect(r).toEqual({ stops: [{ lat: 45.9, lon: -121, label: "Sample Inn" }], flags: [true] });
+  });
+});
+
+describe("links from a response", () => {
+  it("are used only when they are https, else the fallback", () => {
+    expect(httpsOr("https://www.openstreetmap.org/copyright")).toBe("https://www.openstreetmap.org/copyright");
+    expect(httpsOr("javascript:alert(1)", "https://opendatacommons.org/licenses/odbl/1-0/")).toBe("https://opendatacommons.org/licenses/odbl/1-0/");
+    expect(httpsOr("http://example.test/x")).toBeUndefined();
+    expect(httpsOr(undefined, "https://a.test")).toBe("https://a.test");
   });
 });
