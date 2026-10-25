@@ -21,6 +21,32 @@ final class ActivityModel {
     /// The last read failed; `limited` when the server said to slow down (429).
     private(set) var failed = false
     private(set) var limited = false
+    /// Why the last read failed, in words for the screen (never the server's own); nil when it did not fail or was just a 429.
+    private(set) var problem: String?
+
+    /// What kind of failure an error is, so the screen can tell "the server didn't answer" from "the answer didn't read".
+    static func problem(for error: Error) -> String {
+        switch error {
+        case APIError.decoding:
+            return "Rivolt couldn't read this month's answer. Updating the app may help."
+        case APIError.server(let status, _) where (500...599).contains(status):
+            return "Rivolt isn't answering right now. Pull to try again."
+        case is URLError, APIError.transport:
+            return "Couldn't reach Rivolt. Check the connection, then pull to try again."
+        default:
+            return "Couldn't load this month. Pull to try again."
+        }
+    }
+
+    /// A dropped connection or a server error is worth one more try a moment later; a refusal or an unreadable answer is not.
+    private static func isTransient(_ error: Error) -> Bool {
+        switch error {
+        case let e as URLError: return e.code != .cancelled
+        case APIError.transport: return true
+        case APIError.server(let status, _): return (500...599).contains(status)
+        default: return false
+        }
+    }
 
     private struct Entry {
         let response: ActivityResponse
@@ -31,7 +57,7 @@ final class ActivityModel {
     init(response: ActivityResponse? = nil) { self.response = response }
 
     func load(source: some ActivitySource, vehicleID: String, month: PeriodMonth, force: Bool = false,
-              now: Date = .now, calendar: Calendar = .current) async {
+              now: Date = .now, calendar: Calendar = .current, retryAfter: Duration = .seconds(2)) async {
         let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             response = hit.response
@@ -43,16 +69,25 @@ final class ActivityModel {
         defer { isLoading = false }
         let (since, until) = month.range(calendar: calendar)
         do {
-            let fresh = try await source.activity(since: since, until: until, vehicleID: vehicleID)
+            let fresh: ActivityResponse
+            do {
+                fresh = try await source.activity(since: since, until: until, vehicleID: vehicleID)
+            } catch where Self.isTransient(error) && !Task.isCancelled {
+                try await Task.sleep(for: retryAfter)
+                fresh = try await source.activity(since: since, until: until, vehicleID: vehicleID)
+            }
             cache[key] = Entry(response: fresh, fetchedAt: now)
             response = fresh
             failed = false
             limited = false
+            problem = nil
         } catch {
+            // A read that was cancelled (the screen moved on, a pull ended) is not a failure of the month.
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return }
             // Keep what is shown for the same truck and month; anything else would be another month's rows.
             response = cache[key]?.response
             failed = true
-            if case APIError.server(let status, _) = error, status == 429 { limited = true } else { limited = false }
+            if case APIError.server(let status, _) = error, status == 429 { limited = true; problem = nil } else { limited = false; problem = Self.problem(for: error) }
         }
     }
 }

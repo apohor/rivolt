@@ -242,9 +242,12 @@ func emailOff(name string) template.HTML {
 var appConsentPage = template.Must(template.New("consent").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in to the Rivolt app</title>
-<style>body{font:17px -apple-system,system-ui,sans-serif;max-width:28rem;margin:3rem auto;padding:0 1rem}
-button{display:block;width:100%;font:inherit;padding:.9rem;margin:.6rem 0;border-radius:.6rem;border:1px solid #ccc;background:none}
-button[value=allow]{background:#0a7d32;color:#fff;border-color:#0a7d32}.note{color:#666;font-size:15px}</style>
+<meta name="color-scheme" content="light dark">
+<style>:root{color-scheme:light dark}
+body{font:17px -apple-system,system-ui,sans-serif;max-width:28rem;margin:3rem auto;padding:0 1rem;background:#fff;color:#111}
+button{display:block;width:100%;font:inherit;padding:.9rem;margin:.6rem 0;border-radius:.6rem;border:1px solid #ccc;background:none;color:#111}
+button[value=allow]{background:#0a7d32;color:#fff;border-color:#0a7d32}.note{color:#666;font-size:15px}
+@media (prefers-color-scheme:dark){body{background:#111;color:#f2f2f2}button{color:#f2f2f2;border-color:#666}button[value=allow]{background:#2fb466;color:#06210f;border-color:#2fb466}.note{color:#b0b0b0}}</style>
 </head><body>
 <h1>Sign in to the Rivolt iPhone app?</h1>
 <p>The app on this phone will be signed in as <strong>{{.Username}}</strong> and can see your trucks and their history.</p>

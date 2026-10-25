@@ -25,3 +25,28 @@ func TestConsentPageKeepsTheEmailVisible(t *testing.T) {
 		}
 	}
 }
+
+// The Cancel button had no text colour of its own: in the iOS sign-in sheet in dark appearance a button takes the system's light
+// text, which on this page's white background is invisible. Every button states its colour in both appearances, and the page says
+// it supports both so the sheet does not mix them.
+func TestConsentPageButtonsAreReadableInLightAndDark(t *testing.T) {
+	var b strings.Builder
+	if err := appConsentPage.Execute(&b, appConsent{Username: emailOff("sam@example.com"), Action: appFinishPath, Token: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	page := b.String()
+	for _, want := range []string{
+		`<meta name="color-scheme" content="light dark">`,
+		":root{color-scheme:light dark}",
+		"border:1px solid #ccc;background:none;color:#111}", // Cancel in light: dark text on the light page
+		"@media (prefers-color-scheme:dark){body{background:#111;color:#f2f2f2}button{color:#f2f2f2;border-color:#666}", // Cancel in dark: light text on the dark page
+		"button[value=allow]{background:#0a7d32;color:#fff;",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("consent page lacks %q", want)
+		}
+	}
+	if !strings.Contains(page, `value="deny">Cancel</button>`) {
+		t.Error("the Cancel button is gone")
+	}
+}

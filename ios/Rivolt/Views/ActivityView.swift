@@ -149,7 +149,7 @@ struct ActivityView: View {
         if model.limited {
             Text("Slow down a little: Rivolt will refresh this later. Pull to try again.").themeText(.subline, color: Theme.estimate)
         } else if model.failed && model.response == nil {
-            Text("Couldn't load this month. Pull to try again.").themeText(.subline, color: Theme.estimate)
+            Text(model.problem ?? "Couldn't load this month. Pull to try again.").themeText(.subline, color: Theme.estimate)
         } else if model.response != nil && days.isEmpty {
             Text(emptyText).themeText(.subline)
         }
