@@ -309,9 +309,9 @@ func serverError(w http.ResponseWriter, r *http.Request, what string, err error)
 func startStatementJob(d Deps, signer *statement.Signer) {
 	// System pool: a sweep across every opted-in user, with no request and so no user in context. Its settings reads go through the
 	// system-side factory for the same reason.
-	la := newLedgerAPI(d.SystemDB, d.systemSettings())
+	la := newLedgerAPI(d.sysDB(), d.systemSettings())
 	j := &statement.Job{
-		Store:   statement.NewStore(d.SystemDB),
+		Store:   statement.NewStore(d.sysDB()),
 		Mailer:  d.Email,
 		Monthly: newStatementMonthly(la),
 		Savings: newStatementSavings(la),

@@ -151,8 +151,8 @@ func (a *AppAuth) handleAppFinishPage(d Deps) http.HandlerFunc {
 			return
 		}
 		name := ""
-		if d.SystemDB != nil {
-			_ = d.SystemDB.QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&name) // system pool: the app sign-in exchange runs before the app has a session
+		if d.sysDB() != nil {
+			_ = d.sysDB().QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&name) // system pool: the app sign-in exchange runs before the app has a session
 		}
 		consentHeaders(w)
 		_ = appConsentPage.Execute(w, appConsent{
@@ -312,8 +312,8 @@ func (a *AppAuth) handleAppToken(d Deps) http.HandlerFunc {
 			return
 		}
 		resp := appTokenResponse{Token: token, TokenType: "Bearer", ExpiresAt: expires.UTC(), User: appTokenUser{UserID: uid}}
-		if d.SystemDB != nil {
-			_ = d.SystemDB.QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&resp.User.Username) // system pool: the app token exchange, no session yet
+		if d.sysDB() != nil {
+			_ = d.sysDB().QueryRowContext(r.Context(), `SELECT username FROM users WHERE id = $1`, uid).Scan(&resp.User.Username) // system pool: the app token exchange, no session yet
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}

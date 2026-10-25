@@ -125,13 +125,13 @@ func emailSweepsAllowed(d Deps) (statement, weekly bool) {
 func startWeeklyJob(d Deps) {
 	j := &weekly.Job{
 		// System pool throughout: a sweep across every opted-in user, with no request and so no user in context.
-		Source:    weekly.NewSource(d.SystemDB, demo.UserID()),
-		Summarize: newWeeklySummary(newLedgerAPI(d.SystemDB, d.systemSettings()), d.SystemDB),
+		Source:    weekly.NewSource(d.sysDB(), demo.UserID()),
+		Summarize: newWeeklySummary(newLedgerAPI(d.sysDB(), d.systemSettings()), d.sysDB()),
 		Mailer:    d.Email,
 		Signer:    d.WeeklySigner,
 		BaseURL:   d.BaseURL,
 		Logger:    d.Logger,
-		Engage: &engage.Engage{Store: engage.NewStore(d.SystemDB), Observe: func(kind, outcome string) {
+		Engage: &engage.Engage{Store: engage.NewStore(d.sysDB()), Observe: func(kind, outcome string) {
 			if d.Metrics != nil {
 				d.Metrics.EngagementSendsTotal.WithLabelValues(kind, outcome).Inc()
 			}

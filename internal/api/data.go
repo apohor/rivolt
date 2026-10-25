@@ -1233,20 +1233,20 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 		}
 		// System pool for the whole account deletion (RLS policy): the last-admin count spans users, and the cascade, the Sign in
 		// with Apple revocation and the identity-provider cleanup act on the account as a whole, not as one request's rows.
-		if d.SystemDB == nil {
+		if d.sysDB() == nil {
 			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		// Last-admin guard. An admin can self-delete only if there's
 		// at least one other admin — otherwise the install ends up
 		// with no admin and recovery requires direct DB access.
-		role, rerr := db.RoleFor(r.Context(), d.SystemDB, uid)
+		role, rerr := db.RoleFor(r.Context(), d.sysDB(), uid)
 		if rerr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": rerr.Error()})
 			return
 		}
 		if role == "admin" {
-			n, cerr := db.CountAdmins(r.Context(), d.SystemDB)
+			n, cerr := db.CountAdmins(r.Context(), d.sysDB())
 			if cerr != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": cerr.Error()})
 				return
@@ -1261,7 +1261,7 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 		// Resolve username for IdP cleanup before cascade delete.
 		var username string
 		if d.Users != nil && d.Users.Enabled() {
-			u, uerr := db.RawUsernameByID(r.Context(), d.SystemDB, uid)
+			u, uerr := db.RawUsernameByID(r.Context(), d.sysDB(), uid)
 			if uerr != nil && d.Logger != nil {
 				d.Logger.Warn("self-delete: lookup username for idp delete failed",
 					"id", uid.String(), "err", uerr.Error())
@@ -1276,13 +1276,13 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "could not revoke or queue the Sign in with Apple token; nothing was deleted"})
 			return
 		}
-		if err := db.DeleteUserAccount(delCtx, d.SystemDB, uid); err != nil {
+		if err := db.DeleteUserAccount(delCtx, d.sysDB(), uid); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
 		// A failed IdP deletion is recorded for the admin page; the
 		// account is gone on our side either way.
-		idpStatus, _ := deleteFromIdP(delCtx, d.SystemDB, d.Users, username, d.Logger)
+		idpStatus, _ := deleteFromIdP(delCtx, d.sysDB(), d.Users, username, d.Logger)
 		// The one record that it happened: a salted hash of the user id (the account is gone, so the raw id would be a way
 		// back to a person), who asked, and how the identity-provider step went. No email, no name.
 		if d.Logger != nil {
