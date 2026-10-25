@@ -139,7 +139,7 @@ final class TripPlanModel {
             if found.target?.reachesEnd == true {
                 night = .failed("This trip fits in one day.")
             } else if found.candidates.isEmpty {
-                night = .failed("No hotel or campground with a listed charger near where the first day would end.")
+                night = .failed(TripPlanLogic.noStaysLine(found, driveSec: route.totalDriveDurationSec, metric: NowFormat.usesMetric))
             } else {
                 night = .choose(Array(found.candidates.prefix(5)))
             }
