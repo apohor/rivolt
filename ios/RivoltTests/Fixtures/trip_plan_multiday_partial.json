@@ -103,6 +103,7 @@
         "post_charge_soc_pct": 80,
         "capped": false
       },
+      "end_tz": "America/Los_Angeles",
       "costs": [
         {
           "currency": "USD",
@@ -126,6 +127,7 @@
     "charging_duration_sec": 1500
   },
   "tz": "America/Los_Angeles",
+  "destination_tz": "America/Los_Angeles",
   "failed_day": 2,
   "error": "Day 2 could not be planned right now. Try again in a minute.",
   "error_class": "transient"

@@ -74,6 +74,7 @@
       ]
     }
   ],
+  "destination_tz": "America/Los_Angeles",
   "costs": [
     {
       "currency": "USD",

@@ -21,6 +21,7 @@ import (
 	"github.com/apohor/rivolt/internal/tripadvice"
 	"github.com/apohor/rivolt/internal/tripmultiday"
 	"github.com/apohor/rivolt/internal/weather"
+	"github.com/apohor/rivolt/internal/zonelookup"
 )
 
 // tripPoint is a place in a plan request. The coordinates may be written
@@ -171,6 +172,9 @@ type tripPlanMultidayResponse struct {
 	// chargers and times come from today's network and conditions and no
 	// weather forecast was used.
 	FarFuture bool `json:"far_future,omitempty"`
+	// DestinationTZ is the IANA zone at the trip's final destination ("America/Denver"), for showing the last arrival on its own
+	// clock; each day's own end is in the day's end_tz. Looked up offline from coordinates; absent when they name no zone.
+	DestinationTZ string `json:"destination_tz,omitempty"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -181,6 +185,8 @@ type tripPlanMultidayResponse struct {
 
 type tripPlanMultidayDay struct {
 	tripmultiday.Day
+	// EndTZ is the IANA zone where this day ends (an overnight can be in another zone than the start), for the day's arrival time.
+	EndTZ             string                    `json:"end_tz,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
 	Costs             []tripadvice.CostEstimate `json:"costs,omitempty"`
 }
@@ -363,8 +369,12 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 		}
 
 		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, FromPosition: fromPos, FarFuture: farFuture, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		if len(days) > 0 {
+			last := days[len(days)-1].End
+			resp.DestinationTZ = zonelookup.For(last.Latitude, last.Longitude)
+		}
 		for i, d := range out.Days {
-			day := tripPlanMultidayDay{Day: d}
+			day := tripPlanMultidayDay{Day: d, EndTZ: zonelookup.For(d.End.Latitude, d.End.Longitude)}
 			if ex, ok := extras[d.Index]; ok {
 				day.WeatherAdjustment, day.Costs = ex.adj, ex.costs
 			} else {
