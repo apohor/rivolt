@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,4 +69,29 @@ func newReqWithCookie(name, val string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/api/anything", nil)
 	r.AddCookie(&http.Cookie{Name: name, Value: val})
 	return r
+}
+
+func TestKratosCookieAcceptNeedsTheCookieHost(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	for name, c := range map[string]struct {
+		env     map[string]string
+		wantErr bool
+	}{
+		"default (cookie ignored)":         {map[string]string{}, false},
+		"flag off, host set":               {map[string]string{"RIVOLT_KRATOS_COOKIE_HOST": "rivolt.dev"}, false},
+		"flag false":                       {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": "false"}, false},
+		"flag on, host set":                {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": "true", "RIVOLT_KRATOS_COOKIE_HOST": "rivolt.dev"}, false},
+		"flag on (any case), host set":     {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": " TRUE ", "RIVOLT_KRATOS_COOKIE_HOST": "rivolt.dev"}, false},
+		"flag on, host unset":              {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": "true"}, true},
+		"flag on, host blank":              {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": "true", "RIVOLT_KRATOS_COOKIE_HOST": "  "}, true},
+		"flag on (mixed case), host unset": {map[string]string{"RIVOLT_ACCEPT_KRATOS_COOKIE": "True"}, true},
+	} {
+		err := checkKratosCookieConfig(env(c.env))
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: err = %v, want error: %v", name, err, c.wantErr)
+		}
+		if err != nil && !strings.Contains(err.Error(), "RIVOLT_KRATOS_COOKIE_HOST") {
+			t.Errorf("%s: the error does not name the missing setting: %v", name, err)
+		}
+	}
 }

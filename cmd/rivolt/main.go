@@ -1739,6 +1739,11 @@ func runServer() {
 		os.Exit(1)
 	}
 
+	if err := checkKratosCookieConfig(os.Getenv); err != nil {
+		logger.Error("kratos cookie config", "err", err.Error())
+		os.Exit(1)
+	}
+
 	authSvc, err := auth.New(auth.Config{
 		// A parent-domain Kratos cookie reaches sibling hosts (preview,
 		// demo). RIVOLT_KRATOS_COOKIE_HOST names the one host where Kratos

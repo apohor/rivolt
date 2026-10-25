@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,4 +16,17 @@ func kratosCookieResolver(getenv func(string) string, resolve func(ctx context.C
 		return nil
 	}
 	return resolve
+}
+
+// checkKratosCookieConfig refuses a configuration that accepts the Kratos session cookie with no cookie host. The host guard is what
+// keeps a parent-domain cookie from a sibling host (preview, demo) from signing someone in here; with it unset the guard is off, so
+// turning the accept flag on alone would reopen that hole. Fail closed: the server does not start.
+func checkKratosCookieConfig(getenv func(string) string) error {
+	if kratosCookieResolver(getenv, func(context.Context, string) (uuid.UUID, bool, error) { return uuid.Nil, false, nil }) == nil {
+		return nil // the cookie is ignored; the host is irrelevant
+	}
+	if strings.TrimSpace(getenv("RIVOLT_KRATOS_COOKIE_HOST")) == "" {
+		return errors.New("RIVOLT_ACCEPT_KRATOS_COOKIE=true needs RIVOLT_KRATOS_COOKIE_HOST (the one host where Kratos issues its cookie, e.g. rivolt.dev): without it a cookie from a sibling host would sign people in; unset RIVOLT_ACCEPT_KRATOS_COOKIE or set the host")
+	}
+	return nil
 }
