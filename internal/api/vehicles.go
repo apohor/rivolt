@@ -573,6 +573,13 @@ func handleVehicleStateFresh(c rivian.Client, hasSession func(context.Context) (
 	}
 }
 
+// notConnectedBody is the 409 answer for a vehicle of an account with no linked Rivian session.
+type notConnectedBody struct {
+	Error  string `json:"error"`
+	Class  string `json:"class"`
+	Reason string `json:"reason"`
+}
+
 // writeStateError answers a failed read of one of the account's vehicles. A vehicle of an account that has never linked a
 // Rivian session (a seeded vehicle, a user who has not connected yet) is the user's state, not a failing gateway: 409 with
 // class user_action and reason not_connected, which the UI can show as "connect your Rivian" and which the metrics and alerts
@@ -582,10 +589,10 @@ func handleVehicleStateFresh(c rivian.Client, hasSession func(context.Context) (
 func writeStateError(w http.ResponseWriter, r *http.Request, err error, hasSession func(context.Context) (bool, error)) {
 	if errors.Is(err, rivian.ErrNotAuthenticated) && hasSession != nil {
 		if linked, lerr := hasSession(r.Context()); lerr == nil && !linked {
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error":  "Rivian is not connected to this account",
-				"class":  rivian.ClassUserAction.String(),
-				"reason": "not_connected",
+			writeJSON(w, http.StatusConflict, notConnectedBody{
+				Error:  "Rivian is not connected to this account",
+				Class:  rivian.ClassUserAction.String(),
+				Reason: "not_connected",
 			})
 			return
 		}

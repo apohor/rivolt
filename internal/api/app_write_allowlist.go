@@ -62,8 +62,14 @@ func appWriteAllowed(method, p string) bool {
 	return appWrites[method+" "+p] || (method == http.MethodDelete && appSessionRevokePath(p))
 }
 
-// appWriteDenied is the body of the refusal; tests look for it.
+// appWriteDenied is the text of the refusal; tests look for it.
 const appWriteDenied = "this action is not available from the iPhone app"
+
+// errorBody is the plain error answer: {"error": "..."}. The refusals that the clients read are pinned by fixtures
+// (contract_test.go).
+type errorBody struct {
+	Error string `json:"error"`
+}
 
 // appReadDenied reports whether a GET is one an app session may not make: the three
 // reads that are not plain reads. The app never calls them, and a leaked phone token
@@ -92,7 +98,7 @@ func appWriteAllowlistMW(next http.Handler) http.Handler {
 		case http.MethodGet, http.MethodHead:
 			if app && appReadDenied(r.URL.Path) {
 				slog.WarnContext(r.Context(), "app session read refused", "method", r.Method, "path", r.URL.Path)
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": appWriteDenied})
+				writeJSON(w, http.StatusForbidden, errorBody{Error: appWriteDenied})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -106,6 +112,6 @@ func appWriteAllowlistMW(next http.Handler) http.Handler {
 			return
 		}
 		slog.WarnContext(r.Context(), "app session write refused", "method", r.Method, "path", r.URL.Path)
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": appWriteDenied})
+		writeJSON(w, http.StatusForbidden, errorBody{Error: appWriteDenied})
 	})
 }

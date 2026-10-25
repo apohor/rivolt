@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signuprequests"
 )
 
@@ -229,8 +230,25 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.Handler
 	return handleMeEnrichedWith(svc, d, hideAdmin, nil)
 }
 
+// meResponse is GET /api/auth/me for a signed-in user. Units is the account's resolved display units (a settings.Units) when
+// the server has a settings store, else absent. A visitor with no session at all gets meSignedOut instead.
+type meResponse struct {
+	Authenticated       bool            `json:"authenticated"`
+	UserID              string          `json:"user_id"`
+	Username            string          `json:"username"`
+	Role                string          `json:"role"`
+	OnboardingCompleted bool            `json:"onboarding_completed"`
+	Terms               termsState      `json:"terms"`
+	Units               *settings.Units `json:"units,omitempty"`
+}
+
+// meSignedOut is the answer for a visitor with no session credential at all.
+type meSignedOut struct {
+	Authenticated bool `json:"authenticated"`
+}
+
 // handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set.
-func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) any) http.HandlerFunc {
+func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -247,7 +265,7 @@ func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 				// a CDN or browser cache rule must not pin "signed out"
 				// for a visitor who signs in a moment later.
 				w.Header().Set("Cache-Control", "no-store")
-				writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+				writeJSON(w, http.StatusOK, meSignedOut{})
 				return
 			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -266,16 +284,16 @@ func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 		role = meRole(role, hideAdmin)
 		onboardingDone, _ := db.OnboardingCompleted(r.Context(), d, uid)
 		w.Header().Set("Content-Type", "application/json")
-		me := map[string]any{
-			"authenticated":        true,
-			"user_id":              uid.String(),
-			"username":             username,
-			"role":                 role,
-			"onboarding_completed": onboardingDone,
-			"terms":                termsView(r.Context(), d, uid),
+		me := meResponse{
+			Authenticated:       true,
+			UserID:              uid.String(),
+			Username:            username,
+			Role:                role,
+			OnboardingCompleted: onboardingDone,
+			Terms:               termsView(r.Context(), d, uid),
 		}
 		if unitsFor != nil {
-			me["units"] = unitsFor(r.Context(), uid)
+			me.Units = unitsFor(r.Context(), uid)
 		}
 		_ = json.NewEncoder(w).Encode(me)
 	}
