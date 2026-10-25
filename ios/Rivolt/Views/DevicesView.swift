@@ -13,7 +13,8 @@ struct DevicesView: View {
             ScrollView {
                 DevicesContent(model: model, serverURL: state.serverURL,
                                onSignOut: { d in Task { await model.signOut(d, source: state.client) } },
-                               onReload: { Task { await model.load(source: state.client) } })
+                               onReload: { Task { await model.load(source: state.client) } },
+                               onShowAll: { Task { await model.showAll(source: state.client) } })
                     .padding(4 * Theme.unit)
             }
             .themePage()
@@ -39,6 +40,7 @@ struct DevicesContent: View {
     let serverURL: URL
     let onSignOut: (SignedInDevice) -> Void
     let onReload: () -> Void
+    var onShowAll: () -> Void = {}
     var now: Date = .now
 
     @State private var confirming: SignedInDevice?
@@ -67,6 +69,14 @@ struct DevicesContent: View {
                         }
                         if devices.isEmpty {
                             Text("No devices are signed in.").themeText(.value, color: Theme.textSecondary)
+                        }
+                    }
+                    if model.hiddenWeb > 0 {
+                        // The cut must not make the list look complete: say what is left out, and offer it.
+                        HStack(spacing: 2 * Theme.unit) {
+                            Text("\(model.hiddenWeb) older \(model.hiddenWeb == 1 ? "browser" : "browsers") not shown")
+                                .themeText(.subline, color: Theme.textSecondary)
+                            Button("Show all", action: onShowAll).font(Theme.sans(ThemeTokens.typeSubline)).tint(Theme.accent)
                         }
                     }
                     if let error = model.signOutError {

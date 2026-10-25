@@ -36,4 +36,19 @@ struct SignedInDevice: Decodable, Equatable, Identifiable {
 
 struct SignedInDevices: Decodable, Equatable {
     let sessions: [SignedInDevice]
+    /// With a `recent` cut: how many other browsers' sign-ins the list leaves out (0 when it is the whole list).
+    var hiddenWeb: Int = 0
+
+    private enum CodingKeys: String, CodingKey { case sessions, hiddenWeb }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try c.decode([SignedInDevice].self, forKey: .sessions)
+        hiddenWeb = max(0, try c.decodeIfPresent(Int.self, forKey: .hiddenWeb) ?? 0)
+    }
+
+    init(sessions: [SignedInDevice], hiddenWeb: Int = 0) {
+        self.sessions = sessions
+        self.hiddenWeb = hiddenWeb
+    }
 }

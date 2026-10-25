@@ -46,7 +46,9 @@ final class DevicesClientTests: XCTestCase {
         DevicesStub.status = 200
         DevicesStub.body = Data(sessionsJSON.utf8)
         DevicesStub.seen = []
-        let list = try await client().signedInDevices()
+        let answer = try await client().signedInDevices()
+        let list = answer.sessions
+        XCTAssertEqual(answer.hiddenWeb, 0, "the whole list by default")
         XCTAssertEqual(list.count, 3)
         XCTAssertEqual(DevicesStub.seen.first?.httpMethod, "GET")
         XCTAssertEqual(DevicesStub.seen.first?.url?.path, "/api/auth/sessions")
@@ -85,11 +87,12 @@ private final class FakeDevices: DevicesSource, @unchecked Sendable {
         set { lock.withLock { _fail = newValue } }
     }
 
-    func signedInDevices() async throws -> [SignedInDevice] {
+    var hiddenWeb = 0
+    func signedInDevices(recent: Int?) async throws -> SignedInDevices {
         try lock.withLock {
-            _calls.append("list")
+            _calls.append(recent.map { "list recent=\($0)" } ?? "list")
             if let _fail { throw _fail }
-            return _list
+            return SignedInDevices(sessions: _list, hiddenWeb: recent == nil ? 0 : hiddenWeb)
         }
     }
 
@@ -135,7 +138,7 @@ final class DevicesModelTests: XCTestCase {
         let m = DevicesModel()
         await m.load(source: src)
         await m.signOut(dev("other"), source: src)
-        XCTAssertEqual(src.calls, ["list", "delete other", "list"])
+        XCTAssertEqual(src.calls, ["list recent=10", "delete other", "list recent=10"])
         guard case .loaded(let after) = m.loadState else { return XCTFail("not loaded") }
         XCTAssertEqual(after.map(\.id), ["me"], "what shows is the server's own list")
         XCTAssertNil(m.signOutError)
@@ -146,7 +149,7 @@ final class DevicesModelTests: XCTestCase {
         let m = DevicesModel()
         await m.load(source: src)
         await m.signOut(dev("me", kind: "app", current: true), source: src)
-        XCTAssertEqual(src.calls, ["list"], "no delete went out for this phone")
+        XCTAssertEqual(src.calls, ["list recent=10"], "no delete went out for this phone")
     }
 
     func testAFailedSignOutSaysSoAndKeepsTheList() async {
@@ -168,6 +171,29 @@ final class DevicesModelTests: XCTestCase {
         await m.load(source: src)
         guard case .failed(let words) = m.loadState else { return XCTFail("expected a failure") }
         XCTAssertFalse(words.isEmpty)
+    }
+
+    func testTheCutSaysHowManyOlderBrowsersAreHiddenAndShowAllAsksForTheWholeList() async throws {
+        let src = FakeDevices([SignedInDevice(id: "me", kind: "app", deviceLabel: "iPhone", createdAt: nil, lastSeenAt: nil, current: true)])
+        src.hiddenWeb = 7
+        let m = DevicesModel()
+        await m.load(source: src)
+        XCTAssertEqual(m.hiddenWeb, 7)
+        XCTAssertFalse(m.showingAll)
+        await m.showAll(source: src)
+        XCTAssertEqual(m.hiddenWeb, 0, "the whole list hides nothing")
+        XCTAssertTrue(m.showingAll)
+        XCTAssertEqual(src.calls, ["list recent=10", "list"])
+        XCTAssertEqual(DevicesModel.recentBrowsers, 10)
+    }
+
+    func testHiddenWebIsReadFromTheServersAnswerAndDefaultsToZero() throws {
+        let cut = try JSON.decoder().decode(SignedInDevices.self, from: Data(#"{"sessions":[],"total":14,"hidden_web":11}"#.utf8))
+        XCTAssertEqual(cut.hiddenWeb, 11)
+        let whole = try JSON.decoder().decode(SignedInDevices.self, from: Data(#"{"sessions":[]}"#.utf8))
+        XCTAssertEqual(whole.hiddenWeb, 0)
+        let odd = try JSON.decoder().decode(SignedInDevices.self, from: Data(#"{"sessions":[],"hidden_web":-3}"#.utf8))
+        XCTAssertEqual(odd.hiddenWeb, 0)
     }
 }
 

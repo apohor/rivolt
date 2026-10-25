@@ -95,9 +95,10 @@ actor APIClient {
     // MARK: Signed-in devices
 
     /// The browsers and iPhones signed in as this person (newest first as the server sends them).
-    func signedInDevices() async throws -> [SignedInDevice] {
-        let list: SignedInDevices = try await request("GET", "/api/auth/sessions")
-        return list.sessions
+    /// With `recent`, the list is cut to every iPhone sign-in, this one and the newest N other browsers, and `hiddenWeb` counts the
+    /// rest (the screen says so and offers the whole list). Without it, everything.
+    func signedInDevices(recent: Int? = nil) async throws -> SignedInDevices {
+        try await request("GET", "/api/auth/sessions" + (recent.map { "?recent=\($0)" } ?? ""))
     }
 
     /// Signs one device out. The server allows the app this one call, for this person's own devices only; there is no
