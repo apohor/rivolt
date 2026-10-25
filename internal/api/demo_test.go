@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
@@ -1112,5 +1116,61 @@ func TestDemoHeavyCacheNeverSeesASignedInRequest(t *testing.T) {
 	demoReq(mw, "GET", "/api/vehicles/"+demoVeh+"/drain")
 	if rec := demoReq(mw, "GET", "/api/vehicles/"+demoVeh+"/drain"); calls != 1 || rec.Header().Get("X-Rivolt-Demo-Cache") != "hit" {
 		t.Errorf("control: anonymous second read not a cache hit (calls %d)", calls)
+	}
+}
+
+// The route's own compression sits inside the demo middleware (r.With(gz) on /api/activity), so the heavy cache used to keep the
+// COMPRESSED body of whoever asked first, with no Content-Encoding header: the next hit sent gzip bytes as application/json (an edge
+// that compresses JSON then compressed them again, and the phone could not read the answer), and a client that does not take gzip
+// got gzip bytes. A hit must be the same answer a miss is, for each client: one gzip layer for a client that takes gzip, plain JSON
+// for one that does not.
+func TestDemoHeavyCacheServesEachClientItsOwnEncoding(t *testing.T) {
+	calls := 0
+	payload := `{"days":[` + strings.Repeat(`{"miles":12.5,"kwh":4.1},`, 200) + `{}]}`
+	route := middleware.Compress(5, "application/json")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(route)
+	get := func(acceptEncoding string) (*httptest.ResponseRecorder, string) {
+		req := httptest.NewRequest("GET", "/api/activity?since=2026-10-01T00:00:00Z&until=2026-11-01T00:00:00Z", nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		if acceptEncoding != "" {
+			req.Header.Set("Accept-Encoding", acceptEncoding)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		body := rec.Body.Bytes()
+		if rec.Header().Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(bytes.NewReader(body))
+			if err != nil {
+				t.Fatalf("Accept-Encoding %q: the body is not gzip though the header says so: %v", acceptEncoding, err)
+			}
+			plain, err := io.ReadAll(zr)
+			if err != nil {
+				t.Fatalf("Accept-Encoding %q: gunzip: %v", acceptEncoding, err)
+			}
+			body = plain
+		}
+		return rec, string(body)
+	}
+	// Each of: a gzip client (first: a miss, then hits), a client taking no encoding, and the gzip client again.
+	for i, ae := range []string{"gzip", "gzip", "", "", "gzip", "identity"} {
+		rec, body := get(ae)
+		if rec.Code != 200 || body != payload {
+			t.Fatalf("request %d (Accept-Encoding %q): %d; after one decode the body is %q, want the JSON", i, ae, rec.Code, truncateRunes(body, 60))
+		}
+		wantGzip := ae == "gzip"
+		if (rec.Header().Get("Content-Encoding") == "gzip") != wantGzip {
+			t.Errorf("request %d (Accept-Encoding %q): Content-Encoding %q", i, ae, rec.Header().Get("Content-Encoding"))
+		}
+		if vary := strings.Join(rec.Header().Values("Vary"), ","); !strings.Contains(vary, "Accept-Encoding") {
+			t.Errorf("request %d: Vary %q does not name Accept-Encoding", i, vary)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("the route ran %d times, want 1 (the rest were cache hits)", calls)
 	}
 }
