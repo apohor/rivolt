@@ -20,6 +20,8 @@ const (
 	// A suggestion reads up to four corridor windows of the same archive and takes a route body of up to 8 MiB:
 	// one per planned day edit is fine, a loop is not.
 	tripsOvernightPerMin = 30
+	// The place search behind the planner's address boxes: the web debounces its typing, the phone sends as people type.
+	geocodePerMin = 20
 )
 
 // mapsUserLimiter buckets by the signed-in user, so one account cannot

@@ -44,7 +44,14 @@ var appWrites = map[string]bool{
 	"POST /api/settings/home-location/restore": true,
 	"POST /api/settings/home-location/search":  true,
 	"POST /api/maps/valhalla/route":            true, // routing for the map: computed, nothing stored
-	"POST /api/maps/valhalla/trace_route":      true,
+	// The trip planner on the iPhone (DA-approved Oct 25): four POSTs that compute and store nothing. Plans count against the same
+	// per-user hourly planner quota as the web (planleg), the two archive queries have their own per-minute limiters, and
+	// plan/advice (the LLM) stays off the list. The worst a leaked token can do is spend that hour's quota.
+	"POST /api/trips/plan":                 true,
+	"POST /api/trips/plan-multiday":        true,
+	"POST /api/trips/overnight-candidates": true,
+	"POST /api/maps/chargers-along":        true,
+	"POST /api/maps/valhalla/trace_route":  true,
 }
 
 // sessionsPrefix is where a single sign-in is addressed: DELETE /api/auth/sessions/{id}.
