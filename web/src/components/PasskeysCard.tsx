@@ -110,7 +110,7 @@ export function PasskeysCard() {
                       <input
                         aria-label="Passkey name"
                         autoFocus
-                        maxLength={64}
+                        maxLength={60}
                         value={renaming.label}
                         onChange={(e) => setRenaming({ id: p.id, label: e.target.value })}
                         className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
@@ -189,7 +189,7 @@ export function PasskeysCard() {
               Name (so you can tell them apart)
               <input
                 value={label}
-                maxLength={64}
+                maxLength={60}
                 placeholder="Passkey"
                 onChange={(e) => setLabel(e.target.value)}
                 className="w-full max-w-xs rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
