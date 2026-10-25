@@ -33,7 +33,8 @@ final class RivianReauthTests: XCTestCase {
     }
 
     func testA401WithAClassIsRivianNotTheSession() async throws {
-        let e = try XCTUnwrap(await call(401, #"{"error":"Rivian sign-in needs attention","class":"user_action","reason":"needs_reauth"}"#))
+        let failure = await call(401, #"{"error":"Rivian sign-in needs attention","class":"user_action","reason":"needs_reauth"}"#)
+        let e = try XCTUnwrap(failure)
         guard case APIError.rivianReauth = e else { return XCTFail("\(e)") }
         let words = UserFacingError.words(e)
         XCTAssertEqual(words, "Rivian needs to be reconnected. Do that in Rivolt on the web, then try again.")
@@ -42,7 +43,8 @@ final class RivianReauthTests: XCTestCase {
 
     func testABare401IsStillADeadSession() async throws {
         for body in ["unauthorized", #"{"error":"unauthorized"}"#] {
-            let e = try XCTUnwrap(await call(401, body))
+            let failure = await call(401, body)
+            let e = try XCTUnwrap(failure)
             guard case APIError.server(let status, _) = e else { return XCTFail("\(e)") }
             XCTAssertEqual(status, 401)
             XCTAssertEqual(UserFacingError.words(e), "Your sign-in has ended. Sign in again.")
@@ -50,7 +52,8 @@ final class RivianReauthTests: XCTestCase {
     }
 
     func testOtherClassedAnswersKeepTheirStatus() async throws {
-        let e = try XCTUnwrap(await call(429, #"{"error":"quota","class":"plan_quota","retry_after_sec":600}"#))
+        let failure = await call(429, #"{"error":"quota","class":"plan_quota","retry_after_sec":600}"#)
+        let e = try XCTUnwrap(failure)
         guard case APIError.server(let status, _) = e else { return XCTFail("\(e)") }
         XCTAssertEqual(status, 429)
     }
