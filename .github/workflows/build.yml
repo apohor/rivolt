@@ -318,9 +318,22 @@ jobs:
           done
           if echo "$env" | grep -qx RIVOLT_OIDC_GOOGLE_DISPLAY_NAME; then echo "::error::config.extraEnv leaked into the migrate Job"; exit 1; fi
           echo "migrate Job env: the grant roles, and nothing else from config.extraEnv"
-          # The Job's name is per release and spec (Argo reuses a finished named hook on a second
-          # sync of the same revision): stable for the same input, new when the spec changes, a
-          # DNS-1123 subdomain of at most 63 characters even for a long tag.
+          # A plain wave-0 resource, not a hook: Argo recreates a hook with no delete policy on
+          # every sync and retry. IgnoreExtraneous keeps a superseded Job from making the app
+          # OutOfSync, and a TTL removes it.
+          job=$(echo "$out" | yq 'select(.kind == "Job")')
+          [ "$(echo "$job" | yq '.metadata.annotations["argocd.argoproj.io/hook"] // ""')" = "" ] \
+            || { echo "::error::the migrate Job is an Argo hook again"; exit 1; }
+          [ "$(echo "$job" | yq '.metadata.annotations["argocd.argoproj.io/sync-wave"]')" = "0" ] \
+            || { echo "::error::the migrate Job isn't at sync wave 0"; exit 1; }
+          echo "$job" | yq '.metadata.annotations["argocd.argoproj.io/compare-options"]' | grep -q IgnoreExtraneous \
+            || { echo "::error::the migrate Job lacks compare-options IgnoreExtraneous"; exit 1; }
+          [ "$(echo "$job" | yq '.spec.ttlSecondsAfterFinished // 0')" -gt 0 ] \
+            || { echo "::error::the migrate Job has no ttlSecondsAfterFinished"; exit 1; }
+          echo "migrate Job: wave-0 resource, not a hook, IgnoreExtraneous, TTL set"
+          # The Job's name is per release and spec (so it runs once per new image or spec): stable
+          # for the same input, new when the spec changes, a DNS-1123 subdomain of at most 63
+          # characters even for a long tag.
           name() { helm template rivolt "$CHART" -f "$CHART/ci/migrate-job-values.yaml" "$@" | yq 'select(.kind == "Job") | .metadata.name'; }
           a=$(name); b=$(name); c=$(name --set migrate.job.backoffLimit=2)
           long=$(name --set image.tag=v0.40.0-dev.14+sha-96e8eda.a-very-long-build-suffix-for-the-length-cap)

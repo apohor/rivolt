@@ -386,14 +386,14 @@ extraEnvFrom: []
 # CNPG also exposes a read-write Service named `<cluster>-rw` which
 # is what the app dials.
 # -- Database migrations as a separate Job (design: migrations-job-design.md,
-# DA-approved Oct 25). When enabled, an Argo CD Sync hook Job runs
-# `rivolt migrate` at sync wave 0, after the CNPG Cluster (-1) and before
-# the Deployment (1), and the server is started with
+# DA-approved Oct 25). When enabled, a Job (a plain resource, not a hook)
+# runs `rivolt migrate` at Argo CD sync wave 0, after the CNPG Cluster (-1)
+# and before the Deployment (1), and the server is started with
 # RIVOLT_MIGRATE_ON_START=false (it then only checks the schema). A failed
 # Job fails the sync: the Deployment isn't touched and the old pods keep
 # serving. Off by default: the server migrates itself, as before.
-# Without Argo CD (plain helm), the hook annotations do nothing and the Job
-# runs alongside the rollout: there, keep this off.
+# Without Argo CD (plain helm), sync waves do nothing and the Job runs
+# alongside the rollout: there, keep this off.
 migrate:
   job:
     enabled: false
@@ -403,8 +403,10 @@ migrate:
     # 15-minute timeout and 5-minute lock and connect waits.
     activeDeadlineSeconds: 1200
     # Each Job is kept this long after it finishes (with its log: the run that
-    # applied migrations shows applied= above 0), then removed.
-    ttlSecondsAfterFinished: 86400
+    # applied migrations shows applied= above 0), then removed. If the current
+    # release's Job is removed, the next sync runs it again (applied=0, or a
+    # retry of a failed migration): deal with a failed Job within this window.
+    ttlSecondsAfterFinished: 604800
     resources:
       requests:
         cpu: 50m
