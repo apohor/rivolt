@@ -20,9 +20,14 @@ const iosFixtureDir = "../../ios/RivoltTests/Fixtures"
 // fixturesCheckedElsewhere are fixtures that are not decoded into a single server type by iosFixtureTargets, each with where they
 // are checked instead. An entry for a file that no longer exists, or without a reason, fails the test, so the list cannot rot.
 var fixturesCheckedElsewhere = map[string]string{
-	"charge_eta_vectors.json":  "test vectors for the charge-time estimate, checked in internal/rivian/charge_eta_test.go",
-	"ledger_savings_flat.json": "the flat-rate savings answer, checked in flat_rate_test.go",
-	"sleep_health.json":        "the sleep-health card, checked in sleep_health_fixture_test.go",
+	"charge_eta_vectors.json":        "test vectors for the charge-time estimate, checked in internal/rivian/charge_eta_test.go",
+	"ledger_savings_flat.json":       "the flat-rate savings answer, checked in flat_rate_test.go",
+	"sleep_health.json":              "the sleep-health card, checked in sleep_health_fixture_test.go",
+	"err_plan_quota.json":            "an error answer ({status, retry_after_header, body}) generated from writeQuotaError, checked in trip_fixtures_test.go",
+	"err_upstream_user_action.json":  "an error answer generated from writeUpstreamError, checked in trip_fixtures_test.go",
+	"err_upstream_transient.json":    "an error answer generated from writeUpstreamError, checked in trip_fixtures_test.go",
+	"err_upstream_rate_limited.json": "an error answer generated from writeUpstreamError, checked in trip_fixtures_test.go",
+	"err_no_position.json":           "an error answer generated from noPosition, checked in trip_fixtures_test.go",
 }
 
 func fixtureNames(t *testing.T) []string {

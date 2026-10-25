@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/vehiclelease"
 )
 
@@ -33,7 +34,16 @@ func iosFixtureTargets() map[string]any {
 		"state_prod_shape.json": &rivian.State{},
 		"state_full.json":       &rivian.State{}, // every key the Go type can send, zero values: what the web's VehicleState is checked against
 		"vehicles.json":         &[]rivian.Vehicle{},
-		"app_token.json":        &appTokenResponse{},
+		// The trip planner on the phone (trip_fixtures_test.go regenerates these from the same types).
+		"trip_plan.json":                  &tripPlanResponse{},
+		"trip_plan_multiday.json":         &tripPlanMultidayResponse{},
+		"trip_plan_multiday_partial.json": &tripPlanMultidayResponse{},
+		"trip_saved_list.json":            &[]trips.SavedTrip{},
+		"trip_saved_one.json":             &trips.SavedTrip{},
+		"trip_plan_actual_linked.json":    &planActualResponse{},
+		"trip_plan_actual_none.json":      &planActualResponse{},
+		"trip_plan_actual_multi.json":     &planActualMultiResponse{},
+		"app_token.json":                  &appTokenResponse{},
 		// Sprint 11: who you are (with the Terms state and the account's units), and the answers the clients read as states.
 		"me.json":                     &meResponse{},
 		"me_unaccepted.json":          &meResponse{},
