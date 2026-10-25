@@ -32,7 +32,7 @@ jobs:
   shots:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'store-shots')
     runs-on: macos-15
-    timeout-minutes: 100
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +88,7 @@ jobs:
             -quiet
 
       - name: Shoot the screens
-        timeout-minutes: 70
+        timeout-minutes: 120
         run: |
           set -uo pipefail
           udid="${{ steps.sim.outputs.udid }}"
@@ -104,15 +104,23 @@ jobs:
           failed=0
           shoot() {  # name, mode, launch args...
             local name=$1 mode=$2; shift 2
+            local out="$RUNNER_TEMP/raw/$name-$mode.png" attempt
             xcrun simctl ui "$udid" appearance "$mode"
-            xcrun simctl launch --terminate-running-process "$udid" "$bid" "$@" || { echo "launch failed: $name $mode"; failed=1; return; }
-            # The sample truck's answers come over the network, and a detail screen loads its charts after that.
-            case "$name" in now|drive|charge) sleep 110 ;; *) sleep 40 ;; esac
-            out="$RUNNER_TEMP/raw/$name-$mode.png"
-            for try in 1 2 3; do
-              xcrun simctl io "$udid" screenshot "$out" || true
-              [ -f "$out" ] && [ "$(stat -f%z "$out")" -gt 20000 ] && break
-              sleep 5
+            # The demo server can refuse a heavy read, and a detail screen then shows an empty list (a far smaller picture than a
+            # filled one). Those two screens are shot again, up to three times, after the allowance has refilled.
+            for attempt in 1 2 3; do
+              xcrun simctl launch --terminate-running-process "$udid" "$bid" "$@" || { echo "launch failed: $name $mode"; failed=1; return; }
+              # The sample truck's answers come over the network, and a detail screen loads its charts after that.
+              case "$name" in now|drive|charge) sleep 110 ;; *) sleep 40 ;; esac
+              for try in 1 2 3; do
+                xcrun simctl io "$udid" screenshot "$out" || true
+                [ -f "$out" ] && [ "$(stat -f%z "$out")" -gt 20000 ] && break
+                sleep 5
+              done
+              size=$(stat -f%z "$out" 2>/dev/null || echo 0)
+              echo "$name $mode attempt $attempt: $size bytes"
+              case "$name" in drive|charge) [ "$size" -gt 300000 ] && break ;; *) break ;; esac
+              sleep 90
             done
             [ -f "$out" ] || failed=1
             # The demo server limits how many heavy reads one client may make a minute: let the budget refill before the next launch.
