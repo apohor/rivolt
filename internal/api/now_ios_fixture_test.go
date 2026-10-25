@@ -31,6 +31,7 @@ func iosFixtureTargets() map[string]any {
 		// Captures of what prod sent, kept for the app's tolerance tests.
 		"now_prod_shape.json":   &nowResponse{},
 		"state_prod_shape.json": &rivian.State{},
+		"state_full.json":       &rivian.State{}, // every key the Go type can send, zero values: what the web's VehicleState is checked against
 		"vehicles.json":         &[]rivian.Vehicle{},
 		"app_token.json":        &appTokenResponse{},
 		// Sprint 11: who you are (with the Terms state and the account's units), and the answers the clients read as states.
