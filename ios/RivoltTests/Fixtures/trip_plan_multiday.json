@@ -103,6 +103,7 @@
         "post_charge_soc_pct": 80,
         "capped": false
       },
+      "end_tz": "America/Los_Angeles",
       "costs": [
         {
           "currency": "USD",
@@ -214,6 +215,7 @@
       "arrival_soc": 22,
       "destination_reached": true,
       "soc_below_limit": false,
+      "end_tz": "America/Los_Angeles",
       "costs": [
         {
           "currency": "USD",
@@ -236,5 +238,6 @@
     "drive_duration_sec": 32400,
     "charging_duration_sec": 3000
   },
-  "tz": "America/Los_Angeles"
+  "tz": "America/Los_Angeles",
+  "destination_tz": "America/Los_Angeles"
 }

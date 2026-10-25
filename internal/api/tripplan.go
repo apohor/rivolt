@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/tripprofile"
 	"github.com/apohor/rivolt/internal/tripweather"
 	"github.com/apohor/rivolt/internal/weather"
+	"github.com/apohor/rivolt/internal/zonelookup"
 )
 
 // tripPlanRequest is the SPA-facing input. VehicleID + StartingSoC
@@ -275,6 +276,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos, FarFuture: farFuture}
+		if n := len(in.Waypoints); n > 0 {
+			resp.DestinationTZ = zonelookup.For(in.Waypoints[n-1].Latitude, in.Waypoints[n-1].Longitude) // the last waypoint is the destination
+		}
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc,
 			vehicleID: req.VehicleID, packKWh: req.PackKWh, noWeather: farFuture}
 		enr.load(r.Context())
@@ -297,6 +301,9 @@ type tripPlanResponse struct {
 	// weather forecast was used. The UI says so and suggests re-planning
 	// within a month of leaving.
 	FarFuture bool `json:"far_future,omitempty"`
+	// DestinationTZ is the IANA zone at the trip's destination ("America/Denver"), so an arrival time can be shown on the
+	// destination's clock with a zone label. Looked up offline from the destination's coordinates; absent when they name no zone.
+	DestinationTZ string `json:"destination_tz,omitempty"`
 	// Costs is aligned with TripPlan.Routes - Costs[i] is the
 	// DCFC + home-equivalent estimate for Routes[i]. Empty when the
 	// caller didn't pass pack_kwh; the SPA renders the route table

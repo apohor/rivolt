@@ -2519,6 +2519,8 @@ export type TripPlan = {
   // true when the trip leaves more than 30 days from now: planned from today's network and
   // conditions, with no weather forecast (the server plans such a trip at today's date).
   far_future?: boolean;
+  // The IANA zone at the destination ("America/Denver"), for showing an arrival on its own clock with a zone label.
+  destination_tz?: string;
   // costs is aligned with Routes - costs[i] is the DCFC + home
   // equivalent estimate for Routes[i]. Omitted when the caller
   // didn't pass pack_kwh on the plan request.
@@ -2681,6 +2683,8 @@ export type TripPlanMultidayResponse = {
   simulated?: boolean;
   // The trip starts more than 30 days out: see TripPlan.far_future.
   far_future?: boolean;
+  // The IANA zone at the final destination ("America/Denver"); each day's own end is in its end_tz.
+  destination_tz?: string;
   // The day that could not be planned (1-based); the days before it are complete and chaining stopped there.
   failed_day?: number;
   error?: string;
@@ -2759,6 +2763,8 @@ export type TripPlanMultidayDay = {
   start: TripPlanWaypointEcho;
   vias?: TripPlanWaypointEcho[];
   end: TripPlanWaypointEcho;
+  // The IANA zone where this day ends (an overnight can be in another zone than the start).
+  end_tz?: string;
   departure_soc: number;
   arrival_soc: number;
   destination_reached: boolean;

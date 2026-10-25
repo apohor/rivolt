@@ -62,7 +62,7 @@ func fixtureDay(index int, from, to string, dep, arr time.Time, overnight *tripm
 		Index: index, Plan: fixturePlan(), DepartAt: dep, ArriveAt: arr,
 		Start: tripmultiday.Waypoint{Latitude: 47.6205, Longitude: -122.3493, Label: from}, End: tripmultiday.Waypoint{Latitude: 47.6588, Longitude: -117.4260, Label: to},
 		DepartureSoC: 88, ArrivalSoC: 22, DestinationReached: true, Overnight: overnight,
-	}, Costs: fixtureCosts()}
+	}, EndTZ: "America/Los_Angeles", Costs: fixtureCosts()}
 }
 
 func fixtureMultiday() tripPlanMultidayResponse {
@@ -72,7 +72,7 @@ func fixtureMultiday() tripPlanMultidayResponse {
 			fixtureDay(1, "Example Origin", "Example Hotel", fixtureMoment(16, 0), fixtureMoment(21, 0), night),
 			fixtureDay(2, "Example Hotel", "Example Destination", fixtureMoment(40, 0), fixtureMoment(45, 0), nil),
 		},
-		Total: tripmultiday.Totals{DistanceMeters: 896000, DriveDurationSec: 32400, ChargingDurationSec: 3000}, TZ: "America/Los_Angeles",
+		Total: tripmultiday.Totals{DistanceMeters: 896000, DriveDurationSec: 32400, ChargingDurationSec: 3000}, TZ: "America/Los_Angeles", DestinationTZ: "America/Los_Angeles",
 	}
 }
 
@@ -89,7 +89,7 @@ func fixtureSavedTrip(name string, id uuid.UUID) trips.SavedTrip {
 		"origin": map[string]any{"lat": 47.6205, "lon": -122.3493, "label": "Example Origin"}, "destination": map[string]any{"lat": 47.6588, "lon": -117.4260, "label": "Example Destination"},
 		"starting_soc": 88, "pack_kwh": 135,
 	})
-	plan, _ := json.Marshal(tripPlanResponse{TripPlan: fixturePlan(), Costs: fixtureCosts()})
+	plan, _ := json.Marshal(tripPlanResponse{TripPlan: fixturePlan(), DestinationTZ: "America/Los_Angeles", Costs: fixtureCosts()})
 	return trips.SavedTrip{ID: id, Name: name, Inputs: inputs, Plan: plan, CreatedAt: fixtureMoment(12, 0), UpdatedAt: fixtureMoment(12, 5)}
 }
 
@@ -135,7 +135,7 @@ func errorFixture(f func(w http.ResponseWriter)) map[string]any {
 func tripFixtures() map[string]any {
 	id1, id2 := uuid.MustParse("00000000-0000-4000-8000-0000000000a1"), uuid.MustParse("00000000-0000-4000-8000-0000000000a2")
 	return map[string]any{
-		"trip_plan.json":                  tripPlanResponse{TripPlan: fixturePlan(), Costs: fixtureCosts()},
+		"trip_plan.json":                  tripPlanResponse{TripPlan: fixturePlan(), DestinationTZ: "America/Los_Angeles", Costs: fixtureCosts()},
 		"trip_plan_multiday.json":         fixtureMultiday(),
 		"trip_plan_multiday_partial.json": fixtureMultidayPartial(),
 		"trip_saved_list.json":            []trips.SavedTrip{fixtureSavedTrip("Seattle to Spokane", id1), fixtureSavedTrip("Spokane back", id2)},
