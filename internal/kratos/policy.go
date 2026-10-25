@@ -8,12 +8,14 @@ import (
 // Kratos applies its password policy in the self-service flows (sign-up, settings, recovery), not to a password set through the
 // admin API: a 6-character password went straight through SetPassword on preview (qa, Oct 25). Rivolt's password changes use the
 // admin API, so the same rules are enforced here, before the write, for every caller. They are Kratos' defaults, from
-// selfservice/strategy/password/validator.go: a minimum of 8 characters (counted in bytes, as Kratos does), a maximum of 72 bytes
+// selfservice/strategy/password/validator.go: a minimum of 8 characters (counted in characters here, where Kratos counts bytes), a maximum of 72 bytes
 // (bcrypt's limit; beyond it the tail is silently ignored), and the identifier-similarity check against the account's email. Our
 // Kratos has haveibeenpwned off, so the breach check is not part of it.
 const (
-	// MinPasswordBytes is Kratos' default min_password_length.
-	MinPasswordBytes = 8
+	// MinPasswordChars is Kratos' default min_password_length. Kratos counts it in bytes; Rivolt counts characters (runes), which is
+	// stricter for non-ASCII and matches the words on the screen ("at least 8 characters"): three CJK characters are 9 bytes and
+	// would pass a byte count.
+	MinPasswordChars = 8
 	// MaxPasswordBytes is bcrypt's limit.
 	MaxPasswordBytes = 72
 
@@ -27,7 +29,7 @@ const (
 // CheckPassword applies the policy: "" when the password is acceptable, else a rejection code (RejectTooShort, RejectTooLong,
 // RejectTooSimilar).
 func CheckPassword(password, identifier string) string {
-	if len(password) < MinPasswordBytes {
+	if utf8.RuneCountInString(password) < MinPasswordChars {
 		return RejectTooShort
 	}
 	if len(password) > MaxPasswordBytes {

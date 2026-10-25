@@ -414,7 +414,16 @@ func TestCheckPasswordIsKratosPolicy(t *testing.T) {
 		{"upper case of the email", "OWNER@X.TEST", RejectTooSimilar},
 		{"a normal good one", "a-better-pw-9", ""},
 		{"a passphrase", "correct horse battery staple", ""},
-		{"non-ASCII counts in bytes", "é€é€é€", ""}, // 3 + 9... bytes: 2+3+2+3+2+3 = 15
+		// The minimum counts characters, not bytes (stricter than Kratos for non-ASCII, and what the words on the screen say):
+		// three CJK characters are 9 bytes and would pass a byte count.
+		{"three CJK characters (9 bytes)", "密码安", RejectTooShort},
+		{"seven characters, 14 bytes", "éééééé€", RejectTooShort},
+		{"eight non-ASCII characters", "é€é€é€é€", ""},
+		{"eight CJK characters", "密码安全很重要吗", ""},
+		{"an emoji counts as one character", "🔑🔑🔑🔑🔑🔑🔑", RejectTooShort},
+		// The maximum stays in bytes: it is bcrypt's limit.
+		{"24 CJK characters (72 bytes)", strings.Repeat("密", 24), ""},
+		{"25 CJK characters (75 bytes)", strings.Repeat("密", 25), RejectTooLong},
 	} {
 		if got := CheckPassword(c.password, mail); got != c.want {
 			t.Errorf("%s (%q): %q, want %q", c.name, c.password, got, c.want)
