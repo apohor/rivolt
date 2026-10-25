@@ -115,7 +115,9 @@ enum TripPlanLogic {
     static func fallbackLine(_ s: OvernightCandidates.FallbackStay, metric: Bool) -> String {
         guard let f = s.fastCharger else { return "No charger listed here." }
         var line = "No charger listed here. Nearest fast charger: \(f.name ?? "a fast charger")"
-        if let d = f.distanceM, d > 0 { line += ", \(distance(meters: d, metric: metric)) away" }
+        // Within 150 m it is next door: a distance that small would be a position, and "0 mi away" reads wrong. A power is said only
+        // when the listing gave one (almost none do), never worked out from the network.
+        if let d = f.distanceM { line += d < 150 ? ", right next to it" : ", \(distance(meters: d, metric: metric)) away" }
         if let kw = f.maxPowerKw, kw > 0 { line += " (\(Int(kw.rounded())) kW)" }
         return line + "."
     }

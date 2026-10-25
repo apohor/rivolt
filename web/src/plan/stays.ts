@@ -101,7 +101,8 @@ export function nearestLines(n: { before?: { name: string; drive_sec: number; of
 // A hotel with no charger listed says so, and names the fast charger the next morning starts at.
 export function fastChargerLine(f: { name?: string; distance_m: number; max_power_kw?: number } | undefined, fmtKm: (km: number) => string): string {
   if (!f) return "No charger listed here.";
-  const away = f.distance_m > 0 ? `, ${fmtKm(f.distance_m / 1000)} away` : "";
+  // Within 150 m it is next door; "0 mi away" reads wrong. A power is said only when the listing gave one (almost none do).
+  const away = f.distance_m < 150 ? ", right next to it" : `, ${fmtKm(f.distance_m / 1000)} away`;
   const kw = f.max_power_kw ? ` (${Math.round(f.max_power_kw)} kW)` : "";
   return `No charger listed here. Nearest fast charger: ${f.name || "a fast charger"}${away}${kw}.`;
 }
