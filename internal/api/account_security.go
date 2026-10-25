@@ -41,7 +41,7 @@ type accountSecurityAPI struct {
 	Sessions   interface {
 		RevokeOthers(ctx context.Context, userID, keepID uuid.UUID) (int64, error)
 	}
-	// Passkeys is nil when passkeys are off.
+	// Passkeys is the passkey tables whether or not WebAuthn is configured (Deps.passkeyStore); nil only without a database.
 	Passkeys passkeys.Store
 	// Account is the account's sign-in email.
 	Account func(ctx context.Context, uid uuid.UUID) (string, error)
@@ -106,9 +106,7 @@ func (d Deps) accountSecurityAPI() *accountSecurityAPI {
 	if d.Email != nil {
 		a.Mail = d.Email
 	}
-	if d.Passkeys != nil {
-		a.Passkeys = d.Passkeys.Store()
-	}
+	a.Passkeys = d.passkeyStore()
 	return a
 }
 
@@ -122,6 +120,11 @@ const maxPasswordBytes = 256
 func (a *accountSecurityAPI) serve(w http.ResponseWriter, r *http.Request, secure bool) {
 	uid, ok := a.guard(w, r)
 	if !ok {
+		return
+	}
+	if secure && a.Passkeys == nil {
+		// Before anything is changed: "Secure my account" that cannot see the passkeys would report success with them still there.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 		return
 	}
 	var in struct {
@@ -232,8 +235,12 @@ func (a *accountSecurityAPI) serve(w http.ResponseWriter, r *http.Request, secur
 	if !signOutOK {
 		incomplete = append(incomplete, "sign_out")
 	}
-	if secure && a.Passkeys != nil {
-		if err := a.deleteAllPasskeys(r.Context(), uid, &removed); err != nil {
+	if secure {
+		if a.Passkeys == nil {
+			// Never report "secured" when the passkeys could not be looked at.
+			a.Logger.Error("account security: no passkey store, cannot remove the passkeys")
+			incomplete = append(incomplete, "passkeys")
+		} else if err := a.deleteAllPasskeys(r.Context(), uid, &removed); err != nil {
 			a.Logger.Error("account security: could not remove the passkeys", "err", redactIdentifier(err.Error(), mail))
 			incomplete = append(incomplete, "passkeys")
 		}

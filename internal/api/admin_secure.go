@@ -37,7 +37,8 @@ type adminSecure struct {
 	Sessions   interface {
 		RevokeAll(ctx context.Context, userID uuid.UUID) (int64, error)
 	}
-	Passkeys passkeys.Store // nil when passkeys are off
+	// Passkeys is the passkey tables, required: a reset that cannot delete credentials must not run, and never reports them removed.
+	Passkeys passkeys.Store
 	Mail     interface {
 		Send(context.Context, email.Message) error
 	}
@@ -46,13 +47,31 @@ type adminSecure struct {
 	Observe ForgetObserver
 }
 
+// adminSecure builds support's reset from the deployment's dependencies. The passkey store comes from d.passkeyStore(), which does
+// not depend on WebAuthn being configured: the admin site runs with passkeys off, and an account can still hold credentials.
+func (d Deps) adminSecure() *adminSecure {
+	sec := &adminSecure{
+		Account: func(ctx context.Context, uid uuid.UUID) (string, error) {
+			var m sql.NullString
+			err := d.SystemDB.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&m) // system pool: another user's account
+			return m.String, err
+		},
+		Kratos: d.Kratos, Remembered: d.RememberedRevoker, Sessions: d.SessionRevoker, Logger: d.Logger, Observe: NewForgetObserver(d.Metrics),
+		Passkeys: d.passkeyStore(),
+	}
+	if d.Email != nil {
+		sec.Mail = d.Email
+	}
+	return sec
+}
+
 func (a *adminSecure) handle(w http.ResponseWriter, r *http.Request) {
 	target, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid user id"})
 		return
 	}
-	if a.Account == nil || a.Kratos == nil || !a.Kratos.Enabled() || a.Sessions == nil {
+	if a.Account == nil || a.Kratos == nil || !a.Kratos.Enabled() || a.Sessions == nil || a.Passkeys == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 		return
 	}
@@ -110,19 +129,17 @@ func (a *adminSecure) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	removed := 0
-	if a.Passkeys != nil {
-		cs, err := a.Passkeys.Credentials(r.Context(), target)
-		if err != nil {
-			fail("list_passkeys", err)
+	cs, err := a.Passkeys.Credentials(r.Context(), target)
+	if err != nil {
+		fail("list_passkeys", err)
+		return
+	}
+	for _, c := range cs {
+		if _, err := a.Passkeys.Delete(r.Context(), target, c.ID); err != nil {
+			fail("delete_passkeys", err)
 			return
 		}
-		for _, c := range cs {
-			if _, err := a.Passkeys.Delete(r.Context(), target, c.ID); err != nil {
-				fail("delete_passkeys", err)
-				return
-			}
-			removed++
-		}
+		removed++
 	}
 	a.notify(r.Context(), mail)
 	w.Header().Set("Cache-Control", "no-store")

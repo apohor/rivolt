@@ -365,3 +365,16 @@ func TestPasswordRejectionCarriesAReasonCode(t *testing.T) {
 		t.Error("a refused password must change nothing")
 	}
 }
+
+// "Secure my account" with no way to see the passkeys must refuse before the password changes, not report "secured".
+func TestSecureMyAccountWithoutAPasskeyStoreChangesNothing(t *testing.T) {
+	e := newSecEnv(t)
+	e.api.Passkeys = nil
+	rec := e.post(e.api.secure, `{"current":"old-pw","new":"a-better-pw-9"}`, nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("%d %s, want 503", rec.Code, rec.Body.String())
+	}
+	if len(e.k.puts) != 0 || len(e.sess.revoked) != 0 {
+		t.Error("a refused request must change nothing")
+	}
+}
