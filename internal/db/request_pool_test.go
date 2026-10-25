@@ -1,9 +1,6 @@
 package db
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
 func TestRequestPoolMaxConns(t *testing.T) {
 	for v, want := range map[string]int32{"": DefaultRequestMaxConns, "x": DefaultRequestMaxConns, "0": DefaultRequestMaxConns, "-3": DefaultRequestMaxConns, "101": DefaultRequestMaxConns, "1": 1, " 25 ": 25, "100": 100} {
@@ -11,7 +8,7 @@ func TestRequestPoolMaxConns(t *testing.T) {
 			t.Errorf("RIVOLT_REQUEST_DB_MAX_CONNS=%q: %d, want %d", v, got, want)
 		}
 	}
-	if DefaultRequestMaxConns < 1 || DefaultRequestMaxConns > math.MaxInt32 {
+	if DefaultRequestMaxConns < 1 {
 		t.Fatal("default out of range")
 	}
 }
