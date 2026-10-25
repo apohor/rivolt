@@ -94,7 +94,7 @@ func Init(ctx context.Context, version string) (ShutdownFunc, error) {
 
 	ratio := envFloat("RIVOLT_OTEL_SAMPLE_RATIO", 1.0)
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exp,
+		sdktrace.WithBatcher(scrubServerSpans{exp},
 			// Batch small + flush often: 1000 vehicles is low scale
 			// and operator UX of "did my trace show up?" is way
 			// more valuable than throughput today.
