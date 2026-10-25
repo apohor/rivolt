@@ -31,15 +31,18 @@ again to finish. The new password is shown **once** on that screen (and returned
 the email. If any step fails the screen says which, shows **no** password, and the action can simply be run again: every step is
 safe to repeat.
 
-### Rules for handing the password over
+### Who runs it, and the rules for handing the password over
 
-- Send it **only to the email address on the account**. Never to an address, phone number or chat that the person asking gives you,
-  even if they say they lost access to the mailbox: that is the case this rule exists for. If the mailbox is lost too, the person
-  has to prove ownership some other way first, and a second person on the team approves it.
+- **Only the operator runs this on prod and handles the temporary password.** An agent never runs it, never sees the password, and
+  never judges proof of ownership. (The prod admin site has no service tokens, so an agent cannot call it; that is by design.)
+- Send the password **only to the email address on the account**. Never to an address, phone number or chat that the person asking
+  gives you, even if they say they lost access to the mailbox: that is the case this rule exists for. If the mailbox is lost too, the
+  operator decides whether the person has proved ownership some other way; there is no "second approver", so be slow and say no.
+- **Never paste the temporary password into a ticket, a chat or the audit note.** Read it from the screen and send it by email only.
 - Say nothing about the account to the requester before then (not whether it exists, not what it holds).
 - Tell the owner to change the password at once in Settings → Security (**Change password** with the temporary one as the current
   password), and to remove any passkey they do not recognise.
-- Note the time and who asked in the support ticket. The audit log has the action, who ran it, and the target.
+- Note the time and who asked in the support ticket (never the password). The audit log has the action, who ran it, and the target.
 
 ### After
 
