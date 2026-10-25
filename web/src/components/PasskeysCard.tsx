@@ -10,7 +10,10 @@ import { Card } from "./ui";
 // Not on an install without passkeys (404), nor for an admin viewing as someone or the app (403).
 export function PasskeysCard() {
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ["auth", "passkeys"], queryFn: () => backend.passkeys(), retry: 0, staleTime: 15_000 });
+  // The account's own answer says whether passkeys are on; where they are off the list route does not exist, so it is not asked.
+  const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
+  const on = me.data?.passkeys === true;
+  const list = useQuery({ queryKey: ["auth", "passkeys"], queryFn: () => backend.passkeys(), retry: 0, staleTime: 15_000, enabled: on });
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +64,7 @@ export function PasskeysCard() {
     onError: () => setNote({ text: "Couldn't remove it. Try again.", bad: true }),
   });
 
+  if (!on) return null;
   if (list.isError && list.error instanceof ApiError && (list.error.status === 404 || list.error.status === 403)) return null;
   if (list.isPending)
     return (
