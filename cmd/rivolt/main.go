@@ -33,7 +33,6 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/adminonly"
-	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
 	"github.com/apohor/rivolt/internal/appleid"
@@ -86,7 +85,6 @@ import (
 	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/syntheticplan"
 	"github.com/apohor/rivolt/internal/tracing"
-	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
@@ -443,16 +441,6 @@ func runServer() {
 	samplesFactory := samples.NewFactory(pgPool, resolverFactory)
 	settingsFactory := settings.NewFactory(pgPool)
 	pushFactory := push.NewFactory(pgPool)
-	// The same factories on the request pool, for api.Deps (request handling). With the pool off they are equivalent to the ones
-	// above, on the same *sql.DB. The monitor, recorder and jobs keep the system ones.
-	reqResolverFactory := db.NewVehicleResolverFactory(requestDB)
-	reqDrivesFactory := drives.NewFactory(requestDB, reqResolverFactory)
-	reqChargesFactory := charges.NewFactory(requestDB, reqResolverFactory)
-	reqSamplesFactory := samples.NewFactoryWithSystem(requestDB, pgPool, reqResolverFactory) // a month's partition is DDL: system pool
-	reqSettingsFactory := settings.NewFactory(requestDB)
-	reqPushFactory := push.NewFactoryWithSystem(requestDB, pgPool) // APNs token registration spans users: system pool for those statements
-	reqTripsFactory := trips.NewFactory(requestDB)
-
 	// Envelope-encrypted secret store. Backs the rivian.Session
 	// blob (previously plaintext in settings_kv) and, later, AI
 	// keys + per-user VAPID private keys.
@@ -463,7 +451,7 @@ func runServer() {
 	// for the local dev workstation; the env-var name is
 	// deliberately long and ugly so it never ends up in a helm
 	// chart or compose file.
-	var secretsStore, reqSecretsStore *secrets.Store // system pool (the monitor, auth, admin) and request pool (api.Deps)
+	var secretsStore *secrets.Store // system pool (the monitor, auth, admin); the request-side one is in reqStores
 	var sealer rivoltcrypto.Sealer
 	if pgPool != nil {
 		s, serr := buildSealer(logger)
@@ -473,9 +461,12 @@ func runServer() {
 		}
 		sealer = s
 		secretsStore = secrets.New(pgPool, sealer)
-		reqSecretsStore = secrets.New(requestDB, sealer)
 		logger.Info("secret store ready", "kek_id", sealer.KEKID())
 	}
+
+	// The stores request handling uses, on the request pool (the same *sql.DB as pgPool when RIVOLT_REQUEST_DATABASE_URL is unset).
+	// The monitor, recorder and jobs keep the system-pool ones above. The pool-on integration tests build theirs the same way.
+	reqStores := api.NewRequestStores(requestDB, pgPool, sealer)
 
 	// Operational flag store backs the Rivian upstream kill
 	// switch (ARCHITECTURE decision 6). Non-critical: when open
@@ -2481,14 +2472,14 @@ func runServer() {
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
 		PushService:           pushSvc,
-		Drives:                reqDrivesFactory,
-		Charges:               reqChargesFactory,
-		Samples:               reqSamplesFactory,
-		Settings:              reqSettingsFactory,
+		Drives:                reqStores.Drives,
+		Charges:               reqStores.Charges,
+		Samples:               reqStores.Samples,
+		Settings:              reqStores.Settings,
 		SystemSettings:        settingsFactory, // the sweeps started in api.New (statement and weekly emails) run with no user in context
-		Push:                  reqPushFactory,
-		Trips:                 reqTripsFactory,
-		PackHealth:            packhealth.NewStore(requestDB), // request pool: per-vehicle samples reached through the vehicle's owner (the monitor's own store stays on the system pool)
+		Push:                  reqStores.Push,
+		Trips:                 reqStores.Trips,
+		PackHealth:            reqStores.PackHealth, // request pool: per-vehicle samples reached through the vehicle's owner (the monitor's own store stays on the system pool)
 		Monitors:              monitorRegistry,
 		SettingsMgr:           settingsMgr,
 		Auth:                  authSvc,
@@ -2516,9 +2507,9 @@ func runServer() {
 		RequestPoolOn:      requestDB != pgPool,
 		Logger:             logger,
 		Flags:              flagsStore,
-		AIBudget:           aibudget.New(requestDB), // request pool: one (user_id, day) row per caller
-		Secrets:            reqSecretsStore,         // request pool: the Rivian sign-in surface reads and writes the caller's own session
-		SystemSecrets:      secretsStore,            // admin refresh of another user's Rivian session
+		AIBudget:           reqStores.AIBudget, // request pool: one (user_id, day) row per caller
+		Secrets:            reqStores.Secrets,  // request pool: the Rivian sign-in surface reads and writes the caller's own session
+		SystemSecrets:      secretsStore,       // admin refresh of another user's Rivian session
 		Metrics:            appMetrics,
 		Users:              userProvider,
 		AppleRevocation:    appleRevocation,
