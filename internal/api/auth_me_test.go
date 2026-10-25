@@ -83,3 +83,23 @@ func TestAuthMe_SignedOutResponseIsNoStore(t *testing.T) {
 		t.Fatalf("code %d Cache-Control %q, want 200 no-store", rec.Code, rec.Header().Get("Cache-Control"))
 	}
 }
+
+// `passkeys` is on /api/auth/me only where the server offers passkeys, and absent otherwise, so Settings shows the card only where
+// it can work.
+func TestAuthMe_PasskeysFlag(t *testing.T) {
+	get := func(on bool) map[string]any {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+		req = req.WithContext(auth.WithUser(req.Context(), uuid.New()))
+		rec := httptest.NewRecorder()
+		handleMeEnrichedWith(newMeAuth(t), nil, false, nil, on)(rec, req)
+		var body map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return body
+	}
+	if v, has := get(false)["passkeys"]; has {
+		t.Errorf("passkeys off: key present (%v); absent means off", v)
+	}
+	if get(true)["passkeys"] != true {
+		t.Error("passkeys on: want passkeys:true")
+	}
+}

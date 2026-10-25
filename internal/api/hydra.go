@@ -113,6 +113,7 @@ func hydraLoginGET(d hydraDeps) http.HandlerFunc {
 			ClientName:     orFallback(req.Client.ClientName, req.Client.ClientID),
 			RequestedScope: req.RequestedScope,
 			LoginHint:      req.OIDCContext.LoginHint,
+			Passkeys:       d.Passkeys != nil,
 		})
 	}
 }
@@ -128,6 +129,9 @@ type hydraLoginGetResponse struct {
 	ClientName     string   `json:"client_name,omitempty"`
 	RequestedScope []string `json:"requested_scope,omitempty"`
 	LoginHint      string   `json:"login_hint,omitempty"`
+	// Passkeys is true when the passkey sign-in routes exist on this server, so the login page offers the button only where it can
+	// work. Absent (false) on every deployment without RIVOLT_WEBAUTHN_RP_ID, such as prod today.
+	Passkeys bool `json:"passkeys,omitempty"`
 }
 
 // hydraLoginPOST handles POST /api/auth/hydra/login. Body:

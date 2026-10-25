@@ -162,6 +162,29 @@ func TestHydraLoginGET_prompt(t *testing.T) {
 	}
 }
 
+// The login page learns whether passkeys exist here from `passkeys` on the GET: present only when the passkey routes are mounted.
+func TestHydraLoginGET_passkeysFlag(t *testing.T) {
+	hyd := fakeHydra(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"challenge":"c","skip":false,"client":{"client_id":"rivolt","client_name":"Rivolt"}}`))
+	})
+	get := func(pk *passkeyAPI) map[string]any {
+		d := hydraDeps{Hydra: hyd, Kratos: fakeKratos(t, nil), Logger: discardLogger(), Passkeys: pk}
+		rr := httptest.NewRecorder()
+		hydraLoginGET(d).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/login?login_challenge=c", nil))
+		var m map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &m); err != nil {
+			t.Fatalf("decode: %v (%s)", err, rr.Body.String())
+		}
+		return m
+	}
+	if v, has := get(nil)["passkeys"]; has {
+		t.Errorf("without passkeys the key must be absent, got %v", v)
+	}
+	if get(&passkeyAPI{})["passkeys"] != true {
+		t.Error("with passkeys mounted: want passkeys:true")
+	}
+}
+
 func TestHydraLoginGET_missingChallenge(t *testing.T) {
 	d := hydraDeps{Hydra: fakeHydra(t, nil), Kratos: nil, Logger: discardLogger()}
 	rr := httptest.NewRecorder()
