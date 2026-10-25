@@ -1,0 +1,8 @@
+{
+  "body": {
+    "class": "user_action",
+    "error": "rivian: user_action: session expired",
+    "reason": "session expired"
+  },
+  "status": 401
+}

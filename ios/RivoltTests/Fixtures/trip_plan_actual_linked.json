@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "saved_trip_id": "00000000-0000-4000-8000-0000000000a1",
+  "status": "linked",
+  "link": {
+    "trip_id": "outing-0001",
+    "confidence": 0.91,
+    "band": "high",
+    "linked_at": "2027-01-12T23:00:00Z",
+    "link_stale": false
+  },
+  "candidates": [],
+  "comparison": {
+    "status": "complete",
+    "currency": "USD",
+    "plan_from": "saved_plan",
+    "leg": {
+      "started_at": "2027-01-12T16:02:00Z",
+      "arrived_at": "2027-01-12T21:10:00Z",
+      "miles": 281.4,
+      "drive_ids": [
+        "drive-0001",
+        "drive-0002"
+      ],
+      "charge_ids": [
+        "charge-0001"
+      ]
+    },
+    "metrics": [
+      {
+        "metric": "miles",
+        "unit": "mi",
+        "planned": 278.4,
+        "actual": 281.4,
+        "delta": 3,
+        "reasons": []
+      },
+      {
+        "metric": "cost",
+        "unit": "USD",
+        "planned": 12.75,
+        "actual": 15.2,
+        "delta": 2.45,
+        "reasons": [
+          {
+            "code": "price_higher",
+            "amount": 2.45,
+            "detail": "The charger's price was higher than the estimate.",
+            "network": "Example Network"
+          }
+        ]
+      }
+    ],
+    "stops": []
+  }
+}

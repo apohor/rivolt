@@ -1,0 +1,9 @@
+{
+  "body": {
+    "class": "plan_quota",
+    "error": "trip planning limit reached (60 per hour); try again in 37 minutes",
+    "retry_after_sec": 2220
+  },
+  "retry_after_header": "2220",
+  "status": 429
+}
