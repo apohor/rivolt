@@ -171,9 +171,23 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"POST", "/api/trips/plan/", 403},
 		{"POST", "/api/trips/plan/advice", 403}, // the LLM route stays web-only
 		{"PUT", "/api/trips/plan", 403},
-		{"POST", "/api/trips/saved", 403}, // saved trips are their own PR
 		{"POST", "/api/trips/plan-multiday/", 403},
 		{"GET", "/api/geocode", 204},
+		{"POST", "/api/trips/saved", 204}, // saved trips: save, edit, link, unlink; never delete
+		{"PUT", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b", 204},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/link", 204},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/unlink", 204},
+		{"DELETE", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b", 403},
+		{"PUT", "/api/trips/saved", 403},
+		{"POST", "/api/trips/saved/", 403},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b", 403},
+		{"PUT", "/api/trips/saved/3F2B8C1E-5D4A-4E6F-9A7B-0C1D2E3F4A5B", 403},
+		{"PUT", "/api/trips/saved/not-a-uuid", 403},
+		{"PUT", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/", 403},
+		{"PUT", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/link", 403},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/other", 403},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/link/x", 403},
+		{"GET", "/api/trips/saved", 204},
 		{"PUT", "/api/settings/home-location", 204}, // Essential Settings on iPhone
 		{"POST", "/api/settings/home-location/restore", 204},
 		{"POST", "/api/settings/home-location/search", 204},

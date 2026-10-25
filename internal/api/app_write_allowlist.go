@@ -37,6 +37,10 @@ var appWrites = map[string]bool{
 	"POST /api/milestones/dismiss":      true, // hide a milestone card
 	"PATCH /api/settings/charging":      true, // the home rate, merged field by field (settings_charging.go)
 	"PATCH /api/settings/units":         true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
+	// Saved trips (DA-approved Oct 25): save a new one. Update, link and unlink go by pattern (appSavedTripPath). DELETE stays
+	// web-only: a leaked token must not wipe a user's trips, and there is no undo. Capped per account and per trip (trips.MaxPerUser,
+	// savedTripMaxBytes), and limited to 30 writes a minute.
+	"POST /api/trips/saved": true,
 	// Home location (Essential Settings on iPhone, DA-approved Oct 25): set, clear, restore and the address search. The worst a
 	// leaked token can do is move "home", which relabels and re-prices new charges and is undone by restore; it cannot read more
 	// than the app's GET already does. Audited by field names, limited per user, and the account is emailed when the app sets it.
@@ -70,6 +74,27 @@ func appSessionRevokePath(p string) bool {
 	return err == nil && u.String() == id
 }
 
+// appSavedTripPath reports whether the request is one of the saved-trip writes the phone may send by id: PUT /api/trips/saved/{id},
+// POST /api/trips/saved/{id}/link and /unlink, with {id} a canonical (lower-case, hyphenated) UUID. DELETE is not here.
+func appSavedTripPath(method, p string) bool {
+	rest, ok := strings.CutPrefix(p, "/api/trips/saved/")
+	if !ok {
+		return false
+	}
+	id, action, hasAction := strings.Cut(rest, "/")
+	u, err := uuid.Parse(id)
+	if err != nil || u.String() != id {
+		return false
+	}
+	switch {
+	case !hasAction:
+		return method == http.MethodPut
+	case method == http.MethodPost:
+		return action == "link" || action == "unlink"
+	}
+	return false
+}
+
 // vehicleProfileSuffix ends PUT /api/vehicles/{id}/profile: the truck's tire, wheel and load profile, which only feeds the
 // efficiency and planner calculations.
 const (
@@ -99,11 +124,13 @@ func appVehicleProfilePath(p string) bool {
 	return id != "." && id != ".."
 }
 
-// appWriteAllowed is the whole list: the exact routes in appWrites, signing one device out by its id, and a vehicle's profile.
+// appWriteAllowed is the whole list: the exact routes in appWrites, signing one device out by its id, a vehicle's profile, and a
+// saved trip by its id.
 func appWriteAllowed(method, p string) bool {
 	return appWrites[method+" "+p] ||
 		(method == http.MethodDelete && appSessionRevokePath(p)) ||
-		(method == http.MethodPut && appVehicleProfilePath(p))
+		(method == http.MethodPut && appVehicleProfilePath(p)) ||
+		appSavedTripPath(method, p)
 }
 
 // appWriteDenied is the text of the refusal; tests look for it.

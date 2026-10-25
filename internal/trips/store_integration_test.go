@@ -272,3 +272,45 @@ func TestDelete(t *testing.T) {
 		t.Errorf("second Delete: want ErrNotFound, got %v", err)
 	}
 }
+
+// A phone token must not be able to store without bound: Create refuses the (MaxPerUser+1)th trip, atomically, per account; an
+// edit at the cap still works, and deleting one makes room.
+func TestCreateStopsAtThePerUserCap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	a, _ := db.EnsureUser(ctx, pool, "cap-a")
+	b, _ := db.EnsureUser(ctx, pool, "cap-b")
+	sa, _ := trips.OpenStore(pool, a)
+	sb, _ := trips.OpenStore(pool, b)
+	inputs := json.RawMessage(`{"n":1}`)
+	var first uuid.UUID
+	for i := 0; i < trips.MaxPerUser; i++ {
+		tr, err := sa.Create(ctx, fmt.Sprintf("trip %03d", i), inputs, nil, nil)
+		if err != nil {
+			t.Fatalf("trip %d: %v", i, err)
+		}
+		if i == 0 {
+			first = tr.ID
+		}
+	}
+	if _, err := sa.Create(ctx, "one too many", inputs, nil, nil); !errors.Is(err, trips.ErrLimit) {
+		t.Fatalf("past the cap: %v, want ErrLimit", err)
+	}
+	if _, err := sb.Create(ctx, "someone else's first", inputs, nil, nil); err != nil {
+		t.Errorf("another account is limited by this one: %v", err)
+	}
+	if _, err := sa.Update(ctx, first, "renamed at the cap", inputs, nil, nil); err != nil {
+		t.Errorf("an edit at the cap was refused: %v", err)
+	}
+	if err := sa.Delete(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sa.Create(ctx, "room again", inputs, nil, nil); err != nil {
+		t.Errorf("after a delete: %v", err)
+	}
+}

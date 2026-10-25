@@ -1510,11 +1510,13 @@ func New(d Deps) http.Handler {
 			// against current station / weather state.
 			// Plan vs Actual (B12): compare a saved trip with the outing
 			// that happened.
+			// Saves, edits and links: 30 a minute per user, for the web and the phone alike.
+			savedTripWriteLimiter := mapsUserLimiter(30)
 			if d.DB != nil && d.Trips != nil {
 				pa := newPlanActualAPI(d.DB, d.Trips, d.Settings)
 				r.Get("/trips/saved/{id}/actual", withUser(pa.actual))
-				r.Post("/trips/saved/{id}/link", withUser(pa.link))
-				r.Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
+				r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/link", withUser(pa.link))
+				r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
 			}
 			// Where a saved multi-day trip stands (which day is under way, where
 			// the truck is), for "re-plan from here". Reads only.
@@ -1524,10 +1526,10 @@ func New(d Deps) http.Handler {
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripsList(d.Trips.For(uid))(w, r)
 			}))
-			r.Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripCreate(d.Trips.For(uid))(w, r)
 			}))
-			r.Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(savedTripWriteLimiter.Middleware).Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripUpdate(d.Trips.For(uid))(w, r)
 			}))
 			r.Delete("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
