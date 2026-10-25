@@ -45,7 +45,9 @@ type ledgerAPI struct {
 // withBilled returns a copy that adds the billed_* fields for users the
 // rivian_receipts flag covers. Only the Money endpoints use it.
 func (a ledgerAPI) withBilled(f *flags.Store, sf *settings.Factory) ledgerAPI {
-	a.billed = func(uid uuid.UUID) bool { return receiptsAllowed(context.Background(), f, sf, uid) }
+	// The user rides in the context: sf is request-side under row-level security, and a context with no user reads no settings, so
+	// every statement would quietly lose its billed amounts.
+	a.billed = func(uid uuid.UUID) bool { return receiptsAllowed(auth.WithUser(context.Background(), uid), f, sf, uid) }
 	return a
 }
 
