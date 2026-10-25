@@ -36,8 +36,10 @@ type SessionsAPI struct {
 	Remembered RememberedRevoker
 }
 
-// forget clears what the identity provider remembers after Rivolt's own sessions were revoked. A failure is reported, not
-// swallowed: the sessions are gone but the browser could still sign back in, and retrying is safe (every step is idempotent).
+// forget clears what the identity provider remembers. It runs BEFORE Rivolt's own sessions are revoked, in both handlers: a failure
+// is reported and nothing has changed yet, so the retry runs the whole thing again (run after, the revoked row would be a 404 on the
+// retry and the browser would stay remembered, behind a message that said to try again). Forgetting first also means a session a
+// remembered browser opens in between is revoked by the call that follows. The user is always the caller's own.
 func (a *SessionsAPI) forget(w http.ResponseWriter, r *http.Request, uid uuid.UUID) bool {
 	if a.Remembered == nil {
 		return true
@@ -119,6 +121,9 @@ func (a *SessionsAPI) Revoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !a.forget(w, r, uid) {
+		return
+	}
 	done, err := a.Store.RevokeOwned(r.Context(), uid, id)
 	if err != nil {
 		http.Error(w, "couldn't revoke", http.StatusInternalServerError)
@@ -126,9 +131,6 @@ func (a *SessionsAPI) Revoke(w http.ResponseWriter, r *http.Request) {
 	}
 	if !done {
 		http.NotFound(w, r)
-		return
-	}
-	if !a.forget(w, r, uid) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -146,12 +148,12 @@ func (a *SessionsAPI) RevokeOthers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this sign-in has no session to keep; sign in with a browser or the app first", http.StatusConflict)
 		return
 	}
+	if !a.forget(w, r, uid) {
+		return
+	}
 	n, err := a.Store.RevokeOthers(r.Context(), uid, cur)
 	if err != nil {
 		http.Error(w, "couldn't revoke", http.StatusInternalServerError)
-		return
-	}
-	if !a.forget(w, r, uid) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revoked": n})

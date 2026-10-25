@@ -102,37 +102,56 @@ func TestIdentityRevokerNoIdentityIsNothingToDo(t *testing.T) {
 
 type fakeRevoker struct {
 	calls int
-	err   error
+	// failFirst makes the first n calls fail (a Hydra that is briefly down).
+	failFirst int
 }
 
-func (f *fakeRevoker) RevokeRemembered(context.Context, uuid.UUID) error { f.calls++; return f.err }
+func (f *fakeRevoker) RevokeRemembered(context.Context, uuid.UUID) error {
+	f.calls++
+	if f.calls <= f.failFirst {
+		return errors.New("hydra down")
+	}
+	return nil
+}
 
 // Sign out other devices, and revoking one session, also clear the identity provider's memory, or the revoked browser signs
-// straight back in. A failure to clear it is reported, not hidden.
-func TestSessionsAPIRevokeAlsoForgetsTheRememberedLogin(t *testing.T) {
+// straight back in. The memory is cleared FIRST: when that fails the answer is a 502 and nothing was revoked, so the retry runs
+// the whole thing again (cleared after, the retry would find the row already revoked, answer 404, and never clear it).
+func TestSessionsAPIRevokeForgetsTheRememberedLoginFirstAndRetries(t *testing.T) {
 	me := uuid.New()
 	cur := uuid.New()
 	other := uuid.New()
-	fs := &fakeSessions{owner: me, rows: nil}
-	fs.rows = append(fs.rows, sessions.Session{ID: cur, UserID: me, Kind: sessions.KindWeb}, sessions.Session{ID: other, UserID: me, Kind: sessions.KindWeb})
 	for _, c := range []struct {
 		name, method, path string
 		h                  func(*SessionsAPI) http.HandlerFunc
+		done               func(*fakeSessions) bool
 	}{
-		{"revoke one", "DELETE", "/api/auth/sessions/" + other.String(), func(a *SessionsAPI) http.HandlerFunc { return a.Revoke }},
-		{"revoke others", "POST", "/api/auth/sessions/revoke-others", func(a *SessionsAPI) http.HandlerFunc { return a.RevokeOthers }},
+		{"revoke one", "DELETE", "/api/auth/sessions/" + other.String(), func(a *SessionsAPI) http.HandlerFunc { return a.Revoke }, func(f *fakeSessions) bool { return len(f.revoked) == 1 }},
+		{"revoke others", "POST", "/api/auth/sessions/revoke-others", func(a *SessionsAPI) http.HandlerFunc { return a.RevokeOthers }, func(f *fakeSessions) bool { return f.keptOther == cur }},
 	} {
-		fr := &fakeRevoker{}
+		fs := &fakeSessions{owner: me, rows: []sessions.Session{{ID: cur, UserID: me, Kind: sessions.KindWeb}, {ID: other, UserID: me, Kind: sessions.KindWeb}}}
+		fr := &fakeRevoker{failFirst: 1}
 		a := &SessionsAPI{Store: fs, Current: func(*http.Request) (uuid.UUID, bool) { return cur, true }, Remembered: fr}
+
 		rec := sessReq(c.h(a), c.method, c.path, me, false)
-		if rec.Code >= 300 || fr.calls != 1 {
-			t.Errorf("%s: code %d, revoker called %d times; want success and one call", c.name, rec.Code, fr.calls)
-		}
-		fr = &fakeRevoker{err: errors.New("hydra down")}
-		a.Remembered = fr
-		if rec := sessReq(c.h(a), c.method, c.path, me, false); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "hydra down") {
+		if rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "hydra down") {
 			t.Errorf("%s: a failed forget must be a 502 that does not echo the error: %d %s", c.name, rec.Code, rec.Body.String())
 		}
+		if c.done(fs) {
+			t.Errorf("%s: nothing may be revoked when the forget failed (the retry must start from scratch)", c.name)
+		}
+
+		rec = sessReq(c.h(a), c.method, c.path, me, false)
+		if rec.Code >= 300 || fr.calls != 2 || !c.done(fs) {
+			t.Errorf("%s retry: code %d, forget called %d times, revoked=%v; want success on the second call", c.name, rec.Code, fr.calls, c.done(fs))
+		}
+	}
+
+	// No revoker configured (no Hydra): the revoke works as before.
+	fs := &fakeSessions{owner: me, rows: []sessions.Session{{ID: other, UserID: me, Kind: sessions.KindWeb}}}
+	a := &SessionsAPI{Store: fs, Current: func(*http.Request) (uuid.UUID, bool) { return cur, true }}
+	if rec := sessReq(a.Revoke, "DELETE", "/api/auth/sessions/"+other.String(), me, false); rec.Code != http.StatusNoContent {
+		t.Errorf("no revoker: %d", rec.Code)
 	}
 }
 
