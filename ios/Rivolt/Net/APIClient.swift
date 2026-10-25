@@ -439,6 +439,32 @@ actor APIClient {
         try await request("PATCH", "/api/settings/charging", body: ChargingRatesPatch(homePricePerKwh: pricePerKwh, homeCurrency: currency))
     }
 
+    // MARK: Trip planner
+
+    /// A plan for one outing. The server passes Rivian's planner through, so this can answer 401 with a `class` (Rivian needs
+    /// reconnecting: `APIError.rivianReauth`), 429 (its hourly planning quota, or the server's) or a 502 on a long day.
+    func planTrip(_ body: TripPlanRequest) async throws -> TripPlan {
+        try await request("POST", "/api/trips/plan", body: body)
+    }
+
+    /// Places matching a typed name, for an origin or a destination (the server's own geocoder).
+    func geocode(_ q: String, count: Int = 5) async throws -> [PlaceMatch] {
+        try await request("GET", "/api/geocode?q=\(queryValue(q))&count=\(count)")
+    }
+
+    func savedTrips() async throws -> [SavedTrip] {
+        try await request("GET", "/api/trips/saved")
+    }
+
+    /// Saves a trip under a name (409 when the name is taken). `inputs` and `plan` are written as the web writes them, so each reads the other's.
+    func saveTrip(_ body: SavedTripBody) async throws -> SavedTrip {
+        try await request("POST", "/api/trips/saved", body: body)
+    }
+
+    func updateSavedTrip(id: String, _ body: SavedTripBody) async throws -> SavedTrip {
+        try await request("PUT", "/api/trips/saved/\(pathID(id))", body: body)
+    }
+
     // MARK: Essential settings
 
     func homeLocation() async throws -> HomeLocation {
