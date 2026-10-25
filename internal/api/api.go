@@ -408,17 +408,19 @@ func New(d Deps) http.Handler {
 		// the real identity and before any route reads
 		// auth.UserFromContext, so the swap it performs is
 		// invisible to every downstream handler/store/RLS check.
+		// System pool (RLS policy): the caller's role is read before the request's user is settled (the view-as swap happens here), and
+		// the audit row is an admin table.
 		r.Use(impersonationMW(func(ctx context.Context, uid uuid.UUID) (string, error) {
-			if d.DB == nil {
+			if d.SystemDB == nil {
 				return "", nil
 			}
-			return db.RoleFor(ctx, d.DB, uid)
+			return db.RoleFor(ctx, d.SystemDB, uid) // system pool: identity lookup
 		}, func() bool { return d.ImpersonationDisabled || d.AdminDisabled },
 			func(ctx context.Context, admin, target uuid.UUID, ip string) error {
-				if d.DB == nil {
+				if d.SystemDB == nil {
 					return nil
 				}
-				return adminaudit.New(d.DB).NoteImpersonationStart(ctx, admin, target, ip, 30*time.Minute)
+				return adminaudit.New(d.SystemDB).NoteImpersonationStart(ctx, admin, target, ip, 30*time.Minute) // system pool: admin audit
 			}))
 		if d.AdminOnly {
 			r.Use(adminOnlyViewAsMW)
@@ -444,7 +446,7 @@ func New(d Deps) http.Handler {
 	// with a tight timeout so a DB outage drops the pod from Service
 	// endpoints without restart-looping the binary.
 	r.Get("/healthz", handleHealthz())
-	r.Get("/readyz", handleReadyz(d.DB))
+	r.Get("/readyz", handleReadyz(d.SystemDB)) // system pool: a pre-auth probe of the owner connection
 
 	// Release notes are public and cheap (a cached copy), but limited per IP
 	// like the other unauthenticated reads.
@@ -547,11 +549,11 @@ func New(d Deps) http.Handler {
 		}
 		// Weekly recap email (opt-in, internal/weekly): the sweep, and its signed
 		// one-click unsubscribe, public like the statement's.
-		if d.DB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled() {
+		if d.SystemDB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled() {
 			if runWeekly {
 				startWeeklyJob(d)
 			}
-			wu := &weeklyUnsub{db: d.DB, signer: d.WeeklySigner, now: time.Now}
+			wu := &weeklyUnsub{db: d.SystemDB, signer: d.WeeklySigner, now: time.Now} // system pool: a signed link, no session
 			wl := newIPLimiter(30, time.Minute, time.Hour)
 			wl.key = demoClientKey
 			r.With(wl.Middleware).Get("/weekly-recap/unsubscribe", wu.get)
@@ -560,15 +562,15 @@ func New(d Deps) http.Handler {
 		// Monthly statement email: signed one-click unsubscribe.
 		// Public (no session), per-IP limited, GET shows a page and
 		// POST performs it (RFC 8058). 404 without a signer or DB.
-		if d.DB != nil && d.StatementSigner != nil {
-			stm := newStatementAPI(d.DB, d, d.StatementSigner)
+		if d.SystemDB != nil && d.StatementSigner != nil {
+			stm := newStatementAPI(d.SystemDB, d, d.StatementSigner) // system pool: a signed link, no session
 			unsubLimiter := newIPLimiter(30, time.Minute, time.Hour)
 			unsubLimiter.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
 			r.With(unsubLimiter.Middleware).Get("/statement-email/unsubscribe", stm.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/statement-email/unsubscribe", stm.unsubscribePost)
 			// Welcome and setup emails: the same kind of signed one-click
 			// link, scoped by its purpose so the two never cross.
-			oe := &onboardingEmailAPI{db: d.DB, signer: d.StatementSigner, now: time.Now}
+			oe := &onboardingEmailAPI{db: d.SystemDB, signer: d.StatementSigner, now: time.Now} // system pool: a signed link, no session
 			r.With(unsubLimiter.Middleware).Get("/onboarding-email/unsubscribe", oe.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/onboarding-email/unsubscribe", oe.unsubscribePost)
 		}
@@ -585,7 +587,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.SignupRequests != nil && !signupgate.Disabled() {
-			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger, signupCapOK(d)))
+			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.SystemDB /* system pool: signup, no user yet */, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger, signupCapOK(d)))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -612,12 +614,12 @@ func New(d Deps) http.Handler {
 		// First-party product events (counts and enums only). Public with
 		// an optional session; per-IP limited, 2 KB cap. Off unless
 		// RIVOLT_EVENTS=true.
-		if d.DB != nil {
-			startEventsPurge(d.DB) // regardless of the flag: retention is a promise
+		if d.SystemDB != nil {
+			startEventsPurge(d.SystemDB) // regardless of the flag: retention is a promise. System pool: a retention job across users
 		}
-		if d.DB != nil && eventsEnabled() {
+		if d.SystemDB != nil && eventsEnabled() {
 			evLimiter := newIPLimiter(eventsRatePerMin, time.Minute, time.Hour)
-			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", handleEvents(newPGEventsSink(d.DB)))
+			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", handleEvents(newPGEventsSink(d.SystemDB))) // system pool: anonymous callers have no user, and the row's user is optional
 		}
 
 		// Everything else sits behind requireUser when auth is
@@ -1045,17 +1047,19 @@ func New(d Deps) http.Handler {
 			//   - users:       list / promote / delete users
 			//   - settings/ai: install-wide AI provider config
 			r.Route("/admin", func(r chi.Router) {
+				// System pool for everything under /admin (RLS policy): admin routes span users, read and write non-tenant tables
+				// (admin_audit, flags, signup_requests, idp_delete_failures) and sit behind Access on the admin host.
 				r.Use(requireAdminMW(func(ctx context.Context, uid uuid.UUID) (string, error) {
-					if d.DB == nil {
+					if d.SystemDB == nil {
 						return "", nil
 					}
-					return db.RoleFor(ctx, d.DB, uid)
+					return db.RoleFor(ctx, d.SystemDB, uid)
 				}))
 				// Every admin write below is audited (admin_audit): the row is
 				// written first and the change is refused if that fails.
 				var auditStore *adminaudit.Store
-				if d.DB != nil {
-					auditStore = adminaudit.New(d.DB)
+				if d.SystemDB != nil {
+					auditStore = adminaudit.New(d.SystemDB)
 				}
 				audit := adminAudit(auditStore)
 				flagBefore := func(f func(*flags.Store) map[string]any) func() map[string]any {
@@ -1092,30 +1096,30 @@ func New(d Deps) http.Handler {
 						return map[string]any{"all": f.StatementEmail().All, "users_count": len(f.StatementEmail().Users)}
 					})})).
 					Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
-				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
+				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.SystemDB))
 				r.With(audit(auditSpec{action: "flag.signup_cap", targetType: "flag", targetID: "signup_cap", keys: []string{"limit"},
 					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"limit": f.SignupCap().Limit} })})).
-					Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
+					Put("/signup-cap", handleSignupCapPut(d.Flags, d.SystemDB))
 				r.With(audit(auditSpec{action: "flag.ai_call_cap", targetType: "flag", targetID: "ai_call_cap", keys: []string{"daily_limit"},
 					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"daily_limit": f.AICallCap().DailyLimit} })})).
 					Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
-				r.Get("/users", handleAdminUsersList(d.DB, d.Flags))
-				r.Get("/idp-delete-failures", handleAdminIdPFailures(d.DB))
+				r.Get("/users", handleAdminUsersList(d.SystemDB, d.Flags))
+				r.Get("/idp-delete-failures", handleAdminIdPFailures(d.SystemDB))
 				r.With(audit(auditSpec{action: "idp_failure.retry", targetType: "idp_delete_failure", idParam: "id"})).
-					Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.DB, d.Users, d.Logger))
-				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
+					Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.SystemDB, d.Users, d.Logger))
+				r.Get("/users/{id}", handleAdminUserDetail(d.SystemDB))
 				r.With(audit(auditSpec{action: "user.create", targetType: "user", usernameID: "username", keys: []string{"role", "disabled"}})).
-					Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
+					Post("/users", handleAdminUserCreate(d.SystemDB, d.Users, d.Logger))
 				r.With(audit(auditSpec{action: "user.set_role", targetType: "user", idParam: "id", userTarget: true, keys: []string{"role"}})).
-					Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
+					Post("/users/{id}/role", handleAdminUserSetRole(d.SystemDB))
 				r.With(audit(auditSpec{action: "user.set_disabled", targetType: "user", idParam: "id", userTarget: true, keys: []string{"disabled"}})).
-					Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
+					Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.SystemDB))
 				r.With(audit(auditSpec{action: "user.sync_rivian", targetType: "user", idParam: "id", userTarget: true})).
-					Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.DB, d.Logger))
+					Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.SystemDB, d.Logger))
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
-					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.DB, d.Logger))
+					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.SystemDB, d.Logger))
 				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
-					Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.AppleRevocation, d.Logger))
+					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.AppleRevocation, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.With(audit(auditSpec{action: "settings.ai", targetType: "settings", targetID: "ai", fields: true})).
 					Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
@@ -1130,7 +1134,7 @@ func New(d Deps) http.Handler {
 				if d.SignupRequests != nil && !signupgate.Disabled() {
 					r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
 					r.With(audit(auditSpec{action: "signup_request.approve", targetType: "signup_request", idParam: "id"})).
-						Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
+						Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.SystemDB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
 					r.With(audit(auditSpec{action: "signup_request.reject", targetType: "signup_request", idParam: "id"})).
 						Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 				}
@@ -1625,7 +1629,7 @@ func otelTraceRoute(next http.Handler) http.Handler {
 // (limit <= 0 blocks; otherwise the user count must be under it): the same
 // rule the OIDC callback applies. nil without flags or a database.
 func signupCapOK(d Deps) func(ctx context.Context) (bool, error) {
-	if d.Flags == nil || d.DB == nil {
+	if d.Flags == nil || d.SystemDB == nil {
 		return nil
 	}
 	return func(ctx context.Context) (bool, error) {
@@ -1633,7 +1637,7 @@ func signupCapOK(d Deps) func(ctx context.Context) (bool, error) {
 		if lim <= 0 {
 			return false, nil
 		}
-		n, err := db.CountUsers(ctx, d.DB)
+		n, err := db.CountUsers(ctx, d.SystemDB) // system pool: counts every user, before the new one exists
 		if err != nil {
 			return false, err
 		}
@@ -1651,7 +1655,7 @@ func newAutoApprove(d Deps) *autoApprove {
 	return &autoApprove{
 		capOK: capOK,
 		userExists: func(ctx context.Context, email string) (bool, error) {
-			return db.UserExistsByUsername(ctx, d.DB, email)
+			return db.UserExistsByUsername(ctx, d.SystemDB, email) // system pool: signup auto-approve, no session
 		},
 		send: func(ctx context.Context, to, link string) error {
 			return sendApprovalEmail(ctx, d.Email, to, link)
