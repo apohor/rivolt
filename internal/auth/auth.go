@@ -978,6 +978,26 @@ func (s *Service) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ClearKratosCookie expires the Kratos session cookie (host-only, like Kratos sets it) when the request carries one. The Kratos
+// session behind it is ended separately; this stops the browser sending a dead cookie, and is what a person expects of "Sign out".
+func (s *Service) ClearKratosCookie(w http.ResponseWriter, r *http.Request) {
+	if s == nil || s.kratosCookieName == "" {
+		return
+	}
+	if _, err := r.Cookie(s.kratosCookieName); err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.kratosCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.secureCooke,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
 func (s *Service) clearCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.cookieName,

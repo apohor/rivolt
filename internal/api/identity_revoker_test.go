@@ -225,6 +225,8 @@ func TestRevokedBrowserGetsThePasswordForm(t *testing.T) {
 // Hydra's remember state.
 func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
 	remembered := map[string]bool{"kid-1": true}
+	kratosSessionAlive := true
+	kratosUser := uuid.New()
 	var deletes []string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/oauth2/auth/requests/login", func(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +252,11 @@ func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
 	mux.HandleFunc("/admin/identities", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[{"id":"kid-1","traits":{"email":"owner@x.test"}}]`))
 	})
+	mux.HandleFunc("/admin/identities/kid-1/sessions", func(w http.ResponseWriter, r *http.Request) {
+		deletes = append(deletes, r.URL.Path)
+		kratosSessionAlive = false
+		w.WriteHeader(http.StatusNoContent)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	h, err := hydra.New(hydra.Config{AdminURL: srv.URL})
@@ -260,7 +267,11 @@ func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	// The real auth middleware, with a Kratos resolver that answers from the model: a browser holding ory_kratos_session is signed
+	// in with no Rivolt session at all, for as long as the Kratos session lives.
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor, KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+		return kratosUser, kratosSessionAlive, nil
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,8 +307,8 @@ func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
 	if loginSkips() {
 		t.Error("after Sign out the same browser must get the password form, not a skip")
 	}
-	if len(deletes) != 1 || deletes[0] != "/admin/oauth2/auth/sessions/login" {
-		t.Errorf("sign-out must forget the login only, not the consent grants: %v", deletes)
+	if len(deletes) != 2 || deletes[0] != "/admin/oauth2/auth/sessions/login" || deletes[1] != "/admin/identities/kid-1/sessions" {
+		t.Errorf("sign-out must forget the Hydra login and the Kratos sessions, and leave the consent grants: %v", deletes)
 	}
 
 	// An admin viewing as the user signs out of nothing of the target's (the app's bearer sign-out is skipped the same way).
@@ -320,5 +331,77 @@ func TestSignOutAlsoEndsTheRememberedLogin(t *testing.T) {
 	// And with nothing configured it is the old behavior.
 	if rec := logout(Deps{Auth: svc}, nil); rec.Code != http.StatusNoContent {
 		t.Errorf("logout without a forgetter = %d", rec.Code)
+	}
+}
+
+// The auth middleware accepts an ory_kratos_session cookie BEFORE it looks at Rivolt's own, and the public Kratos browser flow is
+// reachable, so a browser can hold a 30-day session that Rivolt's own sign-out never touched. After "Sign out" that browser must be
+// signed out: its Kratos sessions are ended, and the dead cookie is expired in the response.
+func TestSignOutEndsAKratosCookieSession(t *testing.T) {
+	alive := true
+	user := uuid.New()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/admin/identities", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"kid-1","traits":{"email":"owner@x.test"}}]`))
+	})
+	mux.HandleFunc("/admin/identities/kid-1/sessions", func(w http.ResponseWriter, r *http.Request) {
+		alive = false
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	k, err := kratos.New(kratos.Config{AdminURL: srv.URL, PublicURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor, KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) { return user, alive, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := &IdentityRevoker{Kratos: k, Username: func(context.Context, uuid.UUID) (string, error) { return "owner@x.test", nil }}
+	d := Deps{Auth: svc, LoginForgetter: rev}
+
+	signedIn := func() bool {
+		var got bool
+		h := svc.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, got = auth.UserFromContext(r.Context()) }))
+		req := httptest.NewRequest(http.MethodGet, "/api/anything", nil)
+		req.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "k"})
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		return got
+	}
+	if !signedIn() {
+		t.Fatal("a valid Kratos cookie signs the browser in with no Rivolt session (the hole)")
+	}
+
+	// The logout request is itself made with that cookie, as the browser would.
+	h := svc.Middleware(d.logoutHandler())
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "k"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout = %d", rec.Code)
+	}
+	if signedIn() {
+		t.Error("after Sign out the Kratos-cookie browser must be signed out")
+	}
+	expired := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "ory_kratos_session" && c.MaxAge < 0 {
+			expired = true
+		}
+	}
+	if !expired {
+		t.Error("the response must expire the ory_kratos_session cookie")
+	}
+
+	// A logout from a browser without the cookie does not set one.
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	rec = httptest.NewRecorder()
+	d.logoutHandler()(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "ory_kratos_session" {
+			t.Errorf("no Kratos cookie was sent, none should be set: %+v", c)
+		}
 	}
 }

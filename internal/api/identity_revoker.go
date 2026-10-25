@@ -27,9 +27,13 @@ type LoginForgetter interface {
 	ForgetLogin(ctx context.Context, uid uuid.UUID) error
 }
 
-// ForgetLogin deletes the Hydra login sessions of the user's identity (see LoginForgetter).
+// ForgetLogin deletes the Hydra login sessions of the user's identity (see LoginForgetter) and the identity's Kratos sessions.
+// The Kratos ones matter because the auth middleware accepts an ory_kratos_session cookie on rivolt.dev BEFORE it looks at Rivolt's
+// own cookie: a browser that holds one is signed in with no Rivolt session at all, and "Sign out" would leave it so. The public
+// Kratos browser flow is reachable through the ingress, so anyone with the password can mint one (30 days). Both steps are tried
+// and every error returned.
 func (r *IdentityRevoker) ForgetLogin(ctx context.Context, uid uuid.UUID) error {
-	if r == nil || !r.Kratos.Enabled() || !r.Hydra.Enabled() || r.Username == nil {
+	if r == nil || !r.Kratos.Enabled() || r.Username == nil {
 		return nil
 	}
 	username, err := r.Username(ctx, uid)
@@ -46,7 +50,12 @@ func (r *IdentityRevoker) ForgetLogin(ctx context.Context, uid uuid.UUID) error 
 	if id == "" {
 		return nil
 	}
-	return r.Hydra.RevokeLoginSessions(ctx, id)
+	var errs []error
+	if r.Hydra.Enabled() {
+		errs = append(errs, r.Hydra.RevokeLoginSessions(ctx, id))
+	}
+	errs = append(errs, r.Kratos.RevokeIdentitySessions(ctx, id))
+	return errors.Join(errs...)
 }
 
 // IdentityRevoker clears, for one user: Hydra's remembered logins, its consent grants (which revokes the OAuth tokens issued under
