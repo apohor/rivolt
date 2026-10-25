@@ -9,6 +9,7 @@ export const AUDIT_ACTIONS: { id: string; label: string }[] = [
   { id: "user.delete", label: "Delete user" },
   { id: "user.sync_rivian", label: "Sync Rivian" },
   { id: "user.refresh_rivian_session", label: "Refresh Rivian session" },
+  { id: "user.secure", label: "Reset account access" },
   { id: "signup_request.approve", label: "Approve signup" },
   { id: "signup_request.reject", label: "Reject signup" },
   { id: "flag.kill_switch", label: "Kill switch" },

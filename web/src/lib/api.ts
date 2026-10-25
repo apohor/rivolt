@@ -1579,6 +1579,13 @@ export const backend = {
   // up accounts that connected before the eager-prime fix shipped or
   // any case where the local vehicles row drifted from the Rivian
   // account. Idempotent.
+  // One audited action for an account someone else may hold: a new random password (returned once, never stored), every session and
+  // remembered sign-in ended, every passkey removed, the owner emailed. Safe to run again after a partial failure (502 `incomplete`
+  // names the step and carries no password).
+  adminSecureUser: (id: string) =>
+    api.post<{ ok: true; temporary_password: string; sessions_revoked: number; passkeys_removed: number }>(
+      `/api/admin/users/${encodeURIComponent(id)}/secure`,
+    ),
   adminSyncRivian: (id: string) =>
     api.post<{ ok: true; vehicle_count: number }>(
       `/api/admin/users/${encodeURIComponent(id)}/sync-rivian`,
