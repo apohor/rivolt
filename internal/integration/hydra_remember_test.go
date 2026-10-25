@@ -24,7 +24,7 @@ import (
 
 // hydraImage is the Hydra the test runs against: the version prod and preview run (docker.io/oryd/hydra). Bump it with the Ory
 // chart appVersion; the pre-pull step in build.yml names the same tag.
-const hydraImage = "oryd/hydra:v26.2.0"
+const hydraImage = "oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9"
 
 const (
 	hydraClientID    = "rivolt-test"
