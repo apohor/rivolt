@@ -235,8 +235,8 @@ func (p *passkeyAPI) notifyAdded(ctx context.Context, to string, c passkeys.Cred
 		Subject:        "A passkey was added to your Rivolt account",
 		IdempotencyKey: "passkey-added-" + c.ID.String(),
 		Text: "A passkey named \"" + c.Label + "\" was added to your Rivolt account, so you can now sign in with it.\n\n" +
-			"If this was you, there is nothing to do. If it wasn't, sign in and open Settings → Security, then choose \"Reset password and\n" +
-			"remove all passkeys\": it changes your password, removes every passkey and signs every other device out.\n" +
+			"If this was you, there is nothing to do. If it wasn't, sign in and open Settings → Security, then choose \"" + SecureAccountLabel + "\":\n" +
+			"it changes your password, removes every passkey and signs every other device out.\n" +
 			p.BaseURL + "/settings?tab=security\n\nThen write to support@rivolt.dev.\n",
 	}); err != nil {
 		p.Logger.Warn("passkeys: added notice not sent")

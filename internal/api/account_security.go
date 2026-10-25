@@ -20,6 +20,10 @@ import (
 	"github.com/apohor/rivolt/internal/sessions"
 )
 
+// SecureAccountLabel is the one name of the "secure the account" action wherever a person reads it: the Settings → Security button
+// (web, ux) and the "passkey added" email. They must be the same string. The code calls the action "secure".
+const SecureAccountLabel = "Reset password and remove all passkeys"
+
 // accountSecurityAPI is the owner's way to take an account back: change the password, or "secure my account" (the password, every
 // passkey, and every other sign-in). It needs no passkeys: it is how a password gets changed at all, since Kratos recovery is off.
 //
@@ -157,7 +161,11 @@ func (a *accountSecurityAPI) serve(w http.ResponseWriter, r *http.Request, secur
 
 	// The current password is the re-authentication. Failures count against the address (a stolen session cannot be used to
 	// brute-force it from anywhere) and against the client.
-	acctKey := "password-change:" + emailLimitKey(mail)
+	// The account counter is per SESSION: the threat here is someone holding a session on the account, and a counter shared by every
+	// session of the account would let them spend its budget on wrong guesses and lock the owner out of the one recovery action for
+	// fifteen minutes, again and again. Per session, a stolen one still gets only ten guesses (it cannot mint more sessions without
+	// the password), and the owner's own session has its own budget. The client counter covers a spread across sessions.
+	acctKey := "password-change:" + emailLimitKey(mail) + ":" + ref.ID.String()
 	ipKey := "password-change-ip:" + demoClientKey(r)
 	if a.Failures != nil && (a.Failures.blocked(acctKey) > 0 || a.Failures.blocked(ipKey) > 0) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many attempts, try again later"})

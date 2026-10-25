@@ -213,6 +213,32 @@ func TestChangePasswordRateLimitsWrongCurrentPasswords(t *testing.T) {
 	}
 }
 
+// The failure counter is per session, so someone holding a session on the account cannot spend the owner's budget: ten wrong guesses
+// on one session leave another session of the same account able to change the password.
+func TestWrongGuessesOnOneSessionDoNotLockTheOwnersSessionOut(t *testing.T) {
+	e := newSecEnv(t)
+	otherSession := func(r *http.Request) *http.Request {
+		return r.WithContext(auth.WithSession(r.Context(), auth.SessionRef{ID: uuid.New(), Kind: sessions.KindWeb}))
+	}
+	for i := 0; i < 10; i++ {
+		if rec := e.post(e.api.change, `{"current":"wrong","new":"a-better-pw-9"}`, nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("attempt %d on the attacker's session: %d", i, rec.Code)
+		}
+	}
+	if rec := e.post(e.api.change, `{"current":"old-pw","new":"a-better-pw-9"}`, nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("the spent session must wait: %d", rec.Code)
+	}
+	// The owner's own session, from another browser (and another address), is not locked out.
+	rec := e.post(e.api.change, `{"current":"old-pw","new":"a-better-pw-9"}`, func(r *http.Request) *http.Request {
+		r = otherSession(r)
+		r.RemoteAddr = "198.51.100.7:5000"
+		return r
+	})
+	if rec.Code != http.StatusOK {
+		t.Errorf("the owner's session must have its own budget: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestChangePasswordRefusedBeforeAnythingChanges(t *testing.T) {
 	e := newSecEnv(t)
 	e.k.rejectNew = "weak-pw"
@@ -302,3 +328,16 @@ func TestPasswordChangedButCleanUpIncompleteNamesWhatIsLeft(t *testing.T) {
 }
 
 func secJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+// The "passkey added" email and the Settings button name the action with the same string.
+func TestPasskeyAddedEmailNamesTheSameButtonAsTheScreen(t *testing.T) {
+	m := &secMail{}
+	p := &passkeyAPI{Mail: m, Logger: discardLogger(), BaseURL: "https://rivolt.dev"}
+	p.notifyAdded(context.Background(), "owner@x.test", passkeys.Credential{ID: uuid.New(), Label: "Phone"})
+	if len(m.sent) != 1 || !strings.Contains(m.sent[0].Text, `"`+SecureAccountLabel+`"`) || !strings.Contains(m.sent[0].Text, "https://rivolt.dev/settings?tab=security") {
+		t.Fatalf("mail %+v", m.sent)
+	}
+	if strings.Contains(m.sent[0].Text, "Secure my account") {
+		t.Error("the mail must not use a name the screen does not")
+	}
+}
