@@ -9,6 +9,7 @@ import { useImpersonationDisabled, useRivianActions } from "../../lib/config";
 import { startImpersonation } from "../../lib/impersonation";
 import { Card, ErrorBox, Spinner } from "../../components/ui";
 import { TypedConfirmDialog } from "../../components/TypedConfirmDialog";
+import { ResetAccess } from "../../components/admin/ResetAccess";
 import { UserAuditHistory } from "../../components/AdminAuditNext";
 import { useUserActions } from "../../components/admin/useUserActions";
 
@@ -229,6 +230,7 @@ function ActionsCard({ back, row, users, currentUserID, needsReauth }: { back: s
         {row.role !== "admin" && !impersonationDisabled && (
           <button type="button" className={btn} onClick={() => { startImpersonation({ id: row.id, email: row.email || row.username }); window.location.assign("/"); }}>View as {name}</button>
         )}
+        <ResetAccess row={row} disabled={busy || isSelf} />
         <button type="button" disabled={busy || isSelf || lastAdmin} title={isSelf ? "Cannot delete your own account" : lastAdmin ? "Cannot delete the last admin" : ""} className="ml-auto rounded-md border border-rose-800 px-3 py-1.5 text-sm text-rose-300 hover:border-rose-600 disabled:opacity-40" onClick={() => setPending("delete")}>
           Delete user…
         </button>

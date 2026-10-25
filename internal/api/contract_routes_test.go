@@ -263,7 +263,7 @@ func contractRouter(t *testing.T) chi.Routes {
 		Auth:     svc, ValhallaProxy: stub, TilesProxy: stub, AuthEnforced: true,
 		DB: dead, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Flags: new(flags.Store), Metrics: nil,
 		Email: new(email.Client), StatementSigner: new(statement.Signer), WeeklySigner: new(statement.Signer),
-		SignupRequests: new(signuprequests.Store), OIDC: new(oidc.Service), AppAuth: new(AppAuth), Sessions: &SessionsAPI{Store: sessionStore},
+		SignupRequests: new(signuprequests.Store), OIDC: new(oidc.Service), AppAuth: new(AppAuth), Sessions: &SessionsAPI{Store: sessionStore}, SessionRevoker: sessionStore,
 		Hydra: new(hydra.Client), Kratos: new(kratos.Client), Changelog: new(changelog.Source), ChargersArchive: new(chargers.Archive),
 		Trips: new(trips.Factory), Drives: new(drives.Factory), Charges: new(charges.Factory), Samples: new(samples.Factory),
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
