@@ -11,9 +11,25 @@ export function AccountSecurityCards() {
   const qc = useQueryClient();
   const [noPassword, setNoPassword] = useState(false);
   if (noPassword) return null;
+  const [passkeysLeft, setPasskeysLeft] = useState(false);
+  const [cleanup, setCleanup] = useState<string | null>(null);
   const onFailure = (f: SecurityFailure) => {
     if (f.noPassword) setNoPassword(true);
+    if (f.passkeysIncomplete) setPasskeysLeft(true);
   };
+  // What the reset left undone: every passkey still on the account is removed one by one.
+  async function removeAllPasskeys() {
+    setCleanup("Removing…");
+    try {
+      const list = await backend.passkeys();
+      for (const p of list.passkeys) await backend.passkeyDelete(p.id);
+      setPasskeysLeft(false);
+      setCleanup("All passkeys removed.");
+      void qc.invalidateQueries({ queryKey: ["auth", "passkeys"] });
+    } catch {
+      setCleanup("Couldn't remove them all. Try again.");
+    }
+  }
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["auth", "passkeys"] });
     void qc.invalidateQueries({ queryKey: ["auth", "sessions"] });
@@ -34,6 +50,17 @@ export function AccountSecurityCards() {
           return `Password changed. ${plural(r.sessions_revoked, "other device was", "other devices were")} signed out.${left > 0 ? ` Your passkeys are listed below: remove any you don't recognise.` : ""}`;
         }}
       />
+      {passkeysLeft && (
+        <Card title="Finish removing passkeys" id="reset-cleanup">
+          <div data-passkeys-cleanup className="space-y-2">
+            <p className="text-xs text-neutral-400">Your password is changed. Some passkeys are still on your account.</p>
+            <button type="button" onClick={() => void removeAllPasskeys()} className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600">
+              Remove all passkeys
+            </button>
+            {cleanup && <p role="status" className="text-xs text-neutral-400">{cleanup}</p>}
+          </div>
+        </Card>
+      )}
       <PasswordForm
         id="reset"
         title="Reset password and remove all passkeys"

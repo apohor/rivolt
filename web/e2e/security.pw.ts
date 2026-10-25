@@ -74,3 +74,29 @@ test("a wrong password, an unfinished sign-out and a provider account each get t
   await form.getByRole("button", { name: "Change password" }).click();
   await expect(page.locator("[data-security-form]")).toHaveCount(0);
 });
+
+test("a reset that left passkeys behind offers to finish removing them", async ({ page }) => {
+  await open(page, { secure: { status: 502, body: { error: "password_changed_but_sign_out_incomplete", password_changed: true, incomplete: ["passkeys"], sessions_revoked: 2, passkeys_removed: 1 } } });
+  const deleted: string[] = [];
+  await page.route("**/api/auth/passkeys", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ passkeys: [{ id: "p1", label: "One", created_at: "2026-10-25T12:00:00Z", last_used_at: null, synced: false }, { id: "p2", label: "Two", created_at: "2026-10-25T12:00:00Z", last_used_at: null, synced: true }], max: 10 }) }),
+  );
+  await page.route("**/api/auth/passkeys/*", (r) => {
+    if (r.request().method() === "DELETE") {
+      deleted.push(r.request().url().split("/").pop()!);
+      return r.fulfill({ status: 204 });
+    }
+    return r.fallback();
+  });
+  await page.goto("/settings?tab=security");
+  const form = page.locator("[data-security-form=reset]");
+  await form.getByLabel("Current password").fill("x");
+  await form.getByLabel("New password", { exact: true }).fill("new-pass-2");
+  await form.getByLabel("New password again").fill("new-pass-2");
+  await form.getByRole("button", { name: "Reset password and remove all passkeys" }).click();
+  await form.getByRole("button", { name: "Yes, reset everything" }).click();
+  await expect(form.locator("[data-security-note]")).toContainText("Your password was changed, and the old one no longer works");
+  await page.locator("[data-passkeys-cleanup]").getByRole("button", { name: "Remove all passkeys" }).click();
+  await expect(page.locator("[data-passkeys-cleanup]")).toContainText("All passkeys removed.");
+  expect(deleted.sort()).toEqual(["p1", "p2"]);
+});

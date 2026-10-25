@@ -26,6 +26,17 @@ describe("securityFailure", () => {
     expect(f.text).toContain("Your password was changed");
     expect(f.text).toContain("Sign out everywhere else");
   });
+  it("names what a partial failure left undone: other devices, passkeys, or both", () => {
+    const both = securityFailure(err(502, { error: "password_changed_but_sign_out_incomplete", password_changed: true, incomplete: ["sign_out", "passkeys"] }));
+    expect(both.signOutIncomplete).toBe(true);
+    expect(both.passkeysIncomplete).toBe(true);
+    expect(both.text).toContain("the old one no longer works");
+    expect(both.text).toContain("Remove all passkeys");
+    const only = securityFailure(err(502, { error: "password_changed_but_sign_out_incomplete", password_changed: true, incomplete: ["passkeys"] }));
+    expect(only.signOutIncomplete).toBe(false);
+    expect(only.passkeysIncomplete).toBe(true);
+    expect(only.text).not.toContain("Sign out everywhere else");
+  });
   it("never shows the server's own error word, and uses no banned word", () => {
     const all = [err(403, { error: "password_incorrect" }), err(409, { error: "needs_an_email_account" }), err(500, { error: "kratos_exploded" })].map((e) => securityFailure(e).text).join(" ");
     expect(all).not.toMatch(/password_incorrect|needs_an_email_account|kratos_exploded/);

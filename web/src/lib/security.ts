@@ -2,11 +2,13 @@ import { ApiError } from "./api";
 
 // What to tell the person when the password change or the full reset did not work. The server's own text is never shown, apart from
 // the password policy's reason (which exists to be read: "too short", "too common"), and that is capped.
-export type SecurityFailure = { text: string; noPassword?: boolean; signOutIncomplete?: boolean };
+// `incomplete` names what a changed password left undone: "sign_out" (other devices still signed in) and, after the full reset,
+// "passkeys" (some still not removed).
+export type SecurityFailure = { text: string; noPassword?: boolean; signOutIncomplete?: boolean; passkeysIncomplete?: boolean };
 
 export function securityFailure(e: unknown): SecurityFailure {
   if (e instanceof ApiError) {
-    const body = (e.body ?? {}) as { error?: string; reason?: string; password_changed?: boolean };
+    const body = (e.body ?? {}) as { error?: string; reason?: string; password_changed?: boolean; incomplete?: string[] };
     if (e.status === 403 && body.error === "password_incorrect") return { text: "That isn't your current password." };
     if (e.status === 429) return { text: "Too many wrong attempts. Wait a few minutes, then try again." };
     if (e.status === 422 && body.error === "password_rejected") {
@@ -16,8 +18,16 @@ export function securityFailure(e: unknown): SecurityFailure {
     if (e.status === 400 && body.error === "new_password_must_differ") return { text: "The new password must be different from the current one." };
     if (e.status === 409 && body.error === "needs_an_email_account")
       return { text: "This account signs in with Google, GitHub or Apple, so it has no Rivolt password to change.", noPassword: true };
-    if (e.status === 502 && body.error === "password_changed_but_sign_out_incomplete")
-      return { text: "Your password was changed, but signing out your other devices didn't finish. Use “Sign out everywhere else” under Signed-in devices to finish it.", signOutIncomplete: true };
+    if (e.status === 502 && body.error === "password_changed_but_sign_out_incomplete") {
+      const left = Array.isArray(body.incomplete) ? body.incomplete : ["sign_out"];
+      const signOut = left.includes("sign_out") || !left.includes("passkeys");
+      const passkeys = left.includes("passkeys");
+      const parts = [
+        signOut ? "signing out your other devices didn't finish (use “Sign out everywhere else” under Signed-in devices to finish it)" : "",
+        passkeys ? "removing your passkeys didn't finish (use “Remove all passkeys” below)" : "",
+      ].filter(Boolean);
+      return { text: `Your password was changed, and the old one no longer works, but ${parts.join(" and ")}.`, signOutIncomplete: signOut, passkeysIncomplete: passkeys };
+    }
     if (e.status === 403) return { text: "This can't be done from here (the iPhone app, or viewing as another user). Use a browser signed in as yourself." };
   }
   return { text: "That didn't work. Try again." };
