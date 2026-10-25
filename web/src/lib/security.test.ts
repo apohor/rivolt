@@ -10,10 +10,14 @@ describe("securityFailure", () => {
     expect(securityFailure(err(429, null)).text).toContain("Too many wrong attempts");
     expect(securityFailure(err(400, { error: "new_password_must_differ" })).text).toContain("different");
   });
-  it("says a rejected new password in its own words, never the policy's reason", () => {
-    const f = securityFailure(err(422, { error: "password_rejected", reason: "The password is too similar to your email." }));
-    expect(f.text).toBe("That new password isn't accepted. Use a longer one that is less common and that you don't use anywhere else.");
-    expect(f.text).not.toContain("similar");
+  it("says a rejected new password in its own words, picked by the policy's reason and never showing it", () => {
+    const say = (reason?: string) => securityFailure(err(422, { error: "password_rejected", ...(reason ? { reason } : {}) })).text;
+    expect(say("The password must be at least 8 characters long.")).toBe("That new password is too short. Use a longer one.");
+    expect(say("The password has been found in data breaches and must no longer be used.")).toBe("That new password is too common. Use one you don't use anywhere else.");
+    expect(say("The password is too similar to the identifier.")).toBe("That new password is too close to your email address. Use something different.");
+    expect(say()).toContain("isn't accepted");
+    expect(say("something odd and secret-ish")).not.toContain("secret-ish");
+    for (const reason of ["The password must be at least 8 characters long.", "found in data breaches", "too similar to the identifier"]) expect(say(reason)).not.toContain(reason);
   });
   it("marks an account without a Rivolt password so the cards hide", () => {
     const f = securityFailure(err(409, { error: "needs_an_email_account" }));
