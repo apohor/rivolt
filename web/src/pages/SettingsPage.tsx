@@ -31,6 +31,7 @@ import {
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { SignedInDevices } from "../components/SignedInDevices";
 import { PasskeysCard } from "../components/PasskeysCard";
+import { AccountSecurityCards } from "../components/AccountSecurityCards";
 import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
@@ -56,7 +57,7 @@ import {
   type TemperatureUnit,
 } from "../lib/preferences";
 
-type TabId = "account" | "vehicle" | "charging" | "notifications" | "data";
+type TabId = "account" | "security" | "vehicle" | "charging" | "notifications" | "data";
 
 // Which tab "owns" a given section anchor id — used so a deep link
 // like /settings#rivian still auto-selects the right tab on mount.
@@ -68,7 +69,10 @@ const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
   "ai-features": "account",
   "ambient-temp": "account",
-  passkeys: "account",
+  security: "security",
+  passkeys: "security",
+  devices: "security",
+  password: "security",
   display: "vehicle",
   home: "vehicle",
   profile: "vehicle",
@@ -102,6 +106,7 @@ function stickyTopOffset(): number {
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "account", label: "Account" },
+  { id: "security", label: "Security" },
   { id: "vehicle", label: "Vehicle" },
   { id: "charging", label: "Charging" },
   { id: "notifications", label: "Notifications" },
@@ -208,12 +213,18 @@ function SettingsPageInner() {
           <AIFeaturesCard />
           <AmbientTempCard />
           <AppearanceCard />
-          <PasskeysCard />
-          <SignedInDevices />
           {/* The tab-bar shell's header has no Sign out; it lives here. */}
           <Card title="Rivolt account">
             <SignOutButton label="Sign out of Rivolt" solid />
           </Card>
+        </>
+      )}
+
+      {tab === "security" && (
+        <>
+          <AccountSecurityCards />
+          <PasskeysCard />
+          <SignedInDevices />
         </>
       )}
 
