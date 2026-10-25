@@ -18,6 +18,7 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/kratos"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/passkeys/passkeytest"
 )
@@ -261,6 +262,45 @@ func TestPasskeyManagementGuards(t *testing.T) {
 				t.Errorf("%s: a handler answered %d, want 403", name, w.Code)
 			}
 		}
+	}
+}
+
+// The iPhone app's token may READ the passkey list, so a passkey the owner did not add can be spotted from the phone; it can change
+// nothing, whatever the method, and an admin viewing as the user still gets nothing.
+func TestPasskeyListIsReadableFromTheAppAndNothingElseIs(t *testing.T) {
+	r := newPKRig(t, true)
+	r.addPasskey(t, passkeytest.New(t), "My phone")
+	svc, _ := passkeys.New(passkeys.Config{RPID: pkRP, Origins: []string{pkOrigin}}, r.store)
+	api := &passkeyAPI{Svc: svc, Logger: discardLogger()}
+	appSession := auth.WithSession(auth.WithUser(context.Background(), r.uid), auth.SessionRef{ID: uuid.New(), Kind: "app"})
+	bearer := logging.WithAuthMethod(auth.WithUser(context.Background(), r.uid), logging.AuthBearer)
+	call := func(ctx context.Context, h http.HandlerFunc, method string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/x", strings.NewReader("{}")).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h(w, req)
+		return w
+	}
+	for name, ctx := range map[string]context.Context{"app session": appSession, "bearer token": bearer} {
+		if w := call(ctx, api.list, http.MethodGet); w.Code != 200 || !strings.Contains(w.Body.String(), "My phone") || strings.Contains(w.Body.String(), "public") {
+			t.Errorf("%s: list = %d %s, want 200 with the passkey and no key material", name, w.Code, w.Body.String())
+		}
+		for _, m := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
+			if w := call(ctx, api.list, m); w.Code != 403 {
+				t.Errorf("%s: list with %s = %d, want 403", name, m, w.Code)
+			}
+		}
+		for hn, h := range map[string]http.HandlerFunc{"begin": api.registerBegin, "finish": api.registerFinish, "rename": api.rename, "remove": api.remove} {
+			for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+				if w := call(ctx, h, m); w.Code != 403 {
+					t.Errorf("%s: %s with %s = %d, want 403", name, hn, m, w.Code)
+				}
+			}
+		}
+	}
+	viewingAs := auth.WithImpersonation(auth.WithUser(context.Background(), r.uid), uuid.New(), r.uid)
+	if w := call(viewingAs, api.list, http.MethodGet); w.Code != 403 {
+		t.Errorf("an admin viewing as the user: list = %d, want 403", w.Code)
 	}
 }
 
