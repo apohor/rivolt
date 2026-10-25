@@ -33,6 +33,8 @@ type termsRequiredBody struct {
 func termsGateExempt(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
 	case "POST /api/terms/accept", "GET /api/export", "GET /api/data/backup", "DELETE /api/data/account",
+		// Taking an account back: someone who has not accepted new Terms can still change the password or secure the account.
+		"POST /api/auth/password", "POST /api/auth/secure",
 		// Switching notifications off: someone declining new Terms can still stop pushes (turning them on stays gated).
 		"POST /api/push/off", "POST /api/push/unsubscribe", "POST /api/push/apns/unregister":
 		return true
