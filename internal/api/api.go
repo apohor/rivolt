@@ -6,9 +6,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -228,6 +230,10 @@ type Deps struct {
 	// token lookups, signup, account deletion, admin, signed links, pre-auth GETs. Using it is a decision with a comment at the
 	// site (DA's RLS ruling). nil means DB (tests, and every deployment without the request pool).
 	SystemDB *sql.DB
+	// RequestPoolOn is set by main when DB is a separate request pool (RIVOLT_REQUEST_DATABASE_URL). With it set, New refuses to build
+	// unless every system-side store is set too: the fallbacks (sysDB, systemSettings, systemSecrets) would otherwise run the system
+	// sites on the request pool, where, for example, account deletion's last-admin count sees only the caller.
+	RequestPoolOn bool
 	// SystemSettings is the settings factory on the system pool, for the sweeps that run without a request (the statement and weekly
 	// recap emails). nil means Settings (no request pool).
 	SystemSettings *settings.Factory
@@ -358,8 +364,33 @@ func (d Deps) systemSecrets() *secrets.Store {
 	return d.Secrets
 }
 
-// New builds the root mux with all routes mounted.
+// checkSystemSide refuses a Deps that has the request pool on but is missing a system-side store (see RequestPoolOn).
+func (d Deps) checkSystemSide() error {
+	if !d.RequestPoolOn {
+		return nil
+	}
+	var missing []string
+	if d.SystemDB == nil {
+		missing = append(missing, "SystemDB")
+	}
+	if d.Settings != nil && d.SystemSettings == nil {
+		missing = append(missing, "SystemSettings")
+	}
+	if d.Secrets != nil && d.SystemSecrets == nil {
+		missing = append(missing, "SystemSecrets")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("api.New: the request pool is on but %s is not set; the system sites would run on the request pool", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// New builds the root mux with all routes mounted. It panics if the request pool is on but a system-side store is missing (a startup
+// error: main builds the router once, before it listens).
 func New(d Deps) http.Handler {
+	if err := d.checkSystemSide(); err != nil {
+		panic(err.Error())
+	}
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
 	}
