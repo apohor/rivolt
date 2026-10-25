@@ -3,6 +3,9 @@ import { stubApi } from "./stub";
 
 // Passkeys (server: #1069). The browser side runs against a stubbed server and Chromium's virtual authenticator: Settings adds a
 // passkey (asking for the password again), the Hydra login page signs in with it, and neither shows where passkeys are off.
+// A relying party id must be a domain, never an IP address, so these tests open the preview server as localhost (not 127.0.0.1).
+test.use({ baseURL: `http://localhost:${process.env.E2E_PORT || 4173}` });
+
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
 async function authenticator(page: Page) {
