@@ -68,8 +68,18 @@ enum TripPlanLogic {
         route.waypoints.compactMap { w in w.latitude.flatMap { la in w.longitude.map { [la, $0] } } }
     }
 
-    static func overnightRequest(_ route: TripRoute) -> OvernightCandidatesRequest {
-        OvernightCandidatesRequest(path: path(route), driveSec: route.totalDriveDurationSec, budgetHours: longDriveSeconds / 3600, kinds: ["hotel", "campground"])
+    /// The search runs along the road line when there is one (thinned to a few hundred points), else the plan's waypoints: between
+    /// sparse waypoints a straight line can leave the road by tens of kilometres, and the search area with it.
+    static func overnightRequest(_ route: TripRoute, roadLine: [RouteSnap.Coord] = []) -> OvernightCandidatesRequest {
+        let line = thin(roadLine, to: 600).map { [$0.lat, $0.lon] }
+        return OvernightCandidatesRequest(path: line.count >= 2 ? line : path(route), driveSec: route.totalDriveDurationSec, budgetHours: longDriveSeconds / 3600, kinds: ["hotel", "campground"])
+    }
+
+    /// At most `limit` points, evenly spread, keeping both ends.
+    static func thin(_ line: [RouteSnap.Coord], to limit: Int) -> [RouteSnap.Coord] {
+        guard line.count > limit, limit >= 2 else { return line }
+        let step = Double(line.count - 1) / Double(limit - 1)
+        return (0..<limit).map { line[min(line.count - 1, Int((Double($0) * step).rounded()))] }
     }
 
     /// "Hotel · Level 2 charger, about 7 kW" for the list of places to sleep; the power is the listing's, never a promise.
@@ -130,7 +140,17 @@ enum TripPlanLogic {
     /// "1 charging stop", "3 charging stops", or "No charging stop needed".
     static func stopsTitle(_ route: TripRoute) -> String {
         let n = route.chargingStops.count
+        if n == 0 && (route.totalChargingDurationSec ?? 0) > 0 { return "Charging" }
         return n == 0 ? "No charging stop needed" : "\(n) charging \(n == 1 ? "stop" : "stops")"
+    }
+
+    /// Under the stops title when there are no stops to list. A plan that charges never says the battery needs none: if its stops
+    /// can't be read, it says how long it charges and that they aren't listed.
+    static func noStopsLine(_ route: TripRoute) -> String {
+        if let c = route.totalChargingDurationSec, c > 0 {
+            return "This plan charges for about \(duration(c)), but its stops aren't listed here. Open it on the web to see them."
+        }
+        return "The battery reaches the destination without charging."
     }
 
     /// "200 kW · 25 min · 31% to 72%", leaving out what the plan did not say.

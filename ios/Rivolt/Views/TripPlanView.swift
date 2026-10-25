@@ -129,7 +129,7 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric)
         } else {
-            PlanRouteMap(route: route) { model.focusedStop = $0 }
+            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, onLine: { model.roadLine = $0 })
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -158,7 +158,7 @@ struct TripPlanResult: View {
                     .accessibilityElement(children: .combine)
                     .id("stop-\(i)")
                 }
-                if route.chargingStops.isEmpty { Text("The battery reaches the destination without charging.").themeText(.value, color: Theme.textSecondary) }
+                if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
             if let cost = TripPlanLogic.costLine(plan.costs?.first) {
                 ThemeSection(title: "Cost") {

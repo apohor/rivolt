@@ -36,6 +36,7 @@ func iosFixtureTargets() map[string]any {
 		"vehicles.json":         &[]rivian.Vehicle{},
 		// The trip planner on the phone (trip_fixtures_test.go regenerates these from the same types).
 		"trip_plan.json":                  &tripPlanResponse{},
+		"trip_plan_rivian_shape.json":     &tripPlanResponse{},
 		"trip_plan_multiday.json":         &tripPlanMultidayResponse{},
 		"trip_plan_multiday_partial.json": &tripPlanMultidayResponse{},
 		"trip_saved_list.json":            &[]trips.SavedTrip{},

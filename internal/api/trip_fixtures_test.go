@@ -41,12 +41,37 @@ func fixturePlan() *rivian.TripPlan {
 			TotalDriveDistanceMeters: 448000, ArrivalSoC: 22, ArrivalReachableMeters: 61000, EnergyConsumptionKWh: 168.2,
 			RouteResponseRaw: map[string]any{"geometry": "placeholder-encoded-polyline", "precision": 6},
 			Waypoints: []rivian.PlannedWaypoint{
-				{WaypointType: "origin", Name: "Example Origin", Latitude: 47.6205, Longitude: -122.3493, ArrivalSoC: 88, DepartureSoC: 88, DepartureTimeUTC: "2027-01-12T16:00:00Z"},
-				{WaypointType: "charger", EntityID: "00000000-0000-4000-8000-0000000000c1", Name: "Example Fast Charge, Ellensburg", Latitude: 46.9965, Longitude: -120.5478,
+				{WaypointType: "ORIGIN", Name: "Example Origin", Latitude: 47.6205, Longitude: -122.3493, ArrivalSoC: 88, DepartureSoC: 88, DepartureTimeUTC: "2027-01-12T16:00:00Z"},
+				{WaypointType: "DC_CHARGE_STATION", EntityID: "00000000-0000-4000-8000-0000000000c1", Name: "Example Fast Charge, Ellensburg", Latitude: 46.9965, Longitude: -120.5478,
 					MaxPowerKW: 200, ChargeDurationSec: 1500, ArrivalSoC: 31, DepartureSoC: 72, ArrivalReachableMeters: 98000, DepartureReachableMeters: 301000,
 					ArrivalTimeUTC: "2027-01-12T18:10:00Z", DepartureTimeUTC: "2027-01-12T18:35:00Z", DistanceFromOriginMeters: 172000},
-				{WaypointType: "destination", Name: "Example Destination", Latitude: 47.6588, Longitude: -117.4260, ArrivalSoC: 22, ArrivalReachableMeters: 61000,
+				{WaypointType: "DESTINATION", Name: "Example Destination", Latitude: 47.6588, Longitude: -117.4260, ArrivalSoC: 22, ArrivalReachableMeters: 61000,
 					ArrivalTimeUTC: "2027-01-12T20:55:00Z", DistanceFromOriginMeters: 448000},
+			},
+		}},
+	}
+}
+
+// fixtureRivianShapePlan is a long plan in the words Rivian really sends: upper-case waypoint types, "DC_CHARGE_STATION" for a charging
+// stop and an "OTHER" via (the app once looked for a type "charger" and found no stops). Synthetic places and values.
+func fixtureRivianShapePlan() *rivian.TripPlan {
+	stop := func(name string, lat, lon, kw float64, chargeSec int, arr, dep float64, at, leave string, dist float64) rivian.PlannedWaypoint {
+		return rivian.PlannedWaypoint{WaypointType: "DC_CHARGE_STATION", Name: name, Latitude: lat, Longitude: lon, MaxPowerKW: kw, ChargeDurationSec: chargeSec,
+			ArrivalSoC: arr, DepartureSoC: dep, ArrivalTimeUTC: at, DepartureTimeUTC: leave, DistanceFromOriginMeters: dist}
+	}
+	return &rivian.TripPlan{
+		Status: "OK", ChargeStationsAvailable: true,
+		Routes: []rivian.TripRoute{{
+			DestinationReached: true, TotalChargingDurationSec: 8280, TotalDriveDurationSec: 55800, TotalTripDurationSec: 64080,
+			TotalDriveDistanceMeters: 1530000, ArrivalSoC: 24, EnergyConsumptionKWh: 410,
+			Waypoints: []rivian.PlannedWaypoint{
+				{WaypointType: "ORIGIN", Name: "Example Origin", Latitude: 45.52, Longitude: -122.68, DepartureTimeUTC: "2026-11-02T15:00:00Z"},
+				stop("Sample Fast Charge A", 44.05, -121.31, 250, 2400, 22.5, 78, "2026-11-02T18:10:00Z", "2026-11-02T18:50:00Z", 290000),
+				{WaypointType: "OTHER", Name: "Via", Latitude: 43.6, Longitude: -120.9, DistanceFromOriginMeters: 400000},
+				stop("Sample Fast Charge B", 42.2, -121.78, 200, 2760, 18, 81, "2026-11-02T23:00:00Z", "2026-11-02T23:46:00Z", 690000),
+				stop("Sample Fast Charge C", 40.6, -122.39, 150, 3120, 20, 75, "2026-11-03T03:40:00Z", "2026-11-03T04:32:00Z", 1000000),
+				{WaypointType: "DESTINATION", Name: "Example Destination", Latitude: 38.58, Longitude: -121.49, ArrivalSoC: 24,
+					ArrivalTimeUTC: "2026-11-03T08:45:00Z", DistanceFromOriginMeters: 1530000},
 			},
 		}},
 	}
@@ -136,6 +161,7 @@ func tripFixtures() map[string]any {
 	id1, id2 := uuid.MustParse("00000000-0000-4000-8000-0000000000a1"), uuid.MustParse("00000000-0000-4000-8000-0000000000a2")
 	return map[string]any{
 		"trip_plan.json":                  tripPlanResponse{TripPlan: fixturePlan(), DestinationTZ: "America/Los_Angeles", Costs: fixtureCosts()},
+		"trip_plan_rivian_shape.json":     tripPlanResponse{TripPlan: fixtureRivianShapePlan(), DestinationTZ: "America/Los_Angeles"},
 		"trip_plan_multiday.json":         fixtureMultiday(),
 		"trip_plan_multiday_partial.json": fixtureMultidayPartial(),
 		"trip_saved_list.json":            []trips.SavedTrip{fixtureSavedTrip("Seattle to Spokane", id1), fixtureSavedTrip("Spokane back", id2)},

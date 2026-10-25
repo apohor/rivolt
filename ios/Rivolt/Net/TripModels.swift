@@ -84,7 +84,7 @@ struct TripRoute: Decodable, Equatable {
 }
 
 struct TripWaypoint: Decodable, Equatable, Identifiable {
-    /// "origin", "destination", "charger" or a via/overnight the planner kept.
+    /// Rivian's own word, in any case: "ORIGIN", "DESTINATION", "DC_CHARGE_STATION" for a charging stop, "OTHER" or "WAYPOINT" for a via.
     var waypointType: String?
     var entityID: String?
     var name: String?
@@ -124,7 +124,12 @@ struct TripWaypoint: Decodable, Equatable, Identifiable {
     }
 
     var id: String { "\(waypointType ?? "")|\(entityID ?? "")|\(latitude ?? 0)|\(longitude ?? 0)|\(distanceFromOriginMeters ?? 0)" }
-    var isCharger: Bool { waypointType == "charger" }
+    /// A charging stop is any waypoint that is not the origin, the destination or a via, in any case: the web's rule, so the same plan
+    /// shows the same stops on both. (Rivian says "DC_CHARGE_STATION"; this once looked for "charger" and found none.)
+    var isCharger: Bool {
+        guard let t = waypointType?.lowercased() else { return false }
+        return !["origin", "destination", "waypoint", "other"].contains(t)
+    }
 }
 
 /// One route's cost estimate: what the fast-charging stops are expected to cost, set beside charging at home and burning gas.

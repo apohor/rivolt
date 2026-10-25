@@ -38,7 +38,7 @@
         },
         "Waypoints": [
           {
-            "WaypointType": "origin",
+            "WaypointType": "ORIGIN",
             "EntityID": "",
             "Name": "Example Origin",
             "Latitude": 47.6205,
@@ -55,7 +55,7 @@
             "DistanceFromOriginMeters": 0
           },
           {
-            "WaypointType": "charger",
+            "WaypointType": "DC_CHARGE_STATION",
             "EntityID": "00000000-0000-4000-8000-0000000000c1",
             "Name": "Example Fast Charge, Ellensburg",
             "Latitude": 46.9965,
@@ -72,7 +72,7 @@
             "DistanceFromOriginMeters": 172000
           },
           {
-            "WaypointType": "destination",
+            "WaypointType": "DESTINATION",
             "EntityID": "",
             "Name": "Example Destination",
             "Latitude": 47.6588,
