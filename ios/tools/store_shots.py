@@ -76,7 +76,8 @@ def frame(raw_path, caption, footer, mode):
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, sw - 1, sh - 1), radius=radius, fill=255)
     x0, y0 = (W - sw) // 2, int(top + max(0, (bottom - top - sh) / 2))  # a short (cropped) screen sits centred, not at the top
     canvas.paste(scr, (x0, y0), mask)
-    d.rounded_rectangle((x0, y0, x0 + sw - 1, y0 + sh - 1), radius=radius, outline=pal["edge"], width=max(2, W // 400))
+    if not crop:  # a cropped card has its own border; an outline around it would read as a phone frame
+        d.rounded_rectangle((x0, y0, x0 + sw - 1, y0 + sh - 1), radius=radius, outline=pal["edge"], width=max(2, W // 400))
     if footer:
         ff = font("Geist-Regular.ttf", W * 0.026)
         w = d.textlength(footer, font=ff)
