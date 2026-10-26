@@ -1,15 +1,25 @@
 import { useEffect, useState } from "react";
 
-// Calendar-aligned scope for the app: Week (Mon to Sun),
-// Month, Year, All or a Custom date range, with stepping to earlier periods.
+// Calendar-aligned scope for the app: Day, Week (Mon to Sun), Month or a Custom
+// date range, with stepping to earlier periods. Year and All are shortcuts
+// inside Custom ("This year", "All time"): they stay period kinds here (a year
+// steps by year, All is open-ended) but the picker files them under Custom.
 // The choice is remembered per device. Ranges are computed in the browser's
 // local calendar and are half-open: [start, end). `null` bounds are open.
 
-export type PeriodKind = "week" | "month" | "year" | "all" | "custom";
+export type PeriodKind = "day" | "week" | "month" | "year" | "all" | "custom";
+
+// The kinds the picker offers; Year and All are reached from Custom.
+export type PickerKind = "day" | "week" | "month" | "custom";
+
+// Which choice the picker shows pressed: Year and All live under Custom.
+export function pickerKind(p: Period): PickerKind {
+  return p.kind === "year" || p.kind === "all" ? "custom" : p.kind;
+}
 
 export type Period = {
   kind: PeriodKind;
-  // 0 = the current period, -1 = the previous one, ... (week/month/year only)
+  // 0 = the current period, -1 = the previous one, ... (day/week/month/year only)
   offset: number;
   // Custom range, inclusive dates as yyyy-mm-dd (local).
   from?: string;
@@ -46,6 +56,10 @@ export function periodRange(p: Period, now: Date = new Date()): PeriodRange {
   switch (p.kind) {
     case "all":
       return { start: null, end: null };
+    case "day": {
+      const start = addDays(startOfDay(now), p.offset);
+      return { start, end: addDays(start, 1) };
+    }
     case "week": {
       const today = startOfDay(now);
       const monday = addDays(today, -((today.getDay() + 6) % 7));
@@ -72,12 +86,17 @@ export function periodRange(p: Period, now: Date = new Date()): PeriodRange {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// A short label for the picker: "Oct 6–12", "Sep 29–Oct 5", "Oct 2026",
-// "2026", "All time", "Oct 3 – Oct 17, 2026".
+// A short label for the picker: "Today", "Oct 24", "Oct 6–12", "Sep 29–Oct 5", "Oct 2026",
+// "2026", "All time", "Oct 3 – Oct 17, 2026". The iPhone writes the same words.
 export function periodLabel(p: Period, now: Date = new Date()): string {
   const r = periodRange(p, now);
   if (p.kind === "all" || !r.start || !r.end) return p.kind === "custom" ? "Pick dates" : "All time";
   const last = addDays(r.end, -1);
+  if (p.kind === "day") {
+    if (p.offset === 0) return "Today";
+    const sameYear = r.start.getFullYear() === now.getFullYear();
+    return `${MONTHS[r.start.getMonth()]} ${r.start.getDate()}${sameYear ? "" : `, ${r.start.getFullYear()}`}`;
+  }
   if (p.kind === "year") return String(r.start.getFullYear());
   if (p.kind === "month") return `${MONTHS[r.start.getMonth()]} ${r.start.getFullYear()}`;
   if (p.kind === "week") {
@@ -92,7 +111,7 @@ export function periodLabel(p: Period, now: Date = new Date()): string {
 }
 
 export function canStep(p: Period): boolean {
-  return p.kind === "week" || p.kind === "month" || p.kind === "year";
+  return p.kind === "day" || p.kind === "week" || p.kind === "month" || p.kind === "year";
 }
 
 // stepPeriod moves to an earlier or later period; it never goes past the
@@ -160,7 +179,7 @@ export function earlyMonthFallback(
 
 function sanitize(raw: unknown): Period {
   const o = (raw ?? {}) as Partial<Period>;
-  const kind: PeriodKind = o.kind === "week" || o.kind === "month" || o.kind === "year" || o.kind === "all" || o.kind === "custom" ? o.kind : "month";
+  const kind: PeriodKind = o.kind === "day" || o.kind === "week" || o.kind === "month" || o.kind === "year" || o.kind === "all" || o.kind === "custom" ? o.kind : "month";
   const offset = typeof o.offset === "number" && Number.isFinite(o.offset) ? Math.min(0, Math.round(o.offset)) : 0;
   const out: Period = { kind, offset: kind === "all" || kind === "custom" ? 0 : offset };
   if (kind === "custom") {

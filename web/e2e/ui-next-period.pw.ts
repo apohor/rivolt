@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// Calendar scope: Week | Month | Year | All | Custom with
+// Calendar scope: Day | Week | Month | Custom (with This year and All time inside it) with
 // stepping; remembered per device and shared by Now, Activity and Truck.
 // Flag off keeps the rolling window picker.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
@@ -17,7 +17,7 @@ async function open(page: import("@playwright/test").Page) {
   await stubApi(page);
 }
 
-test("next: Week/Month/Year/All/Custom, stepping, persistence and sharing across pages", async ({ page }) => {
+test("next: Day/Week/Month/Custom, This year and All time, stepping, persistence and sharing across pages", async ({ page }) => {
   await open(page);
   await page.goto("/");
   const scope = page.getByRole("group", { name: "Time scope" });
@@ -34,12 +34,21 @@ test("next: Week/Month/Year/All/Custom, stepping, persistence and sharing across
   // Week: label like "Oct 12–18" or "Sep 28–Oct 4".
   await scope.getByRole("button", { name: "Week" }).click();
   expect(await scope.locator("[aria-live]").innerText()).toMatch(/^[A-Z][a-z]{2} \d{1,2}–([A-Z][a-z]{2} )?\d{1,2}$/);
-  // Year, All (no arrows), Custom (two date inputs).
-  await scope.getByRole("button", { name: "Year" }).click();
-  expect(await scope.locator("[aria-live]").innerText()).toMatch(/^\d{4}$/);
-  await scope.getByRole("button", { name: "All" }).click();
-  await expect(scope.getByRole("button", { name: "Previous period" })).toHaveCount(0);
+  // Day: "Today", then a previous day named like "Oct 24".
+  await scope.getByRole("button", { name: "Day", exact: true }).click();
+  expect(await scope.locator("[aria-live]").innerText()).toBe("Today");
+  await expect(scope.getByRole("button", { name: "Next period" })).toBeDisabled();
+  await scope.getByRole("button", { name: "Previous period" }).click();
+  expect(await scope.locator("[aria-live]").innerText()).toMatch(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
+  // Year and All are inside Custom: "This year" (a year label, stepping) and "All time" (no arrows); Custom shows the dates.
   await scope.getByRole("button", { name: "Custom" }).click();
+  await scope.getByRole("button", { name: "This year" }).click();
+  expect(await scope.locator("[aria-live]").innerText()).toMatch(/^\d{4}$/);
+  await expect(scope.getByRole("button", { name: "Custom", pressed: true })).toBeVisible();
+  await scope.getByRole("button", { name: "All time" }).click();
+  expect(await scope.locator("[aria-live]").innerText()).toBe("All time");
+  await expect(scope.getByRole("button", { name: "Previous period" })).toHaveCount(0);
+  await scope.getByRole("button", { name: "Pick dates" }).click();
   await expect(scope.getByLabel("From")).toBeVisible();
   await expect(scope.getByLabel("To")).toBeVisible();
   await scope.getByLabel("From").fill("2026-10-03");
