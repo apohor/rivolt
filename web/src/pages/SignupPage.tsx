@@ -272,7 +272,7 @@ export default function SignupPage() {
               ? "We're at capacity"
               : "Create your account"}
           </h1>
-          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
             Beta
           </span>
         </div>

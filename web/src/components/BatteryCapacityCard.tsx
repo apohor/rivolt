@@ -141,14 +141,14 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
         {ticks.map((v) => (
           <g key={v}>
             <line x1={PAD.l} x2={PAD.l + iw} y1={Y(v)} y2={Y(v)} className="text-neutral-800" stroke="currentColor" strokeOpacity={0.5} />
-            <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[10px]">{v}</text>
+            <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[11px]">{v}</text>
           </g>
         ))}
         {showSpec && (
           <>
             <line data-cap-spec x1={PAD.l} x2={PAD.l + iw} y1={Y(spec)} y2={Y(spec)} stroke="#737373" strokeDasharray="1 3" strokeWidth={1} />
             {/* Labelled past its end (in the right margin), so the dots read as our estimate, not as a gap to it. */}
-            <text data-cap-spec-label x={PAD.l + iw + 4} y={Y(spec) + 3.5} textAnchor="start" className="fill-neutral-500 text-[10px]">
+            <text data-cap-spec-label x={PAD.l + iw + 4} y={Y(spec) + 3.5} textAnchor="start" className="fill-neutral-500 text-[11px]">
               Rivian spec
             </text>
           </>
@@ -184,7 +184,7 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
         ))}
         {picked && <circle cx={X(picked.x)} cy={Y(picked.y)} r={dotRadius(picked.strength) + 3} fill="none" stroke="currentColor" className="text-neutral-100" strokeWidth={1.5} />}
         {[x0, x1].map((x, i) => (
-          <text key={i} x={X(x)} y={H - 6} textAnchor={i === 0 ? "start" : "end"} className="fill-neutral-500 text-[10px]">{fmt(x)}</text>
+          <text key={i} x={X(x)} y={H - 6} textAnchor={i === 0 ? "start" : "end"} className="fill-neutral-500 text-[11px]">{fmt(x)}</text>
         ))}
       </svg>
       {picked && (

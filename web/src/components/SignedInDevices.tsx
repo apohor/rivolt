@@ -97,13 +97,13 @@ export function SignedInDevices() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-100">
                     <span>{deviceName(s)}</span>
-                    <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
+                    <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-neutral-400">
                       {s.kind === "app" ? "App" : "Browser"}
                     </span>
                     {s.current && (
                       <span
                         data-device-current
-                        className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300"
+                        className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-emerald-300"
                       >
                         This device
                       </span>

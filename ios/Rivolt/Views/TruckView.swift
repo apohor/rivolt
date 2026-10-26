@@ -255,7 +255,7 @@ struct TruckContent: View {
                 case let .ok(p, kwh, sleeps, rewakes, median, used, excluded):
                     (stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))) {
                         (Text(TruckLogic.pct(p)).font(Theme.sans(ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
-                            + Text(" % / day").font(Theme.sans(ThemeTokens.typeTitle - 4, .regular, relativeTo: .title2)).foregroundStyle(Theme.textTertiary))
+                            + Text(" % / day").font(Theme.sans(ThemeTokens.typeHeadline, .regular, relativeTo: .title3)).foregroundStyle(Theme.textTertiary))
                             .monospacedDigit()
                         if let kwh { Text("≈ \(TruckLogic.fixed(kwh, 1)) kWh / day").themeText(.value, color: Theme.textSecondary) }
                     }

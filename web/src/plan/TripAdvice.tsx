@@ -79,7 +79,7 @@ export function TripAdviceCard({
             onClick={() => setExpanded((v) => !v)}
             className="flex items-center gap-2 text-sm text-left rounded-md w-full hover:bg-neutral-900/50 transition-colors py-1 -my-1 px-1"
           >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700/40 text-emerald-300 text-[10px]">✓</span>
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700/40 text-emerald-300 text-[11px]">✓</span>
             <span className="text-neutral-200">Analysis ready</span>
             {advice.headline && (
               <span className="text-neutral-500 truncate">- {advice.headline}</span>

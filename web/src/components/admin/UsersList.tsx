@@ -224,8 +224,8 @@ function UserBlock({ u, from }: { u: AdminUserRow; from: string }) {
         <span data-col="joined">Joined {new Date(u.created_at).toLocaleDateString()}</span>
       </div>
       <div className="mt-0.5 flex gap-1">
-        {u.role === "admin" && <span className="rounded-full border border-emerald-700 px-1.5 text-[10px] text-emerald-300">admin</span>}
-        {u.disabled && <span className="rounded-full border border-amber-700 px-1.5 text-[10px] text-amber-300">disabled</span>}
+        {u.role === "admin" && <span className="rounded-full border border-emerald-700 px-1.5 text-[11px] text-emerald-300">admin</span>}
+        {u.disabled && <span className="rounded-full border border-amber-700 px-1.5 text-[11px] text-amber-300">disabled</span>}
       </div>
     </>
   );

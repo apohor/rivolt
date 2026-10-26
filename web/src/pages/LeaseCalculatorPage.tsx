@@ -82,7 +82,7 @@ export default function LeaseCalculatorPage() {
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:py-12" data-lease-calculator>
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-neutral-50">Rivian lease mileage calculator</h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-neutral-400">
+          <p className="mt-2 text-base leading-relaxed text-neutral-400">
             Enter your lease terms and your odometer to see whether you&apos;re on pace for your mileage allowance and
             what overage could cost. It runs in your browser: nothing you type is sent or stored.
           </p>

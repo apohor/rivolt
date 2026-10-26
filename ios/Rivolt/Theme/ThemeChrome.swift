@@ -138,7 +138,7 @@ struct ThemeStepper: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(action: previous) { Image(systemName: "arrowtriangle.left.fill").font(.system(size: 11)) }
+            Button(action: previous) { Image(systemName: "arrowtriangle.left.fill").font(.system(size: ThemeTokens.typeCaption)) }
                 .accessibilityLabel("Previous month")
                 .frame(width: 40, height: 36)
             Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
@@ -146,7 +146,7 @@ struct ThemeStepper: View {
                 .lineLimit(1).minimumScaleFactor(0.6)
                 .accessibilityLabel(spokenTitle ?? title)
                 .accessibilityAddTraits(.isHeader)
-            Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: 11)) }
+            Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: ThemeTokens.typeCaption)) }
                 .disabled(!canGoForward)
                 .accessibilityLabel("Next month")
                 .frame(width: 40, height: 36)

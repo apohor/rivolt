@@ -32,7 +32,7 @@ export function LegalDoc({ source, other }: { source: string; other: { to: strin
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12" data-legal>
-        <article className="space-y-4 text-[15px] leading-relaxed">
+        <article className="space-y-4 text-base leading-relaxed">
           <Markdown
             components={{
               h1: (p) => <h1 className="text-3xl font-semibold tracking-tight text-neutral-50" {...p} />,
@@ -48,7 +48,7 @@ export function LegalDoc({ source, other }: { source: string; other: { to: strin
               ul: (p) => <ul className="list-disc space-y-2 pl-5 text-neutral-300 marker:text-neutral-600" {...p} />,
               li: (p) => <li {...p} />,
               strong: (p) => <strong className="font-semibold text-neutral-100" {...p} />,
-              code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-[13px] text-neutral-200" {...p} />,
+              code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-sm text-neutral-200" {...p} />,
               a: ({ href, children, ...p }) =>
                 href?.startsWith("/") ? (
                   <Link to={href} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">{children}</Link>

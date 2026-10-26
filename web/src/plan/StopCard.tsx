@@ -69,7 +69,7 @@ export function StopCard({
           <span className="pt-value min-w-0 text-neutral-100">
             {name}
             {adapter && (
-              <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
+              <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
             )}
           </span>
           {leg > 0 && <span className="pt-sub shrink-0 text-neutral-400">+{distanceIn(leg, distanceUnit).toFixed(0)}<Unit>{distanceUnit}</Unit></span>}

@@ -17,7 +17,7 @@ struct UnitsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5 * Theme.unit) {
-            Text("Units").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary).accessibilityAddTraits(.isHeader)
+            Text("Units").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary).accessibilityAddTraits(.isHeader)
             Text("Saved to your account, so the web and the iPhone app agree.").themeText(.value, color: Theme.textBody)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 2 * Theme.unit) {

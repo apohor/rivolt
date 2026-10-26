@@ -175,7 +175,7 @@ private struct RectangularView: View {
     var body: some View {
         let status = snapshot.status(at: at)
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(socText(snapshot)) · \(rangeText(snapshot.rangeKm))").font(Theme.sans(15, .semibold)).monospacedDigit()
+            Text("\(socText(snapshot)) · \(rangeText(snapshot.rangeKm))").font(Theme.sans(ThemeTokens.typeValue, .semibold)).monospacedDigit()
             Label(status.text, systemImage: status.icon).font(Theme.sans(ThemeTokens.typeSubline)).lineLimit(1)
             if snapshot.isCharging, snapshot.attention == .none, let target = snapshot.chargeTargetPct, !snapshot.isStale(at: at) {
                 Text("to \(Int(target.rounded()))%").font(Theme.sans(ThemeTokens.typeCaption))

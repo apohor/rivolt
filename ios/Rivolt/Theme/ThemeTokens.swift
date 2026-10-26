@@ -105,6 +105,7 @@ enum ThemeTokens {
     static let typeCaption: Double = 11
     static let typeSubline: Double = 12
     static let typeValue: Double = 14
+    static let typeHeadline: Double = 20
     static let typeTitle: Double = 24
     static let typeHero: Double = 36
     static let typeLabelSize: Double = 11
