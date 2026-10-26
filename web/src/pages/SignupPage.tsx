@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
+import { ProviderButton } from "../components/ProviderButton";
 import Logo from "../components/Logo";
 import { useSignupEnabled } from "../lib/config";
 import { track } from "../lib/track";
@@ -11,7 +12,7 @@ import { track } from "../lib/track";
 // sense as a "sign up with" option for new users, so we filter it
 // out and keep the OAuth buttons to Google + GitHub. Add to this
 // whitelist if a new social-sign-in provider gets configured.
-const SIGNUP_PROVIDER_WHITELIST = new Set(["google", "github"]);
+const SIGNUP_PROVIDER_WHITELIST = new Set(["apple", "google", "github"]);
 
 // Password complexity rules — must mirror backend validatePassword in
 // internal/api/signup.go so the live checklist and the server agree.
@@ -310,21 +311,14 @@ export default function SignupPage() {
               {fullMode
                 ? " "
                 : oauthProviders && oauthProviders.length > 0
-                ? " Sign up instantly with Google or GitHub, or enter your email and we'll send you a signup link."
+                ? " Sign up instantly with a provider below, or enter your email and we'll send you a signup link."
                 : " Enter your email and we'll send you a signup link."}
             </p>
 
             {!fullMode && oauthProviders && oauthProviders.length > 0 && (
               <div className="mb-4 flex flex-col gap-2">
                 {oauthProviders.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => startOIDC(p)}
-                    className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
-                  >
-                    Continue with {p.display_name}
-                  </button>
+                  <ProviderButton key={p.name} provider={p} onClick={() => startOIDC(p)} />
                 ))}
                 <p className="text-center text-[11px] text-neutral-500">
                   or sign up by email
