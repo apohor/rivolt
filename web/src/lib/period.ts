@@ -127,11 +127,6 @@ export function axisDayIndices(days: Date[]): number[] | null {
   return out;
 }
 
-// "10-31": a day's label on the day charts' axis.
-export function mmdd(d: Date): string {
-  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 export function filterByRange<T extends { StartedAt: string }>(items: T[], r: PeriodRange): T[] {
   if (!r.start && !r.end) return items;
   const lo = r.start ? r.start.getTime() : -Infinity;

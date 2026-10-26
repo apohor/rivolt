@@ -47,7 +47,9 @@ struct ChartsSection: View {
             } else if miles.allSatisfy({ $0.value == 0 }) {
                 ChartEmpty(text: "No driving in \(month.title(calendar: calendar)).")
             } else {
-                let top = max(1, (miles.map(\.value).max() ?? 1).rounded(.up))
+                // A round top and round ticks (0 · 200 · 400 · 600), not the data's own maximum split in halves (509 and 255).
+                let axis = ChartMath.niceAxis(max: miles.map(\.value).max() ?? 1)
+                let top = axis.top
                 Chart(miles) { d in
                     BarMark(x: .value("Day", d.day, unit: .day), y: .value(distanceUnit, d.value))
                         .foregroundStyle(LinearGradient(colors: [Theme.chartMilesBar, Theme.chartMilesBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
@@ -57,10 +59,11 @@ struct ChartsSection: View {
                 .chartXScale(domain: month.range(calendar: calendar).since...month.range(calendar: calendar).until)
                 .chartYScale(domain: 0...top)
                 .chartYAxis {
-                    AxisMarks(position: .leading, values: [0, top / 2, top]) { value in
+                    AxisMarks(position: .leading, values: axis.ticks) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                         AxisValueLabel {
-                            if let v = value.as(Double.self) { ChartAxisText(NumberText.fixed(v, 0)) }
+                            // No label on the baseline: its "0" would meet the first day's label in the corner.
+                            if let v = value.as(Double.self), v > 0 { ChartAxisText(NumberText.fixed(v, 0)) }
                         }
                     }
                 }
@@ -106,21 +109,23 @@ struct ChartsSection: View {
         return ChartMath.limitSegment(model.points?.charges ?? [], from: r.since, to: r.until, now: now, live: limit)
     }
 
-    /// "10-01", the web's day labels.
-    static func dayLabel(_ day: Date, calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = "MM-dd"
-        return f.string(from: day)
+    /// "Oct 1", the day charts' day labels in the reader's language (the web's `dayName`).
+    static func dayLabel(_ day: Date, calendar: Calendar) -> String { SocDaily.dayLabel(day, calendar: calendar) }
+}
+
+/// An axis label of any chart: the one chart-axis size (`type.chartAxis`, the caption scale) in the secondary text colour. It does not
+/// grow with Dynamic Type past the default: the numbers beside the data are not the data, and every chart is also read aloud as a
+/// sentence.
+struct ChartAxisLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(Theme.sans(ThemeTokens.typeChartAxis, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textSecondary)
+            .dynamicTypeSize(...DynamicTypeSize.large)
     }
 }
 
-private struct ChartAxisText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-    var body: some View { Text(text).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary) }
-}
+private typealias ChartAxisText = ChartAxisLabel
 
 private struct ChartEmpty: View {
     let text: String

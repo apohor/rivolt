@@ -15,6 +15,26 @@ struct SocPoint: Equatable, Identifiable {
 
 /// The chart maths, the same as the web's `analytics.ts`, without any view code so it can be tested.
 enum ChartMath {
+    /// A round top and round ticks from 0 for a chart whose data tops out at `max`, the same as the web's `niceAxis`: the step is 1, 2,
+    /// 2.5 or 5 times a power of ten (whole numbers only), and the one with the lowest top that gives two or three intervals wins; four
+    /// only when nothing else fits. 509 gives 0 · 200 · 400 · 600.
+    static func niceAxis(max value: Double) -> (top: Double, ticks: [Double]) {
+        let m = value.isFinite && value > 0 ? value : 1
+        var steps: [Double] = []
+        var p = 1.0
+        while p <= 1e9 {
+            for k in [1.0, 2.0, 2.5, 5.0] where (k * p).rounded() == k * p { steps.append(k * p) }
+            p *= 10
+        }
+        func best(upTo maxIntervals: Int) -> (step: Double, n: Int)? {
+            steps.map { (step: $0, n: Swift.max(1, Int((m / $0 - 1e-9).rounded(.up)))) }
+                .filter { $0.n >= 2 && $0.n <= maxIntervals }
+                .min { a, b in a.step * Double(a.n) != b.step * Double(b.n) ? a.step * Double(a.n) < b.step * Double(b.n) : a.n < b.n }
+        }
+        let pick = best(upTo: 3) ?? best(upTo: 4) ?? (step: m.rounded(.up), n: 1)
+        return (pick.step * Double(pick.n), (0...pick.n).map { pick.step * Double($0) })
+    }
+
     /// Miles driven on each of `days` (local days), bucketed by the local day each drive started.
     static func milesPerDay(_ drives: [DrivePoint], over days: [Date], calendar: Calendar) -> [DayValue] {
         var buckets: [Date: Double] = [:]
