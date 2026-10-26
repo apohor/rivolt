@@ -144,6 +144,23 @@ for (const url of ["/", "/activity", "/truck"]) {
   });
 }
 
+test("next phone: the open choices sit above the page's own tabs and never cover them", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page);
+  await page.goto("/activity");
+  const scope = page.getByRole("group", { name: "Time scope" });
+  await scope.getByRole("button", { name: /^Time scope:/ }).click();
+  const panel = page.locator("[data-period-panel]");
+  await expect(panel).toBeVisible();
+  const charges = page.getByRole("tab", { name: "Charges" });
+  await expect(charges).toBeVisible();
+  const [p, c] = await Promise.all([panel.boundingBox(), charges.boundingBox()]);
+  // The tab starts below the panel: nothing is hidden while the choices are open.
+  expect(c!.y).toBeGreaterThanOrEqual(p!.y + p!.height - 1);
+  await ctx.close();
+});
+
 test("next phone: a compact scope bar; tapping the label opens the choices", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();

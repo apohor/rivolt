@@ -5,7 +5,8 @@ import { canStep, periodLabel, pickerKind, stepPeriod, toYmd, type Period, type 
 // calendar periods get arrows to step back (never into the future) and a
 // label ("Today", "Oct 24", "Oct 2026", "Oct 6–12"). On desktop the segmented
 // control is inline; on a phone it collapses to a compact bar (label with
-// arrows) and a tap on the label opens the same choices in a panel.
+// arrows) and a tap on the label opens the same choices in a panel that sits in the
+// flow under the bar (it used to float over the page and hid the first tab, "Charges" on Activity).
 // Custom shows two native date inputs and two shortcuts, "This year" and
 // "All time" (a saved Year or All still works; the picker shows it as Custom).
 // The iPhone app's picker has the same choices and labels.
@@ -166,7 +167,7 @@ export function PeriodPicker({ value, onChange }: { value: Period; onChange: (p:
         </div>
       )}
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-max max-w-[calc(100vw-2rem)] space-y-3 rounded-xl border border-neutral-700 bg-neutral-900 p-3 shadow-xl md:hidden">
+        <div data-period-panel className="mt-1 w-full basis-full space-y-3 rounded-xl border border-neutral-700 bg-neutral-900 p-3 md:hidden">
           <Segmented value={value} onChange={onChange} />
           {pickerKind(value) === "custom" && <CustomPanel value={value} onChange={onChange} />}
         </div>
