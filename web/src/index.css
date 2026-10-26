@@ -809,6 +809,18 @@ html[data-theme='light'] {
   border-bottom-color: oklch(0% 0 0 / 0.07);
   box-shadow: 0 8px 8px -8px oklch(0% 0 0 / 0.14);
 }
+/* The phone's period choices open on a row of their own under the title and the bar: the header wraps, the picker's wrapper steps out
+   of the way (display: contents) so the bar stays at the right of the title, and the panel takes the whole second row. Without this the
+   panel shared the title's row and squeezed "Activity" to a few pixels. */
+:root [data-ui-header]:has([data-period-panel]) {
+  flex-wrap: wrap;
+}
+:root [data-ui-header] .ui-period:has([data-period-panel]) {
+  display: contents;
+}
+:root [data-ui-header] .ui-period:has([data-period-panel]) > .ui-period-bar {
+  margin-left: auto;
+}
 @media (max-width: 767.98px) {
   :root [data-ui-header] {
     padding: 0.4rem 0;
