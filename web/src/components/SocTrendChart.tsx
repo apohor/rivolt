@@ -262,16 +262,16 @@ export function SocTrendChart({
         {[0, 50, 100].map((v) => (
           <g key={v}>
             <line x1={PAD.l} x2={PAD.l + iw} y1={Y(v)} y2={Y(v)} className="text-neutral-800" stroke="currentColor" strokeOpacity={0.5} />
-            <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[10px]">{v}%</text>
+            <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[11px]">{v}%</text>
           </g>
         ))}
         {seg && (
           <g data-testid="soc-limit" data-draw="limit">
             <line x1={X(seg.x0)} x2={X(seg.x1)} y1={Y(seg.pct)} y2={Y(seg.pct)} stroke={SOC_LIMIT} strokeOpacity={0.32} strokeWidth={1} data-limit-line />
             {segTight ? (
-              <text x={X(seg.x1)} y={Y(seg.pct) - 4} textAnchor="end" className="fill-amber-400 text-[10px]">Limit {Math.round(seg.pct)}%</text>
+              <text x={X(seg.x1)} y={Y(seg.pct) - 4} textAnchor="end" className="fill-amber-400 text-[11px]">Limit {Math.round(seg.pct)}%</text>
             ) : (
-              <text x={X(seg.x1) + 5} y={Y(seg.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[10px]">Limit {Math.round(seg.pct)}%</text>
+              <text x={X(seg.x1) + 5} y={Y(seg.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[11px]">Limit {Math.round(seg.pct)}%</text>
             )}
           </g>
         )}
@@ -314,7 +314,7 @@ export function SocTrendChart({
           </g>
         )}
         {ticks.map((t) => (
-          <text key={t.x} x={X(t.x)} y={H - 6} textAnchor={tickAnchor(t.x)} className="fill-neutral-500 text-[10px]">{t.label}</text>
+          <text key={t.x} x={X(t.x)} y={H - 6} textAnchor={tickAnchor(t.x)} className="fill-neutral-500 text-[11px]">{t.label}</text>
         ))}
         {hover != null && hv && (
           <g pointerEvents="none">

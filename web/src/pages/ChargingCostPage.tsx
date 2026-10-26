@@ -75,7 +75,7 @@ export default function ChargingCostPage() {
       <main className="mx-auto max-w-3xl space-y-8 px-4 py-8 sm:py-12" data-charging-cost>
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-neutral-50">How much does it cost to charge a Rivian at home?</h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-neutral-400">
+          <p className="mt-2 text-base leading-relaxed text-neutral-400">
             It depends on three things you already know or can look up: your electricity rate, how far you drive, and how efficiently the truck turns
             kWh into miles. Below is a worked example for a sample R1S; put your own numbers in the calculator at the bottom and nothing you type leaves
             your browser.

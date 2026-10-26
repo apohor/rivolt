@@ -65,7 +65,7 @@ private struct DriveCardContent: View {
         layout {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+                    Image(systemName: "arrow.up.right").font(.system(size: ThemeTokens.typeSubline, weight: .semibold)).foregroundStyle(Theme.textSecondary)
                     Text(title).themeText(.value, color: Theme.textPrimary)
                 }
                 Text(sub).themeText(.subline)
@@ -109,7 +109,7 @@ private struct ChargeCardContent: View {
         layout {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(ActivityLogic.placeLabel(charge) == "Fast" ? Theme.fast : Theme.home)
+                    Image(systemName: "bolt.fill").font(.system(size: ThemeTokens.typeSubline)).foregroundStyle(ActivityLogic.placeLabel(charge) == "Fast" ? Theme.fast : Theme.home)
                     (Text(ActivityLogic.chargeTitle(charge)).foregroundColor(Theme.textPrimary)
                         + Text(ActivityLogic.levelChange(start: charge.startSocPct, end: charge.endSocPct).map { " \($0)" } ?? "").foregroundColor(Theme.textSecondary))
                         .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))

@@ -111,7 +111,7 @@ export default function LoginPage() {
           <>
             <div className="mb-2 flex items-center gap-2">
               <h1 className="text-base font-semibold text-neutral-100">Sign in</h1>
-              <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+              <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
                 Beta
               </span>
             </div>

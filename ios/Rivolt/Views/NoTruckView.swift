@@ -74,7 +74,7 @@ struct NoTruckContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
-            Text(Onboarding.title).font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+            Text(Onboarding.title).font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(Onboarding.explanation).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
             if let connect {

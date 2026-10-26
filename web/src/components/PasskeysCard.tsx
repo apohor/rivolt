@@ -129,7 +129,7 @@ export function PasskeysCard() {
                   ) : (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-100">
                       <span>{p.label}</span>
-                      <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
+                      <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-neutral-400">
                         {p.synced ? "Synced" : "This device"}
                       </span>
                     </div>

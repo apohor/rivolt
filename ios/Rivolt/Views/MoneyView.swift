@@ -878,7 +878,7 @@ private struct MoneyValueText: View {
             Text("—").themeText(style, color: Theme.textTertiary).accessibilityLabel("Price unknown")
         case .estimated(let s):
             (Text(s).fontWeight(small ? .regular : .medium).foregroundStyle(small ? Theme.textSecondary : Theme.textPrimary).underline(pattern: .dot, color: Theme.textTertiary)
-                + Text(" EST.").font(Theme.sans(ThemeTokens.typeCaption - 1, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary))
+                + Text(" EST.").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary))
                 .themeText(style, color: nil)
                 .accessibilityLabel("\(s), estimate")
         case .suspect(let s):

@@ -33,7 +33,7 @@ function Notes({ source }: { source: string }) {
         ul: (p) => <ul className="list-disc space-y-2 pl-5 text-neutral-300 marker:text-neutral-600" {...p} />,
         ol: (p) => <ol className="list-decimal space-y-2 pl-5 text-neutral-300" {...p} />,
         strong: (p) => <strong className="font-semibold text-neutral-100" {...p} />,
-        code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-[13px] text-neutral-200" {...p} />,
+        code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-sm text-neutral-200" {...p} />,
         img: () => null,
         a: ({ href, children }) =>
           // In-app paths only; "//host" is another site and opens like any external link.
@@ -59,7 +59,7 @@ function Release({ r }: { r: ChangelogRelease }) {
       </h2>
       {/* Older notes carry long unbroken URLs ("Full Changelog: https://…/compare/…"); let them wrap anywhere so
           they never widen the page on a phone. */}
-      <div className="min-w-0 space-y-3 text-[15px] leading-relaxed [overflow-wrap:anywhere]">
+      <div className="min-w-0 space-y-3 text-base leading-relaxed [overflow-wrap:anywhere]">
         <Notes source={r.body_md} />
       </div>
       {r.url && (

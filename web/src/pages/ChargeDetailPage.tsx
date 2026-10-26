@@ -723,7 +723,7 @@ function Stat({
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
       {hint ? (
-        <div className="mt-1 text-[10px] text-neutral-500">{hint}</div>
+        <div className="mt-1 text-[11px] text-neutral-500">{hint}</div>
       ) : null}
     </div>
   );
@@ -862,7 +862,7 @@ function SessionInsights({
       </dl>
 
       <div>
-        <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+        <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
           Power &amp; timing
         </h4>
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -891,7 +891,7 @@ function SessionInsights({
       </div>
 
       <div>
-        <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+        <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
           Battery &amp; energy
         </h4>
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -944,7 +944,7 @@ function SessionInsights({
 
       {insights.thermalKWh !== null ? (
         <div>
-          <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+          <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
             Thermal management
           </h4>
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -982,7 +982,7 @@ function SessionInsights({
 
       {insights.outsideTempC !== null || insights.insideTempC !== null ? (
         <div>
-          <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+          <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
             Environment
           </h4>
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1725,7 +1725,7 @@ export function PlaceOverrideControl({
             </button>
           ))}
         </div>
-        {current && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-[12px] leading-none text-neutral-100" data-set-by-you>set by you</span>}
+        {current && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-xs leading-none text-neutral-100" data-set-by-you>set by you</span>}
       </div>
       <p className="mt-1 text-neutral-500" aria-live="polite">
         {save.isPending
@@ -1794,7 +1794,7 @@ export function LocationOverrideToggle({ charge }: { charge: Pick<import("../lib
         <label htmlFor={switchId} className="flex min-h-11 flex-1 cursor-pointer flex-col justify-center">
           <span className="flex flex-wrap items-center gap-2">
             <span id={labelId} className="text-neutral-200">Pin where the truck was</span>
-            {on && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-[12px] leading-none text-neutral-100" data-set-by-you>set by you</span>}
+            {on && <span className="rounded-full border border-neutral-600 px-2 py-0.5 text-xs leading-none text-neutral-100" data-set-by-you>set by you</span>}
           </span>
           <span id={hintId} className="text-xs text-neutral-500">
             {save.isPending ? "Saving…" : "Instead of the nearest public charger."}

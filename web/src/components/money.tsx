@@ -76,7 +76,7 @@ export function MoneyValue({
         data-energy-estimated="true"
       >
         ~{formatMoney(r.cost, currency)}
-        <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
+        <span className="ml-1 text-[11px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
       </span>
     );
   }
@@ -87,7 +87,7 @@ export function MoneyValue({
         title="Estimated from the charging network's rate"
       >
         {formatMoney(r.cost, currency)}
-        <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
+        <span className="ml-1 text-[11px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
       </span>
     );
   }
@@ -272,7 +272,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
               className="truncate text-sm text-neutral-100 hover:text-emerald-300"
             >
               {formatDateTime(r.started_at)}
-              <span className={`ml-2 rounded-full border px-1.5 py-px text-[10px] ${chip.chip}`}>{chip.label}</span>
+              <span className={`ml-2 rounded-full border px-1.5 py-px text-[11px] ${chip.chip}`}>{chip.label}</span>
             </Link>
             <MoneyValue r={r} currency={currency} className="shrink-0 text-sm font-medium tabular-nums text-neutral-100" />
           </div>

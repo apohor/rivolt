@@ -50,10 +50,10 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
             HStack(spacing: 2.5 * Theme.unit) {
                 ThemeLogo(size: 28)
-                Text("Rivolt").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+                Text("Rivolt").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
             }
             // No "BETA" pill: the App Store does not take betas (guideline 2.2); the web keeps it.
-            Text("Sign in").font(Theme.sans(20, .semibold)).foregroundStyle(Theme.textPrimary)
+            Text("Sign in").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             if let notice = state.signInNotice {
                 Text(notice).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ struct LoginView: View {
                 HStack(spacing: Theme.unit) {
                     Text("Other server").themeText(.value, color: Theme.textSecondary)
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: ThemeTokens.typeCaption, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
                         .rotationEffect(.degrees(showOtherServer ? 90 : 0))
                 }

@@ -261,6 +261,7 @@ export const SCALAR: Record<string, { value: number | string; file: string; css:
   "type.mapCaption": { value: 11, file: "src/lib/mapCaption.ts", css: "MAP_CAPTION_PX = 11", use: "text over a map: legends, chips, credits (px)" },
   "type.subline": { value: 12, file: "node_modules/tailwindcss/theme.css", css: "--text-xs: 0.75rem", use: "sub-lines, labels' neighbours (px)" },
   "type.value": { value: 14, file: "src/styles/next-type.css", css: "font-size: 0.875rem", use: "values, body (text-base/lg fold to 14 px)" },
+  "type.headline": { value: 20, file: "node_modules/tailwindcss/theme.css", css: "--text-xl: 1.25rem", use: "screen and sheet titles on the iPhone: sign-in, units, demo, delete (px)" },
   "type.title": { value: 24, file: "src/styles/next-type.css", css: "font-size: 1.5rem", use: "titles, KPI figures (px)" },
   "type.hero": { value: 36, file: "src/styles/next-type.css", css: "font-size: 2.25rem", use: "hero numbers (px)" },
   "type.labelSize": { value: 11, file: "src/index.css", css: "font-size: 11px", use: "small-caps label size (.ui-label)" },

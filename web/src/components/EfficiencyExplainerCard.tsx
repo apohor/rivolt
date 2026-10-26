@@ -215,7 +215,7 @@ function EfficiencyBody({ data }: { data: DriveEfficiency }) {
 
       {factors.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+          <div className="text-[11px] uppercase tracking-wide text-neutral-500">
             Factors
           </div>
           <ul className="space-y-1">
@@ -228,7 +228,7 @@ function EfficiencyBody({ data }: { data: DriveEfficiency }) {
 
       {data.recommendation ? (
         <div className="rounded-md border border-emerald-800/50 bg-emerald-900/20 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-emerald-400/80">
+          <div className="text-[11px] uppercase tracking-wide text-emerald-400/80">
             Recommendation
           </div>
           <p className="mt-1 text-sm leading-relaxed text-emerald-100/90">
@@ -285,7 +285,7 @@ function FactorRow({ factor }: { factor: EfficiencyFactor }) {
             </span>
           ) : null}
           <span
-            className="text-[10px] text-neutral-500"
+            className="text-[11px] text-neutral-500"
             title={`Model confidence ${conf}/100`}
           >
             {conf}%

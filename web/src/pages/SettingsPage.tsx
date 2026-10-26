@@ -1940,7 +1940,7 @@ function ProviderCard({
         <span className="flex items-center justify-between">
           <span>Model</span>
           {info?.has_key && (
-            <span className="text-[10px] text-neutral-600">
+            <span className="text-[11px] text-neutral-600">
               {models.isLoading
                 ? "loading catalogue…"
                 : models.isError

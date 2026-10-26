@@ -287,13 +287,13 @@ export function DriveTimeline({
               Reset zoom
             </button>
           ) : (
-            <span className="hidden text-[10px] text-neutral-600 sm:inline">
+            <span className="hidden text-[11px] text-neutral-600 sm:inline">
               Hover to scrub · drag to zoom · double-click to reset
             </span>
           )}
         </div>
       </div>
-      {isTouch && !isZoomed ? <p className="text-[10px] text-neutral-600 sm:hidden">Drag to scrub</p> : null}
+      {isTouch && !isZoomed ? <p className="text-[11px] text-neutral-600 sm:hidden">Drag to scrub</p> : null}
     </div>
   );
 }
@@ -788,7 +788,7 @@ function Readout({
   return (
     <div
       data-testid="timeline-readout"
-      className="flex min-h-[34px] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-[12px]"
+      className="flex min-h-[34px] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs"
     >
       {cursorSample && cursorMs != null ? (
         <>
@@ -852,7 +852,7 @@ function MomentChips({
 }) {
   return (
     <div className="flex w-full min-w-0 flex-nowrap items-center sm:w-auto sm:flex-1 gap-1.5 overflow-x-auto pb-0.5 pr-6 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">
-      <span className="shrink-0 text-[10px] uppercase tracking-wide text-neutral-500">Moments</span>
+      <span className="shrink-0 text-[11px] uppercase tracking-wide text-neutral-500">Moments</span>
       {moments.map((m) => {
         const active = cursorMs != null && Math.abs(cursorMs - m.ms) < 2000;
         return (
