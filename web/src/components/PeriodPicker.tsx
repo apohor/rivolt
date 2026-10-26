@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { canStep, periodLabel, stepPeriod, toYmd, type Period, type PeriodKind } from "../lib/period";
+import { canStep, periodLabel, pickerKind, stepPeriod, toYmd, type Period, type PickerKind } from "../lib/period";
 
-// PeriodPicker: calendar scope for the app. Week | Month |
-// Year | All | Custom; calendar periods get arrows to step back (never into
-// the future) and a label ("Oct 2026", "Oct 6–12"). On desktop the segmented
+// PeriodPicker: calendar scope for the app. Day | Week | Month | Custom;
+// calendar periods get arrows to step back (never into the future) and a
+// label ("Today", "Oct 24", "Oct 2026", "Oct 6–12"). On desktop the segmented
 // control is inline; on a phone it collapses to a compact bar (label with
 // arrows) and a tap on the label opens the same choices in a panel.
-// Custom shows two native date inputs.
+// Custom shows two native date inputs and two shortcuts, "This year" and
+// "All time" (a saved Year or All still works; the picker shows it as Custom).
+// The iPhone app's picker has the same choices and labels.
 
-const KINDS: { key: PeriodKind; label: string }[] = [
+const KINDS: { key: PickerKind; label: string }[] = [
+  { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
-  { key: "year", label: "Year" },
-  { key: "all", label: "All" },
   { key: "custom", label: "Custom" },
 ];
 
@@ -23,25 +24,57 @@ function defaultCustom(): Period {
 }
 
 function Segmented({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  const shown = pickerKind(value);
   return (
     <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-xs">
       {KINDS.map((k) => (
         <button
           key={k.key}
           type="button"
-          aria-pressed={value.kind === k.key}
+          aria-pressed={shown === k.key}
           onClick={() => {
-            if (k.key === value.kind) return;
+            if (k.key === shown) return;
             onChange(k.key === "custom" ? (value.from && value.to ? { ...value, kind: "custom", offset: 0 } : defaultCustom()) : { kind: k.key, offset: 0 });
           }}
           className={[
             "rounded-md px-2.5 py-1 transition-colors",
-            value.kind === k.key ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200",
+            shown === k.key ? "bg-emerald-600 text-white" : "text-neutral-400 hover:text-neutral-200",
           ].join(" ")}
         >
           {k.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// "This year" and "All time", one tap each, inside Custom. The one in use is pressed.
+function Shortcuts({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  const chip = (on: boolean) =>
+    ["rounded-md border px-2 py-1 transition-colors", on ? "border-emerald-600 bg-emerald-600/20 text-emerald-200" : "border-neutral-700 text-neutral-300 hover:text-neutral-100"].join(" ");
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <button type="button" aria-pressed={value.kind === "year"} className={chip(value.kind === "year")} onClick={() => onChange({ kind: "year", offset: 0 })}>
+        This year
+      </button>
+      <button type="button" aria-pressed={value.kind === "all"} className={chip(value.kind === "all")} onClick={() => onChange({ kind: "all", offset: 0 })}>
+        All time
+      </button>
+      {(value.kind === "year" || value.kind === "all") && (
+        <button type="button" className={chip(false)} onClick={() => onChange(defaultCustom())}>
+          Pick dates
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Custom's panel: the date inputs (when dates are in use) and the shortcuts.
+function CustomPanel({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {value.kind === "custom" && <CustomInputs value={value} onChange={onChange} />}
+      <Shortcuts value={value} onChange={onChange} />
     </div>
   );
 }
@@ -127,15 +160,15 @@ export function PeriodPicker({ value, onChange }: { value: Period; onChange: (p:
           </button>
         )}
       </div>
-      {value.kind === "custom" && (
+      {pickerKind(value) === "custom" && (
         <div className="hidden md:block">
-          <CustomInputs value={value} onChange={onChange} />
+          <CustomPanel value={value} onChange={onChange} />
         </div>
       )}
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-max max-w-[calc(100vw-2rem)] space-y-3 rounded-xl border border-neutral-700 bg-neutral-900 p-3 shadow-xl md:hidden">
           <Segmented value={value} onChange={onChange} />
-          {value.kind === "custom" && <CustomInputs value={value} onChange={onChange} />}
+          {pickerKind(value) === "custom" && <CustomPanel value={value} onChange={onChange} />}
         </div>
       )}
     </div>

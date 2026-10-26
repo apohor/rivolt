@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { axisDayIndices, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
+import { axisDayIndices, barsEndDay, canStep, earlyMonthFallback, filterByRange, periodLabel, periodRange, pickerKind, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
@@ -31,6 +31,29 @@ describe("periodRange", () => {
     const s = periodRange({ kind: "custom", offset: 0, from: "2026-10-17", to: "2026-10-03" }, NOW);
     expect([ymd(s.start), ymd(s.end)]).toEqual(["2026-10-03", "2026-10-18"]);
     expect(periodRange({ kind: "custom", offset: 0 }, NOW)).toEqual({ start: null, end: null });
+  });
+});
+
+describe("day", () => {
+  const now = new Date(2026, 9, 25, 14, 30);
+  it("is one calendar day, today by default, stepping back a day at a time", () => {
+    expect(periodRange({ kind: "day", offset: 0 }, now)).toEqual({ start: new Date(2026, 9, 25), end: new Date(2026, 9, 26) });
+    expect(periodRange({ kind: "day", offset: -3 }, now)).toEqual({ start: new Date(2026, 9, 22), end: new Date(2026, 9, 23) });
+    expect(stepPeriod({ kind: "day", offset: 0 }, -1)).toEqual({ kind: "day", offset: -1 });
+    expect(stepPeriod({ kind: "day", offset: 0 }, 1)).toEqual({ kind: "day", offset: 0 });
+    expect(canStep({ kind: "day", offset: 0 })).toBe(true);
+  });
+  it("reads Today, then a month and day, with the year only for another year (the iPhone writes the same)", () => {
+    expect(periodLabel({ kind: "day", offset: 0 }, now)).toBe("Today");
+    expect(periodLabel({ kind: "day", offset: -1 }, now)).toBe("Oct 24");
+    expect(periodLabel({ kind: "day", offset: -300 }, now)).toBe("Dec 29, 2025");
+  });
+  it("is the picker's own choice; Year and All are filed under Custom", () => {
+    expect(pickerKind({ kind: "day", offset: 0 })).toBe("day");
+    expect(pickerKind({ kind: "year", offset: 0 })).toBe("custom");
+    expect(pickerKind({ kind: "all", offset: 0 })).toBe("custom");
+    expect(pickerKind({ kind: "custom", offset: 0, from: "2026-10-01", to: "2026-10-05" })).toBe("custom");
+    expect(pickerKind({ kind: "week", offset: -2 })).toBe("week");
   });
 });
 

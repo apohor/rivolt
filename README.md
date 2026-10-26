@@ -63,8 +63,8 @@ charging stops.
 
 Rivolt is organised around five tabs: **Now**, **Activity**,
 **Money**, **Plan** and **Truck**. Now, Activity and
-Truck share one calendar scope (Week, Month, Year, All or a custom
-range), Money steps month by month, and the app follows your system
+Truck share one calendar scope (Day, Week, Month or a custom range,
+with "This year" and "All time" inside Custom), Money steps month by month, and the app follows your system
 light / dark setting (or the Appearance card in Settings).
 
 ### Now — the truck at a glance
