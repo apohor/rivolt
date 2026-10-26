@@ -39,7 +39,7 @@ import { OffpeakPanel } from "../components/OffpeakCard";
 import { MembershipTerms } from "../components/MembershipTerms";
 import { useHomeRecheck } from "../components/HomeRecheck";
 import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocation";
-import { urlBase64ToUint8Array } from "../lib/push";
+import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
@@ -2190,10 +2190,12 @@ export function NotificationsPanel() {
       reg.pushManager.getSubscription().then(async (s) => {
         setSub(s);
         if (!s) return;
-        // What the server has for this device, so the switches are not local guesses.
+        // What the server has for this device, so the switches are not local guesses. A browser subscription the server never stored
+        // (a refused one from before) is not "on": show it off, and Enable registers it again without asking permission twice.
         try {
           const stored = await backend.pushDevice(s.endpoint);
           if (stored) setPrefs(stored);
+          else setSub(null);
         } catch {
           /* keep the defaults: the switches still work */
         }
@@ -2224,24 +2226,9 @@ export function NotificationsPanel() {
       const reg = await navigator.serviceWorker.ready;
       const { public_key } = await backend.pushVAPIDKey();
       if (!public_key) throw new Error("Server is missing a VAPID public key.");
-      let s = await reg.pushManager.getSubscription();
-      if (!s) {
-        s = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(public_key),
-        });
-      }
-      const json = s.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        throw new Error("Subscription is missing endpoint or keys.");
-      }
-      const res = await backend.pushSubscribe({
-        endpoint: json.endpoint,
-        keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-        preferences: newPrefs,
-        user_agent: navigator.userAgent,
-      });
-      setPrefs(res.preferences);
+      // On a refusal the browser subscription made here is removed again, so this panel (and a refresh) shows notifications as off.
+      const { sub: s, preferences } = await registerPushSubscription(reg, public_key, newPrefs);
+      setPrefs(preferences);
       setSub(s);
       qc.invalidateQueries({ queryKey: ["push-status"] });
       return true;

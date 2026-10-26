@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +19,9 @@ func TestValidEndpoint(t *testing.T) {
 		"https://api.push.apple.com/3/device/x",
 		"https://wns2-par02p.notify.windows.com/w/?token=x",
 		"https://FCM.googleapis.com:443/fcm/send/abc",
+		// Chrome Beta/Dev/Canary and unbranded Chromium (Chromium's staging FCM endpoint, issue #1201).
+		"https://jmt17.google.com/fcm/send/fv3jabydF5c:APA91bEc8g",
+		"https://JMT17.google.com:443/fcm/send/abc",
 	} {
 		if err := ValidEndpoint(ok); err != nil {
 			t.Errorf("%s: %v", ok, err)
@@ -39,7 +43,17 @@ func TestValidEndpoint(t *testing.T) {
 		"empty":            "",
 		"not a url":        "::::",
 		"other googleapis": "https://storage.googleapis.com/x",
-		"javascript":       "javascript:alert(1)",
+		// Only the one Chromium host, not google.com or its other subdomains.
+		"google.com":            "https://google.com/fcm/send/abc",
+		"www.google.com":        "https://www.google.com/fcm/send/abc",
+		"another google host":   "https://mail.google.com/fcm/send/abc",
+		"other jmt host":        "https://jmt18.google.com/fcm/send/abc",
+		"subdomain of jmt17":    "https://x.jmt17.google.com/fcm/send/abc",
+		"jmt17 as a prefix":     "https://jmt17.google.com.evil.example/fcm/send/abc",
+		"jmt17 odd port":        "https://jmt17.google.com:8443/fcm/send/abc",
+		"jmt17 plain http":      "http://jmt17.google.com/fcm/send/abc",
+		"jmt17 with credential": "https://u:p@jmt17.google.com/fcm/send/abc",
+		"javascript":            "javascript:alert(1)",
 	} {
 		if err := ValidEndpoint(bad); !errors.Is(err, ErrEndpoint) {
 			t.Errorf("%s (%s): %v, want ErrEndpoint", name, bad, err)
@@ -88,5 +102,23 @@ func TestSendErrorHasNoBody(t *testing.T) {
 	e := &sendError{status: 403, body: "internal host says: secret"}
 	if got := e.Error(); got != "push status 403" {
 		t.Errorf("%q", got)
+	}
+}
+
+// A log line about a refused endpoint names its host and nothing else: the path of a push endpoint is a capability.
+func TestEndpointHostIsTheHostAndNothingElse(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://FCM.googleapis.com:443/fcm/send/secret-capability?x=1#frag": "fcm.googleapis.com",
+		"https://user:pw@jmt17.google.com/fcm/send/abc":                      "jmt17.google.com",
+		"https://unknown-push.example/a/b":                                   "unknown-push.example",
+		"::::":                                                               "",
+		"":                                                                   "",
+	} {
+		if got := EndpointHost(raw); got != want {
+			t.Errorf("EndpointHost(%q) = %q, want %q", raw, got, want)
+		}
+	}
+	if got := EndpointHost("https://" + strings.Repeat("a", 500) + ".example/x"); len(got) != 100 {
+		t.Errorf("a long host is capped: len %d, want 100", len(got))
 	}
 }
