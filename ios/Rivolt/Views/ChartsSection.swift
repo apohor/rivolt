@@ -16,6 +16,11 @@ struct ChartsSection: View {
     private var distanceUnit: String { useKm ? "km" : "mi" }
     private var period: String { month.spokenTitle(calendar: calendar) }
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 160
+    /// The day being read by a press and drag on the miles chart (the web's hover).
+    @State private var selectedDate: Date?
+    @State private var steppedTo: DayValue?
+
+    private var inspectedMiles: DayValue? { ChartMath.inspectedDay(selectedDate, among: miles, calendar: calendar) ?? steppedTo }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -50,11 +55,16 @@ struct ChartsSection: View {
                 // A round top and round ticks (0 · 200 · 400 · 600), not the data's own maximum split in halves (509 and 255).
                 let axis = ChartMath.niceAxis(max: miles.map(\.value).max() ?? 1)
                 let top = axis.top
-                Chart(miles) { d in
-                    BarMark(x: .value("Day", d.day, unit: .day), y: .value(distanceUnit, d.value))
-                        .foregroundStyle(LinearGradient(colors: [Theme.chartMilesBar, Theme.chartMilesBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
-                        .cornerRadius(2)
+                InspectReadout(text: inspectedMiles.map { ChartMath.milesReadout($0, unit: distanceUnit, calendar: calendar) })
+                Chart {
+                    ForEach(miles) { d in
+                        BarMark(x: .value("Day", d.day, unit: .day), y: .value(distanceUnit, d.value))
+                            .foregroundStyle(LinearGradient(colors: [Theme.chartMilesBar, Theme.chartMilesBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
+                            .cornerRadius(2)
+                            .opacity(inspectedMiles == nil || inspectedMiles == d ? 1 : 0.45)
+                    }
                 }
+                .chartXSelection(value: $selectedDate)
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .chartXScale(domain: month.range(calendar: calendar).since...month.range(calendar: calendar).until)
                 .chartYScale(domain: 0...top)
@@ -77,7 +87,11 @@ struct ChartsSection: View {
                 .frame(height: chartHeight)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(milesSpoken.label)
-                .accessibilityValue(milesSpoken.value)
+                .accessibilityValue(inspectedMiles.map { ChartMath.milesReadout($0, unit: useKm ? "kilometres" : "miles", calendar: calendar) } ?? milesSpoken.value)
+                // VoiceOver reads a day at a time: swipe up for the next day, down for the previous.
+                .accessibilityAdjustableAction { direction in
+                    steppedTo = ChartMath.steppedDay(from: inspectedMiles, step: direction == .increment ? 1 : -1, among: miles)
+                }
             }
         }
     }

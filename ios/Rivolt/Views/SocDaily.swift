@@ -37,6 +37,25 @@ enum SocDaily {
         }
     }
 
+    /// The day a press on the chart points at: the nearest day with readings, nil with none.
+    static func inspectedDay(_ date: Date?, among days: [Day]) -> Day? {
+        guard let date else { return nil }
+        return days.min { abs($0.day.addingTimeInterval(43_200).timeIntervalSince(date)) < abs($1.day.addingTimeInterval(43_200).timeIntervalSince(date)) }
+    }
+
+    /// What reading a day says, the web's tooltip: "Oct 9 · 22–97% · ended 70% · charged".
+    static func readout(_ d: Day, calendar: Calendar) -> String {
+        func pc(_ v: Double) -> String { NumberText.fixed(v, 0) }
+        return "\(dayLabel(d.day, calendar: calendar)) · \(pc(d.low))–\(pc(d.high))% · ended \(pc(d.end))%\(d.charged ? " · charged" : "")"
+    }
+
+    /// The neighbouring day with readings for VoiceOver's swipe up and down.
+    static func steppedDay(from current: Day?, step: Int, among days: [Day]) -> Day? {
+        guard !days.isEmpty else { return nil }
+        guard let current, let i = days.firstIndex(of: current) else { return step > 0 ? days.first : days.last }
+        return days[min(days.count - 1, max(0, i + step))]
+    }
+
     /// The day with the highest reading and the one with the lowest; nil with no days.
     static func extremes(_ days: [Day]) -> (high: Day, low: Day)? {
         guard let high = days.max(by: { $0.high < $1.high }), let low = days.min(by: { $0.low < $1.low }) else { return nil }
@@ -74,6 +93,11 @@ struct SocDailyChart: View {
     var calendar: Calendar = .current
 
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 200
+    /// The day being read by a press and drag on the chart (the web's hover).
+    @State private var selectedDate: Date?
+    @State private var steppedTo: SocDaily.Day?
+
+    private var inspected: SocDaily.Day? { SocDaily.inspectedDay(selectedDate, among: days) ?? steppedTo }
 
     private var range: (since: Date, until: Date) { month.range(calendar: calendar) }
     private var extremes: (high: SocDaily.Day, low: SocDaily.Day)? { SocDaily.extremes(days) }
@@ -83,6 +107,7 @@ struct SocDailyChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            InspectReadout(text: inspected.map { SocDaily.readout($0, calendar: calendar) })
             chart
             Text("Band: each day's range · line: end of day · ticks: charged")
                 .themeText(.caption, color: Theme.textTertiary)
@@ -99,7 +124,15 @@ struct SocDailyChart: View {
             lineMarks
             tickMarks
             extremeMarks(r)
+            if let d = inspected {
+                RuleMark(x: .value("Day", center(d.day)))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .foregroundStyle(Theme.textTertiary.opacity(0.7))
+                PointMark(x: .value("Day", center(d.day)), y: .value("End", d.end))
+                    .symbolSize(60).foregroundStyle(Theme.textPrimary)
+            }
         }
+        .chartXSelection(value: $selectedDate)
         .chartXScale(domain: r.since...r.until)
         .chartYScale(domain: 0...104)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -123,7 +156,11 @@ struct SocDailyChart: View {
         .frame(height: chartHeight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Battery level by day, \(month.spokenTitle(calendar: calendar))")
-        .accessibilityValue(SocDaily.spoken(days, calendar: calendar))
+        .accessibilityValue(inspected.map { SocDaily.readout($0, calendar: calendar) } ?? SocDaily.spoken(days, calendar: calendar))
+        // VoiceOver reads a day at a time: swipe up for the next day, down for the previous.
+        .accessibilityAdjustableAction { direction in
+            steppedTo = SocDaily.steppedDay(from: inspected, step: direction == .increment ? 1 : -1, among: days)
+        }
     }
 
     // MARK: Marks
@@ -205,3 +242,17 @@ struct SocDailyChart: View {
 }
 
 private typealias AxisText = ChartAxisLabel
+
+/// The line above a chart that says what a press on it reads, or what to do. Its height is reserved so reading a day never moves the chart.
+struct InspectReadout: View {
+    let text: String?
+
+    var body: some View {
+        Text(text ?? "Press and drag on the chart to read a day.")
+            .themeText(.caption, color: text == nil ? Theme.textTertiary : Theme.textPrimary)
+            .fontWeight(text == nil ? .regular : .semibold)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .accessibilityHidden(true)
+    }
+}

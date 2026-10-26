@@ -222,3 +222,43 @@ final class ChartAxisTests: XCTestCase {
         XCTAssertEqual(ThemeTokens.typeChartAxis, ThemeTokens.typeCaption)
     }
 }
+
+final class ChartInspectTests: XCTestCase {
+    private var cal: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        c.locale = Locale(identifier: "en_US")
+        return c
+    }
+    private func day(_ d: Int) -> Date { cal.date(from: DateComponents(year: 2026, month: 10, day: d))! }
+    private var miles: [DayValue] { [DayValue(day: day(8), value: 0), DayValue(day: day(9), value: 12.34), DayValue(day: day(10), value: 31.0)] }
+
+    func testAPressOnTheMilesChartReadsTheDayItIsOverWithTheWebsFigure() {
+        let hit = ChartMath.inspectedDay(day(9).addingTimeInterval(15 * 3600), among: miles, calendar: cal)
+        XCTAssertEqual(hit?.value, 12.34)
+        XCTAssertEqual(ChartMath.milesReadout(hit!, unit: "mi", calendar: cal), "Oct 9 · 12.3 mi", "one decimal, as the web's tooltip")
+        XCTAssertNil(ChartMath.inspectedDay(day(20), among: miles, calendar: cal), "a press outside the data reads nothing")
+        XCTAssertNil(ChartMath.inspectedDay(nil, among: miles, calendar: cal))
+    }
+
+    func testVoiceOverStepsDayByDayAndStopsAtTheEnds() {
+        XCTAssertEqual(ChartMath.steppedDay(from: nil, step: 1, among: miles), miles.first)
+        XCTAssertEqual(ChartMath.steppedDay(from: nil, step: -1, among: miles), miles.last)
+        XCTAssertEqual(ChartMath.steppedDay(from: miles[0], step: 1, among: miles), miles[1])
+        XCTAssertEqual(ChartMath.steppedDay(from: miles[2], step: 1, among: miles), miles[2], "no wrapping past the last day")
+        XCTAssertEqual(ChartMath.steppedDay(from: miles[0], step: -1, among: miles), miles[0])
+        XCTAssertNil(ChartMath.steppedDay(from: nil, step: 1, among: []))
+    }
+
+    func testTheBatteryReadoutIsTheWebsTooltip() {
+        let days = [SocDaily.Day(day: day(8), low: 52, high: 97, end: 97, charged: true),
+                    SocDaily.Day(day: day(9), low: 22.4, high: 96.6, end: 69.6, charged: false)]
+        XCTAssertEqual(SocDaily.readout(days[0], calendar: cal), "Oct 8 · 52–97% · ended 97% · charged")
+        XCTAssertEqual(SocDaily.readout(days[1], calendar: cal), "Oct 9 · 22–97% · ended 70%", "rounded as the web's Math.round")
+        // A press between two days reads the nearer one; the middle of a day is where its marks sit.
+        XCTAssertEqual(SocDaily.inspectedDay(day(9).addingTimeInterval(2 * 3600), among: days)?.day, day(9))
+        XCTAssertEqual(SocDaily.inspectedDay(day(8).addingTimeInterval(20 * 3600), among: days)?.day, day(8))
+        XCTAssertNil(SocDaily.inspectedDay(nil, among: days))
+        XCTAssertEqual(SocDaily.steppedDay(from: days[0], step: 1, among: days), days[1])
+    }
+}
