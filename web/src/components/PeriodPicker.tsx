@@ -135,7 +135,7 @@ export function PeriodPicker({ value, onChange }: { value: Period; onChange: (p:
       <div className="hidden md:block">
         <Segmented value={value} onChange={onChange} />
       </div>
-      <div className="inline-flex items-center rounded-lg border border-neutral-800 bg-neutral-900/60 text-xs">
+      <div className="ui-period-bar inline-flex items-center rounded-lg border border-neutral-800 bg-neutral-900/60 text-xs">
         {stepable && (
           <button type="button" aria-label="Previous period" onClick={() => onChange(stepPeriod(value, -1))} className={`rounded-l-lg ${arrow}`}>
             ◀

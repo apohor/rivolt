@@ -158,6 +158,18 @@ test("next phone: the open choices sit above the page's own tabs and never cover
   const [p, c] = await Promise.all([panel.boundingBox(), charges.boundingBox()]);
   // The tab starts below the panel: nothing is hidden while the choices are open.
   expect(c!.y).toBeGreaterThanOrEqual(p!.y + p!.height - 1);
+  // The panel has a row of its own under the title and the bar: the title is not squeezed or covered, even on a narrow phone.
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const box = await page.evaluate(() => {
+      const r = (s: string) => { const e = document.querySelector(s)!; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, sw: e.scrollWidth, cw: e.clientWidth }; };
+      return { h1: r("main h1"), bar: r(".ui-period-bar"), panel: r("[data-period-panel]") };
+    });
+    expect(box.panel.t, `panel under the title at ${width}`).toBeGreaterThanOrEqual(box.h1.b - 1);
+    expect(box.panel.t, `panel under the bar at ${width}`).toBeGreaterThanOrEqual(box.bar.b - 1);
+    expect(box.h1.r, `title left of the bar at ${width}`).toBeLessThanOrEqual(box.bar.l + 1);
+    expect(box.h1.sw, `title not squeezed at ${width}`).toBeLessThanOrEqual(box.h1.cw + 1);
+  }
   await ctx.close();
 });
 
