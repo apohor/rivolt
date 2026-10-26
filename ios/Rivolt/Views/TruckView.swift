@@ -944,17 +944,19 @@ private struct IdleChart: View {
     let period: String
 
     var body: some View {
-        let top = bars.map(\.value).max() ?? 0
+        let axis = ChartMath.niceMinutesAxis(max: bars.map(\.value).max() ?? 0)
         let spoken = ChartMath.spokenDaily(title: "Idle-awake time per day", period: period, bars: bars, calendar: calendar) { ChartMath.spokenMinutes($0) }
         Chart(bars) { d in
             BarMark(x: .value("Day", d.day, unit: .day), y: .value("Minutes", d.value))
                 .foregroundStyle(LinearGradient(colors: [Theme.chartIdleAwakeBar, Theme.chartIdleAwakeBar.opacity(0.35)], startPoint: .top, endPoint: .bottom))
                 .cornerRadius(2)
         }
+        .chartYScale(domain: 0...axis.top)
         .chartYAxis {
-            AxisMarks(position: .leading, values: top > 0 ? [0, top / 2, top] : [0]) { value in
+            AxisMarks(position: .leading, values: axis.ticks) { value in
                 AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
-                AxisValueLabel { if let v = value.as(Double.self) { TruckAxisText(TruckLogic.minutesShort(v)) } }
+                // Round hours (0 · 8h · 16h · 24h), and nothing on the baseline: its label would meet the first date.
+                AxisValueLabel { if let v = value.as(Double.self), v > 0 { TruckAxisText(TruckLogic.minutesShort(v)) } }
             }
         }
         .chartXAxis {
