@@ -8,8 +8,10 @@ for (const w of [390, 1280] as const) {
   test(`Now charging cost equals Money's total · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
     const page = await ctx.newPage();
+    // Last month, not this one: in the first days of a month with nothing yet, Now shows the last 30 days instead of the empty month (the
+    // early-month fallback), a different window from the month Money opens on, so the two are only comparable for a whole month.
     await page.addInitScript(() => {
-      localStorage.setItem("rivolt.period", JSON.stringify({ kind: "month", offset: 0 }));
+      localStorage.setItem("rivolt.period", JSON.stringify({ kind: "month", offset: -1 }));
     });
     await stubApi(page, { scenario: "parked" });
     await page.goto("/");
@@ -18,6 +20,8 @@ for (const w of [390, 1280] as const) {
     await expect(tile.locator(".text-xl")).toHaveText(/^\$[\d,]+\.\d{2}$/);
     const now = (await tile.locator(".text-xl").innerText()).trim();
     await page.goto("/money");
+    await page.getByRole("button", { name: "Previous month" }).click();
+    await expect(page.locator("[data-money-headline]")).toHaveText(/^\$[\d,]+\.\d{2}$/);
     const money = (await page.locator("[data-money-headline]").innerText()).trim();
     expect(now).toBe(money);
     await ctx.close();

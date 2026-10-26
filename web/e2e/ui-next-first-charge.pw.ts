@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { e2eNow } from "./clock";
 import { stubApi, VEHICLE_ID } from "./stub";
 
 // "Your first charge" on Now: three states (priced, no home rate, first drive only), then gone after a week
@@ -9,7 +10,9 @@ import { stubApi, VEHICLE_ID } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+// Dated from the run's clock (pinned at a boundary in the nightly boundary run), never the wall clock: "a first charge within a week"
+// is judged against the page's clock.
+const ago = (ms: number) => new Date(e2eNow() - ms).toISOString();
 const charge = (o: Record<string, unknown> = {}) => ({
   ID: "c-first", VehicleID: VEHICLE_ID, StartedAt: ago(30 * 3_600_000), EndedAt: ago(26 * 3_600_000), StartSoCPct: 20, EndSoCPct: 80,
   EnergyAddedKWh: 42.5, MilesAdded: 120, MaxPowerKW: 11, AvgPowerKW: 10, FinalState: "complete", Lat: 40, Lon: -100, Source: "live",

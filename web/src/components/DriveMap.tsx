@@ -700,11 +700,12 @@ function drawRoute(
 
 // fitOptions pads the route's fit-bounds so the end markers clear the
 // bottom controls: the speed legend (bottom-left) and the attribution
-// (bottom-right) sit about 40 px up from the edge, and on a phone the
-// 20 px default left the route's end dot half hidden under them. The
+// (bottom-right) sit about 40 px up from the edge (the legend at 11 px is a
+// few px taller than it was), and on a phone the 20 px default left the
+// route's end dot half hidden under them. The
 // top/right padding does the same for the basemap toggle.
 function fitOptions(map: L.Map): L.FitBoundsOptions {
-  const bottom = map.getSize().x < 520 ? 56 : 36;
+  const bottom = map.getSize().x < 520 ? 64 : 44;
   // The D/L basemap toggle sits top-right (about 66 x 36 px with its
   // margin); keep the route's end pin clear of it.
   return { paddingTopLeft: [20, 44], paddingBottomRight: [72, bottom] };
