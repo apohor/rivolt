@@ -7,34 +7,24 @@ struct DevicesView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @State private var model = DevicesModel()
-    @State private var passkeys = PasskeysModel()
 
     var body: some View {
-        NavigationStack {
+        SettingsStack {
             ScrollView {
                 DevicesContent(model: model, serverURL: state.serverURL,
                                onSignOut: { d in Task { await model.signOut(d, source: state.client) } },
                                onReload: { Task { await model.load(source: state.client) } },
                                onShowAll: { Task { await model.showAll(source: state.client) } })
                     .padding(4 * Theme.unit)
-                PasskeysSection(model: passkeys, serverURL: state.serverURL, onReload: { Task { await passkeys.load(source: state.client) } })
-                    .padding(.horizontal, 4 * Theme.unit).padding(.bottom, 4 * Theme.unit)
             }
             .themePage()
             .navigationTitle("Signed-in devices")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .font(Theme.sans(ThemeTokens.typeValue, .medium))
-                        .tint(Theme.accent)
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
         .task { await model.load(source: state.client) }
-        .task { await passkeys.load(source: state.client) }
     }
 }
 

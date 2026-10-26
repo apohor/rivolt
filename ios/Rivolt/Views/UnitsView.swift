@@ -4,6 +4,7 @@ import SwiftUI
 struct UnitsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.inSettings) private var inSettings
 
     enum Temperature: String, CaseIterable, Identifiable {
         case auto, c, f
@@ -17,7 +18,9 @@ struct UnitsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5 * Theme.unit) {
-            Text("Units").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary).accessibilityAddTraits(.isHeader)
+            if !inSettings {
+                Text("Units").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary).accessibilityAddTraits(.isHeader)
+            }
             Text("Saved to your account, so the web and the iPhone app agree.").themeText(.value, color: Theme.textBody)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 2 * Theme.unit) {
@@ -38,13 +41,15 @@ struct UnitsView: View {
             if failed {
                 Text("That didn't save. Check your connection and try again.").themeText(.subline, color: Theme.estimate)
             }
-            Button("Done") { dismiss() }.buttonStyle(ThemeButtonStyle())
+            if !inSettings { Button("Done") { dismiss() }.buttonStyle(ThemeButtonStyle()) }
             Spacer(minLength: 0)
         }
         .padding(6 * Theme.unit)
         .frame(maxWidth: .infinity, alignment: .leading)
         .themePage()
         .presentationDetents([.medium])
+        .navigationTitle(inSettings ? "Units" : "")
+        .navigationBarTitleDisplayMode(.inline)
         .onDisappear { state.unitsScreenClosed() }
         .onChange(of: distance) { _, new in save(distance: new) }
         .onChange(of: temperature) { _, new in save(temperature: new.rawValue) }

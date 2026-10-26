@@ -10,7 +10,7 @@ struct ChargingRatesView: View {
     @State private var model = ChargingRatesModel()
 
     var body: some View {
-        NavigationStack {
+        SettingsStack {
             ScrollView {
                 ChargingRatesContent(
                     model: model, serverURL: state.serverURL,
@@ -23,13 +23,7 @@ struct ChargingRatesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .font(Theme.sans(ThemeTokens.typeValue, .medium))
-                        .tint(Theme.accent)
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
         .task { await model.load(source: state.client) }
     }

@@ -29,7 +29,7 @@ struct AcknowledgementsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        SettingsStack {
             ScrollView {
                 // The web's titled card: the heading in its own row above a hairline, so the paragraph under it
                 // doesn't read as the larger text.
@@ -87,13 +87,7 @@ struct AcknowledgementsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .font(Theme.sans(ThemeTokens.typeValue, .medium))
-                        .tint(Theme.accent)
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
     }
 }
