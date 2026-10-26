@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { axisDayIndices, mmdd } from "../lib/period";
+import { axisDayIndices } from "../lib/period";
+import { CHART_AXIS_PX } from "../lib/chartAxis";
 
 // Battery (SoC) trend for the app, calm, the same chart as the iPhone's: a soft band for each day from
 // its lowest to highest level (smoothed between days), one smooth line over it for where the day ended, only the
@@ -62,7 +63,7 @@ export function pctLabel(v: number): string {
 }
 
 /** The x-axis days, labelled as Miles per day (axisDayIndices: a month on the 1st, 11th, 21st and its last day,
- *  MM-DD); longer spans, up to `n` evenly spaced dates. */
+ *  named "Oct 1"); longer spans, up to `n` evenly spaced dates. */
 export function dayTicks(x0: number, x1: number, n: number): { x: number; label: string }[] {
   if (x1 - x0 <= 32 * DAY) {
     const days: Date[] = [];
@@ -71,7 +72,7 @@ export function dayTicks(x0: number, x1: number, n: number): { x: number; label:
     if (d.getTime() < x0) d.setDate(d.getDate() + 1);
     for (; d.getTime() < x1; d.setDate(d.getDate() + 1)) days.push(new Date(d));
     const picked = axisDayIndices(days);
-    if (picked) return picked.map((i) => ({ x: days[i].getTime(), label: mmdd(days[i]) }));
+    if (picked) return picked.map((i) => ({ x: days[i].getTime(), label: dayName(days[i].getTime()) }));
   }
   const fmt = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return Array.from({ length: n }, (_, i) => x0 + ((x1 - x0) * i) / (n - 1)).map((x) => ({ x, label: fmt(x) }));
@@ -262,7 +263,8 @@ export function SocTrendChart({
         {[0, 50, 100].map((v) => (
           <g key={v}>
             <line x1={PAD.l} x2={PAD.l + iw} y1={Y(v)} y2={Y(v)} className="text-neutral-800" stroke="currentColor" strokeOpacity={0.5} />
-            <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-500 text-[11px]">{v}%</text>
+            {/* No label on the floor: its "0%" would meet the first day's label in the corner. */}
+            {v > 0 && <text x={PAD.l - 6} y={Y(v) + 3.5} textAnchor="end" className="fill-neutral-400" fontSize={CHART_AXIS_PX}>{v}%</text>}
           </g>
         ))}
         {seg && (
@@ -314,7 +316,7 @@ export function SocTrendChart({
           </g>
         )}
         {ticks.map((t) => (
-          <text key={t.x} x={X(t.x)} y={H - 6} textAnchor={tickAnchor(t.x)} className="fill-neutral-500 text-[11px]">{t.label}</text>
+          <text key={t.x} x={X(t.x)} y={H - 6} textAnchor={tickAnchor(t.x)} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>{t.label}</text>
         ))}
         {hover != null && hv && (
           <g pointerEvents="none">
@@ -338,7 +340,7 @@ export function SocTrendChart({
           {hv.charged ? " · charged" : ""}
         </div>
       )}
-      <p data-soc-caption className="mt-2 text-[11px] text-neutral-500">
+      <p data-soc-caption className="mt-2 text-[11px] text-neutral-400">
         Band: each day&rsquo;s range · line: end of day · ticks: charged
       </p>
     </div>

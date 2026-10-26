@@ -752,11 +752,7 @@ private struct TruckLoading: View {
     }
 }
 
-private struct TruckAxisText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-    var body: some View { Text(text).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary) }
-}
+private typealias TruckAxisText = ChartAxisLabel
 
 /// The daily drain bars: a measured day is a bar against the series' own maximum (the dashed line), a day the battery
 /// rose is faint, and a left-out day keeps its slot as an outline.

@@ -167,3 +167,42 @@ final class ChartsModelTests: XCTestCase {
         XCTAssertEqual(n, 2, "a failure isn't cached as an answer")
     }
 }
+
+final class ChartAxisTests: XCTestCase {
+    func testTheMilesAxisHasARoundTopAndRoundTicksLikeTheWebs() {
+        func axis(_ m: Double) -> ([Double], Double) { let a = ChartMath.niceAxis(max: m); return (a.ticks, a.top) }
+        XCTAssertEqual(axis(509).0, [0, 200, 400, 600])
+        XCTAssertEqual(axis(509).1, 600)
+        XCTAssertEqual(axis(500).0, [0, 250, 500])
+        XCTAssertEqual(axis(97).0, [0, 50, 100])
+        XCTAssertEqual(axis(42).0, [0, 25, 50])
+        XCTAssertEqual(axis(7).0, [0, 5, 10])
+        XCTAssertEqual(axis(1).0, [0, 1])
+        XCTAssertEqual(axis(0).0, axis(1).0, "no data: the smallest axis")
+        XCTAssertEqual(axis(.nan).0, axis(1).0)
+    }
+
+    func testTheTopNeverCutsTheDataOffAndTicksAreWholeNumbers() {
+        for m in [0.4, 1, 3, 9, 23, 77, 136, 509, 999, 1500, 12345] as [Double] {
+            let a = ChartMath.niceAxis(max: m)
+            XCTAssertGreaterThanOrEqual(a.top, m, "\(m)")
+            XCTAssertEqual(a.ticks.last, a.top)
+            XCTAssertLessThanOrEqual(a.ticks.count, 5)
+            XCTAssertTrue(a.ticks.allSatisfy { $0 == $0.rounded() }, "\(m)")
+        }
+    }
+
+    func testDaysAreNamedInTheReadersLanguageNotAsTenDashOne() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        cal.locale = Locale(identifier: "en_US")
+        let oct1 = ISO8601DateFormatter().date(from: "2026-10-01T00:00:00Z")!
+        XCTAssertEqual(ChartsSection.dayLabel(oct1, calendar: cal), "Oct 1")
+        XCTAssertNotEqual(ChartsSection.dayLabel(oct1, calendar: cal), "10-01")
+    }
+
+    func testEveryChartsAxisTextIsOneSizeTheCaptionScale() {
+        XCTAssertEqual(ThemeTokens.typeChartAxis, 11)
+        XCTAssertEqual(ThemeTokens.typeChartAxis, ThemeTokens.typeCaption)
+    }
+}

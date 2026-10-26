@@ -1,4 +1,5 @@
 import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
+import { dayName } from "../lib/chartAxis";
 import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } from "../lib/ledger";
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
@@ -383,7 +384,7 @@ export default function HomePage() {
               data={dailyMiles}
               height={140}
               formatY={(v) => `${v.toFixed(0)}`}
-              formatX={(label) => label.slice(5)}
+              formatX={(label) => dayName(label)}
               xLabelAt={axisDayIndices(dailyMiles.map((d) => new Date(d.x)))}
             />
           </Card>

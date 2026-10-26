@@ -2,6 +2,7 @@
 // overview dashboards; if we ever need interactivity/zoom we can swap
 // individual charts for uplot without touching call sites.
 
+import { CHART_AXIS_PX, niceAxis } from "../lib/chartAxis";
 import {
   useCallback,
   useId,
@@ -315,7 +316,7 @@ export function LineChart({
             strokeWidth={1}
           />
           <g transform={textTF(padL - 6, sy(yv) + 3)}>
-            <text textAnchor="end" className="fill-neutral-500" fontSize={10}>
+            <text textAnchor="end" className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
               {formatY ? formatY(yv) : yv.toFixed(0)}
             </text>
           </g>
@@ -328,7 +329,7 @@ export function LineChart({
           i === 0 ? "start" : i === xTickValues.length - 1 ? "end" : "middle";
         return (
           <g key={`x${i}`} transform={textTF(sx(xv), height - 6)}>
-            <text textAnchor={anchor} className="fill-neutral-500" fontSize={10}>
+            <text textAnchor={anchor} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
               {formatX ? formatX(xv) : xv.toFixed(0)}
             </text>
           </g>
@@ -343,7 +344,7 @@ export function LineChart({
             <text
               textAnchor="start"
               className="fill-neutral-500"
-              fontSize={10}
+              fontSize={CHART_AXIS_PX}
             >
               {formatY2 ? formatY2(yv) : yv.toFixed(0)}
             </text>
@@ -514,7 +515,7 @@ export function LineChart({
                   <text
                     textAnchor={labelAnchor}
                     className="fill-neutral-100 stroke-neutral-950"
-                    fontSize={11}
+                    fontSize={CHART_AXIS_PX}
                     fontWeight={600}
                     paintOrder="stroke"
                     strokeWidth={3}
@@ -687,8 +688,10 @@ export function BarChart({
 
   if (data.length === 0) return <EmptyChart height={height} />;
 
-  const max = Math.max(1, ...data.map((d) => d.value));
-  const yTickValues = tickValues(0, max, 3);
+  // A round top and round ticks (0 · 200 · 400 · 600), not the data's own maximum split in halves (509 and 255).
+  const axis = niceAxis(Math.max(1, ...data.map((d) => d.value)));
+  const max = axis.top;
+  const yTickValues = axis.ticks;
   const barW = Math.max(1, innerW / data.length - barGap);
 
   return (
@@ -714,11 +717,14 @@ export function BarChart({
             className="text-neutral-800"
             strokeWidth={1}
           />
-          <g transform={textTF(padL - 6, padT + innerH - (yv / max) * innerH + 3)}>
-            <text textAnchor="end" className="fill-neutral-500" fontSize={10}>
-              {formatY ? formatY(yv) : yv.toFixed(0)}
-            </text>
-          </g>
+          {/* No label on the baseline: its "0" would meet the first day's label in the corner. */}
+          {yv !== 0 && (
+            <g transform={textTF(padL - 6, padT + innerH - (yv / max) * innerH + 3)}>
+              <text textAnchor="end" className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
+                {formatY ? formatY(yv) : yv.toFixed(0)}
+              </text>
+            </g>
+          )}
         </g>
       ))}
       <defs>
@@ -754,7 +760,7 @@ export function BarChart({
                 key={`xl${i}`}
                 transform={textTF(padL + i * (innerW / data.length) + barW / 2, height - 6)}
               >
-                <text textAnchor={anchor} className="fill-neutral-500" fontSize={10}>
+                <text textAnchor={anchor} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
                   {formatX ? formatX(data[i].label, i) : data[i].label}
                 </text>
               </g>

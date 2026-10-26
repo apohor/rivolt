@@ -7,9 +7,12 @@ const pt = (day: number, hour: number, y: number) => ({ x: at(day, hour), y });
 describe("SocTrendChart axis and labels", () => {
   it("labels a month on the 1st, 11th, 21st and its last day, through its end, as Miles per day", () => {
     const t = dayTicks(new Date(2026, 9, 1).getTime(), new Date(2026, 10, 1).getTime(), 5);
-    expect(t.map((d) => d.label)).toEqual(["10-01", "10-11", "10-21", "10-31"]);
+    // Short month and day in the reader's language ("Oct 1"), not "10-01".
+    const name = (m: number, d: number) => new Date(2026, m, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    expect(t.map((d) => d.label)).toEqual([name(9, 1), name(9, 11), name(9, 21), name(9, 31)]);
+    expect(t[0].label).not.toContain("10-01");
     expect(t[3].x).toBe(new Date(2026, 9, 31).getTime());
-    expect(dayTicks(new Date(2026, 8, 1).getTime(), new Date(2026, 9, 1).getTime(), 5).map((d) => d.label)).toEqual(["09-01", "09-11", "09-21", "09-30"]);
+    expect(dayTicks(new Date(2026, 8, 1).getTime(), new Date(2026, 9, 1).getTime(), 5).map((d) => d.label)).toEqual([name(8, 1), name(8, 11), name(8, 21), name(8, 30)]);
   });
 
   it("labels each day of a week and spaces a year evenly", () => {

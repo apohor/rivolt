@@ -296,11 +296,7 @@ struct ChargeCurveView: View {
     }
 }
 
-private struct AxisText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-    var body: some View { Text(text).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary) }
-}
+private typealias AxisText = ChartAxisLabel
 
 /// A show/hide switch for one line of the chart: filled when on, outlined when off.
 private struct CurveChip: View {

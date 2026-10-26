@@ -107,7 +107,8 @@ struct SocDailyChart: View {
             AxisMarks(position: .leading, values: [0, 50, 100]) { value in
                 AxisGridLine().foregroundStyle(Theme.border.opacity(0.55))
                 AxisValueLabel {
-                    if let v = value.as(Int.self) { AxisText("\(v)%") }
+                    // No label on the floor: its "0%" would meet the first day's label in the corner.
+                    if let v = value.as(Int.self), v > 0 { AxisText("\(v)%") }
                 }
             }
         }
@@ -199,12 +200,8 @@ struct SocDailyChart: View {
     }
 
     private func extremeLabel(_ text: String) -> some View {
-        Text(text).themeText(.caption, color: Theme.textPrimary).fontWeight(.semibold)
+        Text(text).font(Theme.sans(ThemeTokens.typeChartAxis, .semibold, relativeTo: .caption2)).foregroundStyle(Theme.textPrimary)
     }
 }
 
-private struct AxisText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-    var body: some View { Text(text).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption2)).foregroundStyle(Theme.textTertiary) }
-}
+private typealias AxisText = ChartAxisLabel
