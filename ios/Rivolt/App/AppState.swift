@@ -83,6 +83,19 @@ final class AppState {
     let efficiency = EfficiencyModel()
 
     private static let serverDefaultsKey = "rivolt.server_url"
+    /// The time scope Now, Activity and Truck share (the web's picker: Day, Week, Month or Custom, with This year and All time inside
+    /// Custom), remembered on this phone. Money keeps its own month.
+    private(set) var period: Period
+    private let periodDefaults: UserDefaults
+    private static let periodDefaultsKey = "rivolt.period"
+
+    func setPeriod(_ p: Period) {
+        period = p
+        if let data = try? JSONEncoder().encode(p.stored(now: .now, calendar: .current)) {
+            periodDefaults.set(data, forKey: Self.periodDefaultsKey)
+        }
+    }
+
     /// The scaffold's old key (a hard-coded self-hosted host); dropped.
     private static let legacyServerDefaultsKey = "rivolt.api_base_url"
 
@@ -92,6 +105,9 @@ final class AppState {
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
         self.serverURL = server
+        self.periodDefaults = defaults
+        self.period = defaults.data(forKey: Self.periodDefaultsKey).flatMap { try? JSONDecoder().decode(Period.Stored.self, from: $0) }
+            .map { Period($0, now: .now, calendar: .current) } ?? Period(containing: .now, calendar: .current)
         self.tokens = tokens
         self.notifications = notifications ?? NotificationManager.shared
         self.liveActivity = liveActivity ?? LiveActivityManager.shared

@@ -126,33 +126,55 @@ struct ThemeTabBar: View {
     }
 }
 
-/// The month stepper beside the page title: previous and next arrows around the month, in a bordered pill. Next is
-/// disabled in the current month.
+/// The period stepper beside the page title: previous and next arrows around the period, in a bordered pill. Next is
+/// disabled in the current period. With `onTitle` a tap on the title opens the choices (the period picker); a period that does not
+/// step (Custom, All time) shows the title alone.
 struct ThemeStepper: View {
     let title: String
-    /// What VoiceOver says for the month ("October 2026"); the printed title is the short form.
+    /// What VoiceOver says for the period ("October 2026"); the printed title is the short form.
     var spokenTitle: String?
     let canGoForward: Bool
+    var canStep = true
+    /// "month", "week", "day" or "year", for VoiceOver's "Previous month".
+    var noun = "month"
     let previous: () -> Void
     let next: () -> Void
+    var onTitle: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(action: previous) { Image(systemName: "arrowtriangle.left.fill").font(.system(size: ThemeTokens.typeCaption)) }
-                .accessibilityLabel("Previous month")
-                .frame(width: 40, height: 36)
-            Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
-                .frame(minWidth: 84)
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .accessibilityLabel(spokenTitle ?? title)
-                .accessibilityAddTraits(.isHeader)
-            Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: ThemeTokens.typeCaption)) }
-                .disabled(!canGoForward)
-                .accessibilityLabel("Next month")
-                .frame(width: 40, height: 36)
+            if canStep {
+                Button(action: previous) { Image(systemName: "arrowtriangle.left.fill").font(.system(size: ThemeTokens.typeCaption)) }
+                    .accessibilityLabel("Previous \(noun)")
+                    .frame(width: 40, height: 36)
+            }
+            titleView
+            if canStep {
+                Button(action: next) { Image(systemName: "arrowtriangle.right.fill").font(.system(size: ThemeTokens.typeCaption)) }
+                    .disabled(!canGoForward)
+                    .accessibilityLabel("Next \(noun)")
+                    .frame(width: 40, height: 36)
+            }
         }
         .foregroundStyle(Theme.textTertiary)
         .background(Theme.card.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        let label = Text(title).font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundStyle(Theme.textPrimary)
+            .frame(minWidth: 84, minHeight: 36)
+            .padding(.horizontal, canStep ? 0 : 8)
+            .lineLimit(1).minimumScaleFactor(0.6)
+        if let onTitle {
+            Button(action: onTitle) { label }
+                .buttonStyle(.plain)
+                .accessibilityLabel(spokenTitle ?? title)
+                .accessibilityHint("Choose a different period")
+                .accessibilityAddTraits(.isHeader)
+        } else {
+            label.accessibilityLabel(spokenTitle ?? title).accessibilityAddTraits(.isHeader)
+        }
     }
 }

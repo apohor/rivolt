@@ -45,7 +45,7 @@ struct ChartsSection: View {
             if model.points == nil {
                 ChartEmpty(text: model.isLoading ? "Loading…" : "Couldn't load this chart.")
             } else if miles.allSatisfy({ $0.value == 0 }) {
-                ChartEmpty(text: "No driving in \(month.title(calendar: calendar)).")
+                ChartEmpty(text: "No driving \(month.inPhrase(calendar: calendar)).")
             } else {
                 // A round top and round ticks (0 · 200 · 400 · 600), not the data's own maximum split in halves (509 and 255).
                 let axis = ChartMath.niceAxis(max: miles.map(\.value).max() ?? 1)
@@ -97,7 +97,7 @@ struct ChartsSection: View {
             if model.points == nil {
                 ChartEmpty(text: model.isLoading ? "Loading…" : "Couldn't load this chart.")
             } else if trend.count < 2 {
-                ChartEmpty(text: "Not enough drives or charges in \(month.title(calendar: calendar)) yet.")
+                ChartEmpty(text: "Not enough drives or charges \(month.inPhrase(calendar: calendar)) yet.")
             } else {
                 SocDailyChart(days: days, limit: limitSegment, month: month, calendar: calendar)
             }

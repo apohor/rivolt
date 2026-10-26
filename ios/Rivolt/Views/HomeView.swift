@@ -26,7 +26,8 @@ struct HomeView: View {
     @State private var latestCharge: ChargeBrief?
     @State private var latestDrive: DriveBrief?
     @State private var charts = ChartsModel()
-    @State private var month = PeriodMonth(containing: .now, calendar: .current)
+    /// The scope Now, Activity and Truck share (see `PeriodControl`).
+    private var month: Period { state.period }
     @Environment(\.tabActive) private var tabActive
     @Environment(\.scenePhase) private var scenePhase
     /// When the truck was last read from the server, so "Offline" is said only after a recent read (NowFreshness).
@@ -115,7 +116,7 @@ struct HomeView: View {
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
-            .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
+            .task(id: "\(selected?.id ?? "")|\(month.key)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             .onChange(of: selectedID) { Task { await loadSelected() } }
             // A closed Now screen doesn't keep re-reading after a drive or charge ends.
             .onDisappear { settleTask?.cancel() }
@@ -168,9 +169,7 @@ struct HomeView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: month.title(calendar: .current), spokenTitle: month.spokenTitle(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
-                         previous: { month = month.shifted(by: -1, calendar: .current) },
-                         next: { month = month.shifted(by: 1, calendar: .current) })
+            PeriodControl()
         }
     }
 

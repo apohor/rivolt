@@ -13,7 +13,8 @@ struct TruckView: View {
     @State private var vehiclesLoaded = false
     @State private var vehiclesError: String?
     @State private var model = TruckModel()
-    @State private var month = PeriodMonth(containing: .now, calendar: .current)
+    /// The scope Now, Activity and Truck share (see `PeriodControl`).
+    private var month: Period { state.period }
     @State private var drainKey: TruckLogic.DrainKey = .week
     @State private var pickedTemp: Double?
     @State private var autoTemp: Double?
@@ -61,7 +62,7 @@ struct TruckView: View {
                 autoTemp = nil
                 await model.load(source: state.client, vehicleID: id, metric: metric)
             }
-            .task(id: "\(selected?.id ?? "")|\(month.start.timeIntervalSince1970)") {
+            .task(id: "\(selected?.id ?? "")|\(month.key)") {
                 guard let id = selected?.id else { return }
                 await model.loadSleep(source: state.client, vehicleID: id, month: month)
             }
@@ -93,9 +94,7 @@ struct TruckView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            ThemeStepper(title: month.title(calendar: .current), spokenTitle: month.spokenTitle(calendar: .current), canGoForward: !month.isCurrent(now: .now, calendar: .current),
-                         previous: { month = month.shifted(by: -1, calendar: .current) },
-                         next: { month = month.shifted(by: 1, calendar: .current) })
+            PeriodControl()
         }
     }
 

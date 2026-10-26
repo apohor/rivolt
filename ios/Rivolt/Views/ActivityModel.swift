@@ -28,13 +28,13 @@ final class ActivityModel {
     static func problem(for error: Error) -> String {
         switch error {
         case APIError.decoding:
-            return "Rivolt couldn't read this month's answer. Updating the app may help."
+            return "Rivolt couldn't read this answer. Updating the app may help."
         case APIError.server(let status, _) where (500...599).contains(status):
             return "Rivolt isn't answering right now. Pull to try again."
         case is URLError, APIError.transport:
             return "Couldn't reach Rivolt. Check the connection, then pull to try again."
         default:
-            return "Couldn't load this month. Pull to try again."
+            return "Couldn't load this period. Pull to try again."
         }
     }
 
@@ -66,7 +66,7 @@ final class ActivityModel {
 
     func load(source: some ActivitySource, vehicleID: String, month: PeriodMonth, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current, retryAfter: Duration = .seconds(2), busyRetryAfter: Duration = .seconds(3)) async {
-        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
+        let key = "\(vehicleID)|\(month.key)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             response = hit.response
             failed = false
