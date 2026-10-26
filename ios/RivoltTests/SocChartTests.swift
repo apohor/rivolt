@@ -39,9 +39,9 @@ final class SocChartTests: XCTestCase {
             let m = PeriodMonth(containing: try date(iso), calendar: utc)
             return m.axisDays(calendar: utc).map { ChartsSection.dayLabel($0, calendar: utc) }
         }
-        XCTAssertEqual(try labels("2026-10-22T10:00:00Z"), ["10-01", "10-11", "10-21", "10-31"])
-        XCTAssertEqual(try labels("2026-11-03T10:00:00Z"), ["11-01", "11-11", "11-21", "11-30"])
-        XCTAssertEqual(try labels("2026-02-10T10:00:00Z"), ["02-01", "02-11", "02-21", "02-28"])
+        XCTAssertEqual(try labels("2026-10-22T10:00:00Z"), ["Oct 1", "Oct 11", "Oct 21", "Oct 31"])
+        XCTAssertEqual(try labels("2026-11-03T10:00:00Z"), ["Nov 1", "Nov 11", "Nov 21", "Nov 30"])
+        XCTAssertEqual(try labels("2026-02-10T10:00:00Z"), ["Feb 1", "Feb 11", "Feb 21", "Feb 28"])
         let m = PeriodMonth(containing: try date("2026-10-22T10:00:00Z"), calendar: utc)
         XCTAssertEqual(m.allDays(calendar: utc).count, 31, "the current month is drawn whole; the days after today stay empty")
         XCTAssertEqual(m.days(now: try date("2026-10-22T10:00:00Z"), calendar: utc).count, 22, "the data still stops at today")
