@@ -129,10 +129,11 @@ func TestFunnelByWeek(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	old := now.Add(-10 * 24 * time.Hour)
-	week := func(t time.Time) string {
+	weekStart := func(t time.Time) time.Time {
 		d := t.UTC().Truncate(24 * time.Hour)
-		return d.AddDate(0, 0, -((int(d.Weekday()) + 6) % 7)).Format("2006-01-02")
+		return d.AddDate(0, 0, -((int(d.Weekday()) + 6) % 7))
 	}
+	week := func(t time.Time) string { return weekStart(t).Format("2006-01-02") }
 
 	full := mk("fun-full", old) // connected, first data, came back on day 3
 	vid := vehicle(full, "rv-fun-1")
@@ -145,7 +146,13 @@ func TestFunnelByWeek(t *testing.T) {
 	mk("fun-none", old)                        // signed up only
 	efi := mk("fun-efi", old)                  // ElectraFi import only: not connected
 	vehicle(efi, "electrafi-abc")
-	fresh := mk("fun-fresh", now.Add(-2*time.Hour)) // too new to have returned
+	// Too new to have returned. Two hours ago, but never before this week began: in the first two hours of a Monday (UTC) two hours
+	// ago is last week, and the expectation below is about this week (this test failed at 00:00:50Z on a Monday for that reason).
+	freshAt := now.Add(-2 * time.Hour)
+	if ws := weekStart(now); freshAt.Before(ws) {
+		freshAt = ws
+	}
+	fresh := mk("fun-fresh", freshAt)
 	vehicle(fresh, "rv-fun-3")
 	off := mk("fun-off", old)
 	exec(`UPDATE users SET disabled = TRUE WHERE id = $1`, off)
@@ -154,6 +161,9 @@ func TestFunnelByWeek(t *testing.T) {
 	sum := adminhealth.New(adminhealth.Config{DB: pool}).Summary(ctx).Engagement
 	if sum.Status != adminhealth.OK {
 		t.Fatalf("engagement %+v", sum)
+	}
+	if week(time.Now()) != week(now) {
+		t.Skip("the week turned over while the test ran: \"this week\" is not the week the data was made in")
 	}
 	got := map[string]adminhealth.FunnelWeek{}
 	for _, w := range sum.FunnelWeeks {
