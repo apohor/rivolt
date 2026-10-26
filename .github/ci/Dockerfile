@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.28
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 #
 # CI-only image assembly. The workflow's `bin` job has already built the static binary (warm Go cache, the same
 # `CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=…"` as the root Dockerfile, with the SPA embedded),
