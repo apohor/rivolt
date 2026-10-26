@@ -47,7 +47,7 @@ final class KpiModel {
     func load(source: some KpiSource, vehicleID: String, month: PeriodMonth, scopeLedger: Bool, lastChargeEnd: Date?,
               force: Bool = false, now: Date = .now, calendar: Calendar = .current) async {
         let sinceKey = lastChargeEnd.map { String($0.timeIntervalSince1970) } ?? "none"
-        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)|\(sinceKey)"
+        let key = "\(vehicleID)|\(month.key)|\(sinceKey)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             apply(hit)
             shownKey = key
@@ -67,7 +67,9 @@ final class KpiModel {
         let tz = calendar.timeZone.identifier
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
         async let a = try? source.activity(since: range.since, until: range.until, vehicleID: vehicleID)
-        async let l = try? source.ledgerSpend(month: monthID, timeZone: tz, vehicleID: scopeLedger ? vehicleID : nil)
+        // The ledger's statement is a calendar month's; any other period's spend is worked out from its own charges (KpiLogic).
+        let isMonth = month.kind == .month
+        async let l: LedgerMonthSpend? = isMonth ? try? source.ledgerSpend(month: monthID, timeZone: tz, vehicleID: scopeLedger ? vehicleID : nil) : nil
         async let p = Self.drivesSince(source, end: lastChargeEnd, until: tomorrow, vehicleID: vehicleID)
         let (aa, ll, pp) = await (a, l, p)
         var entry = cache[key] ?? Entry(activity: nil, ledger: nil, since: nil, fetchedAt: .distantPast)
@@ -76,7 +78,7 @@ final class KpiModel {
         if let ll { entry.ledger = ll }
         if let end = lastChargeEnd, let pp { entry.since = KpiLogic.sinceCharge(end: end, points: pp) }
         // Only a complete answer is fresh; a failed part is read again on the next load.
-        if aa != nil && ll != nil { entry.fetchedAt = now }
+        if aa != nil && (ll != nil || !isMonth) { entry.fetchedAt = now }
         cache[key] = entry
         apply(entry)
         ledgerPending = false

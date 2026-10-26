@@ -36,7 +36,7 @@ final class EfficiencyModel {
     func load(source: some EfficiencySource, vehicleID: String, month: PeriodMonth, metric: Bool, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current) async {
         let units = metric ? "metric" : "imperial"
-        let k = "\(vehicleID)|\(month.start.timeIntervalSince1970)|\(units)"
+        let k = "\(vehicleID)|\(month.key)|\(units)"
         if !force, let hit = cache[k], now.timeIntervalSince(hit.at) < Self.lifetime {
             key = k
             shown = hit.value.map(Shown.insights) ?? .unavailable

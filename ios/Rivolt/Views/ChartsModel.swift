@@ -34,7 +34,7 @@ final class ChartsModel {
 
     func load(source: some ChartsSource, vehicleID: String, month: PeriodMonth, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current) async {
-        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
+        let key = "\(vehicleID)|\(month.key)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             points = hit.points
             sleep = hit.sleep

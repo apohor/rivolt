@@ -46,7 +46,7 @@ final class PlacesModel {
 
     func load(source: some PlacesSource, vehicleID: String, month: PeriodMonth, force: Bool = false,
               now: Date = .now, calendar: Calendar = .current) async {
-        let key = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
+        let key = "\(vehicleID)|\(month.key)"
         if !force, let hit = cache[key], now.timeIntervalSince(hit.fetchedAt) < Self.lifetime {
             split = hit.split
             return

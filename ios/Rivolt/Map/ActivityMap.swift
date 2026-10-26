@@ -38,7 +38,7 @@ final class ActivityMapModel {
     private(set) var key: String?
 
     func load(source: some ActivityMapSource, vehicleID: String, month: PeriodMonth, force: Bool = false, calendar: Calendar = .current) async {
-        let k = "\(vehicleID)|\(month.start.timeIntervalSince1970)"
+        let k = "\(vehicleID)|\(month.key)"
         if k == key && !failed && !force { return }
         if k != key { clear() }
         key = k
@@ -136,7 +136,7 @@ struct ActivityMapView: View {
                 ActivityMapRepresentable(styleJSON: style, drives: drives, charges: charges, filter: filter,
                                          onHealth: { health = $0 }, onPick: onPick)
                     .accessibilityElement()
-                    .accessibilityLabel("Map of this month's drives and charges")
+                    .accessibilityLabel("Map of the drives and charges in this period")
                     // The legend above the credit, each at most two lines.
                     .overlay(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: Theme.unit) {

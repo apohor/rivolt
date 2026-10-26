@@ -267,7 +267,7 @@ final class ActivityModelTests: XCTestCase {
         let b = ActivityModel()
         let unreadable = FakeActivity(result: .failure(APIError.decoding(URLError(.cannotParseResponse))))
         await b.load(source: unreadable, vehicleID: "a", month: month, calendar: calendar, retryAfter: .zero)
-        XCTAssertEqual(b.problem, "Rivolt couldn't read this month's answer. Updating the app may help.")
+        XCTAssertEqual(b.problem, "Rivolt couldn't read this answer. Updating the app may help.")
         let unreadableCalls = await unreadable.counter.calls
         XCTAssertEqual(unreadableCalls, 1, "an unreadable answer would read the same again")
         let c = ActivityModel()

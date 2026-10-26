@@ -10,7 +10,8 @@ struct ActivityView: View {
     @State private var vehicles: [Vehicle] = []
     @State private var model = ActivityModel()
     @State private var monthLoadedOnce = false
-    @State private var month = PeriodMonth(containing: .now, calendar: .current)
+    /// The scope Now, Activity and Truck share (see `PeriodControl`).
+    private var month: Period { state.period }
     @State private var filter = ActivityFilter.all
     /// List every launch (not kept): the accessible view first, and no map read on a slow connection unless asked.
     @State private var mode = ActivityMode.list
@@ -53,7 +54,7 @@ struct ActivityView: View {
             }
             // A tap on the map opens the drive or charge, as a row does.
             .navigationDestination(item: $picked) { ActivityDetailView(item: $0, calendar: calendar) }
-            .task(id: "\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") {
+            .task(id: "\(vehicleID ?? "")|\(month.key)") {
                 // Paging through months quickly reads only the one the person stops on: each read spends the server's per-minute allowance.
                 if monthLoadedOnce {
                     try? await Task.sleep(for: .milliseconds(350))
@@ -62,7 +63,7 @@ struct ActivityView: View {
                 monthLoadedOnce = true
                 await load(force: false)
             }
-            .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.start.timeIntervalSince1970)") {
+            .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.key)") {
                 if monthLoadedOnce { try? await Task.sleep(for: .milliseconds(350)); if Task.isCancelled { return } }
                 await loadMap()
                 await loadEfficiency()
@@ -159,26 +160,24 @@ struct ActivityView: View {
         if model.limited {
             Text("Rivolt is busy right now. Try again in a moment.").themeText(.subline, color: Theme.estimate)
         } else if model.failed && model.response == nil {
-            Text(model.problem ?? "Couldn't load this month. Pull to try again.").themeText(.subline, color: Theme.estimate)
+            Text(model.problem ?? "Couldn't load this period. Pull to try again.").themeText(.subline, color: Theme.estimate)
         } else if model.response != nil && days.isEmpty {
             Text(emptyText).themeText(.subline)
         }
     }
 
     private var emptyText: String {
-        let m = month.spokenTitle(calendar: calendar)
+        let m = month.inPhrase(calendar: calendar)
         switch filter {
-        case .all: return "No drives or charges in \(m)."
-        case .drives: return "No drives in \(m)."
-        case .charges: return "No charges in \(m)."
+        case .all: return "No drives or charges \(m)."
+        case .drives: return "No drives \(m)."
+        case .charges: return "No charges \(m)."
         }
     }
 
     private var titleRow: some View {
         ThemeTitleRow(title: "Activity") {
-            ThemeStepper(title: month.title(calendar: calendar), spokenTitle: month.spokenTitle(calendar: calendar), canGoForward: !month.isCurrent(now: .now, calendar: calendar),
-                         previous: { month = month.shifted(by: -1, calendar: calendar) },
-                         next: { month = month.shifted(by: 1, calendar: calendar) })
+            PeriodControl()
         }
     }
 
