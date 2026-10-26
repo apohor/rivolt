@@ -128,7 +128,7 @@ struct ConnectionDetailsView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        SettingsStack {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 ScrollView {
                     ConnectionDetailsContent(diagnostics: diagnostics, serverURL: serverURL, clock: context.date)
@@ -138,7 +138,7 @@ struct ConnectionDetailsView: View {
             .background(ThemePageBackground().ignoresSafeArea())
             .navigationTitle("Connection details")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
     }
 }

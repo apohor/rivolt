@@ -8,7 +8,7 @@ private struct SettingsSheet<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        SettingsStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4 * Theme.unit) { content }
                     .padding(4 * Theme.unit)
@@ -19,11 +19,7 @@ private struct SettingsSheet<Content: View>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.font(Theme.sans(ThemeTokens.typeValue, .medium)).tint(Theme.accent)
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
     }
 }

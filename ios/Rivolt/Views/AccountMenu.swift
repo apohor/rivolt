@@ -1,27 +1,19 @@
 import SwiftUI
 
-/// The account menu at the end of every screen's top bar: Refresh (when the screen has something to refresh),
-/// Notifications (when this server can push), Charging rates (the home rate, read and changed), Signed-in devices (where you're signed in, and a way to sign one out), Appearance (System, Light or Dark, saved on this iPhone), Privacy policy and Terms (the pages on the signed-in server, in Safari), Acknowledgements and Sign out. It opens its own sheets, so each screen
-/// only places it. The screens it opens are the architect's (Settings); the menu itself is shared.
+/// The person icon at the end of every screen's top bar. A short menu: Refresh (when the screen has something to refresh by hand),
+/// Settings and Sign out. Settings is one grouped screen (`SettingsView`) that pushes its detail screens, so the menu no longer lists
+/// them all. The demo keeps its own short list (nothing to change, nothing to sign out of). Each screen only places it.
 struct AccountMenu: View {
     @Environment(AppState.self) private var state
-    /// The truck the notification settings are for (the Live Activity switch is per truck).
+    /// The truck the vehicle and notification settings are for (the Live Activity switch is per truck).
     var vehicleID: String?
     /// Nil when the screen has nothing to refresh by hand.
     var onRefresh: (() -> Void)?
 
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
-    @State private var showNotifications = false
+    @State private var showSettings = false
     @State private var showAcknowledgements = false
-    @State private var showRates = false
-    @State private var showConnection = false
-    @State private var showDelete = false
     @State private var showAbout = false
-    @State private var showDevices = false
-    @State private var showUnits = false
-    @State private var showHome = false
-    @State private var showProfile = false
-    @State private var showExport = false
 
     var body: some View {
         HStack(spacing: 2 * Theme.unit) {
@@ -47,27 +39,11 @@ struct AccountMenu: View {
                 Divider()
                 Button(state.demoResumesAccount ? "Back to my account" : "Sign in") { state.leaveDemo() }
             } else {
-                if state.notifications.offered {
-                    Button("Notifications") { showNotifications = true }
-                }
-                Button("Charging rates") { showRates = true }
-                Button("Home location") { showHome = true }
-                Button("Vehicle profile") { showProfile = true }
-                Button("Units") { showUnits = true }
-                Button("Export your data") { showExport = true }
-                Button("Signed-in devices") { showDevices = true }
-                Picker("Appearance", selection: $appearance) {
-                    ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
-                }
-                Link("Privacy policy", destination: state.serverURL.appending(path: "privacy"))
-                Link("Terms", destination: state.serverURL.appending(path: "terms"))
-                Button("Connection details") { showConnection = true }
-                Button("Acknowledgements") { showAcknowledgements = true }
+                Button("Settings") { showSettings = true }
                 Divider()
                 Button("Sign out", role: .destructive) {
                     Task { await state.logout() }
                 }
-                Button("Delete account", role: .destructive) { showDelete = true }
             }
         } label: {
             Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
@@ -75,17 +51,6 @@ struct AccountMenu: View {
         .accessibilityLabel("Account")
         .sheet(isPresented: $showAbout) { DemoAboutSheet() }
         .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
-        .sheet(isPresented: $showRates) { ChargingRatesView() }
-        .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
-        .sheet(isPresented: $showDevices) { DevicesView() }
-        .sheet(isPresented: $showUnits) { UnitsView() }
-        .sheet(isPresented: $showHome) { HomeLocationView(vehicleID: vehicleID) }
-        .sheet(isPresented: $showProfile) { VehicleProfileView(vehicleID: vehicleID) }
-        .sheet(isPresented: $showExport) { ExportDataView() }
-        .sheet(isPresented: $showConnection) { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) }
-        .sheet(isPresented: $showNotifications) {
-            NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
-                                     live: state.liveActivity, vehicleID: vehicleID)
-        }
+        .sheet(isPresented: $showSettings) { SettingsView(vehicleID: vehicleID) }
     }
 }
