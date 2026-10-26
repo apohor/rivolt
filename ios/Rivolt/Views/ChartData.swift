@@ -15,6 +15,26 @@ struct SocPoint: Equatable, Identifiable {
 
 /// The chart maths, the same as the web's `analytics.ts`, without any view code so it can be tested.
 enum ChartMath {
+    /// The day a press on a bar chart points at: the one of `days` that contains `date`, nil past the ends (a press outside the data
+    /// reads nothing).
+    static func inspectedDay(_ date: Date?, among days: [DayValue], calendar: Calendar) -> DayValue? {
+        guard let date else { return nil }
+        let start = calendar.startOfDay(for: date)
+        return days.first { $0.day == start }
+    }
+
+    /// What reading a day's bar says, the same figure the web's tooltip gives (one decimal): "Oct 9 · 12.3 mi".
+    static func milesReadout(_ d: DayValue, unit: String, calendar: Calendar) -> String {
+        "\(SocDaily.dayLabel(d.day, calendar: calendar)) · \(NumberText.fixed(d.value, 1)) \(unit)"
+    }
+
+    /// The neighbouring day for VoiceOver's swipe up and down (`step` is +1 or -1), starting from the first day with driving when none is read yet.
+    static func steppedDay(from current: DayValue?, step: Int, among days: [DayValue]) -> DayValue? {
+        guard !days.isEmpty else { return nil }
+        guard let current, let i = days.firstIndex(of: current) else { return step > 0 ? days.first : days.last }
+        return days[min(days.count - 1, max(0, i + step))]
+    }
+
     /// The same for a chart of minutes, as the web's `niceMinutesAxis`: the step is a round number of minutes or hours, so the ticks read
     /// 0 · 8h · 16h · 24h, not 8h 20m · 16h 40m · 25h. Three intervals when two would reach the same top.
     static func niceMinutesAxis(max value: Double) -> (top: Double, ticks: [Double]) {
