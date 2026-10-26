@@ -27,6 +27,8 @@ for (const [vpName, vp] of [
       const ctx = await browser.newContext({ viewport: vp, colorScheme: theme });
       const page = await ctx.newPage();
       await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
+      // All time: the fixtures sit a few days back, and in the first days of a month "this month" has none of them.
+      await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
       await stubApi(page);
       await page.route("**/api/charges?**", (r) =>
         r.fulfill({
