@@ -27,7 +27,12 @@ var ErrEndpoint = errors.New("push: endpoint is not an accepted push service")
 // suffixes (a leading dot) for the services that spread over subdomains.
 var (
 	pushHostsExact = map[string]bool{
-		"fcm.googleapis.com":                true, // Chrome, Edge, Opera, Samsung
+		"fcm.googleapis.com": true, // Chrome (stable), Edge, Opera, Samsung
+		// Chromium's staging FCM front end, and the endpoint every Chrome that is not the stable channel hands out (Beta, Dev,
+		// Canary, and unbranded Chromium builds). Chromium: components/push_messaging/push_messaging_constants.cc defines
+		// kPushMessagingStagingGcmEndpoint = "https://jmt17.google.com/fcm/send/", and push_messaging_utils.cc returns it when the
+		// channel is not STABLE. That one host only, never google.com or its other subdomains.
+		"jmt17.google.com":                  true,
 		"updates.push.services.mozilla.com": true, // Firefox
 		"web.push.apple.com":                true, // Safari, iOS web apps
 	}
@@ -62,6 +67,21 @@ func ValidEndpoint(raw string) error {
 		}
 	}
 	return fmt.Errorf("%w: %s", ErrEndpoint, host)
+}
+
+// EndpointHost is the lower-case host of a push endpoint and nothing else: no scheme, port, path, query or credentials. The path of
+// a push endpoint is a capability (whoever holds it can push to the device), so a log line about a refused endpoint names the host
+// only. "" for anything that does not parse; capped, so a long junk host cannot flood a log.
+func EndpointHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	h := strings.ToLower(u.Hostname())
+	if len(h) > 100 {
+		h = h[:100]
+	}
+	return h
 }
 
 // privateAddr reports addresses a push send must never connect to.

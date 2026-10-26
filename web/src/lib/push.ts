@@ -1,4 +1,4 @@
-import { backend, type PushPreferences } from "./api";
+import { ApiError, backend, type PushPreferences } from "./api";
 
 // urlBase64ToUint8Array converts the URL-safe base64 VAPID public key
 // the server returns into the raw byte array PushManager.subscribe
@@ -10,6 +10,41 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuf
   const out = new Uint8Array(new ArrayBuffer(raw.length));
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
+}
+
+// What the person is told when the server refuses their browser's push service (an unfamiliar host). Nothing was saved.
+export function unsupportedPushMessage(host?: string): string {
+  return `This browser's push service${host ? ` (${host})` : ""} isn't supported yet, so notifications can't be turned on here. Nothing was saved.`;
+}
+
+// Registers a browser push subscription with the server, and leaves the browser and the server telling the same story. If the server
+// refuses (or the call fails) after this call created the subscription, the browser subscription is removed again, so a refresh does
+// not show notifications as on when the server has nothing; one that already existed is removed too when the server says the push
+// service itself is unsupported (it can never work). A refusal by an unfamiliar push service comes back as an Error with a plain
+// message; anything else is rethrown as it was. Returns the subscription and the preferences the server stored.
+export async function registerPushSubscription(
+  reg: ServiceWorkerRegistration,
+  publicKey: string,
+  prefs: PushPreferences,
+): Promise<{ sub: PushSubscription; preferences: PushPreferences }> {
+  const existing = await reg.pushManager.getSubscription();
+  const s = existing ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }));
+  try {
+    const json = s.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) throw new Error("Subscription is missing endpoint or keys.");
+    const res = await backend.pushSubscribe({
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+      preferences: prefs,
+      user_agent: navigator.userAgent,
+    });
+    return { sub: s, preferences: res.preferences };
+  } catch (e) {
+    const unsupported = e instanceof ApiError && e.status === 400 && (e.body as { class?: string } | null)?.class === "unsupported_push_service";
+    if (!existing || unsupported) await s.unsubscribe().catch(() => false);
+    if (unsupported) throw new Error(unsupportedPushMessage((e.body as { host?: string }).host));
+    throw e;
+  }
 }
 
 export function pushSupported(): boolean {
@@ -29,16 +64,7 @@ export async function subscribeThisDevice(prefs: PushPreferences, opts?: { leave
   const reg = await navigator.serviceWorker.ready;
   const { public_key } = await backend.pushVAPIDKey();
   if (!public_key) throw new Error("Server is missing a VAPID public key.");
-  const existing = await reg.pushManager.getSubscription();
-  if (existing && opts?.leaveExisting) return "on";
-  const s = existing ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(public_key) }));
-  const json = s.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
-  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) throw new Error("Subscription is missing endpoint or keys.");
-  await backend.pushSubscribe({
-    endpoint: json.endpoint,
-    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-    preferences: prefs,
-    user_agent: navigator.userAgent,
-  });
+  if (opts?.leaveExisting && (await reg.pushManager.getSubscription())) return "on";
+  await registerPushSubscription(reg, public_key, prefs);
   return "on";
 }

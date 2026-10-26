@@ -60,7 +60,11 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			return
 		}
 		if err := push.ValidEndpoint(body.Endpoint); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unsupported push service"})
+			// The host only (never the path, which is a capability, or the keys): so the next unfamiliar push service a browser
+			// hands out is visible in the logs. It goes back to the caller too, who sent it, so the page can name it.
+			host := push.EndpointHost(body.Endpoint)
+			slog.WarnContext(r.Context(), "push: subscribe refused, unsupported push service", "host", host, "user_agent", truncateRunes(body.UserAgent, 200))
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unsupported push service", "class": "unsupported_push_service", "host": host})
 			return
 		}
 
