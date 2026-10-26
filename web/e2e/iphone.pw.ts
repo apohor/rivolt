@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { settled } from "./settle";
 import { stubApi } from "./stub";
 import { e2eNow } from "./clock";
 
@@ -121,7 +122,9 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   });
   await page.goto("/drives/drive-1");
   await expect(page.locator(".rivolt-speed-legend")).toBeVisible();
-  await page.waitForTimeout(1500);
+  // The map fits the route and the tiles settle after the legend is there: measure once nothing is still moving, not after a guessed wait.
+  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
+  await settled(page, [".rivolt-speed-legend", ".leaflet-control-attribution", ".leaflet-container"]);
   const boxes = await page.evaluate(() => {
     const r = (el: Element) => {
       const b = el.getBoundingClientRect();
@@ -151,7 +154,8 @@ test("drive map: basemap toggle doesn't cover the end pin at 390 px", async ({ b
   await stubApi(page);
   await page.goto("/drives/drive-1");
   await page.locator(".leaflet-container").first().scrollIntoViewIfNeeded();
-  await page.waitForTimeout(1200);
+  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
+  await settled(page, [".rivolt-flavor-control", ".leaflet-container"]);
   const overlap = await page.evaluate(() => {
     const c = document.querySelector(".rivolt-flavor-control")!.getBoundingClientRect();
     const pins = [...document.querySelectorAll(".leaflet-marker-icon")].map((e) => e.getBoundingClientRect());
