@@ -258,6 +258,7 @@ export const LITERALS: Record<string, Partial<Record<Theme | "both", Literal>>> 
 // Non-colour values, each with the source fragment that proves it.
 export const SCALAR: Record<string, { value: number | string; file: string; css: string; use: string }> = {
   "type.caption": { value: 11, file: "src/styles/next-type.css", css: "font-size: 0.6875rem", use: "captions, pills, tab labels (px)" },
+  "type.mapCaption": { value: 11, file: "src/lib/mapCaption.ts", css: "MAP_CAPTION_PX = 11", use: "text over a map: legends, chips, credits (px)" },
   "type.subline": { value: 12, file: "node_modules/tailwindcss/theme.css", css: "--text-xs: 0.75rem", use: "sub-lines, labels' neighbours (px)" },
   "type.value": { value: 14, file: "src/styles/next-type.css", css: "font-size: 0.875rem", use: "values, body (text-base/lg fold to 14 px)" },
   "type.title": { value: 24, file: "src/styles/next-type.css", css: "font-size: 1.5rem", use: "titles, KPI figures (px)" },
@@ -383,6 +384,7 @@ export function buildTokens(src: Sources) {
 
 export const SOURCE_FILES = [
   "src/lib/speedBuckets.ts",
+  "src/lib/mapCaption.ts",
   "src/lib/driveTimelineData.ts",
   "src/components/EfficiencyBars.tsx",
   "src/index.css",

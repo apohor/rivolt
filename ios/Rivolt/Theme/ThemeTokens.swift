@@ -103,6 +103,7 @@ enum ThemeTokens {
 
     // MARK: Scalars (points; milliseconds for motion; em for tracking)
     static let typeCaption: Double = 11
+    static let typeMapCaption: Double = 11
     static let typeSubline: Double = 12
     static let typeValue: Double = 14
     static let typeTitle: Double = 24

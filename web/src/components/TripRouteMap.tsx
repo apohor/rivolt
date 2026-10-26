@@ -14,6 +14,7 @@ import type { POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { CAMP_WARNING, RIDB_CREDIT, campgroundOfPoi, campPowerLine, outletLabel, sitesLine } from "../plan/stays";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
+import { MAP_CAPTION_PX } from "../lib/mapCaption";
 
 // TripRouteMap renders a planned trip on a Leaflet map: a road-
 // snapped polyline through every waypoint, plus markers for the
@@ -655,7 +656,7 @@ export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; ur
     out.push(`<a href="${camp.url}" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:4px;color:#34d399">on Recreation.gov</a>`);
   }
   out.push(
-    `<div style="${muted};font-size:10px;margin-top:4px">${RIDB_CREDIT.lead}` +
+    `<div style="${muted};font-size:${MAP_CAPTION_PX}px;margin-top:4px">${RIDB_CREDIT.lead}` +
       `<a href="${RIDB_CREDIT.source.href}" target="_blank" rel="noopener noreferrer" style="color:#a3a3a3">${escapeHTML(RIDB_CREDIT.source.label)}</a>, ` +
       `<a href="${RIDB_CREDIT.licence.href}" target="_blank" rel="noopener noreferrer" style="color:#a3a3a3">${escapeHTML(RIDB_CREDIT.licence.label)}</a>${RIDB_CREDIT.tail}</div>`,
   );
@@ -710,7 +711,7 @@ export function chargerPopupHTML(
       `style="display:block;margin-top:6px;padding:3px 8px;background:#7c3aed;color:#fff;` +
       `border-radius:4px;font-size:11px;text-align:center;text-decoration:none">` +
       `Hotel details</a>`,
-      `<div style="color:#a3a3a3;font-size:10px;margin-top:2px;text-align:center">Opens booking.com</div>`,
+      `<div style="color:#a3a3a3;font-size:${MAP_CAPTION_PX}px;margin-top:2px;text-align:center">Opens booking.com</div>`,
     );
   }
   if (overnightable) {
