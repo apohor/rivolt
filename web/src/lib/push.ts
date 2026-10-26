@@ -42,7 +42,7 @@ export async function registerPushSubscription(
   } catch (e) {
     const unsupported = e instanceof ApiError && e.status === 400 && (e.body as { class?: string } | null)?.class === "unsupported_push_service";
     if (!existing || unsupported) await s.unsubscribe().catch(() => false);
-    if (unsupported) throw new Error(unsupportedPushMessage((e.body as { host?: string }).host));
+    if (unsupported) throw new Error(unsupportedPushMessage((e.body as { host?: string }).host), { cause: e });
     throw e;
   }
 }
