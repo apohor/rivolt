@@ -17,6 +17,18 @@ export function unsupportedPushMessage(host?: string): string {
   return `This browser's push service${host ? ` (${host})` : ""} isn't supported yet, so notifications can't be turned on here. Nothing was saved.`;
 }
 
+// The server refused this browser's push service. The message is for the person; the cause is the server's answer.
+export class PushRefusedError extends Error {
+  host?: string;
+  cause: unknown;
+  constructor(host: string | undefined, cause: unknown) {
+    super(unsupportedPushMessage(host));
+    this.name = "PushRefusedError";
+    this.host = host;
+    this.cause = cause;
+  }
+}
+
 // Registers a browser push subscription with the server, and leaves the browser and the server telling the same story. If the server
 // refuses (or the call fails) after this call created the subscription, the browser subscription is removed again, so a refresh does
 // not show notifications as on when the server has nothing; one that already existed is removed too when the server says the push
@@ -42,7 +54,7 @@ export async function registerPushSubscription(
   } catch (e) {
     const unsupported = e instanceof ApiError && e.status === 400 && (e.body as { class?: string } | null)?.class === "unsupported_push_service";
     if (!existing || unsupported) await s.unsubscribe().catch(() => false);
-    if (unsupported) throw new Error(unsupportedPushMessage((e.body as { host?: string }).host), { cause: e });
+    if (unsupported) throw new PushRefusedError((e.body as { host?: string }).host, e);
     throw e;
   }
 }
