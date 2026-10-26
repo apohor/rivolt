@@ -631,6 +631,7 @@ export function BarChart({
   formatValue,
   formatX,
   xLabelAt,
+  axisFor = niceAxis,
   className,
   barGap = 2,
 }: {
@@ -645,6 +646,8 @@ export function BarChart({
   formatX?: (label: string, i: number) => string;
   // Which bars carry an x label; default the first, middle and last.
   xLabelAt?: number[] | null;
+  // The round top and ticks for this data (whole numbers by default; durations pass `niceMinutesAxis`).
+  axisFor?: (max: number) => { top: number; ticks: number[] };
   className?: string;
   barGap?: number;
 }) {
@@ -689,7 +692,7 @@ export function BarChart({
   if (data.length === 0) return <EmptyChart height={height} />;
 
   // A round top and round ticks (0 · 200 · 400 · 600), not the data's own maximum split in halves (509 and 255).
-  const axis = niceAxis(Math.max(1, ...data.map((d) => d.value)));
+  const axis = axisFor(Math.max(1, ...data.map((d) => d.value)));
   const max = axis.top;
   const yTickValues = axis.ticks;
   const barW = Math.max(1, innerW / data.length - barGap);

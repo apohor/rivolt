@@ -192,6 +192,22 @@ final class ChartAxisTests: XCTestCase {
         }
     }
 
+    func testTheIdleAxisRoundsToHoursLikeTheWebs() {
+        func ticks(_ m: Double) -> [Double] { ChartMath.niceMinutesAxis(max: m).ticks }
+        XCTAssertEqual(ticks(1500), [0, 720, 1440, 2160])
+        XCTAssertEqual(ticks(1380), [0, 480, 960, 1440], "8h · 16h · 24h, not 8h 20m · 16h 40m · 25h")
+        XCTAssertEqual(ticks(1000), [0, 360, 720, 1080])
+        XCTAssertEqual(ticks(95), [0, 60, 120])
+        XCTAssertEqual(ticks(40), [0, 15, 30, 45])
+        for m in [1, 20, 59, 100, 500, 1500, 3000, 20000] as [Double] {
+            let a = ChartMath.niceMinutesAxis(max: m)
+            XCTAssertGreaterThanOrEqual(a.top, m)
+            XCTAssertEqual(a.ticks.last, a.top)
+            XCTAssertLessThanOrEqual(a.ticks.count, 5)
+        }
+        XCTAssertEqual(TruckLogic.minutesShort(480), "8h")
+    }
+
     func testDaysAreNamedInTheReadersLanguageNotAsTenDashOne() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!

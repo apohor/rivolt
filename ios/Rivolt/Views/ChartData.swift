@@ -15,6 +15,20 @@ struct SocPoint: Equatable, Identifiable {
 
 /// The chart maths, the same as the web's `analytics.ts`, without any view code so it can be tested.
 enum ChartMath {
+    /// The same for a chart of minutes, as the web's `niceMinutesAxis`: the step is a round number of minutes or hours, so the ticks read
+    /// 0 · 8h · 16h · 24h, not 8h 20m · 16h 40m · 25h. Three intervals when two would reach the same top.
+    static func niceMinutesAxis(max value: Double) -> (top: Double, ticks: [Double]) {
+        let m = value.isFinite && value > 0 ? value : 60
+        let steps: [Double] = [15, 30, 60, 120, 180, 240, 360, 480, 720, 1440, 2880, 5760, 10080, 20160, 40320]
+        func best(upTo maxIntervals: Int) -> (step: Double, n: Int)? {
+            steps.map { (step: $0, n: Swift.max(1, Int((m / $0 - 1e-9).rounded(.up)))) }
+                .filter { $0.n >= 2 && $0.n <= maxIntervals }
+                .min { a, b in a.step * Double(a.n) != b.step * Double(b.n) ? a.step * Double(a.n) < b.step * Double(b.n) : a.n > b.n }
+        }
+        let pick = best(upTo: 3) ?? best(upTo: 4) ?? (step: (m / 60).rounded(.up) * 60, n: 1)
+        return (pick.step * Double(pick.n), (0...pick.n).map { pick.step * Double($0) })
+    }
+
     /// A round top and round ticks from 0 for a chart whose data tops out at `max`, the same as the web's `niceAxis`: the step is 1, 2,
     /// 2.5 or 5 times a power of ten (whole numbers only), and the one with the lowest top that gives two or three intervals wins; four
     /// only when nothing else fits. 509 gives 0 · 200 · 400 · 600.

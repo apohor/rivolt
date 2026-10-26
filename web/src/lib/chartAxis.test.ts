@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayName, niceAxis } from "./chartAxis";
+import { dayName, niceAxis, niceMinutesAxis } from "./chartAxis";
 
 describe("niceAxis", () => {
   it("rounds the top and the ticks, whole numbers, two or three intervals", () => {
@@ -28,5 +28,23 @@ describe("dayName", () => {
     expect(dayName("2026-10-01")).toBe(new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(2026, 9, 1)));
     expect(dayName(new Date(2026, 9, 11))).toContain("11");
     expect(dayName("2026-10-01")).not.toContain("10-01");
+  });
+});
+
+describe("niceMinutesAxis", () => {
+  it("rounds to hours: 0 · 8h · 16h · 24h, not 8h 20m · 16h 40m · 25h", () => {
+    expect(niceMinutesAxis(1500)).toEqual({ top: 2160, ticks: [0, 720, 1440, 2160] });
+    expect(niceMinutesAxis(1380)).toEqual({ top: 1440, ticks: [0, 480, 960, 1440] });
+    expect(niceMinutesAxis(1000)).toEqual({ top: 1080, ticks: [0, 360, 720, 1080] });
+    expect(niceMinutesAxis(95)).toEqual({ top: 120, ticks: [0, 60, 120] });
+    expect(niceMinutesAxis(40)).toEqual({ top: 45, ticks: [0, 15, 30, 45] });
+  });
+  it("never cuts the data off", () => {
+    for (const m of [1, 20, 59, 100, 500, 1500, 3000, 20000]) {
+      const a = niceMinutesAxis(m);
+      expect(a.top).toBeGreaterThanOrEqual(m);
+      expect(a.ticks[a.ticks.length - 1]).toBe(a.top);
+      expect(a.ticks.length).toBeLessThanOrEqual(5);
+    }
   });
 });

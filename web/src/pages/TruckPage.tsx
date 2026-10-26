@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
 import { BarChart } from "../components/charts";
+import { dayName, niceMinutesAxis } from "../lib/chartAxis";
 import { BatteryCapacityCard } from "../components/BatteryCapacityCard";
 import { TrendsCard } from "../components/TrendsCard";
 import { ColdRangeCard } from "../components/ColdRangeCard";
@@ -151,7 +152,8 @@ export default function TruckPage() {
               color="#6366f1"
               formatY={formatMinutesShort}
               formatValue={formatMinutes}
-              formatX={(label) => String(label).slice(5)}
+              formatX={(label) => dayName(label)}
+              axisFor={niceMinutesAxis}
             />
             <p className="mt-2 text-[11px] text-neutral-500">
               Time per day awake while parked and not charging
