@@ -14,7 +14,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const NOW = new Date(e2eNow());
 const LAST = shiftMonth(currentMonth(NOW), -1);
 
-async function open(page: Page, answer: (month: string) => object, asked: string[]) {
+async function open(page: Page, answer: (month: string) => object, asked: string[], opts: { card?: boolean } = {}) {
   await stubApi(page, { scenario: "parked" });
   await page.route("**/api/ledger/monthly**", (r) => r.fulfill({ json: ledgerMonthFixture(currentMonth(NOW), NOW) }));
   await page.route("**/api/ledger/savings**", (r) => {
@@ -23,7 +23,7 @@ async function open(page: Page, answer: (month: string) => object, asked: string
     return r.fulfill({ json: answer(m) });
   });
   await page.goto("/money");
-  await expect(page.locator("[data-savings]")).toBeVisible();
+  if (opts.card !== false) await expect(page.locator("[data-savings]")).toBeVisible();
 }
 
 for (const v of [
@@ -119,8 +119,8 @@ test("share statement: no share from the server, no toggle", async ({ browser })
 test("flat rate: no Off-peak savings card at all, and the share sheet has no off-peak toggle", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, () => ({ version: 1, flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate, so there are no off-peak hours." }), []);
-  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await open(page, () => ({ version: 1, flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate, so there are no off-peak hours." }), [], { card: false });
+  await expect(page.getByRole("button", { name: "Share statement" })).toBeVisible();
   await expect(page.locator("[data-savings]")).toHaveCount(0);
   await expect(page.getByText("Off-peak savings")).toHaveCount(0);
   await expect(page.getByText("one flat rate")).toHaveCount(0);
