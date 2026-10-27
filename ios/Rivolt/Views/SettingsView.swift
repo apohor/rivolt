@@ -124,7 +124,7 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }.font(Theme.sans(ThemeTokens.typeValue, .medium)).tint(Theme.accent)
                 }
             }
-            .sheet(isPresented: $showDelete) { DeleteAccountSheet() }
+            .sheet(isPresented: $showDelete) { DeleteAccountSheet().followsAppearance() }
         }
         .environment(\.inSettings, true)
     }

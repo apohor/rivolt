@@ -75,6 +75,7 @@ struct ActivityDetailView: View {
                            costHint: (d.estimatedCost ?? 0) > 0 ? "Adds the estimated charging cost." : nil) { cost in
                 MoneyShareCard.trip(d, includeCost: cost, calendar: calendar)
             }
+            .followsAppearance()
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {

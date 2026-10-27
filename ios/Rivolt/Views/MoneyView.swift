@@ -55,12 +55,14 @@ struct MoneyView: View {
             .sheet(isPresented: $showShare) {
                 if let m = model.month {
                     MoneyShareSheet(month: m) { await model.offpeakShare(source: state.client, month: m.period) }
+                        .followsAppearance()
                 }
             }
             // The CSV goes straight to the system share sheet; its temporary file goes when the sheet closes.
             .sheet(item: $exportFile, onDismiss: { exportFile?.remove() }) { file in
                 MoneyActivitySheet(file: file) { file.remove(); exportFile = nil }
                     .presentationDetents([.medium, .large])
+                    .followsAppearance()
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {

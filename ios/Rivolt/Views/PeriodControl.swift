@@ -15,7 +15,7 @@ struct PeriodControl: View {
             previous: { state.setPeriod(p.shifted(by: -1, calendar: cal)) },
             next: { state.setPeriod(p.shifted(by: 1, calendar: cal)) },
             onTitle: { choosing = true })
-        .sheet(isPresented: $choosing) { PeriodSheet() }
+        .sheet(isPresented: $choosing) { PeriodSheet().followsAppearance() }
     }
 }
 

@@ -26,3 +26,17 @@ enum AppearanceChoice: String, CaseIterable, Identifiable {
         }
     }
 }
+
+/// The chosen appearance, applied live. A sheet is its own presentation and does not always take a change made under it from the app
+/// root's `preferredColorScheme`, so the root and every sheet (and what a sheet pushes) read the same setting through this one modifier.
+private struct FollowsAppearance: ViewModifier {
+    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
+
+    func body(content: Content) -> some View {
+        content.preferredColorScheme(appearance.scheme)
+    }
+}
+
+extension View {
+    func followsAppearance() -> some View { modifier(FollowsAppearance()) }
+}
