@@ -138,7 +138,7 @@ type chargingRatePatch struct {
 // decodeChargingRatePatch reads and checks the body: one JSON object of known fields
 // (anything else, a second value after it, or an empty object is refused), a rate from
 // 0 to settings.MaxHomePricePerKWh, a currency from settings.HomeCurrencies, a gas price from 0
-// to settings.MaxGasPricePerGallon and a comparison MPG from settings.MinComparisonMPG to
+// to settings.MaxGasPricePerGallon and a comparison MPG of 0 (hides the chip) or from settings.MinComparisonMPG to
 // settings.MaxComparisonMPG. The
 // currency comes back normalised to upper case.
 func decodeChargingRatePatch(w http.ResponseWriter, r *http.Request) (chargingRatePatch, string) {
@@ -157,8 +157,8 @@ func decodeChargingRatePatch(w http.ResponseWriter, r *http.Request) (chargingRa
 	if v := p.GasPrice; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > settings.MaxGasPricePerGallon) {
 		return p, "gas_price_per_gallon must be a number from 0 to 20"
 	}
-	if v := p.ComparisonMPG; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < settings.MinComparisonMPG || *v > settings.MaxComparisonMPG) {
-		return p, "comparison_mpg must be a number from 1 to 200"
+	if v := p.ComparisonMPG; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || (*v != 0 && *v < settings.MinComparisonMPG) || *v > settings.MaxComparisonMPG) {
+		return p, "comparison_mpg must be 0 (hide the chip) or a number from 1 to 200"
 	}
 	if v := p.HomePricePerKWh; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > settings.MaxHomePricePerKWh) {
 		return p, "home_price_per_kwh must be a number from 0 to 5"

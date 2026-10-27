@@ -44,7 +44,6 @@ func TestChargingRatePatchBody(t *testing.T) {
 		{"gas price over the cap", `{"gas_price_per_gallon": 20.01}`, 400},
 		{"negative gas price", `{"gas_price_per_gallon": -1}`, 400},
 		{"gas price as a string", `{"gas_price_per_gallon": "4"}`, 400},
-		{"mpg zero", `{"comparison_mpg": 0}`, 400},
 		{"mpg under the floor", `{"comparison_mpg": 0.99}`, 400},
 		{"mpg over the cap", `{"comparison_mpg": 200.01}`, 400},
 		{"mpg huge", `{"comparison_mpg": 1e999}`, 400},
@@ -94,6 +93,11 @@ func TestChargingRatePatchThroughTheRouter(t *testing.T) {
 	}
 	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"home_price_per_kwh": 9}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("app PATCH over the cap: %d, want 400", rec.Code)
+	}
+	for _, zero := range []string{`{"comparison_mpg": 0}`, `{"gas_price_per_gallon": 0}`} {
+		if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", zero); denied(rec) || rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("app PATCH %s: %d, want it past validation (503 without a store)", zero, rec.Code)
+		}
 	}
 	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"flat_rate": true}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("app PATCH of another field: %d, want 400", rec.Code)

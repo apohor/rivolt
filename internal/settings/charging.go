@@ -128,8 +128,8 @@ func NormalizeHomeCurrency(c string) (string, bool) {
 }
 
 // Bounds a patch accepts for the gas-equivalent chip: a gas price per gallon from 0 to
-// MaxGasPricePerGallon, a comparison MPG from MinComparisonMPG to MaxComparisonMPG (zero
-// would divide by zero in the chip).
+// MaxGasPricePerGallon, a comparison MPG of 0 (the web's "hide the chip") or from
+// MinComparisonMPG to MaxComparisonMPG.
 const (
 	MaxGasPricePerGallon = 20.0
 	MinComparisonMPG     = 1.0
