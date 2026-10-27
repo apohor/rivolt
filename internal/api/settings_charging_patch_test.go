@@ -40,8 +40,15 @@ func TestChargingRatePatchBody(t *testing.T) {
 		{"unknown currency", `{"home_currency": "XXX"}`, 400},
 		{"empty currency", `{"home_currency": ""}`, 400},
 		{"currency as a number", `{"home_currency": 840}`, 400},
-		{"unknown field", `{"home_price_per_kwh": 0.13, "gas_price_per_gallon": 4}`, 400},
-		{"the other charging fields", `{"comparison_mpg": 20}`, 400},
+		{"unknown field", `{"home_price_per_kwh": 0.13, "flat_rate": true}`, 400},
+		{"gas price over the cap", `{"gas_price_per_gallon": 20.01}`, 400},
+		{"negative gas price", `{"gas_price_per_gallon": -1}`, 400},
+		{"gas price as a string", `{"gas_price_per_gallon": "4"}`, 400},
+		{"mpg zero", `{"comparison_mpg": 0}`, 400},
+		{"mpg under the floor", `{"comparison_mpg": 0.99}`, 400},
+		{"mpg over the cap", `{"comparison_mpg": 200.01}`, 400},
+		{"mpg huge", `{"comparison_mpg": 1e999}`, 400},
+		{"mpg null only", `{"comparison_mpg": null}`, 400},
 		{"case-different field name", `{"HomePricePerKWh": 0.13}`, 400},
 		{"trailing object", `{"home_price_per_kwh": 0.13}{"home_currency": "USD"}`, 400},
 		{"trailing junk", `{"home_price_per_kwh": 0.13} x`, 400},
@@ -88,7 +95,7 @@ func TestChargingRatePatchThroughTheRouter(t *testing.T) {
 	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"home_price_per_kwh": 9}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("app PATCH over the cap: %d, want 400", rec.Code)
 	}
-	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"gas_price_per_gallon": 4}`); rec.Code != http.StatusBadRequest {
+	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"flat_rate": true}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("app PATCH of another field: %d, want 400", rec.Code)
 	}
 	// Not the app's: the full overwrite, applying a rate to past charges, one charge's price, the flat-rate switch and the planner

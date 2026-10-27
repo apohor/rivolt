@@ -81,7 +81,7 @@ func TestChargingRateWritesAreAtomic(t *testing.T) {
 		defer writers.Done()
 		price, cur := 2.2, "EUR"
 		for i := 0; i < rounds; i++ {
-			if err := settings.PatchChargingConfig(ctx, store, &price, &cur); err != nil {
+			if err := settings.PatchChargingConfig(ctx, store, &price, &cur, nil, nil); err != nil {
 				t.Error(err)
 				return
 			}
@@ -105,12 +105,22 @@ func TestChargingRateWritesAreAtomic(t *testing.T) {
 		price, cur := float64(i%5)+0.5, []string{"USD", "CAD", "EUR", "GBP", "AUD"}[i%5]
 		var w sync.WaitGroup
 		w.Add(2)
-		go func() { defer w.Done(); _ = settings.PatchChargingConfig(ctx, store, &price, nil) }()
-		go func() { defer w.Done(); _ = settings.PatchChargingConfig(ctx, store, nil, &cur) }()
+		go func() { defer w.Done(); _ = settings.PatchChargingConfig(ctx, store, &price, nil, nil, nil) }()
+		go func() { defer w.Done(); _ = settings.PatchChargingConfig(ctx, store, nil, &cur, nil, nil) }()
 		w.Wait()
 		c, _ := settings.GetChargingConfig(ctx, store)
 		if c.HomePricePerKWh != price || c.HomeCurrency != cur {
 			t.Fatalf("round %d: lost a write: got %+v, want %v %s", i, c, price, cur)
 		}
+	}
+
+	// A patch of only the gas price and MPG lands and leaves the rate alone.
+	before, _ := settings.GetChargingConfig(ctx, store)
+	gas, mpg := 6.25, 31.0
+	if err := settings.PatchChargingConfig(ctx, store, nil, nil, &gas, &mpg); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := settings.GetChargingConfig(ctx, store); c.GasPricePerGallon != gas || c.ComparisonMPG != mpg || c.HomePricePerKWh != before.HomePricePerKWh || c.HomeCurrency != before.HomeCurrency {
+		t.Errorf("gas/MPG patch: got %+v, want gas %v mpg %v with the rate %v %s unchanged", c, gas, mpg, before.HomePricePerKWh, before.HomeCurrency)
 	}
 }
