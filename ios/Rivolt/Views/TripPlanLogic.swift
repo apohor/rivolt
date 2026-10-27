@@ -52,13 +52,22 @@ enum TripPlanLogic {
         return text
     }
 
-    /// The charge to arrive with that the planner is asked for, as on the web.
+    /// The charge to arrive with that the planner is asked for unless the person sets one, as on the web (its field starts at 20).
     static let arrivalTargetPercent = 20.0
+    /// What the "Arrival battery" control offers: 0 to 100 (the server refuses anything else), in steps of 5.
+    static let arrivalTargetRange: ClosedRange<Double> = 0...100
+    static let arrivalTargetStep = 5.0
+
+    /// A typed or restored target, kept inside the server's range and on a 5% step.
+    static func clampedTarget(_ v: Double) -> Double {
+        guard v.isFinite else { return arrivalTargetPercent }
+        return min(arrivalTargetRange.upperBound, max(arrivalTargetRange.lowerBound, (v / arrivalTargetStep).rounded() * arrivalTargetStep))
+    }
 
     /// Said when the plan ends below the arrival target; nil otherwise.
-    static func lowArrival(_ soc: Double?) -> String? {
-        guard let soc, soc < arrivalTargetPercent else { return nil }
-        return "That is below the \(Int(arrivalTargetPercent))% arrival target. Add a charging stop or start with more charge."
+    static func lowArrival(_ soc: Double?, target: Double = arrivalTargetPercent) -> String? {
+        guard let soc, soc < target else { return nil }
+        return "That is below the \(Int(target))% arrival target. Add a charging stop or start with more charge."
     }
 
     /// Driving longer than this in a day is offered as two (the web's sleep-after hours).
@@ -170,16 +179,16 @@ enum TripPlanLogic {
     static func multidayRequest(vehicleID: String?, startingSoc: Double?, packKwh: Double?, startAt: Date,
                                 origin: (lat: Double, lon: Double), destination: (lat: Double, lon: Double),
                                 stay: OvernightCandidates.Candidate, morningCharger: OvernightCandidates.FastCharger? = nil,
-                                timeZone: TimeZone = .current) -> TripMultidayRequest {
+                                timeZone: TimeZone = .current, target: Double = arrivalTargetPercent) -> TripMultidayRequest {
         // A stay with no charger of its own starts the next day at a fast charger, planned as that day's first stop.
         let morning = morningCharger.flatMap { c in c.lat.flatMap { la in c.lon.map { TripPoint(lat: la, lon: $0, label: c.name, entityId: c.entityId) } } }
         return TripMultidayRequest(
             vehicleId: vehicleID, startingSoc: startingSoc, packKwh: packKwh, startAt: rfc3339(startAt), tz: timeZone.identifier,
-            targetArrivalSocPercent: arrivalTargetPercent, origin: TripPoint(lat: origin.lat, lon: origin.lon),
+            targetArrivalSocPercent: target, origin: TripPoint(lat: origin.lat, lon: origin.lon),
             days: [
-                TripDayRequest(end: TripPoint(lat: stay.lat, lon: stay.lon, label: stay.name), targetArrivalSocPct: arrivalTargetPercent,
+                TripDayRequest(end: TripPoint(lat: stay.lat, lon: stay.lon, label: stay.name), targetArrivalSocPct: target,
                                overnight: .init(l2Kw: stay.l2Kw ?? 0, until: "08:00", maxSocPct: 80, name: stay.name)),
-                TripDayRequest(vias: morning.map { [$0] }, end: TripPoint(lat: destination.lat, lon: destination.lon), targetArrivalSocPct: arrivalTargetPercent),
+                TripDayRequest(vias: morning.map { [$0] }, end: TripPoint(lat: destination.lat, lon: destination.lon), targetArrivalSocPct: target),
             ],
             maxOvernightSocPct: 80)
     }
@@ -310,12 +319,12 @@ enum TripPlanLogic {
 
     /// The request for a trip: the truck's charge only when the person set one, the departure only when it is not now.
     static func request(vehicleID: String?, origin: (lat: Double, lon: Double), destination: (lat: Double, lon: Double),
-                        startingSoc: Double?, departAt: Date?, packKwh: Double?) -> TripPlanRequest {
+                        startingSoc: Double?, departAt: Date?, packKwh: Double?, target: Double = arrivalTargetPercent) -> TripPlanRequest {
         TripPlanRequest(
             vehicleId: vehicleID, startingSoc: startingSoc, originBearing: 0, departAt: departAt.map(rfc3339),
             waypoints: [TripPlanWaypoint(latitude: origin.lat, longitude: origin.lon, waypointType: "origin"),
                         TripPlanWaypoint(latitude: destination.lat, longitude: destination.lon, waypointType: "destination")],
-            targetArrivalSocPercent: arrivalTargetPercent, packKwh: packKwh)
+            targetArrivalSocPercent: target, packKwh: packKwh)
     }
 
     /// What to tell the person when planning failed. Never the server's own text.

@@ -39,6 +39,10 @@ final class TripPlanModel {
     var useTruckCharge = true
     var startingSoc = 80.0
     var leaveNow = true
+    /// The charge to arrive with, asked of the planner (the web's "Target arrival SoC %"), starting at its 20.
+    var arrivalTarget = TripPlanLogic.arrivalTargetPercent
+    /// The target the plan on screen was made with, so its warning matches what was asked even if the control moves after.
+    private(set) var plannedTarget = TripPlanLogic.arrivalTargetPercent
     var departAt = Date().addingTimeInterval(3600)
 
     private(set) var vehicleID: String?
@@ -192,9 +196,10 @@ final class TripPlanModel {
         }
         lastStart = start
         lastLeave = leaveNow ? Date() : departAt
+        plannedTarget = arrivalTarget
         let body = TripPlanLogic.request(
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
-            startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt, packKwh: packKwh)
+            startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt, packKwh: packKwh, target: plannedTarget)
         do {
             let plan = try await source.planTrip(body)
             state = plan.best == nil ? .failed("The planner found no route for that trip.") : .planned(plan)
@@ -234,7 +239,8 @@ final class TripPlanModel {
         chosenStay = stay
         let body = TripPlanLogic.multidayRequest(
             vehicleID: vehicleID, startingSoc: useTruckCharge ? nil : startingSoc, packKwh: packKwh, startAt: lastLeave,
-            origin: start, destination: (destination.latitude, destination.longitude), stay: stay, morningCharger: morning)
+            origin: start, destination: (destination.latitude, destination.longitude), stay: stay, morningCharger: morning,
+            target: plannedTarget)
         do {
             let result = try await source.planMultiday(body)
             night = result.days.isEmpty ? .failed("The planner found no route for that trip.") : .planned(result)
@@ -253,6 +259,7 @@ final class TripPlanModel {
         lastStart = (r.origin.latitude, r.origin.longitude)
         focusedStop = nil
         chosenStay = r.stay
+        if let t = r.target { arrivalTarget = TripPlanLogic.clampedTarget(t); plannedTarget = t }
         state = .planned(r.plan)
         night = r.multiday.map { .planned($0) } ?? .none
     }
@@ -263,7 +270,8 @@ final class TripPlanModel {
         let from = origin?.line ?? "Where the truck was"
         return SavedTripLogic.inputs(
             origin: (start.lat, start.lon, from), destination: (destination.latitude, destination.longitude, destination.line),
-            stay: planned2Days ? chosenStay : nil, startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt)
+            stay: planned2Days ? chosenStay : nil, startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt,
+            target: plannedTarget)
     }
 
     func savedPlan() -> JSONValue? {

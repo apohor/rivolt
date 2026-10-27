@@ -34,6 +34,17 @@ final class SavedTripTests: XCTestCase {
         XCTAssertLessThanOrEqual(SavedTripLogic.suggestedName(origin: String(repeating: "A", count: 90), destination: "B").count, 60)
     }
 
+    func testASavedTripKeepsTheArrivalTargetItWasPlannedWith() throws {
+        let v = SavedTripLogic.inputs(origin: from, destination: to, stay: nil, startingSoc: nil, departAt: nil, target: 35)
+        guard case .object(let o) = v else { return XCTFail() }
+        XCTAssertEqual(o["target_soc"], .string("35"))
+        let plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        let saved = SavedTrip(id: "a", name: "x", inputs: v, plan: SavedTripLogic.planBlob(plan: plan, multiday: nil))
+        XCTAssertEqual(SavedTripLogic.restore(saved)?.target, 35)
+        let noTarget = SavedTrip(id: "b", name: "x", inputs: .object(["origin": o["origin"]!, "destination": o["destination"]!]), plan: SavedTripLogic.planBlob(plan: plan, multiday: nil))
+        XCTAssertNil(SavedTripLogic.restore(noTarget)?.target)
+    }
+
     func testTheInputsAreTheWebsShapeWithNoTruckChargeAndNoNightForOneDay() throws {
         let v = SavedTripLogic.inputs(origin: from, destination: to, stay: nil, startingSoc: nil, departAt: nil)
         guard case .object(let o) = v else { return XCTFail() }

@@ -270,6 +270,29 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(TripPlanLogic.lowArrival(8), "That is below the 20% arrival target. Add a charging stop or start with more charge.")
     }
 
+    func testTheArrivalTargetIsTheControlsAndGoesEverywhereThe20Went() {
+        XCTAssertEqual(TripPlanLogic.arrivalTargetRange, 0...100)
+        XCTAssertEqual(TripPlanLogic.arrivalTargetStep, 5)
+        let one = TripPlanLogic.request(vehicleID: "v", origin: (47.6, -122.3), destination: (47.7, -117.4), startingSoc: nil, departAt: nil, packKwh: nil, target: 35)
+        XCTAssertEqual(one.targetArrivalSocPercent, 35)
+        let stay = OvernightCandidates.Candidate(name: "Sample Inn", lat: 45.52, lon: -122.68, l2Kw: 7, l2KwAssumed: true)
+        let two = TripPlanLogic.multidayRequest(vehicleID: nil, startingSoc: nil, packKwh: nil, startAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                                origin: (47.6, -122.3), destination: (47.7, -117.4), stay: stay, target: 35)
+        XCTAssertEqual(two.targetArrivalSocPercent, 35)
+        XCTAssertEqual(two.days.map(\.targetArrivalSocPct), [35, 35], "every day's own target")
+        XCTAssertNil(TripPlanLogic.lowArrival(35, target: 35))
+        XCTAssertEqual(TripPlanLogic.lowArrival(30, target: 35), "That is below the 35% arrival target. Add a charging stop or start with more charge.")
+        XCTAssertNil(TripPlanLogic.lowArrival(5, target: 0))
+    }
+
+    func testAnArrivalTargetIsKeptInTheServersRangeOnAFiveStep() {
+        XCTAssertEqual(TripPlanLogic.clampedTarget(-10), 0)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(140), 100)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(22), 20)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(23), 25)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(.nan), 20)
+    }
+
     func testOnlyADriveOverEightHoursIsOfferedInTwoDays() throws {
         XCTAssertFalse(TripPlanLogic.isLongDrive(try routeJSON(drive: 8 * 3600, depart: "2026-10-30T15:00:00Z", arrive: "2026-10-30T23:00:00Z")))
         XCTAssertTrue(TripPlanLogic.isLongDrive(try routeJSON(drive: 8 * 3600 + 1, depart: "2026-10-30T15:00:00Z", arrive: "2026-10-30T23:00:00Z")))
