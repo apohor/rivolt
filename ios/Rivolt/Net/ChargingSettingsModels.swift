@@ -33,7 +33,7 @@ struct FlatRateBody: Codable, Equatable {
 }
 
 /// One row of the price book from `GET /api/settings/charging/networks`. The same shape goes back on `PUT`, which replaces the list.
-struct ChargingNetwork: Codable, Equatable {
+struct ChargingNetwork: Codable, Equatable, Hashable {
     var name: String
     var pricePerKwh: Double
     var currency: String

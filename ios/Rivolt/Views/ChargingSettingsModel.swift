@@ -66,7 +66,7 @@ final class SettingsCardModel<Value: Equatable> {
 
 /// The trip planner defaults as one screen holds them: the planner's own two settings plus the gas inputs that live with the
 /// charging settings, and whether any truck on the account needs the NACS adapter question.
-struct PlannerDefaults: Equatable {
+struct PlannerDefaults: Equatable, Hashable {
     var driveMode: String
     var hasAdapter: Bool?
     var gasPricePerGallon: Double
