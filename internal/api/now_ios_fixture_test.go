@@ -14,6 +14,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/insights"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/offpeak"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
@@ -34,6 +35,13 @@ func iosFixtureTargets() map[string]any {
 		"state_prod_shape.json": &rivian.State{},
 		"state_full.json":       &rivian.State{}, // every key the Go type can send, zero values: what the web's VehicleState is checked against
 		"vehicles.json":         &[]rivian.Vehicle{},
+		// Settings → Charging on the phone (settings_fixtures_test.go regenerates these from the same types).
+		"settings_offpeak.json":          &offpeakResponse{},
+		"settings_offpeak_empty.json":    &offpeakResponse{},
+		"error_offpeak_field.json":       &offpeak.FieldError{},
+		"settings_networks.json":         &[]settings.ChargingNetwork{},
+		"settings_membership_terms.json": &struct{ Terms []membershipTermJSON }{},
+		"settings_planner.json":          &settings.PlannerPrefs{},
 		// The trip planner on the phone (trip_fixtures_test.go regenerates these from the same types).
 		"trip_plan.json":                  &tripPlanResponse{},
 		"trip_plan_rivian_shape.json":     &tripPlanResponse{},
