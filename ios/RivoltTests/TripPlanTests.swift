@@ -19,7 +19,14 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
         if let planError { throw planError }
         return plan ?? TripPlan.empty
     }
-    func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] { searches.append(q); return matches }
+    var counts: [Int] = []
+    var delay: Duration?
+    func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] {
+        searches.append(q); counts.append(count)
+        let answer = matches
+        if let d = delay { try? await Task.sleep(for: d) }
+        return answer
+    }
     func vehicleState(id: String) async throws -> VehicleState {
         try JSON.decoder().decode(VehicleState.self, from: Data(#"{"vehicle_id":"v1","battery_level_pct":64.4,"distance_to_empty":300,"battery_capacity_kwh":135}"#.utf8))
     }
@@ -177,13 +184,59 @@ final class TripPlanModelTests: XCTestCase {
         let src = FakeTrips()
         src.matches = [seattle]
         let m = TripPlanModel()
-        await m.search(source: src, query: "se")
-        XCTAssertTrue(src.searches.isEmpty)
+        await m.search(source: src, query: "s")
+        XCTAssertTrue(src.searches.isEmpty, "under 2 characters")
         await m.search(source: src, query: "  seattle ")
         XCTAssertEqual(src.searches, ["seattle"])
         XCTAssertEqual(m.results.count, 1)
         m.clearSearch()
         XCTAssertTrue(m.results.isEmpty)
+    }
+
+    func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromTwoCharacters() async {
+        XCTAssertEqual(TripPlanLogic.typeAheadMinChars, 2)
+        XCTAssertEqual(TripPlanLogic.typeAheadDebounce, .milliseconds(150))
+        XCTAssertEqual(TripPlanLogic.typeAheadCount, 8)
+        let src = FakeTrips()
+        src.matches = [seattle]
+        let m = TripPlanModel()
+        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
+        XCTAssertTrue(src.searches.isEmpty, "one character asks nothing")
+        await m.typeAhead(source: src, query: "  de ", debounce: .milliseconds(1))
+        XCTAssertEqual(src.searches, ["de"])
+        XCTAssertEqual(src.counts, [8])
+        XCTAssertEqual(m.results.count, 1)
+        XCTAssertFalse(m.searching)
+        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
+        XCTAssertTrue(m.results.isEmpty, "back under 2 characters clears the list")
+    }
+
+    func testTheNextKeystrokeCancelsTheWaitingSearch() async {
+        let src = FakeTrips()
+        src.matches = [seattle]
+        let m = TripPlanModel()
+        let first = Task { await m.typeAhead(source: src, query: "den", debounce: .seconds(5)) }
+        try? await Task.sleep(for: .milliseconds(20))
+        first.cancel()
+        await first.value
+        XCTAssertTrue(src.searches.isEmpty, "cancelled during the pause, never sent")
+        await m.typeAhead(source: src, query: "denv", debounce: .milliseconds(1))
+        XCTAssertEqual(src.searches, ["denv"])
+    }
+
+    func testALateAnswerFromAnOlderSearchIsDropped() async {
+        let src = FakeTrips()
+        src.matches = [seattle]
+        src.delay = .milliseconds(80)
+        let m = TripPlanModel()
+        async let slow: Void = m.search(source: src, query: "old")
+        try? await Task.sleep(for: .milliseconds(20))
+        src.delay = nil
+        src.matches = []
+        await m.search(source: src, query: "new")
+        await slow
+        XCTAssertTrue(m.results.isEmpty, "the newer, empty answer stands")
+        XCTAssertEqual(m.searchMessage, "No match for that. Try a city, or a street and a city.")
     }
 
     // MARK: arrival day, low arrival, long drives

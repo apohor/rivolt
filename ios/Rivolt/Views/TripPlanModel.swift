@@ -50,6 +50,8 @@ final class TripPlanModel {
     private(set) var results: [PlaceMatch] = []
     private(set) var searchMessage: String?
     private(set) var searching = false
+    /// Which search owns `results`: a late answer from an older one is dropped.
+    private var searchGeneration = 0
 
     /// The two-day version of a long drive: choosing where to sleep, then the days.
     enum NightState: Equatable {
@@ -120,23 +122,51 @@ final class TripPlanModel {
         }
     }
 
+    /// Type-ahead, as the web's LocationSearch: at least 2 characters, a short pause after the last keystroke, up to 8 matches, and the
+    /// request of an earlier keystroke dropped (cancel the task; a newer search also wins over a late answer). Run it from `.task(id: query)`
+    /// so the next keystroke cancels this one.
+    func typeAhead(source: some TripSource, query: String, debounce: Duration = TripPlanLogic.typeAheadDebounce) async {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= TripPlanLogic.typeAheadMinChars else {
+            searchGeneration += 1
+            searching = false
+            clearSearch()
+            return
+        }
+        searching = true
+        try? await Task.sleep(for: debounce)
+        if Task.isCancelled { return }
+        await fetch(source: source, q: q)
+    }
+
+    /// The keyboard's Search key: the same search at once, without the pause.
     func search(source: some TripSource, query: String) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard q.count >= 3, !searching else { return }
+        guard q.count >= TripPlanLogic.typeAheadMinChars else { return }
+        await fetch(source: source, q: q)
+    }
+
+    private func fetch(source: some TripSource, q: String) async {
+        searchGeneration += 1
+        let mine = searchGeneration
         searching = true
-        defer { searching = false }
         searchMessage = nil
         do {
-            results = try await source.geocode(q, count: 6)
-            if results.isEmpty { searchMessage = "No match for that. Try a city, or a street and a city." }
+            let found = try await source.geocode(q, count: TripPlanLogic.typeAheadCount)
+            guard mine == searchGeneration, !Task.isCancelled else { return }
+            results = found
+            if found.isEmpty { searchMessage = "No match for that. Try a city, or a street and a city." }
         } catch {
-            if Task.isCancelled { return }
+            guard mine == searchGeneration, !Task.isCancelled else { return }
             results = []
             searchMessage = TripPlanLogic.failure(error)
         }
+        searching = false
     }
 
     func clearSearch() {
+        searchGeneration += 1
+        searching = false
         results = []
         searchMessage = nil
     }

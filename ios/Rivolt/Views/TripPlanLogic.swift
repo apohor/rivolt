@@ -2,6 +2,11 @@ import Foundation
 
 /// The words and figures of the trip planner, with no view code so a test can see them.
 enum TripPlanLogic {
+    /// The place search types ahead like the web's LocationSearch: from this many characters, after this pause, this many matches.
+    static let typeAheadMinChars = 2
+    static let typeAheadDebounce = Duration.milliseconds(150)
+    static let typeAheadCount = 8
+
     /// "5 h 20 min" or "42 min".
     static func duration(_ seconds: Double) -> String { NowFormat.duration(seconds) }
 

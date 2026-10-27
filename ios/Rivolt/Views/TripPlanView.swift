@@ -187,12 +187,15 @@ struct PlaceSearchSheet: View {
                     TextField("A city, or a street and a city", text: $query)
                         .submitLabel(.search).focused($focused).autocorrectionDisabled()
                         .onSubmit { Task { await model.search(source: state.client, query: query) } }
+                        .task(id: query) { await model.typeAhead(source: state.client, query: query) }
+                        .overlay(alignment: .trailing) {
+                            if model.searching && query.trimmingCharacters(in: .whitespaces).count >= TripPlanLogic.typeAheadMinChars {
+                                ProgressView().tint(Theme.textSecondary).padding(.trailing, 3 * Theme.unit)
+                            }
+                        }
                         .padding(.horizontal, 3 * Theme.unit).frame(minHeight: 44)
                         .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: 1))
-                    Button(model.searching ? "Searching…" : "Search") { focused = false; Task { await model.search(source: state.client, query: query) } }
-                        .buttonStyle(ThemeSecondaryButtonStyle())
-                        .disabled(query.trimmingCharacters(in: .whitespaces).count < 3 || model.searching)
                     if let m = model.searchMessage { Text(m).themeText(.subline, color: Theme.textSecondary) }
                     ForEach(model.results) { place in
                         Button {
