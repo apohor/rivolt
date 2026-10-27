@@ -37,6 +37,16 @@ var appWrites = map[string]bool{
 	"POST /api/milestones/dismiss":      true, // hide a milestone card
 	"PATCH /api/settings/charging":      true, // the home rate, merged field by field (settings_charging.go)
 	"PATCH /api/settings/units":         true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
+	// The rest of Settings → Charging and the planner defaults on the iPhone (owner go, Oct 26). Each replaces one setting of the
+	// account's own and nothing else: no stored charge, price or statement is rewritten (a price book only prices future sessions
+	// and the planner's estimates), a leaked token can at worst set wrong numbers that the next write undoes, and each write is
+	// audited by group and field name (logSettingsWrite) and limited to 30 a minute per user. Not here, on purpose: applying a rate
+	// to past charges (POST /api/charges/apply-rate) and editing one charge's price, the full PUT /api/settings/charging, the
+	// flat-rate switch (see TestFlatRateIsNotWritableFromTheApp), and the planner favorites.
+	"PUT /api/settings/charging/offpeak":         true, // the off-peak schedule: windows of the week with their own rate
+	"PUT /api/settings/charging/networks":        true, // the fast-charging price book (replaced wholesale)
+	"POST /api/settings/charging/networks/reset": true, // back to the seeded defaults
+	"PUT /api/settings/planner":                  true, // drive mode and the Tesla adapter defaults (404 while the planner flag is off)
 	// Saved trips (DA-approved Oct 25): save a new one. Update, link and unlink go by pattern (appSavedTripPath). DELETE stays
 	// web-only: a leaked token must not wipe a user's trips, and there is no undo. Capped per account and per trip (trips.MaxPerUser,
 	// savedTripMaxBytes), and limited to 30 writes a minute.

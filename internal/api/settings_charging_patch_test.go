@@ -91,17 +91,32 @@ func TestChargingRatePatchThroughTheRouter(t *testing.T) {
 	if rec := send(sessions.KindApp, "PATCH", "/api/settings/charging", `{"gas_price_per_gallon": 4}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("app PATCH of another field: %d, want 400", rec.Code)
 	}
-	// Not the app's: the full overwrite, the price book, the schedule, applying a rate to
-	// past charges.
+	// Not the app's: the full overwrite, applying a rate to past charges, one charge's price, the flat-rate switch and the planner
+	// favorites. (The price book, its reset, the off-peak schedule and the planner defaults are the app's since Oct 26.)
 	for _, c := range [][2]string{
 		{"PUT", "/api/settings/charging"},
-		{"PUT", "/api/settings/charging/networks"},
-		{"POST", "/api/settings/charging/networks/reset"},
-		{"PUT", "/api/settings/charging/offpeak"},
 		{"POST", "/api/charges/apply-rate"},
+		{"PATCH", "/api/charges/" + uuid.NewString() + "/pricing"},
+		{"PUT", "/api/settings/charging/flat-rate"},
+		{"PUT", "/api/settings/planner/favorites"},
+		{"POST", "/api/settings/charging/networks"},
+		{"DELETE", "/api/settings/charging/networks"},
+		{"PATCH", "/api/settings/charging/offpeak"},
+		{"PUT", "/api/settings/charging/offpeak/"},
 	} {
 		if rec := send(sessions.KindApp, c[0], c[1], good); !denied(rec) {
 			t.Errorf("app %s %s: %d, want the app-write refusal", c[0], c[1], rec.Code)
+		}
+	}
+	// The app's: each gets past the list (what it answers next depends on the body and the missing store, never the refusal).
+	for _, c := range [][2]string{
+		{"PUT", "/api/settings/charging/offpeak"},
+		{"PUT", "/api/settings/charging/networks"},
+		{"POST", "/api/settings/charging/networks/reset"},
+		{"PUT", "/api/settings/planner"},
+	} {
+		if rec := send(sessions.KindApp, c[0], c[1], `{}`); denied(rec) {
+			t.Errorf("app %s %s was refused by the write list", c[0], c[1])
 		}
 	}
 	// A browser session may use the PATCH too; a signed-out caller may not.

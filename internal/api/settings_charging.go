@@ -93,6 +93,7 @@ func handleChargingNetworksPut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		logSettingsWrite(r, "charging.networks", "networks")
 		out, err := settings.GetChargingNetworks(r.Context(), store)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -118,6 +119,7 @@ func handleChargingNetworksReset(store *settings.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		logSettingsWrite(r, "charging.networks", "networks", "reset")
 		out, err := settings.GetChargingNetworks(r.Context(), store)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
