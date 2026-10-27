@@ -41,9 +41,10 @@ var appWrites = map[string]bool{
 	// account's own and nothing else: no stored charge, price or statement is rewritten (a price book only prices future sessions
 	// and the planner's estimates), a leaked token can at worst set wrong numbers that the next write undoes, and each write is
 	// audited by group and field name (logSettingsWrite) and limited to 30 a minute per user. Not here, on purpose: applying a rate
-	// to past charges (POST /api/charges/apply-rate) and editing one charge's price, the full PUT /api/settings/charging, the
-	// flat-rate switch (see TestFlatRateIsNotWritableFromTheApp), and the planner favorites.
+	// to past charges (POST /api/charges/apply-rate) and editing one charge's price, the full PUT /api/settings/charging, and the
+	// planner favorites. The flat-rate switch is the app's too (DA, Oct 26), through its own route only: the PATCH still refuses it.
 	"PUT /api/settings/charging/offpeak":         true, // the off-peak schedule: windows of the week with their own rate
+	"PUT /api/settings/charging/flat-rate":       true, // "my rate is flat": stops the off-peak estimates (a bool; nothing stored is re-priced)
 	"PUT /api/settings/charging/networks":        true, // the fast-charging price book (replaced wholesale)
 	"POST /api/settings/charging/networks/reset": true, // back to the seeded defaults
 	"PUT /api/settings/planner":                  true, // drive mode and the Tesla adapter defaults (404 while the planner flag is off)

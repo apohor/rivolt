@@ -52,6 +52,7 @@ func TestOpenedChargingWritesAreLimitedPerUser(t *testing.T) {
 	}
 	for _, c := range []struct{ method, path string }{
 		{"PUT", "/api/settings/charging/offpeak"},
+		{"PUT", "/api/settings/charging/flat-rate"},
 		{"PUT", "/api/settings/charging/networks"},
 		{"POST", "/api/settings/charging/networks/reset"},
 	} {

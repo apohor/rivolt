@@ -97,7 +97,6 @@ func TestChargingRatePatchThroughTheRouter(t *testing.T) {
 		{"PUT", "/api/settings/charging"},
 		{"POST", "/api/charges/apply-rate"},
 		{"PATCH", "/api/charges/" + uuid.NewString() + "/pricing"},
-		{"PUT", "/api/settings/charging/flat-rate"},
 		{"PUT", "/api/settings/planner/favorites"},
 		{"POST", "/api/settings/charging/networks"},
 		{"DELETE", "/api/settings/charging/networks"},
@@ -111,6 +110,7 @@ func TestChargingRatePatchThroughTheRouter(t *testing.T) {
 	// The app's: each gets past the list (what it answers next depends on the body and the missing store, never the refusal).
 	for _, c := range [][2]string{
 		{"PUT", "/api/settings/charging/offpeak"},
+		{"PUT", "/api/settings/charging/flat-rate"},
 		{"PUT", "/api/settings/charging/networks"},
 		{"POST", "/api/settings/charging/networks/reset"},
 		{"PUT", "/api/settings/planner"},

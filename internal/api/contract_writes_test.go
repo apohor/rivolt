@@ -23,6 +23,7 @@ var appWritesNotCheckedByAllowlist = map[string]string{
 // surface with no benefit, so each reason carries a deadline: the end of Sprint 11.
 var appAllowedButNotYetSent = map[string]string{
 	"PUT /api/settings/charging/offpeak":         "Settings → Charging on the iPhone (owner go Oct 26); ux sends it when the screen lands, before the end of Sprint 11",
+	"PUT /api/settings/charging/flat-rate":       "Settings → Charging on the iPhone (owner go Oct 26, DA Oct 26); ux sends it when the screen lands, before the end of Sprint 11",
 	"PUT /api/settings/charging/networks":        "Settings → Charging on the iPhone (owner go Oct 26); ux sends it when the screen lands, before the end of Sprint 11",
 	"POST /api/settings/charging/networks/reset": "Settings → Charging on the iPhone (owner go Oct 26); ux sends it when the screen lands, before the end of Sprint 11",
 	"PUT /api/settings/planner":                  "trip planner defaults on the iPhone (owner go Oct 26); ux sends it when the screen lands, before the end of Sprint 11"}

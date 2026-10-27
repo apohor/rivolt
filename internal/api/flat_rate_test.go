@@ -3,9 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -122,9 +122,10 @@ func TestFlatRatePutIsStrict(t *testing.T) {
 	}
 }
 
-// The iPhone can't set it: its settings PATCH refuses the field by name, and an app session
-// is refused the flat-rate route (it is not on the write list).
-func TestFlatRateIsNotWritableFromTheApp(t *testing.T) {
+// The iPhone may set it, through its own route only (DA, Oct 26: a bool that changes estimates, and a phone-only owner could not
+// switch back otherwise). The app's settings PATCH still refuses the field by name; an app session gets through the write list to
+// the PUT (the strict body and the store check are the handler's, tested above); other methods on the route stay refused.
+func TestFlatRateIsWritableFromTheAppOnlyThroughItsOwnRoute(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleChargingSettingsPatch(nil)(rec, httptest.NewRequest(http.MethodPatch, "/api/settings/charging", strings.NewReader(`{"flat_rate":true}`)))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "flat_rate") {
@@ -136,11 +137,16 @@ func TestFlatRateIsNotWritableFromTheApp(t *testing.T) {
 		t.Errorf("PATCH with the rate and flat_rate: %d %q, want 400 naming flat_rate", rec.Code, rec.Body.String())
 	}
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	for _, kind := range []string{sessions.KindApp} {
+	rec = httptest.NewRecorder()
+	asSession(appWriteAllowlistMW(ok), sessions.KindApp).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/settings/charging/flat-rate", strings.NewReader(`{"flat_rate":true}`)))
+	if denied(rec) || rec.Code != http.StatusNoContent {
+		t.Errorf("an app session was refused the flat-rate PUT: %d", rec.Code)
+	}
+	for _, m := range []string{http.MethodPatch, http.MethodPost, http.MethodDelete} {
 		rec = httptest.NewRecorder()
-		asSession(appWriteAllowlistMW(ok), kind).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/settings/charging/flat-rate", strings.NewReader(`{"flat_rate":true}`)))
+		asSession(appWriteAllowlistMW(ok), sessions.KindApp).ServeHTTP(rec, httptest.NewRequest(m, "/api/settings/charging/flat-rate", strings.NewReader(`{"flat_rate":true}`)))
 		if !denied(rec) {
-			t.Errorf("an app session reached the flat-rate route: %d", rec.Code)
+			t.Errorf("an app session reached %s on the flat-rate route: %d", m, rec.Code)
 		}
 	}
 }

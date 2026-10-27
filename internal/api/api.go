@@ -1092,11 +1092,11 @@ func New(d Deps) http.Handler {
 				r.With(settingsWriteLimiter.Middleware).Put("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleOffpeakPut(d.Settings.For(uid))(w, r)
 				}))
-				// "My electricity is one flat rate": stops the off-peak estimates. Web only.
+				// "My electricity is one flat rate": stops the off-peak estimates. The iPhone app may write it too (30 a minute per user).
 				r.Get("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleFlatRateGet(d.Settings.For(uid))(w, r)
 				}))
-				r.Put("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Put("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleFlatRatePut(d.Settings.For(uid))(w, r)
 				}))
 			})

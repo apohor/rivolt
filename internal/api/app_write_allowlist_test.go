@@ -175,7 +175,10 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"PUT", "/api/settings/charging/offpeak/", 403},
 		{"PUT", "/api/settings/charging/networks/reset", 403},
 		{"POST", "/api/settings/charging/networks", 403},
-		{"PUT", "/api/settings/charging/flat-rate", 403},
+		{"PUT", "/api/settings/charging/flat-rate", 204}, // DA, Oct 26: a bool that only changes estimates
+		{"PATCH", "/api/settings/charging/flat-rate", 403},
+		{"POST", "/api/settings/charging/flat-rate", 403},
+		{"PUT", "/api/settings/charging/flat-rate/", 403},
 		{"PUT", "/api/settings/charging/membership-terms", 403},
 		{"PUT", "/api/settings/planner/favorites", 403},
 		{"PUT", "/api/settings/planner/", 403},
