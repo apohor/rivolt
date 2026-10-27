@@ -17,6 +17,8 @@ export function SavingsCard({ area }: { area?: string }) {
   const q = useQuery({ queryKey: ["savings", month], queryFn: ({ signal }) => fetchSavings(month, signal), staleTime: 5 * 60_000, retry: 0 });
   const settings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
   if (q.isError) return null;
+  // A flat rate has no off-peak hours and no estimate, so there is nothing to show: the card goes, and the choice is undone in Settings → Charging.
+  if (q.data && savingsView(q.data).kind === "flat") return null;
   const currency = q.data?.currency || settings.data?.home_currency || "USD";
   const view = q.data ? savingsView(q.data) : null;
 
@@ -49,14 +51,7 @@ export function SavingsCard({ area }: { area?: string }) {
         </p>
         {!view ? (
           <p className="text-neutral-500">…</p>
-        ) : view.kind === "flat" ? (
-          <p data-savings-flat className="text-neutral-300">
-            {view.basis || "You said your electricity is one flat rate, so there are no off-peak hours and Rivolt makes no off-peak estimate."}{" "}
-            <Link to={appPath("/settings?tab=charging#offpeak")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
-              Change in Settings
-            </Link>
-          </p>
-        ) : view.kind === "needs" ? (
+        ) : view.kind === "flat" ? null : view.kind === "needs" ? (
           <p className="text-neutral-300">
             {view.need === "schedule" && (
               <>
@@ -107,7 +102,7 @@ export function SavingsCard({ area }: { area?: string }) {
             )}
           </>
         )}
-        {view?.kind !== "flat" && <p className="text-[11px] text-neutral-500">{demo ? "Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data." : "Estimated from your own home charges and your off-peak hours."} Advice only: Rivolt never changes charging on the truck.</p>}
+        <p className="text-[11px] text-neutral-500">{demo ? "Estimated from the sample truck's home charges and an example off-peak schedule, not anyone's real data." : "Estimated from your own home charges and your off-peak hours."} Advice only: Rivolt never changes charging on the truck.</p>
       </div>
     </Card>
   );

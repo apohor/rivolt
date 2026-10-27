@@ -305,7 +305,7 @@ final class MoneyLogicTests: XCTestCase {
         XCTAssertEqual(MoneyLogic.distance(km: 30, metric: true), "30 km")
     }
 
-    /// A flat-rate answer holds only the reason: the card says so, and there is no share for the off-peak line.
+    /// A flat-rate answer holds only the reason: the card is not shown, and there is no share for the off-peak line.
     func testAFlatRateAnswerHasNoEstimateAndNoShare() throws {
         let flat = try Fixture.decode(LedgerSavings.self, "ledger_savings_flat")
         guard case let .flat(basis) = MoneyLogic.savingsView(flat) else { return XCTFail("expected the flat-rate state") }
@@ -313,6 +313,17 @@ final class MoneyLogicTests: XCTestCase {
         XCTAssertNil(flat.couldHaveSaved)
         XCTAssertNil(flat.offpeakSharePct, "no share, so the share card offers no off-peak line")
         XCTAssertNil(flat.sessionsConsidered)
+    }
+
+    /// A flat rate has no off-peak hours and no estimate, so Money draws no Off-peak savings card at all (title and month switch
+    /// included); the choice is undone in Settings → Charging → Off-peak schedule.
+    func testAFlatRateHidesTheWholeSavingsCard() throws {
+        let flat = try Fixture.decode(LedgerSavings.self, "ledger_savings_flat")
+        XCTAssertFalse(MoneyLogic.showsSavingsCard(flat, failed: false))
+        XCTAssertTrue(MoneyLogic.showsSavingsCard(try Fixture.decode(LedgerSavings.self, "ledger_savings"), failed: false))
+        XCTAssertTrue(MoneyLogic.showsSavingsCard(try Fixture.decode(LedgerSavings.self, "ledger_savings_needs"), failed: false), "asking for a schedule still shows")
+        XCTAssertTrue(MoneyLogic.showsSavingsCard(nil, failed: false), "still loading")
+        XCTAssertFalse(MoneyLogic.showsSavingsCard(nil, failed: true))
     }
 
     /// The app can't turn it on: its settings write has no such field, so the server's PATCH (which refuses the name) is never sent it.

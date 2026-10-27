@@ -67,7 +67,7 @@ final class MoneySnapshotTests: XCTestCase {
         try render("money-past-month", page(model, title: "Sep 2026"))
     }
 
-    /// The savings card for someone on a flat rate: it says so, with the way to change it on the web.
+    /// Money for someone on a flat rate: no Off-peak savings card.
     func testRenderAFlatRateSavingsCard() throws {
         let model = MoneyModel(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"),
                                summary: try Fixture.decode(LedgerSummary.self, "ledger_summary"),

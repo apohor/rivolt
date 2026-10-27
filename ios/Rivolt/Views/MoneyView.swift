@@ -178,7 +178,7 @@ struct MoneyContent: View {
                     emptyCard(m)
                 } else {
                     splitCard(m)
-                    if !model.savingsFailed { savingsCard(currency: m.currency) }
+                    if MoneyLogic.showsSavingsCard(model.savings, failed: model.savingsFailed) { savingsCard(currency: m.currency) }
                     receiptsCard(m, toConfirm: st.toConfirm)
                 }
                 if !st.notes.isEmpty {
@@ -406,8 +406,6 @@ struct MoneyContent: View {
         let ym = MoneyModel.savingsPeriod(savingsWhich, now: now, calendar: calendar)
         let monthTitle = MoneyLogic.monthTitle(ym, calendar: calendar)
         let currency = model.savings?.currency ?? fallback
-        var isFlat = false
-        if let s = model.savings, case .flat = MoneyLogic.savingsView(s) { isFlat = true }
         return ActionSection(title: "Off-peak savings") {
             SmallSwitch(options: [(MoneyModel.Which.last, "Last month"), (.now, "This month so far")], selection: $savingsWhich, label: "Month")
         } content: {
@@ -415,9 +413,8 @@ struct MoneyContent: View {
                 Text(monthTitle).themeText(.subline, color: Theme.textTertiary)
                 if let s = model.savings {
                     switch MoneyLogic.savingsView(s) {
-                    case .flat(let basis):
-                        inline((basis.isEmpty ? "You said your electricity is one flat rate, so there are no off-peak hours and Rivolt makes no off-peak estimate." : basis) + " ",
-                               "Change in Settings on the web", .offpeak)
+                    case .flat:
+                        EmptyView() // the card is not shown for a flat rate (MoneyLogic.showsSavingsCard)
                     case .needs(.schedule):
                         needs("Add your off-peak hours and rate to see what moving home charging would have saved.", "Set off-peak hours", .offpeak)
                         inline("", "My rate is flat, no off-peak hours", .offpeak, style: .subline)
@@ -444,11 +441,8 @@ struct MoneyContent: View {
                 } else {
                     Text("…").themeText(.value, color: Theme.textTertiary)
                 }
-                // A flat-rate card makes no estimate, so it doesn't say it is one.
-                if !isFlat {
-                    Text("Estimated from your own home charges and your off-peak hours. Advice only: Rivolt never changes charging on the truck.")
-                        .themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
-                }
+                Text("Estimated from your own home charges and your off-peak hours. Advice only: Rivolt never changes charging on the truck.")
+                    .themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
