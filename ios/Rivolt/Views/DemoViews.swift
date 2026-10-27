@@ -23,7 +23,7 @@ struct DemoPill: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Demo. \(DemoMode.caption)")
         .accessibilityHint("Opens what the demo is, and how to sign in")
-        .sheet(isPresented: $showAbout) { DemoAboutSheet() }
+        .sheet(isPresented: $showAbout) { DemoAboutSheet().followsAppearance() }
     }
 }
 

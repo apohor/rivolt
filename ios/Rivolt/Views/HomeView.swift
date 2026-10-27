@@ -147,9 +147,11 @@ struct HomeView: View {
                 ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "milestone", date: m.achievedAt, calendar: .current)) { _ in
                     MoneyShareCard.milestone(m, calendar: .current)
                 }
+                .followsAppearance()
             }
             .sheet(isPresented: $showNotifications) {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings, live: state.liveActivity, vehicleID: selected?.id)
+                    .followsAppearance()
             }
         }
     }

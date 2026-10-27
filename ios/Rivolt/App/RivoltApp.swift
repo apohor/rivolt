@@ -11,7 +11,6 @@ import UserNotifications
 struct RivoltApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var state = AppState()
-    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
 
     init() {
         // The bundled Geist fonts, before the first screen asks for them.
@@ -31,7 +30,7 @@ struct RivoltApp: App {
                 root
                 #endif
             }
-            .preferredColorScheme(appearance.scheme)
+            .followsAppearance()
         }
     }
 

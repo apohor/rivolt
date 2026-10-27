@@ -49,8 +49,8 @@ struct AccountMenu: View {
             Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
         }
         .accessibilityLabel("Account")
-        .sheet(isPresented: $showAbout) { DemoAboutSheet() }
-        .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView() }
-        .sheet(isPresented: $showSettings) { SettingsView(vehicleID: vehicleID) }
+        .sheet(isPresented: $showAbout) { DemoAboutSheet().followsAppearance() }
+        .sheet(isPresented: $showAcknowledgements) { AcknowledgementsView().followsAppearance() }
+        .sheet(isPresented: $showSettings) { SettingsView(vehicleID: vehicleID).followsAppearance() }
     }
 }
