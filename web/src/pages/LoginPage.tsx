@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { backend, type OIDCProvider } from "../lib/api";
+import { ProviderButton } from "../components/ProviderButton";
 import Logo from "../components/Logo";
 import { useAdminOnly, useSignupEnabled } from "../lib/config";
 
@@ -159,14 +160,7 @@ export default function LoginPage() {
           <>
             <div className="flex flex-col gap-2">
               {providers.map((p) => (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => startOIDC(p)}
-                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
-                >
-                  Continue with {p.display_name}
-                </button>
+                <ProviderButton key={p.name} provider={p} onClick={() => startOIDC(p)} />
               ))}
             </div>
             {providers.length > 1 && !plain && (
