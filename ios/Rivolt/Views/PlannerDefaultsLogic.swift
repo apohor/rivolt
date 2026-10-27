@@ -67,7 +67,7 @@ enum PlannerDefaultsForm {
         var message: String {
             switch self {
             case .gas: return "Enter a gas price like 4.00 (0 to \(Int(PlannerDefaultsForm.maxGas)))."
-            case .mpg: return "Enter miles per gallon like 20 (\(Int(PlannerDefaultsForm.minMpg)) to \(Int(PlannerDefaultsForm.maxMpg)))."
+            case .mpg: return "Enter miles per gallon like 20 (\(Int(PlannerDefaultsForm.minMpg)) to \(Int(PlannerDefaultsForm.maxMpg)), or empty to hide the chip)."
             }
         }
     }
@@ -81,15 +81,11 @@ enum PlannerDefaultsForm {
         return v
     }
 
-    /// MPG is 1 to 200 on the server; empty (0) is fine only while none is saved, since the server won't take 0 back.
-    static func errors(_ d: Draft, saved: PlannerDefaults) -> [FieldError] {
+    /// MPG is 0 (hides the chip) or 1 to 200 on the server.
+    static func errors(_ d: Draft) -> [FieldError] {
         var out: [FieldError] = []
         if number(d.gas, max: maxGas) == nil { out.append(.gas) }
-        if let m = number(d.mpg, max: maxMpg) {
-            if m == 0 ? saved.comparisonMpg != 0 : m < minMpg { out.append(.mpg) }
-        } else {
-            out.append(.mpg)
-        }
+        if let m = number(d.mpg, max: maxMpg), m == 0 || m >= minMpg {} else { out.append(.mpg) }
         return out
     }
 

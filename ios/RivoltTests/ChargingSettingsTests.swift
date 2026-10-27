@@ -240,17 +240,16 @@ final class ChargingSettingsTests: XCTestCase {
     func testAnUnreadableNumberIsRefusedInWords() {
         var d = PlannerDefaultsForm.draft(planner())
         d.gas = "four"; d.mpg = "-3"
-        XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.gas, .mpg])
+        XCTAssertEqual(PlannerDefaultsForm.errors(d), [.gas, .mpg])
         XCTAssertEqual(PlannerDefaultsForm.FieldError.gas.message, "Enter a gas price like 4.00 (0 to 20).")
-        XCTAssertEqual(PlannerDefaultsForm.FieldError.mpg.message, "Enter miles per gallon like 20 (1 to 200).")
+        XCTAssertEqual(PlannerDefaultsForm.FieldError.mpg.message, "Enter miles per gallon like 20 (1 to 200, or empty to hide the chip).")
         d.gas = ""; d.mpg = "25"
-        XCTAssertTrue(PlannerDefaultsForm.errors(d, saved: planner()).isEmpty)
-        // The server's bounds: gas up to 20, MPG 1 to 200, and no way back to 0 once an MPG is saved.
-        d.gas = "20.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.gas])
-        d.gas = "20"; d.mpg = "0.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.mpg])
-        d.mpg = "201"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.mpg])
-        d.mpg = ""; XCTAssertTrue(PlannerDefaultsForm.errors(d, saved: planner(mpg: 0)).isEmpty, "nothing saved, nothing sent")
-        XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner(mpg: 20)), [.mpg])
+        XCTAssertTrue(PlannerDefaultsForm.errors(d).isEmpty)
+        // The server's bounds: gas up to 20, MPG 0 (hide the chip) or 1 to 200.
+        d.gas = "20.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d), [.gas])
+        d.gas = "20"; d.mpg = "0.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d), [.mpg])
+        d.mpg = "201"; XCTAssertEqual(PlannerDefaultsForm.errors(d), [.mpg])
+        d.mpg = ""; XCTAssertTrue(PlannerDefaultsForm.errors(d).isEmpty, "empty clears it, as on the web")
     }
 
     func testAPatchGoesOutWithOnlyItsFields() throws {

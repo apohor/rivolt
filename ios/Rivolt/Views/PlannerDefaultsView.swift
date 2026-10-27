@@ -67,7 +67,7 @@ struct PlannerDefaultsEditor: View {
         _draft = State(initialValue: PlannerDefaultsForm.draft(saved))
     }
 
-    private var errors: [PlannerDefaultsForm.FieldError] { PlannerDefaultsForm.errors(draft, saved: saved) }
+    private var errors: [PlannerDefaultsForm.FieldError] { PlannerDefaultsForm.errors(draft) }
     private var canSave: Bool { errors.isEmpty && PlannerDefaultsForm.changed(draft, saved: saved) && model.saveState != .saving }
 
     /// A drive mode stored on the account that this card doesn't offer stays selectable so opening the card doesn't change it.
