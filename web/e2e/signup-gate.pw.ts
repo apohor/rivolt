@@ -9,7 +9,7 @@ test("signup with Google/GitHub offered: instant email wording and the send-link
   await stubApi(page, { signedIn: false });
   await page.route("**/api/auth/oidc/", (r) => r.fulfill({ json: [{ name: "google", display_name: "Google", start_url: "/api/auth/oidc/google/start" }] }));
   await page.goto("/signup");
-  await expect(page.getByText("Sign up instantly with Google or GitHub, or enter your email and we'll send you a signup link.")).toBeVisible();
+  await expect(page.getByText("Sign up instantly with a provider below, or enter your email and we'll send you a signup link.")).toBeVisible();
   await expect(page.getByText("or sign up by email")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send signup link" })).toBeVisible();
   const body = await page.locator("body").innerText();
