@@ -11,7 +11,7 @@ final class SettingsTests: XCTestCase {
             ["Account", "Connection details", "Sign out"],
             ["Security", "Signed-in devices", "Passkeys"],
             ["Vehicle", "Vehicle profile", "Home location", "Units"],
-            ["Charging", "Charging rates"],
+            ["Charging", "Charging rates", "Off-peak schedule", "Charging networks", "Trip planner defaults"],
             ["Notifications", "Notifications"],
             ["App", "Appearance"],
             ["Data", "Export your data", "Delete account"],

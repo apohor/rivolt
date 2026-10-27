@@ -57,11 +57,11 @@ final class ChargingRatesTests: XCTestCase {
         XCTAssertEqual(try body(ChargingRatesPatch(homePricePerKwh: 0.2, homeCurrency: "GBP")), #"{"home_currency":"GBP","home_price_per_kwh":0.2}"#)
     }
 
-    func testTheRatesDecodeOnlyTheHomeRateNotTheGasPriceOrMPG() throws {
+    func testTheRatesDecodeTheHomeRateAndThePlannersGasInputs() throws {
         let json = #"{"home_price_per_kwh":0.15,"home_currency":"USD","gas_price_per_gallon":4,"comparison_mpg":20}"#
         let r = try JSON.decoder().decode(ChargingRates.self, from: Data(json.utf8))
-        XCTAssertEqual(r, ChargingRates(homePricePerKwh: 0.15, homeCurrency: "USD"))
-        XCTAssertEqual(Mirror(reflecting: r).children.compactMap(\.label), ["homePricePerKwh", "homeCurrency"])
+        XCTAssertEqual(r, ChargingRates(homePricePerKwh: 0.15, homeCurrency: "USD", gasPricePerGallon: 4, comparisonMpg: 20))
+        XCTAssertEqual(Mirror(reflecting: r).children.compactMap(\.label), ["homePricePerKwh", "homeCurrency", "gasPricePerGallon", "comparisonMpg"])
         XCTAssertEqual(ChargingRatesForm.currencies.count, 10)
     }
 

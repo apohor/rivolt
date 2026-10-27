@@ -332,7 +332,7 @@ final class MoneyLogicTests: XCTestCase {
         enc.keyEncodingStrategy = .convertToSnakeCase
         let all = String(decoding: try enc.encode(ChargingRatesPatch(homePricePerKwh: 0.2, homeCurrency: "USD")), as: UTF8.self)
         XCTAssertFalse(all.contains("flat"), all)
-        XCTAssertEqual(Set(Mirror(reflecting: ChargingRatesPatch()).children.compactMap(\.label)), ["homePricePerKwh", "homeCurrency"])
+        XCTAssertEqual(Set(Mirror(reflecting: ChargingRatesPatch()).children.compactMap(\.label)), ["homePricePerKwh", "homeCurrency", "gasPricePerGallon", "comparisonMpg"])
     }
 
     func testSavingsReadAsAnEstimate() throws {
