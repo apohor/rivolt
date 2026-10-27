@@ -365,6 +365,14 @@ enum MoneyLogic {
         }
     }
 
+    /// Whether Money draws the Off-peak savings card: not when the answer failed, and not for a flat rate (no off-peak hours, no
+    /// estimate, so nothing to say; the choice is undone in Settings → Charging → Off-peak schedule).
+    static func showsSavingsCard(_ d: LedgerSavings?, failed: Bool) -> Bool {
+        if failed { return false }
+        if let d, case .flat = savingsView(d) { return false }
+        return true
+    }
+
     static func savingsView(_ d: LedgerSavings) -> SavingsView {
         if d.reason == "flat_rate" || d.flatRate == true { return .flat(basis: d.basis ?? "") }
         if d.needs == "offpeak_schedule" { return .needs(.schedule) }

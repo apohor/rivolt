@@ -116,15 +116,14 @@ test("share statement: no share from the server, no toggle", async ({ browser })
   await ctx.close();
 });
 
-test("flat rate: the card says so with a way back, and the share sheet has no off-peak toggle", async ({ browser }) => {
+test("flat rate: no Off-peak savings card at all, and the share sheet has no off-peak toggle", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await open(page, () => ({ version: 1, flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate, so there are no off-peak hours." }), []);
-  const card = page.locator("[data-savings]");
-  await expect(card.locator("[data-savings-flat]")).toContainText("one flat rate");
-  await expect(card.getByRole("link", { name: "Change in Settings" })).toHaveAttribute("href", /settings\?tab=charging#offpeak/);
-  await expect(card).not.toContainText("could have saved");
-  await expect(card).not.toContainText("Estimated from");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.locator("[data-savings]")).toHaveCount(0);
+  await expect(page.getByText("Off-peak savings")).toHaveCount(0);
+  await expect(page.getByText("one flat rate")).toHaveCount(0);
   await page.getByRole("button", { name: "Share statement" }).click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
   await ctx.close();
