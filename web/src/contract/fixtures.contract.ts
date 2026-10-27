@@ -15,10 +15,6 @@ import me from "../../../ios/RivoltTests/Fixtures/me.json";
 import milestones from "../../../ios/RivoltTests/Fixtures/milestones.json";
 import nowV1 from "../../../ios/RivoltTests/Fixtures/now_v1.json";
 import settingsCharging from "../../../ios/RivoltTests/Fixtures/settings_charging.json";
-import settingsMembershipTerms from "../../../ios/RivoltTests/Fixtures/settings_membership_terms.json";
-import settingsNetworks from "../../../ios/RivoltTests/Fixtures/settings_networks.json";
-import settingsOffpeak from "../../../ios/RivoltTests/Fixtures/settings_offpeak.json";
-import settingsPlanner from "../../../ios/RivoltTests/Fixtures/settings_planner.json";
 import settingsHomeLocation from "../../../ios/RivoltTests/Fixtures/settings_home_location.json";
 import settingsUnits from "../../../ios/RivoltTests/Fixtures/settings_units.json";
 import sleepHealth from "../../../ios/RivoltTests/Fixtures/sleep_health.json";
@@ -43,12 +39,10 @@ import sleepActivity from "../../../ios/RivoltTests/Fixtures/sleep_activity.json
 import trendsSpread from "../../../ios/RivoltTests/Fixtures/trends_capacity_spread.json";
 import type {
   DayActivity, EfficiencyInsights, LiveDrive, PackHealthResponse,
-  AccountUnits, AuthUser, Charge, ChargeCluster, ChargingNetwork, ChargingSettings, PlannerPrefs, ColdRange, DrainSnapshot, Drive, HomeLocation,
+  AccountUnits, AuthUser, Charge, ChargeCluster, ChargingSettings, ColdRange, DrainSnapshot, Drive, HomeLocation,
   LeaseStatus, LeaseTerms, LiveSession, MilestoneItem, NowSnapshot, SleepHealth, StatementEmailSettings, TruckTrends, Vehicle,
   VehicleState,
 } from "../lib/api";
-import type { MembershipTerm } from "../lib/membershipTerms";
-import type { OffpeakSchedule } from "../lib/offpeak";
 import type { LedgerMonth, LedgerSummary } from "../lib/ledger";
 import type { SavingsResponse } from "../lib/savings";
 
@@ -80,10 +74,6 @@ export const _milestones: Wide<{ milestones: MilestoneItem[] }> = milestones;
 export const _now: Wide<NowSnapshot> = nowV1;
 export const _settingsCharging: Wide<ChargingSettings> = settingsCharging;
 export const _settingsHome: Wide<HomeLocation> = settingsHomeLocation;
-export const _settingsMembershipTerms: Wide<{ terms: MembershipTerm[] }> = settingsMembershipTerms;
-export const _settingsNetworks: Wide<ChargingNetwork[]> = settingsNetworks;
-export const _settingsOffpeak: Wide<OffpeakSchedule> = settingsOffpeak;
-export const _settingsPlanner: Wide<PlannerPrefs> = settingsPlanner;
 export const _settingsUnits: Wide<AccountUnits> = settingsUnits;
 export const _sleepHealth: Wide<SleepHealth> = sleepHealth;
 export const _state: Wide<VehicleState> = stateFull;

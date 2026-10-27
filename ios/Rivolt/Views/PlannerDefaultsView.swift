@@ -6,16 +6,22 @@ import SwiftUI
 struct PlannerDefaultsView: View {
     @Environment(AppState.self) private var state
     @State private var model = SettingsCardModel<PlannerDefaults>()
+    /// The server answers 404 while its trip planner is off: there is nothing to set.
+    @State private var plannerOff = false
 
     var body: some View {
         SettingsStack {
             ScrollView {
                 ThemeSection(title: "Trip planner defaults") {
+                    if plannerOff {
+                        Text("The trip planner isn't turned on for this server.").themeText(.value, color: Theme.textSecondary)
+                    } else {
                     CardLoadView(model: model, what: "the planner defaults", onReload: reload) { saved in
                         PlannerDefaultsEditor(saved: saved, model: model, serverURL: state.serverURL, onSave: { draft in
                             Task { await model.save { try await state.client.savePlannerDefaults(draft, saved: saved) } }
                         }, onReload: reload)
                             .id(saved)
+                    }
                     }
                 }
                 .padding(4 * Theme.unit)
@@ -27,10 +33,22 @@ struct PlannerDefaultsView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
-        .task { await model.load { try await state.client.plannerDefaults() } }
+        .task { await load() }
     }
 
-    private func reload() { Task { await model.load { try await state.client.plannerDefaults() } } }
+    private func reload() { Task { await load() } }
+
+    private func load() async {
+        plannerOff = false
+        await model.load {
+            do {
+                return try await state.client.plannerDefaults()
+            } catch APIError.server(404, _) {
+                plannerOff = true
+                throw APIError.server(status: 404, message: "")
+            }
+        }
+    }
 }
 
 struct PlannerDefaultsEditor: View {
@@ -49,7 +67,7 @@ struct PlannerDefaultsEditor: View {
         _draft = State(initialValue: PlannerDefaultsForm.draft(saved))
     }
 
-    private var errors: [PlannerDefaultsForm.FieldError] { PlannerDefaultsForm.errors(draft) }
+    private var errors: [PlannerDefaultsForm.FieldError] { PlannerDefaultsForm.errors(draft, saved: saved) }
     private var canSave: Bool { errors.isEmpty && PlannerDefaultsForm.changed(draft, saved: saved) && model.saveState != .saving }
 
     /// A drive mode stored on the account that this card doesn't offer stays selectable so opening the card doesn't change it.

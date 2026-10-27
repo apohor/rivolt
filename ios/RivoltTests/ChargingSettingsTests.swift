@@ -240,11 +240,17 @@ final class ChargingSettingsTests: XCTestCase {
     func testAnUnreadableNumberIsRefusedInWords() {
         var d = PlannerDefaultsForm.draft(planner())
         d.gas = "four"; d.mpg = "-3"
-        XCTAssertEqual(PlannerDefaultsForm.errors(d), [.gas, .mpg])
-        XCTAssertEqual(PlannerDefaultsForm.FieldError.gas.message, "Enter a gas price like 4.00 (0 to 100).")
-        XCTAssertEqual(PlannerDefaultsForm.FieldError.mpg.message, "Enter miles per gallon like 20 (0 to 500).")
+        XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.gas, .mpg])
+        XCTAssertEqual(PlannerDefaultsForm.FieldError.gas.message, "Enter a gas price like 4.00 (0 to 20).")
+        XCTAssertEqual(PlannerDefaultsForm.FieldError.mpg.message, "Enter miles per gallon like 20 (1 to 200).")
         d.gas = ""; d.mpg = "25"
-        XCTAssertTrue(PlannerDefaultsForm.errors(d).isEmpty)
+        XCTAssertTrue(PlannerDefaultsForm.errors(d, saved: planner()).isEmpty)
+        // The server's bounds: gas up to 20, MPG 1 to 200, and no way back to 0 once an MPG is saved.
+        d.gas = "20.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.gas])
+        d.gas = "20"; d.mpg = "0.5"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.mpg])
+        d.mpg = "201"; XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner()), [.mpg])
+        d.mpg = ""; XCTAssertTrue(PlannerDefaultsForm.errors(d, saved: planner(mpg: 0)).isEmpty, "nothing saved, nothing sent")
+        XCTAssertEqual(PlannerDefaultsForm.errors(d, saved: planner(mpg: 20)), [.mpg])
     }
 
     func testAPatchGoesOutWithOnlyItsFields() throws {
@@ -259,22 +265,26 @@ final class ChargingSettingsTests: XCTestCase {
 
     func testTheServersFixturesDecode() throws {
         let off = try Fixture.decode(OffpeakSchedule.self, "settings_offpeak")
-        XCTAssertEqual(off.tz, "America/Chicago"); XCTAssertEqual(off.windows.count, 2); XCTAssertEqual(off.windows[1].label, nil)
-        XCTAssertEqual(off.baseRate, 0.15); XCTAssertEqual(off.flatRate, false)
-        XCTAssertEqual(OffpeakForm.drafts(off).map(\.rate), ["0.09", "0.11"])
+        XCTAssertEqual(off.tz, "America/Los_Angeles"); XCTAssertEqual(off.windows.count, 2); XCTAssertEqual(off.windows[1].label, nil)
+        XCTAssertEqual(off.baseRate, 0.18); XCTAssertEqual(off.flatRate, false)
+        XCTAssertEqual(OffpeakForm.drafts(off).map(\.rate), ["0.12", "0.09"])
+        let empty = try Fixture.decode(OffpeakSchedule.self, "settings_offpeak_empty")
+        XCTAssertEqual(empty.windows, []); XCTAssertEqual(empty.configured, false)
+        let field = try JSONSerialization.jsonObject(with: Fixture.data("error_offpeak_field")) as? [String: String]
+        XCTAssertEqual(field?["field"], "windows[1].start")
 
         let nets = try Fixture.decode([ChargingNetwork].self, "settings_networks")
-        XCTAssertEqual(nets.map(\.name), ["Electrify America", "EVgo", "Corner garage"])
-        XCTAssertEqual(nets[0].memberActive, true); XCTAssertEqual(nets[1].seeded, true); XCTAssertEqual(nets[2].lat, 40.7128)
-        XCTAssertEqual(ChargingNetworksForm.displayOrder(nets), [0, 2, 1], "preferred first, then by name")
+        XCTAssertEqual(nets.map(\.name), ["Example Fast Network", "Another Network", "My building's charger"])
+        XCTAssertEqual(nets[0].memberActive, true); XCTAssertEqual(nets[1].seeded, true); XCTAssertEqual(nets[2].lat, 47.6205)
+        XCTAssertEqual(ChargingNetworksForm.displayOrder(nets), [0, 1, 2], "preferred first, then by name")
         XCTAssertFalse(ChargingNetworksForm.changed(ChargingNetworksForm.drafts(nets), saved: nets), "opening and saving changes nothing")
 
         let terms = try Fixture.decode(MembershipTermsResponse.self, "settings_membership_terms")
-        XCTAssertEqual(terms.terms?.first?.plan, "Pass+")
-        XCTAssertNotNil(ChargingNetworksForm.safeSourceURL(terms.terms?.first?.sourceUrl))
+        XCTAssertEqual(terms.terms?.first?.plan, "Example Pass")
+        XCTAssertNil(ChargingNetworksForm.safeSourceURL(terms.terms?.first?.sourceUrl), "not a network's own site, so plain text")
 
         let prefs = try Fixture.decode(PlannerPrefs.self, "settings_planner")
-        XCTAssertEqual(prefs, PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: false))
+        XCTAssertEqual(prefs, PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true))
 
         let rates = try Fixture.decode(ChargingRates.self, "settings_charging")
         XCTAssertEqual(rates.gasPricePerGallon, 3.5); XCTAssertEqual(rates.comparisonMpg, 25)

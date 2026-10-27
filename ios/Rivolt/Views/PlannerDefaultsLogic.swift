@@ -36,8 +36,10 @@ enum PlannerDefaultsForm {
     static let gasLabel = "Gas $/gal"
     static let mpgLabel = "ICE MPG (comparison)"
     static let gasNote = "Gas $/gal × ICE MPG drives the gas-equivalent chip on route cards. Leave either at 0 to hide it."
-    static let maxGas = 100.0
-    static let maxMpg = 500.0
+    /// The server's bounds: gas 0 to 20 per gallon, MPG 1 to 200.
+    static let maxGas = 20.0
+    static let minMpg = 1.0
+    static let maxMpg = 200.0
 
     /// The drive mode a screen shows for what is stored: empty (nothing chosen) reads as the first option, as on the web.
     static func shownMode(_ stored: String) -> String { stored.isEmpty ? driveModes[0].value : stored }
@@ -65,7 +67,7 @@ enum PlannerDefaultsForm {
         var message: String {
             switch self {
             case .gas: return "Enter a gas price like 4.00 (0 to \(Int(PlannerDefaultsForm.maxGas)))."
-            case .mpg: return "Enter miles per gallon like 20 (0 to \(Int(PlannerDefaultsForm.maxMpg)))."
+            case .mpg: return "Enter miles per gallon like 20 (\(Int(PlannerDefaultsForm.minMpg)) to \(Int(PlannerDefaultsForm.maxMpg)))."
             }
         }
     }
@@ -79,10 +81,15 @@ enum PlannerDefaultsForm {
         return v
     }
 
-    static func errors(_ d: Draft) -> [FieldError] {
+    /// MPG is 1 to 200 on the server; empty (0) is fine only while none is saved, since the server won't take 0 back.
+    static func errors(_ d: Draft, saved: PlannerDefaults) -> [FieldError] {
         var out: [FieldError] = []
         if number(d.gas, max: maxGas) == nil { out.append(.gas) }
-        if number(d.mpg, max: maxMpg) == nil { out.append(.mpg) }
+        if let m = number(d.mpg, max: maxMpg) {
+            if m == 0 ? saved.comparisonMpg != 0 : m < minMpg { out.append(.mpg) }
+        } else {
+            out.append(.mpg)
+        }
         return out
     }
 
