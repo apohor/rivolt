@@ -51,7 +51,6 @@ struct TripPlanView: View {
                 PlaceSearchSheet(model: model, title: which == .origin ? "Start from" : "Where to") { place in
                     if which == .origin { model.origin = place } else { model.destination = place }
                 }
-                .followsAppearance()
             }
             .task {
                 if state.isDemo { await demoTrips.load(source: state.client); return }
