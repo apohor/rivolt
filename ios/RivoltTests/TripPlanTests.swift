@@ -21,8 +21,10 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
     }
     var counts: [Int] = []
     var delay: Duration?
+    var failure: Error?
     func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] {
         searches.append(q); counts.append(count)
+        if let failure { throw failure }
         let answer = matches
         if let d = delay { try? await Task.sleep(for: d) }
         return answer
@@ -222,6 +224,19 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertTrue(src.searches.isEmpty, "cancelled during the pause, never sent")
         await m.typeAhead(source: src, query: "denv", debounce: .milliseconds(1))
         XCTAssertEqual(src.searches, ["denv"])
+    }
+
+    func testATooManySearchesAnswerIsQuietAndNotRetried() async {
+        XCTAssertEqual(TripPlanLogic.searchFailure(APIError.server(status: 429, message: "slow down")), "Too many searches, wait a moment.")
+        XCTAssertEqual(TripPlanLogic.searchFailure(APIError.server(status: 500, message: "x")), TripPlanLogic.failure(APIError.server(status: 500, message: "x")))
+        let src = FakeTrips()
+        src.failure = APIError.server(status: 429, message: "slow down")
+        let m = TripPlanModel()
+        await m.typeAhead(source: src, query: "denv", debounce: .milliseconds(1))
+        XCTAssertEqual(m.searchMessage, "Too many searches, wait a moment.")
+        XCTAssertTrue(m.results.isEmpty)
+        XCTAssertFalse(m.searching)
+        XCTAssertEqual(src.searches, ["denv"], "asked once, no retry of its own")
     }
 
     func testALateAnswerFromAnOlderSearchIsDropped() async {

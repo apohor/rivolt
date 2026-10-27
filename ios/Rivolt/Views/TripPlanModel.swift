@@ -163,7 +163,7 @@ final class TripPlanModel {
         } catch {
             guard mine == searchGeneration, !Task.isCancelled else { return }
             results = []
-            searchMessage = TripPlanLogic.failure(error)
+            searchMessage = TripPlanLogic.searchFailure(error)
         }
         searching = false
     }

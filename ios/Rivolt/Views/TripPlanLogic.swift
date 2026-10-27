@@ -327,6 +327,13 @@ enum TripPlanLogic {
             targetArrivalSocPercent: target, packKwh: packKwh)
     }
 
+    /// What to say under the place field when a search failed: the geocoder allows 20 a minute per person, so a 429 is a quiet
+    /// "wait a moment" (the type-ahead never retries on its own); anything else is said as a planning failure is.
+    static func searchFailure(_ error: Error) -> String {
+        if case APIError.server(429, _) = error { return "Too many searches, wait a moment." }
+        return failure(error)
+    }
+
     /// What to tell the person when planning failed. Never the server's own text.
     static func failure(_ error: Error) -> String {
         switch error {
