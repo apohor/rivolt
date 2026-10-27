@@ -1,0 +1,24 @@
+{
+  "terms": [
+    {
+      "network_slug": "example",
+      "network": "Example Fast Network",
+      "plan": "Example Pass",
+      "terms": "Example monthly fee for lower per-kWh rates.",
+      "source_url": "https://example.test/membership",
+      "read_via": "the operator's public pricing page",
+      "checked": "2026-09-01",
+      "label": "As listed by Example Fast Network; may be out of date; last checked 2026-09-01."
+    },
+    {
+      "network_slug": "another",
+      "network": "Another Network",
+      "plan": "Another Plus",
+      "terms": "Example monthly fee for lower per-kWh rates.",
+      "source_url": "https://example.test/membership",
+      "read_via": "the operator's public pricing page",
+      "checked": "2026-09-01",
+      "label": "As listed by Another Network; may be out of date; last checked 2026-09-01."
+    }
+  ]
+}
