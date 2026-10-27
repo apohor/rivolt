@@ -1077,10 +1077,10 @@ func New(d Deps) http.Handler {
 				r.Get("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksGet(d.Settings.For(uid))(w, r)
 				}))
-				r.Put("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Put("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksPut(d.Settings.For(uid))(w, r)
 				}))
-				r.Post("/networks/reset", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Post("/networks/reset", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksReset(d.Settings.For(uid))(w, r)
 				}))
 				// Networks' membership terms: sourced facts with their check date.
@@ -1089,14 +1089,14 @@ func New(d Deps) http.Handler {
 				r.Get("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleOffpeakGet(d.Settings.For(uid))(w, r)
 				}))
-				r.Put("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Put("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleOffpeakPut(d.Settings.For(uid))(w, r)
 				}))
-				// "My electricity is one flat rate": stops the off-peak estimates. Web only.
+				// "My electricity is one flat rate": stops the off-peak estimates. The iPhone app may write it too (30 a minute per user).
 				r.Get("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleFlatRateGet(d.Settings.For(uid))(w, r)
 				}))
-				r.Put("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Put("/flat-rate", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleFlatRatePut(d.Settings.For(uid))(w, r)
 				}))
 			})
@@ -1184,7 +1184,7 @@ func New(d Deps) http.Handler {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePlannerPrefsGet(d.Settings.For(uid))(w, r)
 				}))
-				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(settingsWriteLimiter.Middleware).Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePlannerPrefsPut(d.Settings.For(uid))(w, r)
 				}))
 				r.Get("/favorites", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

@@ -86,6 +86,7 @@ func handleOffpeakPut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		logSettingsWrite(r, "charging.offpeak", "windows")
 		out, err := offpeakView(r, store)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

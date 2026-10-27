@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -34,10 +32,12 @@ func handleFlatRateGet(store *settings.Store) http.HandlerFunc {
 }
 
 // handleFlatRatePut serves PUT /api/settings/charging/flat-rate {"flat_rate": bool}.
-// The body is strict: one object, the one field (present, a bool), nothing else. It is a
-// web route: an iPhone app session is refused before it gets here (app_write_allowlist.go),
-// and the app's PATCH /api/settings/charging refuses the field by name. One audit line per
-// change: who, from where, which field; the bool itself is not a secret and is the only value.
+// The body is strict: one object, the one field (present, a bool), nothing else. The iPhone app
+// may make this write (app_write_allowlist.go; DA ruling Oct 26: a bool that only changes the
+// savings and off-peak estimates, and a phone-only owner could not switch back otherwise), but
+// only through this route: the app's PATCH /api/settings/charging still refuses the field by
+// name. 30 a minute per user; one audit line per change (logSettingsWrite): who, from where,
+// which field, no value.
 func handleFlatRatePut(store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -66,12 +66,7 @@ func handleFlatRatePut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, "could not save", http.StatusInternalServerError)
 			return
 		}
-		source := "web"
-		if ref, ok := auth.SessionFromContext(r.Context()); ok && ref.Kind == sessions.KindApp {
-			source = "app"
-		}
-		uid, _ := auth.UserFromContext(r.Context())
-		slog.InfoContext(r.Context(), "settings write", "user_id", uid.String(), "source", source, "group", "charging.flat_rate", "fields", []string{"flat_rate"}, "flat_rate", *in.FlatRate)
+		logSettingsWrite(r, "charging.flat_rate", "flat_rate")
 		writeJSON(w, http.StatusOK, flatRateBody{FlatRate: *in.FlatRate})
 	}
 }

@@ -224,6 +224,7 @@ func handlePlannerPrefsPut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		logSettingsWrite(r, "planner.defaults", "drive_mode", "has_adapter")
 		out, _ := settings.GetPlannerPrefs(r.Context(), store)
 		writeJSON(w, http.StatusOK, out)
 	}
