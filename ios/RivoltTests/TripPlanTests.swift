@@ -21,8 +21,10 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
     }
     var counts: [Int] = []
     var delay: Duration?
+    var failure: Error?
     func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] {
         searches.append(q); counts.append(count)
+        if let failure { throw failure }
         let answer = matches
         if let d = delay { try? await Task.sleep(for: d) }
         return answer
@@ -224,6 +226,19 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(src.searches, ["denv"])
     }
 
+    func testATooManySearchesAnswerIsQuietAndNotRetried() async {
+        XCTAssertEqual(TripPlanLogic.searchFailure(APIError.server(status: 429, message: "slow down")), "Too many searches, wait a moment.")
+        XCTAssertEqual(TripPlanLogic.searchFailure(APIError.server(status: 500, message: "x")), TripPlanLogic.failure(APIError.server(status: 500, message: "x")))
+        let src = FakeTrips()
+        src.failure = APIError.server(status: 429, message: "slow down")
+        let m = TripPlanModel()
+        await m.typeAhead(source: src, query: "denv", debounce: .milliseconds(1))
+        XCTAssertEqual(m.searchMessage, "Too many searches, wait a moment.")
+        XCTAssertTrue(m.results.isEmpty)
+        XCTAssertFalse(m.searching)
+        XCTAssertEqual(src.searches, ["denv"], "asked once, no retry of its own")
+    }
+
     func testALateAnswerFromAnOlderSearchIsDropped() async {
         let src = FakeTrips()
         src.matches = [seattle]
@@ -268,6 +283,29 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertNil(TripPlanLogic.lowArrival(20))
         XCTAssertNil(TripPlanLogic.lowArrival(nil))
         XCTAssertEqual(TripPlanLogic.lowArrival(8), "That is below the 20% arrival target. Add a charging stop or start with more charge.")
+    }
+
+    func testTheArrivalTargetIsTheControlsAndGoesEverywhereThe20Went() {
+        XCTAssertEqual(TripPlanLogic.arrivalTargetRange, 0...100)
+        XCTAssertEqual(TripPlanLogic.arrivalTargetStep, 5)
+        let one = TripPlanLogic.request(vehicleID: "v", origin: (47.6, -122.3), destination: (47.7, -117.4), startingSoc: nil, departAt: nil, packKwh: nil, target: 35)
+        XCTAssertEqual(one.targetArrivalSocPercent, 35)
+        let stay = OvernightCandidates.Candidate(name: "Sample Inn", lat: 45.52, lon: -122.68, l2Kw: 7, l2KwAssumed: true)
+        let two = TripPlanLogic.multidayRequest(vehicleID: nil, startingSoc: nil, packKwh: nil, startAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                                origin: (47.6, -122.3), destination: (47.7, -117.4), stay: stay, target: 35)
+        XCTAssertEqual(two.targetArrivalSocPercent, 35)
+        XCTAssertEqual(two.days.map(\.targetArrivalSocPct), [35, 35], "every day's own target")
+        XCTAssertNil(TripPlanLogic.lowArrival(35, target: 35))
+        XCTAssertEqual(TripPlanLogic.lowArrival(30, target: 35), "That is below the 35% arrival target. Add a charging stop or start with more charge.")
+        XCTAssertNil(TripPlanLogic.lowArrival(5, target: 0))
+    }
+
+    func testAnArrivalTargetIsKeptInTheServersRangeOnAFiveStep() {
+        XCTAssertEqual(TripPlanLogic.clampedTarget(-10), 0)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(140), 100)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(22), 20)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(23), 25)
+        XCTAssertEqual(TripPlanLogic.clampedTarget(.nan), 20)
     }
 
     func testOnlyADriveOverEightHoursIsOfferedInTwoDays() throws {

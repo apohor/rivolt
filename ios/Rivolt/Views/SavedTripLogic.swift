@@ -29,12 +29,13 @@ enum SavedTripLogic {
     /// The inputs of a trip. The truck's own charge is left empty (a re-plan reads it live, as the web's does); a charge the person
     /// typed is kept.
     static func inputs(origin: (lat: Double, lon: Double, label: String), destination: (lat: Double, lon: Double, label: String),
-                       stay: OvernightCandidates.Candidate?, startingSoc: Double?, departAt: Date?, timeZone: TimeZone = .current) -> JSONValue {
+                       stay: OvernightCandidates.Candidate?, startingSoc: Double?, departAt: Date?, timeZone: TimeZone = .current,
+                       target: Double = TripPlanLogic.arrivalTargetPercent) -> JSONValue {
         var o: [String: JSONValue] = [
             "origin": point(origin.lat, origin.lon, origin.label),
             "destination": point(destination.lat, destination.lon, destination.label),
             "extra_stops": .array(stay.map { [point($0.lat, $0.lon, $0.name)] } ?? []),
-            "target_soc": .string(String(Int(TripPlanLogic.arrivalTargetPercent))),
+            "target_soc": .string(String(Int(target.rounded()))),
             "starting_soc": .string(startingSoc.map { String(Int($0.rounded())) } ?? ""),
             "departure_at": .string(departureText(departAt, timeZone: timeZone)),
         ]
@@ -68,6 +69,8 @@ enum SavedTripLogic {
         var plan: TripPlan
         var multiday: TripMultiday?
         var stay: OvernightCandidates.Candidate?
+        /// The arrival target it was planned with (the saved `target_soc`), when it has one.
+        var target: Double?
     }
 
     static func restore(_ saved: SavedTrip) -> Restored? {
@@ -78,10 +81,16 @@ enum SavedTripLogic {
             if let day = trip.days.first(where: { $0.overnight != nil }), let la = day.end?.latitude, let lo = day.end?.longitude {
                 stay = .init(name: day.overnight?.name ?? day.end?.label ?? "Stay", lat: la, lon: lo, l2Kw: day.overnight?.l2Kw)
             }
-            return Restored(origin: o, destination: d, plan: first, multiday: trip, stay: stay)
+            return Restored(origin: o, destination: d, plan: first, multiday: trip, stay: stay, target: target(inputs))
         }
         guard let plan = blob.decoded(TripPlan.self), plan.best != nil else { return nil }
-        return Restored(origin: o, destination: d, plan: plan, multiday: nil, stay: nil)
+        return Restored(origin: o, destination: d, plan: plan, multiday: nil, stay: nil, target: target(inputs))
+    }
+
+    /// The saved arrival target (a string like "20"), inside the server's range; nil when absent or unreadable.
+    private static func target(_ inputs: [String: JSONValue]) -> Double? {
+        guard case .string(let s)? = inputs["target_soc"], let v = Double(s), v.isFinite, TripPlanLogic.arrivalTargetRange.contains(v) else { return nil }
+        return v
     }
 
     private static func place(_ v: JSONValue?) -> PlaceMatch? {

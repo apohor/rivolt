@@ -87,6 +87,11 @@ struct TripPlanForm: View {
                 }
                 .frame(minHeight: 44)
             }
+            Stepper(value: $model.arrivalTarget, in: TripPlanLogic.arrivalTargetRange, step: TripPlanLogic.arrivalTargetStep) {
+                Text("Arrival battery \(Int(model.arrivalTarget))%").themeText(.value, color: Theme.textPrimary)
+            }
+            .frame(minHeight: 44)
+            .accessibilityHint("The charge to arrive with; the planner adds charging stops to keep it")
             Toggle(isOn: $model.leaveNow) { Text("Leave now").themeText(.value, color: Theme.textPrimary) }
                 .tint(Theme.accent).frame(minHeight: 44)
             if !model.leaveNow {
@@ -148,7 +153,7 @@ struct TripPlanResult: View {
                 }
                 Text(TripPlanLogic.summary(route, metric: metric)).themeText(.value, color: Theme.textBody)
                 if let soc = route.arrivalSoC {
-                    let low = TripPlanLogic.lowArrival(soc)
+                    let low = TripPlanLogic.lowArrival(soc, target: model.plannedTarget)
                     Text("Arrive with about \(Int(soc.rounded()))%").themeText(.subline, color: low == nil ? Theme.textSecondary : Theme.estimate)
                     if let low { Text(low).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
                 }
@@ -319,7 +324,7 @@ struct MultidaySections: View {
                         Text(cost).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if let low = TripPlanLogic.lowArrival(day.arrivalSoc) {
+                if let low = TripPlanLogic.lowArrival(day.arrivalSoc, target: model.plannedTarget) {
                     Text(low).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
                 if let o = day.overnight {
