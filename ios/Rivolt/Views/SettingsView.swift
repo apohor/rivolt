@@ -3,7 +3,7 @@ import SwiftUI
 /// What Settings lists and in what order, with no view code so a test can see it. It mirrors the web's Settings tabs and names.
 enum SettingsLogic {
     enum Row: String, Equatable {
-        case connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, notifications, appearance
+        case connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
         case export, deleteAccount, privacy, terms, acknowledgements
 
         var title: String {
@@ -16,6 +16,9 @@ enum SettingsLogic {
             case .homeLocation: return "Home location"
             case .units: return "Units"
             case .chargingRates: return "Charging rates"
+            case .offpeak: return "Off-peak schedule"
+            case .chargingNetworks: return "Charging networks"
+            case .plannerDefaults: return "Trip planner defaults"
             case .notifications: return "Notifications"
             case .appearance: return "Appearance"
             case .export: return "Export your data"
@@ -36,6 +39,9 @@ enum SettingsLogic {
             case .homeLocation: return "house"
             case .units: return "ruler"
             case .chargingRates: return "bolt"
+            case .offpeak: return "moon.stars"
+            case .chargingNetworks: return "ev.charger"
+            case .plannerDefaults: return "map"
             case .notifications: return "bell"
             case .appearance: return "circle.lefthalf.filled"
             case .export: return "square.and.arrow.up"
@@ -59,7 +65,7 @@ enum SettingsLogic {
             Group(title: "Account", rows: [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
             Group(title: "Vehicle", rows: [.vehicleProfile, .homeLocation, .units]),
-            Group(title: "Charging", rows: [.chargingRates]),
+            Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
         ]
         if notificationsOffered { out.append(Group(title: "Notifications", rows: [.notifications])) }
         out += [
@@ -150,6 +156,12 @@ struct SettingsView: View {
             NavigationLink { UnitsView() } label: { label(row) }
         case .chargingRates:
             NavigationLink { ChargingRatesView() } label: { label(row) }
+        case .offpeak:
+            NavigationLink { OffpeakView() } label: { label(row) }
+        case .chargingNetworks:
+            NavigationLink { ChargingNetworksView() } label: { label(row) }
+        case .plannerDefaults:
+            NavigationLink { PlannerDefaultsView() } label: { label(row) }
         case .notifications:
             NavigationLink {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,

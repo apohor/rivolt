@@ -63,7 +63,15 @@ func iosFixtureTargets() map[string]any {
 		"settings_units.json":         &settings.Units{},
 		"settings_charging.json":      &settings.ChargingConfig{},
 		"settings_home_location.json": &homeLocationResponse{},
-		"app_config.json":             &appConfigResponse{},
+		// Settings → Charging on the phone: the off-peak schedule, the networks price book, the networks' membership terms and the
+		// planner defaults (the gas inputs are settings_charging.json).
+		"settings_offpeak.json":  &offpeakResponse{},
+		"settings_networks.json": &[]settings.ChargingNetwork{},
+		"settings_membership_terms.json": &struct {
+			Terms []membershipTermJSON `json:"terms"`
+		}{},
+		"settings_planner.json": &settings.PlannerPrefs{},
+		"app_config.json":       &appConfigResponse{},
 		// Slice B (the Home charts): the idle-awake bars, as the web's tile reads them.
 		"sleep_activity.json": &[]samples.DayActivity{},
 		// The miles-per-day and charge-level charts. The handler's response is an

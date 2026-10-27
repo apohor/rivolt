@@ -445,6 +445,52 @@ actor APIClient {
         try await request("PATCH", "/api/settings/charging", body: ChargingRatesPatch(homePricePerKwh: pricePerKwh, homeCurrency: currency))
     }
 
+    /// Changes the home rate and the planner's gas inputs: only the fields set are sent; the answer is the settings as the server now has them.
+    func setChargingRates(_ patch: ChargingRatesPatch) async throws -> ChargingRates {
+        try await request("PATCH", "/api/settings/charging", body: patch)
+    }
+
+    // MARK: Off-peak, networks and planner defaults
+
+    func offpeak() async throws -> OffpeakSchedule {
+        try await request("GET", "/api/settings/charging/offpeak")
+    }
+
+    /// Replaces the schedule; the answer is the schedule as saved.
+    func setOffpeak(_ body: OffpeakPut) async throws -> OffpeakSchedule {
+        try await request("PUT", "/api/settings/charging/offpeak", body: body)
+    }
+
+    func setFlatRate(_ on: Bool) async throws -> FlatRateBody {
+        try await request("PUT", "/api/settings/charging/flat-rate", body: FlatRateBody(flatRate: on))
+    }
+
+    func chargingNetworks() async throws -> [ChargingNetwork] {
+        try await request("GET", "/api/settings/charging/networks")
+    }
+
+    /// Replaces the price book; the answer is the list as saved.
+    func setChargingNetworks(_ rows: [ChargingNetwork]) async throws -> [ChargingNetwork] {
+        try await request("PUT", "/api/settings/charging/networks", body: rows)
+    }
+
+    func resetChargingNetworks() async throws -> [ChargingNetwork] {
+        try await request("POST", "/api/settings/charging/networks/reset")
+    }
+
+    func membershipTerms() async throws -> [MembershipTerm] {
+        let r: MembershipTermsResponse = try await request("GET", "/api/settings/charging/membership-terms")
+        return r.terms ?? []
+    }
+
+    func plannerPrefs() async throws -> PlannerPrefs {
+        try await request("GET", "/api/settings/planner")
+    }
+
+    func setPlannerPrefs(_ prefs: PlannerPrefs) async throws -> PlannerPrefs {
+        try await request("PUT", "/api/settings/planner", body: prefs)
+    }
+
     // MARK: Trip planner
 
     /// A plan for one outing. The server passes Rivian's planner through, so this can answer 401 with a `class` (Rivian needs
@@ -726,3 +772,4 @@ extension APIClient: ChartsSource {}
 extension APIClient: ChargeSamplesSource {}
 extension APIClient: ChargeRowSource {}
 extension APIClient: ChargingRatesSource {}
+extension APIClient: ChargingSettingsSource {}
