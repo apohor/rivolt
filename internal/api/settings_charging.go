@@ -8,8 +8,6 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -133,11 +131,15 @@ func handleChargingNetworksReset(store *settings.Store) http.HandlerFunc {
 type chargingRatePatch struct {
 	HomePricePerKWh *float64 `json:"home_price_per_kwh"`
 	HomeCurrency    *string  `json:"home_currency"`
+	GasPrice        *float64 `json:"gas_price_per_gallon"`
+	ComparisonMPG   *float64 `json:"comparison_mpg"`
 }
 
 // decodeChargingRatePatch reads and checks the body: one JSON object of known fields
 // (anything else, a second value after it, or an empty object is refused), a rate from
-// 0 to settings.MaxHomePricePerKWh and a currency from settings.HomeCurrencies. The
+// 0 to settings.MaxHomePricePerKWh, a currency from settings.HomeCurrencies, a gas price from 0
+// to settings.MaxGasPricePerGallon and a comparison MPG from settings.MinComparisonMPG to
+// settings.MaxComparisonMPG. The
 // currency comes back normalised to upper case.
 func decodeChargingRatePatch(w http.ResponseWriter, r *http.Request) (chargingRatePatch, string) {
 	var p chargingRatePatch
@@ -149,8 +151,14 @@ func decodeChargingRatePatch(w http.ResponseWriter, r *http.Request) (chargingRa
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return p, "invalid body: one JSON object only"
 	}
-	if p.HomePricePerKWh == nil && p.HomeCurrency == nil {
-		return p, "nothing to change: send home_price_per_kwh and/or home_currency"
+	if p.HomePricePerKWh == nil && p.HomeCurrency == nil && p.GasPrice == nil && p.ComparisonMPG == nil {
+		return p, "nothing to change: send home_price_per_kwh, home_currency, gas_price_per_gallon and/or comparison_mpg"
+	}
+	if v := p.GasPrice; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > settings.MaxGasPricePerGallon) {
+		return p, "gas_price_per_gallon must be a number from 0 to 20"
+	}
+	if v := p.ComparisonMPG; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < settings.MinComparisonMPG || *v > settings.MaxComparisonMPG) {
+		return p, "comparison_mpg must be a number from 1 to 200"
 	}
 	if v := p.HomePricePerKWh; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > settings.MaxHomePricePerKWh) {
 		return p, "home_price_per_kwh must be a number from 0 to 5"
@@ -182,16 +190,11 @@ func handleChargingSettingsPatch(store *settings.Store) http.HandlerFunc {
 			http.Error(w, "settings store unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := settings.PatchChargingConfig(r.Context(), store, p.HomePricePerKWh, p.HomeCurrency); err != nil {
+		if err := settings.PatchChargingConfig(r.Context(), store, p.HomePricePerKWh, p.HomeCurrency, p.GasPrice, p.ComparisonMPG); err != nil {
 			slog.ErrorContext(r.Context(), "settings write failed", "group", "charging.home_rate", "err", err.Error())
 			http.Error(w, "could not save", http.StatusInternalServerError)
 			return
 		}
-		source := "web"
-		if ref, ok := auth.SessionFromContext(r.Context()); ok && ref.Kind == sessions.KindApp {
-			source = "app"
-		}
-		uid, _ := auth.UserFromContext(r.Context())
 		fields := []string{}
 		if p.HomePricePerKWh != nil {
 			fields = append(fields, "home_price_per_kwh")
@@ -199,7 +202,13 @@ func handleChargingSettingsPatch(store *settings.Store) http.HandlerFunc {
 		if p.HomeCurrency != nil {
 			fields = append(fields, "home_currency")
 		}
-		slog.InfoContext(r.Context(), "settings write", "user_id", uid.String(), "source", source, "group", "charging.home_rate", "fields", fields)
+		if p.GasPrice != nil {
+			fields = append(fields, "gas_price_per_gallon")
+		}
+		if p.ComparisonMPG != nil {
+			fields = append(fields, "comparison_mpg")
+		}
+		logSettingsWrite(r, "charging.home_rate", fields...)
 		out, err := settings.GetChargingConfig(r.Context(), store)
 		if err != nil {
 			http.Error(w, "saved, but could not read back", http.StatusInternalServerError)

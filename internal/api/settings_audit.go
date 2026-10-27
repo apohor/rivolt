@@ -14,7 +14,7 @@ import (
 // app), which group and which fields. Never a value, so nothing in it is a secret or a rate.
 func logSettingsWrite(r *http.Request, group string, fields ...string) {
 	source := "web"
-	if ref, ok := auth.SessionFromContext(r.Context()); ok && ref.Kind == sessions.KindApp {
+	if ref, ok := auth.SessionFromContext(r.Context()); (ok && ref.Kind == sessions.KindApp) || auth.ViaBearer(r.Context()) {
 		source = "app"
 	}
 	uid, _ := auth.UserFromContext(r.Context())

@@ -127,10 +127,18 @@ func NormalizeHomeCurrency(c string) (string, bool) {
 	return "", false
 }
 
-// PatchChargingConfig writes only the home-rate fields that are set (nil leaves the
-// stored value alone); the gas price and comparison MPG are never touched. The caller
-// has validated the values.
-func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, currency *string) error {
+// Bounds a patch accepts for the gas-equivalent chip: a gas price per gallon from 0 to
+// MaxGasPricePerGallon, a comparison MPG from MinComparisonMPG to MaxComparisonMPG (zero
+// would divide by zero in the chip).
+const (
+	MaxGasPricePerGallon = 20.0
+	MinComparisonMPG     = 1.0
+	MaxComparisonMPG     = 200.0
+)
+
+// PatchChargingConfig writes only the fields that are set (nil leaves the stored value
+// alone). The caller has validated the values.
+func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, currency *string, gasPrice, comparisonMPG *float64) error {
 	if s == nil {
 		return nil
 	}
@@ -140,6 +148,12 @@ func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, cu
 	}
 	if currency != nil {
 		kv[keyChargingHomeCurrency] = *currency
+	}
+	if gasPrice != nil {
+		kv[keyChargingGasPricePerGal] = strconv.FormatFloat(*gasPrice, 'f', -1, 64)
+	}
+	if comparisonMPG != nil {
+		kv[keyChargingComparisonMPG] = strconv.FormatFloat(*comparisonMPG, 'f', -1, 64)
 	}
 	return s.SetMany(ctx, kv)
 }
