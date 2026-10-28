@@ -904,6 +904,14 @@ func runServer() {
 					mr.Start(ctx, uid)
 				}
 			})
+			syncer.OnReconcile(func(r rivian.Reconcile) {
+				if r.ReadFailed {
+					appMetrics.RivianAccountSyncErrorsTotal.Inc()
+					return // keep the last mismatch counts: nothing was compared
+				}
+				appMetrics.RivianAccountMismatch.WithLabelValues("session").Set(float64(r.SessionMismatch))
+				appMetrics.RivianAccountMismatch.WithLabelValues("flag").Set(float64(r.FlagMismatch))
+			})
 			att.AttachSyncer(syncer)
 			bg.Go(func() { syncer.Run(ctx, 5*time.Second, accountRegistry.Loaded) })
 			logger.Info("rivian account sync: enabled")

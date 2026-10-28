@@ -23,13 +23,19 @@ type fakeShared struct {
 	err     error
 	reads   int
 	gone    bool // the users row was deleted
+	sessErr error
 }
 
 // signIn is what the login handler on some pod does: store the session and clear the flag.
 func (f *fakeShared) signIn(sess Session) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.sess, f.version, f.needs, f.reason = sess, f.version.Add(time.Second).Add(time.Minute), false, ""
+	// updated_at is when it was stored: never earlier than the previous write.
+	v := time.Now()
+	if !v.After(f.version) {
+		v = f.version.Add(time.Second)
+	}
+	f.sess, f.version, f.needs, f.reason = sess, v, false, ""
 }
 
 func (f *fakeShared) signOut() {
@@ -64,6 +70,9 @@ func (f *fakeShared) States(_ context.Context, uids []uuid.UUID) (map[uuid.UUID]
 func (f *fakeShared) Session(context.Context, uuid.UUID) (Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.sessErr != nil {
+		return Session{}, f.sessErr
+	}
 	return f.sess, nil
 }
 
@@ -353,5 +362,70 @@ func TestFreshReadsTheDatabaseOnEveryCall(t *testing.T) {
 		Fresh(context.Context, uuid.UUID) (AccountDBState, bool)
 	}).Fresh(context.Background(), uid); st.NeedsReauth {
 		t.Fatal("Fresh served a stale flag")
+	}
+}
+
+// A pod that cannot converge says so: after a SyncAll that could not load the new session
+// the account still disagrees with the database, and the reconcile report counts it by
+// field. When the fault clears, the next round reports zero.
+func TestSyncAllReportsWhatItCouldNotReconcile(t *testing.T) {
+	uid := uuid.New()
+	shared := &fakeShared{}
+	shared.signIn(sessionOf("old", time.Now().Add(-time.Hour)))
+	reg, syn, _ := podB(shared, uid)
+	syn.minGap = time.Hour
+	reg.For(uid)
+	var got []Reconcile
+	syn.OnReconcile(func(r Reconcile) { got = append(got, r) })
+
+	syn.SyncAll(context.Background(), reg.Loaded())
+	if len(got) != 1 || got[0] != (Reconcile{Accounts: 1}) {
+		t.Fatalf("in sync: %+v, want one clean report", got)
+	}
+
+	// Another pod signs in and flags; this pod's copy cannot be updated (the session load fails).
+	shared.signIn(sessionOf("new", time.Now()))
+	shared.mu.Lock()
+	shared.sessErr = errors.New("kms unavailable")
+	shared.mu.Unlock()
+	syn.SyncAll(context.Background(), reg.Loaded())
+	if got[1].SessionMismatch != 1 || got[1].FlagMismatch != 0 {
+		t.Fatalf("session could not be loaded: %+v, want one session mismatch", got[1])
+	}
+	// Holding the old session, this pod must not claim the new session's version: a stale
+	// rejection of the old one has to stay recognisable as stale (A3).
+	shared.mu.Lock()
+	newVersion := shared.version
+	shared.mu.Unlock()
+	if v := reg.For(uid).(*LiveClient).SessionVersion(); v.Equal(newVersion) {
+		t.Fatal("the pod took the new session's version without holding the new session")
+	}
+	shared.flag("session expired")
+	syn.SyncAll(context.Background(), reg.Loaded())
+	if got[2].SessionMismatch != 1 {
+		t.Fatalf("still failing: %+v", got[2])
+	}
+	if got[2].FlagMismatch != 0 {
+		t.Fatalf("the flag is applied even while the session cannot load, got %+v", got[2])
+	}
+
+	shared.mu.Lock()
+	shared.sessErr = nil
+	shared.mu.Unlock()
+	syn.SyncAll(context.Background(), reg.Loaded())
+	if got[3].SessionMismatch != 0 || got[3].FlagMismatch != 0 {
+		t.Fatalf("after the fault cleared: %+v, want 0/0", got[3])
+	}
+	if v := reg.For(uid).(*LiveClient).SessionVersion(); !v.Equal(newVersion) {
+		t.Fatalf("after the new session was loaded the pod knows it by %v, want %v", v, newVersion)
+	}
+
+	// And a database that cannot be read at all is its own signal.
+	shared.mu.Lock()
+	shared.err = errors.New("connection refused")
+	shared.mu.Unlock()
+	syn.SyncAll(context.Background(), reg.Loaded())
+	if !got[4].ReadFailed {
+		t.Fatalf("unreadable database: %+v, want ReadFailed", got[4])
 	}
 }

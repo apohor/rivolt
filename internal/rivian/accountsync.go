@@ -39,6 +39,25 @@ type AccountSyncer struct {
 	onChange func(uuid.UUID, SyncChange)
 	// forget evicts an account from the registry (set by AttachSyncer).
 	forget func(uuid.UUID)
+	// onReconcile, when set, gets what each SyncAll found left over after correcting.
+	onReconcile func(Reconcile)
+}
+
+// Reconcile is what a SyncAll round found: how many loaded accounts still disagreed with
+// the database after the round tried to correct them (by field), and whether the database
+// could not be read at all. Sustained non-zero values mean the sync is not converging.
+type Reconcile struct {
+	Accounts        int
+	SessionMismatch int
+	FlagMismatch    int
+	ReadFailed      bool
+}
+
+// OnReconcile installs the callback for Reconcile results (one per SyncAll).
+func (s *AccountSyncer) OnReconcile(fn func(Reconcile)) {
+	s.mu.Lock()
+	s.onReconcile = fn
+	s.mu.Unlock()
 }
 
 // AccountDBState is what the database says about one user's Rivian account.
@@ -186,6 +205,7 @@ func (s *AccountSyncer) SyncAll(ctx context.Context, uids []uuid.UUID) {
 	states, err := s.src.States(ctx, uids)
 	if err != nil {
 		s.log.Warn("rivian account sync: read states", "users", len(uids), "err", err.Error())
+		s.reconciled(Reconcile{Accounts: len(uids), ReadFailed: true})
 		return
 	}
 	for _, uid := range uids {
@@ -201,6 +221,51 @@ func (s *AccountSyncer) SyncAll(ctx context.Context, uids []uuid.UUID) {
 		}
 		s.finish(uid, s.apply(ctx, uid, states))
 	}
+	s.reconciled(s.residual(uids, states))
+}
+
+func (s *AccountSyncer) reconciled(r Reconcile) {
+	s.mu.Lock()
+	fn := s.onReconcile
+	s.mu.Unlock()
+	if fn != nil {
+		fn(r)
+	}
+}
+
+// residual counts the loaded accounts that still disagree with the states just read: the
+// flag differs, or the session is signed in against nothing stored (or the other way
+// round), or this pod knows the session by another version. A sign-in made on this pod
+// moments ago is not a disagreement yet (see loginGrace).
+func (s *AccountSyncer) residual(uids []uuid.UUID, states map[uuid.UUID]AccountDBState) Reconcile {
+	r := Reconcile{Accounts: len(uids)}
+	now := s.now()
+	for _, uid := range uids {
+		st, ok := states[uid]
+		a := s.get(uid)
+		if !ok || a == nil {
+			continue
+		}
+		if cur, _ := a.NeedsReauth(); cur != st.NeedsReauth {
+			r.FlagMismatch++
+		}
+		local := a.Snapshot()
+		if now.Sub(local.AuthenticatedAt) < loginGrace {
+			continue
+		}
+		stored := !st.SessionVersion.IsZero()
+		switch {
+		case stored != a.Authenticated():
+			r.SessionMismatch++
+		case stored:
+			if vs, ok := a.(interface{ SessionVersion() time.Time }); ok {
+				if v := vs.SessionVersion(); !v.Equal(st.SessionVersion) {
+					r.SessionMismatch++
+				}
+			}
+		}
+	}
+	return r
 }
 
 // Run calls SyncAll(loaded()) every interval until ctx ends.
@@ -277,48 +342,65 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 	s.mu.Unlock()
 
 	change := SyncChange(0)
+	retry := false // the session could not be reconciled this round: try again next round
 	if versionChanged {
 		local := a.Snapshot()
+		inSync := false // this pod's session is the stored one (so it may know it by that version)
 		if st.SessionVersion.IsZero() {
 			// Nothing stored. A sign-in finished a moment ago on this pod may not be stored
 			// yet; otherwise another pod signed out and this one must follow.
 			if a.Authenticated() {
 				if s.signedInHere(e, local) {
-					return false
+					retry = true
+				} else {
+					a.Logout()
+					change = SyncLoggedOut
 				}
-				a.Logout()
-				change = SyncLoggedOut
 			}
+		} else if sess, err := s.src.Session(ctx, uid); err != nil {
+			s.log.Warn("rivian account sync: load session", "user_id", uid.String(), "err", err.Error())
+			retry = true
 		} else {
-			sess, err := s.src.Session(ctx, uid)
-			if err != nil {
-				s.log.Warn("rivian account sync: load session", "user_id", uid.String(), "err", err.Error())
-				return false
-			}
 			switch {
 			case sess.UserSessionToken == "":
 				if a.Authenticated() && !s.signedInHere(e, local) {
 					a.Logout()
 					change = SyncLoggedOut
 				}
-			case sess.UserSessionToken != local.UserSessionToken && !local.AuthenticatedAt.After(sess.AuthenticatedAt):
+			case sess.UserSessionToken == local.UserSessionToken:
+				inSync = true
+			case !local.AuthenticatedAt.After(sess.AuthenticatedAt):
 				a.Restore(sess)
 				s.mu.Lock()
 				e.restored = sess.UserSessionToken
 				s.mu.Unlock()
 				change = SyncSessionReplaced
+				inSync = true
 			}
 		}
-		s.mu.Lock()
-		e.applied, e.version = true, st.SessionVersion
-		s.mu.Unlock()
+		if !retry {
+			s.mu.Lock()
+			e.applied, e.version = true, st.SessionVersion
+			s.mu.Unlock()
+		}
+		// This pod knows its session by the stored version only when it holds that session:
+		// a stale 401 of an older one must still be recognised as stale (A3).
+		if vs, ok := a.(sessionVersioner); ok && inSync {
+			vs.SetSessionVersion(st.SessionVersion)
+		}
 	}
 
-	// This pod now knows its session by the stored version, unless it holds a newer one it
-	// has not stored yet.
-	if vs, ok := a.(sessionVersioner); ok && !st.SessionVersion.IsZero() {
-		if local := a.Snapshot(); local.UserSessionToken != "" && !local.AuthenticatedAt.After(st.SessionVersion) {
-			vs.SetSessionVersion(st.SessionVersion)
+	// A client that lost or never recorded its version (a sign-in made on this pod, stored
+	// since) learns it once the stored session is the one it holds: the round that found the
+	// version changed has already reconciled the tokens.
+	if !versionChanged && !st.SessionVersion.IsZero() {
+		if vs, ok := a.(interface {
+			sessionVersioner
+			SessionVersion() time.Time
+		}); ok && vs.SessionVersion().IsZero() {
+			if local := a.Snapshot(); local.UserSessionToken != "" && !local.AuthenticatedAt.After(st.SessionVersion) {
+				vs.SetSessionVersion(st.SessionVersion)
+			}
 		}
 	}
 
@@ -341,7 +423,7 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 			fn(uid, change)
 		}
 	}
-	return true
+	return !retry
 }
 
 // signedInHere reports whether the account's session was made on this pod moments ago
