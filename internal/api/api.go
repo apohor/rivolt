@@ -637,6 +637,9 @@ func New(d Deps) http.Handler {
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
 		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr))
+		// The charging-networks comparison page's data: public reference data (plans as each
+		// network states them, typical observed prices with their label and month).
+		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
 		// Release notes for the /changelog page. The admin and demo-only
 		// gates 404 it there, like every non-allowlisted /api path.
 		if d.Changelog != nil {
