@@ -43,7 +43,18 @@ type Entry struct {
 	NeedsReauth bool
 	// OptedOut: the user stopped these reminders (Settings, or the link in the email).
 	OptedOut bool
-	Session  rivian.Session
+	// SignedIn is when the stored Rivian session was made (users.rivian_signed_in_at); zero when
+	// unknown. The sweep never opens the session itself.
+	SignedIn time.Time
+}
+
+// ExpiresAt is when the session is expected to stop working: the sign-in plus lifetime; zero when the
+// sign-in time is unknown.
+func (e Entry) ExpiresAt(lifetime time.Duration) time.Time {
+	if e.SignedIn.IsZero() {
+		return time.Time{}
+	}
+	return e.SignedIn.Add(lifetime)
 }
 
 // Sessions lists every stored Rivian session.
@@ -124,7 +135,7 @@ func (j *Job) Sweep(ctx context.Context) {
 		if e.NeedsReauth || (j.Skip != nil && j.Skip(e.User)) {
 			continue
 		}
-		exp := e.Session.ExpiresAt(j.lifetime())
+		exp := e.ExpiresAt(j.lifetime())
 		if exp.IsZero() {
 			continue
 		}
@@ -179,7 +190,7 @@ func (j *Job) send(ctx context.Context, e Entry, days int, expires time.Time, no
 		j.notice(days, "no_email") // nothing is claimed: an address added later still gets it
 		return
 	}
-	key := fmt.Sprintf("%d:%d", e.Session.AuthenticatedAt.Unix(), days)
+	key := fmt.Sprintf("%d:%d", e.SignedIn.Unix(), days)
 	msg := engage.Msg{User: e.User, Kind: Kind, Key: key, Channel: engage.Email, Utility: true}
 	claimed, _, err := j.Claims.Claim(ctx, msg, now, now.Add(-engage.BudgetWindow), engage.MonthlyBudget)
 	if err != nil {

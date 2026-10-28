@@ -90,6 +90,65 @@ func (s *Store) Put(ctx context.Context, userID uuid.UUID, name string, plaintex
 	return nil
 }
 
+// PutTx is Put plus fn, run in the same transaction after the row is written: if fn fails
+// nothing is written.
+func (s *Store) PutTx(ctx context.Context, userID uuid.UUID, name string, plaintext []byte, fn func(ctx context.Context, tx *sql.Tx) error) error {
+	if userID == uuid.Nil {
+		return errors.New("secrets: nil userID")
+	}
+	if name == "" {
+		return errors.New("secrets: empty name")
+	}
+	blob, err := s.sealer.Seal(ctx, userID, plaintext)
+	if err != nil {
+		return fmt.Errorf("secrets: seal: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("secrets: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, name) DO UPDATE
+		SET ciphertext = EXCLUDED.ciphertext,
+		    kek_id     = EXCLUDED.kek_id,
+		    updated_at = EXCLUDED.updated_at`,
+		userID, name, blob, s.sealer.KEKID(), time.Now().UTC()); err != nil {
+		return fmt.Errorf("secrets: insert: %w", err)
+	}
+	if fn != nil {
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteTx is Delete plus fn, run in the same transaction.
+func (s *Store) DeleteTx(ctx context.Context, userID uuid.UUID, name string, fn func(ctx context.Context, tx *sql.Tx) error) error {
+	if userID == uuid.Nil {
+		return errors.New("secrets: nil userID")
+	}
+	if name == "" {
+		return errors.New("secrets: empty name")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("secrets: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_secrets WHERE user_id = $1 AND name = $2`, userID, name); err != nil {
+		return fmt.Errorf("secrets: delete: %w", err)
+	}
+	if fn != nil {
+		if err := fn(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Get reads + decrypts (userID, name). Returns ErrNotFound when
 // the row doesn't exist; any other error is either a DB failure
 // or crypto.ErrSealedBlob (from the sealer, wrapped).

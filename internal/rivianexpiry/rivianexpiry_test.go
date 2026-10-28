@@ -67,13 +67,13 @@ func (m *fakeMail) Send(_ context.Context, msg email.Message) error {
 	return nil
 }
 
-// session signed in so that exactly `left` remains of the 180 days at t0.
-func session(left time.Duration) rivian.Session {
-	return rivian.Session{UserSessionToken: "t", AuthenticatedAt: t0.Add(left - rivian.SessionLifetime)}
+// signedIn is the sign-in time such that exactly `left` remains of the 180 days at t0.
+func signedIn(left time.Duration) time.Time {
+	return t0.Add(left - rivian.SessionLifetime)
 }
 
 func entry(left time.Duration) Entry {
-	return Entry{User: uuid.New(), Session: session(left)}
+	return Entry{User: uuid.New(), SignedIn: signedIn(left)}
 }
 
 func job(sessions []Entry, mail *fakeMail, claims *fakeClaims) (*Job, *Counts, map[string]int) {
@@ -204,7 +204,7 @@ func TestEachNoticeGoesOutOnceAcrossSweepsAndReplicas(t *testing.T) {
 	}
 	// Later, with under a day left, the final notice is a different key.
 	later := e
-	later.Session.AuthenticatedAt = later.Session.AuthenticatedAt.Add(-4*day - 12*time.Hour) // 12 h left
+	later.SignedIn = later.SignedIn.Add(-4*day - 12*time.Hour) // 12 h left
 	c, _, _ := job([]Entry{later}, mail, claims)
 	c.Sweep(context.Background())
 	if len(mail.sent) != 2 {
@@ -219,13 +219,13 @@ func TestANewSignInStartsOver(t *testing.T) {
 	j.Sweep(context.Background())
 	// The user signs in again: 180 days left, nothing sent, and when that session nears its
 	// end a new notice is due.
-	e.Session.AuthenticatedAt = t0
+	e.SignedIn = t0
 	j2, counts, _ := job([]Entry{e}, mail, claims)
 	j2.Sweep(context.Background())
 	if len(mail.sent) != 1 || counts.Within14 != 0 {
 		t.Fatalf("a fresh session must not be warned about: sent=%d counts=%+v", len(mail.sent), *counts)
 	}
-	e.Session.AuthenticatedAt = t0.Add(-176 * day) // the new session, 4 days from its end
+	e.SignedIn = t0.Add(-176 * day) // the new session, 4 days from its end
 	j3, _, _ := job([]Entry{e}, mail, claims)
 	j3.Sweep(context.Background())
 	if len(mail.sent) != 2 {
@@ -238,7 +238,7 @@ func TestSkipsFlaggedDemoAndSessionsWithoutASignInTime(t *testing.T) {
 	flagged.NeedsReauth = true
 	demoUser := entry(3 * day)
 	noTime := entry(3 * day)
-	noTime.Session.AuthenticatedAt = time.Time{}
+	noTime.SignedIn = time.Time{}
 	mail, claims := &fakeMail{}, &fakeClaims{}
 	j, counts, _ := job([]Entry{flagged, demoUser, noTime}, mail, claims)
 	j.Skip = func(uid uuid.UUID) bool { return uid == demoUser.User }

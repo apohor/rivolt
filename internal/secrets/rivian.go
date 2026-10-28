@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,13 +70,34 @@ func SaveRivianSession(ctx context.Context, s *Store, userID uuid.UUID, sess riv
 		return nil
 	}
 	if sess.UserSessionToken == "" {
-		return s.Delete(ctx, userID, rivianSessionName)
+		return s.DeleteTx(ctx, userID, rivianSessionName, func(ctx context.Context, tx *sql.Tx) error {
+			return setSignedIn(ctx, tx, userID, time.Time{})
+		})
 	}
 	buf, err := json.Marshal(sess)
 	if err != nil {
 		return fmt.Errorf("marshal rivian session: %w", err)
 	}
-	return s.Put(ctx, userID, rivianSessionName, buf)
+	return s.PutTx(ctx, userID, rivianSessionName, buf, func(ctx context.Context, tx *sql.Tx) error {
+		return setSignedIn(ctx, tx, userID, sess.AuthenticatedAt)
+	})
+}
+
+// RivianSignedInUnknown is what users.rivian_signed_in_at holds for a stored session that has
+// no sign-in time (1970-01-01): recorded, so the expiry sweep does not open it again.
+var RivianSignedInUnknown = time.Unix(0, 0).UTC()
+
+// setSignedIn records the sign-in time beside the session, in the session's transaction. A zero
+// time clears it (sign-out, or a session with no time: the expiry sweep fills the column once).
+func setSignedIn(ctx context.Context, tx *sql.Tx, userID uuid.UUID, at time.Time) error {
+	var v any
+	if !at.IsZero() {
+		v = at.UTC()
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET rivian_signed_in_at = $2 WHERE id = $1`, userID, v); err != nil {
+		return fmt.Errorf("record rivian sign-in time: %w", err)
+	}
+	return nil
 }
 
 // SavePendingMFA persists an in-flight OTP challenge so a peer pod can

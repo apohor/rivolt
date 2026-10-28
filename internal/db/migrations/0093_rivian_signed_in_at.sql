@@ -1,0 +1,12 @@
+-- 0093_rivian_signed_in_at.sql — the Rivian sign-in time as plain metadata (M4 precondition
+-- of the single-owner design).
+--
+--   rivian_signed_in_at  when the stored Rivian session was made (rivian.Session.AuthenticatedAt).
+--                        Written in the same transaction as the session at sign-in and cleared
+--                        at sign-out. NULL = not recorded yet: the expiry sweep fills it once
+--                        from the sealed session (1970-01-01 marks "the session has no sign-in
+--                        time"), after which the sweep reads only this column and never opens a
+--                        session. The time is not a secret.
+--
+-- Metadata-only ADD COLUMN, no rewrite.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rivian_signed_in_at TIMESTAMPTZ;

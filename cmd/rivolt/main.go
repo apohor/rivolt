@@ -1617,7 +1617,7 @@ func runServer() {
 	rivianExpiryEmails := false
 	if pgPool != nil && secretsStore != nil && !adminOnlyMode {
 		expiry := &rivianexpiry.Job{
-			Sessions: secrets.NewRivianSessionLister(pgPool, secretsStore).WithLog(logger),
+			Sessions: secrets.NewRivianSessionLister(pgPool, secretsStore).WithLog(logger).WithScrub(),
 			Claims:   engage.NewStore(pgPool),
 			Email:    func(c context.Context, uid uuid.UUID) (string, error) { return db.LookupUserEmail(c, pgPool, uid) },
 			BaseURL:  os.Getenv("RIVOLT_BASE_URL"),
