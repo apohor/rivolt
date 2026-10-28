@@ -72,3 +72,30 @@ func allURLs(s string) []string {
 	}
 	return out
 }
+
+// The welcome carries one plain iPhone-app line when the install has the link, and nothing
+// else changes; the setup reminders never carry it.
+func TestWelcomeIOSAppLine(t *testing.T) {
+	const link = "https://apps.apple.com/us/app/rivolt/id1234567890"
+	without := Welcome(testLinks)
+	if strings.Contains(without.Text, "iPhone") {
+		t.Errorf("no link configured, yet the welcome mentions the app:\n%s", without.Text)
+	}
+	l := testLinks
+	l.IOSApp = link
+	with := Welcome(l)
+	if !strings.Contains(with.Text, "Rivolt is also an iPhone app: "+link+"\n") {
+		t.Errorf("missing the app line:\n%s", with.Text)
+	}
+	if strings.Count(with.Text, "http") != strings.Count(without.Text, "http")+1 {
+		t.Errorf("the line should add exactly one link")
+	}
+	if strings.Contains(with.Text, "?") && strings.Contains(strings.SplitN(with.Text, "iPhone app: ", 2)[1], "utm") {
+		t.Error("tracking parameter in the app link")
+	}
+	for _, n := range []Content{Nudge("no_vehicle", 1, l), Nudge("no_data", 2, l)} {
+		if strings.Contains(n.Text, "iPhone") {
+			t.Errorf("a setup reminder carries the app line:\n%s", n.Text)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/ledger"
 )
 
@@ -204,7 +205,7 @@ func (j *Job) Build(c Candidate, period string, cur ledger.Monthly, prev *ledger
 func (j *Job) BuildWith(c Candidate, period string, cur ledger.Monthly, prev *ledger.Monthly, sv *ledger.Savings) (email.Message, bool) {
 	r := Render(Input{
 		Period: period, FirstName: firstName(c.FirstName), Currency: cur.Currency,
-		Month: cur, Prev: prev, Links: j.links(c.UserID, period), Savings: sv,
+		Month: cur, Prev: prev, Links: j.linksFor(c, period), Savings: sv,
 	})
 	if r.Silent {
 		return email.Message{}, false
@@ -227,6 +228,15 @@ func (j *Job) base() string { return strings.TrimRight(j.BaseURL, "/") }
 func (j *Job) unsubURL(uid uuid.UUID, period string) string {
 	tok := j.Signer.Sign(uid, period, j.now().Add(TokenTTL))
 	return j.base() + "/api/statement-email/unsubscribe?t=" + tok
+}
+
+// linksFor adds the iPhone app link, unless the account already signs in on the app.
+func (j *Job) linksFor(c Candidate, period string) Links {
+	l := j.links(c.UserID, period)
+	if !c.HasApp {
+		l.IOSApp = iosapp.URL()
+	}
+	return l
 }
 
 func (j *Job) links(uid uuid.UUID, period string) Links {

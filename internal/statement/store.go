@@ -33,6 +33,8 @@ type Candidate struct {
 	Timezone  string
 	Email     string
 	FirstName string
+	// HasApp: the account has a live iPhone-app session, so the app link is left out.
+	HasApp bool
 }
 
 // Store is the persistence the job and the API need. The Postgres
@@ -108,7 +110,8 @@ func (s *pgStore) Email(ctx context.Context, uid uuid.UUID) (string, error) {
 
 func (s *pgStore) OptedIn(ctx context.Context) ([]Candidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT p.user_id, p.timezone, u.email, COALESCE(u.display_name, '')
+		SELECT p.user_id, p.timezone, u.email, COALESCE(u.display_name, ''),
+		       EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.kind = 'app' AND s.revoked_at IS NULL AND s.expires_at > now())
 		  FROM statement_email_prefs p
 		  JOIN users u ON u.id = p.user_id
 		 WHERE p.enabled AND COALESCE(u.email, '') <> '' AND u.email_verified AND NOT u.email_undeliverable AND COALESCE(u.disabled, FALSE) = FALSE
@@ -120,7 +123,7 @@ func (s *pgStore) OptedIn(ctx context.Context) ([]Candidate, error) {
 	var out []Candidate
 	for rows.Next() {
 		var c Candidate
-		if err := rows.Scan(&c.UserID, &c.Timezone, &c.Email, &c.FirstName); err != nil {
+		if err := rows.Scan(&c.UserID, &c.Timezone, &c.Email, &c.FirstName, &c.HasApp); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

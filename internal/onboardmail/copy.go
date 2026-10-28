@@ -1,11 +1,17 @@
 package onboardmail
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/apohor/rivolt/internal/iosapp"
+)
 
 // Links are the URLs an email may carry. App and Demo are empty when the
 // install has no base URL configured.
 type Links struct {
 	App, Demo, Unsubscribe string
+	// IOSApp is the iPhone app link (RIVOLT_IOS_APP_URL); empty to leave the line out.
+	IOSApp string
 }
 
 // Content is one email to send.
@@ -39,6 +45,9 @@ func Welcome(l Links) Content {
 		"  " + linkOrName(l) + "\n\n" + connectParagraph + "\n"
 	if l.Demo != "" {
 		text += "\nWant to look around first? There is a demo with a sample truck: " + l.Demo + "\n"
+	}
+	if l.IOSApp != "" {
+		text += "\n" + iosapp.Line + l.IOSApp + "\n"
 	}
 	text += footer(l)
 	return Content{Subject: "Welcome to Rivolt", Text: text, Key: "welcome", Attempt: 0, UnsubscribeURL: l.Unsubscribe}

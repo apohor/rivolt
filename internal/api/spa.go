@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/apohor/rivolt/internal/iosapp"
 )
 
 // spaHandler serves static assets from fsys; for non-asset paths (no dot in last
@@ -80,6 +82,18 @@ func spaHandler(fsys fs.FS) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/app":
+			// A short link for the share card and the emails, so the store link can change
+			// without a release. 404 until RIVOLT_IOS_APP_URL is set; the target is always an
+			// Apple host (iosapp.Clean), never a request value.
+			link := iosapp.URL()
+			if link == "" || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, link, http.StatusFound)
+			return
 		case "/robots.txt":
 			// Short, explicit TTL: Cloudflare otherwise caches .txt at the
 			// edge for hours, so a host-rule change would linger.

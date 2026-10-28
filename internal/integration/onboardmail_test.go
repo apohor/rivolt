@@ -258,3 +258,80 @@ func TestOnboardingEmailsSkipUndeliverableAddress(t *testing.T) {
 		t.Fatal("the welcome should be due again once the flag is cleared")
 	}
 }
+
+// The welcome and the statement leave the iPhone-app line out for an account with a live app
+// session (and keep it for one with only a browser session, a revoked or an expired app session).
+func TestAppLinkIsSkippedForAccountsOnTheApp(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	mk := func(name string) uuid.UUID {
+		t.Helper()
+		uid, err := db.EnsureUserVerified(ctx, pool, name, name+"@x.test", name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '5 hours', welcome_sent_at = NULL WHERE id = $1`, uid); err != nil {
+			t.Fatal(err)
+		}
+		return uid
+	}
+	session := func(uid uuid.UUID, kind, extra string) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, `INSERT INTO sessions (id, user_id, token_hash, expires_at, kind)
+			VALUES (gen_random_uuid(), $1, gen_random_bytes(32), `+extra+`, $2)`, uid, kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	onApp := mk("app-live")
+	webOnly := mk("app-web")
+	revoked := mk("app-revoked")
+	expired := mk("app-expired")
+	session(onApp, "app", `now() + interval '30 days'`)
+	session(webOnly, "web", `now() + interval '30 days'`)
+	session(revoked, "app", `now() + interval '30 days'`)
+	session(expired, "app", `now() - interval '1 day'`)
+	if _, err := pool.ExecContext(ctx, `UPDATE sessions SET revoked_at = now() WHERE user_id = $1`, revoked); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := db.ListUsersDueForWelcome(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]bool{}
+	for _, w := range ws {
+		got[w.UserID] = w.HasApp
+	}
+	want := map[uuid.UUID]bool{onApp: true, webOnly: false, revoked: false, expired: false}
+	for u, has := range want {
+		if g, ok := got[u]; !ok || g != has {
+			t.Errorf("welcome HasApp for %v = %v (listed %v), want %v", u, g, ok, has)
+		}
+	}
+	st := statement.NewStore(pool)
+	for u := range want {
+		if err := st.SetPrefs(ctx, u, statement.Prefs{Enabled: true, Timezone: "UTC"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cs, err := st.OptedIn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, c := range cs {
+		if has, ok := want[c.UserID]; ok {
+			seen++
+			if c.HasApp != has {
+				t.Errorf("statement HasApp for %v = %v, want %v", c.UserID, c.HasApp, has)
+			}
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("saw %d of %d statement candidates", seen, len(want))
+	}
+}

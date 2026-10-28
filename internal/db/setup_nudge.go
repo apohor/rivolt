@@ -37,6 +37,8 @@ type SetupNudge struct {
 type Welcome struct {
 	UserID uuid.UUID
 	Email  string
+	// HasApp: the account has a live iPhone-app session, so the welcome leaves the app link out.
+	HasApp bool
 }
 
 // emailable is the common eligibility for every welcome/setup email: a
@@ -63,7 +65,9 @@ const dueBatch = 100
 // who connected within the delay skips it). Candidate list only; the caller
 // must ClaimWelcome each one.
 func ListUsersDueForWelcome(ctx context.Context, d *sql.DB) ([]Welcome, error) {
-	q := `SELECT u.id, u.email FROM users u
+	q := `SELECT u.id, u.email,
+		       EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.kind = 'app' AND s.revoked_at IS NULL AND s.expires_at > now())
+		FROM users u
 		WHERE u.welcome_sent_at IS NULL
 		  AND ` + emailable + `
 		  AND u.created_at <= now() - $1::interval
@@ -78,7 +82,7 @@ func ListUsersDueForWelcome(ctx context.Context, d *sql.DB) ([]Welcome, error) {
 	var out []Welcome
 	for rows.Next() {
 		var w Welcome
-		if err := rows.Scan(&w.UserID, &w.Email); err != nil {
+		if err := rows.Scan(&w.UserID, &w.Email, &w.HasApp); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

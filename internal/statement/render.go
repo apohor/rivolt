@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/ledger"
 )
 
@@ -25,6 +26,8 @@ type Links struct {
 	// Unsubscribe is the signed one-click link (GET shows a page,
 	// POST performs it).
 	Unsubscribe string
+	// IOSApp is the iPhone app link (RIVOLT_IOS_APP_URL); empty leaves the line out.
+	IOSApp string
 }
 
 // Input is everything the template needs.
@@ -314,6 +317,9 @@ func Render(in Input) Rendered {
 	if in.Links.Share != "" {
 		fmt.Fprintf(&t, "Share it: %s\n", in.Links.Share)
 	}
+	if in.Links.IOSApp != "" {
+		fmt.Fprintf(&t, "\n%s%s\n", iosapp.Line, in.Links.IOSApp)
+	}
 	fmt.Fprintf(&t, "\n%s\nChange or stop it: %s   Unsubscribe: %s\n%s\n", foot, in.Links.Settings, in.Links.Unsubscribe, indep)
 
 	// ---- html (single column, system fonts, no images, no remote content)
@@ -359,6 +365,9 @@ func Render(in Input) Rendered {
 	fmt.Fprintf(&h, `<p style="margin:20px 0 4px"><a href="%s">See the full statement</a>`, e(in.Links.Statement))
 	if in.Links.Share != "" {
 		fmt.Fprintf(&h, ` · <a href="%s">Share it</a>`, e(in.Links.Share))
+	}
+	if in.Links.IOSApp != "" {
+		fmt.Fprintf(&h, `</p><p style="margin:12px 0 0;color:#555">%s<a href="%s">%s</a>`, e(strings.TrimSpace(iosapp.Line)+" "), e(in.Links.IOSApp), e(in.Links.IOSApp))
 	}
 	fmt.Fprintf(&h, `</p><hr style="border:0;border-top:1px solid #ddd;margin:20px 0"><p style="margin:0 0 6px;color:#666;font-size:13px">%s</p><p style="margin:0 0 6px;color:#666;font-size:13px"><a href="%s">Change or stop it</a> · <a href="%s">Unsubscribe</a></p><p style="margin:0;color:#666;font-size:13px">%s</p></div></body></html>`,
 		e(foot), e(in.Links.Settings), e(in.Links.Unsubscribe), e(indep))
