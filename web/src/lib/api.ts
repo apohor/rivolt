@@ -837,6 +837,10 @@ export type RivianStatus = {
   email?: string;
   needs_reauth?: boolean;
   needs_reauth_reason?: string;
+  // Present only while signed in and not needs_reauth: when Rivian ends this sign-in (180 days after it; nothing extends it) and the
+  // whole days left (rounded up, 0 when past).
+  session_expires_at?: string;
+  session_days_left?: number;
   // The operator paused Rivolt's connection to Rivian (kill switch).
   // paused_reason is a fixed code only ("operator_pause").
   paused?: boolean;

@@ -10,11 +10,27 @@ import { backend } from "../lib/api";
 
 export type Degraded = { tone: "rose" | "amber"; text: string; to?: string; cta?: string };
 
+// Rivian ends a sign-in 180 days after it and nothing extends it, so the banner starts two weeks ahead: amber from 14 days, rose
+// from 7 (the server also emails at 7 and 1). Signing in again is the renewal.
+export const EXPIRY_WARN_DAYS = 14;
+export const EXPIRY_URGENT_DAYS = 7;
+
+export function expiryBanner(daysLeft: number | undefined): Degraded | null {
+  if (typeof daysLeft !== "number" || !Number.isFinite(daysLeft) || daysLeft > EXPIRY_WARN_DAYS) return null;
+  const when = daysLeft <= 0 ? "ends today" : daysLeft === 1 ? "ends in 1 day" : `ends in ${Math.floor(daysLeft)} days`;
+  return {
+    tone: daysLeft <= EXPIRY_URGENT_DAYS ? "rose" : "amber",
+    text: `Your Rivian sign-in ${when}. Sign in again in Settings, Rivian account, to keep recording.`,
+    to: "/settings?tab=account",
+    cta: "Sign in again",
+  };
+}
+
 export function degradedState(
   health: { ok?: boolean } | undefined,
   healthError: boolean,
   rivian:
-    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean }
+    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean; session_days_left?: number }
     | undefined,
 ): Degraded | null {
   if (healthError) {
@@ -39,7 +55,7 @@ export function degradedState(
   if (!rivian.authenticated) {
     return { tone: "amber", text: "Rivian isn't connected.", to: "/settings?tab=account", cta: "Connect" };
   }
-  return null;
+  return expiryBanner(rivian.session_days_left);
 }
 
 export default function DegradedBanner() {
