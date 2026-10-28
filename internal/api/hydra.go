@@ -422,13 +422,14 @@ func newFailLimiter(max int, window time.Duration) *failLimiter {
 }
 
 // withRedis counts this limiter's failures across replicas in rdb too, under name (which
-// keeps limiters with different keys apart) and the install's key prefix. A nil rdb leaves
-// the limiter per-pod. onFallback counts calls Redis could not serve.
-func (l *failLimiter) withRedis(rdb *redis.Client, prefix, name string, onFallback func()) *failLimiter {
-	if rdb == nil {
+// keeps limiters with different keys apart) and the install's key prefix; key names are an
+// HMAC keyed with hmacKey (FailLimiterKey). A nil rdb, or no key, leaves the limiter per-pod
+// (no key would mean writing guessable names). onFallback counts calls Redis could not serve.
+func (l *failLimiter) withRedis(rdb *redis.Client, prefix, name string, hmacKey []byte, onFallback func()) *failLimiter {
+	if rdb == nil || len(hmacKey) == 0 {
 		return l
 	}
-	l.shared = &sharedFails{rdb: rdb, prefix: prefix, name: name, max: l.max, window: l.window, now: l.now, onFallback: onFallback}
+	l.shared = &sharedFails{rdb: rdb, prefix: prefix, name: name, key: hmacKey, max: l.max, window: l.window, now: l.now, onFallback: onFallback}
 	return l
 }
 
