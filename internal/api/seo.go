@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/dcfcrates"
+	"github.com/apohor/rivolt/internal/iosapp"
 )
 
 // Public-page metadata for crawlers and link unfurlers. The app is a
@@ -380,6 +381,11 @@ func injectSEO(shell []byte, host string, page seoPage, canon string) []byte {
 		if el := chargingCostPrice(host, seoNow()); el != "" {
 			extra += "    " + el + "\n"
 		}
+	}
+	// Smart App Banner: only for an App Store link with an app id (the server must emit it;
+	// a tag added by script is unreliable on Safari). TestFlight links get none.
+	if id := iosapp.AppStoreID(iosapp.URL()); id != "" {
+		extra += `    <meta name="apple-itunes-app" content="app-id=` + e(id) + `" />` + "\n"
 	}
 	rep(reHeadClose, `<link rel="canonical" href="`+e(url)+`" />`+"\n"+
 		`    <meta property="og:url" content="`+e(url)+`" />`+"\n"+extra+"  </head>")

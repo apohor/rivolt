@@ -617,3 +617,22 @@ func TestRender_ObservedEstimateIsLabelledEstimated(t *testing.T) {
 		t.Errorf("observed estimate not labelled estimated:\n%s", r.Text)
 	}
 }
+
+// The statement carries one plain iPhone-app line, in the text and the HTML, only when the link
+// is given.
+func TestRender_IOSAppLine(t *testing.T) {
+	const link = "https://testflight.apple.com/join/AbCdEf12"
+	in := baseInput()
+	r := Render(in)
+	if strings.Contains(r.Text, "iPhone") || strings.Contains(r.HTML, "iPhone") {
+		t.Fatal("the line is there without a link")
+	}
+	in.Links.IOSApp = link
+	r = Render(in)
+	if !strings.Contains(r.Text, "Rivolt is also an iPhone app: "+link+"\n") {
+		t.Errorf("text:\n%s", r.Text)
+	}
+	if !strings.Contains(r.HTML, `Rivolt is also an iPhone app: <a href="`+link+`">`+link+`</a>`) {
+		t.Errorf("html:\n%s", r.HTML)
+	}
+}

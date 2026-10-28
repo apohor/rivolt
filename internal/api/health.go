@@ -12,6 +12,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 )
@@ -164,6 +165,10 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// AppURL is the real app's origin (RIVOLT_APP_URL), set only on
 		// the standalone demo.
 		AppURL string `json:"app_url,omitempty"`
+		// IOSAppURL is the App Store or TestFlight link of the iPhone app
+		// (RIVOLT_IOS_APP_URL); empty until the app is listed, and every
+		// surface that promotes the app stays hidden while it is.
+		IOSAppURL string `json:"ios_app_url,omitempty"`
 		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
 		// SPA's track() helper sends nothing unless true.
 		EventsEnabled bool `json:"events_enabled"`
@@ -246,12 +251,14 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
+	base.Features.IOSAppURL = iosapp.URL()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	if demo.OnlyEnabled() {
 		// The standalone demo has no accounts, AI, events or landing page;
 		// its planner is the static presets.
 		base.Features.DemoOnly = true
 		base.Features.AppURL = demo.AppURL()
+		base.Features.IOSAppURL = ""
 		base.Features.SignupEnabled = false
 		base.Features.LandingEnabled = false
 		base.Features.EventsEnabled = false

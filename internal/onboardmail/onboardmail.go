@@ -17,6 +17,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/statement"
 )
 
@@ -71,7 +72,7 @@ func (j *Job) Sweep(ctx context.Context) (welcomes, nudges int) {
 		} else if !ok {
 			continue // another replica took it, or the user connected or opted out
 		}
-		if j.send(ctx, log, w.UserID, w.Email, "welcome", Welcome(j.links(w.UserID))) {
+		if j.send(ctx, log, w.UserID, w.Email, "welcome", Welcome(j.welcomeLinks(w))) {
 			welcomes++
 		}
 	}
@@ -98,6 +99,16 @@ func (j *Job) now() time.Time {
 		return j.Now()
 	}
 	return time.Now()
+}
+
+// welcomeLinks adds the iPhone app link to the welcome only, and not for an account that
+// already signs in on the app.
+func (j *Job) welcomeLinks(w db.Welcome) Links {
+	l := j.links(w.UserID)
+	if !w.HasApp {
+		l.IOSApp = iosapp.URL()
+	}
+	return l
 }
 
 func (j *Job) links(uid uuid.UUID) Links {
