@@ -3,7 +3,9 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +100,29 @@ func TestLegacyRivianTokensAreScrubbedWithoutChangingTheVersion(t *testing.T) {
 	got, _ := secrets.LoadRivianSession(ctx, store, uid2)
 	if got.UserSessionToken != "new-login" {
 		t.Fatalf("the newer sign-in was overwritten: %+v", got)
+	}
+
+	// The lister logs one line per pass with counts only: here the second user's session was
+	// replaced by a clean one and the first is already clean, so it scrubbed nothing; a third
+	// legacy session is scrubbed by the pass and counted.
+	uidLegacy, _ := db.EnsureUser(ctx, pool, "scrub-four")
+	if err := store.Put(ctx, uidLegacy, "rivian.session", []byte(legacyBlob)); err != nil {
+		t.Fatal(err)
+	}
+	var logBuf bytes.Buffer
+	lister := secrets.NewRivianSessionLister(pool, store).WithLog(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	if _, err := lister.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if line := logBuf.String(); !strings.Contains(line, "rivian session scrub") || !strings.Contains(line, "scrubbed=1") || strings.Contains(line, "example.invalid") || strings.Contains(line, "legacy-") {
+		t.Fatalf("scrub log line = %q, want counts only: scrubbed=1", line)
+	}
+	logBuf.Reset()
+	if _, err := lister.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logBuf.String(), "scrubbed=0") {
+		t.Fatalf("second pass line = %q, want scrubbed=0", logBuf.String())
 	}
 
 	// A session with nothing legacy in it, and a user with none, are left alone.
