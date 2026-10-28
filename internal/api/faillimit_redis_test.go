@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -9,6 +11,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+var testFailKey = FailLimiterKey([]byte("0123456789abcdef0123456789abcdef"))
 
 type failPods struct {
 	mr       *miniredis.Miniredis
@@ -31,7 +35,7 @@ func newFailPods(t *testing.T, n int) *failPods {
 	for i := 0; i < n; i++ {
 		rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 		t.Cleanup(func() { _ = rdb.Close() })
-		l := newFailLimiter(10, 15*time.Minute).withRedis(rdb, "rivolt", "login", func() { fp.fallback.Add(1) })
+		l := newFailLimiter(10, 15*time.Minute).withRedis(rdb, "rivolt", "login", testFailKey, func() { fp.fallback.Add(1) })
 		l.now = func() time.Time { return *fp.clock }
 		l.shared.now = l.now
 		l.onLockout = func() { fp.lockouts.Add(1) }
@@ -173,7 +177,7 @@ func TestRedisIsRetriedAfterTheBackoff(t *testing.T) {
 
 // Without Redis nothing changes: the limiter is per pod, as before.
 func TestFailLimiterWithoutRedisIsPerPod(t *testing.T) {
-	l := newFailLimiter(3, time.Minute).withRedis(nil, "rivolt", "login", nil)
+	l := newFailLimiter(3, time.Minute).withRedis(nil, "rivolt", "login", testFailKey, nil)
 	if l.shared != nil {
 		t.Fatal("a nil Redis must leave the limiter per pod")
 	}
@@ -182,5 +186,57 @@ func TestFailLimiterWithoutRedisIsPerPod(t *testing.T) {
 	}
 	if l.blocked("k") <= 0 {
 		t.Fatal("not blocked after 3 failures")
+	}
+}
+
+// The key names are keyed: the same address under a different secret has a different name,
+// and the name is not the plain hash of the address, so a list of guessed addresses cannot be
+// tested against a dump of Redis without the secret.
+func TestRedisKeyNamesAreKeyedByTheServerSecret(t *testing.T) {
+	name := func(key []byte, k string) string {
+		s := &sharedFails{prefix: "rivolt", name: "login", key: key}
+		return s.redisKey(k)
+	}
+	k := emailLimitKey("driver@example.invalid")
+	a := name(FailLimiterKey([]byte("secret-one-secret-one-secret-one")), k)
+	if a != name(FailLimiterKey([]byte("secret-one-secret-one-secret-one")), k) {
+		t.Fatal("the name is not stable for one secret")
+	}
+	if a == name(FailLimiterKey([]byte("secret-two-secret-two-secret-two")), k) {
+		t.Fatal("two secrets gave the same name: the key is not used")
+	}
+	plain := sha256.Sum256([]byte("login\x00" + k))
+	if strings.HasSuffix(a, hex.EncodeToString(plain[:16])) {
+		t.Fatal("the name is the unkeyed hash of the address")
+	}
+	if !strings.HasPrefix(a, "rivolt:fail:login:") {
+		t.Fatalf("name %q lacks the prefix", a)
+	}
+	// The key is a subkey, not the secret itself.
+	if string(FailLimiterKey([]byte("secret-one-secret-one-secret-one"))) == "secret-one-secret-one-secret-one" {
+		t.Fatal("the secret was used raw")
+	}
+	if FailLimiterKey(nil) != nil {
+		t.Fatal("an empty secret must give no key")
+	}
+}
+
+// Without a key nothing is written to Redis: the limiter stays per pod rather than write
+// guessable names.
+func TestNoKeyMeansNoRedis(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	l := newFailLimiter(3, time.Minute).withRedis(rdb, "rivolt", "login", nil, nil)
+	if l.shared != nil {
+		t.Fatal("a limiter with no HMAC key must not use Redis")
+	}
+	l.fail("k")
+	if len(mr.Keys()) != 0 {
+		t.Fatalf("keys written without an HMAC key: %v", mr.Keys())
 	}
 }

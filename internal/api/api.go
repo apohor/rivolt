@@ -216,6 +216,9 @@ type Deps struct {
 	// the install's key prefix). Nil leaves them per pod.
 	Redis       *redis.Client
 	RedisPrefix string
+	// FailLimiterKey is the HMAC key for the limiter's Redis key names (FailLimiterKey of the
+	// server's secret); without it the limiters stay per pod.
+	FailLimiterKey []byte
 	// HydraRememberFor controls how long Hydra remembers the
 	// user's login + consent before forcing a fresh prompt. Zero
 	// defers to Hydra's login_session lifespan. Sourced from the
@@ -693,7 +696,7 @@ func New(d Deps) http.Handler {
 				// leave a half-broken flow, so guard on both.
 				if d.Hydra != nil && d.Hydra.Enabled() &&
 					d.Kratos != nil && d.Kratos.Enabled() {
-					failures := newFailLimiter(10, 15*time.Minute).withRedis(d.Redis, d.RedisPrefix, "login", d.failLimiterFallback())
+					failures := newFailLimiter(10, 15*time.Minute).withRedis(d.Redis, d.RedisPrefix, "login", d.FailLimiterKey, d.failLimiterFallback())
 					if d.Metrics != nil {
 						failures.onLockout = d.Metrics.LoginLockoutsTotal.Inc
 					}

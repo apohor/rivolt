@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,12 +23,17 @@ import (
 //   - lock anyone out: only a successful read of enough recent failures blocks, and an
 //     error is never read as "blocked"; every entry expires with its window.
 //
-// Keys are hashed (an address or an email never reaches Redis), under the install's key
-// prefix. A Redis outage costs one slow call per backoff, not one per login.
+// Keys are an HMAC-SHA256 of the limiter name and the key, keyed with a subkey of the server's
+// secret (see FailLimiterKey), under the install's key prefix: an address or an email never
+// reaches Redis, and, being keyed, the names cannot be matched against a list of guessed
+// addresses by anyone who can read Redis but does not hold the secret. A Redis outage costs
+// one slow call per backoff, not one per login.
 type sharedFails struct {
 	rdb    *redis.Client
 	prefix string
 	name   string
+	// key is the HMAC key (FailLimiterKey).
+	key    []byte
 	max    int
 	window time.Duration
 	now    func() time.Time
@@ -42,9 +48,21 @@ const (
 	sharedFailBackoff   = 15 * time.Second
 )
 
+// FailLimiterKey derives the HMAC key for the failure limiter's Redis key names from the
+// server's secret (a purpose-labelled subkey, never the secret itself). nil for an empty secret.
+func FailLimiterKey(secret []byte) []byte {
+	if len(secret) == 0 {
+		return nil
+	}
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte("rivolt/fail-limiter/redis-keys/v1"))
+	return m.Sum(nil)
+}
+
 func (s *sharedFails) redisKey(key string) string {
-	sum := sha256.Sum256([]byte(s.name + "\x00" + key))
-	return s.prefix + ":fail:" + s.name + ":" + hex.EncodeToString(sum[:16])
+	m := hmac.New(sha256.New, s.key)
+	m.Write([]byte(s.name + "\x00" + key))
+	return s.prefix + ":fail:" + s.name + ":" + hex.EncodeToString(m.Sum(nil)[:16])
 }
 
 // opContext bounds one Redis call. It carries no user: the limiter works on hashed keys, and

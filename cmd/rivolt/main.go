@@ -2658,6 +2658,7 @@ func runServer() {
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
+		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
 		AdminHealth: adminhealth.New(adminhealth.Config{
 			DB: pgPool, Flags: flagsStore, Version: version,
 			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),
