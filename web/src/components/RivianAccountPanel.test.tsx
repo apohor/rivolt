@@ -49,6 +49,25 @@ describe("connect step: driver account first", () => {
     expect(screen.getByRole("button", { name: "Sign in" }).textContent).not.toMatch(/Authorized Driver/);
   });
 
+  it("shows when the connection expires, as Connected · expires Nov 3", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com", session_expires_at: "2026-11-03T18:00:00Z", session_days_left: 5 } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    expect(await screen.findByText("Connected · expires Nov 3")).toBeInTheDocument();
+  });
+
+  it("says nothing about expiry when the server sends no date", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    await screen.findByText("Connected as");
+    expect(screen.queryByText(/expires/)).not.toBeInTheDocument();
+  });
+
   it("uses growth's copy for an account with no vehicles", async () => {
     stubFetchRoutes({
       "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },

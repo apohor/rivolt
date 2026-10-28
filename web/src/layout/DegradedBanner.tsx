@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
+import { expiryNotice } from "../lib/rivianExpiry";
 
 // The tab-bar shell dropped the header's connection pill, which was the
 // only signal for "backend unreachable / Rivian not connected / MFA
@@ -14,7 +15,7 @@ export function degradedState(
   health: { ok?: boolean } | undefined,
   healthError: boolean,
   rivian:
-    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean }
+    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean; session_days_left?: number; session_expires_at?: string }
     | undefined,
 ): Degraded | null {
   if (healthError) {
@@ -39,6 +40,9 @@ export function degradedState(
   if (!rivian.authenticated) {
     return { tone: "amber", text: "Rivian isn't connected.", to: "/settings?tab=account", cta: "Connect" };
   }
+  // From a week before Rivian ends this sign-in: the date, and one tap to sign in again (the renewal).
+  const notice = expiryNotice(rivian.session_days_left, rivian.session_expires_at);
+  if (notice) return { tone: "amber", text: notice, to: "/settings?tab=account", cta: "Reconnect" };
   return null;
 }
 
