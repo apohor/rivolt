@@ -977,7 +977,7 @@ func New(d Deps) http.Handler {
 						paused := d.Flags != nil && d.Flags.KillSwitch().Paused
 						needs := false
 						if d.Accounts != nil {
-							if st, ok := freshAccountState(context.Background(), d.Accounts, uid); ok {
+							if st, ok := freshAccountState(auth.WithUser(context.Background(), uid), d.Accounts, uid); ok {
 								// From the users row, not this pod's memory.
 								needs = st.NeedsReauth
 							} else if a := d.Accounts.For(uid); a != nil {

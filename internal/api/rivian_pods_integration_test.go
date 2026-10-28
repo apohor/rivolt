@@ -122,6 +122,7 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 	// the store lagging behind a sign-in made seconds ago on that pod.)
 	now := rivian.Session{Email: "d@example.invalid", UserSessionToken: "new", AuthenticatedAt: time.Now().Add(-time.Minute)}
 	a.raw(u1).Restore(now)
+	a.raw(u1).(*rivian.LiveClient).SetNeedsReauth(false, "") // what Login does on the pod that signs in
 	if err := secrets.SaveRivianSession(ctx, store, u1, now); err != nil {
 		t.Fatal(err)
 	}
