@@ -233,8 +233,22 @@ func matchRoute(call []string, route []string) bool {
 	return len(call) == len(route)
 }
 
-// contractRouter is the real router with enough of its dependencies stubbed for the routes the clients call to be mounted.
-func contractRouter(t *testing.T) chi.Routes {
+// webCallsOptionalByConfig (key: "METHOD path") are web calls whose route exists only where a feature is configured on.
+// The web treats the 404 as "this install does not have it" and hides the control, so a missing route is fine there; the
+// test below runs the router with every gate off and requires the web's missing calls to be exactly this list. An entry
+// whose route is mounted with the gate off is stale and fails, and a route that disappears with the gate off but is not
+// listed fails like any other missing route.
+var webCallsOptionalByConfig = map[string]string{
+	"GET /api/settings/rivian-expiry-email": "mounted only where the expiry reminders are sent (Deps.RivianExpiryEmails: RIVOLT_RIVIAN_EXPIRY_EMAILS=true, a mailer, engagement email not off); the Settings switch hides on a 404",
+	"PUT /api/settings/rivian-expiry-email": "as above",
+}
+
+// contractRouter is the real router with enough of its dependencies stubbed for the routes the clients call to be mounted,
+// every config-gated feature in webCallsOptionalByConfig on.
+func contractRouter(t *testing.T) chi.Routes { return contractRouterGates(t, true) }
+
+// contractRouterGates is contractRouter with the config gates in webCallsOptionalByConfig on or off.
+func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 	t.Helper()
 	t.Setenv("RIVOLT_EVENTS", "true")
 	t.Setenv("RIVOLT_DEMO", "true")
@@ -268,7 +282,7 @@ func contractRouter(t *testing.T) chi.Routes {
 		Trips: new(trips.Factory), Drives: new(drives.Factory), Charges: new(charges.Factory), Samples: new(samples.Factory),
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
 		// The expiry reminders' Settings routes exist only where the sender runs; the web calls them.
-		RivianExpiryEmails: true,
+		RivianExpiryEmails: gates,
 	}).(chi.Routes)
 }
 
@@ -342,6 +356,39 @@ func checkClientCalls(t *testing.T, side, name string, calls []clientCall, route
 
 func TestSwiftClientCallsExistOnTheServer(t *testing.T) {
 	checkClientCalls(t, "swift", "the iPhone app", clientCalls(t, "../../ios/Rivolt", true), routesOf(t, contractRouter(t)))
+}
+
+// With every config gate off the web's calls that find no route must be exactly webCallsOptionalByConfig: a gated route may be
+// missing only if it is listed (with its reason), and a listed route that is mounted anyway is stale.
+func TestWebCallsToConfigGatedRoutesAreListed(t *testing.T) {
+	routes := routesOf(t, contractRouterGates(t, false))
+	missing := map[string]bool{}
+	for _, c := range clientCalls(t, "../../web/src", false) {
+		key := c.method + " " + c.path
+		if _, ok := ignoredClientCalls["web "+key]; ok {
+			continue
+		}
+		found := false
+		for _, r := range routes {
+			if r.method == c.method && matchRoute(splitPath(c.path), r.segs) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing[key] = true
+		}
+	}
+	for key := range missing {
+		if _, ok := webCallsOptionalByConfig[key]; !ok {
+			t.Errorf("the web calls %s, which has no route with the config gates off: add it to webCallsOptionalByConfig with the config that mounts it, or fix the route", key)
+		}
+	}
+	for key, why := range webCallsOptionalByConfig {
+		if !missing[key] {
+			t.Errorf("webCallsOptionalByConfig lists %s (%s) but it is mounted with the gate off, or the web no longer calls it: delete the entry", key, why)
+		}
+	}
 }
 
 func TestWebClientCallsExistOnTheServer(t *testing.T) {
