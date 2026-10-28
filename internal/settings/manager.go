@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/apohor/rivolt/internal/ai"
 )
@@ -216,6 +217,11 @@ type KV interface {
 // It is concurrency-safe; handlers call Analyzer() on every request.
 type Manager struct {
 	store KV
+	seed  AIConfig // the env values load merged in, kept for Reload
+	// ver is the store's version read just before the configuration was first loaded,
+	// where Sync starts from: a change made after the load and before Sync's first tick
+	// must not be missed.
+	ver string
 
 	mu       sync.RWMutex
 	cfg      AIConfig
@@ -227,12 +233,75 @@ type Manager struct {
 // envSeed is merged in for values that are not yet stored, so first-boot
 // behaviour matches the previous env-only configuration.
 func NewManager(ctx context.Context, store KV, envSeed AIConfig) (*Manager, error) {
-	m := &Manager{store: store}
+	m := &Manager{store: store, seed: envSeed}
+	if v, ok := store.(Versioned); ok {
+		m.ver, _ = v.Version(ctx)
+	}
 	if err := m.load(ctx, envSeed); err != nil {
 		return nil, err
 	}
 	m.rebuild()
 	return m, nil
+}
+
+// Versioned is a KV that can fingerprint its contents cheaply (appsettings.Store does),
+// so a replica can notice that another replica changed a setting.
+type Versioned interface {
+	Version(ctx context.Context) (string, error)
+}
+
+// Sync keeps this replica's copy of the install-wide settings in line with the database:
+// every interval it reads the store's version and, when it moved (another replica wrote
+// or deleted a setting, or this one did), reloads the configuration. Without it a setting
+// changed on one replica, such as turning recap weather off, only reached the others at
+// their next restart, so they went on sending drive coordinates to Open-Meteo. The bound
+// on how long another replica can act on the old value is interval plus one query. A
+// store without a version, or a read that fails, changes nothing. Returns when ctx ends.
+func (m *Manager) Sync(ctx context.Context, interval time.Duration) {
+	v, ok := m.store.(Versioned)
+	if !ok {
+		return
+	}
+	last := m.ver
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			cur, err := v.Version(ctx)
+			if err != nil {
+				slog.Warn("settings sync: read version", "err", err.Error())
+				continue
+			}
+			if cur == last {
+				continue
+			}
+			if err := m.Reload(ctx); err != nil {
+				slog.Warn("settings sync: reload", "err", err.Error())
+				continue // keep the old version so the next tick retries
+			}
+			last = cur
+		}
+	}
+}
+
+// Reload re-reads the stored configuration (with the same env seed as at construction)
+// and swaps it in when it differs, rebuilding the analyzer only then.
+func (m *Manager) Reload(ctx context.Context) error {
+	next := &Manager{store: m.store, seed: m.seed}
+	if err := next.load(ctx, m.seed); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if next.cfg == m.cfg {
+		return nil
+	}
+	m.cfg = next.cfg
+	m.rebuildLocked()
+	return nil
 }
 
 // Analyzer returns the currently configured analyzer, or nil if AI is
