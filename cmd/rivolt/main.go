@@ -765,6 +765,7 @@ func runServer() {
 			rdb := redis.NewClient(ropts)
 			rlCfg := ratelimit.DefaultConfig()
 			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
+			rlCfg.OnFallback = func(class ratelimit.Class) { appMetrics.RivianBudgetFallbackTotal.WithLabelValues(string(class)).Inc() }
 			// Redis may not be up yet when the pod boots; the limiter keeps retrying
 			// instead of staying off until the next restart.
 			sharedLimiter = ratelimit.NewRetrying(ctx, rdb, rlCfg, logger, 5*time.Second, 30*time.Second, func() { redisUp.Store(true) })
@@ -2580,7 +2581,7 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
-		PlanLegs:              planleg.New(sharedRedis, redisKeyPrefix, logger),
+		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics),
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
 		AdminHealth: adminhealth.New(adminhealth.Config{
@@ -3105,4 +3106,14 @@ func (a appleLinks) Link(ctx context.Context, uid uuid.UUID, sub, refreshToken s
 		return oidc.ErrAppleLinkConflict
 	}
 	return err
+}
+
+// newPlanLegs builds the planner cache and quota. Without Redis (or while it is down) the
+// quota is counted in the process, and each such check is counted.
+func newPlanLegs(rdb *redis.Client, prefix string, logger *slog.Logger, m *metrics.Metrics) *planleg.Cache {
+	c := planleg.New(rdb, prefix, logger)
+	if m != nil {
+		c.OnFallback = m.PlanQuotaFallbackTotal.Inc
+	}
+	return c
 }
