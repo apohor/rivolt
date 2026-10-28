@@ -743,6 +743,10 @@ func New(d Deps) http.Handler {
 			oe := &onboardingEmailAPI{db: d.SystemDB, signer: d.StatementSigner, now: time.Now} // system pool: a signed link, no session
 			r.With(unsubLimiter.Middleware).Get("/onboarding-email/unsubscribe", oe.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/onboarding-email/unsubscribe", oe.unsubscribePost)
+			// The Rivian connection expiry reminders: the same, with their own purpose.
+			re := &rivianExpiryEmailAPI{db: d.SystemDB, signer: d.StatementSigner, now: time.Now} // system pool: a signed link, no session
+			r.With(unsubLimiter.Middleware).Get("/rivian-expiry-email/unsubscribe", re.unsubscribeGet)
+			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/rivian-expiry-email/unsubscribe", re.unsubscribePost)
 		}
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {
@@ -1124,6 +1128,9 @@ func New(d Deps) http.Handler {
 				oe := &onboardingEmailAPI{db: d.DB, now: time.Now}
 				r.Get("/settings/onboarding-email", withUser(oe.getSettings))
 				r.Put("/settings/onboarding-email", withUser(oe.putSettings))
+				re := &rivianExpiryEmailAPI{db: d.DB, now: time.Now}
+				r.Get("/settings/rivian-expiry-email", withUser(re.getSettings))
+				r.Put("/settings/rivian-expiry-email", withUser(re.putSettings))
 			}
 
 			// Plug-in reminder and weekly recap knobs (internal/engage).

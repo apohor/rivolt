@@ -13,9 +13,12 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/statement"
 )
 
 var t0 = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+
+var testSigner = statement.NewSigner([]byte("0123456789abcdef0123456789abcdef"))
 
 type fakeSessions []Entry
 
@@ -82,6 +85,7 @@ func job(sessions []Entry, mail *fakeMail, claims *fakeClaims) (*Job, *Counts, m
 		Mail:     mail,
 		Email:    func(context.Context, uuid.UUID) (string, error) { return "driver@example.invalid", nil },
 		BaseURL:  "https://rivolt.example",
+		Signer:   func() *statement.Signer { return testSigner },
 		Now:      func() time.Time { return t0 },
 		OnCounts: func(c Counts) { counts = c },
 		OnNotice: func(days int, outcome string) { notices[outcome+":"+string(rune('0'+days))]++ },
@@ -118,12 +122,72 @@ func TestCountsAndNoticesByTimeLeft(t *testing.T) {
 			t.Fatal("an expiry notice must not count against the 4-a-month engagement budget")
 		}
 	}
-	last := mail.sent[2]
-	if !strings.Contains(last.Subject, "within a day") || !strings.Contains(last.Text, "https://rivolt.example/settings#rivian") {
-		t.Fatalf("final notice = %q / %q", last.Subject, last.Text)
+}
+
+// The owner's N49 wording, with the date the connection ends, and a one-click way to stop.
+func TestNoticeUsesTheApprovedWordingAndCarriesAStopLink(t *testing.T) {
+	e := entry(3 * day) // ends Oct 31, 2026 at 12:00 UTC
+	e.User = uuid.MustParse("11111111-2222-3333-4444-555555555555")
+	mail, claims := &fakeMail{}, &fakeClaims{}
+	j, _, _ := job([]Entry{e}, mail, claims)
+	j.Sweep(context.Background())
+	if len(mail.sent) != 1 {
+		t.Fatalf("%d emails", len(mail.sent))
 	}
-	if !strings.Contains(mail.sent[1].Subject, "in about 3 days") {
-		t.Fatalf("7-day notice subject = %q", mail.sent[1].Subject)
+	m := mail.sent[0]
+	if m.Subject != "Reconnect Rivian to keep recording" {
+		t.Fatalf("subject = %q", m.Subject)
+	}
+	for _, want := range []string{
+		"Your Rivian connection in Rivolt expires on October 31, 2026.",
+		"Rivian asks for a fresh sign-in every 180 days. After that date Rivolt stops recording drives and charges until you reconnect.",
+		"Reconnect now: Settings → Rivian account → Sign in. It takes a minute and keeps your history.",
+		"https://rivolt.example/settings#rivian",
+		"Stop these reminders: https://rivolt.example/api/rivian-expiry-email/unsubscribe?t=",
+	} {
+		if !strings.Contains(m.Text, want) {
+			t.Errorf("the email lacks %q:\n%s", want, m.Text)
+		}
+	}
+	// The link is signed for this user and only for these reminders.
+	i := strings.Index(m.Text, "unsubscribe?t=")
+	tok := strings.TrimSpace(m.Text[i+len("unsubscribe?t="):])
+	uid, purpose, err := testSigner.Verify(tok, t0)
+	if err != nil || uid != e.User || purpose != UnsubPurpose {
+		t.Fatalf("token verifies as %v %q %v, want the user and %q", uid, purpose, err, UnsubPurpose)
+	}
+	if m.Headers["List-Unsubscribe-Post"] != "List-Unsubscribe=One-Click" || !strings.Contains(m.Headers["List-Unsubscribe"], "/api/rivian-expiry-email/unsubscribe?t=") {
+		t.Fatalf("headers = %v, want a one-click List-Unsubscribe", m.Headers)
+	}
+}
+
+func TestAUserWhoStoppedTheRemindersGetsNoneAndNothingIsClaimed(t *testing.T) {
+	e := entry(3 * day)
+	e.OptedOut = true
+	mail, claims := &fakeMail{}, &fakeClaims{}
+	j, counts, notices := job([]Entry{e}, mail, claims)
+	j.Sweep(context.Background())
+	if len(mail.sent) != 0 || len(claims.rows) != 0 || notices["opted_out:7"] != 1 {
+		t.Fatalf("sent=%d claims=%v notices=%v", len(mail.sent), claims.rows, notices)
+	}
+	if counts.Within7 != 1 {
+		t.Fatalf("an opted-out session still counts for the metric: %+v", *counts)
+	}
+}
+
+func TestNothingIsSentWithoutASignerBecauseThereWouldBeNoWayToStop(t *testing.T) {
+	e := entry(3 * day)
+	mail, claims := &fakeMail{}, &fakeClaims{}
+	j, _, notices := job([]Entry{e}, mail, claims)
+	j.Signer = func() *statement.Signer { return nil }
+	j.Sweep(context.Background())
+	if len(mail.sent) != 0 || len(claims.rows) != 0 || notices["no_signer:7"] != 1 {
+		t.Fatalf("sent=%d claims=%v notices=%v", len(mail.sent), claims.rows, notices)
+	}
+	j.Signer = nil
+	j.Sweep(context.Background())
+	if len(mail.sent) != 0 {
+		t.Fatal("sent with no Signer func")
 	}
 }
 

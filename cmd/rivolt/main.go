@@ -1590,6 +1590,7 @@ func runServer() {
 			Claims:   engage.NewStore(pgPool),
 			Email:    func(c context.Context, uid uuid.UUID) (string, error) { return db.LookupUserEmail(c, pgPool, uid) },
 			BaseURL:  os.Getenv("RIVOLT_BASE_URL"),
+			Signer:   onboardSigner.Load,
 			Skip:     func(uid uuid.UUID) bool { return demo.Enabled() && uid == demo.UserID() },
 			Lifetime: rivian.ConfiguredSessionLifetime,
 			Log:      logger,
@@ -1603,9 +1604,13 @@ func runServer() {
 				appMetrics.RivianExpiryNoticesTotal.WithLabelValues(strconv.Itoa(days), outcome).Inc()
 			},
 		}
-		if mailer != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+		// The emails are off unless RIVOLT_RIVIAN_EXPIRY_EMAILS=true (the wording is the owner's to
+		// approve, N49): without it the sweep still counts and the status fields and banners work,
+		// but nothing is claimed or sent. RIVOLT_ENGAGEMENT_EMAILS=false (preview) also keeps it off.
+		if mailer != nil && os.Getenv("RIVOLT_RIVIAN_EXPIRY_EMAILS") == "true" && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 			expiry.Mail = mailer
 		}
+		logger.Info("rivian expiry emails", "enabled", expiry.Mail != nil)
 		bg.Go(func() {
 			select {
 			case <-ctx.Done():

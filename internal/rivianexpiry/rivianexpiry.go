@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
@@ -21,10 +20,15 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/statement"
 )
 
 // Kind is the engagement_sends kind of the notices.
 const Kind = "rivian_expiry"
+
+// UnsubPurpose scopes a signed one-click link to these reminders: the statement email's
+// unsubscribe accepts only YYYY-MM and the welcome and setup emails' only "onboarding".
+const UnsubPurpose = "rivian-expiry"
 
 // Horizons, in days left.
 const (
@@ -37,7 +41,9 @@ const (
 type Entry struct {
 	User        uuid.UUID
 	NeedsReauth bool
-	Session     rivian.Session
+	// OptedOut: the user stopped these reminders (Settings, or the link in the email).
+	OptedOut bool
+	Session  rivian.Session
 }
 
 // Sessions lists every stored Rivian session.
@@ -63,6 +69,9 @@ type Job struct {
 	// Email returns the address on file ("" when none).
 	Email   func(ctx context.Context, uid uuid.UUID) (string, error)
 	BaseURL string
+	// Signer signs the one-click "stop these reminders" link. Nil, or a nil result: nothing is
+	// sent (no way to opt out, no mail).
+	Signer func() *statement.Signer
 	// Skip excludes a user (the demo account).
 	Skip     func(uid uuid.UUID) bool
 	Lifetime time.Duration
@@ -141,16 +150,24 @@ func (j *Job) Sweep(ctx context.Context) {
 		if left <= time.Duration(FinalDays)*24*time.Hour {
 			days = FinalDays
 		}
-		j.send(ctx, e, days, left, now)
+		j.send(ctx, e, days, exp, now)
 	}
 	if j.OnCounts != nil {
 		j.OnCounts(c)
 	}
 }
 
-func (j *Job) send(ctx context.Context, e Entry, days int, left time.Duration, now time.Time) {
+func (j *Job) send(ctx context.Context, e Entry, days int, expires time.Time, now time.Time) {
 	if j.Mail == nil {
 		j.notice(days, "no_mailer") // counting only (no mailer, or emails switched off)
+		return
+	}
+	if e.OptedOut {
+		j.notice(days, "opted_out")
+		return
+	}
+	if j.Signer == nil || j.Signer() == nil {
+		j.notice(days, "no_signer") // no way to opt out yet: send nothing
 		return
 	}
 	to, err := j.Email(ctx, e.User)
@@ -174,7 +191,7 @@ func (j *Job) send(ctx context.Context, e Entry, days int, left time.Duration, n
 		return
 	}
 	status := "sent"
-	if err := j.Mail.Send(ctx, buildMessage(to, left, j.BaseURL)); err != nil {
+	if err := j.Mail.Send(ctx, buildMessage(to, expires, j.BaseURL, j.Signer().Sign(e.User, UnsubPurpose, now.Add(statement.TokenTTL)))); err != nil {
 		status = "failed"
 		j.log().Warn("rivian expiry notice: send", "days", days, "err", err.Error())
 	}
@@ -184,26 +201,26 @@ func (j *Job) send(ctx context.Context, e Entry, days int, left time.Duration, n
 	j.notice(days, status)
 }
 
-func buildMessage(to string, left time.Duration, baseURL string) email.Message {
-	n := int(math.Ceil(left.Hours() / 24))
-	when := fmt.Sprintf("in about %d days", n)
-	if n <= 1 {
-		when = "within a day"
+// buildMessage is the reminder (the owner's N49 wording): the date the connection ends, why,
+// what stops, where to reconnect, and a one-click link to stop these reminders.
+func buildMessage(to string, expires time.Time, baseURL, token string) email.Message {
+	base := strings.TrimRight(baseURL, "/")
+	where := "Settings → Rivian account → Sign in"
+	unsub := base + "/api/rivian-expiry-email/unsubscribe?t=" + token
+	text := "Your Rivian connection in Rivolt expires on " + expires.UTC().Format("January 2, 2006") + ".\n\n" +
+		"Rivian asks for a fresh sign-in every 180 days. After that date Rivolt stops recording drives and charges until you reconnect.\n\n" +
+		"Reconnect now: " + where + ". It takes a minute and keeps your history.\n"
+	if base != "" {
+		text += "\n  " + base + "/settings#rivian\n"
 	}
-	link := "your Rivolt settings (Settings, Rivian account)"
-	if baseURL != "" {
-		link = strings.TrimRight(baseURL, "/") + "/settings#rivian"
-	}
+	text += "\nStop these reminders: " + unsub + "\n"
 	return email.Message{
 		To:      to,
-		Subject: "Your Rivian connection to Rivolt ends " + when,
-		Text: "Rivian ends a signed-in session 180 days after you sign in, and it cannot be\n" +
-			"extended, so Rivolt's connection to your Rivian account will stop " + when + ".\n" +
-			"When it does, drives and charging sessions stop recording.\n\n" +
-			"To keep recording without a gap, sign in to Rivian again here (it takes a\n" +
-			"minute and starts a new 180 days):\n\n" +
-			"  " + link + "\n\n" +
-			"Your history is safe either way: if the connection lapses, signing in\n" +
-			"afterwards resumes recording from that point.\n",
+		Subject: "Reconnect Rivian to keep recording",
+		Text:    text,
+		Headers: map[string]string{
+			"List-Unsubscribe":      "<" + unsub + ">",
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/rivianexpiry"
 	"github.com/apohor/rivolt/internal/secrets"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/testpg"
 )
 
@@ -63,6 +64,10 @@ func TestRivianExpiryNoticesAreSentOnceAcrossReplicas(t *testing.T) {
 	week := mk("exp-week", 5*24*time.Hour, false)
 	mk("exp-far", 100*24*time.Hour, false)
 	mk("exp-flagged", 2*24*time.Hour, true)
+	stopped := mk("exp-stopped", 4*24*time.Hour, false)
+	if err := db.SetRivianExpiryEmailsOff(ctx, pool, stopped, true); err != nil {
+		t.Fatal(err)
+	}
 
 	mail := &captureMail{}
 	replica := func() *rivianexpiry.Job {
@@ -72,6 +77,7 @@ func TestRivianExpiryNoticesAreSentOnceAcrossReplicas(t *testing.T) {
 			Mail:     mail,
 			Email:    func(c context.Context, uid uuid.UUID) (string, error) { return db.LookupUserEmail(c, pool, uid) },
 			BaseURL:  "https://rivolt.example",
+			Signer:   func() *statement.Signer { return statement.NewSigner([]byte("0123456789abcdef0123456789abcdef")) },
 		}
 	}
 	var counts rivianexpiry.Counts
@@ -81,10 +87,10 @@ func TestRivianExpiryNoticesAreSentOnceAcrossReplicas(t *testing.T) {
 	b.Sweep(ctx)
 	a.Sweep(ctx)
 	if len(mail.sent) != 1 || mail.sent[0].To != "exp-week@example.invalid" {
-		t.Fatalf("sent = %d messages, want exactly one, to the user 5 days from the end", len(mail.sent))
+		t.Fatalf("sent = %d messages, want exactly one, to the user 5 days from the end (not to the flagged one, nor the one who stopped the reminders)", len(mail.sent))
 	}
-	if counts.Within7 != 1 || counts.Within14 != 1 || counts.Expired != 0 {
-		t.Fatalf("counts = %+v, want one session within 7 days (the flagged one is passed over)", counts)
+	if counts.Within7 != 2 || counts.Within14 != 2 || counts.Expired != 0 {
+		t.Fatalf("counts = %+v, want two sessions within 7 days (the flagged one is passed over; the one who stopped the reminders still counts)", counts)
 	}
 	var n int
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_sends WHERE user_id = $1 AND kind = $2 AND status = 'sent' AND NOT budgeted`, week, rivianexpiry.Kind).Scan(&n); err != nil || n != 1 {

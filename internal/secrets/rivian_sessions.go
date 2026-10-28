@@ -26,7 +26,7 @@ func NewRivianSessionLister(pool *sql.DB, store *Store) *RivianSessionLister {
 // List implements rivianexpiry.Sessions.
 func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, error) {
 	rows, err := l.db.QueryContext(ctx, `
-		SELECT us.user_id, COALESCE(u.needs_reauth, FALSE)
+		SELECT us.user_id, COALESCE(u.needs_reauth, FALSE), u.rivian_expiry_emails_off_at IS NOT NULL
 		FROM user_secrets us JOIN users u ON u.id = us.user_id
 		WHERE us.name = $1`, rivianSessionName)
 	if err != nil {
@@ -35,11 +35,12 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 	type row struct {
 		id    uuid.UUID
 		needs bool
+		off   bool
 	}
 	var ids []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.needs); err != nil {
+		if err := rows.Scan(&r.id, &r.needs, &r.off); err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("list rivian sessions: %w", err)
 		}
@@ -55,7 +56,7 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 		if err != nil || sess.UserSessionToken == "" {
 			continue // an unreadable or empty session is not ours to warn about
 		}
-		out = append(out, rivianexpiry.Entry{User: r.id, NeedsReauth: r.needs, Session: sess})
+		out = append(out, rivianexpiry.Entry{User: r.id, NeedsReauth: r.needs, OptedOut: r.off, Session: sess})
 	}
 	return out, nil
 }
