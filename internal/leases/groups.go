@@ -42,7 +42,12 @@ func generation() string { return os.Getenv("RIVOLT_POD_GENERATION") }
 //     unexpired. A row this pod already holds and that has not expired keeps its
 //     epoch; any other acquire or steal takes a new one. A row held by another pod
 //     is taken only once it has expired.
-//  3. Delete this pod's rows for groups it no longer fully holds.
+//  3. Release this pod's rows for groups it no longer fully holds (pod_id NULL, released_at
+//     set; the row stays so M2 can tell how long a group has been free).
+//
+// A group whose users have a stored session but no vehicle gets no row in M1; M2 widens the
+// candidates. Per tick that is 3 statements (pod registration, one query for the tokens held last
+// pass, the upsert) plus one release UPDATE, all on the system pool's existing connections.
 func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 	var res GroupResult
 	if _, err := s.db.ExecContext(ctx, `
@@ -106,8 +111,9 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 	    acquired_at = CASE WHEN account_leases.pod_id = EXCLUDED.pod_id AND account_leases.expires_at > now()
 	                       THEN account_leases.acquired_at ELSE EXCLUDED.acquired_at END,
 	    renewed_at  = EXCLUDED.renewed_at,
-	    expires_at  = EXCLUDED.expires_at
-	WHERE account_leases.pod_id = EXCLUDED.pod_id OR account_leases.expires_at < now()
+	    expires_at  = EXCLUDED.expires_at,
+	    released_at = NULL
+	WHERE account_leases.pod_id = EXCLUDED.pod_id OR account_leases.pod_id IS NULL OR account_leases.expires_at < now()
 	RETURNING group_id::text, epoch`, s.podID, fmt.Sprintf("%d seconds", int(s.ttl.Seconds())))
 	if err != nil {
 		return res, fmt.Errorf("lease groups: %w", err)
@@ -132,7 +138,8 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 	}
 	sort.Strings(keep)
 	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM account_leases WHERE pod_id = $1 AND group_id::text <> ALL($2::text[])`,
+		`UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp()
+		  WHERE pod_id = $1 AND group_id::text <> ALL($2::text[])`,
 		s.podID, keep); err != nil {
 		return res, fmt.Errorf("lease groups release: %w", err)
 	}
@@ -156,13 +163,14 @@ func (s *Store) GroupTokens() []GroupToken {
 	return out
 }
 
-// releaseGroups deletes this pod's group rows and its pod row.
+// releaseGroups releases this pod's group rows (pod_id NULL, released_at set) and deletes its
+// pod row.
 func (s *Store) releaseGroups(ctx context.Context) error {
 	s.groupMu.Lock()
 	s.groups = map[string]int64{}
 	s.groupMu.Unlock()
 	var errs []error
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_leases WHERE pod_id = $1`, s.podID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp() WHERE pod_id = $1`, s.podID); err != nil {
 		errs = append(errs, err)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM lease_pods WHERE pod_id = $1`, s.podID); err != nil {

@@ -44,13 +44,14 @@ func renewAll(ctx context.Context, t *testing.T, pods [podCount]*leases.Store) [
 }
 
 type groupRow struct {
-	pod   string
-	epoch int64
+	pod      string // "" when released
+	epoch    int64
+	released bool
 }
 
 func groupRows(ctx context.Context, t *testing.T, pool *sql.DB) map[string]groupRow {
 	t.Helper()
-	rows, err := pool.QueryContext(ctx, `SELECT group_id::text, pod_id, epoch FROM account_leases`)
+	rows, err := pool.QueryContext(ctx, `SELECT group_id::text, pod_id, epoch, released_at IS NOT NULL FROM account_leases`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,10 +60,24 @@ func groupRows(ctx context.Context, t *testing.T, pool *sql.DB) map[string]group
 	for rows.Next() {
 		var g string
 		var r groupRow
-		if err := rows.Scan(&g, &r.pod, &r.epoch); err != nil {
+		var pod sql.NullString
+		if err := rows.Scan(&g, &pod, &r.epoch, &r.released); err != nil {
 			t.Fatal(err)
 		}
+		r.pod = pod.String
 		out[g] = r
+	}
+	return out
+}
+
+// heldRows is the rows with a holder (released ones stay in the table, with no pod).
+func heldRows(ctx context.Context, t *testing.T, pool *sql.DB) map[string]groupRow {
+	t.Helper()
+	out := map[string]groupRow{}
+	for g, r := range groupRows(ctx, t, pool) {
+		if r.pod != "" {
+			out[g] = r
+		}
 	}
 	return out
 }
@@ -159,8 +174,8 @@ func TestGroupLease_WholeGroupOnly_StableEpoch_StolenOnExpiry(t *testing.T) {
 	if ra.Held != 0 {
 		t.Errorf("a still holds %d", ra.Held)
 	}
-	if len(groupRows(ctx, t, pool)) != 0 {
-		t.Errorf("a's row survived losing the vehicles")
+	if r := groupRows(ctx, t, pool)[gid]; r.pod != "" || !r.released {
+		t.Errorf("a's row should be released (pod NULL, released_at set) after losing the vehicles: %+v", r)
 	}
 	// B now takes the group, with a new epoch.
 	rb, err := b.RenewGroups(ctx)
@@ -200,14 +215,18 @@ func TestGroupLease_WholeGroupOnly_StableEpoch_StolenOnExpiry(t *testing.T) {
 	if len(rb.DryRunRejected) != 1 || rb.DryRunRejected[0] != gid {
 		t.Errorf("the old holder's token should be refused in the dry run: %+v", rb)
 	}
+	// The dry run only reports: the pod's vehicle leases and its next pass work as before.
+	if _, err := b.Renew(ctx); err != nil {
+		t.Errorf("a dry-run rejection disturbed the vehicle leases: %v", err)
+	}
 	noTwoHolders(t, pods)
 
 	// A graceful stop removes the pod's rows and its pod row.
 	if _, err := c.ReleaseAll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(groupRows(ctx, t, pool)); n != 0 {
-		t.Errorf("%d group rows after ReleaseAll", n)
+	if r := groupRows(ctx, t, pool)[gid]; r.pod != "" || !r.released {
+		t.Errorf("ReleaseAll should leave the row released, not deleted: %+v", r)
 	}
 	var pods2 int
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM lease_pods WHERE pod_id = 'pod-c'`).Scan(&pods2); err != nil || pods2 != 0 {
@@ -274,5 +293,167 @@ func TestGroupLease_DeleteUserRemovesTheRow(t *testing.T) {
 	}
 	if n := len(groupRows(ctx, t, pool)); n != 0 {
 		t.Errorf("%d group rows after the user was deleted", n)
+	}
+}
+
+// The epoch changes on every acquire or steal, after the holder's own expiry, and when a
+// released row is taken again; it never changes on a renew. rivolt_lease_ok is false for a lease
+// that has expired but was not stolen, and for a statement that starts after the expiry inside a
+// transaction that began before it.
+func TestGroupLease_EpochRulesAndTheFenceCheck(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "ge-user", "ge-v1")
+	pods := threePods(t, pool)
+	a := pods[0]
+	if ok, err := a.Acquire(ctx, "ge-v1"); err != nil || !ok {
+		t.Fatalf("acquire = %v, %v", ok, err)
+	}
+	renewAll(ctx, t, pods)
+	var gid string
+	var e1 int64
+	for g, r := range heldRows(ctx, t, pool) {
+		gid, e1 = g, r.epoch
+	}
+	if gid == "" {
+		t.Fatal("no group row")
+	}
+	ok := func(epoch int64) bool {
+		var v bool
+		if err := pool.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, 'pod-a', $2)`, gid, epoch).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if !ok(e1) {
+		t.Fatal("a live token should pass")
+	}
+
+	// The holder's own row expires (it missed its renewals) but nobody stole it: the check is
+	// already false, and re-acquiring takes a new epoch.
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() - interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	if ok(e1) {
+		t.Error("an expired but unstolen lease passed the fence check")
+	}
+	if _, err := a.RenewGroups(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e2 := heldRows(ctx, t, pool)[gid].epoch
+	if e2 <= e1 {
+		t.Errorf("re-acquire after the holder's own expiry kept epoch %d (was %d)", e2, e1)
+	}
+	if ok(e1) || !ok(e2) {
+		t.Error("the old token should be refused and the new one pass")
+	}
+
+	// A renew keeps the epoch.
+	if _, err := a.RenewGroups(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if e := heldRows(ctx, t, pool)[gid].epoch; e != e2 {
+		t.Errorf("a renew changed the epoch: %d -> %d", e2, e)
+	}
+
+	// A statement that starts after the expiry fails the check even inside a transaction that
+	// began before it (now() would still be the transaction's start).
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() + interval '2 seconds'`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var before, after bool
+	if err := tx.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, 'pod-a', $2)`, gid, e2).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_sleep(3)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, 'pod-a', $2)`, gid, e2).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if !before || after {
+		t.Errorf("inside one transaction: before expiry %v (want true), after %v (want false)", before, after)
+	}
+	_ = tx.Rollback()
+
+	// A released row is taken again with a new epoch and is no longer marked released.
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() + interval '1 minute'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ReleaseAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if r := groupRows(ctx, t, pool)[gid]; r.pod != "" || !r.released {
+		t.Fatalf("released row: %+v", r)
+	}
+	if ok(e2) {
+		t.Error("a released row passed the fence check")
+	}
+	if ok, err := a.Acquire(ctx, "ge-v1"); err != nil || !ok {
+		t.Fatalf("re-acquire = %v, %v", ok, err)
+	}
+	if _, err := a.RenewGroups(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := groupRows(ctx, t, pool)[gid]
+	if r.pod != "pod-a" || r.released || r.epoch <= e2 {
+		t.Errorf("after taking a released row: %+v (previous epoch %d)", r, e2)
+	}
+}
+
+// Deleting one user of a shared-vehicle group deletes the group row; the surviving user's
+// group is derived again under its own smallest id at the next pass (in M2 that is a gap of at
+// most one tick for the survivor).
+func TestGroupLease_DeleteUserInASharedGroup(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "gx-1", "gx-own1", "gx-shared")
+	seedUserVehicles(ctx, t, pool, "gx-2", "gx-shared", "gx-own2")
+	pods := threePods(t, pool)
+	a := pods[0]
+	for _, v := range []string{"gx-own1", "gx-shared", "gx-own2"} {
+		if ok, err := a.Acquire(ctx, v); err != nil || !ok {
+			t.Fatalf("acquire %s = %v, %v", v, ok, err)
+		}
+	}
+	renewAll(ctx, t, pods)
+	if len(heldRows(ctx, t, pool)) != 1 {
+		t.Fatalf("rows = %v", groupRows(ctx, t, pool))
+	}
+	var smaller, other string
+	if err := pool.QueryRowContext(ctx, `SELECT min(id::text), max(id::text) FROM users WHERE username IN ('gx-1','gx-2')`).Scan(&smaller, &other); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := heldRows(ctx, t, pool)[smaller]; !ok {
+		t.Fatalf("group is not keyed by %s", smaller)
+	}
+	var su string
+	if err := pool.QueryRowContext(ctx, `SELECT username FROM users WHERE id::text = $1`, smaller).Scan(&su); err != nil {
+		t.Fatal(err)
+	}
+	uid, err := db.EnsureUser(ctx, pool, su)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteUser(ctx, pool, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := groupRows(ctx, t, pool)[smaller]; ok {
+		t.Error("the deleted user's group row is still there")
+	}
+	// The survivor's vehicles are held again and its group row appears under its own id.
+	for _, v := range []string{"gx-shared", "gx-own1", "gx-own2"} {
+		_, _ = a.Acquire(ctx, v)
+	}
+	if _, err := a.RenewGroups(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := heldRows(ctx, t, pool)[other]; !ok {
+		t.Errorf("the survivor's group was not derived under %s: %v", other, heldRows(ctx, t, pool))
 	}
 }
