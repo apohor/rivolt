@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as config from "./config";
 import type { Drive, MilestoneItem } from "./api";
 import type { LedgerMonth } from "./ledger";
-import { buildMilestoneShareModel, buildMonthShareModel, buildTripShareModel, shareFileName, SHARE_FOOTER } from "./shareCard";
+import { buildMilestoneShareModel, buildMonthShareModel, buildTripShareModel, shareFileName, shareFooter, SHARE_FOOTER } from "./shareCard";
 
 const month = {
   period: "2026-10",
@@ -80,5 +81,22 @@ describe("estimated energy on the month card", () => {
     expect(all(buildMonthShareModel(month, { includeCost: false, sample: false }))).not.toMatch(/Energy added ~/);
     const est = { ...month, energy: { ...month.energy, includes_estimated: true } } as LedgerMonth;
     expect(all(buildMonthShareModel(est, { includeCost: false, sample: false }))).toMatch(/Energy added ~\d+ kWh/);
+  });
+});
+
+describe("the share card footer names the app only once it is on the App Store", () => {
+  const withUrl = (iosAppUrl: string) =>
+    vi.spyOn(config, "getConfig").mockReturnValue({ features: { iosAppUrl } } as unknown as ReturnType<typeof config.getConfig>);
+  it("is the plain footer until then, and for TestFlight", () => {
+    withUrl("");
+    expect(shareFooter()).toEqual(SHARE_FOOTER);
+    withUrl("https://testflight.apple.com/join/abc123");
+    expect(shareFooter()).toEqual(SHARE_FOOTER);
+    vi.restoreAllMocks();
+  });
+  it("adds the clause for an App Store link, keeping the unofficial line", () => {
+    withUrl("https://apps.apple.com/us/app/rivolt/id1234567890");
+    expect(shareFooter()).toEqual(["Made with Rivolt · rivolt.dev · iPhone app on the App Store", "Unofficial. Not affiliated with Rivian."]);
+    vi.restoreAllMocks();
   });
 });
