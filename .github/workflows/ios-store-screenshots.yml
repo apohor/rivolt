@@ -31,7 +31,7 @@ env:
 jobs:
   shots:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'store-shots')
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 150
     strategy:
       fail-fast: false
