@@ -166,9 +166,19 @@ func checkShape(t *testing.T, id, polyline string, r rivian.TripRoute) {
 		}
 		return false
 	}
+	// Every point stays near its own trip: inside the box of the route's waypoints, padded
+	// half a degree (about 55 km). A polyline decoded at the wrong precision lands ten times
+	// off and fails this, whatever region the preset is in. (This replaces a fixed
+	// California/Nevada box, 8a03dbf4, which did the same job while every preset was there.)
+	minLat, maxLat, minLon, maxLon := 90.0, -90.0, 180.0, -180.0
+	for _, w := range r.Waypoints {
+		minLat, maxLat = math.Min(minLat, w.Latitude), math.Max(maxLat, w.Latitude)
+		minLon, maxLon = math.Min(minLon, w.Longitude), math.Max(maxLon, w.Longitude)
+	}
+	const pad = 0.5
 	for _, q := range shape {
-		if q[0] < 32 || q[0] > 42.1 || q[1] < -124.5 || q[1] > -114 {
-			t.Fatalf("%s: polyline point %v outside California/Nevada", id, q)
+		if q[0] < minLat-pad || q[0] > maxLat+pad || q[1] < minLon-pad || q[1] > maxLon+pad {
+			t.Fatalf("%s: polyline point %v is outside its trip's waypoints (padded %.1f°)", id, q, pad)
 		}
 	}
 	if len(shape) < 10 || haversineM(shape[0], [2]float64{r.Waypoints[0].Latitude, r.Waypoints[0].Longitude}) > 500 ||
