@@ -55,6 +55,13 @@ type Metrics struct {
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
+	// RivianAccountMismatch is, per field ("session", "flag"), how many Rivian accounts loaded
+	// on this pod still disagreed with the database after the last 5-second sync round
+	// corrected them. Zero when the cross-pod sync works; sustained non-zero (alert: 10 min)
+	// means a pod is serving state the database does not have. RivianAccountSyncErrorsTotal
+	// counts rounds that could not read the database at all. No user labels.
+	RivianAccountMismatch        *prometheus.GaugeVec
+	RivianAccountSyncErrorsTotal prometheus.Counter
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge
 	// (closed/half_open/open) so Grafana can alert on
@@ -255,6 +262,14 @@ func New() *Metrics {
 				Help: "Episodes of a Rivian subscription lease held by this pod with no subscription running (re-subscribed by the lease coordinator).",
 			},
 		),
+		RivianAccountMismatch: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_rivian_account_mismatch",
+			Help: "Loaded Rivian accounts that still disagree with the database after a sync round, by field.",
+		}, []string{"field"}),
+		RivianAccountSyncErrorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_rivian_account_sync_errors_total",
+			Help: "Sync rounds that could not read the Rivian account state from the database.",
+		}),
 		ReauthRaiseDeferred: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_reauth_raise_deferred_total",
@@ -468,6 +483,8 @@ func New() *Metrics {
 		m.SubscriptionLeases,
 		m.LeaseUnstreamed,
 		m.ReauthRaiseDeferred,
+		m.RivianAccountMismatch,
+		m.RivianAccountSyncErrorsTotal,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,
