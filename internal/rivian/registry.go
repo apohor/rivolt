@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 )
@@ -44,6 +45,10 @@ type AccountRegistry interface {
 type liveAccountRegistry struct {
 	build func(uuid.UUID) *LiveClient
 
+	// sync, when attached, reconciles an account with the database before it is
+	// handed out (see AccountSyncer).
+	sync atomic.Pointer[AccountSyncer]
+
 	mu    sync.RWMutex
 	users map[uuid.UUID]*LiveClient
 }
@@ -64,7 +69,22 @@ func NewLiveAccountRegistry(build func(uuid.UUID) *LiveClient) AccountRegistry {
 	}
 }
 
+// AttachSyncer makes For reconcile the account with the database first (rate limited
+// by the syncer) and returns the lookup that does not, for the syncer's own use.
+func (r *liveAccountRegistry) AttachSyncer(s *AccountSyncer) { r.sync.Store(s) }
+
+// Raw is For without the sync.
+func (r *liveAccountRegistry) Raw(uid uuid.UUID) Account { return r.lookup(uid) }
+
 func (r *liveAccountRegistry) For(uid uuid.UUID) Account {
+	a := r.lookup(uid)
+	if s := r.sync.Load(); s != nil && a != nil {
+		s.Touch(uid)
+	}
+	return a
+}
+
+func (r *liveAccountRegistry) lookup(uid uuid.UUID) Account {
 	r.mu.RLock()
 	c, ok := r.users[uid]
 	r.mu.RUnlock()

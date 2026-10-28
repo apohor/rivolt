@@ -416,12 +416,11 @@ func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 	}
 }
 
-// clearNeedsReauth resets the flag on a successful Login.
+// clearNeedsReauth resets the flag on a successful Login. The sink runs even when this
+// pod's copy of the flag was already false: another pod may have raised it since this
+// one last looked, and the stored flag must clear with the sign-in.
 func (c *LiveClient) clearNeedsReauth(ctx context.Context) {
-	prev := c.reauthState.Swap(&reauthSnapshot{})
-	if prev == nil || !prev.needs {
-		return
-	}
+	c.reauthState.Store(&reauthSnapshot{})
 	if c.reauthSink != nil {
 		// Empty reason signals "clear the flag" to the sink.
 		c.reauthSink(ctx, "")

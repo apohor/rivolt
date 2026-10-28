@@ -849,6 +849,31 @@ func runServer() {
 			return lc
 		}
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
+		// Keep every pod's copy of each user's Rivian account in line with the database:
+		// a sign-in, sign-out or needs_reauth change made on one pod reaches the others
+		// within seconds (see rivian.AccountSyncer). Without a database or a secrets store
+		// there is nothing shared to follow.
+		if att, ok := accountRegistry.(interface {
+			AttachSyncer(*rivian.AccountSyncer)
+			Raw(uuid.UUID) rivian.Account
+		}); ok && pgPool != nil && secretsStore != nil {
+			syncer := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pgPool, secretsStore), att.Raw, logger)
+			syncer.OnChange(func(uid uuid.UUID, change rivian.SyncChange) {
+				// A monitor already running here holds the old tokens (or none): stop it,
+				// and on a new session start it again on the new ones.
+				mr := monitorRegistry
+				if mr == nil || mr.For(uid) == nil {
+					return
+				}
+				mr.Stop(uid)
+				if change == rivian.SyncSessionReplaced {
+					mr.Start(ctx, uid)
+				}
+			})
+			att.AttachSyncer(syncer)
+			bg.Go(func() { syncer.Run(ctx, 5*time.Second, accountRegistry.Loaded) })
+			logger.Info("rivian account sync: enabled")
+		}
 		// Stub fallback for the unauthenticated stub-of-last-resort
 		// path. Per-user resolution at the handler layer always
 		// picks up the registry first (see clientFor in api).
