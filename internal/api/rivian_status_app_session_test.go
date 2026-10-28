@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/sessions"
 )
@@ -46,13 +47,17 @@ func TestAppSessionCanReadTheRivianStatusWithTheExpiry(t *testing.T) {
 		ctx := req.Context()
 		if kind != "none" {
 			ctx = auth.WithUser(ctx, uid)
+			if kind == "app-bearer" { // an app session presented as a bearer token
+				ctx = logging.WithAuthMethod(ctx, logging.AuthBearer)
+				kind = sessions.KindApp
+			}
 			ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: kind})
 		}
 		router.ServeHTTP(rec, req.WithContext(ctx))
 		return rec
 	}
 
-	for _, kind := range []string{sessions.KindApp, "web"} {
+	for _, kind := range []string{sessions.KindApp, "app-bearer", "web"} {
 		rec := get(kind)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s session: %d %q, want 200 (the banner reads this route)", kind, rec.Code, rec.Body.String())
