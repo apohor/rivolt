@@ -53,7 +53,7 @@ func newRivianPod(ctx context.Context, pool *sql.DB, store *secrets.Store) *rivi
 		Raw(uuid.UUID) rivian.Account
 	})
 	syn := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pool, store), att.Raw, nil)
-	att.AttachSyncer(syn)
+	_ = syn // scratch: no syncer attached, i.e. the behaviour of main
 	return &rivianPod{reg: reg, raw: att.Raw, syncer: syn, status: handleRivianStatus(reg, store, pool, nil, nil, nil)}
 }
 
