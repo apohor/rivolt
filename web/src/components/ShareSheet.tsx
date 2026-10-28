@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { paintShareCard, shareCardBlob, type ShareCardModel } from "../lib/shareCard";
+import { ensureConfig } from "../lib/config";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
 
@@ -27,9 +28,20 @@ export function ShareSheet({
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
+  // The footer names the app once the app is listed; the config is awaited so a card opened early is drawn again with it.
+  const [cfgReady, setCfgReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void ensureConfig().then(() => {
+      if (!cancelled) setCfgReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     if (canvas.current) paintShareCard(canvas.current, build(includeCost, includeOffpeak));
-  }, [build, includeCost, includeOffpeak]);
+  }, [build, includeCost, includeOffpeak, cfgReady]);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Focus goes into the sheet, Tab stays inside it, and closing hands focus back to what opened it.
   useEffect(() => {

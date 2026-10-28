@@ -4,6 +4,8 @@
 
 import { estimatedShare, formatMoney, monthLabel, type LedgerMonth } from "./ledger";
 import { buildStatementCardModel } from "./statementCard";
+import { shareFooterLine } from "./appLink";
+import { getConfig } from "./config";
 import type { Drive, MilestoneItem } from "./api";
 
 export type ShareKind = "month" | "trip" | "milestone";
@@ -19,6 +21,9 @@ export type ShareCardModel = {
 };
 
 export const SHARE_FOOTER = ["Made with Rivolt · rivolt.dev", "Unofficial. Not affiliated with Rivian."] as const;
+
+// The footer as drawn: the first line gains "· iPhone app on the App Store" once the app is listed on the App Store (never TestFlight).
+export const shareFooter = (): readonly string[] => [shareFooterLine(getConfig().features.iosAppUrl), SHARE_FOOTER[1]];
 const SAMPLE_LINE = "Sample truck · generated data";
 
 const n0 = (x: number) => Math.round(x).toLocaleString();
@@ -165,11 +170,12 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
   }
   g.fillStyle = "#737373";
   g.font = `400 32px ${FONT}`;
-  let fy = H - 70 - (SHARE_FOOTER.length - 1) * 44;
+  const footer = shareFooter();
+  let fy = H - 70 - (footer.length - 1) * 44;
   if (c.sample) {
     g.fillText(SAMPLE_LINE, 80, fy - 52);
   }
-  for (const line of SHARE_FOOTER) {
+  for (const line of footer) {
     g.fillText(line, 80, fy);
     fy += 44;
   }

@@ -37,6 +37,7 @@ import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
 import { OffpeakPanel } from "../components/OffpeakCard";
 import { MembershipTerms } from "../components/MembershipTerms";
+import { IosAppCard } from "../components/IosAppCard";
 import { useHomeRecheck } from "../components/HomeRecheck";
 import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocation";
 import { registerPushSubscription } from "../lib/push";
@@ -213,6 +214,7 @@ function SettingsPageInner() {
           <AIFeaturesCard />
           <AmbientTempCard />
           <AppearanceCard />
+          <IosAppCard />
           {/* The tab-bar shell's header has no Sign out; it lives here. */}
           <Card title="Rivolt account">
             <SignOutButton label="Sign out of Rivolt" solid />

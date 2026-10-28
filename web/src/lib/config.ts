@@ -78,6 +78,9 @@ export type RuntimeConfig = {
     // appUrl: origin of the real app (e.g. "https://rivolt.dev") for demo
     // CTAs. Empty means same-origin routes.
     appUrl: string;
+    // iosAppUrl: the iPhone app's direct Apple link (features.ios_app_url); empty until the app is listed, and every app-promotion
+    // surface stays hidden while it is.
+    iosAppUrl: string;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -115,7 +118,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "" },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "", iosAppUrl: "" },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -137,7 +140,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; rivian_actions?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -159,6 +162,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         demoOnly: j?.features?.demo_only === true,
         adminOnly: j?.features?.admin_only === true,
         appUrl: (j?.features?.app_url ?? "").replace(/\/+$/, ""),
+        iosAppUrl: j?.features?.ios_app_url ?? "",
       },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
@@ -275,6 +279,21 @@ export function useSignupEnabled(): boolean | null {
     };
   }, []);
   return enabled;
+}
+
+// useIosAppUrl: the iPhone app's Apple link once /api/config has loaded, or "" (not listed yet, the demo, or still loading).
+export function useIosAppUrl(): string {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setUrl(inDemo() ? "" : c.features.iosAppUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return url;
 }
 
 // useAIEnabled is the React-friendly variant of aiEnabled(). It
