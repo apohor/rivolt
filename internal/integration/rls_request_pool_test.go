@@ -341,7 +341,7 @@ func TestGrantAppPrivileges(t *testing.T) {
 		rels = append(rels, r)
 	}
 	rows.Close()
-	denied := map[string]bool{"app_settings": true, "push_vapid": true, "migrations": true, "signup_requests": true, "idp_delete_failures": true, "subscription_leases": true}
+	denied := map[string]bool{"app_settings": true, "push_vapid": true, "migrations": true, "signup_requests": true, "idp_delete_failures": true, "subscription_leases": true, "account_leases": true, "lease_pods": true}
 	nRLS := 0
 	for _, r := range rels {
 		switch {

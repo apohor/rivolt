@@ -1,0 +1,172 @@
+package leases
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"sort"
+)
+
+// Group leases (M1 of the single-owner design). A user group (users linked
+// through a shared Rivian id, see userGroups) gets one account_leases row, held by
+// the pod that holds every vehicle lease of the group. Nothing decides anything
+// from the row yet: it is written next to the vehicle leases so M2 can switch to
+// it, and the fence token each pod keeps is only checked and counted.
+
+// GroupToken is the proof a pod holds a group: the lease's epoch changes on every
+// acquire or steal and never on a renew.
+type GroupToken struct {
+	Group string
+	Epoch int64
+}
+
+// GroupResult is what one RenewGroups pass saw.
+type GroupResult struct {
+	// Held is the number of groups this pod now holds.
+	Held int
+	// DryRunRejected lists groups whose token from the previous pass would have
+	// been refused by rivolt_lease_ok now (the lease expired or moved under us).
+	DryRunRejected []string
+}
+
+// Generation is the pod's template generation (its pod-template-hash), read from
+// RIVOLT_POD_GENERATION; empty when unset. M2's rollout rules read it.
+func generation() string { return os.Getenv("RIVOLT_POD_GENERATION") }
+
+// RenewGroups writes this pod's group lease rows and registers the pod. It is
+// called once per reconcile, after the vehicle leases are renewed and acquired.
+//
+//  1. Check the tokens held last pass (dry run: log and count, nothing acts).
+//  2. Upsert a row for every group whose vehicle leases are all mine and
+//     unexpired. A row this pod already holds and that has not expired keeps its
+//     epoch; any other acquire or steal takes a new one. A row held by another pod
+//     is taken only once it has expired.
+//  3. Delete this pod's rows for groups it no longer fully holds.
+func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
+	var res GroupResult
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO lease_pods (pod_id, generation, started_at, seen_at)
+		VALUES ($1, $2, now(), now())
+		ON CONFLICT (pod_id) DO UPDATE SET generation = EXCLUDED.generation, seen_at = now()`,
+		s.podID, generation()); err != nil {
+		return res, fmt.Errorf("lease pod register: %w", err)
+	}
+
+	s.groupMu.Lock()
+	prev := make([]GroupToken, 0, len(s.groups))
+	for g, e := range s.groups {
+		prev = append(prev, GroupToken{Group: g, Epoch: e})
+	}
+	s.groupMu.Unlock()
+	sort.Slice(prev, func(i, j int) bool { return prev[i].Group < prev[j].Group })
+	if len(prev) > 0 {
+		gs := make([]string, len(prev))
+		es := make([]int64, len(prev))
+		for i, t := range prev {
+			gs[i], es[i] = t.Group, t.Epoch
+		}
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT t.g FROM unnest($1::text[], $2::bigint[]) AS t(g, e)
+			 WHERE NOT rivolt_lease_ok(t.g::uuid, $3, t.e)`, gs, es, s.podID)
+		if err != nil {
+			return res, fmt.Errorf("lease fence dry run: %w", err)
+		}
+		for rows.Next() {
+			var g string
+			if err := rows.Scan(&g); err != nil {
+				_ = rows.Close()
+				return res, err
+			}
+			res.DryRunRejected = append(res.DryRunRejected, g)
+		}
+		if err := rows.Close(); err != nil {
+			return res, err
+		}
+	}
+
+	rows, err := s.db.QueryContext(ctx, userGroups+`,
+	gv AS (
+	    SELECT DISTINCT g.gid, v.rivian_vehicle_id AS vid
+	      FROM vehicles v JOIN grp g ON g.user_id = v.user_id
+	     WHERE v.rivian_vehicle_id <> '' AND v.rivian_vehicle_id NOT LIKE 'electrafi-%'
+	), held AS (
+	    SELECT gv.gid
+	      FROM gv LEFT JOIN subscription_leases l
+	        ON l.vehicle_id = gv.vid AND l.pod_id = $1 AND l.expires_at > now()
+	     GROUP BY gv.gid
+	    HAVING bool_and(l.vehicle_id IS NOT NULL)
+	)
+	INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+	SELECT held.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval FROM held
+	ON CONFLICT (group_id) DO UPDATE SET
+	    pod_id      = EXCLUDED.pod_id,
+	    epoch       = CASE WHEN account_leases.pod_id = EXCLUDED.pod_id AND account_leases.expires_at > now()
+	                       THEN account_leases.epoch ELSE EXCLUDED.epoch END,
+	    acquired_at = CASE WHEN account_leases.pod_id = EXCLUDED.pod_id AND account_leases.expires_at > now()
+	                       THEN account_leases.acquired_at ELSE EXCLUDED.acquired_at END,
+	    renewed_at  = EXCLUDED.renewed_at,
+	    expires_at  = EXCLUDED.expires_at
+	WHERE account_leases.pod_id = EXCLUDED.pod_id OR account_leases.expires_at < now()
+	RETURNING group_id::text, epoch`, s.podID, fmt.Sprintf("%d seconds", int(s.ttl.Seconds())))
+	if err != nil {
+		return res, fmt.Errorf("lease groups: %w", err)
+	}
+	now := map[string]int64{}
+	for rows.Next() {
+		var g string
+		var e int64
+		if err := rows.Scan(&g, &e); err != nil {
+			_ = rows.Close()
+			return res, err
+		}
+		now[g] = e
+	}
+	if err := rows.Close(); err != nil {
+		return res, err
+	}
+
+	keep := make([]string, 0, len(now))
+	for g := range now {
+		keep = append(keep, g)
+	}
+	sort.Strings(keep)
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM account_leases WHERE pod_id = $1 AND group_id::text <> ALL($2::text[])`,
+		s.podID, keep); err != nil {
+		return res, fmt.Errorf("lease groups release: %w", err)
+	}
+
+	s.groupMu.Lock()
+	s.groups = now
+	s.groupMu.Unlock()
+	res.Held = len(now)
+	return res, nil
+}
+
+// GroupTokens returns the fence tokens this pod holds, as of the last RenewGroups.
+func (s *Store) GroupTokens() []GroupToken {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	out := make([]GroupToken, 0, len(s.groups))
+	for g, e := range s.groups {
+		out = append(out, GroupToken{Group: g, Epoch: e})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Group < out[j].Group })
+	return out
+}
+
+// releaseGroups deletes this pod's group rows and its pod row.
+func (s *Store) releaseGroups(ctx context.Context) error {
+	s.groupMu.Lock()
+	s.groups = map[string]int64{}
+	s.groupMu.Unlock()
+	var errs []error
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_leases WHERE pod_id = $1`, s.podID); err != nil {
+		errs = append(errs, err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM lease_pods WHERE pod_id = $1`, s.podID); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}

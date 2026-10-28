@@ -406,6 +406,11 @@ func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 		 )`, uid); err != nil {
 		return err
 	}
+	// The user's own group lease row (M1 of the single-owner design; a group's id
+	// is its smallest user id). The holder also drops it on its next pass.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_leases WHERE group_id = $1`, uid); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM charges_deleted_backup WHERE user_id = $1`, uid); err != nil {
 		return err
 	}
