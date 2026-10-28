@@ -74,9 +74,6 @@ type syncSeen struct {
 	applied  bool   // the session version has been reconciled at least once
 	restored string // the session token this syncer last put into the account itself
 	version  time.Time
-	flagSeen bool // the flag has been reconciled at least once
-	needs    bool
-	reason   string
 	checking bool
 	checked  time.Time
 }
@@ -237,6 +234,10 @@ func (s *AccountSyncer) finish(uid uuid.UUID, checked bool) {
 	s.mu.Unlock()
 }
 
+type sessionVersioner interface {
+	SetSessionVersion(time.Time)
+}
+
 type reauthSetter interface {
 	SetNeedsReauth(needs bool, reason string)
 }
@@ -271,7 +272,6 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 	s.mu.Lock()
 	e := s.entry(uid)
 	versionChanged := !e.applied || !e.version.Equal(st.SessionVersion)
-	flagChanged := !e.flagSeen || e.needs != st.NeedsReauth || e.reason != st.Reason
 	s.mu.Unlock()
 
 	change := SyncChange(0)
@@ -312,16 +312,22 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 		s.mu.Unlock()
 	}
 
-	if flagChanged {
-		if rs, ok := a.(reauthSetter); ok {
-			cur, curReason := a.NeedsReauth()
-			if cur != st.NeedsReauth || (st.NeedsReauth && curReason != st.Reason) {
-				rs.SetNeedsReauth(st.NeedsReauth, st.Reason)
-			}
+	// This pod now knows its session by the stored version, unless it holds a newer one it
+	// has not stored yet.
+	if vs, ok := a.(sessionVersioner); ok && !st.SessionVersion.IsZero() {
+		if local := a.Snapshot(); local.UserSessionToken != "" && !local.AuthenticatedAt.After(st.SessionVersion) {
+			vs.SetSessionVersion(st.SessionVersion)
 		}
-		s.mu.Lock()
-		e.flagSeen, e.needs, e.reason = true, st.NeedsReauth, st.Reason
-		s.mu.Unlock()
+	}
+
+	// The database is the truth for the flag: any mismatch is corrected, every round (a
+	// flag a pod raised but the database refused, or never got, does not outlive the next
+	// sync).
+	if rs, ok := a.(reauthSetter); ok {
+		cur, curReason := a.NeedsReauth()
+		if cur != st.NeedsReauth || (st.NeedsReauth && curReason != st.Reason) {
+			rs.SetNeedsReauth(st.NeedsReauth, st.Reason)
+		}
 	}
 
 	if change != 0 {

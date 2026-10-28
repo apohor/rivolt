@@ -98,6 +98,9 @@ type LiveClient struct {
 	reauthSink func(ctx context.Context, reason string)
 	// reauthGuard, when set, can veto a needs_reauth raise (see WithReauthGuard).
 	reauthGuard func(ctx context.Context, usedSess string) bool
+	// sessionVersion is the stored session's updated_at (unix nanos) this client last
+	// knew it by, 0 when unknown. See SessionVersion.
+	sessionVersion atomic.Int64
 
 	mu               sync.Mutex
 	csrfToken        string
@@ -417,6 +420,34 @@ func withUsedSession(ctx context.Context, uSess string) context.Context {
 	return context.WithValue(ctx, usedSessKey{}, uSess)
 }
 
+// SetSessionVersion records the stored session version (user_secrets updated_at) this
+// client's session corresponds to; the zero time means unknown.
+func (c *LiveClient) SetSessionVersion(v time.Time) {
+	if v.IsZero() {
+		c.sessionVersion.Store(0)
+		return
+	}
+	c.sessionVersion.Store(v.UnixNano())
+}
+
+// SessionVersion is what SetSessionVersion last set (zero when unknown).
+func (c *LiveClient) SessionVersion() time.Time {
+	n := c.sessionVersion.Load()
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n).UTC()
+}
+
+type sessionVersionKey struct{}
+
+// SessionVersionFrom is the session version a reauth sink call was made under (see
+// db.RaiseNeedsReauthIfCurrent); zero when unknown.
+func SessionVersionFrom(ctx context.Context) time.Time {
+	v, _ := ctx.Value(sessionVersionKey{}).(time.Time)
+	return v
+}
+
 // WithReauthGuard installs a check run before a rejected call raises needs_reauth.
 // superseded gets the u-sess the failed call used and reports whether the stored session
 // is a different, newer one (the user signed in again on another pod and this client has
@@ -439,7 +470,7 @@ func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 		return
 	}
 	if c.reauthSink != nil {
-		c.reauthSink(ctx, reason)
+		c.reauthSink(context.WithValue(ctx, sessionVersionKey{}, c.SessionVersion()), reason)
 	}
 }
 

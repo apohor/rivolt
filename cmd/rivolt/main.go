@@ -819,7 +819,10 @@ func runServer() {
 					}
 					return
 				}
-				transitioned, err := db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				// Only if the session this client failed with is still the stored one: a
+				// pod that has not yet caught up with a sign-in elsewhere must not flag the
+				// user, nor send the email, right after they signed in.
+				transitioned, err := db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, rivian.SessionVersionFrom(sinkCtx))
 				if err != nil {
 					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
 					return

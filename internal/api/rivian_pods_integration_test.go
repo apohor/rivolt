@@ -6,8 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,9 +30,12 @@ type rivianPod struct {
 	raw    func(uuid.UUID) rivian.Account
 	syncer *rivian.AccountSyncer
 	status http.HandlerFunc
+	// emails counts the raises that would send the re-auth email (the rising edge).
+	emails *atomic.Int32
 }
 
 func newRivianPod(ctx context.Context, pool *sql.DB, store *secrets.Store) *rivianPod {
+	emails := &atomic.Int32{}
 	reg := rivian.NewLiveAccountRegistry(func(uid uuid.UUID) *rivian.LiveClient {
 		lc := rivian.NewLive()
 		lc.WithReauthSink(func(sctx context.Context, reason string) {
@@ -38,7 +43,10 @@ func newRivianPod(ctx context.Context, pool *sql.DB, store *secrets.Store) *rivi
 				_ = db.SetNeedsReauth(sctx, pool, uid, "")
 				return
 			}
-			_, _ = db.RaiseNeedsReauth(sctx, pool, uid, reason)
+			// As cmd/rivolt: only if the failing client's session is still the stored one.
+			if tr, _ := db.RaiseNeedsReauthIfCurrent(sctx, pool, uid, reason, rivian.SessionVersionFrom(sctx)); tr {
+				emails.Add(1)
+			}
 		})
 		if needs, why, err := db.GetNeedsReauth(ctx, pool, uid); err == nil && needs {
 			lc.SetNeedsReauth(true, why)
@@ -54,7 +62,7 @@ func newRivianPod(ctx context.Context, pool *sql.DB, store *secrets.Store) *rivi
 	})
 	syn := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pool, store), att.Raw, nil)
 	att.AttachSyncer(syn)
-	return &rivianPod{reg: reg, raw: att.Raw, syncer: syn, status: handleRivianStatus(reg, store, pool, nil, nil, nil)}
+	return &rivianPod{reg: reg, raw: att.Raw, syncer: syn, status: handleRivianStatus(reg, store, pool, nil, nil, nil), emails: emails}
 }
 
 // get is GET /api/settings/rivian/ as the user, served by this pod.
@@ -191,5 +199,73 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 	}
 	if got := a.token(u2); got != "newer" {
 		t.Fatalf("the other user's session lost with someone else's sign-out: %q", got)
+	}
+}
+
+// A3: right after a fresh sign-in on A, B still holds the old session (it has not synced
+// yet) and Rivian rejects it. That rejection must not flag the user or send the email,
+// and one against the stored session still must. The check is in the UPDATE itself, so a
+// sign-in landing between B's read and write cannot lose.
+func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, "stale-pod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer rejecting.Close()
+
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-179 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	a, b := newRivianPod(ctx, pool, store), newRivianPod(ctx, pool, store)
+	a.get(ctx, t, uid)
+	b.get(ctx, t, uid) // B has the old session and knows its stored version
+
+	// The user signs in again on A.
+	time.Sleep(50 * time.Millisecond)
+	fresh := rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)}
+	a.raw(uid).Restore(fresh)
+	if err := secrets.SaveRivianSession(ctx, store, uid, fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	// B's stale client calls Rivian before its next sync (b.raw does not sync).
+	lc := b.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway")
+	if _, err := lc.Vehicles(ctx); err == nil {
+		t.Fatal("expected Rivian's 401")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs {
+		t.Fatal("a stale pod's rejection flagged the user right after a fresh sign-in")
+	}
+	if n := b.emails.Load(); n != 0 {
+		t.Fatalf("a stale pod's rejection would send %d re-auth email(s) right after a fresh sign-in", n)
+	}
+	// B converges and, holding the fresh session, is then rejected for real: that flags once.
+	if s := b.get(ctx, t, uid); s.NeedsReauth || b.token(uid) != "fresh" {
+		t.Fatalf("B did not converge: %+v token=%q", s, b.token(uid))
+	}
+	if _, err := b.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway").Vehicles(ctx); err == nil {
+		t.Fatal("expected Rivian's 401")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
+		t.Fatal("a rejection of the stored session must flag the user")
+	}
+	if n := b.emails.Load(); n != 1 {
+		t.Fatalf("re-auth emails = %d, want 1", n)
+	}
+	// Every pod then agrees.
+	if s := a.get(ctx, t, uid); !s.NeedsReauth {
+		t.Fatalf("pod A did not see the flag: %+v", s)
 	}
 }

@@ -71,6 +71,34 @@ func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason s
 	return n > 0, nil
 }
 
+// RaiseNeedsReauthIfCurrent is RaiseNeedsReauth for a rejection seen by a client that
+// loaded the user's stored Rivian session at loaded (the session row's updated_at). If the
+// stored session has been replaced since (a newer updated_at: the user signed in again on
+// another pod and this client has not caught up), the rejection says nothing about the
+// real session: the flag is not raised and no email follows (transitioned is false). The
+// check and the update are one statement, so a sign-in landing between them cannot lose.
+// A zero loaded means the client does not know its session's version: no check.
+func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID, reason string, loaded time.Time) (transitioned bool, err error) {
+	if loaded.IsZero() {
+		return RaiseNeedsReauth(ctx, d, userID, reason)
+	}
+	const q = `UPDATE users
+		SET needs_reauth = TRUE,
+		    needs_reauth_reason = $2,
+		    needs_reauth_at = $3,
+		    needs_reauth_notified_at = $3
+		WHERE id = $1 AND needs_reauth = FALSE
+		  AND NOT EXISTS (
+		    SELECT 1 FROM user_secrets us
+		    WHERE us.user_id = $1 AND us.name = 'rivian.session' AND us.updated_at > $4)`
+	res, err := d.ExecContext(ctx, q, userID, reason, time.Now().UTC(), loaded.UTC())
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ReauthNudge is a user still stuck needing Rivian re-auth who is a
 // candidate for a (re-)notification email.
 type ReauthNudge struct {
