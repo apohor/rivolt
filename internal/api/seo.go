@@ -29,6 +29,7 @@ const (
 	pathLeaseCalc   = "/lease-calculator"
 	pathChangelog   = "/changelog"
 	pathChargeCost  = "/charging-cost"
+	pathR2Guide     = "/r2"
 )
 
 const (
@@ -81,6 +82,12 @@ var seoPages = map[string]map[string]seoPage{
 			desc:  "What Rivolt keeps, what it does, how to undo it, and why a separate Authorized Driver account is the safest way to connect. " + notAffiliated,
 			summary: "Connect a separate Authorized Driver account if you can. Rivolt keeps your Rivian email and an encrypted session token, never your password. " +
 				"It is read-only and can't control your truck; sign out in Settings or remove the driver in the Rivian app to undo it. It is unofficial and can break. " + notAffiliated,
+		},
+		pathR2Guide: {
+			title: "Your first week with an R2 in Rivolt",
+			desc:  "How to connect a Rivian R2 to Rivolt, what is recorded on the first R2s, what is still unconfirmed, and how to tell us what looks wrong. " + notAffiliated,
+			summary: "A first-week guide for Rivian R2 owners: connect an Authorized Driver account, what Rivolt records on the first R2s (drives, charges, battery, " +
+				"range, location, temperatures, tire pressure, sleep state), what is not shown for an R2 yet, and how to report what looks wrong. " + notAffiliated,
 		},
 		pathSupport: {
 			title:   "Rivolt support",
@@ -184,6 +191,9 @@ func llmsTxt(host string) (string, bool) {
 	}
 	if _, ok := pages[pathChargeCost]; ok {
 		b.WriteString("- [How much does it cost to charge a Rivian at home?](" + base + pathChargeCost + "): a worked example and a free calculator\n")
+	}
+	if _, ok := pages[pathR2Guide]; ok {
+		b.WriteString("- [Your first week with an R2](" + base + pathR2Guide + "): what is recorded on the first R2s and what is not yet\n")
 	}
 	if _, ok := pages[pathSafeConnect]; ok {
 		b.WriteString("- [Is it safe to connect my Rivian account?](" + base + pathSafeConnect + "): what is kept and how to undo it\n")
@@ -336,7 +346,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range append([]string{"/", "/privacy", "/terms", pathSupport, pathLeaseCalc, pathChargeCost, pathSafeConnect, pathElectraFi, pathChangelog}, sampleTripPaths()...) {
+	for _, p := range append([]string{"/", "/privacy", "/terms", pathSupport, pathLeaseCalc, pathChargeCost, pathR2Guide, pathSafeConnect, pathElectraFi, pathChangelog}, sampleTripPaths()...) {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}

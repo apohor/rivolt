@@ -111,6 +111,19 @@ func TestSEOInjection(t *testing.T) {
 			t.Error("demo host must not index it")
 		}
 	})
+	t.Run("the R2 guide is public on the app host only", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/r2").Body.String()
+		if !strings.Contains(b, "<title>Your first week with an R2 in Rivolt</title>") || !strings.Contains(b, `href="https://rivolt.dev/r2"`) {
+			t.Error("head not injected")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "https://rivolt.dev/r2") ||
+			!strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/r2") {
+			t.Error("not in sitemap and llms.txt")
+		}
+		if seoGet(t, h, "demo.rivolt.dev", "/r2").Header().Get("X-Robots-Tag") != "noindex" {
+			t.Error("demo host must not index it")
+		}
+	})
 	t.Run("changelog is public on the app host only", func(t *testing.T) {
 		b := seoGet(t, h, "rivolt.dev", "/changelog").Body.String()
 		// The head is html.EscapeString'd, so the apostrophe is &#39;.
