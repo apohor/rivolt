@@ -3,8 +3,11 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -88,7 +91,8 @@ func TestRivianSignInTimeIsRecordedAndTheSweepNeverOpensSessions(t *testing.T) {
 	if err := store.Put(ctx, old, "rivian.session", []byte(`{"user_session_token":"t","authenticated_at":"`+oldAt.UTC().Format(time.RFC3339)+`"}`)); err != nil {
 		t.Fatal(err)
 	}
-	lister := secrets.NewRivianSessionLister(pool, store)
+	var logBuf bytes.Buffer
+	lister := secrets.NewRivianSessionLister(pool, store).WithLog(slog.New(slog.NewTextHandler(&logBuf, nil)))
 	got := entriesByUser(ctx, t, lister)
 	if !got[old].SignedIn.Equal(oldAt) {
 		t.Fatalf("backfilled time = %v, want %v", got[old].SignedIn, oldAt)
@@ -100,11 +104,19 @@ func TestRivianSignInTimeIsRecordedAndTheSweepNeverOpensSessions(t *testing.T) {
 		t.Errorf("a session with no sign-in time reported %v", got[a].SignedIn)
 	}
 
+	if !strings.Contains(logBuf.String(), "missing=2") {
+		t.Errorf("the first pass should log the two sessions it had to backfill:\n%s", logBuf.String())
+	}
+	logBuf.Reset()
+
 	// From then on a pass opens nothing, and the times are the same.
 	before := sealer.opens.Load()
 	again := entriesByUser(ctx, t, lister)
 	if n := sealer.opens.Load() - before; n != 0 {
 		t.Errorf("a pass opened %d sessions after the backfill", n)
+	}
+	if !strings.Contains(logBuf.String(), "missing=0") {
+		t.Errorf("a pass after the backfill should log missing=0:\n%s", logBuf.String())
 	}
 	if !again[old].SignedIn.Equal(oldAt) || !again[a].SignedIn.IsZero() {
 		t.Errorf("times changed: %+v", again)
