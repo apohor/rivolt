@@ -86,6 +86,7 @@ import (
 	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/syntheticplan"
 	"github.com/apohor/rivolt/internal/tracing"
+	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
@@ -1341,6 +1342,26 @@ func runServer() {
 				}
 			})
 			go checker.Run(ctx)
+			// Trip recap (internal/api/trip_recap.go): after a drive closes, a push to the user who
+			// turned "Trip recap" on, when the drive finished a saved trip. Off by default, through engage.
+			if pushSvc != nil && pushFactory != nil {
+				recap := api.NewTripRecap(pgPool, trips.NewFactory(pgPool), settingsFactory, msEngage,
+					func(ctx context.Context, uid uuid.UUID, p push.Payload) error {
+						store := pushFactory.For(uid)
+						if store == nil {
+							return errors.New("push: no store")
+						}
+						_, err := pushSvc.DeliverTripRecap(ctx, store, p)
+						return err
+					}, logger)
+				monitorRegistry.AddDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
+					return func(ctx context.Context, _ drives.Drive) {
+						ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+						defer cancel()
+						recap.OnDriveClose(ctx, uid)
+					}
+				})
+			}
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.

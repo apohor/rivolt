@@ -44,12 +44,19 @@ func TestEngagementSettings(t *testing.T) {
 	}
 
 	code, s := do(a.get, "GET", "", false)
-	if code != 200 || s.WeeklyRecap || s.PlugThresholdPct != 40 || s.PlugRemindAt != "20:00" || s.TimezoneStored || s.Timezone != "" {
+	if code != 200 || s.WeeklyRecap || s.TripRecap || s.PlugThresholdPct != 40 || s.PlugRemindAt != "20:00" || s.TimezoneStored || s.Timezone != "" {
 		t.Fatalf("defaults: %d %+v", code, s)
 	}
 	code, s = do(a.put, "PUT", `{"timezone":"America/Chicago","weekly_recap":true,"plug_threshold_pct":30,"plug_remind_at":"21:15"}`, false)
 	if code != 200 || !s.WeeklyRecap || s.PlugThresholdPct != 30 || s.PlugRemindAt != "21:15" || !s.TimezoneStored || s.Timezone != "America/Chicago" {
 		t.Fatalf("saved: %d %+v", code, s)
+	}
+	// The trip recap is off until chosen, saved on its own, and keeps the other switches.
+	if code, s = do(a.put, "PUT", `{"trip_recap":true}`, false); code != 200 || !s.TripRecap || !s.WeeklyRecap {
+		t.Errorf("trip recap on: %d %+v", code, s)
+	}
+	if code, s = do(a.put, "PUT", `{"trip_recap":false,"weekly_recap":true}`, false); code != 200 || s.TripRecap || !s.WeeklyRecap {
+		t.Errorf("trip recap off: %d %+v", code, s)
 	}
 	// A partial update keeps the rest.
 	if code, s = do(a.put, "PUT", `{"weekly_recap":false}`, false); code != 200 || s.WeeklyRecap || s.PlugThresholdPct != 30 || s.Timezone != "America/Chicago" {
