@@ -774,6 +774,8 @@ func runServer() {
 			}
 		}
 
+		// Set once the registry exists (below); read by each client's reauth guard.
+		var accountSyncer atomic.Pointer[rivian.AccountSyncer]
 		buildLive := func(uid uuid.UUID) *rivian.LiveClient {
 			lc := rivian.NewLive().WithRivoltVersion(version)
 			if flagsStore != nil {
@@ -801,6 +803,14 @@ func runServer() {
 			// email — the user's drives have silently stopped, and
 			// they won't see the in-app banner unless they sign in.
 			boundUID := uid
+			// A rejection of a session that another pod has since replaced says nothing
+			// about the user's real session: do not raise needs_reauth for it.
+			lc.WithReauthGuard(func(gctx context.Context, used string) bool {
+				if s := accountSyncer.Load(); s != nil {
+					return s.Superseded(gctx, boundUID, used)
+				}
+				return false
+			})
 			lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
 				// Empty reason is the clear signal (successful Login).
 				if reason == "" {
@@ -858,6 +868,7 @@ func runServer() {
 			Raw(uuid.UUID) rivian.Account
 		}); ok && pgPool != nil && secretsStore != nil {
 			syncer := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pgPool, secretsStore), att.Raw, logger)
+			accountSyncer.Store(syncer)
 			syncer.OnChange(func(uid uuid.UUID, change rivian.SyncChange) {
 				// A monitor already running here holds the old tokens (or none): stop it,
 				// and on a new session start it again on the new ones.

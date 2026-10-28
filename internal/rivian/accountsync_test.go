@@ -3,6 +3,9 @@ package rivian
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +22,7 @@ type fakeShared struct {
 	reason  string
 	err     error
 	reads   int
+	gone    bool // the users row was deleted
 }
 
 // signIn is what the login handler on some pod does: store the session and clear the flag.
@@ -48,6 +52,9 @@ func (f *fakeShared) States(_ context.Context, uids []uuid.UUID) (map[uuid.UUID]
 		return nil, f.err
 	}
 	out := map[uuid.UUID]AccountDBState{}
+	if f.gone {
+		return out, nil
+	}
 	for _, u := range uids {
 		out[u] = AccountDBState{SessionVersion: f.version, NeedsReauth: f.needs, Reason: f.reason}
 	}
@@ -250,5 +257,101 @@ func TestSyncerFollowsASignOutRightAfterASignInOnAnotherPod(t *testing.T) {
 	}
 	if len(*changes) != 2 || (*changes)[1] != SyncLoggedOut {
 		t.Fatalf("changes = %v, want replaced then logged out", *changes)
+	}
+}
+
+// A3: a stale client (it still holds the replaced session) is rejected by Rivian right
+// after the user signed in again elsewhere. That must not raise needs_reauth or mail
+// the user; a rejection of the session that IS the stored one still does.
+func TestRejectionOfAReplacedSessionDoesNotRaiseNeedsReauth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer server.Close()
+	uid := uuid.New()
+	shared := &fakeShared{}
+	shared.signIn(sessionOf("replaced", time.Now().Add(-time.Hour)))
+	syn := NewAccountSyncer(shared, func(uuid.UUID) Account { return nil }, nil)
+
+	call := func(token string) (*LiveClient, int) {
+		sinks := 0
+		c := NewLive()
+		c.endpoint = server.URL + "/gateway"
+		c.WithReauthSink(func(context.Context, string) { sinks++ })
+		c.WithReauthGuard(func(ctx context.Context, used string) bool { return syn.Superseded(ctx, uid, used) })
+		_, err := doGraphQLAt[map[string]any](context.Background(), c, c.endpoint,
+			graphQLRequest{OperationName: "getUserInfo", Query: "query getUserInfo { ok }"},
+			map[string]string{"u-sess": token})
+		if err == nil {
+			t.Fatal("expected the 401")
+		}
+		return c, sinks
+	}
+
+	// Signed in again elsewhere: the stored session is "current", the failing call used "replaced".
+	shared.signIn(sessionOf("current", time.Now()))
+	c, sinks := call("replaced")
+	if needs, _ := c.NeedsReauth(); needs || sinks != 0 {
+		t.Fatalf("a rejected replaced session raised needs_reauth (needs=%v, sink calls=%d)", needs, sinks)
+	}
+	// The stored session itself is rejected: that is the user's session dying.
+	c, sinks = call("current")
+	if needs, _ := c.NeedsReauth(); !needs || sinks != 1 {
+		t.Fatalf("a rejected current session must raise needs_reauth (needs=%v, sink calls=%d)", needs, sinks)
+	}
+}
+
+// A4: the users row is gone (account deleted): this pod drops the account's tokens and
+// forgets it, and the monitor is told.
+func TestSyncerDropsAnAccountWhoseUserWasDeleted(t *testing.T) {
+	uid := uuid.New()
+	shared := &fakeShared{}
+	shared.signIn(sessionOf("tok", time.Now().Add(-time.Hour)))
+	reg, syn, changes := podB(shared, uid)
+	acct := reg.For(uid)
+	if !acct.Authenticated() {
+		t.Fatal("setup: not signed in")
+	}
+	shared.mu.Lock()
+	shared.gone = true
+	shared.mu.Unlock()
+	syn.Touch(uid)
+	if acct.Authenticated() {
+		t.Fatal("the deleted user's tokens are still held in memory")
+	}
+	for _, u := range reg.Loaded() {
+		if u == uid {
+			t.Fatal("the deleted user's account is still in the registry")
+		}
+	}
+	if len(*changes) != 1 || (*changes)[0] != SyncLoggedOut {
+		t.Fatalf("changes = %v, want SyncLoggedOut (the monitor stops)", *changes)
+	}
+}
+
+// Fresh answers from the stored row and brings the pod's copy along, with no rate limit.
+func TestFreshReadsTheDatabaseOnEveryCall(t *testing.T) {
+	uid := uuid.New()
+	shared := &fakeShared{}
+	shared.signIn(sessionOf("tok", time.Now().Add(-time.Hour)))
+	reg, syn, _ := podB(shared, uid)
+	syn.minGap = time.Hour // For would not re-read; Fresh must
+	reg.For(uid)
+	shared.flag("session expired")
+	st, ok := reg.(interface {
+		Fresh(context.Context, uuid.UUID) (AccountDBState, bool)
+	}).Fresh(context.Background(), uid)
+	if !ok || !st.NeedsReauth || st.Reason != "session expired" {
+		t.Fatalf("Fresh = %+v ok=%v, want the stored flag", st, ok)
+	}
+	if needs, _ := reg.For(uid).NeedsReauth(); !needs {
+		t.Fatal("the pod's copy was not brought along by Fresh")
+	}
+	shared.flag("")
+	if st, _ := reg.(interface {
+		Fresh(context.Context, uuid.UUID) (AccountDBState, bool)
+	}).Fresh(context.Background(), uid); st.NeedsReauth {
+		t.Fatal("Fresh served a stale flag")
 	}
 }

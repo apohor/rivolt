@@ -218,6 +218,12 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 			}
 		}
 		needs, reason := lc.NeedsReauth()
+		// Whether the user must sign in again comes from the users row on every request,
+		// not from what this pod last remembered (the pod copy is brought in line with it
+		// by the same read).
+		if st, ok := freshAccountState(r.Context(), reg, uid); ok {
+			needs, reason = st.NeedsReauth, st.Reason
+		}
 		authd := lc.Authenticated()
 		writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{
 			Enabled:           true,
@@ -260,6 +266,19 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 			}()
 		}
 	}
+}
+
+// freshAccountState reads uid's stored Rivian account state through the registry's syncer
+// (which also reconciles this pod's copy); ok is false when the registry has none or the
+// database could not be read.
+func freshAccountState(ctx context.Context, reg rivian.AccountRegistry, uid uuid.UUID) (rivian.AccountDBState, bool) {
+	f, ok := reg.(interface {
+		Fresh(context.Context, uuid.UUID) (rivian.AccountDBState, bool)
+	})
+	if !ok {
+		return rivian.AccountDBState{}, false
+	}
+	return f.Fresh(ctx, uid)
 }
 
 type rivianLoginReq struct {

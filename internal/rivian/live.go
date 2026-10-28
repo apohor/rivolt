@@ -96,6 +96,8 @@ type LiveClient struct {
 	// reauthSink fires on classified UserAction errors so callers can
 	// persist users.needs_reauth. Best-effort; failures are not surfaced.
 	reauthSink func(ctx context.Context, reason string)
+	// reauthGuard, when set, can veto a needs_reauth raise (see WithReauthGuard).
+	reauthGuard func(ctx context.Context, usedSess string) bool
 
 	mu               sync.Mutex
 	csrfToken        string
@@ -404,8 +406,33 @@ func priorityFromContext(ctx context.Context) bool {
 	return v
 }
 
+// usedSessKey carries the u-sess a call was made with, so a rejection can be judged
+// against the stored session (see WithReauthGuard) without taking the client lock.
+type usedSessKey struct{}
+
+func withUsedSession(ctx context.Context, uSess string) context.Context {
+	if uSess == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, usedSessKey{}, uSess)
+}
+
+// WithReauthGuard installs a check run before a rejected call raises needs_reauth.
+// superseded gets the u-sess the failed call used and reports whether the stored session
+// is a different, newer one (the user signed in again on another pod and this client has
+// not caught up). Then the rejection says nothing about the user's real session, so the
+// flag stays down. It runs on the failure path while the client lock may be held: it
+// must not call back into the client.
+func (c *LiveClient) WithReauthGuard(superseded func(ctx context.Context, usedSess string) bool) *LiveClient {
+	c.reauthGuard = superseded
+	return c
+}
+
 // markNeedsReauth publishes the flag and fires the sink on the rising edge.
 func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
+	if used, _ := ctx.Value(usedSessKey{}).(string); used != "" && c.reauthGuard != nil && c.reauthGuard(ctx, used) {
+		return
+	}
 	next := &reauthSnapshot{needs: true, reason: reason}
 	prev := c.reauthState.Swap(next)
 	if prev != nil && prev.needs {
@@ -471,6 +498,7 @@ type graphQLResponse[T any] struct {
 // has no refresh path (verified against the Owner App), so a genuinely
 // dead u-sess fails the retry too and flips the flag exactly as before.
 func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, extraHeaders map[string]string) (T, error) {
+	ctx = withUsedSession(ctx, extraHeaders["u-sess"])
 	// Heal authenticated data-plane calls (those carrying u-sess). Note
 	// this is deliberately NOT gated on bypassReauth: the admin
 	// RefreshSession probe sets bypassReauth to get past the
@@ -526,6 +554,7 @@ func (c *LiveClient) sessionHeaders() (map[string]string, error) {
 // and API handlers behind the lock. The csrf heal, which rewrites the shared
 // tokens, takes the lock only for the refresh.
 func doGraphQLDetached[T any](ctx context.Context, c *LiveClient, req graphQLRequest, headers map[string]string) (T, error) {
+	ctx = withUsedSession(ctx, headers["u-sess"])
 	if headers["u-sess"] == "" || retriedCSRF(ctx) {
 		return doGraphQLAt[T](ctx, c, c.endpoint, req, headers)
 	}
@@ -661,6 +690,7 @@ func resultClass(ctx context.Context, err error) (string, bool) {
 // doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (result T, err error) {
 	var zero T
+	ctx = withUsedSession(ctx, extraHeaders["u-sess"])
 	skipBreaker := bypassBreaker(ctx)
 	if !skipBreaker {
 		if err := c.checkUpstream(ctx); err != nil {

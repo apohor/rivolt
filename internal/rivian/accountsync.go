@@ -37,6 +37,8 @@ type AccountSyncer struct {
 	mu       sync.Mutex
 	seen     map[uuid.UUID]*syncSeen
 	onChange func(uuid.UUID, SyncChange)
+	// forget evicts an account from the registry (set by AttachSyncer).
+	forget func(uuid.UUID)
 }
 
 // AccountDBState is what the database says about one user's Rivian account.
@@ -82,7 +84,7 @@ type syncSeen struct {
 // loginGrace is how long a sign-in made on this pod is trusted over a database that does
 // not show it yet: the client holds the new tokens a moment before the handler stores
 // them. It does not apply to a session the syncer itself copied from the database.
-const loginGrace = 30 * time.Second
+const loginGrace = 10 * time.Second
 
 // NewAccountSyncer builds a syncer. get returns the account for a user WITHOUT
 // triggering a sync (the registry's own lookup), or nil.
@@ -106,6 +108,52 @@ func (s *AccountSyncer) OnChange(fn func(uuid.UUID, SyncChange)) {
 	s.mu.Lock()
 	s.onChange = fn
 	s.mu.Unlock()
+}
+
+// Fresh reconciles one user's account now (no rate limit) and returns the state it read, for
+// the user-facing status: whether the user needs to sign in again is answered from the
+// database row, not from what this pod last remembered. ok is false when the database
+// could not be read; the caller then falls back to the pod's copy.
+func (s *AccountSyncer) Fresh(ctx context.Context, uid uuid.UUID) (AccountDBState, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	states, err := s.src.States(ctx, []uuid.UUID{uid})
+	if err != nil {
+		s.log.Warn("rivian account sync: read state", "user_id", uid.String(), "err", err.Error())
+		return AccountDBState{}, false
+	}
+	s.mu.Lock()
+	e := s.entry(uid)
+	busy := e.checking
+	if !busy {
+		e.checking = true
+	}
+	s.mu.Unlock()
+	if !busy {
+		s.finish(uid, s.apply(ctx, uid, states))
+	}
+	st, ok := states[uid]
+	return st, ok
+}
+
+// Superseded reports whether the stored session is a different one from usedSess, the
+// u-sess a rejected call was made with. A rejection of a session that was replaced
+// elsewhere is not the user's session dying, so it must not raise needs_reauth. When it
+// is superseded, this account is also brought up to date in the background. It does not
+// touch the account itself: it runs with the client lock held.
+func (s *AccountSyncer) Superseded(ctx context.Context, uid uuid.UUID, usedSess string) bool {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	sess, err := s.src.Session(rctx, uid)
+	if err != nil || sess.UserSessionToken == "" || sess.UserSessionToken == usedSess {
+		return false
+	}
+	go func() {
+		bctx, bcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer bcancel()
+		s.Fresh(bctx, uid)
+	}()
+	return true
 }
 
 // Touch reconciles one user's account if it was not checked within minGap. Failures are
@@ -198,11 +246,25 @@ type reauthSetter interface {
 // round tries again).
 func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uuid.UUID]AccountDBState) bool {
 	st, ok := states[uid]
-	if !ok {
-		return true // no users row: nothing to follow
-	}
 	a := s.get(uid)
 	if a == nil {
+		return true
+	}
+	if !ok {
+		// The users row is gone (the account was deleted): drop the account and its
+		// tokens from this pod, and stop its monitor.
+		a.Logout()
+		if s.forget != nil {
+			s.forget(uid)
+		}
+		s.mu.Lock()
+		delete(s.seen, uid)
+		fn := s.onChange
+		s.mu.Unlock()
+		s.log.Info("rivian account sync: user removed, account dropped", "user_id", uid.String())
+		if fn != nil {
+			fn(uid, SyncLoggedOut)
+		}
 		return true
 	}
 
