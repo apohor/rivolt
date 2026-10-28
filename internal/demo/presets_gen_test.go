@@ -74,6 +74,12 @@ var genTrips = []genTrip{
 	{"mammoth", "LA to Mammoth Lakes", genUnion, rivian.SamplePlace{Lat: 37.6511, Lon: -119.0365, Label: "Mammoth Mountain Main Lodge"}, 90, 10},
 	{"kettleman-city", "Pasadena to Kettleman City", genPasadena, rivian.SamplePlace{Lat: 35.9894, Lon: -119.9603, Label: "Kettleman City, CA"}, 90, 10},
 	{"san-francisco", "Pasadena to San Francisco", genPasadena, rivian.SamplePlace{Lat: 37.7955, Lon: -122.3937, Label: "Ferry Building, San Francisco"}, 90, 10},
+	// Sprint 12's route pages: public landmarks only.
+	{"seattle-portland", "Seattle to Portland", rivian.SamplePlace{Lat: 47.6097, Lon: -122.3422, Label: "Pike Place Market, Seattle"}, rivian.SamplePlace{Lat: 45.5189, Lon: -122.6790, Label: "Pioneer Courthouse Square, Portland"}, 90, 10},
+	{"denver-moab", "Denver to Moab", rivian.SamplePlace{Lat: 39.7527, Lon: -105.0002, Label: "Union Station, Denver"}, rivian.SamplePlace{Lat: 38.5733, Lon: -109.5498, Label: "Main Street, Moab"}, 90, 10},
+	{"sf-tahoe", "San Francisco to Lake Tahoe", rivian.SamplePlace{Lat: 37.7955, Lon: -122.3937, Label: "Ferry Building, San Francisco"}, rivian.SamplePlace{Lat: 38.9586, Lon: -119.9400, Label: "Heavenly Village, South Lake Tahoe"}, 90, 10},
+	{"la-phoenix", "LA to Phoenix", genUnion, rivian.SamplePlace{Lat: 33.4484, Lon: -112.0740, Label: "Downtown Phoenix"}, 90, 10},
+	{"nyc-boston", "New York to Boston", rivian.SamplePlace{Lat: 40.7580, Lon: -73.9855, Label: "Times Square, New York"}, rivian.SamplePlace{Lat: 42.3550, Lon: -71.0656, Label: "Boston Common, Boston"}, 90, 10},
 }
 
 func TestGeneratePresets(t *testing.T) {
@@ -230,7 +236,7 @@ func genPlan(ctx context.Context, vbase string, arch *chargers.Archive, elev *el
 				pick = s
 			}
 		}
-		arrive := round1(socAt(pick.along))
+		arrive := genRound1(socAt(pick.along))
 		clock = clock.Add(time.Duration((pick.along - pos) * secPerM * float64(time.Second)))
 		rest := (kwh[len(kwh)-1] - kwh[at(pick.along)]) / genPackKWh * 100
 		to := math.Min(math.Ceil(rest+g.targetSoC+genBuffer), genMaxDepart)
@@ -249,14 +255,14 @@ func genPlan(ctx context.Context, vbase string, arch *chargers.Archive, elev *el
 		chargeSec += secs
 		soc, pos = to, pick.along
 	}
-	arrive := round1(socAt(lengthM))
+	arrive := genRound1(socAt(lengthM))
 	clock = clock.Add(time.Duration((lengthM - pos) * secPerM * float64(time.Second)))
 	wps = append(wps, rivian.PlannedWaypoint{WaypointType: "DESTINATION", Name: g.to.Label, Latitude: g.to.Lat, Longitude: g.to.Lon,
 		ArrivalSoC: arrive, ArrivalReachableMeters: reach(arrive), ArrivalTimeUTC: stamp(clock), DistanceFromOriginMeters: math.Round(lengthM)})
 	return rivian.TripPlan{Status: "OK", ChargeStationsAvailable: true, Routes: []rivian.TripRoute{{
 		DestinationReached: true, TotalChargingDurationSec: int(chargeSec), TotalDriveDurationSec: int(math.Round(durSec)),
 		TotalTripDurationSec: int(math.Round(durSec + chargeSec)), TotalDriveDistanceMeters: math.Round(lengthM),
-		ArrivalSoC: arrive, ArrivalReachableMeters: reach(arrive), EnergyConsumptionKWh: round1(kwh[len(kwh)-1]),
+		ArrivalSoC: arrive, ArrivalReachableMeters: reach(arrive), EnergyConsumptionKWh: genRound1(kwh[len(kwh)-1]),
 		Waypoints: wps}}}, nil
 }
 
@@ -472,7 +478,7 @@ func lookupWait(r *elevation.Resolver, lat, lon float64) (float64, error) {
 	return 0, fmt.Errorf("elevation: no tile for %.4f,%.4f", lat, lon)
 }
 
-func round1(v float64) float64 { return math.Round(v*10) / 10 }
+func genRound1(v float64) float64 { return math.Round(v*10) / 10 }
 
 // writePresets writes index.json and one <id>.plan.json per preset,
 // indented, replacing what is there.
