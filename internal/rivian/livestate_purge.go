@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// LiveStatePurger removes every live-state key of a user from Redis: the in-flight drive and
+// LiveStatePurger removes every live-state key of a user from Redis (and the planner quota counters, which carry the user id in their names): the in-flight drive and
 // charge accumulators (<prefix>:livestate:<uid>:<vehicle>, which carry coordinates and a path,
 // up to LiveStateTTL) and the published state (…:state). Account deletion calls it so nothing
 // of the user outlives the account in Redis (privacy.md lists only logs and backups as copies
@@ -28,13 +28,20 @@ type LiveStatePurger struct {
 
 const purgeScanCount = 200
 
-func (p *LiveStatePurger) pattern(uid string) string {
+// patterns are the user's keys in Redis: the live-state snapshots (<prefix>:livestate:<uid>:…) and
+// the planner quota counters (<prefix>:planquota:<uid>:<hour>, a count per hour that carries the
+// user id in its name). The planner's leg cache is not here: it is keyed by a hash with no user id,
+// so it cannot be attributed to a user and expires in 15 minutes.
+func (p *LiveStatePurger) patterns(uid string) []string {
 	prefix := p.Prefix
 	if prefix == "" {
 		prefix = "rivolt"
 	}
 	// The user id is a UUID: it carries no glob characters.
-	return fmt.Sprintf("%s:livestate:%s:*", prefix, uid)
+	return []string{
+		fmt.Sprintf("%s:livestate:%s:*", prefix, uid),
+		fmt.Sprintf("%s:planquota:%s:*", prefix, uid),
+	}
 }
 
 // PurgeNow deletes the user's live-state keys now and returns how many it removed.
@@ -42,25 +49,28 @@ func (p *LiveStatePurger) PurgeNow(ctx context.Context, uid string) (int, error)
 	if p == nil || p.Rdb == nil || uid == "" {
 		return 0, nil
 	}
-	var cursor uint64
 	removed := 0
-	for {
-		keys, next, err := p.Rdb.Scan(ctx, cursor, p.pattern(uid), purgeScanCount).Result()
-		if err != nil {
-			return removed, fmt.Errorf("scan live state: %w", err)
-		}
-		if len(keys) > 0 {
-			n, err := p.Rdb.Del(ctx, keys...).Result()
+	for _, pattern := range p.patterns(uid) {
+		var cursor uint64
+		for {
+			keys, next, err := p.Rdb.Scan(ctx, cursor, pattern, purgeScanCount).Result()
 			if err != nil {
-				return removed, fmt.Errorf("delete live state: %w", err)
+				return removed, fmt.Errorf("scan user keys: %w", err)
 			}
-			removed += int(n)
-		}
-		cursor = next
-		if cursor == 0 {
-			return removed, nil
+			if len(keys) > 0 {
+				n, err := p.Rdb.Del(ctx, keys...).Result()
+				if err != nil {
+					return removed, fmt.Errorf("delete user keys: %w", err)
+				}
+				removed += int(n)
+			}
+			cursor = next
+			if cursor == 0 {
+				break
+			}
 		}
 	}
+	return removed, nil
 }
 
 // Purge deletes the user's live-state keys now (best effort: a failure is logged, never fatal
