@@ -703,9 +703,10 @@ the PR and in the type's comment.
   whole-table sweeps.
 - **Connection pools** are sized from the replica count:
   (replicas + 1 surge pod) × per-pod pool, plus everything else,
-  stays under `max_connections`. The system pool is 10 per pod
-  (`RIVOLT_DB_MAX_CONNS`, 1 to 100), the request pool 10
-  (`RIVOLT_REQUEST_DB_MAX_CONNS`); `rivolt_db_pool_wait_total` rising
+  stays under `max_connections`. The system pool is 20 per pod while
+  the request pool is off (it then serves requests too) and 10 once the
+  request pool is on (`RIVOLT_DB_MAX_CONNS`, 1 to 100, overrides either);
+  the request pool is 10 (`RIVOLT_REQUEST_DB_MAX_CONNS`); `rivolt_db_pool_wait_total` rising
   steadily means a pool is too small for the load. Past that, use a session-mode
   pooler, never transaction mode (row-level security sets a
   per-connection setting).

@@ -78,18 +78,29 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	return d, nil
 }
 
-// DefaultSystemMaxConns is the system pool's size per process. The system pool serves the
-// background work and the handlers that are not scoped to a user (sweeps, the monitor's
-// writes, migrations); requests run on the request pool. 10 per pod keeps (replicas + a surge
-// pod) of them, with the request pools (10 each), well under max_connections (100).
-const DefaultSystemMaxConns = 10
+// The system pool's default size per process depends on what else serves requests.
+//
+// With the request pool off (RIVOLT_REQUEST_DATABASE_URL unset: every self-hosted install, preview
+// and prod until row-level security stage 3), the system pool is the only pool and serves every
+// request as well as the background work, so it keeps today's 20 (prod's 7-day peak was 53
+// connections across 2 pods, about 26 each). With the request pool on, requests run on their own
+// pool (10) and the system pool serves only sweeps, the monitor's writes and migrations, so 10 is
+// enough: (replicas + a surge pod) x (10 + 10) stays inside max_connections.
+const (
+	DefaultSystemMaxConnsRequestPoolOff = 20
+	DefaultSystemMaxConnsRequestPoolOn  = 10
+)
 
-// SystemPoolMaxConns reads RIVOLT_DB_MAX_CONNS (1 to 100); anything else is DefaultSystemMaxConns.
-func SystemPoolMaxConns(getenv func(string) string) int {
-	if n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_DB_MAX_CONNS"))); err == nil && n >= 1 && n <= 100 {
-		return n
+// SystemPoolSize is the system pool's size and why: RIVOLT_DB_MAX_CONNS (1 to 100) when set to a
+// valid value, else the default for the mode (see above).
+func SystemPoolSize(getenv func(string) string) (n int, reason string) {
+	if v, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_DB_MAX_CONNS"))); err == nil && v >= 1 && v <= 100 {
+		return v, "RIVOLT_DB_MAX_CONNS"
 	}
-	return DefaultSystemMaxConns
+	if strings.TrimSpace(getenv("RIVOLT_REQUEST_DATABASE_URL")) != "" {
+		return DefaultSystemMaxConnsRequestPoolOn, "default with the request pool on"
+	}
+	return DefaultSystemMaxConnsRequestPoolOff, "default with the request pool off (the system pool serves requests too)"
 }
 
 // OpenNoMigrate connects and pings but never changes the schema. Repair
@@ -105,7 +116,7 @@ func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	}
 	// Modest pool, sized per pod (SystemPoolMaxConns): (replicas + a surge pod) x this, plus
 	// each pod's request pool and everything else, stays under max_connections.
-	n := SystemPoolMaxConns(os.Getenv)
+	n, _ := SystemPoolSize(os.Getenv)
 	d.SetMaxOpenConns(n)
 	d.SetMaxIdleConns(min(5, n))
 	if err := d.PingContext(ctx); err != nil {

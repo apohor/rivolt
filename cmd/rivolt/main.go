@@ -420,6 +420,10 @@ func runServer() {
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
 	appMetrics.RegisterDBPool("system", pgPool)
+	if pgPool != nil {
+		n, why := db.SystemPoolSize(os.Getenv)
+		logger.Info("system database pool", "max_conns", n, "because", why)
+	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
 	// pgPool stays the system pool: the monitor and recorder, background jobs, admin and pre-auth paths.

@@ -2,33 +2,51 @@ package db
 
 import "testing"
 
-func TestSystemPoolMaxConns(t *testing.T) {
-	env := func(v string) func(string) string {
+func TestSystemPoolSize(t *testing.T) {
+	env := func(maxConns, requestURL string) func(string) string {
 		return func(k string) string {
-			if k != "RIVOLT_DB_MAX_CONNS" {
-				t.Fatalf("read %s", k)
+			switch k {
+			case "RIVOLT_DB_MAX_CONNS":
+				return maxConns
+			case "RIVOLT_REQUEST_DATABASE_URL":
+				return requestURL
 			}
-			return v
+			t.Fatalf("read %s", k)
+			return ""
 		}
 	}
+	const url = "postgres://app@db/rivolt"
 	for _, c := range []struct {
-		in   string
-		want int
+		name, maxConns, requestURL string
+		want                       int
+		reasonHas                  string
 	}{
-		{"", 10}, // the default is 10 per pod, no longer 20
-		{"6", 6},
-		{" 12 ", 12},
-		{"100", 100},
-		{"0", 10},
-		{"101", 10},
-		{"-3", 10},
-		{"many", 10},
+		{"request pool off: today's 20, since the system pool serves requests too", "", "", 20, "request pool off"},
+		{"request pool on: 10, requests have their own pool", "", url, 10, "request pool on"},
+		{"blank request URL counts as off", "", "  ", 20, "request pool off"},
+		{"explicit value wins with the pool off", "6", "", 6, "RIVOLT_DB_MAX_CONNS"},
+		{"explicit value wins with the pool on", " 12 ", url, 12, "RIVOLT_DB_MAX_CONNS"},
+		{"upper bound", "100", url, 100, "RIVOLT_DB_MAX_CONNS"},
+		{"zero is not valid: the mode's default (off)", "0", "", 20, "request pool off"},
+		{"too large: the mode's default (on)", "101", url, 10, "request pool on"},
+		{"negative", "-3", "", 20, "request pool off"},
+		{"not a number", "many", url, 10, "request pool on"},
 	} {
-		if got := SystemPoolMaxConns(env(c.in)); got != c.want {
-			t.Errorf("RIVOLT_DB_MAX_CONNS=%q -> %d, want %d", c.in, got, c.want)
+		got, reason := SystemPoolSize(env(c.maxConns, c.requestURL))
+		if got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
+		}
+		if !contains(reason, c.reasonHas) {
+			t.Errorf("%s: reason %q, want it to mention %q", c.name, reason, c.reasonHas)
 		}
 	}
-	if DefaultSystemMaxConns != 10 {
-		t.Errorf("DefaultSystemMaxConns = %d, want 10", DefaultSystemMaxConns)
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
 	}
+	return false
 }
