@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/identity"
@@ -399,7 +400,9 @@ func mountHydraBridge(r chi.Router, hd hydraDeps) {
 // failLimiter counts failed logins per key in a sliding window and blocks a key
 // that has too many. Only failures count: a user who gets their password right is
 // never throttled by someone else's earlier guesses past the window. State is in
-// process (per pod), so the effective limit is up to pods x max.
+// process (per pod), so without Redis the effective limit is up to pods x max; with
+// withRedis the failures of every replica are counted together as well, and Redis being
+// unreachable falls back to the per-pod count (see sharedFails).
 type failLimiter struct {
 	max    int
 	window time.Duration
@@ -407,6 +410,8 @@ type failLimiter struct {
 	// onLockout, when set, is called once each time a key reaches the limit
 	// (never with the key, so no address leaves the limiter).
 	onLockout func()
+	// shared, when set, adds the cross-replica count.
+	shared *sharedFails
 
 	mu    sync.Mutex
 	fails map[string][]time.Time
@@ -414,6 +419,17 @@ type failLimiter struct {
 
 func newFailLimiter(max int, window time.Duration) *failLimiter {
 	return &failLimiter{max: max, window: window, now: time.Now, fails: map[string][]time.Time{}}
+}
+
+// withRedis counts this limiter's failures across replicas in rdb too, under name (which
+// keeps limiters with different keys apart) and the install's key prefix. A nil rdb leaves
+// the limiter per-pod. onFallback counts calls Redis could not serve.
+func (l *failLimiter) withRedis(rdb *redis.Client, prefix, name string, onFallback func()) *failLimiter {
+	if rdb == nil {
+		return l
+	}
+	l.shared = &sharedFails{rdb: rdb, prefix: prefix, name: name, max: l.max, window: l.window, now: l.now, onFallback: onFallback}
+	return l
 }
 
 // prune drops failures older than the window (caller holds mu).
@@ -435,16 +451,21 @@ func (l *failLimiter) prune(key string, now time.Time) []time.Time {
 // blocked reports how long until the key may try again (0: not blocked).
 func (l *failLimiter) blocked(key string) time.Duration {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := l.now()
 	ts := l.prune(key, now)
-	if len(ts) < l.max {
-		return 0
+	var wait time.Duration
+	if len(ts) >= l.max {
+		wait = ts[len(ts)-l.max].Add(l.window).Sub(now)
 	}
-	return ts[len(ts)-l.max].Add(l.window).Sub(now)
+	l.mu.Unlock()
+	if w, ok := l.shared.blocked(key); ok && w > wait {
+		wait = w
+	}
+	return wait
 }
 
 func (l *failLimiter) fail(key string) {
+	reached, sharedOK := l.shared.fail(key)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -455,7 +476,9 @@ func (l *failLimiter) fail(key string) {
 	}
 	ts := append(l.prune(key, now), now)
 	l.fails[key] = ts
-	if len(ts) == l.max && l.onLockout != nil {
+	// One lockout count per key reaching the limit: from the shared count when Redis
+	// answered, else from this pod's own.
+	if l.onLockout != nil && ((sharedOK && reached) || (!sharedOK && len(ts) == l.max)) {
 		l.onLockout()
 	}
 }
@@ -464,6 +487,7 @@ func (l *failLimiter) reset(key string) {
 	l.mu.Lock()
 	delete(l.fails, key)
 	l.mu.Unlock()
+	l.shared.reset(key)
 }
 
 // emailLimitKey is an opaque key for an address: the hash of its lower-cased form,
@@ -471,4 +495,12 @@ func (l *failLimiter) reset(key string) {
 func emailLimitKey(email string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
 	return hex.EncodeToString(sum[:16])
+}
+
+// failLimiterFallback is the counter hook for sharedFails (nil without metrics).
+func (d Deps) failLimiterFallback() func() {
+	if d.Metrics == nil {
+		return nil
+	}
+	return d.Metrics.FailLimiterFallbackTotal.Inc
 }

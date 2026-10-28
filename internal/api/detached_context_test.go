@@ -18,6 +18,7 @@ var detachedContextAllowed = map[string]struct {
 	why string
 }{
 	"admin_audit.go":     {1, "the audit row is an admin table written on the system pool"},
+	"faillimit_redis.go": {1, "bounds one Redis call on a hashed key: no store, no user"},
 	"events.go":          {1, "the retention purge: a system-pool job across users"},
 	"rivian.go":          {1, "notifyAdmin: sends mail, touches no store"},
 	"signup_requests.go": {1, "notifyAdmin: sends mail, touches no store"},
