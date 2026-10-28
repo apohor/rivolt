@@ -30,6 +30,7 @@ import (
 // Sessions and Rivian secrets have row-level security and are scoped like any per-user table.
 var appDeniedTables = []string{
 	"app_settings", "push_vapid", "migrations", "signup_requests", "idp_delete_failures", "subscription_leases",
+	"account_leases", "lease_pods",
 }
 
 // GrantApp applies the request role's grants. It returns (false, nil) without doing anything when the role

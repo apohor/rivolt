@@ -1732,6 +1732,10 @@ func runServer() {
 		// Heal a lease held without a subscription (an exited run, a
 		// monitor that never started): reconcile re-subscribes it and
 		// counts the episode.
+		coord.SetGroupObserver(
+			func(n int) { appMetrics.LeaseGroupsOwned.Set(float64(n)) },
+			func(n int) { appMetrics.LeaseDryRunRejections.Add(float64(n)) },
+		)
 		coord.SetStreamingCheck(monitorRegistry.Streaming)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has

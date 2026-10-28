@@ -47,6 +47,11 @@ type Store struct {
 	db    *sql.DB
 	podID string
 	ttl   time.Duration
+
+	// groups are the fence tokens of the group leases held as of the last
+	// RenewGroups, by group id. Guarded by groupMu.
+	groupMu sync.Mutex
+	groups  map[string]int64
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -62,7 +67,7 @@ func NewStore(db *sql.DB, podID string) (*Store, error) {
 	if podID == "" {
 		return nil, errors.New("leases: empty pod_id (set RIVOLT_POD_ID via downward API)")
 	}
-	return &Store{db: db, podID: podID, ttl: DefaultTTL}, nil
+	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}}, nil
 }
 
 // PodID returns the identity this Store acquires leases under.
@@ -278,6 +283,8 @@ func (s *Store) ReleaseAll(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("release-all: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	// The group rows go with the vehicle rows; a failure here only leaves them to expire.
+	_ = s.releaseGroups(ctx)
 	return int(n), nil
 }
 
@@ -310,6 +317,10 @@ type Coordinator struct {
 	// owned-lease count. The metrics package wires this to the
 	// rivolt_subscription_leases gauge. Optional.
 	onCountChange func(count int)
+
+	// onGroups and onDryRun report the group leases (SetGroupObserver).
+	onGroups func(held int)
+	onDryRun func(rejected int)
 
 	// authoritative, when set, returns the vehicle IDs this pod should
 	// hold a lease for right now. A lease this pod owns whose vehicle is
@@ -377,6 +388,12 @@ type storeAPI interface {
 	Renew(ctx context.Context) ([]string, error)
 	Release(ctx context.Context, vehicleID string) error
 	ReleaseAll(ctx context.Context) (int, error)
+}
+
+// groupRenewer is the optional part of a store that writes group leases (M1 of the
+// single-owner design). The real Store has it; the fakes in unit tests need not.
+type groupRenewer interface {
+	RenewGroups(ctx context.Context) (GroupResult, error)
 }
 
 // splitFinder is the optional part of a store that can find users split across
@@ -729,7 +746,38 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		}
 	}
 
+	c.renewGroups(rctx)
 	c.fireCount()
+}
+
+// SetGroupObserver wires the metrics for the group leases: held is told the number
+// of groups this pod holds after every pass, dryRun the number of tokens that
+// would have been refused. Optional.
+func (c *Coordinator) SetGroupObserver(held func(n int), dryRun func(n int)) {
+	c.onGroups, c.onDryRun = held, dryRun
+}
+
+// renewGroups writes the group leases next to the vehicle leases. Nothing acts on
+// them in M1: a failure is logged and the next tick tries again.
+func (c *Coordinator) renewGroups(ctx context.Context) {
+	gr, ok := c.store.(groupRenewer)
+	if !ok || c.isClosing() {
+		return
+	}
+	res, err := gr.RenewGroups(ctx)
+	if err != nil {
+		c.log.Warn("group lease renew failed", "err", err.Error())
+		return
+	}
+	for _, g := range res.DryRunRejected {
+		c.log.Warn("group lease token would be refused (dry run)", "group", g)
+	}
+	if c.onGroups != nil {
+		c.onGroups(res.Held)
+	}
+	if c.onDryRun != nil && len(res.DryRunRejected) > 0 {
+		c.onDryRun(len(res.DryRunRejected))
+	}
 }
 
 // healSplitUsers gives up the vehicles of a user that is also held by a pod with
