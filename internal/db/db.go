@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -77,6 +78,20 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	return d, nil
 }
 
+// DefaultSystemMaxConns is the system pool's size per process. The system pool serves the
+// background work and the handlers that are not scoped to a user (sweeps, the monitor's
+// writes, migrations); requests run on the request pool. 10 per pod keeps (replicas + a surge
+// pod) of them, with the request pools (10 each), well under max_connections (100).
+const DefaultSystemMaxConns = 10
+
+// SystemPoolMaxConns reads RIVOLT_DB_MAX_CONNS (1 to 100); anything else is DefaultSystemMaxConns.
+func SystemPoolMaxConns(getenv func(string) string) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_DB_MAX_CONNS"))); err == nil && n >= 1 && n <= 100 {
+		return n
+	}
+	return DefaultSystemMaxConns
+}
+
 // OpenNoMigrate connects and pings but never changes the schema. Repair
 // and maintenance commands use it: a binary newer than the database must
 // not apply pending migrations as a side effect.
@@ -88,12 +103,11 @@ func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open pgx: %w", err)
 	}
-	// Modest pool. Rivolt's workload is a single live state monitor
-	// plus occasional UI queries — 20 is plenty and keeps us well
-	// under Postgres's default 100-connection ceiling even with a
-	// couple of replicas behind an LB.
-	d.SetMaxOpenConns(20)
-	d.SetMaxIdleConns(5)
+	// Modest pool, sized per pod (SystemPoolMaxConns): (replicas + a surge pod) x this, plus
+	// each pod's request pool and everything else, stays under max_connections.
+	n := SystemPoolMaxConns(os.Getenv)
+	d.SetMaxOpenConns(n)
+	d.SetMaxIdleConns(min(5, n))
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)

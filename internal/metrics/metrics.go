@@ -20,6 +20,7 @@
 package metrics
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -541,4 +542,26 @@ func (m *Metrics) Handler() http.Handler {
 // gather expected samples without going through the HTTP handler.
 func (m *Metrics) Registry() *prometheus.Registry {
 	return m.reg
+}
+
+// RegisterDBPool exposes a database/sql pool's saturation under name ("system"): the
+// connections in use and the limit, and how many callers had to wait for one and for how
+// long. Waits are the signal that the pool is too small for the load; a sustained rate
+// after the pool was cut to 10 per pod means raise RIVOLT_DB_MAX_CONNS, not that the
+// database is slow. No labels beyond the pool's name.
+func (m *Metrics) RegisterDBPool(name string, d *sql.DB) {
+	if m == nil || d == nil {
+		return
+	}
+	lbl := prometheus.Labels{"pool": name}
+	m.reg.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "rivolt_db_pool_in_use", Help: "Connections in use in the pool.", ConstLabels: lbl},
+			func() float64 { return float64(d.Stats().InUse) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "rivolt_db_pool_max_open", Help: "The pool's connection limit.", ConstLabels: lbl},
+			func() float64 { return float64(d.Stats().MaxOpenConnections) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "rivolt_db_pool_wait_total", Help: "Callers that had to wait for a free connection.", ConstLabels: lbl},
+			func() float64 { return float64(d.Stats().WaitCount) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "rivolt_db_pool_wait_seconds_total", Help: "Total time callers waited for a free connection.", ConstLabels: lbl},
+			func() float64 { return d.Stats().WaitDuration.Seconds() }),
+	)
 }
