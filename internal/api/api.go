@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/apohor/rivolt/internal/adminaudit"
@@ -211,6 +212,10 @@ type Deps struct {
 	// facing login prompt.
 	Hydra  *hydra.Client
 	Kratos *kratos.Client
+	// Redis, when set, makes the failed-login limiters count across replicas (RedisPrefix is
+	// the install's key prefix). Nil leaves them per pod.
+	Redis       *redis.Client
+	RedisPrefix string
 	// HydraRememberFor controls how long Hydra remembers the
 	// user's login + consent before forcing a fresh prompt. Zero
 	// defers to Hydra's login_session lifespan. Sourced from the
@@ -688,7 +693,7 @@ func New(d Deps) http.Handler {
 				// leave a half-broken flow, so guard on both.
 				if d.Hydra != nil && d.Hydra.Enabled() &&
 					d.Kratos != nil && d.Kratos.Enabled() {
-					failures := newFailLimiter(10, 15*time.Minute)
+					failures := newFailLimiter(10, 15*time.Minute).withRedis(d.Redis, d.RedisPrefix, "login", d.failLimiterFallback())
 					if d.Metrics != nil {
 						failures.onLockout = d.Metrics.LoginLockoutsTotal.Inc
 					}

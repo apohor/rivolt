@@ -2577,6 +2577,8 @@ func runServer() {
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
 		PlanLegs:              planleg.New(sharedRedis, redisKeyPrefix, logger),
+		Redis:                 sharedRedis,
+		RedisPrefix:           redisKeyPrefix,
 		AdminHealth: adminhealth.New(adminhealth.Config{
 			DB: pgPool, Flags: flagsStore, Version: version,
 			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),

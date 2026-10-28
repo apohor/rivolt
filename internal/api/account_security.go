@@ -99,7 +99,7 @@ func (d Deps) accountSecurityAPI() *accountSecurityAPI {
 			return strings.TrimSpace(m.String), err
 		},
 		// 10 wrong current-passwords per address per 15 minutes, and per client address.
-		Failures: newFailLimiter(10, 15*time.Minute),
+		Failures: newFailLimiter(10, 15*time.Minute).withRedis(d.Redis, d.RedisPrefix, "account", d.failLimiterFallback()),
 		Logger:   logger,
 		Observe:  NewForgetObserver(d.Metrics),
 	}
