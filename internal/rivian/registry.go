@@ -1,7 +1,9 @@
 package rivian
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 )
@@ -44,6 +46,10 @@ type AccountRegistry interface {
 type liveAccountRegistry struct {
 	build func(uuid.UUID) *LiveClient
 
+	// sync, when attached, reconciles an account with the database before it is
+	// handed out (see AccountSyncer).
+	sync atomic.Pointer[AccountSyncer]
+
 	mu    sync.RWMutex
 	users map[uuid.UUID]*LiveClient
 }
@@ -64,7 +70,43 @@ func NewLiveAccountRegistry(build func(uuid.UUID) *LiveClient) AccountRegistry {
 	}
 }
 
+// AttachSyncer makes For reconcile the account with the database first (rate limited
+// by the syncer) and returns the lookup that does not, for the syncer's own use.
+func (r *liveAccountRegistry) AttachSyncer(s *AccountSyncer) {
+	s.forget = r.forget
+	r.sync.Store(s)
+}
+
+// forget drops uid's account from the registry; a later For builds it afresh.
+func (r *liveAccountRegistry) forget(uid uuid.UUID) {
+	r.mu.Lock()
+	delete(r.users, uid)
+	r.mu.Unlock()
+}
+
+// Fresh reconciles uid's account with the database now and returns the stored state
+// (see AccountSyncer.Fresh). ok is false without a syncer or when the database could not
+// be read.
+func (r *liveAccountRegistry) Fresh(ctx context.Context, uid uuid.UUID) (AccountDBState, bool) {
+	s := r.sync.Load()
+	if s == nil {
+		return AccountDBState{}, false
+	}
+	return s.Fresh(ctx, uid)
+}
+
+// Raw is For without the sync.
+func (r *liveAccountRegistry) Raw(uid uuid.UUID) Account { return r.lookup(uid) }
+
 func (r *liveAccountRegistry) For(uid uuid.UUID) Account {
+	a := r.lookup(uid)
+	if s := r.sync.Load(); s != nil && a != nil {
+		s.Touch(uid)
+	}
+	return a
+}
+
+func (r *liveAccountRegistry) lookup(uid uuid.UUID) Account {
 	r.mu.RLock()
 	c, ok := r.users[uid]
 	r.mu.RUnlock()

@@ -774,6 +774,8 @@ func runServer() {
 			}
 		}
 
+		// Set once the registry exists (below); read by each client's reauth guard.
+		var accountSyncer atomic.Pointer[rivian.AccountSyncer]
 		buildLive := func(uid uuid.UUID) *rivian.LiveClient {
 			lc := rivian.NewLive().WithRivoltVersion(version)
 			if flagsStore != nil {
@@ -801,6 +803,14 @@ func runServer() {
 			// email — the user's drives have silently stopped, and
 			// they won't see the in-app banner unless they sign in.
 			boundUID := uid
+			// A rejection of a session that another pod has since replaced says nothing
+			// about the user's real session: do not raise needs_reauth for it.
+			lc.WithReauthGuard(func(gctx context.Context, used string) bool {
+				if s := accountSyncer.Load(); s != nil {
+					return s.Superseded(gctx, boundUID, used)
+				}
+				return false
+			})
 			lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
 				// Empty reason is the clear signal (successful Login).
 				if reason == "" {
@@ -809,7 +819,26 @@ func runServer() {
 					}
 					return
 				}
-				transitioned, err := db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				// Only if the session this client failed with is still the stored one: a
+				// pod that has not yet caught up with a sign-in elsewhere must not flag the
+				// user, nor send the email, right after they signed in.
+				var transitioned bool
+				var err error
+				if accountSyncer.Load() != nil {
+					loaded := rivian.SessionVersionFrom(sinkCtx)
+					if loaded.IsZero() {
+						// The client does not know which stored session it holds yet; the
+						// next sync records it and the next rejection raises.
+						appMetrics.ReauthRaiseDeferred.Inc()
+						logger.Info("rivian reauth raise deferred: session version unknown", "user_id", boundUID.String())
+						return
+					}
+					transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, loaded)
+				} else {
+					// No account sync (no secrets store): there is no stored session to be
+					// stale against.
+					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				}
 				if err != nil {
 					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
 					return
@@ -849,6 +878,32 @@ func runServer() {
 			return lc
 		}
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
+		// Keep every pod's copy of each user's Rivian account in line with the database:
+		// a sign-in, sign-out or needs_reauth change made on one pod reaches the others
+		// within seconds (see rivian.AccountSyncer). Without a database or a secrets store
+		// there is nothing shared to follow.
+		if att, ok := accountRegistry.(interface {
+			AttachSyncer(*rivian.AccountSyncer)
+			Raw(uuid.UUID) rivian.Account
+		}); ok && pgPool != nil && secretsStore != nil {
+			syncer := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pgPool, secretsStore), att.Raw, logger)
+			accountSyncer.Store(syncer)
+			syncer.OnChange(func(uid uuid.UUID, change rivian.SyncChange) {
+				// A monitor already running here holds the old tokens (or none): stop it,
+				// and on a new session start it again on the new ones.
+				mr := monitorRegistry
+				if mr == nil || mr.For(uid) == nil {
+					return
+				}
+				mr.Stop(uid)
+				if change == rivian.SyncSessionReplaced {
+					mr.Start(ctx, uid)
+				}
+			})
+			att.AttachSyncer(syncer)
+			bg.Go(func() { syncer.Run(ctx, 5*time.Second, accountRegistry.Loaded) })
+			logger.Info("rivian account sync: enabled")
+		}
 		// Stub fallback for the unauthenticated stub-of-last-resort
 		// path. Per-user resolution at the handler layer always
 		// picks up the registry first (see clientFor in api).
