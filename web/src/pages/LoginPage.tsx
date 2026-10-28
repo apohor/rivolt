@@ -5,6 +5,7 @@ import { backend, type OIDCProvider } from "../lib/api";
 import { ProviderButton } from "../components/ProviderButton";
 import Logo from "../components/Logo";
 import { useAdminOnly, useSignupEnabled } from "../lib/config";
+import { SESSION_EXPIRED_TEXT, providerToRestart, readSigninProvider, rememberSigninProvider } from "../lib/signinDraft";
 
 // LoginPage is the cookie-issuing front door. It sits outside the
 // AppLayout route tree on purpose — no header, no nav, no API
@@ -18,7 +19,7 @@ import { useAdminOnly, useSignupEnabled } from "../lib/config";
 function signInErrorMessage(code: string, description: string): string {
   switch (code) {
     case "session_expired":
-      return "Your sign-in session expired. Please try again.";
+      return SESSION_EXPIRED_TEXT;
     case "idp_error":
       return description || "Your identity provider reported an error.";
     case "provider_error":
@@ -90,11 +91,23 @@ export default function LoginPage() {
   // hand-rolled redirect handling, because the browser must own
   // the cookie + Set-Cookie roundtrip.
   function startOIDC(p: OIDCProvider) {
+    rememberSigninProvider(p.name);
     const url = new URL(p.start_url, window.location.origin);
     if (nextPath && nextPath !== "/") {
       url.searchParams.set("return", nextPath);
     }
     window.location.assign(url.toString());
+  }
+
+  // "Start sign-in again": the provider chosen last, started afresh (the email typed on its form is kept for the new form); with none
+  // to repeat, the page without the error, to choose again.
+  function restartSignin() {
+    const again = providerToRestart(providers, readSigninProvider());
+    if (again) {
+      startOIDC(again);
+      return;
+    }
+    navigate(nextPath === "/" ? "/login" : `/login?next=${encodeURIComponent(nextPath)}`, { replace: true });
   }
 
   return (
@@ -132,6 +145,18 @@ export default function LoginPage() {
             className="mb-4 rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
           >
             {signInError}
+            {errorCode === "session_expired" && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  data-restart-signin
+                  onClick={restartSignin}
+                  className="rounded-md border border-rose-800 px-3 py-1.5 text-sm font-medium text-rose-100 hover:bg-rose-900/40"
+                >
+                  Start sign-in again
+                </button>
+              </div>
+            )}
           </div>
         )}
 

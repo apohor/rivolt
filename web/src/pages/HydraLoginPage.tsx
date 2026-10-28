@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError, backend } from "../lib/api";
 import Logo from "../components/Logo";
+import { forgetSigninEmail, readSigninEmail, rememberSigninEmail } from "../lib/signinDraft";
 import { getPasskey, passkeysSupported, signInFailureMessage } from "../lib/passkeys";
 
 // HydraLoginPage handles the browser side of an OIDC code flow when
@@ -70,7 +71,10 @@ export default function HydraLoginPage() {
           login_hint: m.login_hint,
           passkeys: m.passkeys === true,
         });
+        // The hint wins; otherwise what was typed before this form was restarted or reloaded (never the password).
+        const remembered = readSigninEmail();
         if (m.login_hint) setEmail(m.login_hint);
+        else if (remembered) setEmail((cur) => cur || remembered);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -98,6 +102,7 @@ export default function HydraLoginPage() {
       });
       // Full-page navigation: redirect_to is on Hydra's host and
       // sets a cookie there. A fetch follow would never see it.
+      forgetSigninEmail();
       window.location.assign(out.redirect_to);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -129,6 +134,7 @@ export default function HydraLoginPage() {
         return;
       }
       const out = await backend.hydraPasskeyFinish({ challenge: meta.challenge, ceremony_id: begin.ceremony_id, credential });
+      forgetSigninEmail();
       window.location.assign(out.redirect_to);
     } catch (err: unknown) {
       setFormError(signInFailureMessage(err));
@@ -178,7 +184,10 @@ export default function HydraLoginPage() {
                 autoComplete="username"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  rememberSigninEmail(e.target.value);
+                }}
                 className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-hidden focus:border-emerald-700"
               />
             </label>
