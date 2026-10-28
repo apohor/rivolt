@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
 import { Card } from "./ui";
@@ -48,6 +49,11 @@ export function R2CheckedContent() {
       </div>
       <p className="text-xs text-neutral-500">
         Outside temperature doesn&apos;t come through for any truck; Rivolt can look it up from weather data if you turn that on (off by default).
+      </p>
+      <p>
+        <Link to="/r2" className="text-emerald-300 underline">
+          Your first week with an R2
+        </Link>
       </p>
       <p>
         <a href={R2_REPORT_URL} target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
