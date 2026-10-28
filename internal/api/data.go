@@ -1282,6 +1282,9 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
+		if d.PurgeUserCaches != nil {
+			d.PurgeUserCaches(delCtx, uid)
+		}
 		// A failed IdP deletion is recorded for the admin page; the
 		// account is gone on our side either way.
 		idpStatus, _ := deleteFromIdP(delCtx, d.sysDB(), d.Users, username, d.Logger)

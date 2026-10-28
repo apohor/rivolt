@@ -334,8 +334,8 @@ func TestSyncerDropsAnAccountWhoseUserWasDeleted(t *testing.T) {
 			t.Fatal("the deleted user's account is still in the registry")
 		}
 	}
-	if len(*changes) != 1 || (*changes)[0] != SyncLoggedOut {
-		t.Fatalf("changes = %v, want SyncLoggedOut (the monitor stops)", *changes)
+	if len(*changes) != 1 || (*changes)[0] != SyncUserRemoved {
+		t.Fatalf("changes = %v, want SyncUserRemoved (the monitor stops and the user's Redis keys are deleted)", *changes)
 	}
 }
 

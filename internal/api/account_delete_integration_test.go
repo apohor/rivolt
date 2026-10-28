@@ -92,7 +92,8 @@ func TestAccountDelete_PurgesSignupRequestsAndRecordsIdPFailures(t *testing.T) {
 	// Admin deletes the account while the IdP is down.
 	provider := &flakyIdP{failing: true}
 	r := chi.NewRouter()
-	r.Delete("/users/{id}", handleAdminUserDelete(pool, provider, nil, nil))
+	var purged []uuid.UUID
+	r.Delete("/users/{id}", handleAdminUserDelete(pool, provider, nil, func(_ context.Context, uid uuid.UUID) { purged = append(purged, uid) }, nil))
 	r.Get("/idp-delete-failures", handleAdminIdPFailures(pool))
 	r.Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(pool, provider, nil))
 	do := func(method, path string) *httptest.ResponseRecorder {
@@ -106,6 +107,9 @@ func TestAccountDelete_PurgesSignupRequestsAndRecordsIdPFailures(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"idp":"failed"`) ||
 		!strings.Contains(rec.Body.String(), "503") {
 		t.Fatalf("admin delete = %d %s, want 200 with idp=failed", rec.Code, rec.Body.String())
+	}
+	if len(purged) != 1 || purged[0] != target {
+		t.Errorf("the Redis cleanup ran for %v, want exactly the deleted account %v", purged, target)
 	}
 	if n := countRequests("gone@example.com"); n != 0 {
 		t.Errorf("signup requests for the deleted account = %d, want 0 (case-insensitive purge)", n)
