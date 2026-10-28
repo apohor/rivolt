@@ -432,6 +432,13 @@ actor APIClient {
         try await request("GET", "/api/samples?since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))&limit=\(limit)&vehicle=\(queryValue(vehicleID))")
     }
 
+    // MARK: Rivian connection
+
+    /// The Rivian connection and, near the end of a sign-in, when it expires.
+    func rivianStatus() async throws -> RivianStatus {
+        try await request("GET", "/api/settings/rivian/")
+    }
+
     // MARK: Charging rates
 
     /// The home electricity rate and its currency.
