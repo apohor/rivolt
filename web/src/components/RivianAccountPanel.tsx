@@ -92,7 +92,9 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   });
 
   if (status.isLoading) return <Spinner />;
-  if (status.isError) {
+  // A refetch that fails while the panel already has an answer keeps showing that answer (the banner polls this same status every 15 s, and
+  // a blip must not swap a form someone is typing in for an error box).
+  if (status.isError && !status.data) {
     return (
       <ErrorBox title="Couldn't load Rivian status" detail={String(status.error)} />
     );
@@ -110,10 +112,18 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
     );
   }
 
-  if (s.authenticated) {
+  // The status is polled (every 15 s by the banner) and, with more than one server answering, can briefly disagree with itself. While
+  // someone is typing in the sign-in form, an answer that says "connected" must not swap the form away from under them: it waits until
+  // their own sign-in succeeds. Once it has, the connected view shows (and a stale "session expired" flag from before the sign-in is
+  // not shown over a sign-in that just worked).
+  const typing = (email !== "" || password !== "" || otp !== "") && !mfa.isSuccess;
+  const holdForm = typing && !(login.isSuccess && s.authenticated && otp === "");
+  const justSignedIn = login.isSuccess || mfa.isSuccess;
+
+  if (s.authenticated && !holdForm) {
     return (
       <div className="space-y-3">
-        {s.needs_reauth && (
+        {s.needs_reauth && !justSignedIn && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             <div className="font-medium text-amber-200">
               Rivian session expired
@@ -179,7 +189,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
     );
   }
 
-  if (s.mfa_pending) {
+  if (s.mfa_pending || (holdForm && login.isSuccess && !mfa.isSuccess)) {
     return (
       <form
         onSubmit={(e) => {
