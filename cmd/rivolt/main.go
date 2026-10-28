@@ -822,7 +822,23 @@ func runServer() {
 				// Only if the session this client failed with is still the stored one: a
 				// pod that has not yet caught up with a sign-in elsewhere must not flag the
 				// user, nor send the email, right after they signed in.
-				transitioned, err := db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, rivian.SessionVersionFrom(sinkCtx))
+				var transitioned bool
+				var err error
+				if accountSyncer.Load() != nil {
+					loaded := rivian.SessionVersionFrom(sinkCtx)
+					if loaded.IsZero() {
+						// The client does not know which stored session it holds yet; the
+						// next sync records it and the next rejection raises.
+						appMetrics.ReauthRaiseDeferred.Inc()
+						logger.Info("rivian reauth raise deferred: session version unknown", "user_id", boundUID.String())
+						return
+					}
+					transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, loaded)
+				} else {
+					// No account sync (no secrets store): there is no stored session to be
+					// stale against.
+					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				}
 				if err != nil {
 					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
 					return

@@ -52,6 +52,9 @@ type Metrics struct {
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
 	LeaseUnstreamed prometheus.Counter
+	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
+	// the client did not yet know which stored session it was using (the next sync decides).
+	ReauthRaiseDeferred prometheus.Counter
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge
 	// (closed/half_open/open) so Grafana can alert on
@@ -246,6 +249,12 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_unstreamed_total",
 				Help: "Episodes of a Rivian subscription lease held by this pod with no subscription running (re-subscribed by the lease coordinator).",
+			},
+		),
+		ReauthRaiseDeferred: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "rivolt_rivian_reauth_raise_deferred_total",
+				Help: "Rejected Rivian calls whose needs_reauth raise was held back because the client did not yet know its stored session version (the next account sync decides).",
 			},
 		),
 		RivianBreakerState: prometheus.NewGauge(
@@ -450,6 +459,7 @@ func New() *Metrics {
 		m.RivianResultsTotal,
 		m.SubscriptionLeases,
 		m.LeaseUnstreamed,
+		m.ReauthRaiseDeferred,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,

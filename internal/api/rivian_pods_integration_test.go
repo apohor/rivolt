@@ -269,3 +269,75 @@ func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 		t.Fatalf("pod A did not see the flag: %+v", s)
 	}
 }
+
+// A stale client's rejection must not flag a user who disconnected or signed out elsewhere
+// (the stored session is gone), and a client that does not yet know which stored session
+// it holds raises nothing: the next sync records the version and the next rejection decides.
+func TestStalePodRejectionAfterSignOutOrWithoutAVersionRaisesNothing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer rejecting.Close()
+	reject := func(p *rivianPod, uid uuid.UUID) {
+		t.Helper()
+		lc := p.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway")
+		if _, err := lc.Vehicles(ctx); err == nil {
+			t.Fatal("expected Rivian's 401")
+		}
+	}
+
+	// Signed out elsewhere: B holds a session with a known version, the stored row is deleted.
+	uid, err := db.EnsureUser(ctx, pool, "stale-signout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "tok", AuthenticatedAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	b := newRivianPod(ctx, pool, store)
+	b.get(ctx, t, uid) // loads it and records its version
+	if v := b.raw(uid).(*rivian.LiveClient).SessionVersion(); v.IsZero() {
+		t.Fatal("setup: B did not record the stored version")
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{}); err != nil { // the user disconnects on A
+		t.Fatal(err)
+	}
+	reject(b, uid) // B's stale client, before its next sync
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs {
+		t.Fatal("a stale pod flagged a user who had just disconnected")
+	}
+	if n := b.emails.Load(); n != 0 {
+		t.Fatalf("a user who just disconnected would get %d reconnect email(s)", n)
+	}
+
+	// A client with no recorded version (restored, never synced): nothing is raised.
+	uid2, err := db.EnsureUser(ctx, pool, "no-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid2, rivian.Session{Email: "d@example.invalid", UserSessionToken: "tok", AuthenticatedAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	c := newRivianPod(ctx, pool, store)
+	c.reg.For(uid2) // builds the client, restores the session
+	c.raw(uid2).(*rivian.LiveClient).SetSessionVersion(time.Time{})
+	reject(c, uid2)
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid2); needs || c.emails.Load() != 0 {
+		t.Fatalf("a client with no known session version raised the flag (needs=%v, emails=%d)", needs, c.emails.Load())
+	}
+	// The next sync records the version; the next rejection then does raise, once.
+	c.get(ctx, t, uid2)
+	reject(c, uid2)
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid2); !needs || c.emails.Load() != 1 {
+		t.Fatalf("after the sync a rejection of the stored session must flag once (needs=%v, emails=%d)", needs, c.emails.Load())
+	}
+}

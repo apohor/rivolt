@@ -81,6 +81,8 @@ type syncSeen struct {
 // loginGrace is how long a sign-in made on this pod is trusted over a database that does
 // not show it yet: the client holds the new tokens a moment before the handler stores
 // them. It does not apply to a session the syncer itself copied from the database.
+// Consequence, accepted: a sign-out made elsewhere within this long of a sign-in on this
+// same pod is followed only once it has passed.
 const loginGrace = 10 * time.Second
 
 // NewAccountSyncer builds a syncer. get returns the account for a user WITHOUT
