@@ -37,6 +37,8 @@ struct HomeView: View {
     @State private var places = PlacesModel()
     @State private var kpi = KpiModel()
     @State private var recentCharges: [ChargeBrief] = []
+    /// The Rivian connection, read once for the "expires" notice (nothing in the demo).
+    @State private var rivian: RivianStatus?
 
     private var selected: Vehicle? {
         vehicles.first { $0.id == selectedID } ?? vehicles.first
@@ -53,6 +55,7 @@ struct HomeView: View {
                             // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
                             // charge we can't see.
                             let fresh = summary.freshness != .stale
+                            if let line = RivianExpiryLogic.notice(rivian) { RivianExpiryBanner(text: line, serverURL: state.serverURL) }
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil)
@@ -103,6 +106,7 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await load(force: true) }
             .task { await load() }
+            .task { if !state.isDemo { rivian = try? await state.client.rivianStatus() } }
             // App Store screenshots only: the demo server limits heavy reads a minute and Now makes many, so read everything again once
             // the allowance has refilled.
             .task {
