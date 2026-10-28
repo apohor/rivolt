@@ -1,0 +1,72 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 0,
+      "TotalDriveDurationSec": 10412,
+      "TotalTripDurationSec": 10412,
+      "TotalDriveDistanceMeters": 292145,
+      "ArrivalSoC": 25.9,
+      "ArrivalReachableMeters": 125587.9,
+      "EnergyConsumptionKWh": 83.9,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Pike Place Market, Seattle",
+          "Latitude": 47.6097,
+          "Longitude": -122.3422,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Pioneer Courthouse Square, Portland",
+          "Latitude": 45.5189,
+          "Longitude": -122.679,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 25.9,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 125587.9,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T18:53:31Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 292145
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 0,
+      "dcfc_spend_high": 0,
+      "priced_stops": 0,
+      "unpriced_stops": 0,
+      "estimate_basis": "none",
+      "home_equivalent": 13.424000000000001,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16
+    }
+  ]
+}

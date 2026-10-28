@@ -222,6 +222,151 @@
         "arrival_soc_pct": 15.8
       },
       "route_polyline": "ej`d`A|fhk`FflCvx@tGt]hhDeKePswA}kBs|DchAumAccDcyAmDslCk|NeM}aDlq@{eCroB{|JnkOkkEzzL_sBldDuwCzrBq{Eb|@w~B~`Aa~L|uKigAneBqgFb|Nu^fuBgSryZesAfmHmuGhpSucI`tOczHleRedJnmQccAzfDcrGh{d@s@niJ_i@jyJlRjbJmv@zoF{fIjrNgyBfrLyiBdrDm{C~{BebHhaBoaCpmAqvYfrXkkDnfGuy@jpEw_Cnm]gsA|hb@qfDztTsi@vpJav@n~Bgrs@`ow@qmHj}IktVpm^s{@xbFhJdvKoVjlFns@r}_@dlAtmEl{Fj`Ghd@dpBsNdfCu_DdfFapHdmOgdCvpBskJd|DajBjfB_bC|~DohFtxM_gAhaKqv@txCamHr_KqdI|}WmbHjhIsiCb~AglJdiCkdGjdEokT|pLc|On{Es|UfwDgw\\d}KeiYrzL{wBtoBwtM`nPawLt_XajK|sHqrEzu@chKio@wpJxxAqdSgeCw}FjLoeFvgBgsUb{Oi}F`dCchGfkGuySvwM{xCl|Fk~C`rDsnW|dKqbTrkTuyFflIipChoBomEbpAskDniCm`AxrAyeCdkGoqEnpHcaJpuEalBteBynAraC{dEjwM_uGjfGyjGjjJcmApfAsaF`{Ac_Uyp@}eI~z@_mHrHmsEdxA{uSb`KqtBv`CywBxyDm~EzhEaeBxoCa}@nlDqZreIy_@z|BimErmKmtAlwBevCrrBwcQvyFsdJp[aaEzbBgdGxpIiqHpkEkcBdmB{lAvsCa~AryHsaBd|CqjB`}AwmEzuBmtOjhMo`P~dHom\\~rJcnYju@}we@}qEikS~@m|Fjx@o}KjqFwhF~iEkbEzeFqhVlge@kcJdzNmgA`iFa_F`gw@{]`|B_kBfvDkbRlnTc`B|k@g`ChQo|Dq~@uhd@wee@ipCweAmuCvKqwj@ds^_xWbyWarGvzIscJhgFuuApsBeqHhwQuhH~uLybDnfCikOhoB{}IsY_nIxq@kvDmVysGevAqsD`I_sB|r@q}R|oLqnCbbAkh|Blqf@khLzYkcCrk@}xA`}@ai^hqd@sh`@pi^me}AjrcBgtcEjmxEcz`EdsmEgx_@voi@a_vCpbsEo}fEjsqGyvsCrdaDusfAjdcAwlvLfmfIy|b@|b\\ez_@v{]m|h@x|f@onwD~z{Dkih@nsf@a~CrtEggh@``_A_fb@|`_A{jz@boaBcdEf{Fqc`ElooDcjkCpmwA_cBzm@msB_Y{NauEr^zBfQhuCd}@ue@v@stBypBbAyAx|D}oCpjF_nuAzgv@k{\\|vXyeb@vq_@{{`EtglDes`@~j]kmj@jgh@i{d@xw_@wuw@fsy@e}~Dbf}FslGx{Hkv{DjqoCmsiInrbFgxn@vmi@saI~dKuxUp{VmckA|l{Ach}@jxu@{snDv|hDi~h@taa@ak|Cf|eB{lFtcCaw`Fjfy@khhCt|k@s`v@bod@mkt@|cZ{uh@vi]a{Dz`D{yz@|r{@auQ~cXq}{@legAaefDthxEcq}DffyHwdCpwDcvb@zlg@u~C|sEmu@x`C}Ob}CjiAvv]htDtqb@ht@`uUtzDb}`@tdBtqFjkGpkFtbBtwC~j@xfChz@noKdpI|wV|iBjlI|SpaD}JvxBer@nvCeeC`gFyo@daKpaGlmh@hmBtrIziW`ix@~`AtfH{Yzwc@`kCjw[tbApvVmnAf~M{cAfamFbWrhEp`Enj[}Crqk@jjA`zSmOpeGklC|_\\e_EpxOkj@fpKnj@b}YfdBtuIzUzuCcHdkDsdAlbIhNnqFjkBzbGbeIxbKhwAnlGmHfaOzhCjoOle@fwF|Qlwp@g[`nC{v@`rB_zOliOmbGjbLacDnmIabDttEuxCvrGe~A`fBslJthEuuHjxEc~Vv`EmaJnlI{rC`uD}_IvgDy}AdR{uAaRi`FcdE_vA_^qxAlDcsBrt@_uOtlJo{C`uC{vA`hCkvLxwZa}CngGa^l{B_YtiPinA~rHyeExkK_wH`hIahD~oIksGhhb@mtHr|Mk_D|gJc~BveLsxAf}A}sGftA}jBfhAsuCrnEyjBbgFqdIzli@_@hiCd{@zvH_tArfFiJ`{AlnDnkVri@rdMzn@lmHzaA~rFt_AtvSxfDzxb@poAfkFz`GtuLb~s@jiw@`_AhxAhWxvAqWv~A_z@lgAmc@rE{yAegBeo@bp@inEgdGcmDj{D"
+    },
+    {
+      "id": "seattle-portland",
+      "name": "Seattle to Portland",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Pioneer Courthouse Square, Portland",
+          "lat": 45.5189,
+          "lon": -122.679
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Pike Place Market, Seattle",
+          "lat": 47.6097,
+          "lon": -122.3422
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 181.5,
+        "duration_min": 174,
+        "charge_stops": 0,
+        "arrival_soc_pct": 25.9
+      },
+      "route_polyline": "auzxyAtudjhFmg@rwAlgAenBbhGgrF{mDc~KdFw^v|Gu{FvyGa}H~rEas@ljG`_@foUqcCr{QlbAbrNvfBvbCuDnfBmi@hvKmwGlhHisM|jKmpKfpHkbJvke@_gQhrVoiQj_LetLhlH}jJblCc_Af}Bvw@t`H|kJ`zC~xAltBeVrwJy}DtxGciAdjMqgEn`E{k@bmFhTprNz|D`~VblDj}Afo@~}B`}BluOptWn~BvgCbnEryBnxOtoCjgIvV|d^uiCdrDl@fss@`nKjgE{TpzJchDphEml@n{i@x~Bb~ZtzId{s@peQdjMjwGpxD`sCtrR|~S`iE~hDx_FvuBzyNbnCj`Br{@`xBdnDtn@`vE|i@jp~@abAbq`@jGxgFppBl_OtvAfo[prGhzTpdA|mMtiC~sNzSdlGev@rlOdu@loFbzAfnBvvBhi@nlMuBlh^odCxvKbz@~}JvIl{WtoEb{CfzAbp_@tc`@djYhtl@b|GnwOj}Bf_JxbHfiPva^r|r@b{N~v[vfC~nMfhEr|LzaBfnJdf@h`KtnCz}NttIvpTlwA`yFzaQbyjAvuCjj_@vwFjb\\laAjaDxqEfaJhpHt{WxSj`CqAzwQ|h@fqSr}BpyYhmC|hg@dzJr_eAhfAb}DnrM`aTrtAdpDdwBxee@`dHr_YwKlcSpNlaE`dAztDbtBpdDnaAftCbz@nqRbfBhbGrwNzxM|v@r_B|wA~mGbbBnpBziBx_@`|G}_@fpK|{@riZj}Nzq_@leZdxDvqB~|gBda^zak@n}XjwjAfuWp`|Bp`iAbiEwc@~mxAstu@|eNiyI`aEwcAz}CBhnMnjBlsSw_AnpI_q@nv\\}`I~aCwQtiXt_ChnBdbAtbM~dLrsBlz@nmBmAx}SshEj`BmqAbhEadGj`R{_e@`pn@mmx@bbR_gZvtVomOl_c@qma@|iUuyIhpCki@jegChBzkh@pzLrzcBjcMt}Va_BfyDbrAlwKfaNfbFtuBtvx@xuM`kVocCxxl@fhD|rCpw@vnL~zG~~Ev}@|mFgQr{U_wD~bF}uA~`RyqHpuc@odTnnZ_aRjmC{t@~dnAljNvm[jv@r}^f}Il~NtyI~zCbr@tmb@kgExaRkzFziXzxApjBeWrhCcmB`mDi|IhbByhBld_@kbThy_@wfP~hQijEdzDtAzlMz|Az_PcrAtkIy|Dd`q@ogOlcU_fJflGghA`sPutFn~FofA~|DucBliaAwg~@puHutFpkAabC~{BscKnbUqfb@`nT}q]|gHcqIxlO_vKnlbAqxg@|dRgn]|fJ_iJ~iFodCz`Ro}BhtvBykv@pdM}zBvrK{|@ndYgyIt{jA_sVrwKih@lhB_yAreM_~RdxL{oVpxJomKrrAirDpdAswJtgAcqDjkGesJl`K{rLdqDo}GzaEudKdyEs}FfeYamOhdPymNpnBifAzbe@mwNrgZwtA`{MkmJhr^efEvyU{rJrkDcTtpDnV`uH`cDtyCfaD||Uf}]xjCzsBvkBbRlvBki@|zAopAvnD{hFpxCmdAhvVxmFlhBru@`u@bgApw@ncEsDluEcjFx`UcOjfF|s@~sD`aLljXrj@jcGgl@nkE}pF`gLghCphQsHhfCxf@~uBjuCnxCzj@x_Blt@fzXnqBntLlsCbnIb^bsE~bAfbAthGp|@ldBoEpa@`h@jBrhAot@rgEyqChmMt|BhcAlO_}@}YwM"
+    },
+    {
+      "id": "denver-moab",
+      "name": "Denver to Moab",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Main Street, Moab",
+          "lat": 38.5733,
+          "lon": -109.5498
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Union Station, Denver",
+          "lat": 39.7527,
+          "lon": -105.0002
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 354.7,
+        "duration_min": 350,
+        "charge_stops": 1,
+        "arrival_soc_pct": 16
+      },
+      "route_polyline": "qwhyjAveuggEndBt`Ckh@du@xoAplBvNdKjeBqaBvxBhpG|nFtiJthA`eAjmGkVxmHbcBfgJ}xAjq@p_@vTlh}H_RxkGvo@`~A|dEbiB~rGxzHhd`@hzXp|Fn`Gjs@`rDel@jsFuIfvH}|BnnMuQt~Qoh@peBeiCbfD{wAjzGcgBrrOle@psMqtBxxXo}DjmOmw@d|Qi{Gprb@nMbnB`i@b}AlcIbgKtqJftPhj@~mCaBxiCsgDpoOufAhnB_pG`jHy_CvgH}[jsDqNrxOq~CriH_c@|dC~AjrC`z@|rGyeA||KjRfwOyu@zoDgzD~|HouCnoQibBrnGwkDn_IygFvjG{kF~mCazGl`F}mD~tAunC`[_l@`v@ydBzmFbG|uBhsBlhFys@daG~pA~hIoXblB{yCnsHki@ntGbTjqAbyA~}CkNj`Fl|ApqSav@bwGxAfpBpaFvwNxm@xkEuGdgKo~@psG~b@vlQuvBzcMmi@`{GmsAxpI_vC|kMarAbeDoxCdhEupAjgEorDhmEkYhaBpDvmDkRbaBqnEt{MufE`~Jqr@t~C_kAfjU|P|xOay@tzJoZ~bNuaAnrN~a@d|M|dBtnHbjCxqVx~B|uMhxBx~DhgH|~FdgAx}A~bLzm_@x}CzeH~nAxlA~lG~zCxhHb}GphBp_AvvNp{DjiVvpB`iC|eA|cObgTbcB|}H~bAvcJ~hExrKjMhdEi|Ct{`@tPluP|g@xbIu^viHxnAzxKlk@tjX_{ArpMrRtaCjrCtrMhsA|vMg}BpgXs`IlcTm{DfvQrc@~_e@fl@~bCteJt|RrlIzxJt`KrsJnsArrC|Wd_CrF|`JtzBbxGx`@ttCuLj`[xQty]~OrrBr{AboFf_@p{CeSlbTza@`bCtiCvnHxo@vtQrl@|zAfrDbvExdFnzCbvE~aGhuC|zJp`DznGjgA`_Ft`DboJnd@v~DbJ|yHl{@xqHr~B`jFneAtkFnxEn~IljAhhNbfHnxRjkBhtDrwEtsGt|Jdj\\bpB|}DvzBldB|iBlj@npB`JbtHee@pzDhyAfnEhwH|gI`qGxyFxhJfnMnaLpxMx~VdtH`_DbpLlqCzdDpzBznC~lFvgCbfJvsD~wF`pBjcAprGhZrvCjlBhlE~mFblI|~D`{Fvp@deGd`EvhD_OdiIw|Fx}Bak@h}AxRvaBzbAjsErtH|`DfmBtcCtAj~N{tCb}CtZheBtbBbt@~jClUjhRteBtfKyR~lG}tB|fH_`@psHc}AhjG{|@nsM|b@r_Mcp@v_Dok@`eAcnMjlHejEx_I}lN|dIq`C`To}Mc~Aa}Bh@gdQtyHu{PfkOieDliGghGxjCabE|}EgzDjqCyxIjxKiwBt{Au_Bda@ulAmIkoDy_CwxJihC_cDlc@iwBxiCkxA`|FcQblCvCxnPipAbyE{_C|qFqgJntGarTd}GibCxEyqOauBwjCr{@oyAn}BmmC~uLmjGbaKmzChtD_oBpxE}pCtlE}cFjhOui@ltEoIruXfvDpaZ|aDdm^lNdnEgZlpHemF`ja@aCl{E~d@nlErpEvbNjcOjqZbaJn}Nj_KxxK~kDhtK~}DtgHhjA|kFfvI`{Gnn@brBAdfBaiCnfMmzAldA{yEjYieB|eCamEn|R_vAnuSqeD`tI{kAhrIibEvwEcm@r{AcyGxv^{_J~~Uqo@hdG}@rmFng@f~EfiBrqIvDpnDk_@ljBerEztKko@n`DeQpxDhMv_U{sBvzNirFx{Ia}CvzOqfFruQmKxbDbh@zeIgjC|wSpe@dmKc_@bsD_`FphMm_DfjEeuD|~BgjIzrBcxGlsCyyErZcxAlk@eoBn|C{bAz_K{gAdyCiqAvdAmxLldFkbBtxAgbJrvTy`@jeCyNntJeW~uAifAlwAcpIdfEywBzqB_lBdrEid@jxFxuAlzXpwEtqLhhBldKxxJv}Px{GddPjiQbnQroAjwBvkF`nSfNnjCoWpnGjTn~Bbx@hqB`tCbeDju@j|BlrD~c_@rz@tkE~oKfz[tcCdiJpuOxpXjy@diDuh@pcOdcCxeJrT`bCgbBp|SyCdaDzgCbyZs~@bwMtt@lzL}~CdwZ`j@liIa^~cM~_@bhb@vkBt~^mb@lbF_hEleQ}XfeHdy@joHrwJbj]to@ra^ltF`bZgCtuFevEdv`@qq@jaYrSnwD|kCtpM`_AxfMvs@r`CjhGlzK`qK|e[daChyBv_Gvw@bdBvdBbs@`iN`_AvaFsn@~hE|LzqBxf@ny@`zGz`Ebv@vbA|w@~fEppBxuEzd@~|H`lHbyMnzBdyNhaAnoAfkDzw@jdAtoBj}AbcHptB~uNfwPvyQl~FznPrSjsBiGllF|Wp}Aty@xfA`cDv|A`pBl~Ev}Ch_CxbBhhD|\\x}C_y@hrNvn@foFbrA|sAf|D|Y~qApn@jnBzhFvoBj}CniBx_Gf~BtwCbpEfsCzjCtdD|c@tzAk[bvCqpChqCks@pnBw`@`{GcjAlpGq\\ztLua@~|@gyCbiCgb@|aDvqA~uEpjGnkEf_AngC}CvrBipAfhGdk@|cHwoA|tOpIdtDtlAxbM|tCfzDtyJlqFx{DjfHxb@nxBg`@|iEip@pfBcuHnqJuuDbgDm}@`bBwj@pnCoiApnR{NnmG~Ov`JabAdiMhnAjfL_a@tpOtv@`uH|dDhuMhAdfC}tD~fKuyEtyGu~A~hKq_@t`KsZ|kBeoAzcCyxDnnD_xElyMqs@`uEz`@teT|_AfbD|sCflErX``BkLvxBunB~cHef@|fDqOb}EhTp|Ex~AzkLbiHxdNr`AneGaTlb]`[`~Lgm@xsDspEtyKaf@dnDaBh~DrpAtgSp|ApoHbjCzkFtaKhsKxkAhpClz@x`EnbUhk{BdaB|dWrGtbNukBd{a@jL|sE|v@|lDhsR`td@peBb{Fbk@pmEpMbud@rqBvoThJhcVpgGdsVjk@xwGkkA`uSjAt}DxeApuHz[hrFloC}|@_FewD}NPI|]fOo^iBb`DceC~sAvjBb~E`{BdiLvj@b|FcBnejBb}XdjiAl`Et~[ztG||]tT~xCmEtqEi{BffR`_@l~GvbB|eF|yOzmXdrUbgi@vj@xjEh{EbhmAdaAp~DpnQfrd@`qBliDf}BjdCtwL|rHzmb@~le@v{IfiIzqEv`GbhLfsR~vCn{CtmJphHvpTzfe@lbFvyN`gIh_LfoLr|d@jcI`iLj`NleUb`BtfAbgBx^vnRbRd}DdgAlkBp}BdyDdnNtxFbiM|_BzwBvvBlgAfnRldFhfOhtTn|EdbErjt@xsXryLl{GrhCxsBf~AnmCdvDrcVlbBxpEjqCfvBzsRnpGx~IrgJbgAnZplHdRbyIazDfiFyWf_Fw}@t{AlIpyArpApg@zrBTvmCsr@zlHda@~iDtoDvjEz|Bbt@haB}^`mAe`BraAeaHpoAcjDtnA}dGlsAgcBvsEkkA|kVfh@f|AtmA~lB`zF|zCleD`eEh{CjzEv~@vtA~eAls@~{CqJx`LpZn{Avs@`cAf_Cxn@nnFgqAp~HnFhgA~Z~lG`rGp_GziMh_MtsKxzCb~@~tOl}@pmEvrBlxBxhDzyBb{Kb~AbeCb`Bhk@rhFxWfeBrg@jxAphAzrDpqF`wE~fBxkCbyBr~AaDprEshC||E|y@puAfjAveCfaGjJhbCmyA~lJyE~bCppCzdPhQnyJgh@vbG{fD||Oe\\xwIlEnaFnlE|j]bvP~~fA`}@h`VvkGbyRzg@vxE}Gz}Ck~Clc\\}^bf\\edC|dQwjAzkQrNncHvxEhgg@z@n{Bc`@vuB}y@fzAehNrkKs{@nxBySnjCmM|~YreA|_IkAt|Pbq@dfJwAplmBl|@dyIblEpyPdOfaDwMrtCgjBffGecI`aKqvEl`NuxB|nEmoDpsEy|Fn|EitAtyBizm@j_{AupAf{FmwHjbi@usErsf@{gBviI_dCheHcgEh_Im~Gx`JcwAfuDer@bpE{`A`}Y}r@doEcuAzxCcnbAf}sA{nDd}OgeKdb^odMr_R{{@fdEKhtDbiF|}SfsHlwc@`tAdhL~p@d~M~i@nbEjaBnqD|fL|_LvrAduB`zFzgXxjJboO|tM``[jrBd_IjcBlvWlxC`hSjBpwCsv@jiE{eIdoZyl@zaGgI`zIdq@nkJheFrqXzXptVzr@fqQ`@peL|YduClbAb`DzbDxaEn_XprVpqM~tOpvD`oDdjs@lgb@jcGpnEb}J~oJxgKjzNx~OneXfl{@vclAbuO`zTd_LbwQfpp@~z~@ndJlzJljl@jsg@pfIvqJrhTln^dwVts[b}GfdMpgLnkYruKxxR`hO`{S|gUffWhqC|{DdeEjoItiDxoKh|AxaJfg@h~Fx_@tiNkqQ~|xD_\\bmnEsvLt`rAgv@nrWmy@rxJkfBbvIanBrmGsnJdzRag@nsBi\\v_FrBpqCbwBp|Q|u]hkjCfbAjmM`XlhJ~~}Bi}FrgGsw@~gIgqBdrXkeKnxLiuG~}jBupoA`|{@g_]z}^uvIv_FysBv|OqwKfuDkrDnfKq`MxgK_jSdoEctE|pz@}dSxyVmzOxgz@ufb@l}MckLrvQeeYdnFswLbgKcuZt[_cD{mBmvIkGovB~UyeCxu@utBnkNsbRvmAynEpDisC}_BqlTeDqpFv_@ueBxyNmrN|}ImiNjmDegDxcNsqQznD{zA`hJ_A_Cm`A"
+    },
+    {
+      "id": "sf-tahoe",
+      "name": "San Francisco to Lake Tahoe",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Heavenly Village, South Lake Tahoe",
+          "lat": 38.9586,
+          "lon": -119.94
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Ferry Building, San Francisco",
+          "lat": 37.7955,
+          "lon": -122.3937
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 189.7,
+        "duration_min": 199,
+        "charge_stops": 1,
+        "arrival_soc_pct": 15.1
+      },
+      "route_polyline": "g_zagA`wimhFci@hs@l|@k\\jiCamDnfBuz@rfBs{BdwE`qGlg@or@acA_pB{rq@cfu@ggIqcPyeAcoFybDcfb@ov@ieQkaDim_@_pCy~Rsi@sjAe_Akn@_hBg\\sgB`FwxI~uDyj\\~nE}mp@ppMmbM`eB}qCtH{sFg_BgeChD_hKzeDqdShlLcbP|Sg_Cfa@u~W``Ps|BqAu~Hw`DmhC_WcuPl_GkjGtuCuoDxUwyAq`@q{AqjAyhE}_JgkBmjBkra@m~JakGokEunBmcDkhAkkDs{Cq}]}q@azCsqA}gCitoA_ejAwl^ksj@upBm]mwThdAaqDjtAuuKniHk`HplAqoFcXywJevCuuFki@cz[kLwjUri@o|EwkA}|b@ewU{zDuo@umG`Ay~C}r@gsQcbLuzAsaBwwPg_YadH{oG}qEsvHi~D_}E{pAybDodBcmIsoB__EaqK{sJoyW{n[ce^yml@soF_gM}|a@adoAqjBimIglAamCcypAerdAayC_s@yzYcSk|LqpAojC}pAc`LknJc{YieP_}CanCgjC{kFmoCihM}bO_kh@{sAgyCemH_kIivKgeSiuhA}{}AqreAwx{A_jbB_d~BmicAgxhAkpEeqJguC_cQ{oBkfGwyS}{XkfBkwDypA{oFy_J{qo@o`AwlKe_BytHwuGepf@igCyn]kvWokiCa~Bgi[z_@c}WRwlb@y[aeFy`BeeKt@mvDbmAozDp_JymKbcBkfEztQwleAhHsgEiyBi{Ow@kyFxkGgt]f~DivKxoCwdLtf@mwFkQojGymJe{q@{w@_oIyjHgnwA{jAehGytN_g_@yiK}r]qh_@evt@g~BssCcqBsmA_dMo`DebBkzAylAovB{n_@}wtAmqZivs@ea@uhCmyD_no@rv@q_q@mgA_ss@zGi~Cvt@afGccI~FyjAj^jq@n}Bya@~z@zOtPhUa[dU|[ka@dj@~JdMjz@ez@acB{dE|mIi`@de@`n@w[z[e\\ij@my@aca@uaYamnA}o@_oFlCm{Jvn@uwBr~CkhFrb@qnE_gAyfJ|Keaa@{`AsoZepAqnOdSo}KugCgeNyRycp@s`Dkd[m|AccGg{FclLuvd@wje@eoE_yFoqAebDy~Eo`Ri_@guE}JcyHsq@}wFewTa{}@aaB}pIyo@orAiqBujBwqMakEsjAsy@gbDknJunGc}F{aDepHvh@ixNhuAs|DtJq{DgRkzAovB{{Fd]_tFmpBmhHhL}oGcoAecFkQsrFyfA{`Hjn@i`FpuCc{Ddk@seCgKqaFcdBqqHndAqsOa{@e~CgiGobE}iC{fIe@{~A~n@mfF}aAgjGqCu|GvrBu{LlAe|Peo@c`HiwB_nGwVqjBpQctBpzGoqXty@qqUg_@kvB}y@}xAg|Ky|IuyA}yCeMmtBhWobOg}@o_IpdA{qPekAotIeQq~DmyDu_JybAmcQcxBc~JsoC__H{kAqfI{vEg{Lq`EcpOyOwtCrQe_Tcq@}wKibAcsBs}AkoA_bCan@uu@g}AlVkeCfjDsoC~`BkcFc\\o}D~G_cDvnDwbW`DieB_i@{oEx{AinH}H_|AmlAynEl{@axGmh@etE{nAonCyq@_fDg_F_kEyd@ujAbEkxEhh@ogDaCouDp|@uvEw\\}xEikCsxDeeAe^stBkBujAy}@izGkqVjB_rAx_@mlAz|DiiBpaA}lBza@c}C_NqnHvvCccEzVggAuPkyC`Ny`FkaCunL{tDgqIgXkcE}pAgyD_B_yAlm@omCeo@e`GuMekJu^e|Bh}C}qLgSufGn~AmbK`hA{`BprBmsFd_BotAf{@wsBtFc~Acg@mkCPs_Bj|A}_I|{@cuHxwAodF}[ggBejCgiBc^koAhZmzAlgBo_CpaA_vGkPufEuuAs{F~s@}xIp|@grDs]elDiEesHkfCc|Ju{Eu{H_|B}dM{|Cy~JcUcsD~K{rD~tBwoEzKytB_kCszIchBupBei@{`Bwe@ypInx@agEtNq~FqPqhDgt@{bDep@yeHy`Dw~K~LutNgnAu~DkhBotBoa@ibBto@aeHbOgtNvz@klElB{`Bue@{iBg{CqhE{zBm|Ne~@_kDgc@ckFafCmoI}KkbFtvAiwHp|AocPuFe|B}x@k{DbS{|Gp_CwwLUgyBgaDsyFwtGy_FktE}`IyuNwfHscEc}G}l@kuGibBexJ{`@o~Fxe@_v@zx@dA`lCvkDlmAvd@ll@sUpo@mxBzzBdf@bn@oXb\\ci@s@wp@syA_xAi[}oAplAwgI_vBqgBkr@cdB{PwgC|LwxIsYwdBchGoiL{sC}qCwxAkpGqvD{uF}pAwmFqmDyzGkdBsaJqDg{Eav@w|ConAqiC_oAcbIwC_vBbi@}qF|q@{cDb]szErs@_nCzgAinBpuEc|EprHe|Bhc@mbAD_rBog@sgA}z@ed@w`E{GktAak@ytJp}@sqDxpDcsD|_A}[dyCg[fe@}rA|Y}aBwiAa|@rOoy@hkCefBtpAub@jhDglDlkBoq@}u@cAy`Dg_C{gMuwHylKcuIyoUetCcpBggJw@krAwu@itEulFwtAev@}uQmrBmiU{wHkzJAkrHekBgdClWgwR`}Jmg@m|AecXsyd@ibDudEudCmeB_cDajAu}Ci^ohJwCanBunAupAykHzEeoHk`BynIavJ}qYcfCu_DlNgm@yJkzAb`@gqAkjDe_Ec\\fdCcc@{I"
+    },
+    {
+      "id": "la-phoenix",
+      "name": "LA to Phoenix",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Downtown Phoenix",
+          "lat": 33.4484,
+          "lon": -112.074
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Union Station, Los Angeles",
+          "lat": 34.0562,
+          "lon": -118.2365
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 373.9,
+        "duration_min": 380,
+        "charge_stops": 2,
+        "arrival_soc_pct": 15.4
+      },
+      "route_polyline": "ofs}_Axfqo`F}yAqSiS~dAxkGlu@rOe\\j\\wuEgVgZgCcyAjc@gbG~o@ioEbiAoyAxfDouArdDmg@jtDoAjwDdb@bxHiIdqEc_CfzAuxAta@_pAzNuqEp_A}nFs@iqCadAugLyoCajRaU_`KiwC{oKwaC}iZpCszRdq@atDxcC}{Gv[w|CiRs{z@ynC}xUoPy~NmeCswOiiCwsKa_@m}De]}fG`G_nTdhHe_s@|aA{dEltJkfYrQmhUpo@wzGvvAaiFrnCmcFf}SuqSfwAwrB|nAmbD~bZavwAv~Dwfn@cD_rp@ugIm_`AewAetLceAkxPk_BkjEyzGo}IqiImaIwrM}bJqvBe{BgyBoiF{tDsnS~Hk|E`nCk~Nok@eaOxpC__Pn@ysDulAstNhzAmrLjJutCc{AaeTcj@qlX{y@gcE{lDk}Kq{@m~Ic]ossFbn@obJdhTakjAfq@qnGnKotFedByywAbJmvGrdIgj~@dqBwtYzoMarn@bb@wrDtDo|Em{@ag\\ti@k`IlrAqlGf{Qu_l@~hGmcO|qe@}lf@zcIc{EjeAcoBr}BctH`W_eBhGwsG~w@mjChgE}xFrkFwpDzsEorArlCimD|nC{jHxg@mlCvMs}Jf~Deac@oOgzbAr~A{_OrRatFqBcb`DrbAerJ|Kc{Np}AkzGzTytItz@{_HaPmrBu|Ay}EuQk|H}|Bm_GahAwvE}kA{bCcuAccGej@{dLvSyvHqa@ipB_uBcaEssAuyMnp@qeExzEyqKxzFyuSfyD_aFtoDqqLjQclJmz@amJdf@ekt@fjAmhGloF}xHh_AeaFkUicSvyAus{AdcB}zUs@qc{AwdAeuLoqBmyHsjF}p`@m]coHpOafHjn@gwDby@gmBn`KwuN`yA_zCrdDk~Kxd@}{GeDqcq@yeB{cT__AywXorDgxNiZgeCpiFyso@y\\khIimDmvQ_SqbCnbCmiYuOqfQtv@w`]wjBm}XnQy~Ip`AstFvxEk{NxuYwqbCxc@qrZ`oGcjYv`Hc~N|xp@mwy@r_EioGdkxAwcvCxcSm|Zr`E}eIzmCcrHh`F{vHlccAqyqB|pDauL|`DscPhkAsiJhdC{_I`oD_`QjeH}hVnoAyzJ|t@miBftFmlIdyGguPjmA_rFv_@uyDpBwkGwgAmcN`}@siXphAkcG_wHhBBoxAha@kMia@jM[rcBvwHmMjc@{fChx@cfBzmJynJnvGcqJfdL}_LjlB_yCr`AatCvo@kmGj@os\\rSesDrhVojkAxbHgco@`C}jE}iCcpb@`~@ae]zmAgaGnvIqlTbt@cvC~cK_sn@x}J_nu@zJiyD_r@mo`@|HmjFli[uydDt~HuouCdPmjnCkUy_`@c}IyqdAshNocjEcgr@_{bFyo@sxJifQwipAc^_egA`mQe{kC|emBaetJjkOy}~@nwAm~DpcEgbGhnBslGdgQq~fAhrVo~nAvoC}dSxQyumBglB}fi@s~BwpzBeNyb{BlkA{lQid@{jvAj_DsfXfJmorDc]atT_t@woxBz\\_nGh_Gys`@`u@}uN_VykK}hA{uJemo@e_gDwvHuwl@ceAczDkjB{zDiqCmjDsuEirD{}AwzB}mEoqKgr@kfE}Wsi[ngBeve@yHwfLspb@}exFamH}|qA{qMi|uAsy@o{Owp@_gZrJin_@hiAej\\z|AyxKn_CssH|}MwaYpaCqkJnfAauIdep@k|uKxm~Au|`Szq{Aa_bRbu[{k`Cnnu@}{~Hpt|Be`pPhmEaqUhkBexSjbDu|WrR{xIwc@_gLuhIcue@lWsUteGUu@y~E}j@yn@u|H}Dgk@cg@sj@s{B}BujEyQhFxQiFmGwxn@}{LhHesAkT_dEs}MkdZ_nsAcx@}gHuUqfGpAcjz@pw@egOb@qwn@a\\_{\\zf@ufZlE_jj@d[c|FvnCuyNj_@}vFxQyg{AkTabGubEa`c@wfA}kpAsb@aw`CbK}ch@vz@yff@_Iq}Hi{@isMnv@oyMtNst`Ajp@klPki@g{IqDslI{_@oeDri@cxG`vXwOyKzwO"
+    },
+    {
+      "id": "nyc-boston",
+      "name": "New York to Boston",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Boston Common, Boston",
+          "lat": 42.355,
+          "lon": -71.0656
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Times Square, New York",
+          "lat": 40.758,
+          "lon": -73.9855
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 212.3,
+        "duration_min": 222,
+        "charge_stops": 0,
+        "arrival_soc_pct": 12.2
+      },
+      "route_polyline": "gptvlAr{ublCq|IdjYagJ{eGowCsk@_mZmfSuuJo_E{}Gu~Gw{Go{Bcn[g_SomZm}Vq}Le}CmsDqxCyvB}`AkiHkn@ocHopBwfNy|JmjAgzAwvH{nCkbO{|HscCykCetGkeLwvCklD}|B{kAitEuvEi{BayDsyMec@{mCacAejAepBwXeuC~MsrDnrAw`IpBybDu|@gqDy{BitCa|A}_@}~DvP_sFioB_~MwrBoeGwpBc~C_TswDsnBkxD_u@oVmq@yFgjG}aDgmKqGouBrgCmdGfnCazPnsAibOxoDwtQdZe|GppCwdJt|@unHoDuuAkc@{oAgvJmbHcaCc|CopDwaAcaDuBibJctDe|@yaAwrA{pDuxA}sAcsHqsAaiF`pAulD}mAgnAmbAw`Be`Ee|CkiMktFiuG_cBulDq{CcpTgvAkuB}iDyfC}hAu`Coz@ioFEspIic@}dC_bAewAwoFa~D_mBixHecBsbDccI_uGstDcyEmnHk_FicImpJ_n]qqKalBidBojEu~QlCenCtbAm~FqFcnCau@_|BayDmvFkcAyoKyxAczC{u]ynRsiAxF}nNjiGksHnjAs_AwTwbKmdHswQ{pAqxHefEmoFqqAaqPajUug@kcBiaDcaW_AknBde@gaBbdLovOvf@mqBZqiBynEkuWepFgnKulFsoReM}iBlWcbQmcAsk[cjKopW{oHuuV}~Iwj]}a@iuYd|Cupl@inFw}W}jAqlDyvXqbi@}`M_jp@__CyhQqec@ib_Ak{A_`Obf@cn_@_OozDqfUmbmA_gBg}Cs}TmnXunAeyBobFqbSosF_s[{r@w}BgkA}|Ag_IuoFqoGg~Hg~TmlPe~JsaJwzDmjJku@}hGwwBcxIgdAkpUly@}zQiiCihOw|Eapr@~k@gwOaoAo|Lr|@um\\{c@meW{eCmnX}yJqfj@}q@esXsiAiwH{aGibMqiImfKa{TwsQu`h@yjd@kyEkrCctDkoA_nUgmDkgBg~@adBulB_}Am`Ec{Igji@}zBwzHkfBkbDytManQedm@mmt@mcAujD{xAunNcaA{pFizIuzY{aFsaKi_@ifCoEanGaa@atBkoSarUkuK{bSqbF{zUefIwwPiySaiV_sDqrCcuO_bHq}[unFqvOo}FsoQ}eKceOc_Fy}KkpI}~c@{qVeoJyrJcr^oak@w_a@kbi@sbBm}@qaEaOgqH{lA}qGcfD{pSgu_@mcD}sC{kPkcIyhDoiCinC}qDgfIibPwmH_rIcxZ{qTwgDqoAadSwdEaqZybQonKmgFedNyfKgnO{`GaoU}nSodDoeA{jMkiBcoIoxCmxU{}O_uKuzJgx]a_PcbDgt@chC^cxMrhBsqNdsFq|J`uB{nFj~FsrHvrL_nE`_CmdDlCyvHskBiiJuiEmmB_|Am`Lm_RscA}{CifC}`MwjD{_Fel@eeBsa@}jFkoAi|EeaIypf@qgCy|[aToqPmnBqdJg`BshDiaCqqCave@am[a_DwcEkjAmaEc}AmnOuhAcxGmeI_fW__DavNgxB_cFmsKa}O{nAmxCgmMklx@qjAuyE}vWwfn@yiPmmUk~AarDcm@ggDeNq_Dzt@saPmHiaQmkAaeIoJqpCzU_`D`mBs|IxLqkD_jF{m\\adFylKw`bAivqCasA{xBeqHydImdAcnCwhBqqI}xBggEaa`@yf[gmCkpDsrWk{r@}_Oiwh@wwBmlFspFcrGerk@cja@ynQeaKegWs_RqbV_}LetOg|JeoEslGw|LulT_xIkbIgpI{qK}iDeqCmnK}{FkwJq|GkpKq}KsuKovHm}KiaKeo\\g|OobPmyEe~NcuC}pLkhDwdCi`Cm`EyoIidH_tDsvHwmIenAksBqjK{oe@suEk_WmvEwiPcqHgnRaxAi{FiuGsvh@_d@msHy^ilSqbAsnIcrA}wEyxEygLw}HmtWq|La}YoqBsvG}wEiwZy|GogXkjDkmVutDa{SctEg|Oul@seFqf@y_Mcp@_zEotEmaO{fF}dKepAykEamCg{_@geCe|T{{@ev[st@qwGyuBa|Gs}Nqz]{hB{lGokBeyJseAy`Ke_@emJg`Aoy|@iy@{sHmgD{|Qy\\aeFxl@o`q@oiBwpRcNg`GhiC_hl@a]{kGsrCcoQkmAwgE_oKedX_oJibPgrDmiEifZagX{mCikDevMoq_@_hAayEk~RkvnAqhHsv_@k{B}pGksSi~]ykBmlFun@ugFst@umYud@oyEs_B{kG_|FwpLqiAanDesKkzq@a`@u_GnEc~ExiH}{y@gIwkJqjAa~FmiFakMo}AmjOysAw~FykBw`EkeKmyOkiKavZybAquEwi@oaHcKofTwxDwu]we@oqPrFeoQeb@}lBoeCykF_aBsjHoyBijEij@s}BcbDmks@i}A{uLo|AsmRkpE_dW{vDsv[jQeoW_v@}zd@hyBes^ox@}eJ{A}kDfp@amC`qDiuCprF{`NxsBmxNlRoqZ_Oolb@hoA_tL`AucFil@cv@_pCca@cuAtrJu|Cic@msAykAyt@lfBphAts@"
     }
   ]
 }

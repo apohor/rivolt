@@ -1,0 +1,111 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 218,
+      "TotalDriveDurationSec": 11704,
+      "TotalTripDurationSec": 11922,
+      "TotalDriveDistanceMeters": 305260,
+      "ArrivalSoC": 15.1,
+      "ArrivalReachableMeters": 73219.2,
+      "EnergyConsumptionKWh": 106.4,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Ferry Building, San Francisco",
+          "Latitude": 37.7955,
+          "Longitude": -122.3937,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Folsom, CA - Palladio Parkway - Tesla Supercharger",
+          "Latitude": 38.64713658392748,
+          "Longitude": -121.11860543489456,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 218,
+          "ArrivalSoC": 51.7,
+          "DepartureSoC": 58,
+          "ArrivalReachableMeters": 250690.9,
+          "DepartureReachableMeters": 281239.3,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T17:52:46Z",
+          "DepartureTimeUTC": "2026-11-14T17:56:24Z",
+          "DistanceFromOriginMeters": 176481
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Heavenly Village, South Lake Tahoe",
+          "Latitude": 38.9586,
+          "Longitude": -119.94,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 15.1,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 73219.2,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T19:18:41Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 305260
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 3.5818019999999984,
+      "dcfc_spend_high": 5.149871999999998,
+      "priced_stops": 1,
+      "unpriced_stops": 0,
+      "estimate_basis": "observed",
+      "home_equivalent": 17.024,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "tesla_sc",
+          "network_name": "Tesla Supercharger",
+          "charger_name": "Folsom, CA - Palladio Parkway - Tesla Supercharger",
+          "energy_kwh": 8.252999999999997,
+          "member_plan": "Supercharging Membership - $12.99/mo",
+          "price": {
+            "basis": "observed",
+            "per_kwh_low": 0.434,
+            "per_kwh_high": 0.624,
+            "low_note": "with the Supercharging Membership",
+            "high_note": "without the membership",
+            "source": "DCFC Tracker",
+            "source_url": "https://dcfctracker.com/reports/supercharger",
+            "observed_month": "2026-10",
+            "label": "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ."
+          },
+          "cost_low": 3.5818019999999984,
+          "cost_high": 5.149871999999998
+        }
+      ]
+    }
+  ]
+}

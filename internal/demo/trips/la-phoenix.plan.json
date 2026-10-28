@@ -1,0 +1,137 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 3246,
+      "TotalDriveDurationSec": 19526,
+      "TotalTripDurationSec": 22772,
+      "TotalDriveDistanceMeters": 601681,
+      "ArrivalSoC": 15.4,
+      "ArrivalReachableMeters": 74673.9,
+      "EnergyConsumptionKWh": 175.1,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Union Station, Los Angeles",
+          "Latitude": 34.0562,
+          "Longitude": -118.2365,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Indio, CA - Tesla Supercharger",
+          "Latitude": 33.741709473793875,
+          "Longitude": -116.21489971876144,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 1566,
+          "ArrivalSoC": 44.7,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 216748.2,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T17:49:55Z",
+          "DepartureTimeUTC": "2026-11-14T18:16:01Z",
+          "DistanceFromOriginMeters": 203228
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Jones Ford Buckeye [RED_E]",
+          "Latitude": 33.435826301110836,
+          "Longitude": -112.58076936006546,
+          "MaxPowerKW": 62.5,
+          "ChargeDurationSec": 1680,
+          "ArrivalSoC": 12.2,
+          "DepartureSoC": 26,
+          "ArrivalReachableMeters": 59157.2,
+          "DepartureReachableMeters": 126072.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T21:24:02Z",
+          "DepartureTimeUTC": "2026-11-14T21:52:02Z",
+          "DistanceFromOriginMeters": 550863
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Downtown Phoenix",
+          "Latitude": 33.4484,
+          "Longitude": -112.074,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 15.4,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 74673.9,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T22:19:31Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 601681
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 25.754862,
+      "dcfc_spend_high": 37.030032,
+      "priced_stops": 1,
+      "unpriced_stops": 1,
+      "estimate_basis": "observed",
+      "home_equivalent": 28.016,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "tesla_sc",
+          "network_name": "Tesla Supercharger",
+          "charger_name": "Indio, CA - Tesla Supercharger",
+          "energy_kwh": 59.342999999999996,
+          "member_plan": "Supercharging Membership - $12.99/mo",
+          "price": {
+            "basis": "observed",
+            "per_kwh_low": 0.434,
+            "per_kwh_high": 0.624,
+            "low_note": "with the Supercharging Membership",
+            "high_note": "without the membership",
+            "source": "DCFC Tracker",
+            "source_url": "https://dcfctracker.com/reports/supercharger",
+            "observed_month": "2026-10",
+            "label": "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ."
+          },
+          "cost_low": 25.754862,
+          "cost_high": 37.030032
+        },
+        {
+          "network_slug": "unmatched",
+          "network_name": "Unknown DCFC",
+          "charger_name": "Jones Ford Buckeye [RED_E]",
+          "energy_kwh": 18.078000000000003,
+          "price": null,
+          "cost_low": null,
+          "cost_high": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 0,
+      "TotalDriveDurationSec": 13316,
+      "TotalTripDurationSec": 13316,
+      "TotalDriveDistanceMeters": 341680,
+      "ArrivalSoC": 12.2,
+      "ArrivalReachableMeters": 59157.2,
+      "EnergyConsumptionKWh": 102,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Times Square, New York",
+          "Latitude": 40.758,
+          "Longitude": -73.9855,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Boston Common, Boston",
+          "Latitude": 42.355,
+          "Longitude": -71.0656,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 12.2,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 59157.2,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T19:41:56Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 341680
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 0,
+      "dcfc_spend_high": 0,
+      "priced_stops": 0,
+      "unpriced_stops": 0,
+      "estimate_basis": "none",
+      "home_equivalent": 16.32,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16
+    }
+  ]
+}
