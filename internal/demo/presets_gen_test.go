@@ -11,6 +11,11 @@
 //	DEMOTRIPS_ELEVATION='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png' \
 //	go test -tags demotripsgen -run TestGeneratePresets ./internal/demo
 //
+// DEMOTRIPS_ONLY=id,id plans only those genTrips and keeps every other preset exactly as
+// it is on disk (its index entry and plan file), so adding a route doesn't re-plan the
+// existing ones against today's routes and chargers. New presets are appended to the
+// index in genTrips order; a listed id that already exists is replaced in place.
+//
 // (kubectl port-forward svc/valhalla -n valhalla and svc/tiles -n
 // tiles; the in-cluster elevation tiles cover Texas only, so elevation
 // comes from the public Terrarium set.) Every point is a public landmark or a
@@ -96,6 +101,10 @@ func TestGeneratePresets(t *testing.T) {
 	depart, err := presetDepart()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if only := os.Getenv("DEMOTRIPS_ONLY"); only != "" {
+		generateOnly(t, ctx, vbase, arch, elev, depart, strings.Split(only, ","))
+		return
 	}
 
 	files, err := vegasPresets()
@@ -509,4 +518,74 @@ func writePresets(dir string, files []presetFile) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "index.json"), append(b, '\n'), 0o644)
+}
+
+// generateOnly plans the listed genTrips and keeps every other preset as it is on disk.
+func generateOnly(t *testing.T, ctx context.Context, vbase string, arch *chargers.Archive, elev *elevation.Resolver, depart time.Time, ids []string) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			want[id] = true
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(PresetsDir, "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idx PresetIndex
+	if err := json.Unmarshal(b, &idx); err != nil {
+		t.Fatal(err)
+	}
+	fresh := map[string]presetFile{}
+	for _, g := range genTrips {
+		if !want[g.id] {
+			continue
+		}
+		delete(want, g.id)
+		plan, err := genPlan(ctx, vbase, arch, elev, g, depart)
+		if err != nil {
+			t.Fatalf("%s: %v", g.id, err)
+		}
+		f, err := newPreset(g.id, g.name, g.from, g.to, g.startSoC, g.targetSoC, genPackKWh, plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.RoutePolyline, err = genShape(vbase, f.Plan); err != nil {
+			t.Fatalf("%s: shape: %v", g.id, err)
+		}
+		fresh[g.id] = f
+	}
+	if len(want) > 0 {
+		t.Fatalf("DEMOTRIPS_ONLY names ids not in genTrips: %v", want)
+	}
+	var files []presetFile
+	for _, p := range idx.Trips {
+		if f, ok := fresh[p.ID]; ok {
+			files = append(files, f)
+			delete(fresh, p.ID)
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(PresetsDir, p.ID+".plan.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Compact first: writePresets indents the plan as it did when the file was written,
+		// so a kept preset comes out byte for byte the same.
+		var plan bytes.Buffer
+		if err := json.Compact(&plan, raw); err != nil {
+			t.Fatalf("%s: %v", p.ID, err)
+		}
+		files = append(files, presetFile{Preset: p, Plan: plan.Bytes()})
+	}
+	for _, g := range genTrips {
+		if f, ok := fresh[g.id]; ok {
+			files = append(files, f)
+		}
+	}
+	if err := writePresets(PresetsDir, files); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		t.Logf("%-38s %-28s %+v", f.ID, f.Name, f.Summary)
+	}
 }
