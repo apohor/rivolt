@@ -36,7 +36,7 @@ func TestRedisOptionsSignsInAsACLUser(t *testing.T) {
 		"RIVOLT_REDIS_PASSWORD": testRedisPassword + "\n",
 	}))
 	rdb := redis.NewClient(o)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := rdb.Set(ctx, "rivolt:rl:x", "1", time.Minute).Err(); err != nil {
@@ -67,7 +67,7 @@ func TestRedisPasswordNeverInLogsOrErrors(t *testing.T) {
 	mr := miniredis.RunT(t)
 	mr.RequireUserAuth("rivolt", "a-different-password")
 	bad := redis.NewClient(redisOptions(mr.Addr(), env))
-	defer bad.Close()
+	defer func() { _ = bad.Close() }()
 	if err := bad.Ping(ctx).Err(); err == nil {
 		t.Fatal("ping with the wrong password succeeded")
 	} else {
@@ -77,7 +77,7 @@ func TestRedisPasswordNeverInLogsOrErrors(t *testing.T) {
 
 	// Unreachable: nothing listens there.
 	down := redis.NewClient(redisOptions("127.0.0.1:1", env))
-	defer down.Close()
+	defer func() { _ = down.Close() }()
 	if err := down.Ping(ctx).Err(); err == nil {
 		t.Fatal("ping to a closed port succeeded")
 	} else {
