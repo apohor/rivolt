@@ -50,8 +50,6 @@ func TestRivianSessionJSONRoundTrip(t *testing.T) {
 		CSRFToken:        "csrf-abc",
 		AppSessionToken:  "app-def",
 		UserSessionToken: "user-ghi",
-		AccessToken:      "access-jkl",
-		RefreshToken:     "refresh-mno",
 		// AuthenticatedAt: trimmed to seconds because Postgres
 		// timestamptz round-trips at microsecond precision but
 		// JSON marshal already serializes the wall clock; we
@@ -71,8 +69,6 @@ func TestRivianSessionJSONRoundTrip(t *testing.T) {
 		got.CSRFToken != want.CSRFToken ||
 		got.AppSessionToken != want.AppSessionToken ||
 		got.UserSessionToken != want.UserSessionToken ||
-		got.AccessToken != want.AccessToken ||
-		got.RefreshToken != want.RefreshToken ||
 		!got.AuthenticatedAt.Equal(want.AuthenticatedAt) {
 		t.Fatalf("round-trip drift:\n got  %+v\n want %+v", got, want)
 	}

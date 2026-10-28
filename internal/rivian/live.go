@@ -106,8 +106,6 @@ type LiveClient struct {
 	csrfToken        string
 	appSessionToken  string // "a-sess" header
 	userSessionToken string // "u-sess" header
-	accessToken      string
-	refreshToken     string
 	email            string // owner's email, populated on successful Login
 	pendingOTPToken  string // populated when the server returns an MFA challenge
 	pendingOTPEmail  string
@@ -869,14 +867,14 @@ const (
 	qLogin = `mutation Login($email: String!, $password: String!) {
   login(email: $email, password: $password) {
     __typename
-    ... on MobileLoginResponse { accessToken refreshToken userSessionToken }
+    ... on MobileLoginResponse { userSessionToken }
     ... on MobileMFALoginResponse { otpToken }
   }
 }`
 
 	qLoginOTP = `mutation LoginWithOTP($email: String!, $otpCode: String!, $otpToken: String!) {
   loginWithOTP(email: $email, otpCode: $otpCode, otpToken: $otpToken) {
-    __typename accessToken refreshToken userSessionToken
+    __typename userSessionToken
   }
 }`
 )
@@ -891,8 +889,6 @@ type createCSRFData struct {
 type loginData struct {
 	Login struct {
 		Typename         string `json:"__typename"`
-		AccessToken      string `json:"accessToken"`
-		RefreshToken     string `json:"refreshToken"`
 		UserSessionToken string `json:"userSessionToken"`
 		OTPToken         string `json:"otpToken"`
 	} `json:"login"`
@@ -900,8 +896,6 @@ type loginData struct {
 
 type loginOTPData struct {
 	LoginWithOTP struct {
-		AccessToken      string `json:"accessToken"`
-		RefreshToken     string `json:"refreshToken"`
 		UserSessionToken string `json:"userSessionToken"`
 	} `json:"loginWithOTP"`
 }
@@ -974,8 +968,6 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		if data.LoginWithOTP.UserSessionToken == "" {
 			return errors.New("LoginWithOTP: empty userSessionToken")
 		}
-		c.accessToken = data.LoginWithOTP.AccessToken
-		c.refreshToken = data.LoginWithOTP.RefreshToken
 		c.userSessionToken = data.LoginWithOTP.UserSessionToken
 		c.email = email
 		c.pendingOTPToken = ""
@@ -1009,8 +1001,6 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		if data.Login.UserSessionToken == "" {
 			return errors.New("Login: empty userSessionToken")
 		}
-		c.accessToken = data.Login.AccessToken
-		c.refreshToken = data.Login.RefreshToken
 		c.userSessionToken = data.Login.UserSessionToken
 		c.email = creds.Email
 		c.authenticatedAt = time.Now()
@@ -1800,8 +1790,6 @@ type Session struct {
 	CSRFToken        string    `json:"csrf_token"`
 	AppSessionToken  string    `json:"app_session_token"`
 	UserSessionToken string    `json:"user_session_token"`
-	AccessToken      string    `json:"access_token"`
-	RefreshToken     string    `json:"refresh_token"`
 	AuthenticatedAt  time.Time `json:"authenticated_at"`
 }
 
@@ -1814,8 +1802,6 @@ func (c *LiveClient) Snapshot() Session {
 		CSRFToken:        c.csrfToken,
 		AppSessionToken:  c.appSessionToken,
 		UserSessionToken: c.userSessionToken,
-		AccessToken:      c.accessToken,
-		RefreshToken:     c.refreshToken,
 		AuthenticatedAt:  c.authenticatedAt,
 	}
 }
@@ -1827,8 +1813,6 @@ func (c *LiveClient) Restore(s Session) {
 	c.csrfToken = s.CSRFToken
 	c.appSessionToken = s.AppSessionToken
 	c.userSessionToken = s.UserSessionToken
-	c.accessToken = s.AccessToken
-	c.refreshToken = s.RefreshToken
 	c.authenticatedAt = s.AuthenticatedAt
 	c.email = s.Email
 	c.pendingOTPEmail = ""
@@ -1910,8 +1894,6 @@ func (c *LiveClient) Logout() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.userSessionToken = ""
-	c.accessToken = ""
-	c.refreshToken = ""
 	c.email = ""
 	c.pendingOTPToken = ""
 	c.pendingOTPEmail = ""

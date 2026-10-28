@@ -138,3 +138,50 @@ func (s *Store) Delete(ctx context.Context, userID uuid.UUID, name string) error
 	}
 	return nil
 }
+
+// GetVersioned is Get plus the row's updated_at, which is its version: every write sets it.
+func (s *Store) GetVersioned(ctx context.Context, userID uuid.UUID, name string) ([]byte, time.Time, error) {
+	if userID == uuid.Nil {
+		return nil, time.Time{}, errors.New("secrets: nil userID")
+	}
+	if name == "" {
+		return nil, time.Time{}, errors.New("secrets: empty name")
+	}
+	const q = `SELECT ciphertext, updated_at FROM user_secrets WHERE user_id = $1 AND name = $2`
+	var blob []byte
+	var at time.Time
+	err := s.db.QueryRowContext(ctx, q, userID, name).Scan(&blob, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, time.Time{}, ErrNotFound
+	}
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("secrets: select: %w", err)
+	}
+	plaintext, err := s.sealer.Open(ctx, userID, blob)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return plaintext, at, nil
+}
+
+// ReplaceIfUnchanged re-seals the row's plaintext in place, only if its updated_at is still
+// at (nobody wrote it since it was read), and KEEPS updated_at: the row's content changes
+// without it becoming a new version, so nothing that watches versions (the Rivian account
+// sync on every pod) sees a change. false when the row changed meanwhile or is gone; the
+// caller just tries again on its next pass.
+func (s *Store) ReplaceIfUnchanged(ctx context.Context, userID uuid.UUID, name string, plaintext []byte, at time.Time) (bool, error) {
+	if userID == uuid.Nil || name == "" {
+		return false, errors.New("secrets: nil userID or empty name")
+	}
+	blob, err := s.sealer.Seal(ctx, userID, plaintext)
+	if err != nil {
+		return false, fmt.Errorf("secrets: seal: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE user_secrets SET ciphertext = $3, kek_id = $4
+		WHERE user_id = $1 AND name = $2 AND updated_at = $5`, userID, name, blob, s.sealer.KEKID(), at)
+	if err != nil {
+		return false, fmt.Errorf("secrets: replace: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
