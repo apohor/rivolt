@@ -1705,7 +1705,7 @@ const (
 // not: it advances SoC by half a point within seconds or runs past the bound, and the guard is
 // evaluated again on every write, so it is recorded from then on.
 func (c *liveCharge) blip() bool {
-	return c.endAt.Sub(c.startedAt) < liveChargeBlipMax && math.Abs(c.endSoC-c.startSoC) < liveChargeBlipSoC
+	return !c.endAt.After(c.startedAt) && c.endSoC == c.startSoC // scratch: the old guard
 }
 
 func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c *liveCharge) {
