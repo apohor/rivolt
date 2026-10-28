@@ -39,19 +39,22 @@ func TestPurgeRemovesOnlyTheDeletedUsersLiveStateKeys(t *testing.T) {
 	set("rivolt:livestate:" + other + ":veh1")
 	set("rivolt:livestate:" + other + ":veh1:state")
 	set("rivolt-preview:livestate:" + gone + ":veh1") // another install on the same Redis
-	set("rivolt:planquota:" + gone + ":2026102804")   // a count, not location data; not this purge's business
+	set("rivolt:planquota:" + gone + ":2026102804")   // the planner quota counters carry the user id: removed too
+	set("rivolt:planquota:" + gone + ":2026102805")
+	set("rivolt:planquota:" + other + ":2026102804") // another user's stays
+	set("rivolt:planleg:v1:abc123")                  // the leg cache is keyed by a hash, no user id: not attributable, not touched
 	set("rivolt:fail:login:abc")
 
 	n, err := p.PurgeNow(ctx, gone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 451 {
-		t.Fatalf("removed %d keys, want 451", n)
+	if n != 453 {
+		t.Fatalf("removed %d keys, want 453 (450 snapshots, the :state key, two quota counters)", n)
 	}
 	left := mr.Keys()
-	if len(left) != 5 {
-		t.Fatalf("keys left = %v, want the other user's 2, the other install's, the quota and the limiter", left)
+	if len(left) != 6 {
+		t.Fatalf("keys left = %v, want the other user's 2 snapshots and quota, the other install's snapshot, the leg cache and the limiter", left)
 	}
 	for _, k := range left {
 		if k == "rivolt:livestate:"+gone+":veh0" {
