@@ -682,7 +682,7 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		s.charge.final = true
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
-		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		phantom := s.charge.blip()
 		rejected := s.charge.rejected
 		s.charge = nil
 		m.mu.Lock()
@@ -1351,7 +1351,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// drive-close path) and decide whether to skip the hook for
 		// phantom rows that upsertLiveCharge already filtered out.
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
-		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		phantom := s.charge.blip()
 		if !phantom {
 			m.mu.RLock()
 			var sess *LiveSession
@@ -1691,6 +1691,23 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 	}
 }
 
+// Blip bounds: a session shorter than liveChargeBlipMax that moved the battery less than
+// liveChargeBlipSoC points was never a charge, whatever its sticky power and energy fields say
+// (cached values from the previous session ride along on those frames: blips in prod carry up to
+// 0.5 kWh and a 400 kW "peak").
+const (
+	liveChargeBlipMax = 20 * time.Second
+	liveChargeBlipSoC = 0.5
+)
+
+// blip reports whether the session, as it stands, is a blip (see liveChargeBlipMax). A zero-length
+// session with no SoC change, the same-tick case the guard always covered, is one. A real charge is
+// not: it advances SoC by half a point within seconds or runs past the bound, and the guard is
+// evaluated again on every write, so it is recorded from then on.
+func (c *liveCharge) blip() bool {
+	return c.endAt.Sub(c.startedAt) < liveChargeBlipMax && math.Abs(c.endSoC-c.startSoC) < liveChargeBlipSoC
+}
+
 func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c *liveCharge) {
 	if c == nil {
 		return
@@ -1710,7 +1727,12 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	// zero-delta too, but the very next ongoing frame moves endAt). Skip
 	// the upsert so neither the open nor the same-tick close path can
 	// persist a 0m / 70%→70% row. See v0.10.x phantom-charges incident.
-	if !c.endAt.After(c.startedAt) && c.endSoC == c.startSoC {
+	// The same guard covers the blip that is not same-tick: a wake from sleep makes the first
+	// vehicleState frame replay the charger state from before the sleep ("charging_active" on a
+	// truck that finished at 80 % hours ago), the next frame, a second later, says complete, and the
+	// session closes after 1.6 s having moved nothing: 238 of the 240 charges under 20 s in prod
+	// are such blips, one per wake on a plugged-in truck (see liveCharge.blip).
+	if c.blip() {
 		return
 	}
 
