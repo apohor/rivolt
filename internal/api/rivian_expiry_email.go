@@ -58,7 +58,7 @@ func (a *rivianExpiryEmailAPI) putSettings(uid uuid.UUID, w http.ResponseWriter,
 	writeJSON(w, http.StatusOK, map[string]bool{"enabled": *body.Enabled})
 }
 
-const rivianExpiryUnsubExpired = `<h1>This link has expired</h1><p>Sign in to Rivolt and change these reminders in Settings → Notifications.</p>`
+const rivianExpiryUnsubExpired = `<h1>This link has expired</h1><p>Sign in to Rivolt and change these reminders in Settings → Rivian account.</p>`
 
 // verify accepts only a token signed for these reminders.
 func (a *rivianExpiryEmailAPI) verify(r *http.Request) (uuid.UUID, bool) {
@@ -91,5 +91,5 @@ func (a *rivianExpiryEmailAPI) unsubscribePost(w http.ResponseWriter, r *http.Re
 		serverError(w, r, "rivian expiry email unsubscribe", err)
 		return
 	}
-	writeUnsubPage(w, http.StatusOK, `<h1>You won't get these reminders</h1><p>That covers the heads-up before your Rivian connection expires. If it does expire, Rivolt still tells you recording has stopped. You can turn the reminders back on in Settings → Notifications.</p>`)
+	writeUnsubPage(w, http.StatusOK, `<h1>You won't get these reminders</h1><p>That covers the heads-up before your Rivian connection expires. If it does expire, Rivolt still tells you recording has stopped. You can turn the reminders back on in Settings → Rivian account.</p>`)
 }

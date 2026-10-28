@@ -1609,6 +1609,7 @@ func runServer() {
 	// run it: the notices are claimed in engagement_sends. RIVOLT_ENGAGEMENT_EMAILS=false
 	// (preview) keeps the counts and sends nothing.
 	rivian.ConfiguredSessionLifetime = rivian.SessionLifetimeFromEnv(os.Getenv)
+	rivianExpiryEmails := false
 	if pgPool != nil && secretsStore != nil && !adminOnlyMode {
 		expiry := &rivianexpiry.Job{
 			Sessions: secrets.NewRivianSessionLister(pgPool, secretsStore),
@@ -1635,7 +1636,8 @@ func runServer() {
 		if mailer != nil && os.Getenv("RIVOLT_RIVIAN_EXPIRY_EMAILS") == "true" && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 			expiry.Mail = mailer
 		}
-		logger.Info("rivian expiry emails", "enabled", expiry.Mail != nil)
+		rivianExpiryEmails = expiry.Mail != nil
+		logger.Info("rivian expiry emails", "enabled", rivianExpiryEmails)
 		bg.Go(func() {
 			select {
 			case <-ctx.Done():
@@ -2671,6 +2673,7 @@ func runServer() {
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
+		RivianExpiryEmails:    rivianExpiryEmails,
 		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
 		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{
