@@ -235,7 +235,7 @@ func TestKillSwitchReachesEveryReplica(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s.Start(ctx)
+		// s.Start(ctx)
 		stores[i] = s
 	}
 	all := func(paused bool) func() bool {
