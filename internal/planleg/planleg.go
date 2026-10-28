@@ -15,8 +15,10 @@
 // run up. Simulated plans are deterministic for their inputs, so they cache
 // like any other. Redis being down never blocks planning, but never lifts the
 // quota either: the cache then misses and the quota is counted in this
-// process instead (up to 60 an hour per pod, where Redis gives 60 in total).
-// An install without Redis has the same per-process quota.
+// process instead, a share of 60 an hour per user (60 divided by the number of
+// replicas that may run at once, FallbackDivisor), so the replicas together
+// stay inside Rivian's per-user budget. An install without Redis has the same
+// per-process quota.
 package planleg
 
 import (
@@ -66,6 +68,10 @@ type Cache struct {
 	// OnFallback, when set, is called for each quota check counted in this process
 	// because Redis could not serve it (or there is none).
 	OnFallback func()
+	// FallbackDivisor is the number of replicas that may run at once: while Redis cannot
+	// serve the quota each pod allows ceil(QuotaPerHour / FallbackDivisor) a user (at least
+	// one), so the replicas together stay inside the per-user budget. Zero or less: 3.
+	FallbackDivisor float64
 
 	localMu sync.Mutex
 	local   map[string]int // quota key (user + UTC hour) -> upstream calls counted here
@@ -256,10 +262,23 @@ func (c *Cache) allowLocal(key string, hour, now time.Time) (time.Duration, bool
 		}
 	}
 	c.local[key]++
-	if c.local[key] > QuotaPerHour {
+	if c.local[key] > c.fallbackQuota() {
 		return hour.Add(time.Hour).Sub(now), false
 	}
 	return 0, true
+}
+
+// fallbackQuota is what this process allows a user an hour while Redis cannot answer: its
+// share of QuotaPerHour.
+func (c *Cache) fallbackQuota() int {
+	if c.rdb == nil {
+		return QuotaPerHour // no Redis configured: this process is the whole quota, not a share of it
+	}
+	d := c.FallbackDivisor
+	if d <= 0 {
+		d = 3
+	}
+	return max(1, int(math.Ceil(QuotaPerHour/d)))
 }
 
 // usable reports whether Redis may be tried now.
