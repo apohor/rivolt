@@ -709,7 +709,9 @@ func runServer() {
 			logger.Warn("replay: live state store DISABLED: RIVOLT_REDIS_KEY_PREFIX is empty or the default \"rivolt\", which is prod's keyspace; set a replay-only prefix (e.g. rivolt-preview)",
 				"addr", addr, "prefix", redisKeyPrefix)
 		} else if addr != "" {
-			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			ropts := redisOptions(addr, os.Getenv)
+			logger.Info("redis: client", append([]any{"addr", addr}, redisAuthAttrs(ropts)...)...)
+			rdb := redis.NewClient(ropts)
 			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
 			err := rdb.Ping(pingCtx).Err()
 			pingCancel()
@@ -758,7 +760,9 @@ func runServer() {
 		breaker := rivian.NewBreaker(rivian.DefaultBreakerConfig(), &breakerMetrics{m: appMetrics})
 		var sharedLimiter *ratelimit.Retrying
 		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
-			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			ropts := redisOptions(addr, os.Getenv)
+			logger.Info("redis: client", append([]any{"addr", addr}, redisAuthAttrs(ropts)...)...)
+			rdb := redis.NewClient(ropts)
 			rlCfg := ratelimit.DefaultConfig()
 			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
 			// Redis may not be up yet when the pod boots; the limiter keeps retrying
