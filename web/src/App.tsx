@@ -31,6 +31,7 @@ const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const ChangelogPage = lazy(() => import("./pages/ChangelogPage"));
+const ChargingNetworksPage = lazy(() => import("./pages/ChargingNetworksPage"));
 const R2GuidePage = lazy(() => import("./pages/R2GuidePage"));
 const SampleTripPage = lazy(() => import("./pages/SampleTripPage"));
 const SampleTripsHubPage = lazy(() => import("./pages/SampleTripPage").then((m) => ({ default: m.SampleTripsHubPage })));
@@ -123,6 +124,7 @@ export default function App() {
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="support" element={<SupportPage />} />
       <Route path="r2" element={<R2GuidePage />} />
+      <Route path="charging-networks" element={<ChargingNetworksPage />} />
       <Route path="lease-calculator" element={<LeaseCalculatorPage />} />
       <Route path="charging-cost" element={<ChargingCostPage />} />
       {/*
