@@ -1,0 +1,111 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 2030,
+      "TotalDriveDurationSec": 18955,
+      "TotalTripDurationSec": 20985,
+      "TotalDriveDistanceMeters": 570884,
+      "ArrivalSoC": 16,
+      "ArrivalReachableMeters": 77583.3,
+      "EnergyConsumptionKWh": 173.9,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Union Station, Denver",
+          "Latitude": 39.7527,
+          "Longitude": -105.0002,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Rifle, CO - Tesla Supercharger",
+          "Latitude": 39.52277784626037,
+          "Longitude": -107.77444392442703,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 2030,
+          "ArrivalSoC": 16.3,
+          "DepartureSoC": 75,
+          "ArrivalReachableMeters": 79037.9,
+          "DepartureReachableMeters": 363671.5,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T18:41:56Z",
+          "DepartureTimeUTC": "2026-11-14T19:15:46Z",
+          "DistanceFromOriginMeters": 292632
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Main Street, Moab",
+          "Latitude": 38.5733,
+          "Longitude": -109.5498,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 16,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 77583.3,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T21:49:44Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 570884
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 33.373298000000005,
+      "dcfc_spend_high": 47.983728000000006,
+      "priced_stops": 1,
+      "unpriced_stops": 0,
+      "estimate_basis": "observed",
+      "home_equivalent": 27.824,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "tesla_sc",
+          "network_name": "Tesla Supercharger",
+          "charger_name": "Rifle, CO - Tesla Supercharger",
+          "energy_kwh": 76.897,
+          "member_plan": "Supercharging Membership - $12.99/mo",
+          "price": {
+            "basis": "observed",
+            "per_kwh_low": 0.434,
+            "per_kwh_high": 0.624,
+            "low_note": "with the Supercharging Membership",
+            "high_note": "without the membership",
+            "source": "DCFC Tracker",
+            "source_url": "https://dcfctracker.com/reports/supercharger",
+            "observed_month": "2026-10",
+            "label": "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ."
+          },
+          "cost_low": 33.373298000000005,
+          "cost_high": 47.983728000000006
+        }
+      ]
+    }
+  ]
+}
