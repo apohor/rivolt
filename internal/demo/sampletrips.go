@@ -22,13 +22,15 @@ type SampleTripPage struct {
 	Desc     string // meta description
 	Intro    string
 	Blurb    string // the hub card's one line
+	// Zone is the IANA zone the trip's clock times are shown in (where it happens); empty is Pacific, the original three.
+	Zone string
 }
 
 // SampleTripHub is the /sample-trips page's copy (growth, DA-approved).
 var SampleTripHub = SampleTripPage{
 	Title: "Sample Rivian road trips, planned with Rivolt",
-	Desc:  "Three sample trips for a Rivian R1S planned by Rivolt: charging stops, arrival charge, time and estimated cost. Simulated sample data, no sign-in needed.",
-	Intro: "These are three simulated sample plans for a Rivian R1S, shown exactly as Rivolt lays them out: every charging stop with its network, the battery on arrival and departure, charge time, and the estimated cost. " +
+	Desc:  "Eight sample trips for a Rivian R1S planned by Rivolt: charging stops, arrival charge, time and estimated cost. Simulated sample data, no sign-in needed.",
+	Intro: "These are eight simulated sample plans for a Rivian R1S, shown exactly as Rivolt lays them out: every charging stop with its network, the battery on arrival and departure, charge time, and the estimated cost. " +
 		"The figures are estimates from the sample truck's efficiency, the route and the chargers along it; a real trip will differ with weather, traffic and charger speed. " +
 		"With your own Rivian connected, the plan comes from Rivian's planner plus Rivolt's adjustment for the forecast weather along the route. " +
 		"Pick a trip to see the day-by-day plan, open it in the demo planner, or plan your own.",
@@ -69,12 +71,59 @@ var SampleTripPages = []SampleTripPage{
 			"All figures are estimates for the sample truck.",
 		Blurb: "Los Angeles to Mammoth Lakes: 314 miles to the mountains with one fast-charge stop.",
 	},
+	{
+		Slug:     "seattle-portland",
+		PresetID: "seattle-portland",
+		Zone:     "America/Los_Angeles",
+		Title:    "Seattle to Portland in a Rivian: a sample plan, no stops",
+		Desc:     "A 182-mile Rivian R1S sample trip down I-5 from Seattle to Portland, planned by Rivolt: no charging stop needed, arrival charge and estimated cost.",
+		Intro:    "The I-5 run most Northwest owners know: 182 miles from downtown Seattle to downtown Portland in about 2 h 54 min. Leaving at 90%, the sample plan needs no charging stop and arrives with about 26%. Every figure is an estimate for the sample truck; traffic, weather and your own driving will change them.",
+		Blurb:    "Seattle to Portland: 182 miles, no stops.",
+	},
+	{
+		Slug:     "denver-moab",
+		PresetID: "denver-moab",
+		Zone:     "America/Denver",
+		Title:    "Denver to Moab in a Rivian: a sample plan over the Rockies",
+		Desc:     "A 355-mile Rivian R1S sample trip from Denver to Moab on I-70, planned by Rivolt: one fast-charge stop at Rifle, arrival charge and estimated cost.",
+		Intro:    "Denver to Moab over I-70 and down US-191: 355 miles with real mountain passes on the way, about 5 h 50 min including charging. The sample plan stops once, at the Rifle fast chargers at mile 182, charging from 16% to 75% in about 34 minutes with a NACS adapter, and arrives with about 16%. The sample plan does not model the climb; with your own Rivian connected, the route comes from Rivian's planner and Rivolt adjusts for the forecast weather along the route. All figures are estimates for the sample truck.",
+		Blurb:    "Denver to Moab: 355 miles, one stop at Rifle.",
+	},
+	{
+		Slug:     "sf-tahoe",
+		PresetID: "sf-tahoe",
+		Zone:     "America/Los_Angeles",
+		Title:    "San Francisco to Lake Tahoe in a Rivian: a sample plan",
+		Desc:     "A 190-mile Rivian R1S sample trip from San Francisco to South Lake Tahoe, planned by Rivolt: a quick top-up in Folsom, arrival charge and estimated cost.",
+		Intro:    "The Bay to the lake: 190 miles up I-80 and US-50 to South Lake Tahoe, about 3 h 19 min. Leaving at 90% would arrive just under the 10% target, so the sample plan takes a quick top-up in Folsom at mile 110, 52% to 58% in about 4 minutes with a NACS adapter, and arrives with about 15%. Elevation is not modelled in this sample plan, so a winter run will differ; every figure is an estimate for the sample truck.",
+		Blurb:    "San Francisco to Lake Tahoe: 190 miles, a quick top-up in Folsom.",
+	},
+	{
+		Slug:     "la-phoenix",
+		PresetID: "la-phoenix",
+		Zone:     "America/Phoenix",
+		Title:    "Los Angeles to Phoenix in a Rivian: a sample plan on I-10",
+		Desc:     "A 374-mile Rivian R1S sample trip from Los Angeles to Phoenix on I-10, planned by Rivolt: two charging stops, arrival charge and estimated cost.",
+		Intro:    "374 miles of I-10 across the desert, the drive Southern California owners make for a weekend in Arizona, about 6 h 20 min including charging. Leaving at 90% the sample plan stops twice: the Indio fast chargers at mile 126 (45% to 90%, about 26 minutes, NACS adapter) and a slower 62 kW charger at a dealership in Buckeye at mile 342 (12% to 26%, about 28 minutes), arriving with about 15%. That second stop is what the simple planner picks, not a recommendation. Summer heat lowers range; the sample plan does not model it, and with your own Rivian connected Rivolt adjusts for the forecast weather along the route. Every figure is an estimate for the sample truck.",
+		Blurb:    "Los Angeles to Phoenix: 374 miles, two stops.",
+	},
+	{
+		Slug:     "nyc-boston",
+		PresetID: "nyc-boston",
+		Zone:     "America/New_York",
+		Title:    "New York to Boston in a Rivian: a sample plan on I-95",
+		Desc:     "A 212-mile Rivian R1S sample trip from Manhattan to Boston on I-95, planned by Rivolt: no charging stop, arrival charge to spare, estimated cost.",
+		Intro:    "Manhattan to Boston, 212 miles of I-95 and the turnpikes in about 3 h 42 min, with tolls you can choose to avoid in the planner. Leaving at 90% the sample plan gets there without stopping, with a little to spare: about 12% on arrival against a 10% target. Every figure is an estimate for the sample truck.",
+		Blurb:    "New York to Boston: 212 miles, no stops, a little to spare.",
+	},
 }
 
 // SampleTrip is the page model: the server renders it and the page component
 // reads it as JSON (contract agreed with ux).
 type SampleTrip struct {
-	Slug      string          `json:"slug"`
+	Slug string `json:"slug"`
+	// TZ is the IANA zone of the trip's clock times (the page names none; the server's table prints them in it).
+	TZ        string          `json:"tz"`
 	Title     string          `json:"title"`
 	Intro     string          `json:"intro"`
 	DemoURL   string          `json:"demo_url"`
@@ -261,7 +310,7 @@ func buildSampleTrip(page SampleTripPage, indexPolyline string) (SampleTrip, err
 		return SampleTrip{}, fmt.Errorf("no preset %q", page.PresetID)
 	}
 	t := SampleTrip{
-		Slug: page.Slug, Title: page.Title, Intro: page.Intro,
+		Slug: page.Slug, Title: page.Title, Intro: page.Intro, TZ: pageZone(page),
 		DemoURL:   "https://" + "demo.rivolt.dev" + "/trips/plan?preset=" + page.PresetID,
 		SignupURL: "/signup",
 		Currency:  "USD",
@@ -288,7 +337,7 @@ func buildSampleTrip(page SampleTripPage, indexPolyline string) (SampleTrip, err
 			}
 			if day.Overnight != nil && i+1 < len(m.Days) {
 				if next, ok := firstDepart(m.Days[i+1].Plan); ok {
-					day.Overnight.Nights = nightsBetween(day.ArriveAt, next)
+					day.Overnight.Nights = nightsBetween(day.ArriveAt, next, ZoneOf(t))
 				}
 			}
 			t.Days = append(t.Days, day)
@@ -454,7 +503,7 @@ func decodeRoute6(s string) ([][2]float64, error) {
 	return out, nil
 }
 
-// tripZone is where the sample trips happen (California, Nevada).
+// tripZone is the zone of the original three (Pacific); each page names its own (SampleTripPage.Zone).
 var tripZone = func() *time.Location {
 	if l, err := time.LoadLocation("America/Los_Angeles"); err == nil {
 		return l
@@ -462,8 +511,26 @@ var tripZone = func() *time.Location {
 	return time.FixedZone("PT", -8*3600)
 }()
 
-// TripZone is the zone the sample trips' times are shown in.
+// TripZone is the zone the original sample trips' times are shown in.
 func TripZone() *time.Location { return tripZone }
+
+// pageZone is the zone a page names, Pacific when it names none.
+func pageZone(p SampleTripPage) string {
+	if p.Zone != "" {
+		return p.Zone
+	}
+	return "America/Los_Angeles"
+}
+
+// ZoneOf is the zone a trip's times are shown in: its own, else Pacific.
+func ZoneOf(t SampleTrip) *time.Location {
+	if t.TZ != "" {
+		if l, err := time.LoadLocation(t.TZ); err == nil {
+			return l
+		}
+	}
+	return tripZone
+}
 
 func firstDepart(p singlePlan) (time.Time, bool) {
 	if len(p.Routes) == 0 || len(p.Routes[0].Waypoints) == 0 {
@@ -474,8 +541,8 @@ func firstDepart(p singlePlan) (time.Time, bool) {
 }
 
 // nightsBetween counts the local dates passed from arriving to leaving.
-func nightsBetween(arrive, leave time.Time) int {
-	a, l := arrive.In(tripZone), leave.In(tripZone)
+func nightsBetween(arrive, leave time.Time, zone *time.Location) int {
+	a, l := arrive.In(zone), leave.In(zone)
 	da := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
 	dl := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, time.UTC)
 	return int(dl.Sub(da).Hours() / 24)

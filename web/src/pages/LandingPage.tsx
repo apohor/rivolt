@@ -103,7 +103,11 @@ export default function LandingPage() {
           <Claim
             title="Price the trip before you go"
             body="See fast-charging spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
-          />
+          >
+            <Link to="/sample-trips/la-las-vegas-two-days" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+              See a planned trip first: Los Angeles to Las Vegas in two days
+            </Link>
+          </Claim>
           <Claim
             title="Yours to keep"
             body="MIT licensed. Export your data as a zip of CSVs, or download a full JSON backup. Run it on your own server with docker compose and an OIDC provider (maps and the planner need the optional tiles and Valhalla services), or use ours."

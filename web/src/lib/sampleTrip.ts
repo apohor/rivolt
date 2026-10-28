@@ -19,6 +19,8 @@ export type SampleDay = {
 export type SampleTotals = { distance_mi: number; drive_min: number; charge_min: number; charge_stops: number; dcfc_cost_low?: number; dcfc_cost_high?: number; priced_stops?: number; unpriced_stops?: number; price_month?: string; price_url?: string };
 export type SampleTrip = {
   slug: string;
+  // IANA zone of the trip's clock times (the server prints them in it).
+  tz?: string;
   title: string;
   intro: string;
   demo_url: string;

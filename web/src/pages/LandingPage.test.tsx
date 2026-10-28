@@ -29,6 +29,14 @@ describe("LandingPage", () => {
     cfg.features.demoEnabled = false;
   });
 
+  it("links a planned sample trip under the trip claim, not the demo host", () => {
+    renderPage();
+    expect(screen.getByRole("link", { name: "See a planned trip first: Los Angeles to Las Vegas in two days" })).toHaveAttribute(
+      "href",
+      "/sample-trips/la-las-vegas-two-days",
+    );
+  });
+
   it("points sign-up at /login when signup is closed", () => {
     cfg.features.signupEnabled = false;
     renderPage();

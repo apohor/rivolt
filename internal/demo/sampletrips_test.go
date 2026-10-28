@@ -17,6 +17,11 @@ func TestSampleTrips(t *testing.T) {
 		"la-las-vegas-two-days":  {2, 2, true},
 		"pasadena-san-francisco": {1, 1, false},
 		"la-mammoth-lakes":       {1, 1, false},
+		"seattle-portland":       {1, 0, false},
+		"denver-moab":            {1, 1, false},
+		"sf-tahoe":               {1, 1, false},
+		"la-phoenix":             {1, 2, false},
+		"nyc-boston":             {1, 0, false},
 	}
 	for _, p := range SampleTripPages {
 		tr, ok := SampleTripBySlug(p.Slug)
@@ -46,11 +51,26 @@ func TestSampleTrips(t *testing.T) {
 				}
 			}
 		}
-		// Plausible coordinates: California and Nevada.
-		for _, pt := range tr.Route {
-			if pt[0] < 32 || pt[0] > 39 || pt[1] < -122.6 || pt[1] > -114 {
-				t.Fatalf("%s: point %v outside CA/NV", p.Slug, pt)
+		// Plausible coordinates: every route point lies near the trip's own endpoints and stops (a decoding sanity check, whatever the
+		// region), within a degree of their box.
+		lo, hi := tr.Route[0], tr.Route[0]
+		grow := func(lat, lon float64) {
+			lo[0], lo[1] = min(lo[0], lat), min(lo[1], lon)
+			hi[0], hi[1] = max(hi[0], lat), max(hi[1], lon)
+		}
+		grow(tr.Route[len(tr.Route)-1][0], tr.Route[len(tr.Route)-1][1])
+		for _, d := range tr.Days {
+			for _, st := range d.Stops {
+				grow(st.Lat, st.Lon)
 			}
+		}
+		for _, pt := range tr.Route {
+			if pt[0] < lo[0]-1 || pt[0] > hi[0]+1 || pt[1] < lo[1]-1 || pt[1] > hi[1]+1 {
+				t.Fatalf("%s: point %v outside the trip's own box %v..%v", p.Slug, pt, lo, hi)
+			}
+		}
+		if tr.TZ == "" || ZoneOf(tr).String() != tr.TZ {
+			t.Errorf("%s: tz %q", p.Slug, tr.TZ)
 		}
 		if !strings.HasPrefix(tr.DemoURL, "https://demo.rivolt.dev/trips/plan?preset=") {
 			t.Errorf("%s: demo url %s", p.Slug, tr.DemoURL)
