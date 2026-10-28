@@ -390,6 +390,20 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 		}
 	}
 
+	// A client that lost or never recorded its version (a sign-in made on this pod, stored
+	// since) learns it once the stored session is the one it holds: the round that found the
+	// version changed has already reconciled the tokens.
+	if !versionChanged && !st.SessionVersion.IsZero() {
+		if vs, ok := a.(interface {
+			sessionVersioner
+			SessionVersion() time.Time
+		}); ok && vs.SessionVersion().IsZero() {
+			if local := a.Snapshot(); local.UserSessionToken != "" && !local.AuthenticatedAt.After(st.SessionVersion) {
+				vs.SetSessionVersion(st.SessionVersion)
+			}
+		}
+	}
+
 	// The database is the truth for the flag: any mismatch is corrected, every round (a
 	// flag a pod raised but the database refused, or never got, does not outlive the next
 	// sync).
