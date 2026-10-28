@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -77,6 +78,31 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	return d, nil
 }
 
+// The system pool's default size per process depends on what else serves requests.
+//
+// With the request pool off (RIVOLT_REQUEST_DATABASE_URL unset: every self-hosted install, preview
+// and prod until row-level security stage 3), the system pool is the only pool and serves every
+// request as well as the background work, so it keeps today's 20 (prod's 7-day peak was 53
+// connections across 2 pods, about 26 each). With the request pool on, requests run on their own
+// pool (10) and the system pool serves only sweeps, the monitor's writes and migrations, so 10 is
+// enough: (replicas + a surge pod) x (10 + 10) stays inside max_connections.
+const (
+	DefaultSystemMaxConnsRequestPoolOff = 20
+	DefaultSystemMaxConnsRequestPoolOn  = 10
+)
+
+// SystemPoolSize is the system pool's size and why: RIVOLT_DB_MAX_CONNS (1 to 100) when set to a
+// valid value, else the default for the mode (see above).
+func SystemPoolSize(getenv func(string) string) (n int, reason string) {
+	if v, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_DB_MAX_CONNS"))); err == nil && v >= 1 && v <= 100 {
+		return v, "RIVOLT_DB_MAX_CONNS"
+	}
+	if strings.TrimSpace(getenv("RIVOLT_REQUEST_DATABASE_URL")) != "" {
+		return DefaultSystemMaxConnsRequestPoolOn, "default with the request pool on"
+	}
+	return DefaultSystemMaxConnsRequestPoolOff, "default with the request pool off (the system pool serves requests too)"
+}
+
 // OpenNoMigrate connects and pings but never changes the schema. Repair
 // and maintenance commands use it: a binary newer than the database must
 // not apply pending migrations as a side effect.
@@ -88,12 +114,11 @@ func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open pgx: %w", err)
 	}
-	// Modest pool. Rivolt's workload is a single live state monitor
-	// plus occasional UI queries — 20 is plenty and keeps us well
-	// under Postgres's default 100-connection ceiling even with a
-	// couple of replicas behind an LB.
-	d.SetMaxOpenConns(20)
-	d.SetMaxIdleConns(5)
+	// Modest pool, sized per pod (SystemPoolMaxConns): (replicas + a surge pod) x this, plus
+	// each pod's request pool and everything else, stays under max_connections.
+	n, _ := SystemPoolSize(os.Getenv)
+	d.SetMaxOpenConns(n)
+	d.SetMaxIdleConns(min(5, n))
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
