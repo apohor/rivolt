@@ -52,6 +52,9 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 	_ = rows.Close()
 	out := make([]rivianexpiry.Entry, 0, len(ids))
 	for _, r := range ids {
+		// Every stored session passes through here once an hour: drop the legacy access and
+		// refresh tokens an older version kept in it (best effort, never changes the version).
+		_, _ = ScrubLegacyRivianTokens(ctx, l.store, r.id)
 		sess, err := LoadRivianSession(ctx, l.store, r.id)
 		if err != nil || sess.UserSessionToken == "" {
 			continue // an unreadable or empty session is not ours to warn about
