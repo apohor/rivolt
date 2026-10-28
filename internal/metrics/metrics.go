@@ -62,6 +62,14 @@ type Metrics struct {
 	// counts rounds that could not read the database at all. No user labels.
 	RivianAccountMismatch        *prometheus.GaugeVec
 	RivianAccountSyncErrorsTotal prometheus.Counter
+	// RivianSessionsExpiring is the number of stored Rivian sessions with at most the given
+	// time left ("14d", "7d", "1d"), from the hourly expiry sweep; RivianSessionsExpired those
+	// already past their expected end but not yet flagged needs_reauth (should be 0: a non-zero
+	// value for long means the expiry estimate is wrong or recording stopped unnoticed).
+	RivianSessionsExpiring *prometheus.GaugeVec
+	RivianSessionsExpired  prometheus.Gauge
+	// RivianExpiryNoticesTotal counts the expiry warnings by days left (7 or 1) and outcome.
+	RivianExpiryNoticesTotal *prometheus.CounterVec
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge
 	// (closed/half_open/open) so Grafana can alert on
@@ -270,6 +278,18 @@ func New() *Metrics {
 			Name: "rivolt_rivian_account_sync_errors_total",
 			Help: "Sync rounds that could not read the Rivian account state from the database.",
 		}),
+		RivianSessionsExpiring: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_rivian_sessions_expiring",
+			Help: "Stored Rivian sessions with at most this much time left before the expected 180-day end.",
+		}, []string{"within"}),
+		RivianSessionsExpired: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_rivian_sessions_expired_unflagged",
+			Help: "Stored Rivian sessions past their expected end that are not flagged needs_reauth.",
+		}),
+		RivianExpiryNoticesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rivian_expiry_notices_total",
+			Help: "Rivian session expiry warnings, by days left and outcome.",
+		}, []string{"days", "outcome"}),
 		ReauthRaiseDeferred: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_reauth_raise_deferred_total",
@@ -485,6 +505,9 @@ func New() *Metrics {
 		m.ReauthRaiseDeferred,
 		m.RivianAccountMismatch,
 		m.RivianAccountSyncErrorsTotal,
+		m.RivianSessionsExpiring,
+		m.RivianSessionsExpired,
+		m.RivianExpiryNoticesTotal,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,
