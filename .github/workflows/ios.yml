@@ -55,7 +55,7 @@ jobs:
   # and the Now card renders (uploaded as soon as the tests finish). The slow
   # simulator screenshots and the Release device build run beside it.
   build-test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -162,7 +162,7 @@ jobs:
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -295,7 +295,7 @@ jobs:
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
