@@ -82,7 +82,7 @@ func TestAppleRevokeOnAccountDelete(t *testing.T) {
 	ar := &AppleRevocation{DB: pool, Token: links.RefreshToken, Revoke: apple.revoke, Sealer: sealer,
 		Log: slog.New(slog.NewTextHandler(&logs, nil))}
 	r := chi.NewRouter()
-	r.Delete("/users/{id}", handleAdminUserDelete(pool, nil, ar, nil))
+	r.Delete("/users/{id}", handleAdminUserDelete(pool, nil, ar, nil, nil))
 	r.Get("/idp-delete-failures", handleAdminIdPFailures(pool))
 	del := func(uid uuid.UUID) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodDelete, "/users/"+uid.String(), nil).WithContext(auth.WithUser(ctx, admin))

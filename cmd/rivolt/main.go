@@ -619,6 +619,15 @@ func runServer() {
 	if redisKeyPrefix == "" {
 		redisKeyPrefix = "rivolt"
 	}
+	// purgeUserCaches deletes what this install holds of a deleted user in Redis (the live-state
+	// snapshots, which carry coordinates, for up to two hours): after an account deletion here, and
+	// when this pod learns of one made on another pod. Best effort; no Redis, nothing to do.
+	purgeUserCaches := func(uid uuid.UUID) {
+		if sharedRedis == nil {
+			return
+		}
+		(&rivian.LiveStatePurger{Rdb: sharedRedis, Prefix: redisKeyPrefix, Log: logger}).Purge(ctx, uid.String())
+	}
 	// Fail closed on installs that must never talk to Rivian (preview:
 	// a second live subscriber on a VIN prod also streams kicks both
 	// off and split-brains the recorder). Anything but the network-free
@@ -909,12 +918,16 @@ func runServer() {
 				// A monitor already running here holds the old tokens (or none): stop it,
 				// and on a new session start it again on the new ones.
 				mr := monitorRegistry
-				if mr == nil || mr.For(uid) == nil {
-					return
+				if mr != nil && mr.For(uid) != nil {
+					mr.Stop(uid)
+					if change == rivian.SyncSessionReplaced {
+						mr.Start(ctx, uid)
+					}
 				}
-				mr.Stop(uid)
-				if change == rivian.SyncSessionReplaced {
-					mr.Start(ctx, uid)
+				// An account deleted on another pod: after the monitor is stopped (or it writes
+				// again), delete what this install holds of the user in Redis.
+				if change == rivian.SyncUserRemoved {
+					purgeUserCaches(uid)
 				}
 			})
 			syncer.OnReconcile(func(r rivian.Reconcile) {
@@ -2659,6 +2672,7 @@ func runServer() {
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
 		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
+		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{
 			DB: pgPool, Flags: flagsStore, Version: version,
 			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),

@@ -219,6 +219,9 @@ type Deps struct {
 	// FailLimiterKey is the HMAC key for the limiter's Redis key names (FailLimiterKey of the
 	// server's secret); without it the limiters stay per pod.
 	FailLimiterKey []byte
+	// PurgeUserCaches deletes what is held of a user outside Postgres (the Redis live-state
+	// snapshots) once their account is deleted. Best effort, nil: nothing to purge.
+	PurgeUserCaches func(ctx context.Context, uid uuid.UUID)
 	// HydraRememberFor controls how long Hydra remembers the
 	// user's login + consent before forcing a fresh prompt. Zero
 	// defers to Hydra's login_session lifespan. Sourced from the
@@ -1309,7 +1312,7 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
 					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.systemSecrets(), d.SystemDB, d.Logger)) // system pool: another user's secrets
 				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
-					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.AppleRevocation, d.Logger))
+					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.AppleRevocation, d.PurgeUserCaches, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.With(audit(auditSpec{action: "settings.ai", targetType: "settings", targetID: "ai", fields: true})).
 					Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))

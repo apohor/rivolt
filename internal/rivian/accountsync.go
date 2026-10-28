@@ -87,6 +87,10 @@ const (
 	SyncSessionReplaced SyncChange = iota + 1
 	// SyncLoggedOut: the session was removed elsewhere and the local copy dropped.
 	SyncLoggedOut
+	// SyncUserRemoved: the users row is gone (the account was deleted): the account was dropped
+	// from the registry. The monitor stops, and whatever the pod holds of the user in Redis is
+	// theirs to delete (after the monitor is stopped, or it writes it again).
+	SyncUserRemoved
 )
 
 type syncSeen struct {
@@ -331,7 +335,7 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 		s.mu.Unlock()
 		s.log.Info("rivian account sync: user removed, account dropped", "user_id", uid.String())
 		if fn != nil {
-			fn(uid, SyncLoggedOut)
+			fn(uid, SyncUserRemoved)
 		}
 		return true
 	}
@@ -442,6 +446,8 @@ func (c SyncChange) String() string {
 		return "session_replaced"
 	case SyncLoggedOut:
 		return "logged_out"
+	case SyncUserRemoved:
+		return "user_removed"
 	}
 	return "none"
 }
