@@ -257,7 +257,19 @@ func TestKillSwitchReachesEveryReplica(t *testing.T) {
 	if err := stores[0].SetKillSwitch(ctx, true, "upstream incident", "admin"); err != nil {
 		t.Fatal(err)
 	}
+	// Another flag through the same refresh, so the shared path is covered, not one field.
+	if err := stores[0].SetSignupCap(ctx, 7, "admin"); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(t, flags.DefaultPollInterval+5*time.Second, "every replica paused", all(true))
+	waitFor(t, flags.DefaultPollInterval+5*time.Second, "every replica sees the signup cap", func() bool {
+		for _, s := range stores {
+			if s.SignupCap().Limit != 7 {
+				return false
+			}
+		}
+		return true
+	})
 	for i, s := range stores {
 		if st := s.KillSwitch(); st.Reason != "upstream incident" || st.Actor != "admin" {
 			t.Errorf("replica %d state = %+v", i, st)
