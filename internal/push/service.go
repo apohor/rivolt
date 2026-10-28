@@ -295,6 +295,50 @@ func (s *Service) DeliverMilestone(ctx context.Context, store *Store, title, bod
 	return ok, nil
 }
 
+// TripRecapPayload is the saved-trip recap: generic title (the trip's name never goes in a
+// push; it shows in the app after the tap), planned and actual arrival charge and cost
+// in the body, a deep link to the day-by-day.
+func TripRecapPayload(body, savedTripID string) Payload {
+	return Payload{
+		Title: "You drove a saved trip",
+		Body:  body,
+		Tag:   "rivolt-trip-recap",
+		URL:   "/plan?trip=" + savedTripID + "&tab=pva",
+		Kind:  "trip_recap",
+	}
+}
+
+// DeliverTripRecap sends the trip recap to the user's browsers and app installs that
+// have notifications on, and waits. The opt-in is the account's (Settings, Trip recap),
+// checked by the caller, not a per-device switch. It reports how many sends succeeded; an
+// error means none did.
+func (s *Service) DeliverTripRecap(ctx context.Context, store *Store, p Payload) (int, error) {
+	if s == nil || store == nil {
+		return 0, errors.New("push: not configured")
+	}
+	subs, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var ok int
+	var last error
+	for _, sub := range subs {
+		if err := s.sendOne(ctx, store, sub, p); err != nil {
+			last = err
+			continue
+		}
+		ok++
+	}
+	ok += s.fanAPNsTo(ctx, store, p, true)
+	if ok == 0 {
+		if last == nil {
+			last = errors.New("push: no device has notifications on")
+		}
+		return 0, last
+	}
+	return ok, nil
+}
+
 // NotifyAnomaly fires when an anomaly is detected for the user. Scoped
 // to the user via store.
 func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {

@@ -21,8 +21,11 @@ type engagementSettings struct {
 	// The plug-in reminder never sends without it.
 	Timezone string `json:"timezone"`
 	// TimezoneStored is false until a zone has been saved with these settings.
-	TimezoneStored   bool   `json:"timezone_stored"`
-	WeeklyRecap      bool   `json:"weekly_recap"`
+	TimezoneStored bool `json:"timezone_stored"`
+	WeeklyRecap    bool `json:"weekly_recap"`
+	// TripRecap: one notification after driving a saved trip (planned vs actual arrival charge
+	// and cost). Off until chosen.
+	TripRecap        bool   `json:"trip_recap"`
 	PlugThresholdPct int    `json:"plug_threshold_pct"`
 	PlugRemindAt     string `json:"plug_remind_at"` // HH:MM local, never after 22:00
 }
@@ -41,8 +44,8 @@ func (a *engagementAPI) load(r *http.Request, uid uuid.UUID) (engagementSettings
 	var tz sql.NullString
 	var at string
 	err := a.db.QueryRowContext(r.Context(), `
-		SELECT timezone, weekly_recap, plug_threshold_pct, to_char(plug_remind_at, 'HH24:MI')
-		  FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&tz, &out.WeeklyRecap, &out.PlugThresholdPct, &at)
+		SELECT timezone, weekly_recap, trip_recap, plug_threshold_pct, to_char(plug_remind_at, 'HH24:MI')
+		  FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&tz, &out.WeeklyRecap, &out.TripRecap, &out.PlugThresholdPct, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, nil
 	}
@@ -84,6 +87,7 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Timezone         *string `json:"timezone"`
 		WeeklyRecap      *bool   `json:"weekly_recap"`
+		TripRecap        *bool   `json:"trip_recap"`
 		PlugThresholdPct *int    `json:"plug_threshold_pct"`
 		PlugRemindAt     *string `json:"plug_remind_at"`
 	}
@@ -107,6 +111,9 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 	if body.WeeklyRecap != nil {
 		cur.WeeklyRecap = *body.WeeklyRecap
 	}
+	if body.TripRecap != nil {
+		cur.TripRecap = *body.TripRecap
+	}
 	if body.PlugThresholdPct != nil {
 		if *body.PlugThresholdPct < 5 || *body.PlugThresholdPct > 95 {
 			http.Error(w, "plug_threshold_pct must be between 5 and 95", http.StatusBadRequest)
@@ -129,11 +136,12 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		tz = cur.Timezone
 	}
 	if _, err := a.db.ExecContext(r.Context(), `
-		INSERT INTO engagement_prefs (user_id, timezone, weekly_recap, plug_threshold_pct, plug_remind_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5::time, NOW())
+		INSERT INTO engagement_prefs (user_id, timezone, weekly_recap, trip_recap, plug_threshold_pct, plug_remind_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6::time, NOW())
 		ON CONFLICT (user_id) DO UPDATE SET timezone = EXCLUDED.timezone, weekly_recap = EXCLUDED.weekly_recap,
-			plug_threshold_pct = EXCLUDED.plug_threshold_pct, plug_remind_at = EXCLUDED.plug_remind_at, updated_at = NOW()`,
-		uid, tz, cur.WeeklyRecap, cur.PlugThresholdPct, cur.PlugRemindAt); err != nil {
+			trip_recap = EXCLUDED.trip_recap, plug_threshold_pct = EXCLUDED.plug_threshold_pct,
+			plug_remind_at = EXCLUDED.plug_remind_at, updated_at = NOW()`,
+		uid, tz, cur.WeeklyRecap, cur.TripRecap, cur.PlugThresholdPct, cur.PlugRemindAt); err != nil {
 		serverError(w, r, "engagement settings", err)
 		return
 	}
