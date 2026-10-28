@@ -610,6 +610,11 @@ func runServer() {
 	// the limiter classes are install-wide constants). Hoisted out
 	// of the rivian-client switch so the livestate factory below
 	// can read the same value.
+	// RIVOLT_REPLICA_DIVISOR is how many replicas may run at once (replicas plus the rolling-update
+	// surge; the chart sets it). While Redis cannot answer, the Rivian call budget and the planner
+	// quota each fall back to 1/this of the shared limit per pod, so the pods together stay inside it.
+	replicaDivisor := replicaDivisorFromEnv(os.Getenv)
+	logger.Info("redis fallback limits", "replica_divisor", replicaDivisor)
 	redisKeyPrefix := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_KEY_PREFIX"))
 	if redisKeyPrefix == "" {
 		redisKeyPrefix = "rivolt"
@@ -771,6 +776,8 @@ func runServer() {
 			rdb := redis.NewClient(ropts)
 			rlCfg := ratelimit.DefaultConfig()
 			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
+			rlCfg.FallbackDivisor = replicaDivisor
+			rlCfg.OnFallback = func(class ratelimit.Class) { appMetrics.RivianBudgetFallbackTotal.WithLabelValues(string(class)).Inc() }
 			// Redis may not be up yet when the pod boots; the limiter keeps retrying
 			// instead of staying off until the next restart.
 			sharedLimiter = ratelimit.NewRetrying(ctx, rdb, rlCfg, logger, 5*time.Second, 30*time.Second, func() { redisUp.Store(true) })
@@ -2648,7 +2655,7 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
-		PlanLegs:              planleg.New(sharedRedis, redisKeyPrefix, logger),
+		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
 		AdminHealth: adminhealth.New(adminhealth.Config{
@@ -3173,4 +3180,24 @@ func (a appleLinks) Link(ctx context.Context, uid uuid.UUID, sub, refreshToken s
 		return oidc.ErrAppleLinkConflict
 	}
 	return err
+}
+
+// newPlanLegs builds the planner cache and quota. Without Redis (or while it is down) the
+// quota is counted in the process, and each such check is counted.
+func newPlanLegs(rdb *redis.Client, prefix string, logger *slog.Logger, m *metrics.Metrics, divisor float64) *planleg.Cache {
+	c := planleg.New(rdb, prefix, logger)
+	c.FallbackDivisor = divisor
+	if m != nil {
+		c.OnFallback = m.PlanQuotaFallbackTotal.Inc
+	}
+	return c
+}
+
+// replicaDivisorFromEnv reads RIVOLT_REPLICA_DIVISOR (1 to 100); anything else is 3, the number
+// of pods we run with a surge pod.
+func replicaDivisorFromEnv(getenv func(string) string) float64 {
+	if n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_REPLICA_DIVISOR"))); err == nil && n >= 1 && n <= 100 {
+		return float64(n)
+	}
+	return 3
 }

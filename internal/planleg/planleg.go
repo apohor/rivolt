@@ -13,8 +13,12 @@
 // Every planner is wrapped, not only the live one: a replay install's synthetic
 // plan is a Valhalla route and a charger-archive scan, which a user can also
 // run up. Simulated plans are deterministic for their inputs, so they cache
-// like any other. Redis being down never blocks planning: the cache then
-// misses and the quota allows.
+// like any other. Redis being down never blocks planning, but never lifts the
+// quota either: the cache then misses and the quota is counted in this
+// process instead, a share of 60 an hour per user (60 divided by the number of
+// replicas that may run at once, FallbackDivisor), so the replicas together
+// stay inside Rivian's per-user budget. An install without Redis has the same
+// per-process quota.
 package planleg
 
 import (
@@ -28,6 +32,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -60,15 +65,23 @@ type Cache struct {
 	// downUntil (unix nanos): after a Redis failure the cache is skipped until
 	// then, so a dead Redis costs one slow call, not one per planner call.
 	downUntil atomic.Int64
+	// OnFallback, when set, is called for each quota check counted in this process
+	// because Redis could not serve it (or there is none).
+	OnFallback func()
+	// FallbackDivisor is the number of replicas that may run at once: while Redis cannot
+	// serve the quota each pod allows ceil(QuotaPerHour / FallbackDivisor) a user (at least
+	// one), so the replicas together stay inside the per-user budget. Zero or less: 3.
+	FallbackDivisor float64
+
+	localMu sync.Mutex
+	local   map[string]int // quota key (user + UTC hour) -> upstream calls counted here
 }
 
-// New returns a Cache over rdb, or nil when there is no Redis. prefix keeps
-// installs sharing a Redis out of each other's keys (RIVOLT_REDIS_KEY_PREFIX).
+// New returns a Cache over rdb. prefix keeps installs sharing a Redis out of each
+// other's keys (RIVOLT_REDIS_KEY_PREFIX). With no Redis (rdb nil) there is no leg
+// cache and the quota is counted in this process.
 func New(rdb *redis.Client, prefix string, log *slog.Logger) *Cache {
-	if rdb == nil {
-		return nil
-	}
-	return &Cache{rdb: rdb, prefix: prefix, now: time.Now, log: log}
+	return &Cache{rdb: rdb, prefix: prefix, now: time.Now, log: log, local: map[string]int{}}
 }
 
 // QuotaError is returned when a user is over their hourly planner quota.
@@ -206,19 +219,20 @@ func (c *Cache) set(ctx context.Context, key string, plan *rivian.TripPlan) {
 
 // allow counts one upstream call for uid in the current UTC hour. It reports
 // false (with the time until the hour rolls over) when that is over the quota.
-// Redis errors allow the call.
+// A Redis error counts the call in this process instead, so the quota still holds
+// per pod; it never lifts it.
 func (c *Cache) allow(ctx context.Context, uid uuid.UUID, now time.Time) (time.Duration, bool) {
+	hour := now.UTC().Truncate(time.Hour)
+	key := fmt.Sprintf("%s:planquota:%s:%s", c.prefix, uid, hour.Format("2006010215"))
 	if !c.usable() {
-		return 0, true
+		return c.allowLocal(key, hour, now)
 	}
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
-	hour := now.UTC().Truncate(time.Hour)
-	key := fmt.Sprintf("%s:planquota:%s:%s", c.prefix, uid, hour.Format("2006010215"))
 	n, err := c.rdb.Incr(ctx, key).Result()
 	if err != nil {
 		c.warn("plan quota unavailable", err)
-		return 0, true
+		return c.allowLocal(key, hour, now)
 	}
 	if n == 1 {
 		// An hour bucket is dead after the hour; keep the key a little longer
@@ -231,8 +245,46 @@ func (c *Cache) allow(ctx context.Context, uid uuid.UUID, now time.Time) (time.D
 	return 0, true
 }
 
+// allowLocal is the quota counted in this process: used when Redis is down, backing
+// off, or not configured.
+func (c *Cache) allowLocal(key string, hour, now time.Time) (time.Duration, bool) {
+	if c.OnFallback != nil {
+		c.OnFallback()
+	}
+	c.localMu.Lock()
+	defer c.localMu.Unlock()
+	if len(c.local) > 4096 { // old hours are dead; keep the map from growing
+		cur := hour.Format("2006010215")
+		for k := range c.local {
+			if !strings.HasSuffix(k, ":"+cur) {
+				delete(c.local, k)
+			}
+		}
+	}
+	c.local[key]++
+	if c.local[key] > c.fallbackQuota() {
+		return hour.Add(time.Hour).Sub(now), false
+	}
+	return 0, true
+}
+
+// fallbackQuota is what this process allows a user an hour while Redis cannot answer: its
+// share of QuotaPerHour.
+func (c *Cache) fallbackQuota() int {
+	if c.rdb == nil {
+		return QuotaPerHour // no Redis configured: this process is the whole quota, not a share of it
+	}
+	d := c.FallbackDivisor
+	if d <= 0 {
+		d = 3
+	}
+	return max(1, int(math.Ceil(QuotaPerHour/d)))
+}
+
 // usable reports whether Redis may be tried now.
-func (c *Cache) usable() bool { return time.Now().UnixNano() >= c.downUntil.Load() }
+func (c *Cache) usable() bool {
+	return c.rdb != nil && time.Now().UnixNano() >= c.downUntil.Load()
+}
 
 func (c *Cache) warn(msg string, err error) {
 	c.downUntil.Store(time.Now().Add(backoff).UnixNano())

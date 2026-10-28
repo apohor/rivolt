@@ -43,7 +43,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -78,6 +80,90 @@ type Config struct {
 
 	// Now is injectable for tests; defaults to time.Now.
 	Now func() time.Time
+
+	// FallbackDivisor sizes the per-process bucket used while Redis cannot answer: the
+	// configured capacity and refill divided by it (zero or less: 3, the number of
+	// replicas we run). With up to that many replicas the outage budget stays within
+	// the configured one; it is never "no limit".
+	FallbackDivisor float64
+	// OnFallback, when set, is called for each call served from the per-process bucket.
+	OnFallback func(class Class)
+}
+
+// withDefaults fills the zero values of cfg.
+func withDefaults(cfg Config) Config {
+	d := DefaultConfig()
+	if cfg.MainCapacity <= 0 {
+		cfg.MainCapacity = d.MainCapacity
+	}
+	if cfg.MainRefillPerSec <= 0 {
+		cfg.MainRefillPerSec = d.MainRefillPerSec
+	}
+	if cfg.PriorityCapacity <= 0 {
+		cfg.PriorityCapacity = d.PriorityCapacity
+	}
+	if cfg.PriorityRefillPerSec <= 0 {
+		cfg.PriorityRefillPerSec = d.PriorityRefillPerSec
+	}
+	if cfg.KeyPrefix == "" {
+		cfg.KeyPrefix = d.KeyPrefix
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.FallbackDivisor <= 0 {
+		cfg.FallbackDivisor = 3
+	}
+	return cfg
+}
+
+// bucket is a token bucket in this process.
+type bucket struct {
+	tokens float64
+	last   time.Time
+}
+
+// fallbackBuckets is the per-process stand-in for the shared buckets while Redis cannot
+// answer: the configured capacity and refill divided by cfg.FallbackDivisor (at least one
+// token of capacity, so a class is never starved outright).
+type fallbackBuckets struct {
+	mu sync.Mutex
+	b  map[Class]*bucket
+}
+
+func (f *fallbackBuckets) allow(class Class, cfg Config) (bool, time.Duration) {
+	cap, refill := cfg.MainCapacity, cfg.MainRefillPerSec
+	if class == ClassPriority {
+		cap, refill = cfg.PriorityCapacity, cfg.PriorityRefillPerSec
+	}
+	capF := math.Max(1, float64(cap)/cfg.FallbackDivisor)
+	refill /= cfg.FallbackDivisor
+	if cfg.OnFallback != nil {
+		cfg.OnFallback(class)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.b == nil {
+		f.b = map[Class]*bucket{}
+	}
+	now := cfg.Now()
+	bk, ok := f.b[class]
+	if !ok {
+		bk = &bucket{tokens: capF, last: now}
+		f.b[class] = bk
+	}
+	if el := now.Sub(bk.last).Seconds(); el > 0 {
+		bk.tokens = math.Min(capF, bk.tokens+el*refill)
+		bk.last = now
+	}
+	if bk.tokens >= 1 {
+		bk.tokens--
+		return true, 0
+	}
+	if refill <= 0 {
+		return false, time.Minute
+	}
+	return false, time.Duration((1 - bk.tokens) / refill * float64(time.Second))
 }
 
 // DefaultConfig returns sane defaults sized for a single-region
@@ -101,7 +187,8 @@ type Limiter struct {
 	cfg Config
 	log *slog.Logger
 
-	script *redis.Script
+	script   *redis.Script
+	fallback fallbackBuckets
 }
 
 // luaCheckAndDecrement is the atomic refill+take. KEYS[1] is the
@@ -173,25 +260,7 @@ func New(ctx context.Context, rdb *redis.Client, cfg Config, logger *slog.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	d := DefaultConfig()
-	if cfg.MainCapacity <= 0 {
-		cfg.MainCapacity = d.MainCapacity
-	}
-	if cfg.MainRefillPerSec <= 0 {
-		cfg.MainRefillPerSec = d.MainRefillPerSec
-	}
-	if cfg.PriorityCapacity <= 0 {
-		cfg.PriorityCapacity = d.PriorityCapacity
-	}
-	if cfg.PriorityRefillPerSec <= 0 {
-		cfg.PriorityRefillPerSec = d.PriorityRefillPerSec
-	}
-	if cfg.KeyPrefix == "" {
-		cfg.KeyPrefix = d.KeyPrefix
-	}
-	if cfg.Now == nil {
-		cfg.Now = time.Now
-	}
+	cfg = withDefaults(cfg)
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("ratelimit: ping: %w", err)
 	}
@@ -208,9 +277,10 @@ func New(ctx context.Context, rdb *redis.Client, cfg Config, logger *slog.Logger
 // of budget. retryAfter is the time until at least one token
 // would be available; suitable for HTTP Retry-After.
 //
-// On Redis errors Allow fail-opens (returns true) and logs at
-// warn — a Redis blip should never black-hole the entire upstream
-// path. The breaker still gates if Rivian responds with 429s.
+// On Redis errors Allow does not fail open: it draws from a per-process
+// bucket sized as a share of the global one (Config.FallbackDivisor) and logs
+// at warn. A Redis blip then costs the shared budget its accuracy, not its
+// existence: the upstream path is not black-holed, and not unlimited either.
 func (l *Limiter) Allow(ctx context.Context, class Class) (bool, time.Duration) {
 	cap, refill := l.params(class)
 	now := l.cfg.Now().UnixMilli()
@@ -218,9 +288,9 @@ func (l *Limiter) Allow(ctx context.Context, class Class) (bool, time.Duration) 
 		cap, refill, now, 1,
 	).Slice()
 	if err != nil {
-		l.log.Warn("ratelimit: redis script failed; fail-open",
+		l.log.Warn("ratelimit: redis script failed; using the per-process bucket",
 			"class", string(class), "err", err.Error())
-		return true, 0
+		return l.fallback.allow(class, l.cfg)
 	}
 	if len(res) < 2 {
 		return true, 0
@@ -270,17 +340,21 @@ func toInt64(v any) (int64, bool) {
 // limiter used to be disabled for the life of the process in that case, so a
 // later rollout fired Rivian calls with no global budget at all. Retrying keeps
 // trying in the background and starts limiting as soon as Redis answers. Until
-// then, like a Redis error in Allow, it fails open.
+// then, like a Redis error in Allow, it uses the per-process bucket.
 type Retrying struct {
-	l atomic.Pointer[Limiter]
+	l        atomic.Pointer[Limiter]
+	cfg      Config
+	fallback fallbackBuckets
 }
 
-// Allow delegates to the Limiter once it exists; before that it allows.
+// Allow delegates to the Limiter once it exists; before that it draws from the
+// per-process bucket (see Config.FallbackDivisor), so a boot without Redis is
+// limited, not unlimited.
 func (r *Retrying) Allow(ctx context.Context, class Class) (bool, time.Duration) {
 	if l := r.l.Load(); l != nil {
 		return l.Allow(ctx, class)
 	}
-	return true, 0
+	return r.fallback.allow(class, r.cfg)
 }
 
 // Ready reports whether the Redis connection has been made.
@@ -293,7 +367,7 @@ func NewRetrying(ctx context.Context, rdb *redis.Client, cfg Config, logger *slo
 	if logger == nil {
 		logger = slog.Default()
 	}
-	r := &Retrying{}
+	r := &Retrying{cfg: withDefaults(cfg)}
 	try := func() error {
 		pctx, cancel := context.WithTimeout(ctx, pingTimeout)
 		defer cancel()

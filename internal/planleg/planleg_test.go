@@ -206,22 +206,44 @@ func TestSimulatedPlansAreCachedAndCountedErrorsAreNot(t *testing.T) {
 	}
 }
 
-func TestRedisDownNeverBlocksPlanning(t *testing.T) {
+// With Redis down planning still works (no cache), and the quota still holds: counted in this
+// process as this pod's share of the 60 (60 / 3 replicas = 20), so a Redis outage is not an
+// unlimited Rivian budget and the replicas together stay inside it.
+func TestRedisDownKeepsAPerProcessQuota(t *testing.T) {
 	c, mr, _ := setup(t)
 	mr.Close()
+	const share = 20 // ceil(60 / 3)
+	var fallbacks int
+	c.OnFallback = func() { fallbacks++ }
 	inner := &countingPlanner{plan: &rivian.TripPlan{Status: "OK"}}
 	p := c.Wrap(inner, uid)
 	start := time.Now()
-	for i := 0; i < QuotaPerHour+5; i++ {
+	for i := 0; i < share; i++ {
 		if _, err := p.PlanTrip(context.Background(), in()); err != nil {
 			t.Fatalf("call %d with Redis down: %v", i, err)
 		}
 	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Errorf("65 planner calls took %v with Redis down: the cache must not slow planning", d)
+	_, err := p.PlanTrip(context.Background(), in())
+	if q, ok := IsQuota(err); !ok || q.RetryAfter <= 0 {
+		t.Fatalf("call %d with Redis down: %v, want the quota error (a Redis outage must not lift the quota)", share+1, err)
 	}
-	if inner.calls != QuotaPerHour+5 {
-		t.Errorf("with Redis down every call goes upstream: %d", inner.calls)
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("%d planner calls took %v with Redis down: the cache must not slow planning", share+1, d)
+	}
+	if inner.calls != share {
+		t.Errorf("upstream calls = %d, want %d (the 21st is refused before it goes upstream)", inner.calls, share)
+	}
+	if fallbacks != share+1 {
+		t.Errorf("fallbacks counted = %d, want %d", fallbacks, share+1)
+	}
+	// Another user has their own count; the next hour starts over.
+	other := uuid.MustParse("99999999-2222-3333-4444-555555555555")
+	if _, err := c.Wrap(inner, other).PlanTrip(context.Background(), in()); err != nil {
+		t.Errorf("another user was refused: %v", err)
+	}
+	c.now = func() time.Time { return time.Date(2026, 10, 20, 15, 0, 1, 0, time.UTC) }
+	if _, err := p.PlanTrip(context.Background(), in()); err != nil {
+		t.Errorf("the quota did not reset with the hour: %v", err)
 	}
 }
 
@@ -231,7 +253,44 @@ func TestNilCacheWrapsNothing(t *testing.T) {
 	if c.Wrap(inner, uid) != rivian.TripPlanner(inner) {
 		t.Error("a nil Cache must return the planner unchanged")
 	}
-	if New(nil, "x", nil) != nil {
-		t.Error("no Redis, no Cache")
+}
+
+// An install without Redis has no leg cache but keeps the quota, per process.
+func TestNoRedisKeepsAPerProcessQuota(t *testing.T) {
+	c := New(nil, "x", nil)
+	if c == nil {
+		t.Fatal("no Redis must still give a Cache for the quota")
+	}
+	inner := &countingPlanner{plan: &rivian.TripPlan{Status: "OK"}}
+	p := c.Wrap(inner, uid)
+	for i := 0; i < QuotaPerHour+3; i++ {
+		_, err := p.PlanTrip(context.Background(), in())
+		if i < QuotaPerHour && err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		if i >= QuotaPerHour {
+			if _, ok := IsQuota(err); !ok {
+				t.Fatalf("call %d: %v, want the quota error", i, err)
+			}
+		}
+	}
+	if inner.calls != QuotaPerHour {
+		t.Errorf("upstream calls = %d, want %d (no cache without Redis, quota on)", inner.calls, QuotaPerHour)
+	}
+}
+
+// The share follows the configured number of replicas, never below one call.
+func TestFallbackQuotaIsAShareOfTheHourlyQuota(t *testing.T) {
+	c, mr, _ := setup(t)
+	mr.Close()
+	for div, want := range map[float64]int{0: 20, 1: 60, 2: 30, 3: 20, 4: 15, 7: 9, 60: 1, 500: 1} {
+		c.FallbackDivisor = div
+		if got := c.fallbackQuota(); got != want {
+			t.Errorf("divisor %v: %d a user an hour, want %d", div, got, want)
+		}
+	}
+	// With no Redis at all this process is the whole quota.
+	if got := New(nil, "x", nil).fallbackQuota(); got != QuotaPerHour {
+		t.Errorf("no Redis: %d, want %d", got, QuotaPerHour)
 	}
 }

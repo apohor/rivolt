@@ -83,6 +83,13 @@ type Metrics struct {
 	// the bucket says no, partitioned by class so we can answer
 	// "is priority being starved".
 	RivianRateLimitBlocked *prometheus.CounterVec
+	// RivianBudgetFallbackTotal counts outbound Rivian calls gated by the per-process bucket
+	// because Redis could not serve the global one (by class). A sustained rate means the
+	// global budget is not being enforced across pods.
+	RivianBudgetFallbackTotal *prometheus.CounterVec
+	// PlanQuotaFallbackTotal counts planner-quota checks counted in the process because Redis
+	// could not serve them (or there is none): the quota is then per pod.
+	PlanQuotaFallbackTotal prometheus.Counter
 	// AI provider spend per user is intentionally NOT exposed here.
 	// User-id labels would blow up cardinality at 1000 vehicles. The
 	// existing internal/ai/usage.go writes per-user totals to
@@ -310,6 +317,17 @@ func New() *Metrics {
 			},
 			[]string{"reason"},
 		),
+		RivianBudgetFallbackTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_rivian_budget_fallback_total",
+				Help: "Outbound Rivian calls gated by the per-process bucket because Redis could not serve the global one, by class.",
+			},
+			[]string{"class"},
+		),
+		PlanQuotaFallbackTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_plan_quota_fallback_total",
+			Help: "Trip-planner quota checks counted in this process because Redis could not serve them.",
+		}),
 		RivianRateLimitBlocked: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_ratelimit_blocked_total",
@@ -512,6 +530,8 @@ func New() *Metrics {
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,
+		m.RivianBudgetFallbackTotal,
+		m.PlanQuotaFallbackTotal,
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
 		m.DemoClientKeyTotal,

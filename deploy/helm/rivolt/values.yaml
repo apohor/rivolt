@@ -287,6 +287,10 @@ config:
 
   # Timezone for log timestamps + scheduler ticks.
   tz: "UTC"
+  # -- Replicas that may run at once, for the fallback limits that apply while Redis cannot
+  # answer (the Rivian call budget and the planner quota each fall back to 1/this of the
+  # shared limit per pod). Empty: replicaCount plus the rolling-update maxSurge (at least 1).
+  replicaDivisor: ""
 
   extraEnv: {}
   # extraEnv:

@@ -102,23 +102,43 @@ func TestAllowClassesAreIndependent(t *testing.T) {
 	}
 }
 
-func TestAllowFailsOpenOnClosedClient(t *testing.T) {
+// A Redis blip must neither black-hole the upstream nor lift the limit: the call is served
+// from a per-process bucket that is a share (1/FallbackDivisor) of the configured one.
+func TestAllowUsesAPerProcessBucketWhenRedisIsUnreachable(t *testing.T) {
 	t.Parallel()
 	mr, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("miniredis: %v", err)
 	}
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	l, err := New(context.Background(), rdb, Config{}, nil)
+	var fallbacks int
+	l, err := New(context.Background(), rdb, Config{
+		MainCapacity: 6, MainRefillPerSec: 0.0001, FallbackDivisor: 3,
+		OnFallback: func(Class) { fallbacks++ },
+	}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	mr.Close() // simulate Redis going away
-	// Fail-open: a Redis blip must NOT black-hole the upstream.
-	// The breaker still gates real 429s.
-	ok, _ := l.Allow(context.Background(), ClassMain)
-	if !ok {
-		t.Fatal("Allow should fail-open when Redis is unreachable")
+	allowed := 0
+	for i := 0; i < 20; i++ {
+		if ok, _ := l.Allow(context.Background(), ClassMain); ok {
+			allowed++
+		}
+	}
+	if allowed != 2 {
+		t.Fatalf("allowed %d of 20 with Redis down, want the fallback bucket's 2 (capacity 6 / 3): 0 would black-hole the upstream, 20 would be failing open", allowed)
+	}
+	if ok, retry := l.Allow(context.Background(), ClassMain); ok || retry <= 0 {
+		t.Fatalf("the refused call must say when to retry: ok=%v retry=%v", ok, retry)
+	}
+	if fallbacks != 21 {
+		t.Fatalf("fallbacks counted = %d, want 21", fallbacks)
+	}
+	// A class has at least one token, however small the share.
+	l2 := &Limiter{cfg: withDefaults(Config{MainCapacity: 1, PriorityCapacity: 1, FallbackDivisor: 10})}
+	if ok, _ := l2.fallback.allow(ClassPriority, l2.cfg); !ok {
+		t.Fatal("a class must keep at least one token in the fallback")
 	}
 }
 
@@ -140,7 +160,7 @@ func TestRetryAfterRoughlyTracksRefill(t *testing.T) {
 }
 
 // Redis down at boot must not disable the limiter for the life of the process:
-// it fails open until Redis answers, then limits (review §4.2).
+// it uses the per-process bucket until Redis answers, then limits (review §4.2).
 func TestRetryingStartsLimitingWhenRedisComesUp(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -154,17 +174,21 @@ func TestRetryingStartsLimitingWhenRedisComesUp(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cfg := Config{MainCapacity: 2, MainRefillPerSec: 0.001}
+	cfg := Config{MainCapacity: 6, MainRefillPerSec: 0.001, FallbackDivisor: 3}
 	ready := make(chan struct{})
 	r := NewRetrying(ctx, rdb, cfg, nil, 200*time.Millisecond, 20*time.Millisecond, func() { close(ready) })
 
 	if r.Ready() {
 		t.Fatal("ready with Redis down")
 	}
+	downAllowed := 0
 	for i := 0; i < 10; i++ {
-		if ok, _ := r.Allow(ctx, ClassMain); !ok {
-			t.Fatalf("call %d refused while Redis is down; want fail-open", i)
+		if ok, _ := r.Allow(ctx, ClassMain); ok {
+			downAllowed++
 		}
+	}
+	if downAllowed != 2 {
+		t.Fatalf("%d of 10 allowed while Redis is down, want the per-process bucket's 2 (not 10: unlimited; not 0: black-holed)", downAllowed)
 	}
 
 	if err := mr.StartAddr(addr); err != nil {
@@ -178,7 +202,7 @@ func TestRetryingStartsLimitingWhenRedisComesUp(t *testing.T) {
 	if !r.Ready() {
 		t.Fatal("not ready after the connection was made")
 	}
-	// Once connected it limits: the bucket holds 2 tokens and refills at 0.001/s, so
+	// Once connected it limits: the bucket holds 6 tokens and refills at 0.001/s, so
 	// a refusal must come. A call that fails open on a Redis blip right after the
 	// restart (the limiter's contract) can let an extra one through on a loaded
 	// runner, so the test waits for the first refusal instead of counting exactly.

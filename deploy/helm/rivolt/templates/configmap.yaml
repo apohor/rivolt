@@ -13,6 +13,10 @@ data:
   DB_NAME: {{ include "rivolt.dbName" . | quote }}
   DB_SSLMODE: {{ include "rivolt.dbSslMode" . | quote }}
   TZ: {{ .Values.config.tz | quote }}
+  {{- /* Replicas that may run at once (replicas + the rolling-update surge): the fallback limits
+         that apply while Redis is down are a share of the shared ones, 1/this each. */}}
+  {{- $surge := int (dig "rollingUpdate" "maxSurge" 1 (.Values.updateStrategy | default dict)) }}
+  RIVOLT_REPLICA_DIVISOR: {{ .Values.config.replicaDivisor | default (add (int .Values.replicaCount) (max 1 $surge)) | quote }}
   RIVOLT_SECURE_COOKIE: {{ .Values.config.secureCookie | quote }}
   {{- if .Values.adminOnly }}
   {{- if .Values.ingress.enabled }}
