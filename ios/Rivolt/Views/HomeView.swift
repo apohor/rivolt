@@ -106,7 +106,7 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await load(force: true) }
             .task { await load() }
-            .task { if !state.isDemo { rivian = try? await state.client.rivianStatus() } }
+            .task { await loadRivian() }
             // App Store screenshots only: the demo server limits heavy reads a minute and Now makes many, so read everything again once
             // the allowance has refilled.
             .task {
@@ -201,7 +201,15 @@ struct HomeView: View {
     }
 
     /// `force` is for a pull or the Refresh button: only then are the charts read again before their cache expires.
+    /// The Rivian connection for the "expires" notice. A failed read keeps what was shown; pull-to-refresh reads it again, so the
+    /// notice goes once the person has signed in again on the web.
+    private func loadRivian() async {
+        guard !state.isDemo, let status = try? await state.client.rivianStatus() else { return }
+        rivian = status
+    }
+
     private func load(force: Bool = false) async {
+        if force { Task { await loadRivian() } }
         isLoading = true
         defer { isLoading = false }
         loadError = nil
