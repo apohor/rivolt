@@ -114,6 +114,22 @@ func (s *Store) Set(ctx context.Context, key, value string) error {
 	return err
 }
 
+// Version is a cheap fingerprint of the whole table: the row count and the newest
+// updated_at. Every write moves it (a Set bumps updated_at, a Delete changes the count),
+// so a replica can poll it to learn that another replica changed a setting. Rows are few
+// (tens), so this is one trivial query.
+func (s *Store) Version(ctx context.Context) (string, error) {
+	var n int
+	var newest sql.NullTime
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), max(updated_at) FROM app_settings`).Scan(&n, &newest); err != nil {
+		return "", err
+	}
+	if !newest.Valid {
+		return fmt.Sprintf("%d:", n), nil
+	}
+	return fmt.Sprintf("%d:%d", n, newest.Time.UnixNano()), nil
+}
+
 // Delete removes a key. Idempotent.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if key == "" {

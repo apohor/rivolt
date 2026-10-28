@@ -2094,6 +2094,10 @@ func runServer() {
 			os.Exit(1)
 		}
 		settingsMgr = mgr
+		// Follow settings changed on another replica (recap weather, AI keys, GPS
+		// thresholds), so an operator's change reaches every pod within seconds, not
+		// at each pod's next restart.
+		bg.Go(func() { mgr.Sync(ctx, 5*time.Second) })
 	}
 
 	// Identity provider — provisioning of users on
