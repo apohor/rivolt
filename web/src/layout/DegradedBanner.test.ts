@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { degradedState, expiryBanner } from "./DegradedBanner";
+import { degradedState } from "./DegradedBanner";
 
 const ok = { ok: true };
 const rv = (o: object = {}) => ({ enabled: true, authenticated: true, mfa_pending: false, ...o });
@@ -30,31 +30,25 @@ describe("degradedState", () => {
   });
 });
 
-describe("the Rivian sign-in expiry notice", () => {
-  it("is silent until two weeks ahead, and when the field is absent", () => {
-    expect(expiryBanner(undefined)).toBeNull();
-    expect(expiryBanner(15)).toBeNull();
+describe("the Rivian connection expiry banner (N49)", () => {
+  const soon = (days: number, at = "2026-11-03T18:00:00Z") => rv({ session_days_left: days, session_expires_at: at });
+  it("is silent above 7 days and when the fields are absent", () => {
     expect(degradedState(ok, false, rv())).toBeNull();
+    expect(degradedState(ok, false, soon(8))).toBeNull();
     expect(degradedState(ok, false, rv({ session_days_left: 90 }))).toBeNull();
   });
-  it("is amber from 14 days and rose from 7, with the server's words and the way to renew", () => {
-    const d14 = expiryBanner(14);
-    expect(d14?.tone).toBe("amber");
-    expect(d14?.text).toBe("Your Rivian sign-in ends in 14 days. Sign in again in Settings, Rivian account, to keep recording.");
-    expect(d14?.cta).toBe("Sign in again");
-    expect(d14?.to).toBe("/settings?tab=account");
-    expect(expiryBanner(8)?.tone).toBe("amber");
-    expect(expiryBanner(7)?.tone).toBe("rose");
-    expect(expiryBanner(2)?.tone).toBe("rose");
-  });
-  it("says one day and today in their own words", () => {
-    expect(expiryBanner(1)?.text).toContain("ends in 1 day.");
-    expect(expiryBanner(0)?.text).toContain("ends today.");
+  it("from 7 days says when it expires and offers Reconnect, in one tone", () => {
+    for (const d of [7, 3, 1, 0]) {
+      const x = degradedState(ok, false, soon(d));
+      expect(x?.tone).toBe("amber");
+      expect(x?.text).toMatch(/^Your Rivian connection expires \w{3} \d{1,2}\.$/);
+      expect(x?.cta).toBe("Reconnect");
+      expect(x?.to).toBe("/settings?tab=account");
+    }
   });
   it("yields to every worse state", () => {
-    expect(degradedState(ok, false, rv({ session_days_left: 3, needs_reauth: true }))?.cta).toBe("Reconnect");
+    expect(degradedState(ok, false, rv({ session_days_left: 3, needs_reauth: true }))?.text).toMatch(/expired/);
     expect(degradedState(ok, false, rv({ session_days_left: 3, mfa_pending: true }))?.cta).toBe("Enter code");
     expect(degradedState(ok, false, rv({ session_days_left: 3, paused: true }))?.text).toMatch(/paused/);
-    expect(degradedState(ok, false, rv({ session_days_left: 3 }))?.tone).toBe("rose");
   });
 });

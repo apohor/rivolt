@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
 import { track } from "../lib/track";
+import { expiryDate } from "../lib/rivianExpiry";
 import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
@@ -142,6 +143,9 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           <div className="text-sm">
             <div className="text-neutral-200">Connected as</div>
             <div className="text-xs text-neutral-500">{s.email || "unknown"}</div>
+            {expiryDate(s.session_expires_at) && (
+              <div data-rivian-expires className="text-xs text-neutral-500">Connected · expires {expiryDate(s.session_expires_at)}</div>
+            )}
           </div>
           {!confirmingSignOut && (
             <button

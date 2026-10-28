@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
+import { expiryNotice } from "../lib/rivianExpiry";
 
 // The tab-bar shell dropped the header's connection pill, which was the
 // only signal for "backend unreachable / Rivian not connected / MFA
@@ -10,27 +11,11 @@ import { backend } from "../lib/api";
 
 export type Degraded = { tone: "rose" | "amber"; text: string; to?: string; cta?: string };
 
-// Rivian ends a sign-in 180 days after it and nothing extends it, so the banner starts two weeks ahead: amber from 14 days, rose
-// from 7 (the server also emails at 7 and 1). Signing in again is the renewal.
-export const EXPIRY_WARN_DAYS = 14;
-export const EXPIRY_URGENT_DAYS = 7;
-
-export function expiryBanner(daysLeft: number | undefined): Degraded | null {
-  if (typeof daysLeft !== "number" || !Number.isFinite(daysLeft) || daysLeft > EXPIRY_WARN_DAYS) return null;
-  const when = daysLeft <= 0 ? "ends today" : daysLeft === 1 ? "ends in 1 day" : `ends in ${Math.floor(daysLeft)} days`;
-  return {
-    tone: daysLeft <= EXPIRY_URGENT_DAYS ? "rose" : "amber",
-    text: `Your Rivian sign-in ${when}. Sign in again in Settings, Rivian account, to keep recording.`,
-    to: "/settings?tab=account",
-    cta: "Sign in again",
-  };
-}
-
 export function degradedState(
   health: { ok?: boolean } | undefined,
   healthError: boolean,
   rivian:
-    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean; session_days_left?: number }
+    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean; session_days_left?: number; session_expires_at?: string }
     | undefined,
 ): Degraded | null {
   if (healthError) {
@@ -55,7 +40,10 @@ export function degradedState(
   if (!rivian.authenticated) {
     return { tone: "amber", text: "Rivian isn't connected.", to: "/settings?tab=account", cta: "Connect" };
   }
-  return expiryBanner(rivian.session_days_left);
+  // From a week before Rivian ends this sign-in: the date, and one tap to sign in again (the renewal).
+  const notice = expiryNotice(rivian.session_days_left, rivian.session_expires_at);
+  if (notice) return { tone: "amber", text: notice, to: "/settings?tab=account", cta: "Reconnect" };
+  return null;
 }
 
 export default function DegradedBanner() {
