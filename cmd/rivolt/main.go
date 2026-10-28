@@ -76,6 +76,7 @@ import (
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/rivianexpiry"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/sessions"
@@ -1575,6 +1576,60 @@ func runServer() {
 				}
 			}
 		}()
+	}
+
+	// Rivian session expiry (internal/rivianexpiry): Rivian ends a session 180 days after
+	// sign-in and offers no way to extend it, so count the sessions near their end every hour
+	// (metrics) and email each user once at 7 days and once at 1 day left. Every replica may
+	// run it: the notices are claimed in engagement_sends. RIVOLT_ENGAGEMENT_EMAILS=false
+	// (preview) keeps the counts and sends nothing.
+	rivian.ConfiguredSessionLifetime = rivian.SessionLifetimeFromEnv(os.Getenv)
+	if pgPool != nil && secretsStore != nil && !adminOnlyMode {
+		expiry := &rivianexpiry.Job{
+			Sessions: secrets.NewRivianSessionLister(pgPool, secretsStore),
+			Claims:   engage.NewStore(pgPool),
+			Email:    func(c context.Context, uid uuid.UUID) (string, error) { return db.LookupUserEmail(c, pgPool, uid) },
+			BaseURL:  os.Getenv("RIVOLT_BASE_URL"),
+			Signer:   onboardSigner.Load,
+			Skip:     func(uid uuid.UUID) bool { return demo.Enabled() && uid == demo.UserID() },
+			Lifetime: rivian.ConfiguredSessionLifetime,
+			Log:      logger,
+			OnCounts: func(c rivianexpiry.Counts) {
+				appMetrics.RivianSessionsExpiring.WithLabelValues("14d").Set(float64(c.Within14))
+				appMetrics.RivianSessionsExpiring.WithLabelValues("7d").Set(float64(c.Within7))
+				appMetrics.RivianSessionsExpiring.WithLabelValues("1d").Set(float64(c.Within1))
+				appMetrics.RivianSessionsExpired.Set(float64(c.Expired))
+			},
+			OnNotice: func(days int, outcome string) {
+				appMetrics.RivianExpiryNoticesTotal.WithLabelValues(strconv.Itoa(days), outcome).Inc()
+			},
+		}
+		// The emails are off unless RIVOLT_RIVIAN_EXPIRY_EMAILS=true (the wording is the owner's to
+		// approve, N49): without it the sweep still counts and the status fields and banners work,
+		// but nothing is claimed or sent. RIVOLT_ENGAGEMENT_EMAILS=false (preview) also keeps it off.
+		if mailer != nil && os.Getenv("RIVOLT_RIVIAN_EXPIRY_EMAILS") == "true" && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+			expiry.Mail = mailer
+		}
+		logger.Info("rivian expiry emails", "enabled", expiry.Mail != nil)
+		bg.Go(func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Minute):
+			}
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				expiry.Sweep(sctx)
+				cancel()
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		})
 	}
 
 	// Subscription leases gate which vehicles THIS pod owns.

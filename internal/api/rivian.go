@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -141,6 +142,12 @@ type rivianStatusDTO struct {
 	// user-safe code, never the operator's free-text reason or actor.
 	Paused       bool   `json:"paused"`
 	PausedReason string `json:"paused_reason,omitempty"`
+	// SessionExpiresAt is when the stored Rivian session is expected to stop working (180
+	// days after the sign-in; Rivian offers no way to extend one) and SessionDaysLeft the
+	// whole days until then, rounded up. Both are set only while signed in and not already
+	// flagged needs_reauth; the web and iOS banners show them from 14 days out.
+	SessionExpiresAt *time.Time `json:"session_expires_at,omitempty"`
+	SessionDaysLeft  *int       `json:"session_days_left,omitempty"`
 }
 
 // pausedReasonOperator is the only value PausedReason takes.
@@ -225,14 +232,24 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 			needs, reason = st.NeedsReauth, st.Reason
 		}
 		authd := lc.Authenticated()
-		writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{
+		dto := rivianStatusDTO{
 			Enabled:           true,
 			Authenticated:     authd,
 			MFAPending:        lc.MFAPending(),
 			Email:             lc.Email(),
 			NeedsReauth:       needs,
 			NeedsReauthReason: reason,
-		}))
+		}
+		if authd && !needs {
+			if exp := lc.Snapshot().ExpiresAt(rivian.ConfiguredSessionLifetime); !exp.IsZero() {
+				days := int(math.Ceil(time.Until(exp).Hours() / 24))
+				if days < 0 {
+					days = 0
+				}
+				dto.SessionExpiresAt, dto.SessionDaysLeft = &exp, &days
+			}
+		}
+		writeJSON(w, http.StatusOK, withPause(dto))
 		// Self-heal accounts that connected Rivian before the eager
 		// prime shipped: when the user is authenticated but has no
 		// vehicles row, kick off a one-shot prime in the background.
