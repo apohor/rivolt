@@ -101,3 +101,60 @@ func TestRivianExpiryReminderOneClickStop(t *testing.T) {
 		t.Fatalf("empty body: %d, want 400", c)
 	}
 }
+
+// With the sender on the Settings toggle answers 200 and round-trips; with it off the signed
+// unsubscribe links in mail already sent still work.
+func TestExpiryReminderRoutesThroughTheRouter(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "expiry-routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := statement.NewSigner([]byte("0123456789abcdef0123456789abcdef"))
+	call := func(sender bool, method, path, body string) *httptest.ResponseRecorder {
+		router := New(Deps{Auth: svc, AuthEnforced: true, DB: pool, SystemDB: pool, StatementSigner: signer, RivianExpiryEmails: sender})
+		req := httptest.NewRequest(method, "https://rivolt.dev"+path, strings.NewReader(body))
+		req.RemoteAddr = "203.0.113.9:4000"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(auth.WithUser(req.Context(), uid)))
+		return rec
+	}
+
+	if rec := call(true, "GET", "/api/settings/rivian-expiry-email", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"enabled":true`) {
+		t.Fatalf("sender on, GET: %d %q, want 200 enabled", rec.Code, rec.Body.String())
+	}
+	if rec := call(true, "PUT", "/api/settings/rivian-expiry-email", `{"enabled": false}`); rec.Code != 200 {
+		t.Fatalf("sender on, PUT: %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := call(true, "GET", "/api/settings/rivian-expiry-email", ""); !strings.Contains(rec.Body.String(), `"enabled":false`) {
+		t.Fatalf("the choice did not stick: %q", rec.Body.String())
+	}
+	// Sender off: the settings route is gone, the stored choice is not.
+	if rec := call(false, "GET", "/api/settings/rivian-expiry-email", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("sender off, GET: %d, want 404", rec.Code)
+	}
+	// The link in an email already sent still works after the switch is turned off.
+	tok := signer.Sign(uid, rivianexpiry.UnsubPurpose, time.Now().Add(time.Hour))
+	if err := db.SetRivianExpiryEmailsOff(ctx, pool, uid, false); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call(false, "GET", "/api/rivian-expiry-email/unsubscribe?t="+tok, ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Stop these reminders") {
+		t.Fatalf("sender off, unsubscribe GET: %d %q, want the confirmation page", rec.Code, rec.Body.String())
+	}
+	if rec := call(false, "POST", "/api/rivian-expiry-email/unsubscribe?t="+tok, ""); rec.Code != 200 {
+		t.Fatalf("sender off, unsubscribe POST: %d %q", rec.Code, rec.Body.String())
+	}
+	if off, _ := db.RivianExpiryEmailsOff(ctx, pool, uid); !off {
+		t.Fatal("the unsubscribe link did not stop the reminders with the sender off")
+	}
+}

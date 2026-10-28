@@ -216,6 +216,11 @@ type Deps struct {
 	// the install's key prefix). Nil leaves them per pod.
 	Redis       *redis.Client
 	RedisPrefix string
+	// RivianExpiryEmails is true when the sender of the Rivian connection expiry reminders runs
+	// (RIVOLT_RIVIAN_EXPIRY_EMAILS=true with a mailer and engagement email not off). The
+	// Settings toggle for the reminders is mounted only then, so it never shows as switched on
+	// where nothing is sent. The signed unsubscribe links are always mounted.
+	RivianExpiryEmails bool
 	// FailLimiterKey is the HMAC key for the limiter's Redis key names (FailLimiterKey of the
 	// server's secret); without it the limiters stay per pod.
 	FailLimiterKey []byte
@@ -1131,9 +1136,11 @@ func New(d Deps) http.Handler {
 				oe := &onboardingEmailAPI{db: d.DB, now: time.Now}
 				r.Get("/settings/onboarding-email", withUser(oe.getSettings))
 				r.Put("/settings/onboarding-email", withUser(oe.putSettings))
-				re := &rivianExpiryEmailAPI{db: d.DB, now: time.Now}
-				r.Get("/settings/rivian-expiry-email", withUser(re.getSettings))
-				r.Put("/settings/rivian-expiry-email", withUser(re.putSettings))
+				if d.RivianExpiryEmails {
+					re := &rivianExpiryEmailAPI{db: d.DB, now: time.Now}
+					r.Get("/settings/rivian-expiry-email", withUser(re.getSettings))
+					r.Put("/settings/rivian-expiry-email", withUser(re.putSettings))
+				}
 			}
 
 			// Plug-in reminder and weekly recap knobs (internal/engage).
