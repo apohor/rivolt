@@ -232,3 +232,23 @@ func TestSyncAllFollowsEveryLoadedAccount(t *testing.T) {
 		t.Fatalf("changes = %v, want two", *changes)
 	}
 }
+
+// A session this pod copied from the database is not "just signed in here": a sign-out
+// elsewhere a few seconds after the sign-in must still reach it.
+func TestSyncerFollowsASignOutRightAfterASignInOnAnotherPod(t *testing.T) {
+	uid := uuid.New()
+	shared := &fakeShared{}
+	b, _, changes := podB(shared, uid)
+	b.For(uid)
+	shared.signIn(sessionOf("fresh", time.Now())) // signed in on pod A seconds ago
+	if b.For(uid).Snapshot().UserSessionToken != "fresh" {
+		t.Fatal("pod B did not follow the sign-in")
+	}
+	shared.signOut()
+	if b.For(uid).Authenticated() {
+		t.Fatal("pod B kept a session that was signed out seconds after it was made")
+	}
+	if len(*changes) != 2 || (*changes)[1] != SyncLoggedOut {
+		t.Fatalf("changes = %v, want replaced then logged out", *changes)
+	}
+}

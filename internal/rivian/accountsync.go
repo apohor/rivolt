@@ -69,7 +69,8 @@ const (
 )
 
 type syncSeen struct {
-	applied  bool // the session version has been reconciled at least once
+	applied  bool   // the session version has been reconciled at least once
+	restored string // the session token this syncer last put into the account itself
 	version  time.Time
 	flagSeen bool // the flag has been reconciled at least once
 	needs    bool
@@ -78,8 +79,9 @@ type syncSeen struct {
 	checked  time.Time
 }
 
-// loginGrace is how long a local sign-in is trusted over a database that does not show
-// it yet: the client holds the new tokens a moment before the handler stores them.
+// loginGrace is how long a sign-in made on this pod is trusted over a database that does
+// not show it yet: the client holds the new tokens a moment before the handler stores
+// them. It does not apply to a session the syncer itself copied from the database.
 const loginGrace = 30 * time.Second
 
 // NewAccountSyncer builds a syncer. get returns the account for a user WITHOUT
@@ -217,7 +219,7 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 			// Nothing stored. A sign-in finished a moment ago on this pod may not be stored
 			// yet; otherwise another pod signed out and this one must follow.
 			if a.Authenticated() {
-				if s.now().Sub(local.AuthenticatedAt) < loginGrace {
+				if s.signedInHere(e, local) {
 					return false
 				}
 				a.Logout()
@@ -231,12 +233,15 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 			}
 			switch {
 			case sess.UserSessionToken == "":
-				if a.Authenticated() && s.now().Sub(local.AuthenticatedAt) >= loginGrace {
+				if a.Authenticated() && !s.signedInHere(e, local) {
 					a.Logout()
 					change = SyncLoggedOut
 				}
 			case sess.UserSessionToken != local.UserSessionToken && !local.AuthenticatedAt.After(sess.AuthenticatedAt):
 				a.Restore(sess)
+				s.mu.Lock()
+				e.restored = sess.UserSessionToken
+				s.mu.Unlock()
 				change = SyncSessionReplaced
 			}
 		}
@@ -267,6 +272,16 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 		}
 	}
 	return true
+}
+
+// signedInHere reports whether the account's session was made on this pod moments ago
+// (and not copied from the database by this syncer), so a database that does not show it
+// yet is not evidence of a sign-out.
+func (s *AccountSyncer) signedInHere(e *syncSeen, local Session) bool {
+	s.mu.Lock()
+	restored := e.restored
+	s.mu.Unlock()
+	return local.UserSessionToken != restored && s.now().Sub(local.AuthenticatedAt) < loginGrace
 }
 
 func (c SyncChange) String() string {
