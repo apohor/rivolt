@@ -1339,6 +1339,17 @@ export const backend = {
     }
   },
   onboardingEmailPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/onboarding-email", { enabled }),
+  // The heads-up emails before the Rivian connection expires (on by default). Null on 404/501: the toggle hides. It does not touch
+  // the reconnect email sent when the connection has already failed.
+  rivianExpiryEmailGet: async (): Promise<{ enabled: boolean } | null> => {
+    try {
+      return await api.get<{ enabled: boolean }>("/api/settings/rivian-expiry-email");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  rivianExpiryEmailPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/rivian-expiry-email", { enabled }),
   // No month: the server uses the previous month in the user's zone.
   statementEmailPreview: () => api.get<StatementEmailPreview>("/api/statement-email/preview"),
   liveSession: (vehicleID: string) =>

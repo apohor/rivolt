@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { backend, type OwnedVehicle } from "../lib/api";
-import { ErrorBox, Spinner } from "./ui";
+import { ErrorBox, Spinner, Toggle } from "./ui";
 import { track } from "../lib/track";
 import { expiryDate } from "../lib/rivianExpiry";
 import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
@@ -25,6 +25,39 @@ import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
 export const NO_VEHICLE_CAUSE =
   "Usual cause: a driver account whose invite isn't accepted yet. Sign in to the Rivian app on a phone with this account once, then tap";
 export const NO_VEHICLE_MAIN_ACCOUNT = "Connected your main account instead? Make sure a vehicle shows in the Rivian app on it, then check again.";
+
+// RivianExpiryEmailToggle: the heads-up emails before the connection expires (7 days and 1 day ahead). On by default; hidden when the
+// server has no such setting. It leaves the reconnect email for a connection that has already failed alone.
+function RivianExpiryEmailToggle() {
+  const qc = useQueryClient();
+  const setting = useQuery({
+    queryKey: ["settings", "rivian-expiry-email"],
+    queryFn: () => backend.rivianExpiryEmailGet(),
+    retry: 0,
+    staleTime: 60_000,
+  });
+  const put = useMutation({
+    mutationFn: (enabled: boolean) => backend.rivianExpiryEmailPut(enabled),
+    onSuccess: (data) => qc.setQueryData(["settings", "rivian-expiry-email"], data),
+  });
+  if (!setting.data) return null;
+  return (
+    <div data-rivian-expiry-email className="flex items-start justify-between gap-4">
+      <div>
+        <label htmlFor="rivian-expiry-email-toggle" className="text-sm text-neutral-100">
+          Email me before the connection expires
+        </label>
+        <p className="mt-0.5 text-xs text-neutral-500">Sent 7 days and 1 day ahead.</p>
+        {put.isError && (
+          <p role="alert" className="mt-1 text-xs text-rose-400">
+            Couldn&apos;t save. Try again in a moment.
+          </p>
+        )}
+      </div>
+      <Toggle id="rivian-expiry-email-toggle" checked={setting.data.enabled} disabled={put.isPending} onChange={(v) => put.mutate(v)} />
+    </div>
+  );
+}
 
 // `onLater` (onboarding) adds an "I'll do this later" step to a failure that is Rivian's, not the user's.
 export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
@@ -182,6 +215,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
             </div>
           </div>
         )}
+        <RivianExpiryEmailToggle />
         <ConnectedVehicles
           vehicles={owned.data?.vehicles}
           loading={owned.isLoading}

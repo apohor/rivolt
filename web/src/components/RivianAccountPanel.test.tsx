@@ -58,6 +58,32 @@ describe("connect step: driver account first", () => {
     expect(await screen.findByText("Connected · expires Nov 3")).toBeInTheDocument();
   });
 
+  it("offers the expiry-email switch, on by default, and saves a change", async () => {
+    const fetchFn = stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com", session_expires_at: "2026-11-03T18:00:00Z", session_days_left: 40 } },
+      "/api/settings/rivian-expiry-email": { body: { enabled: true } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    const box = await screen.findByRole("switch", { name: "Email me before the connection expires" });
+    expect(box).toBeChecked();
+    expect(screen.getByText("Sent 7 days and 1 day ahead.")).toBeInTheDocument();
+    stubFetchRoutes({ "/api/settings/rivian-expiry-email": { body: { enabled: false } } });
+    fireEvent.click(box);
+    await vi.waitFor(() => expect(screen.getByRole("switch", { name: "Email me before the connection expires" })).not.toBeChecked());
+    expect(fetchFn).toHaveBeenCalled();
+  });
+
+  it("hides the switch when the server has no such setting", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    await screen.findByText("Connected as");
+    expect(screen.queryByText("Email me before the connection expires")).not.toBeInTheDocument();
+  });
+
   it("says nothing about expiry when the server sends no date", async () => {
     stubFetchRoutes({
       "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
