@@ -1734,7 +1734,7 @@ func runServer() {
 		// counts the episode.
 		coord.SetGroupObserver(
 			func(n int) { appMetrics.LeaseGroupsOwned.Set(float64(n)) },
-			func(n int) { appMetrics.LeaseDryRunRejections.Add(float64(n)) },
+			func(n int) { appMetrics.LeaseFenceWouldReject.WithLabelValues("db").Add(float64(n)) },
 		)
 		coord.SetStreamingCheck(monitorRegistry.Streaming)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
