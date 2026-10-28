@@ -649,6 +649,66 @@ flip a flag to re-enable it; hosted deployment runs OIDC-only.
 
 ---
 
+## Decision 13 — Process memory is a cache of the database, correct for any number of replicas
+
+**Status**: now. Reason it for N replicas (say 20), never for "both servers".
+
+Any replica can serve any request, and replicas come and go. So state
+held in one process is a copy, and a copy that nothing refreshes is a
+bug waiting for the second replica. The Oct 2026 Rivian re-login
+incident was exactly this: each pod loaded a user's Rivian session and
+"needs re-auth" flag once and never looked again, so a sign-in on one
+pod left the others on the dead session.
+
+**The rule.** A PR that adds per-user or install-wide state held in
+process memory (a map keyed by user, a `sync.Map`, a cached config or
+client) must, **in the same PR**:
+
+1. **Keep the source of truth in Postgres** (or Redis for coordination
+   counters). Memory is only a cache of it.
+2. **Give it an invalidation path that reaches every replica:** a
+   versioned read (record the `updated_at` or version the copy was
+   loaded from, re-check it on use at most every few seconds, and
+   sweep everything loaded on a short timer), optionally sped up with
+   `LISTEN/NOTIFY`. NOTIFY is never the only path, since a listener
+   reconnect can drop notifications, and its payload carries a topic
+   and key only, never values: any database role can `LISTEN`. Never
+   pod-to-pod calls.
+3. **Make writes that depend on the copy conditional on its version,**
+   so a stale replica can't overwrite a newer decision (for example,
+   flag "needs re-auth" only `WHERE` the session version is the one
+   it used).
+4. **Drop the copy when the user is deleted or disconnects,** on every
+   replica: nothing per user outlives account deletion in memory.
+5. **Add a multi-instance integration test:** at least three app
+   instances on one database. Change the state through one instance
+   and assert that every instance agrees within the bound. The test
+   must fail without the fix.
+
+**Exempt:** read caches derived from the database or public data
+with a short TTL (minutes), that nothing writes back from. Say so in
+the PR and in the type's comment.
+
+**The same reasoning for anything that counts or runs:**
+
+- **Rate limits** that bound abuse or cost (login and passkey
+  failures, signup, upstream budgets) are shared, in Redis or
+  Postgres, not per process; otherwise N replicas allow N times the
+  limit. If the shared store is unreachable they fall back to a
+  per-process limit, and they never fail open. A per-process limit
+  is only for a guard on that process's own CPU, and says so.
+- **Scheduled jobs and emails** run once cluster-wide: a per-row
+  claim (`ON CONFLICT`, `FOR UPDATE SKIP LOCKED`, a conditional
+  `UPDATE`) for anything that sends, and `pg_try_advisory_lock` for
+  whole-table sweeps.
+- **Connection pools** are sized from the replica count:
+  (replicas + 1 surge pod) × per-pod pool, plus everything else,
+  stays under `max_connections`. Past that, use a session-mode
+  pooler, never transaction mode (row-level security sets a
+  per-connection setting).
+
+---
+
 ## Web UI
 
 The web app (`web/`, React + Vite + Tailwind, served by the Go binary) is a
