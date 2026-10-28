@@ -267,6 +267,8 @@ func contractRouter(t *testing.T) chi.Routes {
 		Hydra: new(hydra.Client), Kratos: new(kratos.Client), Changelog: new(changelog.Source), ChargersArchive: new(chargers.Archive),
 		Trips: new(trips.Factory), Drives: new(drives.Factory), Charges: new(charges.Factory), Samples: new(samples.Factory),
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
+		// The expiry reminders' Settings routes exist only where the sender runs; the web calls them.
+		RivianExpiryEmails: true,
 	}).(chi.Routes)
 }
 
