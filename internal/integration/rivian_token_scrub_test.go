@@ -110,7 +110,7 @@ func TestLegacyRivianTokensAreScrubbedWithoutChangingTheVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var logBuf bytes.Buffer
-	lister := secrets.NewRivianSessionLister(pool, store).WithLog(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	lister := secrets.NewRivianSessionLister(pool, store).WithScrub().WithLog(slog.New(slog.NewTextHandler(&logBuf, nil)))
 	if _, err := lister.List(ctx); err != nil {
 		t.Fatal(err)
 	}
