@@ -116,6 +116,9 @@ func TestExpiryReminderRoutesThroughTheRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.AcceptTerms(ctx, pool, uid, currentTermsVersion); err != nil { // the terms gate is part of the router
+		t.Fatal(err)
+	}
 	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
 	if err != nil {
 		t.Fatal(err)
