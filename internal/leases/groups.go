@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 )
 
 // Group leases (M1 of the single-owner design). A user group (users linked
@@ -50,6 +51,7 @@ func generation() string { return os.Getenv("RIVOLT_POD_GENERATION") }
 // pass, the upsert) plus one release UPDATE, all on the system pool's existing connections.
 func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 	var res GroupResult
+	sentAt := time.Now() // the monotonic clock: the local lease deadline counts from when the renew was SENT
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO lease_pods (pod_id, generation, started_at, seen_at)
 		VALUES ($1, $2, now(), now())
@@ -163,6 +165,7 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 
 	s.groupMu.Lock()
 	s.groups = now
+	s.groupOKAt = sentAt
 	s.groupMu.Unlock()
 	res.Held = len(now)
 	return res, nil
@@ -194,4 +197,18 @@ func (s *Store) releaseGroups(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// localDeadline is how long after a group renew was sent this pod may still act for its groups:
+// two thirds of the TTL (20 s of 30 s once M2's timing lands), so it is always before the DB expiry
+// and needs no clock comparison.
+func (s *Store) localDeadline() time.Duration { return s.ttl * 2 / 3 }
+
+// PastLocalDeadline reports whether this pod holds groups whose last successful renew was sent more
+// than the local deadline ago: it would be fencing itself (M2) and its writes would be refused. It
+// uses the monotonic clock and no database call. False when no group is held.
+func (s *Store) PastLocalDeadline() bool {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	return len(s.groups) > 0 && !s.groupOKAt.IsZero() && time.Since(s.groupOKAt) > s.localDeadline()
 }

@@ -286,9 +286,9 @@ func New() *Metrics {
 		LeaseFenceWouldReject: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_fence_would_reject_total",
-				Help: "Group lease tokens held by this pod that the fence check would have refused (dry run: nothing is refused yet). kind is db.",
+				Help: "Group lease tokens held by this pod that the fence check would have refused (dry run: nothing is refused yet). source is db (rivolt_lease_ok) or local (renewals failing past the local deadline).",
 			},
-			[]string{"kind"},
+			[]string{"kind", "source"},
 		),
 		LeaseUnstreamed: prometheus.NewCounter(
 			prometheus.CounterOpts{
