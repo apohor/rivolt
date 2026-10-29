@@ -273,6 +273,7 @@ function SettingsPageInner() {
           </Card>
           <StatementEmailCard />
           <WeeklyRecapCard />
+          <TripRecapCard />
           <OnboardingEmailCard />
         </>
       )}
@@ -2053,6 +2054,47 @@ function WeeklyRecapCard() {
             setPending(v);
             engagement
               .save({ weekly_recap: v })
+              .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+              .finally(() => setPending(null));
+          }}
+        />
+      </div>
+      {err && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          Couldn&apos;t save: {err}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// TripRecapCard: the saved-trip recap notification, off until chosen. Account-wide; it reaches this account's web push and iPhone
+// devices that have notifications on. The text names no trip (the app shows it after the tap). Hidden where the server has no such field.
+export function TripRecapCard() {
+  const engagement = useEngagement();
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState<boolean | null>(null);
+  if (!engagement.settings || typeof engagement.settings.trip_recap !== "boolean") return null;
+  const on = pending ?? engagement.settings.trip_recap;
+  return (
+    <Card title="Trip recap" id="trip-recap">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="trip-recap-toggle" className="text-sm text-neutral-100">
+            Trip recap
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            A notification after you drive a saved trip, showing how it went against the plan. Off until you turn it on.
+          </p>
+        </div>
+        <Toggle
+          id="trip-recap-toggle"
+          checked={on}
+          onChange={(v) => {
+            setErr(null);
+            setPending(v);
+            engagement
+              .save({ trip_recap: v })
               .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
               .finally(() => setPending(null));
           }}
