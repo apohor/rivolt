@@ -59,12 +59,12 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		"/terms": {
 			title:   "Terms of service | Rivolt",
-			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by an individual. " + notAffiliated,
+			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by ZeroDowntime LLC. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
 		},
 		pathLeaseCalc: {
 			title: "Rivian lease mileage calculator | Rivolt",
-			desc:  "Free lease mileage calculator: see if you're on pace for your allowance and what overage could cost. Runs in your browser. " + notAffiliated,
+			desc:  "Free lease mileage calculator: on pace for your allowance, and what could overage cost? Runs in your browser. " + notAffiliated,
 			summary: "A free lease mileage calculator that runs in your browser. Enter your lease dates, allowance and odometer to see miles used, whether you are on pace, " +
 				"projected miles and overage at lease return, and the miles a day that keep you within the allowance. Nothing you type is sent or stored. " + notAffiliated,
 		},
@@ -80,7 +80,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		pathSafeConnect: {
 			title: "Is it safe to connect my Rivian account to Rivolt?",
-			desc:  "What Rivolt keeps, what it does, how to undo it, and why a separate Authorized Driver account is the safest way to connect. " + notAffiliated,
+			desc:  "What Rivolt keeps, what it does, how to undo it, and why to connect a separate Authorized Driver account. " + notAffiliated,
 			summary: "Connect a separate Authorized Driver account if you can. Rivolt keeps your Rivian email and an encrypted session token, never your password. " +
 				"It is read-only and can't control your truck; sign out in Settings or remove the driver in the Rivian app to undo it. It is unofficial and can break. " + notAffiliated,
 		},
@@ -92,7 +92,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		pathR2Guide: {
 			title: "Your first week with an R2 in Rivolt",
-			desc:  "How to connect a Rivian R2 to Rivolt, what is recorded on the first R2s, what is still unconfirmed, and how to report what looks wrong. Unofficial.",
+			desc:  "Connecting an R2: what is recorded on the first R2s, what is unconfirmed, and how to report what looks wrong. " + notAffiliated,
 			summary: "A first-week guide for Rivian R2 owners: connect an Authorized Driver account, what Rivolt records on the first R2s (drives, charges, battery, " +
 				"range, location, temperatures, tire pressure, sleep state), what is not shown for an R2 yet, and how to report what looks wrong. " + notAffiliated,
 		},
@@ -116,9 +116,8 @@ var seoPages = map[string]map[string]seoPage{
 	},
 	hostDemo: {
 		"/": {
-			title: "Rivolt demo: a sample Rivian truck with generated data",
-			desc: "Browse Rivolt's Now, Activity, Money, Plan and Truck tabs on a generated sample truck. No sign-in, no Rivian account, sample data only. " +
-				notAffiliated,
+			title:   "Rivolt demo: a sample Rivian truck with generated data",
+			desc:    "Browse Now, Activity, Money, Plan and Truck on a sample truck with generated data. No sign-in, no Rivian account. " + notAffiliated,
 			summary: "This is the Rivolt demo: a generated sample truck with made-up numbers, no sign-in and no Rivian account. " + notAffiliated,
 		},
 		"/privacy": {
@@ -128,7 +127,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		"/terms": {
 			title:   "Terms of service | Rivolt",
-			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by an individual. " + notAffiliated,
+			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by ZeroDowntime LLC. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
 		},
 	},
@@ -183,7 +182,7 @@ func llmsTxt(host string) (string, bool) {
 	var b strings.Builder
 	b.WriteString("# Rivolt\n\n> " + home.desc + "\n\n")
 	b.WriteString("Rivolt records a Rivian's drives and charges, prices charging at the owner's own rate, shows efficiency, and projects lease miles. ")
-	b.WriteString("It is free, open source (MIT) and run by an individual.\n\n## Pages\n\n")
+	b.WriteString("It is free, open source (MIT) and run by ZeroDowntime LLC.\n\n## Pages\n\n")
 	b.WriteString("- [Home](" + base + "/): what Rivolt does\n")
 	if host == hostApp {
 		b.WriteString("- [Demo](https://" + hostDemo + "/): a generated sample truck, no sign-in\n")

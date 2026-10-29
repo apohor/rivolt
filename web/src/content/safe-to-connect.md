@@ -33,7 +33,7 @@ Trade-offs: you need a second email address and a few minutes in the Rivian app,
 
 - Rivolt is unofficial. It uses Rivian's unofficial API, so it can break, and Rivian can change or block access at any time, with either kind of account.
 - Any service that holds a session token carries some risk. That is why we suggest a dedicated driver account and why the code is open source, so you can read it or run your own copy.
-- Rivolt is in beta and run by an individual. The [Terms](/terms) cover the details.
+- Rivolt is in beta and run by ZeroDowntime LLC, a small operator. The [Terms](/terms) cover the details.
 
 Want to look first? The [demo](https://demo.rivolt.dev) uses a generated sample truck, with no sign-in and no Rivian account.
 
