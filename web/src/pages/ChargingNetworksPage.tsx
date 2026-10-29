@@ -24,7 +24,7 @@ export default function ChargingNetworksPage() {
             <Logo />
           </Link>
           <nav aria-label="Site" className="flex items-center gap-4 text-sm">
-            <Link to="/sample-trips" className="text-neutral-400 hover:text-neutral-100">Sample trips</Link>
+            <a href="/sample-trips" className="text-neutral-400 hover:text-neutral-100">Sample trips</a>
             <Link to="/" className="text-neutral-400 hover:text-neutral-100">Back to Rivolt</Link>
           </nav>
         </div>
@@ -128,7 +128,7 @@ export default function ChargingNetworksPage() {
 
         <p className="text-xs leading-relaxed text-neutral-500">
           Unofficial, not affiliated with Rivian or with any charging network. Network names are used descriptively.{" "}
-          <Link to="/sample-trips" className="underline underline-offset-2 hover:text-neutral-300">See sample trips planned with these prices</Link>.
+          <a href="/sample-trips" className="underline underline-offset-2 hover:text-neutral-300">See sample trips planned with these prices</a>.
         </p>
       </main>
     </div>
