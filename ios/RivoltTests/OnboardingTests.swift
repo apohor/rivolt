@@ -70,6 +70,14 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(s.phase, .loggedOut)
     }
 
+    func testTheExplanationSaysWhatRivoltDoesWithTheLogin() {
+        let e = Onboarding.explanation
+        XCTAssertTrue(e.contains("the app never sees your Rivian password"))
+        XCTAssertTrue(e.contains("Rivolt stores it nowhere"))
+        XCTAssertTrue(e.contains("sends no commands"))
+        XCTAssertFalse(e.contains("sign in with your Rivian email and password"), "the old line pointed at the login itself")
+    }
+
     func testTheWordsAreFreeOfBannedOnes() {
         let words = [Onboarding.title, Onboarding.explanation, Onboarding.sampleCaption].joined(separator: " ")
         for banned in ["OK", "Normal", "safe", "secure", "towing", "metered", "exact", "measured"] {

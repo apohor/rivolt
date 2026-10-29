@@ -4,6 +4,7 @@ import { backend } from "../lib/api";
 import { useDemoEnabled } from "../lib/config";
 import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
+import { CONNECT_TRUST_LINE, ConnectTrustLines } from "./ConnectTrustLines";
 
 // ConnectRivianPrompt is a top-of-page CTA shown on every page that's
 // empty until Rivolt is recording a vehicle (Overview, Drives, Charges,
@@ -53,7 +54,7 @@ export default function ConnectRivianPrompt({
     : "Connect your Rivian to get started";
   const blurb = noVehicles
     ? "Your Rivian sign-in worked, but that account doesn't list a vehicle yet, so there's nothing to record."
-    : "Sign in with the same email and password you use in the Rivian app — Rivolt only reads your vehicle data.";
+    : CONNECT_TRUST_LINE;
 
   if (inline) {
     return (
@@ -66,17 +67,12 @@ export default function ConnectRivianPrompt({
               <h2 className="text-base font-semibold text-neutral-100">
                 {headline}
               </h2>
-              <p className="mt-1 text-sm text-neutral-400">
-                {blurb}{" "}
-                {context && (
-                  <span className="text-neutral-500">{context}</span>
-                )}
-              </p>
+              <ConnectTrustLines className="mt-1 text-sm text-neutral-400" />
+              {context && <p className="mt-1 text-sm text-neutral-500">{context}</p>}
             </div>
           )}
           <RivianAccountPanel />
           {!noVehicles && <AuthorizedDriverNote />}
-          {!noVehicles && demoEnabled && <SampleTruckCard />}
         </div>
       </Card>
     );
