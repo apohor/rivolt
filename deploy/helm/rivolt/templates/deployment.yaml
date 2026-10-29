@@ -96,6 +96,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # This pod's generation for the single-owner rollout rules: the
+            # ReplicaSet's pod-template-hash, so a new image and a rollout
+            # restart both make a new generation (design 4.5). Read by
+            # internal/leases (generation()); inert until M2's preference lands.
+            - name: RIVOLT_POD_GENERATION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['pod-template-hash']
             {{- end }}
             # The container's memory limit, in bytes: the binary sets the Go
             # runtime's soft limit (GOMEMLIMIT) to 90% of it, so the GC works
