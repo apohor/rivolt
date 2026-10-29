@@ -194,9 +194,11 @@ var tmplFuncs = template.FuncMap{
 	"hm":       durationHM,
 	// Times of day only: the presets have fixed dates, which would read as
 	// stale on an evergreen page.
-	"clock": func(t time.Time) string { return t.In(demo.TripZone()).Format("3:04 PM") },
-	"h1":    func(title string) string { return strings.TrimSuffix(title, " | Rivolt") },
-	"path":  func(slug string) string { return pathSampleTrips + "/" + slug },
+	"clock": func(t time.Time, tz string) string {
+		return t.In(demo.ZoneOf(demo.SampleTrip{TZ: tz})).Format("3:04 PM")
+	},
+	"h1":   func(title string) string { return strings.TrimSuffix(title, " | Rivolt") },
+	"path": func(slug string) string { return pathSampleTrips + "/" + slug },
 }
 
 // stopCostText words a stop's cost: a typical observed price as a dollar figure
@@ -266,9 +268,9 @@ var tripTemplate = template.Must(template.New("trip").Funcs(tmplFuncs).Parse(`<a
 <table>
 <thead><tr><th>Stop</th><th>Network</th><th>Arrive</th><th>Leave</th><th>Charging</th><th>Est. cost</th></tr></thead>
 <tbody>
-<tr><td>Depart {{.From}}</td><td></td><td></td><td>{{clock .DepartAt}}</td><td></td><td></td></tr>
+<tr><td>Depart {{.From}}</td><td></td><td></td><td>{{clock .DepartAt $.Trip.TZ}}</td><td></td><td></td></tr>
 {{range .Stops}}<tr><td>{{.Name}}</td><td>{{.Network}}</td><td>{{pct .ArriveSoC}}</td><td>{{pct .DepartSoC}}</td><td>{{hm .ChargeMin}}{{if .MaxKW}} (up to {{kw .MaxKW}}){{end}}</td><td>{{stopCost .}}</td></tr>
-{{end}}<tr><td>Arrive {{.To}}</td><td></td><td>{{pct .ArrivalSoC}}</td><td>{{clock .ArriveAt}}</td><td></td><td></td></tr>
+{{end}}<tr><td>Arrive {{.To}}</td><td></td><td>{{pct .ArrivalSoC}}</td><td>{{clock .ArriveAt $.Trip.TZ}}</td><td></td><td></td></tr>
 {{with .Overnight}}<tr><td>Hotel stay at {{.Name}}, {{.Nights}} night{{if ne .Nights 1}}s{{end}}</td><td>Level 2</td><td></td><td>{{pct .SoCAfter}}</td><td>{{printf "%.0f h" .ParkedHours}} parked, {{kw .L2KW}}</td><td>adds {{kwh .AddedKWh}}</td></tr>
 {{end}}</tbody>
 </table>
