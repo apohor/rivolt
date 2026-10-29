@@ -92,13 +92,13 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		pathR2Guide: {
 			title: "Your first week with an R2 in Rivolt",
-			desc:  "How to connect a Rivian R2 to Rivolt, what is recorded on the first R2s, what is still unconfirmed, and how to tell us what looks wrong. " + notAffiliated,
+			desc:  "How to connect a Rivian R2 to Rivolt, what is recorded on the first R2s, what is still unconfirmed, and how to report what looks wrong. Unofficial.",
 			summary: "A first-week guide for Rivian R2 owners: connect an Authorized Driver account, what Rivolt records on the first R2s (drives, charges, battery, " +
 				"range, location, temperatures, tire pressure, sleep state), what is not shown for an R2 yet, and how to report what looks wrong. " + notAffiliated,
 		},
 		pathSupport: {
 			title:   "Rivolt support",
-			desc:    "Help for Rivolt, the unofficial open-source companion for Rivian owners: how to connect, export or delete your data, what it does and doesn't do, and how to reach us.",
+			desc:    "Help for Rivolt, the unofficial open-source companion for Rivian owners: how to connect, export or delete your data, what it does, and how to reach us.",
 			summary: "Rivolt support: email support@rivolt.dev or open an issue on GitHub; answers on connecting, exporting and deleting your data. " + notAffiliated,
 		},
 		pathChangelog: {
