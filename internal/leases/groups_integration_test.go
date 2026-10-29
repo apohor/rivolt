@@ -457,3 +457,87 @@ func TestGroupLease_DeleteUserInASharedGroup(t *testing.T) {
 		t.Errorf("the survivor's group was not derived under %s: %v", other, heldRows(ctx, t, pool))
 	}
 }
+
+// A user who joins a group through a shared vehicle with a smaller id re-keys it. While the old
+// holder's row (keyed by the larger id) is live, another pod that holds all the vehicles is
+// refused the re-keyed row: never two fence-valid rows for overlapping users. Once the old row is
+// gone the new pod takes the group. Dead lease_pods rows are pruned.
+func TestGroupLease_ReKeyIsNotADoubleOwner(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedUserVehicles(ctx, t, pool, "rk-1", "rk-shared")
+	seedUserVehicles(ctx, t, pool, "rk-2", "rk-own2")
+	// The existing user is the one with the LARGER id, so the newcomer re-keys the group.
+	var big, small string
+	if err := pool.QueryRowContext(ctx, `SELECT (SELECT username FROM users WHERE username IN ('rk-1','rk-2') ORDER BY id DESC LIMIT 1), (SELECT username FROM users WHERE username IN ('rk-1','rk-2') ORDER BY id ASC LIMIT 1)`).Scan(&big, &small); err != nil {
+		t.Fatal(err)
+	}
+	pods := threePods(t, pool)
+	a, b := pods[0], pods[1]
+	// Make "big" the sole owner of rk-shared before the link: move the shared vehicle to it.
+	if _, err := pool.ExecContext(ctx, `UPDATE vehicles SET user_id = (SELECT id FROM users WHERE username = $1) WHERE rivian_vehicle_id = 'rk-shared'`, big); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"rk-shared", "rk-own2"} {
+		if ok, err := a.Acquire(ctx, v); err != nil || !ok {
+			t.Fatalf("a acquire %s = %v, %v", v, ok, err)
+		}
+	}
+	if r, err := a.RenewGroups(ctx); err != nil || r.Held != 1 {
+		t.Fatalf("a = %+v, %v", r, err)
+	}
+	oldKey := ""
+	for g := range heldRows(ctx, t, pool) {
+		oldKey = g
+	}
+	// The newcomer (smaller id) is linked to the same vehicle: the group is now {big, small}, keyed by small.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) SELECT id, 'rk-shared' FROM users WHERE username = $1`, small); err != nil {
+		t.Fatal(err)
+	}
+	// A's vehicle leases lapse; B takes the vehicles.
+	expireLease(ctx, t, pool, "rk-shared")
+	expireLease(ctx, t, pool, "rk-own2")
+	for _, v := range []string{"rk-shared", "rk-own2"} {
+		if ok, err := b.Acquire(ctx, v); err != nil || !ok {
+			t.Fatalf("b %s = %v, %v", v, ok, err)
+		}
+	}
+	if r, err := b.RenewGroups(ctx); err != nil || r.Held != 0 {
+		t.Fatalf("b took a re-keyed row while the old holder's row is live: %+v, %v", r, err)
+	}
+	if rows := heldRows(ctx, t, pool); len(rows) != 1 || rows[oldKey].pod != "pod-a" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	// The old holder's row expires; B takes the re-keyed group, and only one row is held.
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() - interval '1 second' WHERE group_id::text = $1`, oldKey); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := b.RenewGroups(ctx); err != nil || r.Held != 1 {
+		t.Fatalf("b after expiry = %+v, %v", r, err)
+	}
+	live := 0
+	for _, r := range groupRows(ctx, t, pool) {
+		if r.pod != "" {
+			live++
+		}
+	}
+	if live != 2 { // the expired old row (still named pod-a until it releases) and the new one
+		t.Logf("rows: %+v", groupRows(ctx, t, pool))
+	}
+	noTwoHolders(t, pods)
+
+	// Pods not seen for a day are pruned; this pod's own row never is.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO lease_pods (pod_id, generation, started_at, seen_at) VALUES ('dead-pod', '', now() - interval '3 days', now() - interval '2 days')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.RenewGroups(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var dead, mine int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FILTER (WHERE pod_id = 'dead-pod'), count(*) FILTER (WHERE pod_id = 'pod-b') FROM lease_pods`).Scan(&dead, &mine); err != nil {
+		t.Fatal(err)
+	}
+	if dead != 0 || mine != 1 {
+		t.Errorf("lease_pods: dead=%d mine=%d", dead, mine)
+	}
+}
