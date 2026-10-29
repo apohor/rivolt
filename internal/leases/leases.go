@@ -50,8 +50,9 @@ type Store struct {
 
 	// groups are the fence tokens of the group leases held as of the last
 	// RenewGroups, by group id. Guarded by groupMu.
-	groupMu sync.Mutex
-	groups  map[string]int64
+	groupMu   sync.Mutex
+	groups    map[string]int64
+	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -320,7 +321,7 @@ type Coordinator struct {
 
 	// onGroups and onDryRun report the group leases (SetGroupObserver).
 	onGroups func(held int)
-	onDryRun func(rejected int)
+	onDryRun func(source string, rejected int)
 
 	// authoritative, when set, returns the vehicle IDs this pod should
 	// hold a lease for right now. A lease this pod owns whose vehicle is
@@ -753,7 +754,7 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 // SetGroupObserver wires the metrics for the group leases: held is told the number
 // of groups this pod holds after every pass, dryRun the number of tokens that
 // would have been refused. Optional.
-func (c *Coordinator) SetGroupObserver(held func(n int), dryRun func(n int)) {
+func (c *Coordinator) SetGroupObserver(held func(n int), dryRun func(source string, n int)) {
 	c.onGroups, c.onDryRun = held, dryRun
 }
 
@@ -767,6 +768,11 @@ func (c *Coordinator) renewGroups(ctx context.Context) {
 	res, err := gr.RenewGroups(ctx)
 	if err != nil {
 		c.log.Warn("group lease renew failed", "err", err.Error())
+		// Renewals failing past the local deadline: a guarded write would be refused here with no
+		// database call (counted, nothing acts on it in M1).
+		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && c.onDryRun != nil && lp.PastLocalDeadline() {
+			c.onDryRun("local", 1)
+		}
 		return
 	}
 	for _, g := range res.DryRunRejected {
@@ -776,7 +782,7 @@ func (c *Coordinator) renewGroups(ctx context.Context) {
 		c.onGroups(res.Held)
 	}
 	if c.onDryRun != nil && len(res.DryRunRejected) > 0 {
-		c.onDryRun(len(res.DryRunRejected))
+		c.onDryRun("db", len(res.DryRunRejected))
 	}
 }
 
