@@ -389,11 +389,19 @@ struct SaveTripSection: View {
 
 /// The saved trips, newest first as the server lists them. A tap shows one as it was saved, with no planner call.
 struct SavedTripsList: View {
+    @Environment(AppState.self) private var state
     let model: TripPlanModel
     let saved: SavedTripsModel
     @State private var message: String?
 
     var body: some View {
+        Group { content }
+            // A tapped trip-recap notification arrives as a pending route; the list may not have loaded yet.
+            .task(id: state.notifications.pendingRoute) { await openNotifiedTrip() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if !saved.trips.isEmpty || saved.phase != .loaded {
             ThemeSection(title: "Saved trips") {
                 if saved.trips.isEmpty, case .failed(let words) = saved.phase {
@@ -414,6 +422,14 @@ struct SavedTripsList: View {
                 if let message { Text(message).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
             }
         }
+    }
+
+    /// A tapped trip-recap notification: open that trip, so its Plan vs actual is on screen. The route is cleared either way.
+    private func openNotifiedTrip() async {
+        guard case .trip(let id)? = state.notifications.pendingRoute else { return }
+        defer { state.notifications.pendingRoute = nil }
+        if saved.trips.isEmpty { await saved.load(source: state.client) }
+        if let trip = saved.trips.first(where: { $0.id == id }) { open(trip) }
     }
 
     private func open(_ trip: SavedTrip) {

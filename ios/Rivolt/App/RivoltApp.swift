@@ -68,8 +68,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         NotificationPresentation.foreground
     }
 
-    /// A tap just opens the app.
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {}
+    /// A tap opens the app on the screen the notification is about (its stored target; Home when unknown or on any failure).
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let route: NotificationRoute
+        if let id = NotificationFetch.id(from: response.notification.request.content.userInfo) {
+            route = await NotificationFetch.route(id: id)
+        } else {
+            route = .home
+        }
+        await MainActor.run { NotificationManager.shared.pendingRoute = route }
+    }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in NotificationManager.shared.didRegister(deviceToken: deviceToken) }
