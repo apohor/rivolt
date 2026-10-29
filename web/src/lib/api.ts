@@ -916,6 +916,8 @@ export type EngagementSettings = {
   // False until a zone has been saved: the plug-in reminder never sends without one.
   timezone_stored: boolean;
   weekly_recap: boolean;
+  // One notification after driving a saved trip (off until chosen). Absent from an older server, where the switch is hidden.
+  trip_recap?: boolean;
   plug_threshold_pct: number;
   plug_remind_at: string; // HH:MM, local, no later than 22:00
 };

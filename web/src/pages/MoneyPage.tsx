@@ -10,6 +10,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
 import { SavingsCard } from "../components/SavingsCard";
+import { OffpeakPrompt } from "../components/OffpeakPrompt";
 import { fetchSavings, offpeakShareOf } from "../lib/savings";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
@@ -272,6 +273,7 @@ function Statement({
   return (
     <>
       {((m.spend.observed_estimate_sessions ?? 0) > 0 || (m.spend.unpriced_fast_sessions ?? 0) > 0) && <ObservedEstimateNotice />}
+      <OffpeakPrompt homeRateSet={rateSet} />
       <section data-ui-area="m-hero" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {m.is_current_month && (
