@@ -19,13 +19,9 @@ import (
 type RivianSessionLister struct {
 	db    *sql.DB
 	store *Store
-	// Log, when set, gets one line per listing with the number of stored sessions the legacy-token
-	// scrub changed (a count only). The scrub is temporary: once prod logs 0 for a day it, and
-	// the decryption of every session it needs, go.
+	// Log, when set, gets one line per listing with the number of sessions and how many still had
+	// no recorded sign-in time (counts only).
 	Log *slog.Logger
-	// scrub turns the legacy-token scrub on (WithScrub). It opens every session on each pass, so it is
-	// off unless asked for.
-	scrub bool
 }
 
 // NewRivianSessionLister returns the lister over the system pool and the store.
@@ -62,15 +58,8 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 	}
 	_ = rows.Close()
 	out := make([]rivianexpiry.Entry, 0, len(ids))
-	scrubbed, missing := 0, 0
+	missing := 0
 	for _, r := range ids {
-		// Temporary: every stored session passes through the legacy-token scrub once an hour (best
-		// effort, never changes the version). It goes with the scrub.
-		if l.scrub {
-			if ok, _ := ScrubLegacyRivianTokens(ctx, l.store, r.id); ok {
-				scrubbed++
-			}
-		}
 		at := r.signedIn.Time
 		if !r.signedIn.Valid {
 			// Not recorded yet: open this session once and write the time down.
@@ -86,9 +75,6 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 	// write the time themselves, so this should never rise again.
 	if l.Log != nil {
 		l.Log.Info("rivian sign-in times", "sessions", len(ids), "missing", missing)
-	}
-	if l.Log != nil && l.scrub {
-		l.Log.Info("rivian session scrub", "sessions", len(ids), "scrubbed", scrubbed)
 	}
 	return out, nil
 }
@@ -113,14 +99,7 @@ func (l *RivianSessionLister) backfill(ctx context.Context, uid uuid.UUID) time.
 	return at
 }
 
-// WithScrub turns the temporary legacy-token scrub on. Without it a pass opens a session only to
-// backfill a sign-in time that was never recorded.
-func (l *RivianSessionLister) WithScrub() *RivianSessionLister {
-	l.scrub = true
-	return l
-}
-
-// WithLog makes the lister log the scrub count of each pass.
+// WithLog makes the lister log the sign-in time counts of each pass.
 func (l *RivianSessionLister) WithLog(log *slog.Logger) *RivianSessionLister {
 	l.Log = log
 	return l
