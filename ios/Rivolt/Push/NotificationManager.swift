@@ -80,6 +80,10 @@ struct SystemNotifications: NotificationSystem {
 final class NotificationManager {
     static let shared = NotificationManager()
 
+    /// Where the last tapped notification wants to go; the screen that handles it clears it. Set by the app delegate, read by AppShell
+    /// (which may not exist yet when the tap launched the app).
+    var pendingRoute: NotificationRoute?
+
     enum TestState: Equatable {
         case idle
         case sending
