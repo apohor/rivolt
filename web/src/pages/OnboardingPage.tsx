@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
+import { ConnectTrustLines } from "../components/ConnectTrustLines";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import {
   AuthorizedDriverNote,
@@ -67,11 +68,7 @@ export default function OnboardingPage() {
           Connect your Rivian
         </h2>
         <div className="space-y-3 text-sm leading-relaxed text-neutral-400">
-          <p>
-            Sign in with the same email and password you use in the Rivian
-            app and Rivolt starts pulling live telemetry, drive sessions, and
-            charge history.
-          </p>
+          <ConnectTrustLines />
           <RivianAccountPanel onLater={finish} />
           {!connected && <AuthorizedDriverNote />}
         </div>

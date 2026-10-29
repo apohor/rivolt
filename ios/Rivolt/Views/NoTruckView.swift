@@ -17,7 +17,7 @@ enum Onboarding {
     }
 
     static let title = "Connect your Rivian"
-    static let explanation = "Rivolt records the drives, charges and costs of your own Rivian, so it needs your Rivian account. You connect it on the web, where you sign in with your Rivian email and password. The app never sees them."
+    static let explanation = "Rivolt records the drives, charges and costs of your own Rivian, so it needs your Rivian account. Connecting opens rivolt.dev in your browser; the app never sees your Rivian password, and Rivolt stores it nowhere. Rivolt reads your truck's data and sends no commands to it."
     static let sampleCaption = "No Rivian yet, or just curious? The sample truck shows what Rivolt does, with made-up data."
 }
 
