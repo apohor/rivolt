@@ -222,25 +222,3 @@ func (s *Store) GetVersioned(ctx context.Context, userID uuid.UUID, name string)
 	}
 	return plaintext, at, nil
 }
-
-// ReplaceIfUnchanged re-seals the row's plaintext in place, only if its updated_at is still
-// at (nobody wrote it since it was read), and KEEPS updated_at: the row's content changes
-// without it becoming a new version, so nothing that watches versions (the Rivian account
-// sync on every pod) sees a change. false when the row changed meanwhile or is gone; the
-// caller just tries again on its next pass.
-func (s *Store) ReplaceIfUnchanged(ctx context.Context, userID uuid.UUID, name string, plaintext []byte, at time.Time) (bool, error) {
-	if userID == uuid.Nil || name == "" {
-		return false, errors.New("secrets: nil userID or empty name")
-	}
-	blob, err := s.sealer.Seal(ctx, userID, plaintext)
-	if err != nil {
-		return false, fmt.Errorf("secrets: seal: %w", err)
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE user_secrets SET ciphertext = $3, kek_id = $4
-		WHERE user_id = $1 AND name = $2 AND updated_at = $5`, userID, name, blob, s.sealer.KEKID(), at)
-	if err != nil {
-		return false, fmt.Errorf("secrets: replace: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return n == 1, nil
-}
