@@ -22,6 +22,11 @@ describe("the lines above the Rivian sign-in form", () => {
     renderLines();
     expect(screen.getByText(CONNECT_TRUST_LINE)).toBeInTheDocument();
     expect(CONNECT_TRUST_LINE).toMatch(/sends no commands to your truck/);
+    // It names location, the most sensitive thing read, and says "such as" so the list is not read as a promise (DA).
+    expect(CONNECT_TRUST_LINE).toMatch(/such as drives, charges, battery and location/);
+    expect(CONNECT_TRUST_LINE).toBe(
+      "Connect a Rivian account and Rivolt reads your truck's data, such as drives, charges, battery and location. It sends no commands to your truck, and your Rivian password is used once to sign in and never stored.",
+    );
     expect(CONNECT_TRUST_LINE).toMatch(/password is used once to sign in and never stored/);
     // No longer points people at their main login.
     expect(document.body.textContent).not.toMatch(/same email and password you use in the Rivian app/);
