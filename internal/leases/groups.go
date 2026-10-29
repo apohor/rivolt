@@ -58,6 +58,12 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 		return res, fmt.Errorf("lease pod register: %w", err)
 	}
 
+	// Pod names change on every rollout; drop the rows of pods not seen for a day so they do not
+	// pile up (and so a fair-share rule never counts a dead pod).
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM lease_pods WHERE pod_id <> $1 AND seen_at < now() - interval '1 day'`, s.podID); err != nil {
+		return res, fmt.Errorf("lease pod prune: %w", err)
+	}
+
 	s.groupMu.Lock()
 	prev := make([]GroupToken, 0, len(s.groups))
 	for g, e := range s.groups {
@@ -102,8 +108,19 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 	     GROUP BY gv.gid
 	    HAVING bool_and(l.vehicle_id IS NOT NULL)
 	)
+	-- nextval is evaluated for every candidate row, including ones the upsert then leaves alone, so
+	-- a renew burns a sequence value. Harmless for a bigint; only the ordering matters.
 	INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
 	SELECT held.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval FROM held
+	 -- A group is keyed by its smallest user id, so a user who joins it (a shared vehicle) with a
+	 -- smaller id re-keys it. While another pod still holds a live row keyed by any other member of
+	 -- the group, the re-keyed row is not taken: two rows must never both be fence-valid for
+	 -- overlapping users. The old holder drops its row when it stops holding the whole group, or it
+	 -- expires.
+	 WHERE NOT EXISTS (
+	       SELECT 1 FROM grp m JOIN account_leases o ON o.group_id::text = m.user_id::text
+	        WHERE m.gid = held.gid AND o.group_id::text <> held.gid
+	          AND o.pod_id IS NOT NULL AND o.pod_id <> $1 AND o.expires_at > now())
 	ON CONFLICT (group_id) DO UPDATE SET
 	    pod_id      = EXCLUDED.pod_id,
 	    epoch       = CASE WHEN account_leases.pod_id = EXCLUDED.pod_id AND account_leases.expires_at > now()
