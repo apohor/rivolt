@@ -260,3 +260,64 @@ const overlapSQL = `
 	     WHERE l.pod_id IS NOT NULL AND l.expires_at > now()
 	)
 	SELECT count(*) FROM (SELECT user_id FROM cover GROUP BY user_id HAVING count(DISTINCT pod_id) > 1) x`
+
+// With the real tick (TTL/4 = 30 s), a peer's seen_at is routinely 30 s old when the other pod
+// ticks. Both pods must still count each other, or the first to tick takes everything.
+func TestLead_PeersCountedAtTheRealTick(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	const groups = 10
+	seedSessionGroups(ctx, t, pool, groups)
+	a, b := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b")
+	pods := []*leases.Store{a, b}
+	for i := 0; i < 30; i++ {
+		for _, p := range pods {
+			// the peer last ticked 30 s ago
+			if _, err := pool.ExecContext(ctx, `UPDATE lease_pods SET seen_at = now() - interval '30 seconds' WHERE pod_id <> $1`, p.PodID()); err != nil {
+				t.Fatal(err)
+			}
+			pass(ctx, t, p)
+		}
+	}
+	by := heldBy(ctx, t, pool)
+	share := (groups+1)/2 + 1
+	for _, p := range pods {
+		if n := by[p.PodID()]; n > share || n < groups/2-1 {
+			t.Errorf("%s holds %d, want within %d..%d (%v)", p.PodID(), n, groups/2-1, share, by)
+		}
+	}
+	if by["pod-a"]+by["pod-b"] != groups {
+		t.Errorf("held %v, want %d in total", by, groups)
+	}
+}
+
+// A group that stops being a candidate (its session is removed) is retired: LeadGroups reports it
+// and leaves the row held, so the caller stops the vehicles first; ReleaseGroup then frees it.
+func TestLead_RetiredGroupIsReleasedOnlyAfterTheCaller(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedSessionGroups(ctx, t, pool, 2)
+	a := leadStore(t, pool, "pod-a")
+	if r := pass(ctx, t, a); len(r.Held) != 2 {
+		t.Fatalf("held %d", len(r.Held))
+	}
+	if _, err := pool.ExecContext(ctx, `DELETE FROM user_secrets WHERE user_id = (SELECT id FROM users WHERE username = 'sp-00')`); err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.LeadGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Retire) != 1 || len(r.Lost) != 1 || len(r.Held) != 1 {
+		t.Fatalf("retire/lost/held = %v / %v / %d", r.Retire, r.Lost, len(r.Held))
+	}
+	if n := len(heldRows(ctx, t, pool)); n != 2 {
+		t.Fatalf("%d rows held after LeadGroups, want 2: the row stays until the caller has stopped the vehicles", n)
+	}
+	if err := a.ReleaseGroup(ctx, r.Retire[0]); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(heldRows(ctx, t, pool)); n != 1 {
+		t.Fatalf("%d rows held after ReleaseGroup, want 1", n)
+	}
+}

@@ -14,8 +14,6 @@ import (
 // so a pod running the M1 code mid-rollout still sees them as held.
 
 const (
-	// podLiveWindow is how recent a pod's lease_pods.seen_at must be for it to count as live.
-	podLiveWindow = 15 * time.Second
 	// releasedGrace is how long a released group stays free for the newest generation only; an
 	// older generation may take it after this.
 	releasedGrace = 10 * time.Second
@@ -33,6 +31,9 @@ type GroupLead struct {
 	// Shed are groups held beyond the fair share. The caller stops them and then calls
 	// ReleaseGroup: stop first, release second.
 	Shed []string
+	// Retire are held rows that are no longer candidates (the session was removed, or the group was
+	// re-keyed). Same rule as Shed: stop first, then ReleaseGroup. They are also in Lost.
+	Retire []string
 }
 
 // SetGroupLead turns lead mode on or off.
@@ -65,6 +66,11 @@ func (s *Store) isDraining() bool {
 	defer s.groupMu.Unlock()
 	return s.draining
 }
+
+// podLiveWindow is how recent a pod's lease_pods.seen_at must be for it to count as live: two
+// reconcile ticks (the tick is TTL/4), so a pod that ticks on schedule is always seen by its peers.
+// 60 s today, 15 s once the TTL is 30 s.
+func (s *Store) podLiveWindow() time.Duration { return s.ttl / 2 }
 
 // fairShare is ceil(groups / pods) + 1: the +1 keeps a pod from flapping on a group that
 // would otherwise move back and forth.
@@ -106,7 +112,7 @@ func newestGeneration(pods []livePod) string {
 func (s *Store) livePods(ctx context.Context) ([]livePod, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT pod_id, generation, started_at, draining FROM lease_pods
-		 WHERE seen_at > now() - $1::interval`, fmt.Sprintf("%d seconds", int(podLiveWindow.Seconds())))
+		 WHERE seen_at > now() - $1::interval`, fmt.Sprintf("%d seconds", int(s.podLiveWindow().Seconds())))
 	if err != nil {
 		return nil, err
 	}
@@ -210,17 +216,29 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		}
 	}
 
-	// Rows this pod still has that are not in the renewed set: no longer a candidate, or expired.
-	// Release the first kind; the second is already someone else's or free.
+	// Rows this pod still holds that are not in the renewed set: no longer a candidate. They are not
+	// released here: the caller stops their vehicles first and then calls ReleaseGroup.
 	keep := make([]string, 0, len(held))
 	for g := range held {
 		keep = append(keep, g)
 	}
 	sort.Strings(keep)
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp()
-		  WHERE pod_id = $1 AND group_id::text <> ALL($2::text[]) AND expires_at > now()`, s.podID, keep); err != nil {
-		return res, fmt.Errorf("lease groups release: %w", err)
+	retire, err := s.db.QueryContext(ctx,
+		`SELECT group_id::text FROM account_leases
+		  WHERE pod_id = $1 AND expires_at > now() AND group_id::text <> ALL($2::text[])`, s.podID, keep)
+	if err != nil {
+		return res, fmt.Errorf("lease retire: %w", err)
+	}
+	for retire.Next() {
+		var g string
+		if err := retire.Scan(&g); err != nil {
+			_ = retire.Close()
+			return res, err
+		}
+		res.Retire = append(res.Retire, g)
+	}
+	if err := retire.Close(); err != nil {
+		return res, err
 	}
 
 	s.groupMu.Lock()
@@ -232,7 +250,9 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 	s.groups = held
 	s.groupOKAt = sentAt
 	s.groupMu.Unlock()
+	res.Lost = append(res.Lost, res.Retire...)
 	sort.Strings(res.Lost)
+	res.Lost = dedupe(res.Lost)
 
 	if over := len(held) - share; over > 0 {
 		// One group per pass, the highest id: a fixed order so two passes never pick differently.
@@ -294,4 +314,14 @@ func (s *Store) queryEpochs(ctx context.Context, q string, args ...any) (map[str
 		out[g] = e
 	}
 	return out, rows.Err()
+}
+
+func dedupe(in []string) []string {
+	out := in[:0]
+	for i, v := range in {
+		if i == 0 || v != in[i-1] {
+			out = append(out, v)
+		}
+	}
+	return out
 }

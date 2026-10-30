@@ -834,7 +834,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 			delete(c.owned, vid)
 			c.mu.Unlock()
 		}
-		for _, g := range res.Shed {
+		for _, g := range append(append([]string(nil), res.Shed...), res.Retire...) {
 			if rerr := gl.ReleaseGroup(ctx, g); rerr != nil {
 				c.log.Warn("group release failed", "err", rerr.Error())
 			}
