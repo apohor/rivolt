@@ -50,7 +50,7 @@ func TestChargeWrites_FencedByTheGroupLease(t *testing.T) {
 		c := sampleCharge(id, "rv-fence", at, "charging_active")
 		c.EnergyEstimated = true
 		c.NetworkEvidence = json.RawMessage(`{"v":1,"candidates":[{"n":"x","d":12.5}]}`)
-		c.Network, c.NetworkState = "ea", "detected"
+		c.Network, c.NetworkState = "ea", "estimated"
 		return c
 	}
 	if err := store.Upsert(ctx, mk("c-plain", start)); err != nil {
