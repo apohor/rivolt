@@ -1711,6 +1711,10 @@ func runServer() {
 			logger.Error("lease store", "err", err.Error())
 			os.Exit(1)
 		}
+		// Single-owner M2: the group lease decides ownership and the pods spread the groups.
+		// Off by default, in every environment, until the prestop/SIGUSR1 draining and the 30 s/5 s
+		// timing have landed: without draining a rollout moves groups twice.
+		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		vehicleSource := leases.NewVehicleSource(
 			func() []string {
 				infos := monitorRegistry.AllVehicleInfo()
