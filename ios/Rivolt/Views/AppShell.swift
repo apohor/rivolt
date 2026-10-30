@@ -50,14 +50,14 @@ struct AppShell: View {
         }
         .background(Theme.background.ignoresSafeArea())
         .onChange(of: tab) { _, new in visited.insert(new) }
-        // A tapped notification: show the screen it is about. A saved-trip recap leaves the route for the Plan tab to open the trip;
-        // the others are done once the tab is shown. Not in the demo, which has no notifications.
+        // A tapped notification: show the screen it is about. A trip recap or a finished charge leaves the route for its tab to open the
+        // trip or the charge; the others are done once the tab is shown. Not in the demo, which has no notifications.
         .onChange(of: state.notifications.pendingRoute, initial: true) { _, route in
             guard let route, !state.isDemo else { return }
             let target = route.tab(available: tabs.map(\.id))
             visited.insert(target)
             tab = target
-            if case .trip = route, target == "plan" { return }
+            if route.screenFinishes, target == route.tab { return }
             state.notifications.pendingRoute = nil
         }
         .task {
