@@ -34,6 +34,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver registration
@@ -103,6 +104,27 @@ func SystemPoolSize(getenv func(string) string) (n int, reason string) {
 	return DefaultSystemMaxConnsRequestPoolOff, "default with the request pool off (the system pool serves requests too)"
 }
 
+// IdleConnTimeout is how long a pooled connection may sit unused before the pool closes it, in both
+// pools. A quiet pod gives its connections back to max_connections instead of holding up to its cap
+// forever (the DB connection budget at N replicas).
+const IdleConnTimeout = 2 * time.Minute
+
+// poolShape is what the system pool is set to.
+type poolShape struct {
+	maxOpen, maxIdle int
+	idleTime         time.Duration
+}
+
+func systemPoolShape(n int) poolShape {
+	return poolShape{maxOpen: n, maxIdle: min(5, n), idleTime: IdleConnTimeout}
+}
+
+func (p poolShape) apply(d *sql.DB) {
+	d.SetMaxOpenConns(p.maxOpen)
+	d.SetMaxIdleConns(p.maxIdle)
+	d.SetConnMaxIdleTime(p.idleTime)
+}
+
 // OpenNoMigrate connects and pings but never changes the schema. Repair
 // and maintenance commands use it: a binary newer than the database must
 // not apply pending migrations as a side effect.
@@ -117,8 +139,7 @@ func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	// Modest pool, sized per pod (SystemPoolMaxConns): (replicas + a surge pod) x this, plus
 	// each pod's request pool and everything else, stays under max_connections.
 	n, _ := SystemPoolSize(os.Getenv)
-	d.SetMaxOpenConns(n)
-	d.SetMaxIdleConns(min(5, n))
+	systemPoolShape(n).apply(d)
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)

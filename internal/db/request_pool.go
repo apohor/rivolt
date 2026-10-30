@@ -113,10 +113,7 @@ func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom f
 	if err != nil {
 		return nil, fmt.Errorf("request pool: %w", err)
 	}
-	if maxConns <= 0 {
-		maxConns = DefaultRequestMaxConns
-	}
-	cfg.MaxConns = maxConns
+	configureRequestPool(cfg, maxConns)
 	cfg.PrepareConn = requestConnHook(userFrom, o.noUser)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -131,6 +128,16 @@ func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom f
 		return nil, err
 	}
 	return rp, nil
+}
+
+// configureRequestPool sizes the pgxpool: maxConns (the default when <= 0) and the idle timeout, so a
+// quiet pod gives its connections back.
+func configureRequestPool(cfg *pgxpool.Config, maxConns int32) {
+	if maxConns <= 0 {
+		maxConns = DefaultRequestMaxConns
+	}
+	cfg.MaxConns = maxConns
+	cfg.MaxConnIdleTime = IdleConnTimeout
 }
 
 // checkRequestRole refuses a role that the tenant policies don't apply to.

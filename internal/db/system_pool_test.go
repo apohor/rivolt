@@ -1,6 +1,11 @@
 package db
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 func TestSystemPoolSize(t *testing.T) {
 	env := func(maxConns, requestURL string) func(string) string {
@@ -49,4 +54,31 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// Both pools close a connection that has sat unused for two minutes, so a quiet pod gives its
+// connections back to max_connections.
+func TestPoolsCloseIdleConnections(t *testing.T) {
+	if IdleConnTimeout != 2*time.Minute {
+		t.Fatalf("IdleConnTimeout = %v, want 2m", IdleConnTimeout)
+	}
+	s := systemPoolShape(20)
+	if s.maxOpen != 20 || s.maxIdle != 5 || s.idleTime != IdleConnTimeout {
+		t.Errorf("system pool shape = %+v, want 20 open, 5 idle, idle time %v", s, IdleConnTimeout)
+	}
+	if s := systemPoolShape(3); s.maxIdle != 3 {
+		t.Errorf("max idle = %d for a pool of 3, want 3", s.maxIdle)
+	}
+	cfg, err := pgxpool.ParseConfig("postgres://u@localhost/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureRequestPool(cfg, 7)
+	if cfg.MaxConns != 7 || cfg.MaxConnIdleTime != IdleConnTimeout {
+		t.Errorf("request pool config = %d conns, idle %v, want 7 and %v", cfg.MaxConns, cfg.MaxConnIdleTime, IdleConnTimeout)
+	}
+	configureRequestPool(cfg, 0)
+	if cfg.MaxConns != DefaultRequestMaxConns {
+		t.Errorf("max conns = %d for 0, want the default %d", cfg.MaxConns, DefaultRequestMaxConns)
+	}
 }
