@@ -448,6 +448,14 @@ func (r *MonitorRegistry) SetSleepObserver(o SleepObserver) {
 // Stop tears down the monitor for uid. Idempotent.
 func (r *MonitorRegistry) Stop(uid uuid.UUID) {
 	r.mu.Lock()
+	// A subscription waiting for this user's monitor goes with the user (a deleted or signed-out
+	// account): it must not start if a monitor for the same id ever came back. Cleared even when no
+	// monitor was running, which is exactly the case a waiting subscription is in.
+	for vid, u := range r.wanted {
+		if u == uid {
+			delete(r.wanted, vid)
+		}
+	}
 	e, ok := r.monitors[uid]
 	if ok {
 		delete(r.monitors, uid)

@@ -28,3 +28,19 @@ func TestWantedSubscriptions(t *testing.T) {
 		t.Error("v-b (another owner) was touched")
 	}
 }
+
+// A user removed (or signed out) while one of their subscriptions waits: Stop forgets it, with or
+// without a running monitor.
+func TestStopForgetsAWaitingSubscription(t *testing.T) {
+	r := &MonitorRegistry{logger: NewStateMonitor(nil, nil).logger, monitors: map[uuid.UUID]*monitorEntry{}}
+	gone, kept := uuid.New(), uuid.New()
+	r.want("v-gone", gone)
+	r.want("v-kept", kept)
+	r.Stop(gone)
+	if _, ok := r.wanted["v-gone"]; ok {
+		t.Error("a removed user's waiting subscription survived Stop")
+	}
+	if _, ok := r.wanted["v-kept"]; !ok {
+		t.Error("another user's waiting subscription was dropped")
+	}
+}
