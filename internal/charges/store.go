@@ -604,12 +604,22 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 	return &c, nil
 }
 
+// leasePlaceholder marks where execOwnerWrite puts the lease check in a query's WHERE.
+const leasePlaceholder = "{{LEASE}}"
+
+var errMissingLease = errors.New("charges: execOwnerWrite needs " + leasePlaceholder + " in the query's WHERE")
+
 // execOwnerWrite runs an UPDATE of the live recorder's charge rows. The query ends its WHERE with
 // {{LEASE}}: with a fence token in the context that becomes AND rivolt_lease_ok(group, pod, epoch)
 // (the check is in the statement itself), without one it is empty. When a guarded statement
 // changed nothing it asks whether the lease is gone (the row may simply not exist), and returns
 // fence.ErrFenced if so.
 func (s *Store) execOwnerWrite(ctx context.Context, query string, args ...any) (int, error) {
+	// A query without the placeholder would run unguarded in guarded mode: refuse it, in both modes,
+	// so a future caller cannot forget the fence.
+	if !strings.Contains(query, leasePlaceholder) {
+		return 0, errMissingLease
+	}
 	tok, guarded := fence.From(ctx)
 	if !guarded {
 		res, err := s.db.ExecContext(ctx, strings.ReplaceAll(query, "{{LEASE}}", ""), args...)
