@@ -2890,8 +2890,8 @@ func runServer() {
 		logger.Warn("shutdown error", "err", err.Error())
 	}
 	// Let the detached work (re-auth email, close hooks, vehicle-info writes) finish
-	// before the database goes away. Bounded: 3 s leases + 10 s HTTP + 8 s here fits
-	// the 30 s grace period.
+	// before the database goes away. Bounded: 6 s leases + 10 s HTTP + 8 s here fits
+	// the 45 s grace period.
 	if !bg.Default.Wait(bgShutdownWait) {
 		logger.Warn("background work still running at shutdown; closing anyway", "waited", bgShutdownWait.String())
 	}
