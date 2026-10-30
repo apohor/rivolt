@@ -58,16 +58,16 @@ updateStrategy:
 # -- Graceful shutdown knobs.
 #
 # preStopSleepSeconds: how long the kubelet sleeps in the container's
-# preStop hook (lifecycle.preStop.sleep, Kubernetes 1.30+; 0 = none)
-# before the binary receives SIGTERM. Buys kube-proxy /
+# preStop hook (`rivolt prestop`, an exec that signals the server to start draining and then
+# sleeps this long; 0 = no hook) before the binary receives SIGTERM. Buys kube-proxy /
 # Traefik time to drop the pod from the Service's Endpoints, so
 # in-flight rollouts don't 502.
 #
 # terminationGracePeriodSeconds: must be > preStopSleepSeconds plus
-# the longest expected request duration. 30s is enough for the
-# GraphQL roundtrips against Rivian's gateway.
+# the longest expected request duration. 45s covers the 5s preStop, the
+# drain flush, the subscription stop and group release, and the HTTP drain.
 preStopSleepSeconds: 5
-terminationGracePeriodSeconds: 30
+terminationGracePeriodSeconds: 45
 
 nameOverride: ""
 fullnameOverride: ""

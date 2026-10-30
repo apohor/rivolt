@@ -55,7 +55,7 @@ spec:
       serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
       # Give the binary time to (a) stop receiving new traffic via
       # the preStop sleep, then (b) finish in-flight requests +
-      # release Rivian websocket subscriptions cleanly. 30s is
+      # release Rivian websocket subscriptions cleanly. 45s is
       # enough headroom for a slow GraphQL roundtrip; bump if a
       # specific upstream call regularly exceeds that.
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
@@ -232,14 +232,15 @@ spec:
           # brief race where new traffic can still hit a terminating
           # pod. A short preStop sleep gives kube-proxy / Traefik
           # time to remove the endpoint before the binary starts
-          # tearing down — eliminates 502s during rollouts. The kubelet's
-          # own sleep action (Kubernetes 1.30+): the image is distroless,
-          # so an exec hook has no shell or sleep to run.
+          # tearing down — eliminates 502s during rollouts. The hook is an exec of the binary itself (the image is distroless, so there is
+          # no shell): `rivolt prestop` signals the server (PID 1) with SIGUSR1 so it stops
+          # taking leases, then sleeps. No HTTP endpoint: the kubelet runs httpGet hooks
+          # against the pod IP, so anything that reached the port could force a drain.
           {{- if gt (int .Values.preStopSleepSeconds) 0 }}
           lifecycle:
             preStop:
-              sleep:
-                seconds: {{ int .Values.preStopSleepSeconds }}
+              exec:
+                command: ["/app/rivolt", "prestop", "--sleep", "{{ int .Values.preStopSleepSeconds }}s"]
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
