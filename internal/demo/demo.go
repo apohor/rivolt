@@ -256,11 +256,13 @@ func PriceCandidates(ctx context.Context, cands []PriceCandidate, store pricer) 
 // until ctx ends (replay backfill and corpus loops bring new sessions).
 func RunPricing(ctx context.Context, d *sql.DB, store pricer, every time.Duration, log func(msg string, args ...any)) {
 	tick := func() {
-		if n, err := ApplySampleUserPrices(ctx, d, store); err != nil {
-			log("demo: sample user price pass failed", "err", err.Error())
-		} else if n > 0 {
-			log("demo: sample user prices applied", "rows", n)
-		}
+		onOneReplica(ctx, d, "pricing", func() {
+			if n, err := ApplySampleUserPrices(ctx, d, store); err != nil {
+				log("demo: sample user price pass failed", "err", err.Error())
+			} else if n > 0 {
+				log("demo: sample user prices applied", "rows", n)
+			}
+		})
 	}
 	tick()
 	t := time.NewTicker(every)
