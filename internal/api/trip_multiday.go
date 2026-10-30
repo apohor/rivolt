@@ -575,6 +575,10 @@ func (req *tripPlanMultidayRequest) validate(now time.Time) string {
 // class when there is one, else "internal". Never the error text, which can
 // carry the gateway's wording.
 func errClass(err error) string {
+	var rl *rivian.ErrRateLimited
+	if errors.As(err, &rl) {
+		return "rate_limited" // our own budget refused it, not an upstream class
+	}
 	_, body := upstreamErrorBody(err)
 	if c, _ := body["class"].(string); c != "" {
 		return c

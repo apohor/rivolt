@@ -279,48 +279,59 @@ func TestChargingSchedulesOtherErrorsKeepRetrying(t *testing.T) {
 	}
 }
 
-// A read refused by the shared Rivian budget (a handover burst) is retried once after the wait it names, and
-// the read is recorded when the retry works.
-func TestScheduleReadRetriesOnceAfterARateLimit(t *testing.T) {
-	oldCap, oldJitter := scheduleRetryCap, scheduleRetryJitter
-	scheduleRetryCap, scheduleRetryJitter = 50*time.Millisecond, time.Millisecond
-	defer func() { scheduleRetryCap, scheduleRetryJitter = oldCap, oldJitter }()
+// A read refused by the shared Rivian budget (a handover burst) is tried again, up to scheduleRetryTries in all;
+// it is recorded when a later try works, and not retried past the limit. Another error is not retried.
+func TestScheduleReadRetriesAfterRateLimitRefusals(t *testing.T) {
+	oldCap, oldBase, oldJitter := scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter
+	scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = 5*time.Millisecond, time.Millisecond, time.Millisecond
+	defer func() { scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = oldCap, oldBase, oldJitter }()
 
+	recorded := func(m *StateMonitor) bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_, ok := m.scheduleReads["v"]
+		return ok
+	}
+
+	// Refused twice, then it works: three fetches and the read is recorded.
 	m, calls := schedMonitor(schedHomeLat, schedHomeLon)
-	failures := 1
+	refusals := 2
 	inner := m.fetchSchedules
 	m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
-		if failures > 0 {
-			failures--
+		if refusals > 0 {
+			refusals--
 			calls.Add(1)
-			return nil, &ErrRateLimited{RetryAfter: 10 * time.Millisecond}
+			return nil, &ErrRateLimited{RetryAfter: time.Millisecond}
 		}
 		return inner(ctx, v)
 	}
 	m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
-	if calls.Load() != 2 {
-		t.Fatalf("fetch calls = %d, want 2 (the refusal and one retry)", calls.Load())
-	}
-	m.mu.Lock()
-	_, recorded := m.scheduleReads["v"]
-	m.mu.Unlock()
-	if !recorded {
-		t.Error("the retried read was not recorded")
+	if calls.Load() != 3 || !recorded(m) {
+		t.Fatalf("fetches = %d, recorded = %v, want 3 and true (two refusals, then the read)", calls.Load(), recorded(m))
 	}
 
-	// A second refusal is not retried again (one retry only).
-	calls.Store(0)
-	failures = 2
-	m2, calls2 := schedMonitor(schedHomeLat, schedHomeLon)
+	// Always refused: exactly scheduleRetryTries fetches, nothing recorded.
+	m2, _ := schedMonitor(schedHomeLat, schedHomeLon)
 	n := 0
 	m2.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
 		n++
-		calls2.Add(1)
 		return nil, &ErrRateLimited{RetryAfter: time.Millisecond}
 	}
 	m2.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
-	if n != 2 {
-		t.Errorf("fetch calls on a persistent refusal = %d, want 2", n)
+	if n != scheduleRetryTries || recorded(m2) {
+		t.Errorf("a persistent refusal: %d fetches (want %d), recorded = %v (want false)", n, scheduleRetryTries, recorded(m2))
+	}
+
+	// Any other error is not retried.
+	m3, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	k := 0
+	m3.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		k++
+		return nil, errors.New("boom")
+	}
+	m3.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+	if k != 1 {
+		t.Errorf("a non-rate-limit error was fetched %d times, want 1", k)
 	}
 }
 
