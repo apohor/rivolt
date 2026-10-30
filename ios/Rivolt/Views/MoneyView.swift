@@ -31,10 +31,13 @@ struct MoneyView: View {
                     if let vehiclesError, model.month == nil {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
                     } else {
-                        MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
-                                     noticeHidden: $noticeHidden, serverURL: state.serverURL,
-                                     export: MoneyContent.Export(busy: csvBusy, error: csvError,
-                                                                 share: { showShare = true }, csv: { Task { await exportCSV() } }))
+                        VStack(spacing: 16) {
+                            OffpeakPromptView()
+                            MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
+                                         noticeHidden: $noticeHidden, serverURL: state.serverURL,
+                                         export: MoneyContent.Export(busy: csvBusy, error: csvError,
+                                                                     share: { showShare = true }, csv: { Task { await exportCSV() } }))
+                        }
                     }
                 }
                 .padding(.horizontal, 4 * Theme.unit)
