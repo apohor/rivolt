@@ -1776,11 +1776,19 @@ func runServer() {
 		coord.SetGroupObserver(
 			func(n int) { appMetrics.LeaseGroupsOwned.Set(float64(n)) },
 			func(source string, n int) {
-				appMetrics.LeaseFenceWouldReject.WithLabelValues("db", source).Add(float64(n))
+				appMetrics.LeaseFenceWouldReject.WithLabelValues(source).Add(float64(n))
 			},
 		)
 		coord.SetStreamingCheck(monitorRegistry.Streaming)
 		coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
+		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
+		// counts, and asks the coordinator to look at its groups now.
+		if monitorRegistry != nil {
+			monitorRegistry.SetFence(leaseStore, func(kind string) {
+				appMetrics.LeaseFenced.WithLabelValues(kind).Inc()
+				coord.TriggerReconcile()
+			})
+		}
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and

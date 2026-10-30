@@ -13,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // Sample is a single polling snapshot. VehicleID is the Rivian gateway
@@ -155,27 +156,54 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	tok, guarded := fence.From(ctx)
+	var tx *sql.Tx
+	if guarded {
+		var cancel context.CancelFunc
+		tx, ctx, cancel, err = fence.BeginBounded(ctx, s.db)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+	} else if tx, err = s.db.BeginTx(ctx, nil); err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO vehicle_state (`+sampleColumns+`
+	q := `
+		INSERT INTO vehicle_state (` + sampleColumns + `
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
-		ON CONFLICT (vehicle_id, at) DO NOTHING`)
+		ON CONFLICT (vehicle_id, at) DO NOTHING`
+	if guarded {
+		q = guardedInsert
+	}
+	stmt, err := tx.PrepareContext(ctx, q)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	touched := map[vehicleMonth]bool{}
 	for _, v := range batch {
-		res, err := stmt.ExecContext(ctx, s.sampleArgs(uuids[v.VehicleID], v)...)
+		args := s.sampleArgs(uuids[v.VehicleID], v)
+		if guarded {
+			args = append(args, tok.Group, tok.Pod, tok.Epoch)
+		}
+		res, err := stmt.ExecContext(ctx, args...)
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n > 0 {
+		n, _ := res.RowsAffected()
+		if n > 0 {
 			touched[vehicleMonth{uuids[v.VehicleID], monthOf(v.At)}] = true
+		} else if guarded {
+			// No row: a duplicate sample, or the lease refused the write. Ask which; once refused
+			// the answer stays refused (an epoch never comes back).
+			var ok bool
+			if err := tx.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, $2, $3)`, tok.Group, tok.Pod, tok.Epoch).Scan(&ok); err != nil {
+				return err
+			}
+			if !ok {
+				return fence.ErrFenced
+			}
 		}
 	}
 	if err := s.markRearchive(ctx, tx, touched); err != nil {
@@ -183,6 +211,18 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	}
 	return tx.Commit()
 }
+
+// guardedInsert is the insert with the lease check in the same statement: the row is written
+// only if rivolt_lease_ok(group, pod, epoch) holds when the statement starts. The parameters
+// are cast because they come through a SELECT, not VALUES directly into the target columns.
+const guardedInsert = `
+	WITH ok AS MATERIALIZED (SELECT rivolt_lease_ok($28::uuid, $29::text, $30::bigint) AS ok)
+	INSERT INTO vehicle_state (` + sampleColumns + `
+	) SELECT $1::uuid,$2::uuid,$3::timestamptz,$4::float8,$5::float8,$6::float8,$7::float8,$8::float8,$9::timestamptz,
+	         $10::float8,$11::text,$12::text,$13::text,$14::float8,$15::float8,$16::float8,$17::float8,
+	         $18::bigint,$19::bigint,$20::text,$21::real,$22::real,$23::float8,$24::float8,$25::float8,$26::text,$27::text
+	  FROM ok WHERE ok.ok
+	ON CONFLICT (vehicle_id, at) DO NOTHING`
 
 // vehicleMonth is a (vehicle, month) a write added rows to.
 type vehicleMonth struct {

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/leases"
 )
 
@@ -384,5 +386,53 @@ func TestLead_CrashTakeoverAndTheThirtySecondLease(t *testing.T) {
 	}
 	if rows := heldRows(ctx, t, pool); len(rows) != 1 || rows[group].pod != "pod-b" {
 		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+// Fence states: Held once the group is ours; a group stolen from a holder that did not release it
+// waits out the warm-up, a released one does not; a group that is not ours is Lost; lead mode off
+// is Off.
+func TestLead_FenceStatesAndTheWarmUp(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedSessionGroups(ctx, t, pool, 1)
+	a, b := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b")
+	veh := "veh-sp-00"
+	run := func(s *leases.Store) {
+		t.Helper()
+		pass(ctx, t, s)
+		vg, err := s.GroupVehicles(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.SetVehicleGroups(vg)
+	}
+	if _, st := b.Fence(veh); st != fence.Lost {
+		t.Errorf("before any pass: %v, want Lost", st)
+	}
+	run(a)
+	tok, st := a.Fence(veh)
+	if st != fence.Held || tok.Pod != "pod-a" || tok.Epoch == 0 {
+		t.Fatalf("a after a free acquire: %v %+v, want Held (a free group has no warm-up)", st, tok)
+	}
+	run(b)
+	if _, st := b.Fence(veh); st != fence.Lost {
+		t.Errorf("b without the group: %v, want Lost", st)
+	}
+	// a crashes; b steals the expired group and must wait.
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() - interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	run(b)
+	if _, st := b.Fence(veh); st != fence.Warming {
+		t.Fatalf("b right after the steal: %v, want Warming", st)
+	}
+	time.Sleep(5200 * time.Millisecond)
+	if tk, st := b.Fence(veh); st != fence.Held || tk.Pod != "pod-b" {
+		t.Fatalf("b after the warm-up: %v %+v, want Held", st, tk)
+	}
+	b.SetGroupLead(false)
+	if _, st := b.Fence(veh); st != fence.Off {
+		t.Errorf("lead off: %v, want Off", st)
 	}
 }

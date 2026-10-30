@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // Leading with the group lease (M2 of the single-owner design). With lead mode on, a pod
@@ -223,7 +225,9 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		if want > maxGroupsPerTick {
 			want = maxGroupsPerTick
 		}
-		got, err := s.queryEpochs(ctx, userGroups+candidateGroups+`
+		got, stolen, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
+			prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held FROM account_leases),
+			ins AS (
 			INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
 			SELECT c.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
 			  FROM cand c LEFT JOIN account_leases a ON a.group_id::text = c.gid
@@ -241,14 +245,22 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 			    pod_id = EXCLUDED.pod_id, epoch = EXCLUDED.epoch, acquired_at = EXCLUDED.acquired_at,
 			    renewed_at = EXCLUDED.renewed_at, expires_at = EXCLUDED.expires_at, released_at = NULL
 			WHERE account_leases.pod_id IS NULL OR account_leases.expires_at < now()
-			RETURNING group_id::text, epoch`,
+			RETURNING group_id, epoch)
+			SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false) FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
 			s.podID, ttl, isNewest, want, fmt.Sprintf("%d seconds", int(releasedGrace.Seconds())))
 		if err != nil {
 			return res, fmt.Errorf("lease acquire: %w", err)
 		}
+		s.groupMu.Lock()
 		for g, e := range got {
 			held[g] = e
+			if stolen[g] {
+				s.stolenAt[g] = time.Now()
+			} else {
+				delete(s.stolenAt, g)
+			}
 		}
+		s.groupMu.Unlock()
 	}
 
 	// Rows this pod still holds that are not in the renewed set: no longer a candidate. They are not
@@ -284,6 +296,11 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 	}
 	s.groups = held
 	s.groupOKAt = sentAt
+	for g := range s.stolenAt {
+		if _, ok := held[g]; !ok {
+			delete(s.stolenAt, g)
+		}
+	}
 	s.groupMu.Unlock()
 	res.Lost = append(res.Lost, res.Retire...)
 	sort.Strings(res.Lost)
@@ -364,3 +381,59 @@ func dedupe(in []string) []string {
 // LocalDeadline is how long after a renew was sent this pod may still act: TTL - 10 s (20 s of a
 // 30 s lease). Group and vehicle leases fence on this one rule.
 func (s *Store) LocalDeadline() time.Duration { return s.localDeadline() }
+
+// warmUp is how long after a steal (a group taken from a holder that did not release it) the new
+// owner waits before its first guarded write: the old owner's last statement can commit up to 3 s
+// after the expiry (2 s statement timeout + 1 s idle-in-transaction), so 5 s clears it.
+const warmUp = 5 * time.Second
+
+// SetVehicleGroups records which group each vehicle belongs to, as of the last lead pass.
+func (s *Store) SetVehicleGroups(vg map[string]string) {
+	s.groupMu.Lock()
+	s.vehicleGroup = vg
+	s.groupMu.Unlock()
+}
+
+// Fence says what this pod may write for a vehicle (fence.Source). Lead mode off: Off. In lead
+// mode a write needs a held group for the vehicle, renewed within the local deadline; a group
+// stolen within the warm-up window waits.
+func (s *Store) Fence(vehicleID string) (fence.Token, fence.State) {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	if !s.lead {
+		return fence.Token{}, fence.Off
+	}
+	g, ok := s.vehicleGroup[vehicleID]
+	if !ok {
+		return fence.Token{}, fence.Lost
+	}
+	e, held := s.groups[g]
+	if !held || s.groupOKAt.IsZero() || time.Since(s.groupOKAt) > s.localDeadline() {
+		return fence.Token{}, fence.Lost
+	}
+	if at, stolen := s.stolenAt[g]; stolen && time.Since(at) < warmUp {
+		return fence.Token{}, fence.Warming
+	}
+	return fence.Token{Group: g, Pod: s.podID, Epoch: e}, fence.Held
+}
+
+// queryEpochsStolen is queryEpochs for the acquire statement, which also returns whether the row was
+// held by a pod (an expired lease stolen) rather than free (released, or new).
+func (s *Store) queryEpochsStolen(ctx context.Context, q string, args ...any) (map[string]int64, map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	out, stolen := map[string]int64{}, map[string]bool{}
+	for rows.Next() {
+		var g string
+		var e int64
+		var was bool
+		if err := rows.Scan(&g, &e, &was); err != nil {
+			return nil, nil, err
+		}
+		out[g], stolen[g] = e, was
+	}
+	return out, stolen, rows.Err()
+}

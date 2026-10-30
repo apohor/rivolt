@@ -16,6 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -652,7 +653,16 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		} else if m.parkedDedupe && !m.parked.shouldWrite(s) {
 			// Parked and unchanged since the last written row: the next change or
 			// the heartbeat carries it (parked_dedupe.go).
-		} else if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
+		} else if sctx, ok := m.fenceCtx(wctx, vehicleID, "samples"); !ok {
+			// Not ours to write (group lost, or in the post-steal warm-up): skip the sample INSERT only.
+			// The frame has already gone through the accumulators above (drive and charge totals, live
+			// state), so a steal costs a charge no energy; only the raw vehicle_state row is not written.
+		} else if err := m.samplesStore.InsertBatch(sctx, []samples.Sample{s}); errors.Is(err, fence.ErrFenced) {
+			if m.onFenced != nil {
+				m.onFenced("samples")
+			}
+			m.logger.Warn("live sample refused: the group lease is gone", "vehicle", vehicleID)
+		} else if err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
 			// failure is exactly what produces "the drive list has

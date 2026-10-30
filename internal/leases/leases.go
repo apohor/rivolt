@@ -52,11 +52,15 @@ type Store struct {
 
 	// groups are the fence tokens of the group leases held as of the last
 	// RenewGroups, by group id. Guarded by groupMu.
-	groupMu   sync.Mutex
-	groups    map[string]int64
-	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
-	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
-	draining  bool
+	groupMu sync.Mutex
+	groups  map[string]int64
+	// vehicleGroup is the vehicle -> group map of the last lead pass; stolenAt is when each group
+	// was last taken from a holder that had not released it (for the warm-up).
+	vehicleGroup map[string]string
+	stolenAt     map[string]time.Time
+	groupOKAt    time.Time // when the last successful RenewGroups was sent (monotonic)
+	lead         bool      // lead mode: the group lease decides ownership (groups_lead.go)
+	draining     bool
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -72,7 +76,7 @@ func NewStore(db *sql.DB, podID string) (*Store, error) {
 	if podID == "" {
 		return nil, errors.New("leases: empty pod_id (set RIVOLT_POD_ID via downward API)")
 	}
-	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}}, nil
+	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}, stolenAt: map[string]time.Time{}}, nil
 }
 
 // PodID returns the identity this Store acquires leases under.

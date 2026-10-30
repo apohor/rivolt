@@ -12,6 +12,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -47,6 +48,8 @@ type MonitorRegistry struct {
 	samples            *samples.Factory
 	settings           *settings.Factory
 	elevation          ElevationLookup
+	fenceSrc           fence.Source
+	onFenced           func(kind string)
 	routeFiller        RouteFiller
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
@@ -107,6 +110,14 @@ func NewMonitorRegistry(
 
 // SetParent records the outer ctx all per-user monitors derive
 // their lifetime from. Must be called once at boot before Start.
+// SetFence wires the group-lease fence into every monitor the registry builds (see
+// StateMonitor.SetFence). Call before monitors start.
+func (r *MonitorRegistry) SetFence(src fence.Source, onFenced func(kind string)) {
+	r.mu.Lock()
+	r.fenceSrc, r.onFenced = src, onFenced
+	r.mu.Unlock()
+}
+
 func (r *MonitorRegistry) SetParent(ctx context.Context) {
 	r.mu.Lock()
 	r.parent = ctx
@@ -303,6 +314,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
 	}
 	mon.SetStagger(r.stagger)
+	mon.SetFence(r.fenceSrc, r.onFenced)
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),
