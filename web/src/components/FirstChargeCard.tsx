@@ -46,7 +46,8 @@ export default function FirstChargeCard({ vehicleID, charges, drives, demo = fal
   const homeRate = demoFirst ? demoFirst.Cost / demoFirst.EnergyAddedKWh : (settings.data?.home_price_per_kwh ?? 0);
   const v = firstChargeView({
     charges: demoCharges,
-    drives,
+    // The demo's example is its first priced charge, so a drive that came before it must not age the card out.
+    drives: demo ? [] : drives,
     homeRate,
     now: demoFirst ? new Date(new Date(demoFirst.StartedAt).getTime() + 86_400_000) : undefined,
   });

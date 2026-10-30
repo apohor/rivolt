@@ -81,12 +81,15 @@ async function request<T>(
   // combined with a needs_reauth target, spins a /login <-> app loop.
   const onLogin = window.location.pathname.startsWith("/login");
   const impersonateID = onLogin ? null : impersonationHeaderID();
-  if (impersonateID) headers[IMPERSONATE_HEADER] = impersonateID;
+  if (impersonateID && !inDemo()) headers[IMPERSONATE_HEADER] = impersonateID;
   const res = await fetch(url, {
     method,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
+    // The sample truck is for everyone: a signed-in visitor's cookie would make the server answer with their own
+    // data under the "Sample truck" banner (a real session wins over the demo user), so the demo sends none.
+    ...(inDemo() ? { credentials: "omit" as const } : {}),
   });
   const text = await res.text();
   let parsed: unknown = undefined;
