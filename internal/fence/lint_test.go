@@ -30,7 +30,6 @@ const enforcementComplete = false
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
 	"samples.Store.InsertBulk":               "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"drives.Store.Upsert":                    "drives PR",
 	"charges.Store.Upsert":                   "charges PR",
 	"charges.Store.AbandonOpenLive":          "charges PR (live charge session)",
 	"charges.Store.RefreshOpenLive":          "charges PR (live charge session)",
