@@ -183,3 +183,27 @@ describe("backend.sleepActivity range", () => {
     expect(String(fetchMock.mock.calls[1][0])).not.toContain("until=");
   });
 });
+
+// The sample truck is for everyone: a signed-in visitor's cookie would make the server answer with their own data
+// (a real session wins over the demo user), so the demo sends no credentials.
+describe("api in the demo", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function callOptions(path: string): RequestInit | undefined {
+    Object.defineProperty(window, "location", { value: { pathname: path, search: "", assign: vi.fn() }, writable: true });
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]" });
+    vi.stubGlobal("fetch", f);
+    void api.get("/api/drives");
+    return f.mock.calls[0]?.[1];
+  }
+
+  it("omits credentials under /demo", () => {
+    expect(callOptions("/demo")?.credentials).toBe("omit");
+    expect(callOptions("/demo/money")?.credentials).toBe("omit");
+  });
+
+  it("keeps the session cookie everywhere else", () => {
+    expect(callOptions("/")?.credentials).toBeUndefined();
+  });
+});
+
