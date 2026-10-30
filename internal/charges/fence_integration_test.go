@@ -18,15 +18,20 @@ import (
 // The live recorder's charge writes carry the group lease: the upsert and the three UPDATEs of the
 // open session are written only while the lease holds, in the same statement.
 func TestChargeWrites_FencedByTheGroupLease(t *testing.T) {
-	factory, uid, _ := setupEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	// One pool: testpg.DSN gives each call its own database, so the lease row and the store must
+	// share this one.
 	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	store := factory.For(uid)
+	uid, err := db.EnsureUser(ctx, pool, "chargefence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
 
 	var epochA int64
 	if err := pool.QueryRowContext(ctx, `
