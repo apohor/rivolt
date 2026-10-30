@@ -76,7 +76,7 @@ struct HomeView: View {
                                 }
                             }
                             if !state.isDemo { threeThings }
-                            if let w = yourWeek.week { YourWeekStrip(week: w, demo: state.isDemo) }
+                            if let w = yourWeek.week { YourWeekStrip(week: w) }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
                             // The web's order after the tiles: where it charges, then the two charts.

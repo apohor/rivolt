@@ -4,7 +4,6 @@ import SwiftUI
 /// Cost says "est." unless every priced charge was stated by Rivian or the owner. Labelled as the sample truck's week in the demo.
 struct YourWeekStrip: View {
     let week: YourWeekLogic.Week
-    var demo = false
 
     private var f: YourWeekLogic.Figures { week.figures }
     private var costText: String? {
@@ -14,7 +13,6 @@ struct YourWeekStrip: View {
         var parts = ["Your week", "\(Int(f.miles.rounded())) miles", "\(Int(f.kWh.rounded())) kilowatt hours added"]
         if let c = costText { parts.append(c) }
         if let ch = YourWeekLogic.changeLine(week.milesChangePct) { parts.append(ch) }
-        if demo { parts.append(YourWeekLogic.sampleLabel) }
         return parts.joined(separator: ", ")
     }
 
@@ -34,7 +32,6 @@ struct YourWeekStrip: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Text(YourWeekLogic.title).themeText(.label)
-                if demo { Text("· \(YourWeekLogic.sampleLabel)").themeText(.label, color: Theme.textTertiary) }
             }
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .lastTextBaseline, spacing: 16) { figures }

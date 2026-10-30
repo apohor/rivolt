@@ -71,6 +71,5 @@ final class YourWeekTests: XCTestCase {
         XCTAssertEqual(YourWeekLogic.changeLine(-30), "▼ 30% miles vs last week so far")
         XCTAssertEqual(YourWeekLogic.changeLine(0), "About the same miles as last week so far")
         XCTAssertNil(YourWeekLogic.changeLine(nil))
-        XCTAssertEqual(YourWeekLogic.sampleLabel, "Sample truck, generated data")
     }
 }

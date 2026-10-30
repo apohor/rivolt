@@ -81,5 +81,4 @@ enum YourWeekLogic {
     }
 
     static let title = "Your week"
-    static let sampleLabel = "Sample truck, generated data"
 }
