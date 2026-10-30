@@ -34,8 +34,10 @@ describe("the day-7 line on the first-charge card", () => {
     expect(screen.getByRole("link", { name: "Open Money" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Set off-peak hours" })).not.toBeInTheDocument();
   });
-  it("has no figures, and says estimate where it mentions savings", () => {
+  it("has no figures, calls the savings an estimate in both, and never claims a price is at the owner's rate (DA)", () => {
     expect(WEEK_LINE_WITH_SCHEDULE + WEEK_LINE_WITHOUT_SCHEDULE).not.toMatch(/\$|\d/);
-    expect(WEEK_LINE_WITHOUT_SCHEDULE).toMatch(/could have saved \(estimate\)/);
+    expect(WEEK_LINE_WITH_SCHEDULE).toMatch(/an estimate of what moving charges/);
+    expect(WEEK_LINE_WITHOUT_SCHEDULE).toMatch(/an estimate of what moving charges/);
+    expect(WEEK_LINE_WITH_SCHEDULE + WEEK_LINE_WITHOUT_SCHEDULE).not.toMatch(/priced at/i);
   });
 });

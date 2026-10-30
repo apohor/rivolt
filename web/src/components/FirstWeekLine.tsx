@@ -7,9 +7,9 @@ import { appPath } from "../lib/demo";
 // off-peak hours set, to the off-peak setting. It lives on the card, so it shows once (the card goes after the week or when hidden) and
 // never returns. No figures in the line itself; the savings card carries them, labelled as an estimate.
 export const WEEK_LINE_WITH_SCHEDULE =
-  "A week of charges is in. Money has the month so far, priced at your rates, and what moving charges into your off-peak hours could have saved.";
+  "A week of charges is in. Money has the month so far, with each charge's cost and where it came from, and an estimate of what moving charges into your off-peak hours could have saved.";
 export const WEEK_LINE_WITHOUT_SCHEDULE =
-  "A week of charges is in. Money has the month so far, priced at your rate. Set your off-peak hours and it also shows what moving charges into them could have saved (estimate).";
+  "A week of charges is in. Money has the month so far, with each charge's cost and where it came from. Set your off-peak hours and it also shows an estimate of what moving charges into them could have saved.";
 
 export function FirstWeekLine() {
   const offpeak = useQuery({ queryKey: ["offpeak"], queryFn: () => backend.getOffpeak(), staleTime: 60_000, retry: 0 });
