@@ -117,6 +117,7 @@ func OpenRequestPool(ctx context.Context, dsn string, maxConns int32, userFrom f
 		maxConns = DefaultRequestMaxConns
 	}
 	cfg.MaxConns = maxConns
+	cfg.MaxConnIdleTime = PoolIdleTimeout // pgxpool's default is 30 min
 	cfg.PrepareConn = requestConnHook(userFrom, o.noUser)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

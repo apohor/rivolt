@@ -34,6 +34,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver registration
@@ -86,6 +87,11 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 // connections across 2 pods, about 26 each). With the request pool on, requests run on their own
 // pool (10) and the system pool serves only sweeps, the monitor's writes and migrations, so 10 is
 // enough: (replicas + a surge pod) x (10 + 10) stays inside max_connections.
+// PoolIdleTimeout closes a pooled connection that has sat idle this long, in both pools, so a quiet
+// pod gives its connections back and only connections in use count against max_connections
+// (DB connection budget, DA Oct 30). The pools reopen on demand.
+const PoolIdleTimeout = 2 * time.Minute
+
 const (
 	DefaultSystemMaxConnsRequestPoolOff = 20
 	DefaultSystemMaxConnsRequestPoolOn  = 10
@@ -119,6 +125,7 @@ func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	n, _ := SystemPoolSize(os.Getenv)
 	d.SetMaxOpenConns(n)
 	d.SetMaxIdleConns(min(5, n))
+	d.SetConnMaxIdleTime(PoolIdleTimeout)
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
