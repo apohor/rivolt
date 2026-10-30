@@ -84,6 +84,13 @@ enum SocDaily {
 /// line over it for where the day ended, only the month's highest and lowest points named, one faint line for the charge
 /// limit named once, a tiny tick on the axis for each day it charged and a barely visible tint under 20%. A road trip reads
 /// as a deep, wide dip in the band. No legend: one short caption says what the marks are.
+extension SocDaily {
+    /// The days whose mark (the middle of the day) falls inside `since..<until`.
+    static func within(_ days: [Day], since: Date, until: Date) -> [Day] {
+        days.filter { $0.day.addingTimeInterval(43_200) >= since && $0.day < until }
+    }
+}
+
 struct SocDailyChart: View {
     let days: [SocDaily.Day]
     /// The limit to draw (nil for none), only from its last change to now (or to the end of an earlier month): a line
@@ -97,10 +104,12 @@ struct SocDailyChart: View {
     @State private var selectedDate: Date?
     @State private var steppedTo: SocDaily.Day?
 
-    private var inspected: SocDaily.Day? { SocDaily.inspectedDay(selectedDate, among: days) ?? steppedTo }
+    /// Only the days inside the period: a mark outside the x domain is not clipped by Swift Charts, it is drawn off the card.
+    private var shown: [SocDaily.Day] { SocDaily.within(days, since: range.since, until: range.until) }
+    private var inspected: SocDaily.Day? { SocDaily.inspectedDay(selectedDate, among: shown) ?? steppedTo }
 
     private var range: (since: Date, until: Date) { month.range(calendar: calendar) }
-    private var extremes: (high: SocDaily.Day, low: SocDaily.Day)? { SocDaily.extremes(days) }
+    private var extremes: (high: SocDaily.Day, low: SocDaily.Day)? { SocDaily.extremes(shown) }
 
     /// The middle of a day, where its marks sit.
     private func center(_ day: Date) -> Date { day.addingTimeInterval(43_200) }
@@ -135,6 +144,7 @@ struct SocDailyChart: View {
         .chartXSelection(value: $selectedDate)
         .chartXScale(domain: r.since...r.until)
         .chartYScale(domain: 0...104)
+        .chartPlotStyle { $0.clipped() }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .chartYAxis {
             AxisMarks(position: .leading, values: [0, 50, 100]) { value in
@@ -156,10 +166,10 @@ struct SocDailyChart: View {
         .frame(height: chartHeight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Battery level by day, \(month.spokenTitle(calendar: calendar))")
-        .accessibilityValue(inspected.map { SocDaily.readout($0, calendar: calendar) } ?? SocDaily.spoken(days, calendar: calendar))
+        .accessibilityValue(inspected.map { SocDaily.readout($0, calendar: calendar) } ?? SocDaily.spoken(shown, calendar: calendar))
         // VoiceOver reads a day at a time: swipe up for the next day, down for the previous.
         .accessibilityAdjustableAction { direction in
-            steppedTo = SocDaily.steppedDay(from: inspected, step: direction == .increment ? 1 : -1, among: days)
+            steppedTo = SocDaily.steppedDay(from: inspected, step: direction == .increment ? 1 : -1, among: shown)
         }
     }
 
@@ -192,7 +202,7 @@ struct SocDailyChart: View {
     /// The band: low to high for each day, smoothed so it never overshoots the real lows and highs.
     @ChartContentBuilder
     private var bandMarks: some ChartContent {
-        ForEach(days) { d in
+        ForEach(shown) { d in
             AreaMark(x: .value("Day", center(d.day)), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 0.6)), series: .value("Series", "Band"))
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Theme.chartSocCharge.opacity(0.22))
@@ -202,7 +212,7 @@ struct SocDailyChart: View {
     /// Where each day ended, as one smooth line.
     @ChartContentBuilder
     private var lineMarks: some ChartContent {
-        ForEach(days) { d in
+        ForEach(shown) { d in
             LineMark(x: .value("Day", center(d.day)), y: .value("End", d.end), series: .value("Series", "End"))
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Theme.chartSocCharge)
@@ -213,7 +223,7 @@ struct SocDailyChart: View {
     /// A tiny tick on the axis for each day the truck charged.
     @ChartContentBuilder
     private var tickMarks: some ChartContent {
-        ForEach(days.filter(\.charged)) { d in
+        ForEach(shown.filter(\.charged)) { d in
             RuleMark(x: .value("Day", center(d.day)), yStart: .value("Floor", 0), yEnd: .value("Tick", 3.2))
                 .lineStyle(StrokeStyle(lineWidth: 1.6, lineCap: .round))
                 .foregroundStyle(Theme.chartSocCharge)
