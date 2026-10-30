@@ -45,7 +45,7 @@ var notOwnerSide = map[string]string{
 	"push.Store.RegisterActivity":          "user action (api/push_apns.go: the app starts a Live Activity)",
 	"push.Store.EndActivity":               "user action (api/push_apns.go)",
 	"push.Store.SetAPNsLive":               "user action (api/push_apns.go: the Live Activity switch)",
-	"push.Store.claimActivityUpdate":       "interval claim of the RunLive loop, which sends only for vehicles whose live state this pod holds; known gap until M4 (non-owners still hold state): the min-interval claim dedupes, and the end of an activity goes through the gated close hook",
+	"push.Store.claimActivityUpdate":       "interval claim of the RunLive loop; the send is decided by the fenced live source (cmd/rivolt mayPushFor: no figures unless the pod holds the vehicle's group), and the activity's end goes through the gated close hook",
 	"samples.Store.Reset":                  "user action (reset data)",
 	"samples.Thinner.thin":                 "singleton maintenance job",
 	"samples.Thinner.dropExpiredFull":      "singleton maintenance job",
