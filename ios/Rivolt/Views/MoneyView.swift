@@ -173,6 +173,7 @@ struct MoneyContent: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.isDemo) private var isDemo
+    @AppStorage(ShareNudgeLogic.dismissedKey) private var shareNudgeGone = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -247,6 +248,24 @@ struct MoneyContent: View {
 
     // MARK: Statement
 
+    /// The one-time card under the statement's buttons; its button opens the same masked share sheet as the header's.
+    private var shareNudge: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ShareNudgeLogic.title).themeText(.value, color: Theme.textPrimary).accessibilityAddTraits(.isHeader)
+            Text(ShareNudgeLogic.body).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button(ShareNudgeLogic.shareButton) { shareNudgeGone = true; export?.share() }.buttonStyle(ThemeButtonStyle())
+                Button(ShareNudgeLogic.laterButton) { shareNudgeGone = true }.buttonStyle(ThemeSecondaryButtonStyle())
+            }
+        }
+        .padding(3 * Theme.unit)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+    }
+
     private func hero(_ st: MoneyStatement) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if st.isCurrentMonth || st.partialFrom != nil {
@@ -264,6 +283,7 @@ struct MoneyContent: View {
                 }
             }
             exportButtons(st)
+            if ShareNudgeLogic.shows(empty: st.empty, canShare: export != nil, demo: isDemo, dismissed: shareNudgeGone) { shareNudge }
             Text(st.subline).themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             if let n = st.energyNote { Text(n).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true) }
 
@@ -320,7 +340,7 @@ struct MoneyContent: View {
         let row = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return VStack(alignment: .leading, spacing: 4) {
             row {
-                Button("Share statement") { export?.share() }
+                Button("Share statement") { shareNudgeGone = true; export?.share() }
                     .accessibilityHint("An image of your month. No places or addresses; cost only if you add it.")
                 // The CSV is a read of the signed-in account's own file; the demo has none.
                 if !isDemo {
