@@ -234,3 +234,65 @@ func TestNextTickJitterStaysInTheBand(t *testing.T) {
 		t.Errorf("ticks vary only %v: no jitter", hi-lo)
 	}
 }
+
+// ttlStore is a fakeStore with the group lease's local deadline (30 s TTL: 20 s).
+type ttlStore struct{ *fakeStore }
+
+func (ttlStore) LocalDeadline() time.Duration { return 20 * time.Second }
+
+func newDeadlineCoord(t *testing.T, fs *fakeStore) (*Coordinator, *time.Time, *int) {
+	t.Helper()
+	now := time.Unix(1_000_000, 0)
+	released := 0
+	c := newCoordinator(ttlStore{fs}, func(context.Context) ([]string, error) { return []string{"v1"}, nil },
+		func(string) {}, func(string) { released++ }, nil, 5*time.Second)
+	c.jitter = time.Second // lead mode
+	c.now = func() time.Time { return now }
+	return c, &now, &released
+}
+
+// The vehicle lease fence uses the group rule: 20 s after the last good renew was SENT.
+func TestVehicleFenceTripsAtTheLocalDeadlineAndNeverLater(t *testing.T) {
+	fs := newFakeStore()
+	c, now, released := newDeadlineCoord(t, fs)
+	c.reconcile(context.Background()) // t0: renew sent and fine, v1 acquired
+	if len(c.owned) != 1 {
+		t.Fatalf("owned %v", c.owned)
+	}
+	fs.renewErr = errors.New("db down")
+	var trippedAt time.Duration
+	for i := 1; i <= 8; i++ {
+		*now = now.Add(5 * time.Second)
+		c.reconcile(context.Background())
+		if len(c.owned) == 0 && trippedAt == 0 {
+			trippedAt = time.Duration(i) * 5 * time.Second
+		}
+	}
+	if trippedAt < 20*time.Second || trippedAt > 25*time.Second {
+		t.Fatalf("fenced after %v, want 20 s to 25 s", trippedAt)
+	}
+	if *released != 1 {
+		t.Errorf("released %d subscriptions, want 1", *released)
+	}
+}
+
+// A slow renew does not push the deadline later: it counts from the send, not the return.
+func TestVehicleFenceCountsFromTheSendNotTheReturn(t *testing.T) {
+	fs := newFakeStore()
+	c, now, _ := newDeadlineCoord(t, fs)
+	fs.renewHook = func() { *now = now.Add(2500 * time.Millisecond) } // the renew takes 2.5 s
+	c.reconcile(context.Background())                                 // sent at t0, returns at t0+2.5
+	fs.renewHook = nil
+	fs.renewErr = errors.New("db down")
+	sent := now.Add(-2500 * time.Millisecond)
+	*now = sent.Add(19900 * time.Millisecond)
+	c.reconcile(context.Background())
+	if len(c.owned) != 1 {
+		t.Fatal("fenced before 20 s after the send")
+	}
+	*now = sent.Add(20 * time.Second)
+	c.reconcile(context.Background())
+	if len(c.owned) != 0 {
+		t.Fatal("not fenced 20 s after the send (it was counted from the return)")
+	}
+}

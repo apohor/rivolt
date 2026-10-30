@@ -43,6 +43,8 @@ const (
 	groupTick         = 5 * time.Second
 	groupTickJitter   = time.Second
 	groupRenewTimeout = 3 * time.Second
+	// groupPassBudget bounds a whole lead tick (renew, acquire, stops), under the 5 s tick.
+	groupPassBudget = 3500 * time.Millisecond
 )
 
 // SetGroupLead turns lead mode on or off. On, the lease TTL is 30 s and the coordinator ticks
@@ -358,3 +360,7 @@ func dedupe(in []string) []string {
 	}
 	return out
 }
+
+// LocalDeadline is how long after a renew was sent this pod may still act: TTL - 10 s (20 s of a
+// 30 s lease). Group and vehicle leases fence on this one rule.
+func (s *Store) LocalDeadline() time.Duration { return s.localDeadline() }

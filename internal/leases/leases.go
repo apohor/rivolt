@@ -577,8 +577,14 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			started := time.Now()
 			c.reconcile(ctx)
-			t.Reset(c.nextTick())
+			// The next tick is counted from this one's start, so a slow pass does not stretch the gap.
+			next := c.nextTick() - time.Since(started)
+			if next < 0 {
+				next = 0
+			}
+			t.Reset(next)
 		case <-c.trigger:
 			c.reconcile(ctx)
 		}
@@ -598,10 +604,19 @@ func (c *Coordinator) leaseTTL() time.Duration { return c.reconcileInterval * 4 
 
 // pastFence reports whether the last good renew is so old that the leases may
 // have expired (and been taken by a peer): a TTL since it, less one tick.
+//
+// In lead mode the deadline is the group one (Store.LocalDeadline: TTL - 10 s = 20 s), counted from
+// when the last good vehicle renew was SENT, so vehicle leases and group leases stop on the same
+// rule, always before the DB expiry. Ticks start every 5 s +- 1 s and a pass is bounded at 3.5 s,
+// so the fence trips between 20 s and 26 s after the send, never later.
 func (c *Coordinator) pastFence() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.now().Sub(c.lastRenew) >= c.leaseTTL()-c.reconcileInterval
+	after := c.leaseTTL() - c.reconcileInterval
+	if ld, ok := c.store.(interface{ LocalDeadline() time.Duration }); ok && c.jitter > 0 {
+		after = ld.LocalDeadline()
+	}
+	return c.now().Sub(c.lastRenew) >= after
 }
 
 // fenceAll gives up every lease the coordinator thinks it holds: it can no longer
@@ -632,8 +647,8 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		return
 	}
 	budget := c.reconcileInterval / 2
-	if c.jitter > 0 && budget < groupRenewTimeout {
-		budget = groupRenewTimeout // lead mode ticks every 5 s; the renew statement timeout is 3 s
+	if c.jitter > 0 {
+		budget = groupPassBudget // the whole pass, so a slow one never overruns the 5 s tick
 	}
 	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -641,6 +656,14 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	// Renew first. Any vehicle missing from the renew result is one
 	// we lost (someone stole it because we let the TTL lapse, or it
 	// was deleted). Fire the release callback for those.
+	renewSentAt := c.now() // the deadline counts from when the renew was sent, not from when it returned
+	if c.jitter > 0 && c.pastFence() {
+		// Lead mode: do not wait for a renew that may hang to find out the leases ran out.
+		// The subscriptions stopped here are restarted by the normal acquire path (the vehicle loop
+		// below, then healUnstreamed) once the renews work again: a row still valid keeps its epoch.
+		c.log.Warn("lease renewals stopped working for the local deadline: stopping every subscription")
+		c.fenceAll()
+	}
 	stillOwned, err := c.store.Renew(rctx)
 	if err != nil {
 		// A renew that failed says nothing about who owns what: the database blipped
@@ -656,7 +679,7 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		return
 	}
 	c.mu.Lock()
-	c.lastRenew = c.now()
+	c.lastRenew = renewSentAt
 	c.mu.Unlock()
 
 	stillOwnedSet := make(map[string]struct{}, len(stillOwned))
