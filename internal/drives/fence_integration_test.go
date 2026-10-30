@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -17,15 +18,20 @@ import (
 // statement. A stale owner's close is refused and the new owner's continuation is kept; a guarded
 // write stores exactly what the plain one does.
 func TestUpsert_FencedByTheGroupLease(t *testing.T) {
-	factory, uid, _ := setupEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	// One pool: testpg.DSN gives each call its own database, so the lease row and the store must
+	// share this one.
 	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	store := factory.For(uid)
+	uid, err := db.EnsureUser(ctx, pool, "drivefence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := drives.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
 
 	var epochA int64
 	if err := pool.QueryRowContext(ctx, `
