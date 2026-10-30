@@ -159,7 +159,8 @@ func IsNotAvailable(err error) bool {
 // upstream error only its classification (operation, HTTP status, class, the
 // GraphQL code, our reason phrase), never the cause, which can carry a slice
 // of a response body or Rivian's message text. Context and session errors
-// keep their text; anything else is "error".
+// keep their text, as do our own gates (rate limit, breaker, operator pause); anything else is
+// "error" with the Go type of the root cause.
 func Describe(err error) string {
 	var ue *UpstreamError
 	if errors.As(err, &ue) {
@@ -169,7 +170,27 @@ func Describe(err error) string {
 		errors.Is(err, ErrNeedsReauth) || errors.Is(err, ErrNotAuthenticated) {
 		return err.Error()
 	}
-	return "error"
+	var rl *ErrRateLimited
+	if errors.As(err, &rl) {
+		return "rate limited, retry after " + rl.RetryAfter.String()
+	}
+	if errors.Is(err, ErrUpstreamBreakerOpen) {
+		return ErrUpstreamBreakerOpen.Error()
+	}
+	if errors.Is(err, ErrUpstreamPaused) {
+		return ErrUpstreamPaused.Error()
+	}
+	// Anything else: only the Go type of the root cause (a *net.OpError, a *json.SyntaxError), never its
+	// text, which can carry part of a response.
+	root := err
+	for {
+		next := errors.Unwrap(root)
+		if next == nil {
+			break
+		}
+		root = next
+	}
+	return fmt.Sprintf("error (%T)", root)
 }
 
 // IsUpstream reports whether err is an *UpstreamError with the

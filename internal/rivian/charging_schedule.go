@@ -2,8 +2,10 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -148,12 +150,34 @@ type scheduleRead struct {
 	lat, lon float64
 }
 
+// scheduleConnectJitter spreads the connect-time reads of a pod that has just taken several vehicles
+// over; scheduleRetryCap and scheduleRetryJitter bound the one retry after a rate-limit refusal.
+// Vars so tests can shrink them.
+var (
+	scheduleConnectJitter = 2 * time.Second
+	scheduleRetryCap      = 5 * time.Second
+	scheduleRetryJitter   = 500 * time.Millisecond
+)
+
+// jitterUpTo is a random duration in [0, max).
+func jitterUpTo(max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int63n(int64(max)))
+}
+
 // chargingScheduleLoop keeps the cached state's ChargingSchedules current
 // for one vehicle: a read on connect, then daily, and on a nudge (the
 // truck seen plugged in and idle; see noteScheduleNudge). Errors keep the
 // last good list.
 func (m *StateMonitor) chargingScheduleLoop(ctx context.Context, vehicleID string) {
 	nudge := m.scheduleNudgeChan(vehicleID)
+	// A lease handover starts every vehicle of the pod at once: spread the first reads over a couple of
+	// seconds instead of sending them as one burst into the shared Rivian budget.
+	if !sleepCtx(ctx, jitterUpTo(scheduleConnectJitter)) {
+		return
+	}
 	m.readChargingSchedules(ctx, vehicleID, scheduleConnectMinAge)
 	t := time.NewTicker(scheduleDaily)
 	defer t.Stop()
@@ -227,6 +251,14 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		return
 	}
 	list, err := fetch(ctx, vehicleID)
+	var rl *ErrRateLimited
+	if errors.As(err, &rl) && ctx.Err() == nil {
+		// The shared budget was empty at that moment (a handover burst): wait the time it says, once.
+		wait := min(rl.RetryAfter, scheduleRetryCap) + jitterUpTo(scheduleRetryJitter)
+		if sleepCtx(ctx, wait) {
+			list, err = fetch(ctx, vehicleID)
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return
