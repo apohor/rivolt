@@ -180,6 +180,9 @@ type PlannedWaypoint struct {
 // startingRangeMeters. driveMode/trailerProfile/avoidAdapterRequired/
 // supportedConnectorTypes don't exist on this schema at all.
 func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan, error) {
+	// A trip plan is a user waiting on the answer: it draws from the priority lane, which the post-acquire
+	// background burst (seeds, schedule reads) does not drain, so a user's plan is not refused during a roll.
+	ctx = WithPriority(ctx)
 	if err := c.checkUpstream(ctx); err != nil {
 		return nil, err
 	}

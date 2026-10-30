@@ -41,14 +41,15 @@ import (
 // (RIVIAN_CLIENT=replay, source-fed monitors). Mock and stub paths
 // don't have a recorder.
 type MonitorRegistry struct {
-	pool      *sql.DB
-	accounts  AccountRegistry
-	drives    *drives.Factory
-	charges   *charges.Factory
-	samples   *samples.Factory
-	settings  *settings.Factory
-	elevation ElevationLookup
-	fenceSrc  fence.Source
+	pool           *sql.DB
+	accounts       AccountRegistry
+	drives         *drives.Factory
+	charges        *charges.Factory
+	samples        *samples.Factory
+	settings       *settings.Factory
+	elevation      ElevationLookup
+	fenceSrc       fence.Source
+	onScheduleRead func(outcome string)
 	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
 	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
 	// the monitor does not wait for the next lease tick to stream. Guarded by mu.
@@ -319,6 +320,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	}
 	mon.SetStagger(r.stagger)
 	mon.SetFence(r.fenceSrc, r.onFenced)
+	mon.SetScheduleObserver(r.onScheduleRead)
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),
@@ -542,6 +544,13 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 			"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
 	}
 	mon.EnsureSubscribed(rivianVehicleID)
+}
+
+// SetScheduleObserver wires the schedule-read outcome counter into every monitor the registry builds.
+func (r *MonitorRegistry) SetScheduleObserver(fn func(outcome string)) {
+	r.mu.Lock()
+	r.onScheduleRead = fn
+	r.mu.Unlock()
 }
 
 // want remembers a subscription that could not start yet (no monitor for its owner).

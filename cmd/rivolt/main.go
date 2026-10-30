@@ -1803,6 +1803,7 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
+		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
 		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
 			state := "idle"
 			if active {

@@ -300,6 +300,8 @@ type StateMonitor struct {
 	// week after Rivian said the account can't read them. Guarded by mu.
 	scheduleUnavailableUntil map[string]time.Time
 	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
+	// onScheduleRead counts schedule-read outcomes (SetScheduleObserver).
+	onScheduleRead func(outcome string)
 	// vehicleInfoHook receives the vehicles RefreshVehicleInfo fetched (trim,
 	// image, pack guess) so they can be persisted, with the context the write
 	// uses (the group's fence token when this pod holds it). Set before
