@@ -73,7 +73,7 @@ func GrantReadonly(ctx context.Context, d *sql.DB, role string) (bool, error) {
 	}
 	// One replica at a time (grant_lock.go): the grants and the query-stats function's
 	// CREATE OR REPLACE run on the connection holding the lock.
-	if err := withGrantLock(ctx, d, func(q grantExec) error {
+	if err := withGrantLock(ctx, d, "readonly", func(q grantExec) error {
 		for _, s := range stmts {
 			if _, err := q.ExecContext(ctx, s); err != nil {
 				return fmt.Errorf("readonly grant %q: %w", s, err)

@@ -109,7 +109,7 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 		}
 	}
 	// One replica at a time (grant_lock.go); the statements run on the connection holding the lock.
-	if err := withGrantLock(ctx, d, func(q grantExec) error {
+	if err := withGrantLock(ctx, d, "app", func(q grantExec) error {
 		for _, s := range stmts {
 			if _, err := q.ExecContext(ctx, s); err != nil {
 				return fmt.Errorf("app grant %q: %w", s, err)
