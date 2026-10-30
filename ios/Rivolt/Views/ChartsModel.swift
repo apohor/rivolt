@@ -53,8 +53,11 @@ final class ChartsModel {
         async let p = try? source.chartPoints(since: since, until: until, vehicleID: vehicleID)
         async let s = try? source.sleepActivity(since: since, until: until, vehicleID: vehicleID)
         let (pp, ss) = await (p, s)
-        points = pp
-        sleep = ss
+        // A load that was superseded (another period or truck on screen now) must not paint its answer over the current one.
+        if shownKey == key {
+            points = pp
+            sleep = ss
+        }
         // Only a complete answer is worth keeping; a failed half is retried on the next load.
         if pp != nil && ss != nil { cache[key] = Entry(points: pp, sleep: ss, fetchedAt: now) }
     }

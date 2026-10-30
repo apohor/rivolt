@@ -84,4 +84,17 @@ final class SocDailyTests: XCTestCase {
         let days = SocDaily.days(drives: [drive("2026-10-09T07:00:00Z", "2026-10-09T08:00:00Z", 80, 0)], charges: [], calendar: utc)
         XCTAssertEqual(days[0].low, 80, "0 is the recorder's 'unknown'")
     }
+
+    func testADomainEndingTodayDropsTheDaysAfterItSoNothingIsDrawnPastThePlot() {
+        // A week that ends on Oct 26 while the data runs to Oct 30: the extra days must not become marks.
+        let drives = (19...30).map { d in
+            drive("2026-10-\(d)T07:00:00Z", "2026-10-\(d)T08:00:00Z", 80, 60)
+        }
+        let days = SocDaily.days(drives: drives, charges: [], calendar: utc)
+        let since = at("2026-10-19T00:00:00Z"), until = at("2026-10-26T00:00:00Z")
+        let shown = SocDaily.within(days, since: since, until: until)
+        XCTAssertEqual(shown.count, 7)
+        XCTAssertTrue(shown.allSatisfy { $0.day >= since && $0.day < until })
+        XCTAssertEqual(SocDaily.within(days, since: since, until: at("2026-10-31T00:00:00Z")).count, 12)
+    }
 }

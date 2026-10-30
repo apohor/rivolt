@@ -113,8 +113,12 @@ private actor Calls {
 private struct FakeSource: ChartsSource {
     let calls = Calls()
     var failPoints = false
+    /// Trucks whose points arrive late, to play a superseded load.
+    var slow: Set<String> = []
     func chartPoints(since: Date, until: Date, vehicleID: String) async throws -> ChartPoints {
         await calls.bumpPoints()
+        if slow.contains(vehicleID) { try? await Task.sleep(nanoseconds: 300_000_000) }
+        if vehicleID == "slow" { return ChartPoints(drives: [DrivePoint(startedAt: since, endedAt: since, distanceMi: 1, startSocPct: 1, endSocPct: 1)], charges: []) }
         if failPoints { throw APIError.transport("down") }
         return ChartPoints(drives: [], charges: [])
     }
@@ -144,6 +148,17 @@ final class ChartsModelTests: XCTestCase {
         await model.load(source: src, vehicleID: "a", month: m1, now: t0.addingTimeInterval(16 * 60))
         n = await src.calls.points
         XCTAssertEqual(n, 4)
+    }
+
+    func testALateAnswerForAnotherTruckNeverReplacesTheOneOnScreen() async {
+        var src = FakeSource()
+        src.slow = ["slow"]
+        let model = ChartsModel()
+        let late = Task { await model.load(source: src, vehicleID: "slow", month: m1) }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await model.load(source: src, vehicleID: "fast", month: m1)
+        await late.value
+        XCTAssertEqual(model.points?.drives.count, 0, "the slow truck's drive must not be painted over the current chart")
     }
 
     func testAPullReadsAgain() async {
