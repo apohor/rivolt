@@ -144,3 +144,30 @@ func TestLeadCoordinator_FailedLeadPassAcquiresAndReleasesNothing(t *testing.T) 
 		t.Error("a failed pass dropped v1")
 	}
 }
+
+type drainStore struct {
+	*leaderStore
+}
+
+func (d *drainStore) MarkDraining(context.Context) error { d.note("markDraining"); return nil }
+
+func TestShutdownMarksDrainingFirst(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1"}, res: GroupLead{Held: map[string]int64{"g1": 1}}}
+	ds := &drainStore{ls}
+	c := newCoordinator(ds, func(context.Context) ([]string, error) { return []string{"v1"}, nil },
+		func(string) {}, func(v string) { ls.note("stop:" + v) }, nil, time.Hour)
+	c.reconcile(context.Background())
+	ls.lmu.Lock()
+	ls.log = nil
+	ls.lmu.Unlock()
+	c.Shutdown(context.Background())
+	got := ls.calls()
+	if len(got) < 2 || got[0] != "markDraining" || got[1] != "stop:v1" {
+		t.Fatalf("calls = %v, want markDraining then stop:v1", got)
+	}
+	// And a pass after the drain began does nothing.
+	c.reconcile(context.Background())
+	if n := len(ls.calls()); n != len(got) {
+		t.Errorf("reconcile after Shutdown made calls: %v", ls.calls()[len(got):])
+	}
+}

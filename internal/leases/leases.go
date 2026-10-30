@@ -963,6 +963,7 @@ func (c *Coordinator) fireCount() {
 // caller-supplied (timeout-bound) context — if Postgres is
 // unreachable the leases will still age out via the TTL.
 func (c *Coordinator) Shutdown(ctx context.Context) {
+	c.MarkDraining(ctx) // in case the preStop hook did not run
 	c.mu.Lock()
 	c.closing = true
 	owned := make([]string, 0, len(c.owned))
@@ -988,6 +989,20 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 		c.log.Info("lease release-all", "count", n)
 	}
 	c.fireCount()
+}
+
+// MarkDraining stops this pod taking leases and tells its peers (lease_pods.draining), so they
+// leave it out of the fair share and the newest generation. It keeps renewing what it holds
+// until Shutdown releases it. Safe to call more than once. A failure is logged: the pod still
+// drains locally and the registration is repeated on the next pass.
+func (c *Coordinator) MarkDraining(ctx context.Context) {
+	if d, ok := c.store.(interface {
+		MarkDraining(ctx context.Context) error
+	}); ok {
+		if err := d.MarkDraining(ctx); err != nil {
+			c.log.Warn("mark draining failed", "err", err.Error())
+		}
+	}
 }
 
 func (c *Coordinator) isClosing() bool {
