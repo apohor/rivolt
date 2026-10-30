@@ -17,7 +17,7 @@ import (
 func TestRedisLiveStateEpochCAS(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 	s := NewRedisLiveStateStore(rdb, "user-1", "rivolt")
 	ctx := context.Background()
 	at := func(e int64) context.Context { return fence.With(ctx, fence.Token{Group: "g", Pod: "p", Epoch: e}) }
