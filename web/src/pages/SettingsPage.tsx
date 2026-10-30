@@ -4,6 +4,7 @@ import { useAIConsent } from "../lib/aiConsent";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
 import { R2CheckedSettings } from "../components/R2Checked";
 import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
+import { settingsAnchor } from "../lib/settingsAnchor";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { inDemo } from "../lib/demo";
 import DemoSettings from "./DemoSettings";
@@ -127,8 +128,9 @@ function SettingsPageInner() {
     const sp = new URLSearchParams(location.search);
     const t = sp.get("tab") as TabId | null;
     if (t && TABS.some((x) => x.id === t)) return t;
-    if (location.hash) {
-      const owner = HASH_TO_TAB[location.hash.slice(1)];
+    const anchor = settingsAnchor(location.search, location.hash);
+    if (anchor) {
+      const owner = HASH_TO_TAB[anchor];
       if (owner) return owner;
     }
     return "account";
@@ -139,8 +141,8 @@ function SettingsPageInner() {
   // the target card only exists in the DOM once its owning tab is
   // selected, so flip the tab first then scroll on the next frame.
   useEffect(() => {
-    if (!location.hash) return;
-    const id = location.hash.slice(1);
+    const id = settingsAnchor(location.search, location.hash);
+    if (!id) return;
     const owner = HASH_TO_TAB[id];
     if (owner && owner !== tab) {
       setTab(owner);
@@ -173,7 +175,7 @@ function SettingsPageInner() {
       clearTimeout(timer);
       stop();
     };
-  }, [location.hash, tab]);
+  }, [location.hash, location.search, tab]);
 
   // Reflect tab into ?tab= so reloads / back nav land on the same
   // pane. replace, not push, so each click doesn't fill history.

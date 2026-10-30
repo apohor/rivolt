@@ -8,9 +8,9 @@ struct DeleteAccountSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    /// The web page that deletes the account: Settings, Data, the Danger zone.
+    /// The web page that deletes the account: Settings, Data, the Danger zone. A query (not a #fragment) so it survives the sign-in redirect.
     static func pageURL(server: URL) -> URL? {
-        URL(string: "/settings?tab=data#danger", relativeTo: server)?.absoluteURL
+        URL(string: "/settings?tab=data&section=delete", relativeTo: server)?.absoluteURL
     }
 
     var body: some View {
