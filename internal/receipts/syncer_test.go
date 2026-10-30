@@ -71,12 +71,15 @@ type fakeAcct struct {
 	sumCalls    int
 	detailCalls []string
 	detailErr   error
+	// background is whether the last fetch's context carried the background budget class.
+	background bool
 	// onFetch runs after each Rivian call returns (a user opting out mid-pass).
 	onFetch func()
 }
 
-func (a *fakeAcct) CompletedSessionSummaries(context.Context) ([]rivian.SessionSummary, error) {
+func (a *fakeAcct) CompletedSessionSummaries(ctx context.Context) ([]rivian.SessionSummary, error) {
 	a.sumCalls++
+	a.background = rivian.IsBackground(ctx)
 	if a.onFetch != nil {
 		defer a.onFetch()
 	}
@@ -118,6 +121,9 @@ func TestSyncFetchesMatchesAndPacesDetails(t *testing.T) {
 	s, sleeps := newTestSyncer(st, a, true)
 
 	res, err := s.Sync(context.Background(), uuid.New(), time.Hour, false)
+	if !a.background {
+		t.Error("the receipts fetch did not carry the background budget class")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -230,6 +230,7 @@ func (m *StateMonitor) noteScheduleNudge(vehicleID string, prev, curr *State) {
 // readChargingSchedules reads and caches the schedules, unless the last
 // read is younger than minAge and the truck hasn't moved since.
 func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID string, minAge time.Duration) {
+	ctx = WithBackground(ctx) // timer-driven: it may not spend the last of the shared budget's main bucket
 	fetch := m.fetchSchedules
 	if fetch == nil {
 		if m.client == nil {

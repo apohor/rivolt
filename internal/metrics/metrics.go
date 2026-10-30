@@ -635,6 +635,9 @@ func New() *Metrics {
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
+	for _, class := range []string{"priority", "main", "background"} {
+		m.RivianRateLimitBlocked.WithLabelValues(class).Add(0) // exported at 0 so the first refusal is an increase
+	}
 	for _, state := range []string{"active", "idle"} {
 		m.LeaseAcquireToFrame.WithLabelValues(state) // exported at count 0 from boot
 	}

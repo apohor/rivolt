@@ -373,8 +373,11 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 		// helper looks for the priority sentinel set by callers
 		// that handle user-blocking calls (Login, RefreshToken).
 		class := "main"
-		if priorityFromContext(ctx) {
+		switch {
+		case priorityFromContext(ctx):
 			class = "priority"
+		case backgroundFromContext(ctx):
+			class = "background"
 		}
 		ok, retry := c.rateLimit.Allow(ctx, class)
 		if !ok {
@@ -400,6 +403,23 @@ type priorityCtxKey struct{}
 // the UI is blocked on.
 func WithPriority(ctx context.Context) context.Context {
 	return context.WithValue(ctx, priorityCtxKey{}, true)
+}
+
+// backgroundCtxKey marks a context as timer-driven work no one waits on (schedule, OTA and receipts
+// reads): it draws from the main bucket but may not spend its last tokens (ratelimit.ClassBackground).
+type backgroundCtxKey struct{}
+
+// WithBackground returns a derived context for background Rivian reads. Priority beats it.
+func WithBackground(ctx context.Context) context.Context {
+	return context.WithValue(ctx, backgroundCtxKey{}, true)
+}
+
+// IsBackground reports whether ctx carries the background class (tests in the syncer packages check it).
+func IsBackground(ctx context.Context) bool { return backgroundFromContext(ctx) }
+
+func backgroundFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(backgroundCtxKey{}).(bool)
+	return v
 }
 
 func priorityFromContext(ctx context.Context) bool {

@@ -73,10 +73,13 @@ type fakeAcct struct {
 	calls []string
 	errOn string
 	err   error
+	// background is whether the last fetch's context carried the background budget class.
+	background bool
 }
 
-func (a *fakeAcct) OTAUpdateDetails(_ context.Context, id string) (*rivian.OTAInfo, error) {
+func (a *fakeAcct) OTAUpdateDetails(ctx context.Context, id string) (*rivian.OTAInfo, error) {
 	a.calls = append(a.calls, id)
+	a.background = rivian.IsBackground(ctx)
 	if id == a.errOn {
 		return nil, a.err
 	}
@@ -112,6 +115,9 @@ func TestSyncUserFetchesOnlyDueVehicles(t *testing.T) {
 	}
 	if len(*sleeps) != 1 || (*sleeps)[0] != vehiclePace {
 		t.Errorf("sleeps = %v, want one %v between the two fetches", *sleeps, vehiclePace)
+	}
+	if !acct.background {
+		t.Error("the OTA fetch did not carry the background budget class")
 	}
 	// A second pass with nothing due makes no call at all.
 	st.due = map[string]bool{}

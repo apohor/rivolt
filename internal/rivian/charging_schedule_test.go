@@ -350,3 +350,47 @@ func TestDescribeNamesOurGatesAndTheRootType(t *testing.T) {
 		t.Error("Describe leaked the cause's text")
 	}
 }
+
+type classRecorder struct{ class string }
+
+func (r *classRecorder) Allow(ctx context.Context, class string) (bool, time.Duration) {
+	r.class = class
+	return true, 0
+}
+
+// The class of a Rivian call comes from its context: priority beats background, neither is main; and a
+// schedule read is tagged background.
+func TestUpstreamClassFromContext(t *testing.T) {
+	for name, c := range map[string]struct {
+		ctx  context.Context
+		want string
+	}{
+		"plain":               {context.Background(), "main"},
+		"background":          {WithBackground(context.Background()), "background"},
+		"priority":            {WithPriority(context.Background()), "priority"},
+		"priority beats back": {WithPriority(WithBackground(context.Background())), "priority"},
+	} {
+		rl := &classRecorder{}
+		cl := &LiveClient{rateLimit: rl}
+		if err := cl.checkUpstream(c.ctx); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if rl.class != c.want {
+			t.Errorf("%s: class = %q, want %q", name, rl.class, c.want)
+		}
+	}
+}
+
+func TestScheduleReadIsBackground(t *testing.T) {
+	m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	var bg bool
+	inner := m.fetchSchedules
+	m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+		bg = backgroundFromContext(ctx)
+		return inner(ctx, v)
+	}
+	m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+	if !bg {
+		t.Error("the schedule read did not carry the background class")
+	}
+}
