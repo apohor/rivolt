@@ -151,12 +151,14 @@ type scheduleRead struct {
 }
 
 // scheduleConnectJitter spreads the connect-time reads of a pod that has just taken several vehicles
-// over; scheduleRetryCap and scheduleRetryJitter bound the one retry after a rate-limit refusal.
+// over, behind the seed storm; scheduleRetryTries tries in all, with scheduleRetryBase doubling and jitter, bound the retries after a rate-limit refusal.
 // Vars so tests can shrink them.
 var (
-	scheduleConnectJitter = 2 * time.Second
+	scheduleConnectJitter = 8 * time.Second
 	scheduleRetryCap      = 5 * time.Second
-	scheduleRetryJitter   = 500 * time.Millisecond
+	scheduleRetryBase     = 2 * time.Second
+	scheduleRetryJitter   = time.Second
+	scheduleRetryTries    = 4
 )
 
 // jitterUpTo is a random duration in [0, max).
@@ -251,12 +253,25 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		return
 	}
 	list, err := fetch(ctx, vehicleID)
-	var rl *ErrRateLimited
-	if errors.As(err, &rl) && ctx.Err() == nil {
-		// The shared budget was empty at that moment (a handover burst): wait the time it says, once.
-		wait := min(rl.RetryAfter, scheduleRetryCap) + jitterUpTo(scheduleRetryJitter)
-		if sleepCtx(ctx, wait) {
-			list, err = fetch(ctx, vehicleID)
+	// The shared budget is empty for a few seconds after a handover (every vehicle seeds and subscribes
+	// at once, on both pods). Each refusal waits at least what it names, growing with every try so the
+	// reads stop arriving together, and tries again, up to scheduleRetryTries times in all. A read that
+	// is still refused then is logged and left for the next nudge or the daily tick, as any failure.
+	for try := 1; try < scheduleRetryTries && ctx.Err() == nil; try++ {
+		var rl *ErrRateLimited
+		if !errors.As(err, &rl) {
+			break
+		}
+		grow := time.Duration(1) << (try - 1) // 1, 2, 4
+		wait := max(min(rl.RetryAfter, scheduleRetryCap), scheduleRetryBase*grow) + jitterUpTo(scheduleRetryJitter*grow)
+		m.logger.Info("charging schedules read refused by the shared budget; trying again",
+			"vehicle", vehicleID, "try", try, "wait", wait.Round(time.Millisecond).String())
+		if !sleepCtx(ctx, wait) {
+			return
+		}
+		list, err = fetch(ctx, vehicleID)
+		if err == nil {
+			m.logger.Info("charging schedules read succeeded on a retry", "vehicle", vehicleID, "try", try+1)
 		}
 	}
 	if err != nil {
