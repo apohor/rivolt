@@ -1052,6 +1052,7 @@ func (c *Coordinator) chooseShed(res GroupLead, vg map[string]string) []string {
 			}
 		}
 	}
+	// The choices are metrics.LeaseShedChoices (pre-created at 0 for the deferral alert); keep them in step.
 	choice := map[Activity]string{ActivityIdle: "idle", ActivityAwake: "awake", ActivityBusy: "deferred"}[bestAct]
 	if c.onShed != nil {
 		c.onShed(choice)

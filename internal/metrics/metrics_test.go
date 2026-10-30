@@ -144,4 +144,9 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_lease_fence_would_reject_total{source=%q} is not exported at 0 from boot", source)
 		}
 	}
+	for _, choice := range []string{"idle", "awake", "deferred"} {
+		if !strings.Contains(body, `rivolt_lease_shed_total{choice="`+choice+`"} 0`) {
+			t.Errorf("rivolt_lease_shed_total{choice=%q} is not exported at 0 from boot", choice)
+		}
+	}
 }

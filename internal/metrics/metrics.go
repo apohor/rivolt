@@ -637,8 +637,14 @@ func New() *Metrics {
 	for _, source := range []string{"db", "local"} {
 		m.LeaseFenceWouldReject.WithLabelValues(source).Add(0)
 	}
+	for _, choice := range LeaseShedChoices {
+		m.LeaseShed.WithLabelValues(choice).Add(0)
+	}
 	return m
 }
+
+// LeaseShedChoices are the shed decisions rivolt_lease_shed_total counts (leases.Coordinator.chooseShed).
+var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian"}
