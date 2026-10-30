@@ -64,6 +64,9 @@ type Metrics struct {
 	// LeaseSelfFence counts times this pod stopped every subscription because its group lease
 	// renewals failed past the local deadline (a slow or unreachable database).
 	LeaseSelfFence prometheus.Counter
+	// LeaseAcquireToFrame is the seconds from a vehicle lease being acquired to the first frame
+	// recorded after it (the flag-on bar: <= 12 s). No labels.
+	LeaseAcquireToFrame prometheus.Histogram
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
@@ -281,6 +284,13 @@ func New() *Metrics {
 			prometheus.GaugeOpts{
 				Name: "rivolt_subscription_leases",
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
+			},
+		),
+		LeaseAcquireToFrame: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Name:    "rivolt_lease_acquire_to_frame_seconds",
+				Help:    "Seconds from this pod acquiring a vehicle's lease to the first frame received for it.",
+				Buckets: []float64{1, 2, 3, 5, 8, 12, 20, 30, 60, 120, 300},
 			},
 		),
 		LeaseSelfFence: prometheus.NewCounter(
@@ -559,6 +569,7 @@ func New() *Metrics {
 		m.SubscriptionLeases,
 		m.LeaseGroupsOwned,
 		m.LeaseSelfFence,
+		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.LeaseUnstreamed,

@@ -41,14 +41,18 @@ import (
 // (RIVIAN_CLIENT=replay, source-fed monitors). Mock and stub paths
 // don't have a recorder.
 type MonitorRegistry struct {
-	pool               *sql.DB
-	accounts           AccountRegistry
-	drives             *drives.Factory
-	charges            *charges.Factory
-	samples            *samples.Factory
-	settings           *settings.Factory
-	elevation          ElevationLookup
-	fenceSrc           fence.Source
+	pool      *sql.DB
+	accounts  AccountRegistry
+	drives    *drives.Factory
+	charges   *charges.Factory
+	samples   *samples.Factory
+	settings  *settings.Factory
+	elevation ElevationLookup
+	fenceSrc  fence.Source
+	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
+	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
+	// the monitor does not wait for the next lease tick to stream. Guarded by mu.
+	wanted             map[string]uuid.UUID
 	onFenced           func(kind string)
 	routeFiller        RouteFiller
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
@@ -413,6 +417,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	mon.Start(mctx)
 	r.monitors[uid] = &monitorEntry{monitor: mon, cancel: cancel}
 	r.logger.Info("monitor registry: started", "user_id", uid.String())
+	r.runWanted(uid, mon)
 	return mon
 }
 
@@ -513,13 +518,15 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 		rehydrate, parent := r.rehydrate, r.parent
 		r.mu.RUnlock()
 		if rehydrate == nil || parent == nil || !rehydrate(parent, uid) {
-			r.logger.Debug("monitor registry: no monitor for owner; skip subscribe",
+			r.want(rivianVehicleID, uid)
+			r.logger.Debug("monitor registry: no monitor for owner; subscribe when it starts",
 				"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
 			return
 		}
 		mon = r.Start(parent, uid)
 		if mon == nil {
-			r.logger.Debug("monitor registry: lazy start yielded no monitor; skip subscribe",
+			r.want(rivianVehicleID, uid)
+			r.logger.Debug("monitor registry: lazy start yielded no monitor; subscribe when it starts",
 				"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
 			return
 		}
@@ -527,6 +534,49 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 			"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
 	}
 	mon.EnsureSubscribed(rivianVehicleID)
+}
+
+// want remembers a subscription that could not start yet (no monitor for its owner).
+func (r *MonitorRegistry) want(vehicleID string, uid uuid.UUID) {
+	r.mu.Lock()
+	if r.wanted == nil {
+		r.wanted = map[string]uuid.UUID{}
+	}
+	r.wanted[vehicleID] = uid
+	r.mu.Unlock()
+}
+
+// runWanted starts the remembered subscriptions of uid, whose monitor has just come up. Called with
+// r.mu held (from Start).
+func (r *MonitorRegistry) runWanted(uid uuid.UUID, mon *StateMonitor) {
+	for vid, u := range r.wanted {
+		if u == uid {
+			delete(r.wanted, vid)
+			mon.EnsureSubscribed(vid)
+			r.logger.Info("monitor registry: started a subscription that was waiting for the owner's monitor", "rivian_vehicle_id", vid)
+		}
+	}
+}
+
+// LatestAt is when the newest frame for the vehicle arrived on any of this pod's monitors, or the
+// zero time when none has. The lease coordinator measures acquire-to-first-frame with it.
+func (r *MonitorRegistry) LatestAt(vehicleID string) time.Time {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	var newest time.Time
+	for _, m := range mons {
+		if m == nil {
+			continue
+		}
+		if _, at := m.Latest(vehicleID); at.After(newest) {
+			newest = at
+		}
+	}
+	return newest
 }
 
 // Streaming reports whether this pod runs a subscription for the
@@ -563,12 +613,13 @@ func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 	if rivianVehicleID == "" {
 		return
 	}
-	r.mu.RLock()
+	r.mu.Lock()
+	delete(r.wanted, rivianVehicleID) // no longer ours: do not start it later
 	mons := make([]*StateMonitor, 0, len(r.monitors))
 	for _, e := range r.monitors {
 		mons = append(mons, e.monitor)
 	}
-	r.mu.RUnlock()
+	r.mu.Unlock()
 	for _, m := range mons {
 		if m != nil {
 			m.Unsubscribe(rivianVehicleID)

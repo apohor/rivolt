@@ -379,6 +379,13 @@ type Coordinator struct {
 	// the local deadline.
 	jitter      time.Duration
 	onSelfFence func()
+
+	// acquiredAt is when each vehicle was acquired and has not yet shown a frame; frameAt says when the
+	// newest frame for a vehicle arrived; onFrame is told the seconds from acquire to that frame (the
+	// flag-on bar: release to first streamed frame <= 12 s). Guarded by mu.
+	acquiredAt map[string]time.Time
+	frameAt    func(vehicleID string) time.Time
+	onFrame    func(seconds float64)
 	// unstreamed[vehicleID] is when the current episode's last
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
@@ -803,6 +810,7 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 				break
 			}
 			c.log.Info("lease acquired", "vehicle", vid)
+			c.markAcquired(vid)
 			c.onAcquire(vid)
 		}
 	}
@@ -810,7 +818,58 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	if lead == nil {
 		c.renewGroups(rctx)
 	}
+	c.observeFrames()
 	c.fireCount()
+}
+
+// SetFrameObserver wires the acquire-to-first-frame measurement: frameAt is when the newest frame for
+// a vehicle arrived on this pod (zero when none), observe is told the seconds from acquire to it.
+func (c *Coordinator) SetFrameObserver(frameAt func(vehicleID string) time.Time, observe func(seconds float64)) {
+	c.frameAt, c.onFrame = frameAt, observe
+}
+
+func (c *Coordinator) markAcquired(vid string) {
+	if c.frameAt == nil || c.onFrame == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.acquiredAt == nil {
+		c.acquiredAt = map[string]time.Time{}
+	}
+	c.acquiredAt[vid] = c.now()
+	c.mu.Unlock()
+}
+
+// observeFrames reports, once per acquire, the time to the first frame that arrived after it. The
+// frame's own arrival time is used, so the number is exact whatever the tick. A vehicle released
+// or still silent after a few minutes is forgotten.
+func (c *Coordinator) observeFrames() {
+	if c.frameAt == nil || c.onFrame == nil {
+		return
+	}
+	c.mu.Lock()
+	pending := make(map[string]time.Time, len(c.acquiredAt))
+	for vid, at := range c.acquiredAt {
+		pending[vid] = at
+	}
+	c.mu.Unlock()
+	now := c.now()
+	for vid, at := range pending {
+		c.mu.Lock()
+		_, owned := c.owned[vid]
+		c.mu.Unlock()
+		switch f := c.frameAt(vid); {
+		case !owned || now.Sub(at) > 10*time.Minute:
+			c.mu.Lock()
+			delete(c.acquiredAt, vid)
+			c.mu.Unlock()
+		case !f.IsZero() && !f.Before(at):
+			c.onFrame(f.Sub(at).Seconds())
+			c.mu.Lock()
+			delete(c.acquiredAt, vid)
+			c.mu.Unlock()
+		}
+	}
 }
 
 // groupLeader is the optional part of a store that leads with the group lease (lead mode).
