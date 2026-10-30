@@ -1618,7 +1618,13 @@ func (m *StateMonitor) persistLiveState(vehicleID string, snap LiveStateSnapshot
 	}
 	saveCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := m.liveStateStore.Save(saveCtx, vehicleID, snap, LiveStateTTL); err != nil {
+	rctx, ok := m.redisCtx(saveCtx, vehicleID)
+	if !ok {
+		return
+	}
+	if err := m.liveStateStore.Save(rctx, vehicleID, snap, LiveStateTTL); errors.Is(err, fence.ErrFenced) {
+		m.fenced("redis", vehicleID) // a newer owner has saved: this pod is the stale one
+	} else if err != nil {
 		m.logger.Debug("livestate save failed", "vehicle", vehicleID, "err", err.Error())
 	}
 }
