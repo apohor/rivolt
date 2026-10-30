@@ -1803,7 +1803,7 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
-		coord.SetFrameObserver(monitorRegistry.LatestAt, appMetrics.LeaseAcquireToFrame.Observe)
+		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, appMetrics.LeaseAcquireToFrame.Observe)
 		if receiptSyncer != nil {
 			receiptSyncer.SetFence(leaseStore)
 		}
