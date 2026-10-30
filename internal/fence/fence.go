@@ -102,3 +102,11 @@ func InTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context, tx *sql.
 	}
 	return tx.Commit()
 }
+
+// Deadliner is the optional part of a Source that knows when a vehicle's local lease deadline falls:
+// the monotonic moment 20 s after the last renew was sent, always before the database expiry. A
+// Rivian call made after it must not go out, whatever the process was doing in between (a pause
+// makes a context deadline fire on resume, where a poll of a flag would not).
+type Deadliner interface {
+	Deadline(vehicleID string) (time.Time, bool)
+}

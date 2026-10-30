@@ -65,3 +65,29 @@ func TestFenceNeverTouchesTheDatabase(t *testing.T) {
 		t.Fatalf("Fence opened %d database connections, want 0", n)
 	}
 }
+
+func TestStoreDeadline(t *testing.T) {
+	db := sql.OpenDB(&countingConnector{})
+	defer db.Close()
+	s, err := NewStore(db, "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Deadline("v1"); ok {
+		t.Fatal("lead mode off must have no deadline")
+	}
+	s.SetGroupLead(true)
+	s.SetVehicleGroups(map[string]string{"v1": "g1", "v2": "g2"})
+	sent := time.Now().Add(-5 * time.Second)
+	s.groupMu.Lock()
+	s.groups = map[string]int64{"g1": 7}
+	s.groupOKAt = sent
+	s.groupMu.Unlock()
+	d, ok := s.Deadline("v1")
+	if !ok || !d.Equal(sent.Add(s.localDeadline())) {
+		t.Errorf("held: %v %v, want the renew's send time + the local deadline", d, ok)
+	}
+	if d, ok := s.Deadline("v2"); !ok || time.Now().Before(d) {
+		t.Errorf("a group not held must have a deadline in the past, got %v %v", d, ok)
+	}
+}
