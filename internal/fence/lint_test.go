@@ -26,7 +26,7 @@ import (
 // imports, repairs, maintenance jobs, sign-in and admin), or that carry no state of the owner's
 // account (the lease protocol itself, shared caches), which no lease guards.
 
-const enforcementComplete = false
+const enforcementComplete = true
 
 // deferredToM4 holds owner writes that M2 deliberately leaves unguarded and M4 must guard: they are
 // not notOwnerSide (from M4 on only the owner makes them) and do not block enforcementComplete.
@@ -45,9 +45,7 @@ var deferredToM4 = map[string]string{
 // The guard is context-based (a fence token in ctx), so a function that owners and non-owners both
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
-var notYetGuarded = map[string]string{
-	"samples.Store.InsertBulk": "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-}
+var notYetGuarded = map[string]string{}
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{

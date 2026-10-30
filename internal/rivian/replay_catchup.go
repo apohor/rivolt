@@ -2,9 +2,11 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -71,6 +73,24 @@ type catchupWriter struct {
 	retryAt map[string]time.Time
 }
 
+// catchupFence is the context the catch-up flush writes with. The flush belongs to the vehicle's
+// owner: it carries the group lease, so a flush that runs after the lease went (the stream ends on
+// lease loss) is refused with fence.ErrFenced, and a pod still in its post-steal warm-up keeps the
+// batch for the next flush (errCatchupWarming). Lead mode off is unchanged.
+func (m *StateMonitor) catchupFence(ctx context.Context, vehicleID string) (context.Context, error) {
+	fctx, st := m.fenceState(ctx, vehicleID, "samples")
+	switch st {
+	case fence.Lost:
+		return ctx, fence.ErrFenced
+	case fence.Warming:
+		return ctx, errCatchupWarming
+	}
+	return fctx, nil
+}
+
+// errCatchupWarming is the flush's answer while the pod is in its post-steal warm-up: the batch is kept.
+var errCatchupWarming = errors.New("replay catch-up: the group was just taken over; waiting out the warm-up")
+
 // catchupRetryBackoff is how long size-triggered flushes wait after a
 // failed one.
 const catchupRetryBackoff = 10 * time.Second
@@ -81,10 +101,14 @@ func newCatchupWriter(m *StateMonitor) *catchupWriter {
 		retryAt: map[string]time.Time{},
 		sinks: catchupSinks{
 			insertSamples: func(ctx context.Context, batch []samples.Sample) error {
-				if m.samplesStore == nil {
+				if m.samplesStore == nil || len(batch) == 0 {
 					return nil
 				}
-				return m.samplesStore.InsertBulk(ctx, batch)
+				fctx, err := m.catchupFence(ctx, batch[0].VehicleID)
+				if err != nil {
+					return err
+				}
+				return m.samplesStore.InsertBulk(fctx, batch)
 			},
 			upsertDrive:  m.upsertLiveDrive,
 			upsertCharge: m.upsertLiveCharge,
@@ -240,7 +264,16 @@ func (m *StateMonitor) flushCatchup(vehicleID string) {
 		sinks.upsertCharge(ctx, vehicleID, c)
 	}
 	if len(b.samples) > 0 {
-		if err := sinks.insertSamples(ctx, b.samples); err != nil {
+		if err := sinks.insertSamples(ctx, b.samples); errors.Is(err, fence.ErrFenced) {
+			// The group is not ours any more. The new owner's replay resumes from the persisted
+			// max(at), so this backlog is theirs to rebuild: drop it and do not run the snapshot ahead of it.
+			m.fenced("samples", vehicleID)
+			return
+		} else if errors.Is(err, errCatchupWarming) {
+			m.logger.Info("replay catch-up flush waits for the warm-up after a takeover", "vehicle", vehicleID, "samples", len(b.samples))
+			m.catchup.requeue(vehicleID, b.samples, b.snap)
+			return
+		} else if err != nil {
 			// Keep the batch (and the snapshot taken with it) for the
 			// next flush rather than dropping it: later flushes would
 			// otherwise move the persisted max(at) past these frames
