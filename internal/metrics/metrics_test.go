@@ -139,6 +139,11 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_lease_fenced_total{kind=%q} is not exported at 0 from boot", kind)
 		}
 	}
+	for _, state := range []string{"active", "idle"} {
+		if !strings.Contains(body, `rivolt_lease_acquire_to_frame_seconds_count{state="`+state+`"} 0`) {
+			t.Errorf("rivolt_lease_acquire_to_frame_seconds{state=%q} is not exported at 0 from boot", state)
+		}
+	}
 	for _, source := range []string{"db", "local"} {
 		if !strings.Contains(body, `rivolt_lease_fence_would_reject_total{source="`+source+`"} 0`) {
 			t.Errorf("rivolt_lease_fence_would_reject_total{source=%q} is not exported at 0 from boot", source)

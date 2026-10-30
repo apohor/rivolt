@@ -13,11 +13,20 @@ func TestAcquireToFrameIsObservedOnce(t *testing.T) {
 	now := time.Unix(2_000_000, 0)
 	frames := map[string]time.Time{}
 	var got []float64
+	var states []bool
+	busy := map[string]bool{}
 	vehicles := []string{"v1", "v2"}
 	c := newCoordinator(fs, func(context.Context) ([]string, error) { return vehicles, nil },
 		func(string) {}, func(string) {}, nil, time.Hour)
 	c.now = func() time.Time { return now }
-	c.SetFrameObserver(func(v string) time.Time { return frames[v] }, func(s float64) { got = append(got, s) })
+	c.SetFrameObserver(func(v string) time.Time { return frames[v] }, func(s float64, active bool) { got = append(got, s); states = append(states, active) })
+	c.SetActivityCheck(func(v string) Activity {
+		if busy[v] {
+			return ActivityBusy
+		}
+		return ActivityAwake
+	}, nil)
+	busy["v1"] = true
 
 	c.reconcile(context.Background()) // acquires v1 and v2 at t0
 	if len(got) != 0 {
@@ -29,6 +38,9 @@ func TestAcquireToFrameIsObservedOnce(t *testing.T) {
 	c.reconcile(context.Background())
 	if len(got) != 1 || got[0] != 9 {
 		t.Fatalf("observed %v, want [9] (the frame's arrival, not the tick's)", got)
+	}
+	if !states[0] {
+		t.Error("a vehicle with an open drive or charge should be observed as active")
 	}
 	now = t0.Add(20 * time.Second)
 	c.reconcile(context.Background())

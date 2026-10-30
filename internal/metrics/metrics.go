@@ -69,8 +69,8 @@ type Metrics struct {
 	// renewals failed past the local deadline (a slow or unreachable database).
 	LeaseSelfFence prometheus.Counter
 	// LeaseAcquireToFrame is the seconds from a vehicle lease being acquired to the first frame
-	// recorded after it (the flag-on bar: <= 12 s). No labels.
-	LeaseAcquireToFrame prometheus.Histogram
+	// recorded after it, by state (active: open drive or charge; idle). The flag-on bar is active p95 <= 12 s.
+	LeaseAcquireToFrame *prometheus.HistogramVec
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
@@ -290,12 +290,13 @@ func New() *Metrics {
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
 			},
 		),
-		LeaseAcquireToFrame: prometheus.NewHistogram(
+		LeaseAcquireToFrame: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "rivolt_lease_acquire_to_frame_seconds",
-				Help:    "Seconds from this pod acquiring a vehicle's lease to the first frame received for it.",
+				Help:    "Seconds from this pod acquiring a vehicle's lease to the first frame received for it, by state: active (an open drive or charge when the frame was seen) or idle (parked: the first push depends on Rivian's cadence).",
 				Buckets: []float64{1, 2, 3, 5, 8, 12, 20, 30, 60, 120, 300},
 			},
+			[]string{"state"},
 		),
 		LeaseSelfFence: prometheus.NewCounter(
 			prometheus.CounterOpts{
@@ -633,6 +634,9 @@ func New() *Metrics {
 	// very event it is for). Keep the label values in step with the callers.
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
+	}
+	for _, state := range []string{"active", "idle"} {
+		m.LeaseAcquireToFrame.WithLabelValues(state) // exported at count 0 from boot
 	}
 	for _, source := range []string{"db", "local"} {
 		m.LeaseFenceWouldReject.WithLabelValues(source).Add(0)

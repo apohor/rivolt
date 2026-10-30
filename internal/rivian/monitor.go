@@ -372,6 +372,9 @@ type StateMonitor struct {
 	// on wake and by a safety poll); lastSafetyPoll the last safety
 	// poll.
 	lastVSFrame    map[string]time.Time
+	// firstVSFrame is when this ownership's first vehicleState frame arrived (cleared with wsSeen when
+	// the vehicle is forgotten): the acquire-to-first-frame measurement reads it.
+	firstVSFrame map[string]time.Time
 	restQuietSince map[string]time.Time
 	lastSafetyPoll map[string]time.Time
 
@@ -1316,6 +1319,7 @@ func (m *StateMonitor) forgetVehicle(vehicleID string) {
 	delete(m.chargeBond, vehicleID)
 	delete(m.lastSessionFor, vehicleID)
 	delete(m.wsSeen, vehicleID)
+	delete(m.firstVSFrame, vehicleID)
 	delete(m.wokeAt, vehicleID)
 	m.mu.Unlock()
 	m.sessMu.Lock()
@@ -3497,11 +3501,26 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 // noteVehicleStateFrameLocked records that a vehicleState frame just
 // arrived: the feed is delivering (wsSeen) and when. Caller holds mu.
 func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
+	if !m.wsSeen[vehicleID] {
+		// This ownership's first vehicleState frame (wsSeen is cleared when the vehicle is forgotten).
+		if m.firstVSFrame == nil {
+			m.firstVSFrame = make(map[string]time.Time)
+		}
+		m.firstVSFrame[vehicleID] = m.clock()
+	}
 	m.wsSeen[vehicleID] = true
 	if m.lastVSFrame == nil {
 		m.lastVSFrame = make(map[string]time.Time)
 	}
 	m.lastVSFrame[vehicleID] = m.clock()
+}
+
+// FirstFrameAt is when this ownership's first vehicleState frame for the vehicle arrived, or the zero
+// time when none has since the subscription started or restarted.
+func (m *StateMonitor) FirstFrameAt(vehicleID string) time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.firstVSFrame[vehicleID]
 }
 
 // vehicleStateFrameAtLocked is VehicleStateFrameAt for a vehicle this

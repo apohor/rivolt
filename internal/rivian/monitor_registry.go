@@ -587,6 +587,27 @@ func (r *MonitorRegistry) LatestAt(vehicleID string) time.Time {
 	return newest
 }
 
+// FirstFrameAt is when the first vehicleState frame of this ownership of the vehicle arrived on any of
+// this pod's monitors, or the zero time. The lease coordinator measures acquire-to-first-frame with it.
+func (r *MonitorRegistry) FirstFrameAt(vehicleID string) time.Time {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	var first time.Time
+	for _, m := range mons {
+		if m == nil {
+			continue
+		}
+		if at := m.FirstFrameAt(vehicleID); !at.IsZero() && (first.IsZero() || at.Before(first)) {
+			first = at
+		}
+	}
+	return first
+}
+
 // Streaming reports whether this pod runs a subscription for the
 // vehicle on any of its monitors (including one parked waiting for
 // auth or re-auth). The lease coordinator re-subscribes a leased
