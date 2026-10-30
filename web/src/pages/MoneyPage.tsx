@@ -457,7 +457,7 @@ function Statement({
               <>No charges recorded in {monthLabel(m.period)}. They appear here as you charge.</>
             ) : (
               <>
-                Charges show up here priced at your home rate once Rivolt has recorded one. Set your rate in Settings → Charging so new charges are priced as they arrive.
+                Charges show up here with their cost once Rivolt has recorded one. Set your home rate in Settings → Charging so home charges are priced as they arrive.
               </>
             )}
           </p>
