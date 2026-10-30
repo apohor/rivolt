@@ -85,3 +85,20 @@ func BeginBounded(ctx context.Context, db *sql.DB) (*sql.Tx, context.Context, co
 	}
 	return tx, ctx, cancel, nil
 }
+
+// InTx runs fn in a bounded transaction (see BeginBounded) and commits it. Every guarded write
+// that is not already a transaction goes through here, so a statement that passed the lease check
+// and then waits (a row lock, a slow disk) is cancelled by the server after 2 s: an old owner's
+// last write lands within about 3 s of the lease expiry, which the new owner's 5 s warm-up covers.
+func InTx(ctx context.Context, db *sql.DB, fn func(ctx context.Context, tx *sql.Tx) error) error {
+	tx, tctx, cancel, err := BeginBounded(ctx, db)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer func() { _ = tx.Rollback() }()
+	if err := fn(tctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

@@ -220,7 +220,11 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 		}
 		var allowed bool
 		var n int
-		if err := s.db.QueryRowContext(ctx, guardedDriveUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc)).Scan(&allowed, &n); err != nil {
+		// In a bounded transaction (2 s cap, 2 s statement timeout): an upsert that passed the lease
+		// check and then waits on a row lock is cancelled, not committed after the lease expired.
+		if err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
+			return tx.QueryRowContext(tctx, guardedDriveUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc)).Scan(&allowed, &n)
+		}); err != nil {
 			return err
 		}
 		if !allowed {

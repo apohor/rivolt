@@ -63,3 +63,45 @@ func TestAfterWarmUpWritesOnceUnderTheFenceOfThatMoment(t *testing.T) {
 		t.Error("an ErrFenced from the deferred write was not counted")
 	}
 }
+
+type seqFence struct {
+	states []fence.State
+	tok    fence.Token
+	n      atomic.Int32
+}
+
+func (f *seqFence) Fence(string) (fence.Token, fence.State) {
+	i := int(f.n.Add(1)) - 1
+	if i >= len(f.states) {
+		i = len(f.states) - 1
+	}
+	return f.tok, f.states[i]
+}
+
+func runAfterWarmUp(t *testing.T, states []fence.State) (wrote int32, counted int32) {
+	t.Helper()
+	old := warmUpRetry
+	warmUpRetry = 15 * time.Millisecond
+	defer func() { warmUpRetry = old }()
+	m := NewStateMonitor(nil, nil)
+	var c atomic.Int32
+	m.SetFence(&seqFence{states: states, tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}}, func(string) { c.Add(1) })
+	var w atomic.Int32
+	m.afterWarmUp("veh", func(context.Context) error { w.Add(1); return nil }, "drives")
+	time.Sleep(300 * time.Millisecond)
+	return w.Load(), c.Load()
+}
+
+// A second steal inside the window re-arms once; a group that stays warming or is lost drops the
+// write, and the loss is counted.
+func TestAfterWarmUpReArmsOnceAndCountsALoss(t *testing.T) {
+	if w, _ := runAfterWarmUp(t, []fence.State{fence.Warming, fence.Held}); w != 1 {
+		t.Errorf("warming then held: %d writes, want 1 (re-armed)", w)
+	}
+	if w, _ := runAfterWarmUp(t, []fence.State{fence.Warming, fence.Warming, fence.Held}); w != 0 {
+		t.Errorf("warming twice: %d writes, want 0 (gave up after one re-arm)", w)
+	}
+	if w, c := runAfterWarmUp(t, []fence.State{fence.Lost}); w != 0 || c != 1 {
+		t.Errorf("lost: %d writes, %d counted, want 0 and 1", w, c)
+	}
+}

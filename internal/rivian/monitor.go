@@ -815,15 +815,29 @@ func (m *StateMonitor) fenceCtx(ctx context.Context, vehicleID, kind string) (co
 	return c, st == fence.Off || st == fence.Held
 }
 
-// afterWarmUp runs a final write (a session that has closed, so no later frame will repeat it) once
-// the post-steal warm-up is over, under the fence of that moment. If the group is lost by then,
-// the write is dropped.
+// afterWarmUp runs a final write (a session that has closed, so no later frame repeats it) once
+// the post-steal warm-up is over, under the fence of that moment. If the group is warming again (a
+// second steal) it waits once more; if the group is lost the write is dropped, counted and logged.
 func (m *StateMonitor) afterWarmUp(vehicleID string, write func(context.Context) error, kind string) {
+	m.afterWarmUpN(vehicleID, write, kind, 2)
+}
+
+func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context) error, kind string, tries int) {
 	time.AfterFunc(warmUpRetry, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wctx, st := m.fenceState(ctx, vehicleID, kind)
-		if st != fence.Off && st != fence.Held {
+		switch st {
+		case fence.Off, fence.Held:
+		case fence.Warming:
+			if tries > 1 {
+				m.afterWarmUpN(vehicleID, write, kind, tries-1)
+				return
+			}
+			m.logger.Warn("deferred final write dropped: the group is still warming up", "kind", kind, "vehicle", vehicleID)
+			return
+		default: // Lost (already counted by fenceState)
+			m.logger.Warn("deferred final write dropped: the group lease is gone", "kind", kind, "vehicle", vehicleID)
 			return
 		}
 		if err := write(wctx); err != nil {

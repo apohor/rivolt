@@ -120,3 +120,65 @@ func TestUpsert_FencedByTheGroupLease(t *testing.T) {
 		t.Errorf("end SoC %v, want 60 (the new owner's continuation, not the old owner's close)", v)
 	}
 }
+
+// A guarded upsert that passed the lease check and then waits on a row lock is cancelled by the
+// server after 2 s and writes nothing: the guarded statement is bounded, so an old owner cannot
+// commit long after its lease expired.
+func TestGuardedUpsertBlockedOnALockIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "drivelock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := drives.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	var epoch int64
+	if err := pool.QueryRowContext(ctx, `
+		INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+		VALUES ($1, 'pod-a', nextval('account_lease_epoch'), now(), now(), now() + interval '60 seconds')
+		RETURNING epoch`, uid).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	d := sampleDrive("ext-lock", "rv-lock", start)
+	if err := store.Upsert(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	// Another session holds the drive row.
+	holder, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback() }()
+	if _, err := holder.ExecContext(ctx, `SELECT 1 FROM drives WHERE external_id = 'ext-lock' FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	d.EndSoCPct = 11
+	began := time.Now()
+	err = store.Upsert(fence.With(ctx, fence.Token{Group: uid.String(), Pod: "pod-a", Epoch: epoch}), d)
+	took := time.Since(began)
+	if err == nil {
+		t.Fatal("a guarded upsert blocked on a row lock succeeded")
+	}
+	if errors.Is(err, fence.ErrFenced) {
+		t.Fatalf("the lease is valid; a lock timeout is not a refusal: %v", err)
+	}
+	if took < 1500*time.Millisecond || took > 4*time.Second {
+		t.Errorf("cancelled after %v, want about 2 s", took)
+	}
+	if err := holder.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var soc float64
+	if err := pool.QueryRowContext(ctx, `SELECT end_soc_pct FROM drives WHERE external_id = 'ext-lock'`).Scan(&soc); err != nil {
+		t.Fatal(err)
+	}
+	if soc != 70 {
+		t.Errorf("the cancelled upsert changed the drive: end SoC %v, want 70", soc)
+	}
+}
