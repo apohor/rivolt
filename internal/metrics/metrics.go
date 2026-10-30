@@ -58,6 +58,9 @@ type Metrics struct {
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
 	LeaseUnstreamed prometheus.Counter
+	// LeaseSelfFence counts times this pod stopped every subscription because its group lease
+	// renewals failed past the local deadline (a slow or unreachable database).
+	LeaseSelfFence prometheus.Counter
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
@@ -275,6 +278,12 @@ func New() *Metrics {
 			prometheus.GaugeOpts{
 				Name: "rivolt_subscription_leases",
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
+			},
+		),
+		LeaseSelfFence: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "rivolt_lease_self_fence_total",
+				Help: "Times this pod stopped every subscription because its group lease renewals failed past the local deadline.",
 			},
 		),
 		LeaseGroupsOwned: prometheus.NewGauge(
@@ -539,6 +548,7 @@ func New() *Metrics {
 		m.RivianResultsTotal,
 		m.SubscriptionLeases,
 		m.LeaseGroupsOwned,
+		m.LeaseSelfFence,
 		m.LeaseFenceWouldReject,
 		m.LeaseUnstreamed,
 		m.ReauthRaiseDeferred,

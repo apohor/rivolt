@@ -36,10 +36,45 @@ type GroupLead struct {
 	Retire []string
 }
 
-// SetGroupLead turns lead mode on or off.
+// Lead mode timing (design 4.1): a 30 s lease renewed every 5 s (+-1 s of jitter), a 3 s
+// statement timeout on the renew, and a local deadline of 20 s after the renew was sent.
+const (
+	GroupTTL          = 30 * time.Second
+	groupTick         = 5 * time.Second
+	groupTickJitter   = time.Second
+	groupRenewTimeout = 3 * time.Second
+	// groupPassBudget bounds a whole lead tick (renew, acquire, stops), under the 5 s tick.
+	groupPassBudget = 3500 * time.Millisecond
+)
+
+// SetGroupLead turns lead mode on or off. On, the lease TTL is 30 s and the coordinator ticks
+// every 5 s; call it before NewCoordinator.
 func (s *Store) SetGroupLead(on bool) {
 	s.groupMu.Lock()
 	s.lead = on
+	if on {
+		s.ttl = GroupTTL
+	} else {
+		s.ttl = DefaultTTL
+	}
+	s.groupMu.Unlock()
+}
+
+// tickInterval is how often the coordinator reconciles: TTL/4, or 5 s in lead mode.
+func (s *Store) tickInterval() time.Duration {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	if s.lead {
+		return groupTick
+	}
+	return s.ttl / 4
+}
+
+// DropGroups forgets every group token (the pod has stopped acting for them). The rows expire
+// on their own.
+func (s *Store) DropGroups() {
+	s.groupMu.Lock()
+	s.groups = map[string]int64{}
 	s.groupMu.Unlock()
 }
 
@@ -325,3 +360,7 @@ func dedupe(in []string) []string {
 	}
 	return out
 }
+
+// LocalDeadline is how long after a renew was sent this pod may still act: TTL - 10 s (20 s of a
+// 30 s lease). Group and vehicle leases fence on this one rule.
+func (s *Store) LocalDeadline() time.Duration { return s.localDeadline() }

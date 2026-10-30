@@ -1728,8 +1728,8 @@ func runServer() {
 			os.Exit(1)
 		}
 		// Single-owner M2: the group lease decides ownership and the pods spread the groups.
-		// Off by default, in every environment, until the prestop/SIGUSR1 draining and the 30 s/5 s
-		// timing have landed: without draining a rollout moves groups twice.
+		// On: TTL 30 s, ticks every 5 s +-1 s. Off by default, in every environment, until the chart's
+		// prestop hook and 45 s grace period are live: without draining a rollout moves groups twice.
 		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		vehicleSource := leases.NewVehicleSource(
 			func() []string {
@@ -1780,6 +1780,7 @@ func runServer() {
 			},
 		)
 		coord.SetStreamingCheck(monitorRegistry.Streaming)
+		coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and

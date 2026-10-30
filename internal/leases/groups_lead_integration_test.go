@@ -274,8 +274,8 @@ const overlapSQL = `
 	)
 	SELECT count(*) FROM (SELECT user_id FROM cover GROUP BY user_id HAVING count(DISTINCT pod_id) > 1) x`
 
-// With the real tick (TTL/4 = 30 s), a peer's seen_at is routinely 30 s old when the other pod
-// ticks. Both pods must still count each other, or the first to tick takes everything.
+// With the real tick (5 s +- 1 s), a peer's seen_at is routinely up to 6 s old when the other pod
+// ticks, and a peer that missed a tick is 11 s old (the window is 15 s). Both pods must still count each other, or the first to tick takes everything.
 func TestLead_PeersCountedAtTheRealTick(t *testing.T) {
 	pool := setup(t)
 	ctx := context.Background()
@@ -285,8 +285,8 @@ func TestLead_PeersCountedAtTheRealTick(t *testing.T) {
 	pods := []*leases.Store{a, b}
 	for i := 0; i < 30; i++ {
 		for _, p := range pods {
-			// the peer last ticked 30 s ago
-			if _, err := pool.ExecContext(ctx, `UPDATE lease_pods SET seen_at = now() - interval '30 seconds' WHERE pod_id <> $1`, p.PodID()); err != nil {
+			// the peer last ticked 11 s ago (one missed tick)
+			if _, err := pool.ExecContext(ctx, `UPDATE lease_pods SET seen_at = now() - interval '11 seconds' WHERE pod_id <> $1`, p.PodID()); err != nil {
 				t.Fatal(err)
 			}
 			pass(ctx, t, p)
@@ -332,5 +332,57 @@ func TestLead_RetiredGroupIsReleasedOnlyAfterTheCaller(t *testing.T) {
 	}
 	if n := len(heldRows(ctx, t, pool)); n != 1 {
 		t.Fatalf("%d rows held after ReleaseGroup, want 1", n)
+	}
+}
+
+// Lead mode timing and a crashed owner: the lease is 30 s, a peer takes the group once it has
+// expired with a higher epoch, and the old owner's token is refused from then on.
+func TestLead_CrashTakeoverAndTheThirtySecondLease(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedSessionGroups(ctx, t, pool, 1)
+	a, b := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b")
+	ra := pass(ctx, t, a)
+	if len(ra.Held) != 1 {
+		t.Fatalf("a holds %d", len(ra.Held))
+	}
+	var group string
+	var oldEpoch int64
+	for g, e := range ra.Held {
+		group, oldEpoch = g, e
+	}
+	var secs float64
+	if err := pool.QueryRowContext(ctx, `SELECT extract(epoch FROM expires_at - renewed_at) FROM account_leases WHERE group_id = $1::uuid`, group).Scan(&secs); err != nil {
+		t.Fatal(err)
+	}
+	if secs < 29.9 || secs > 30.1 {
+		t.Fatalf("lease length %.1f s, want 30", secs)
+	}
+	// While a's lease is live, b takes nothing.
+	if r := pass(ctx, t, b); len(r.Held) != 0 {
+		t.Fatalf("b took a live group")
+	}
+	// a crashes: 30 s pass without a renew (the row's expiry moves back instead of waiting).
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() - interval '1 second', renewed_at = now() - interval '31 seconds'`); err != nil {
+		t.Fatal(err)
+	}
+	rb := pass(ctx, t, b)
+	if len(rb.Held) != 1 || rb.Held[group] <= oldEpoch {
+		t.Fatalf("b = %+v, want the group at an epoch above %d", rb.Held, oldEpoch)
+	}
+	var ok bool
+	if err := pool.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, 'pod-a', $2)`, group, oldEpoch).Scan(&ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("the crashed owner's token is still accepted")
+	}
+	// a wakes: it does not renew the stolen row, and reports the group lost.
+	rw := pass(ctx, t, a)
+	if len(rw.Held) != 0 || len(rw.Lost) != 1 {
+		t.Fatalf("woken a: held=%d lost=%v", len(rw.Held), rw.Lost)
+	}
+	if rows := heldRows(ctx, t, pool); len(rows) != 1 || rows[group].pod != "pod-b" {
+		t.Fatalf("rows = %+v", rows)
 	}
 }

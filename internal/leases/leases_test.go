@@ -19,6 +19,7 @@ type fakeStore struct {
 	stealVeh  string // if non-empty, drop from `owned` next Renew
 	renewErr  error  // if set, Renew fails with it
 	acquireOK func(string) bool
+	renewHook func() // called inside Renew (a test advances its clock here to model a slow renew)
 }
 
 func newFakeStore() *fakeStore {
@@ -36,6 +37,9 @@ func (f *fakeStore) Acquire(_ context.Context, vid string) (bool, error) {
 }
 
 func (f *fakeStore) Renew(_ context.Context) ([]string, error) {
+	if f.renewHook != nil {
+		f.renewHook()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.renewErr != nil {
