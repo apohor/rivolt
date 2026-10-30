@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -238,5 +239,69 @@ func TestReplayCatchup_FailedFlushRequeues(t *testing.T) {
 	}
 	if m.catchup.pendingSamples("demo-1") != 0 {
 		t.Error("buffer not drained")
+	}
+}
+
+// The catch-up flush is the owner's write: held it carries the lease, warming keeps the batch, lost
+// refuses (and counts); lead mode off is unchanged.
+func TestCatchupFenceByState(t *testing.T) {
+	tok := fence.Token{Group: "g", Pod: "p", Epoch: 4}
+	for _, c := range []struct {
+		name    string
+		src     fence.Source
+		err     error
+		hasTok  bool
+		counted int
+	}{
+		{"off", nil, nil, false, 0},
+		{"held", fakeFence{tok: tok, st: fence.Held}, nil, true, 0},
+		{"warming", fakeFence{tok: tok, st: fence.Warming}, errCatchupWarming, false, 0},
+		{"lost", fakeFence{st: fence.Lost}, fence.ErrFenced, false, 1},
+	} {
+		m := NewStateMonitor(nil, nil)
+		n := 0
+		m.SetFence(c.src, func(string) { n++ })
+		ctx, err := m.catchupFence(context.Background(), "demo-1")
+		if !errors.Is(err, c.err) || (c.err == nil && err != nil) {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.err)
+		}
+		if _, has := fence.From(ctx); has != c.hasTok {
+			t.Errorf("%s: token in ctx = %v, want %v", c.name, has, c.hasTok)
+		}
+		if n != c.counted {
+			t.Errorf("%s: counted %d, want %d", c.name, n, c.counted)
+		}
+	}
+}
+
+// A flush the lease refuses drops the backlog (the new owner's replay rebuilds it) and does not run the
+// snapshot ahead of it; one that waits out the warm-up keeps it and writes it later.
+func TestCatchupFlushFencedDropsAndWarmingKeeps(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		err         error
+		wantPending int
+		wantSnap    int
+	}{
+		{"fenced", fence.ErrFenced, 0, 0},
+		{"warming", errCatchupWarming, 3, 0},
+	} {
+		m, log := newCatchupMonitor(&scriptedSource{})
+		fenced := 0
+		m.SetFence(nil, func(string) { fenced++ })
+		m.catchup.sinks.insertSamples = func(context.Context, []samples.Sample) error { return c.err }
+		now := time.Now()
+		for i := 0; i < 3; i++ {
+			m.catchup.addSample("demo-1", samples.Sample{VehicleID: "demo-1", At: now.Add(time.Duration(i) * time.Second)})
+		}
+		m.catchup.setSnapshot("demo-1", LiveStateSnapshot{DriveCounter: 1})
+		m.flushCatchup("demo-1")
+		if got := m.catchup.pendingSamples("demo-1"); got != c.wantPending {
+			t.Errorf("%s: pending = %d, want %d", c.name, got, c.wantPending)
+		}
+		if log.snapshots != c.wantSnap {
+			t.Errorf("%s: snapshots = %d, want %d (the snapshot never runs ahead of the samples)", c.name, log.snapshots, c.wantSnap)
+		}
+		_ = fenced
 	}
 }

@@ -4,6 +4,7 @@ package samples
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -271,6 +272,9 @@ func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 		return err
 	}
 	const nCols = 27
+	if tok, guarded := fence.From(ctx); guarded {
+		return s.insertBulkGuarded(ctx, tok, batch, uuids)
+	}
 	for start := 0; start < len(batch); start += bulkInsertRows {
 		chunk := batch[start:min(start+bulkInsertRows, len(batch))]
 		var q strings.Builder
@@ -313,6 +317,60 @@ func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 			}
 		}
 		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// guardedBulkInsert writes one chunk only if rivolt_lease_ok holds when the statement starts (fence.Exec
+// wraps it): the chunk travels as one JSON array and keeps the table's column types
+// (json_populate_recordset), so a multi-row insert needs no per-column casts.
+const guardedBulkInsert = `
+	INSERT INTO vehicle_state (` + sampleColumns + `
+	) SELECT r.user_id, r.vehicle_id, r.at, r.battery_level_pct, r.range_mi, r.odometer_mi,
+	         r.lat, r.lon, r.location_fix_at, r.speed_mph, r.shift_state, r.drive_mode, r.charging_state,
+	         r.charger_power_kw, r.charge_limit_pct, r.inside_temp_c, r.outside_temp_c,
+	         r.drive_number, r.charge_number, r.source, r.altitude_m, r.tire_pressure_min_bar,
+	         r.pack_temp_avg_c, r.pack_temp_max_c, r.pack_temp_min_c, r.power_state, r.charger_status
+	  FROM json_populate_recordset(NULL::vehicle_state, $1::json) r
+	 WHERE ` + fence.OK + `
+	ON CONFLICT (vehicle_id, at) DO NOTHING`
+
+// insertBulkGuarded is InsertBulk for the owner's replay catch-up flush: each chunk is one guarded
+// statement in its own bounded transaction (with the re-archive flag, as in the plain path), and a
+// chunk written after the lease went is refused with fence.ErrFenced.
+func (s *Store) insertBulkGuarded(ctx context.Context, tok fence.Token, batch []Sample, uuids map[string]uuid.UUID) error {
+	cols := strings.Fields(strings.ReplaceAll(sampleColumns, ",", " "))
+	for start := 0; start < len(batch); start += bulkInsertRows {
+		chunk := batch[start:min(start+bulkInsertRows, len(batch))]
+		rows := make([]json.RawMessage, 0, len(chunk))
+		for _, v := range chunk {
+			doc, err := fence.RowJSON(cols, s.sampleArgs(uuids[v.VehicleID], v))
+			if err != nil {
+				return err
+			}
+			rows = append(rows, doc)
+		}
+		payload, err := json.Marshal(rows)
+		if err != nil {
+			return err
+		}
+		err = fence.InTx(fence.With(ctx, tok), s.db, func(tctx context.Context, tx *sql.Tx) error {
+			n, err := fence.Exec(tctx, tx, guardedBulkInsert, string(payload))
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				touched := map[vehicleMonth]bool{}
+				for _, v := range chunk {
+					touched[vehicleMonth{uuids[v.VehicleID], monthOf(v.At)}] = true
+				}
+				return s.markRearchive(tctx, tx, touched)
+			}
+			return nil
+		})
+		if err != nil {
 			return err
 		}
 	}
