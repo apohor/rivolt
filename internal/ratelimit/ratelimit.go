@@ -64,6 +64,10 @@ const (
 	// RefreshToken). Reserved budget so a reconnect storm in
 	// ClassMain can't lock new users out.
 	ClassPriority Class = "priority"
+	// ClassBackground is for timer-driven work no one waits on (schedule, OTA and receipts reads). It
+	// draws from the main bucket but may not spend the last Config.BackgroundFloor tokens, so a burst of
+	// background reads at a handover cannot leave the owner's live path (seeds, subscribes) empty-handed.
+	ClassBackground Class = "background"
 )
 
 // Config holds bucket parameters per class. Capacity is the burst
@@ -73,6 +77,9 @@ type Config struct {
 	MainRefillPerSec     float64
 	PriorityCapacity     int
 	PriorityRefillPerSec float64
+	// BackgroundFloor is how many of main's tokens a ClassBackground call must leave alone (zero or less:
+	// 20 of the 60 burst). The live class may spend them; priority has its own bucket.
+	BackgroundFloor int
 
 	// KeyPrefix lets multiple rivolt deployments share one Redis.
 	// Defaults to "rivolt:rl".
@@ -104,6 +111,9 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.PriorityRefillPerSec <= 0 {
 		cfg.PriorityRefillPerSec = d.PriorityRefillPerSec
+	}
+	if cfg.BackgroundFloor <= 0 {
+		cfg.BackgroundFloor = d.BackgroundFloor
 	}
 	if cfg.KeyPrefix == "" {
 		cfg.KeyPrefix = d.KeyPrefix
@@ -138,6 +148,12 @@ func (f *fallbackBuckets) allow(class Class, cfg Config) (bool, time.Duration) {
 	}
 	capF := math.Max(1, float64(cap)/cfg.FallbackDivisor)
 	refill /= cfg.FallbackDivisor
+	// Background shares main's bucket and leaves its floor (scaled like the capacity) alone.
+	bucketClass, floor := class, 0.0
+	if class == ClassBackground {
+		bucketClass = ClassMain
+		floor = math.Max(1, float64(cfg.BackgroundFloor)/cfg.FallbackDivisor)
+	}
 	if cfg.OnFallback != nil {
 		cfg.OnFallback(class)
 	}
@@ -147,23 +163,23 @@ func (f *fallbackBuckets) allow(class Class, cfg Config) (bool, time.Duration) {
 		f.b = map[Class]*bucket{}
 	}
 	now := cfg.Now()
-	bk, ok := f.b[class]
+	bk, ok := f.b[bucketClass]
 	if !ok {
 		bk = &bucket{tokens: capF, last: now}
-		f.b[class] = bk
+		f.b[bucketClass] = bk
 	}
 	if el := now.Sub(bk.last).Seconds(); el > 0 {
 		bk.tokens = math.Min(capF, bk.tokens+el*refill)
 		bk.last = now
 	}
-	if bk.tokens >= 1 {
+	if bk.tokens >= 1+floor {
 		bk.tokens--
 		return true, 0
 	}
 	if refill <= 0 {
 		return false, time.Minute
 	}
-	return false, time.Duration((1 - bk.tokens) / refill * float64(time.Second))
+	return false, time.Duration((1 + floor - bk.tokens) / refill * float64(time.Second))
 }
 
 // DefaultConfig returns sane defaults sized for a single-region
@@ -174,7 +190,8 @@ func DefaultConfig() Config {
 		MainCapacity:         60,
 		MainRefillPerSec:     2, // 120/min steady state
 		PriorityCapacity:     20,
-		PriorityRefillPerSec: 1, // 60/min steady state
+		PriorityRefillPerSec: 1,  // 60/min steady state
+		BackgroundFloor:      20, // a third of main's burst stays for the live path
 		KeyPrefix:            "rivolt:rl",
 	}
 }
@@ -193,7 +210,8 @@ type Limiter struct {
 
 // luaCheckAndDecrement is the atomic refill+take. KEYS[1] is the
 // hash key for the class; ARGV is {capacity, refillPerSec, now_ms,
-// requested_tokens}. Returns {allowed (0/1), retryAfter_ms,
+// requested_tokens, floor}. The floor is how many tokens the call must leave
+// (zero except for background). Returns {allowed (0/1), retryAfter_ms,
 // tokens_remaining (rounded down)}.
 //
 // Refill formula: elapsed_ms / 1000 * refillPerSec, capped at
@@ -210,6 +228,7 @@ local capacity = tonumber(ARGV[1])
 local refill   = tonumber(ARGV[2])
 local now_ms   = tonumber(ARGV[3])
 local want     = tonumber(ARGV[4])
+local floor    = tonumber(ARGV[5])
 
 local data = redis.call('HMGET', key, 'tokens', 'ts')
 local tokens = tonumber(data[1])
@@ -225,11 +244,11 @@ if refilled > capacity then refilled = capacity end
 
 local allowed = 0
 local retry_ms = 0
-if refilled >= want then
+if refilled >= want + floor then
   refilled = refilled - want
   allowed = 1
 else
-  local short = want - refilled
+  local short = want + floor - refilled
   if refill > 0 then
     retry_ms = math.ceil((short / refill) * 1000)
   else
@@ -284,8 +303,12 @@ func New(ctx context.Context, rdb *redis.Client, cfg Config, logger *slog.Logger
 func (l *Limiter) Allow(ctx context.Context, class Class) (bool, time.Duration) {
 	cap, refill := l.params(class)
 	now := l.cfg.Now().UnixMilli()
+	floor := 0
+	if class == ClassBackground {
+		floor = l.cfg.BackgroundFloor
+	}
 	res, err := l.script.Run(ctx, l.rdb, []string{l.key(class)},
-		cap, refill, now, 1,
+		cap, refill, now, 1, floor,
 	).Slice()
 	if err != nil {
 		l.log.Warn("ratelimit: redis script failed; using the per-process bucket",
@@ -316,6 +339,9 @@ func (l *Limiter) params(class Class) (int, float64) {
 }
 
 func (l *Limiter) key(class Class) string {
+	if class == ClassBackground {
+		class = ClassMain // the same bucket as main, with a floor
+	}
 	return l.cfg.KeyPrefix + ":" + string(class)
 }
 

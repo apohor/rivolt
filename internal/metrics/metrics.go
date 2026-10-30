@@ -57,6 +57,9 @@ type Metrics struct {
 	// LeaseFenced counts owner-side writes refused or skipped because this pod no longer holds the
 	// group lease, by write class (samples, ...). Alert on > 0 for 10 minutes.
 	LeaseFenced *prometheus.CounterVec
+	// RivianScheduleReadTotal counts charging-schedule reads by outcome: ok, retried_ok, dropped (refused
+	// by the shared budget on every try) and error. Pre-created at 0; no other labels.
+	RivianScheduleReadTotal *prometheus.CounterVec
 	// LeaseShed counts the lead-mode shed decisions of a pod over its fair share, by choice: idle
 	// (a sleeping group), awake (no sleeping one), deferred (every group over the share had an open
 	// drive or charge, so nothing moved that pass).
@@ -324,6 +327,13 @@ func New() *Metrics {
 			},
 			[]string{"choice"},
 		),
+		RivianScheduleReadTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_rivian_schedule_read_total",
+				Help: "Charging-schedule reads by outcome: ok, retried_ok (worked after a refusal by the shared budget), dropped (refused on every try) or error.",
+			},
+			[]string{"outcome"},
+		),
 		LeaseFenced: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_fenced_total",
@@ -584,6 +594,7 @@ func New() *Metrics {
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
+		m.RivianScheduleReadTotal,
 		m.LeaseShed,
 		m.LeaseUnstreamed,
 		m.ReauthRaiseDeferred,
@@ -634,6 +645,12 @@ func New() *Metrics {
 	// very event it is for). Keep the label values in step with the callers.
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
+	}
+	for _, class := range []string{"priority", "main", "background"} {
+		m.RivianRateLimitBlocked.WithLabelValues(class).Add(0) // exported at 0 so the first refusal is an increase
+	}
+	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
+		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
 	}
 	for _, state := range []string{"active", "idle"} {
 		m.LeaseAcquireToFrame.WithLabelValues(state) // exported at count 0 from boot

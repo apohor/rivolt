@@ -243,7 +243,7 @@ func (s *Syncer) SyncUser(ctx context.Context, uid uuid.UUID) (int, error) {
 		if fetched > 0 {
 			s.sleep(ctx, vehiclePace)
 		}
-		info, err := src.OTAUpdateDetails(ctx, id)
+		info, err := src.OTAUpdateDetails(rivian.WithBackground(ctx), id) // timer-driven: background class
 		if err != nil {
 			if notAvailable(err) {
 				// Rivian won't give this vehicle's OTA details (FORBIDDEN or

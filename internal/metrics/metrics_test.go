@@ -139,6 +139,11 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_lease_fenced_total{kind=%q} is not exported at 0 from boot", kind)
 		}
 	}
+	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
+		if !strings.Contains(body, `rivolt_rivian_schedule_read_total{outcome="`+outcome+`"} 0`) {
+			t.Errorf("rivolt_rivian_schedule_read_total{outcome=%q} is not exported at 0 from boot", outcome)
+		}
+	}
 	for _, state := range []string{"active", "idle"} {
 		if !strings.Contains(body, `rivolt_lease_acquire_to_frame_seconds_count{state="`+state+`"} 0`) {
 			t.Errorf("rivolt_lease_acquire_to_frame_seconds{state=%q} is not exported at 0 from boot", state)

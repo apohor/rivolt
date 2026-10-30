@@ -150,6 +150,17 @@ type scheduleRead struct {
 	lat, lon float64
 }
 
+// SetScheduleObserver wires the schedule-read outcome counter: ok, retried_ok (worked after at least one
+// refusal by the shared budget), dropped (refused on every try) and error (any other failure). A
+// vehicle whose account has no schedules ("not available") is not counted. Safe before Start.
+func (m *StateMonitor) SetScheduleObserver(fn func(outcome string)) { m.onScheduleRead = fn }
+
+func (m *StateMonitor) noteScheduleRead(outcome string) {
+	if m.onScheduleRead != nil {
+		m.onScheduleRead(outcome)
+	}
+}
+
 // scheduleConnectJitter spreads the connect-time reads of a pod that has just taken several vehicles
 // over, behind the seed storm; scheduleRetryTries tries in all, with scheduleRetryBase doubling and jitter, bound the retries after a rate-limit refusal.
 // Vars so tests can shrink them.
@@ -230,6 +241,7 @@ func (m *StateMonitor) noteScheduleNudge(vehicleID string, prev, curr *State) {
 // readChargingSchedules reads and caches the schedules, unless the last
 // read is younger than minAge and the truck hasn't moved since.
 func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID string, minAge time.Duration) {
+	ctx = WithBackground(ctx) // timer-driven: it may not spend the last of the shared budget's main bucket
 	fetch := m.fetchSchedules
 	if fetch == nil {
 		if m.client == nil {
@@ -253,6 +265,7 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		return
 	}
 	list, err := fetch(ctx, vehicleID)
+	tries := 1
 	// The shared budget is empty for a few seconds after a handover (every vehicle seeds and subscribes
 	// at once, on both pods). Each refusal waits at least what it names, growing with every try so the
 	// reads stop arriving together, and tries again, up to scheduleRetryTries times in all. A read that
@@ -270,6 +283,7 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 			return
 		}
 		list, err = fetch(ctx, vehicleID)
+		tries = try + 1
 		if err == nil {
 			m.logger.Info("charging schedules read succeeded on a retry", "vehicle", vehicleID, "try", try+1)
 		}
@@ -296,8 +310,19 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 			m.logger.Info("charging schedules not available for this account", "vehicle", vehicleID, "code", ErrCode(err))
 			return
 		}
+		var rl *ErrRateLimited
+		if errors.As(err, &rl) {
+			m.noteScheduleRead("dropped") // refused by the shared budget on every try
+		} else {
+			m.noteScheduleRead("error")
+		}
 		m.logger.Warn("charging schedules read failed", "vehicle", vehicleID, "err", Describe(err))
 		return
+	}
+	if tries > 1 {
+		m.noteScheduleRead("retried_ok")
+	} else {
+		m.noteScheduleRead("ok")
 	}
 	enabled := 0
 	for _, s := range list {

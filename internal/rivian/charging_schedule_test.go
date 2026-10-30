@@ -350,3 +350,105 @@ func TestDescribeNamesOurGatesAndTheRootType(t *testing.T) {
 		t.Error("Describe leaked the cause's text")
 	}
 }
+
+// Schedule reads are counted by outcome: ok, retried_ok (after a refusal), dropped (refused on every try),
+// error (anything else). A vehicle with no schedules for its account is not counted.
+func TestScheduleReadOutcomesAreCounted(t *testing.T) {
+	oldCap, oldBase, oldJitter := scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter
+	scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = 2*time.Millisecond, time.Millisecond, time.Millisecond
+	defer func() { scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = oldCap, oldBase, oldJitter }()
+
+	run := func(script []error) string {
+		m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+		inner := m.fetchSchedules
+		i := 0
+		m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+			var err error
+			if i < len(script) {
+				err = script[i]
+			}
+			i++
+			if err != nil {
+				return nil, err
+			}
+			return inner(ctx, v)
+		}
+		var got []string
+		m.SetScheduleObserver(func(o string) { got = append(got, o) })
+		m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+		return strings.Join(got, ",")
+	}
+	refused := &ErrRateLimited{RetryAfter: time.Millisecond}
+	always := make([]error, scheduleRetryTries)
+	for i := range always {
+		always[i] = refused
+	}
+	for name, c := range map[string]struct {
+		script []error
+		want   string
+	}{
+		"first try works":       {nil, "ok"},
+		"works after a refusal": {[]error{refused}, "retried_ok"},
+		"refused on every try":  {always, "dropped"},
+		"another error":         {[]error{errors.New("boom")}, "error"},
+	} {
+		if got := run(c.script); got != c.want {
+			t.Errorf("%s: outcomes = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// A trip plan is a user waiting: it draws from the priority lane of the shared Rivian budget, not the main
+// one the post-acquire background burst drains.
+func TestPlanTripUsesThePriorityLane(t *testing.T) {
+	rl := &classRecorder{}
+	c := &LiveClient{rateLimit: rl}
+	_, _ = c.PlanTrip(context.Background(), PlanTripInput{}) // refused for lack of a session after the budget check
+	if rl.class != "priority" {
+		t.Errorf("PlanTrip drew from the %q lane, want priority", rl.class)
+	}
+}
+
+type classRecorder struct{ class string }
+
+func (r *classRecorder) Allow(ctx context.Context, class string) (bool, time.Duration) {
+	r.class = class
+	return true, 0
+}
+
+// The class of a Rivian call comes from its context: priority beats background, neither is main; and a
+// schedule read is tagged background.
+func TestUpstreamClassFromContext(t *testing.T) {
+	for name, c := range map[string]struct {
+		ctx  context.Context
+		want string
+	}{
+		"plain":               {context.Background(), "main"},
+		"background":          {WithBackground(context.Background()), "background"},
+		"priority":            {WithPriority(context.Background()), "priority"},
+		"priority beats back": {WithPriority(WithBackground(context.Background())), "priority"},
+	} {
+		rl := &classRecorder{}
+		cl := &LiveClient{rateLimit: rl}
+		if err := cl.checkUpstream(c.ctx); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if rl.class != c.want {
+			t.Errorf("%s: class = %q, want %q", name, rl.class, c.want)
+		}
+	}
+}
+
+func TestScheduleReadIsBackground(t *testing.T) {
+	m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	var bg bool
+	inner := m.fetchSchedules
+	m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+		bg = backgroundFromContext(ctx)
+		return inner(ctx, v)
+	}
+	m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+	if !bg {
+		t.Error("the schedule read did not carry the background class")
+	}
+}
