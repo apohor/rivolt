@@ -53,9 +53,6 @@ var notYetGuarded = map[string]string{
 	"receipts.Store.Apply":                   "receipts PR: matches a receipt to a charge after the owner's fetch",
 	"receipts.Store.MarkResult":              "receipts PR: the owner's sync result",
 	"receipts.Store.RefreshMatched":          "receipts PR: runs inside the owner's syncer (syncer.go)",
-	"secrets.Store.Put":                      "session PR: the owner's persist (csrf heal, refresh) takes epoch AND version CAS; login keeps the plain write (a new session, version only)",
-	"secrets.Store.PutTx":                    "session PR: as Put, inside the session transaction",
-	"secrets.setSignedIn":                    "session PR: written in the session's transaction",
 }
 
 // notOwnerSide is permanent. Each entry names who calls it.
@@ -94,6 +91,9 @@ var notOwnerSide = map[string]string{
 	"packhealth.Store.Upsert":              "only reached from BackfillAll via BackfillVehicle: an idempotent re-derivation from stored charges, no owner write path",
 	"receipts.Store.purge":                 "user action and retention job (DeleteForUser / opt-out purge)",
 	"secrets.Store.Delete":                 "user action (logout, delete, disconnect)",
+	"secrets.Store.Put":                    "user and admin actions: Rivian sign-in and MFA (api/rivian.go), the admin session refresh, the Apple sign-in token, the demo seed; no owner path persists a session (TestOwnerPackagesDoNotPersistSessions)",
+	"secrets.Store.PutTx":                  "as Put: SaveRivianSession's transaction for a sign-in or sign-out",
+	"secrets.setSignedIn":                  "as Put: the sign-in time, in the same sign-in transaction",
 	"secrets.Store.DeleteTx":               "user action (logout, delete, disconnect)",
 	"secrets.RivianSessionLister.backfill": "one-time sign-in time backfill",
 }
@@ -204,4 +204,34 @@ func mustRead(t *testing.T, f string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestOwnerPackagesDoNotPersistSessions keeps the session writes off the owner's path: no package
+// whose code runs as a group's owner (the monitor and recorder, the syncs, the sends, the leases)
+// may import internal/secrets. A session is stored only by a sign-in, a sign-out or an admin action,
+// which no lease guards. If an owner path ever has to persist a session (a token refresh, a
+// persisted csrf pair), it must do it with the epoch AND a session-version CAS (single-owner design
+// 4.3, DA's point 2), not by importing secrets here: that is what this test is for.
+func TestOwnerPackagesDoNotPersistSessions(t *testing.T) {
+	owner := []string{"rivian", "leases", "receipts", "otadetails", "engage", "push", "samples", "drives", "charges", "packhealth"}
+	for _, d := range owner {
+		files, err := filepath.Glob(filepath.Join("..", d, "*.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			af, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, imp := range af.Imports {
+				if strings.Trim(imp.Path.Value, `"`) == "github.com/apohor/rivolt/internal/secrets" {
+					t.Errorf("%s imports internal/secrets: the owner's path must not persist a session (see the comment)", f)
+				}
+			}
+		}
+	}
 }
