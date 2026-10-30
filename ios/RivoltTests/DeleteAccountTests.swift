@@ -41,7 +41,7 @@ final class DeleteAccountTests: XCTestCase {
 
     func testThePageIsTheWebDangerZone() throws {
         let url = try XCTUnwrap(DeleteAccountSheet.pageURL(server: URL(string: "https://rivolt.dev")!))
-        XCTAssertEqual(url.absoluteString, "https://rivolt.dev/settings?tab=data#danger")
+        XCTAssertEqual(url.absoluteString, "https://rivolt.dev/settings?tab=data&section=delete")
     }
 
     func testNothingHappensUnlessThePersonWentToTheWeb() async throws {
