@@ -38,6 +38,7 @@ import { WindowPicker } from "../components/WindowPicker";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import NowCard from "../components/NowCard";
+import { YourWeekStrip } from "../components/YourWeekStrip";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -301,6 +302,7 @@ export default function HomePage() {
         />
       ) : (
         <>
+          <YourWeekStrip drives={all} charges={allC} />
           <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
               <Stat
                 label="Since last charge"
