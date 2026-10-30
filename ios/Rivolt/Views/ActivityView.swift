@@ -69,6 +69,8 @@ struct ActivityView: View {
                 await loadEfficiency()
             }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
+            // A tapped charging-done notification: open that charge's page once the month is loaded. Not in the month on screen: just the list.
+            .task(id: "\(state.notifications.pendingRoute.map { "\($0)" } ?? "")|\(model.response?.charges.count ?? -1)") { openNotifiedCharge() }
             // App Store screenshots only: open the first drive or charge of the month once the list is there.
             .task(id: days.count) {
                 guard let kind = StoreShots.open, picked == nil, !days.isEmpty else { return }
@@ -90,6 +92,13 @@ struct ActivityView: View {
                 if days.isEmpty { await load(force: true) }
             }
         }
+    }
+
+    private func openNotifiedCharge() {
+        guard case .charge(let id)? = state.notifications.pendingRoute, let r = model.response else { return }
+        state.notifications.pendingRoute = nil
+        mode = .list
+        if let c = r.charges.first(where: { $0.id == id }) { picked = .charge(c) }
     }
 
     private var controls: some View { ActivityControls(mode: $mode, filter: $filter) }

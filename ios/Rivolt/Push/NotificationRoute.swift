@@ -7,7 +7,7 @@ import Foundation
 enum NotificationRoute: Equatable {
     case home
     case money
-    /// A finished charge: the Activity tab (the charge's own page is not opened from here yet).
+    /// A finished charge: the Activity tab with that charge's own page opened (when it is in the month on screen).
     case charge(String)
     /// A saved trip's recap: the Plan tab with that trip opened, so its Plan vs actual shows.
     case trip(String)
@@ -19,6 +19,15 @@ enum NotificationRoute: Equatable {
         case .money: return "money"
         case .charge: return "activity"
         case .trip: return "plan"
+        }
+    }
+
+    /// Whether the screen the route names finishes the job (opens the charge or the trip) once it has its data, so the route stays pending
+    /// after the tab is shown. The others are done with the tab.
+    var screenFinishes: Bool {
+        switch self {
+        case .charge, .trip: return true
+        case .home, .money: return false
         }
     }
 

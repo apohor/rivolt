@@ -28,6 +28,13 @@ final class NotificationRouteTests: XCTestCase {
         XCTAssertEqual(NotificationRoute.trip("a1").tab(available: ["now", "activity", "money", "truck"]), "now")
     }
 
+    func testATripOrAChargeIsFinishedByItsScreenTheOthersByTheTab() {
+        XCTAssertTrue(NotificationRoute.charge("a1").screenFinishes)
+        XCTAssertTrue(NotificationRoute.trip("a1").screenFinishes)
+        XCTAssertFalse(NotificationRoute.home.screenFinishes)
+        XCTAssertFalse(NotificationRoute.money.screenFinishes)
+    }
+
     func testTheTapTargetIsReadFromTheStoredNotification() {
         let json = #"{"id":"a1","kind":"trip_recap","title":"You drove a saved trip","body":"x","url":"/plan?trip=a1&tab=pva","created_at":"2026-10-28T10:00:00Z"}"#
         XCTAssertEqual(NotificationFetch.tapURL(Data(json.utf8)), "/plan?trip=a1&tab=pva")
