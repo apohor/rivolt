@@ -836,6 +836,9 @@ func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context
 				return
 			}
 			m.logger.Warn("deferred final write dropped: the group is still warming up", "kind", kind, "vehicle", vehicleID)
+			if m.onFenced != nil {
+				m.onFenced(kind) // every lost final write shows on the metric, not only in the logs
+			}
 			return
 		default: // Lost (already counted by fenceState)
 			m.logger.Warn("deferred final write dropped: the group lease is gone", "kind", kind, "vehicle", vehicleID)
@@ -1042,16 +1045,26 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 		if ctx.Err() != nil {
 			return
 		}
+		// The janitor acts for the vehicle's owner only: no REST call and no write for a group this pod
+		// does not hold (or is still warming up for).
+		fctx, owner := m.fenceCtx(ctx, c.RivianVehicleID, "charges")
+		if !owner {
+			continue
+		}
 		stillCharging, finalState := m.confirmStillCharging(ctx, c.RivianVehicleID)
-		opCtx, opCancel := context.WithTimeout(ctx, 5*time.Second)
+		opCtx, opCancel := context.WithTimeout(fctx, 5*time.Second)
 		if stillCharging {
-			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); err != nil {
+			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); errors.Is(err, fence.ErrFenced) {
+				m.fenced("charges", c.RivianVehicleID)
+			} else if err != nil {
 				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				refreshed++
 			}
 		} else {
-			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); err != nil {
+			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); errors.Is(err, fence.ErrFenced) {
+				m.fenced("charges", c.RivianVehicleID)
+			} else if err != nil {
 				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				abandoned++
