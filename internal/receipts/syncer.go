@@ -182,6 +182,7 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 func (s *Syncer) still(uid uuid.UUID) bool { return s.enabled == nil || s.enabled(uid) }
 
 func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSource, detailsOnly bool, res *Result) error {
+	ctx = rivian.WithBackground(ctx) // timer-driven: it may not spend the last of the shared budget's main bucket
 	if !detailsOnly {
 		sums, err := src.CompletedSessionSummaries(ctx)
 		if err != nil {

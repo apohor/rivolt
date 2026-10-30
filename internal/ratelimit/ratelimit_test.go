@@ -218,3 +218,98 @@ func TestRetryingStartsLimitingWhenRedisComesUp(t *testing.T) {
 		t.Errorf("%d calls all allowed after connecting; the bucket's 2 tokens should run out", allowed)
 	}
 }
+
+// A handover burst of background calls cannot take the last of main's tokens, and cannot touch the priority
+// bucket: user calls are allowed throughout, and the owner's live path (seeds, subscribes) is allowed
+// until main is truly empty.
+func TestBackgroundBurstLeavesTheFloorAndTheUserLane(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	l, _, _ := newTestLimiter(t, Config{
+		MainCapacity: 60, MainRefillPerSec: 0.0001,
+		PriorityCapacity: 20, PriorityRefillPerSec: 0.0001,
+		BackgroundFloor: 20,
+	})
+	// 10 vehicles x schedules + OTA + receipts and more: far over what background may spend.
+	granted := 0
+	for i := 0; i < 100; i++ {
+		if ok, _ := l.Allow(ctx, ClassBackground); ok {
+			granted++
+		}
+	}
+	if granted != 40 {
+		t.Fatalf("background was granted %d tokens, want 40 (60 minus the floor of 20)", granted)
+	}
+	// Every user call is allowed in the same instant: its own bucket was never touched.
+	for i := 0; i < 20; i++ {
+		if ok, _ := l.Allow(ctx, ClassPriority); !ok {
+			t.Fatalf("user call %d refused during a background burst", i)
+		}
+	}
+	// The live path spends the floor, to zero.
+	for i := 0; i < 20; i++ {
+		if ok, _ := l.Allow(ctx, ClassMain); !ok {
+			t.Fatalf("live call %d refused with the floor still unspent", i)
+		}
+	}
+	if ok, _ := l.Allow(ctx, ClassMain); ok {
+		t.Error("main allowed a call with no tokens left")
+	}
+}
+
+// The floor in the script: background at exactly the floor is refused with a retry-after for one more token;
+// one above it is allowed; a live call at one token is allowed.
+func TestBackgroundFloorEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	l, _, clk := newTestLimiter(t, Config{MainCapacity: 5, MainRefillPerSec: 1, BackgroundFloor: 3})
+	// Spend 2 live: 3 left = the floor.
+	for i := 0; i < 2; i++ {
+		if ok, _ := l.Allow(ctx, ClassMain); !ok {
+			t.Fatal("setup")
+		}
+	}
+	ok, retry := l.Allow(ctx, ClassBackground)
+	if ok {
+		t.Fatal("background was allowed at exactly the floor")
+	}
+	if retry < 900*time.Millisecond || retry > 1100*time.Millisecond {
+		t.Errorf("retry-after = %v, want about 1s (one token above the floor at 1/s)", retry)
+	}
+	clk.advance(time.Second) // 4 tokens: one above the floor
+	if ok, _ := l.Allow(ctx, ClassBackground); !ok {
+		t.Error("background refused one token above the floor")
+	}
+	// 3 left again. A live call still goes through, down to 1 and 0.
+	for i := 0; i < 3; i++ {
+		if ok, _ := l.Allow(ctx, ClassMain); !ok {
+			t.Errorf("live call %d refused", i)
+		}
+	}
+}
+
+// The local bucket (Redis down) has the same three classes: background leaves a floor scaled by the divisor.
+func TestBackgroundFloorInTheLocalFallback(t *testing.T) {
+	t.Parallel()
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	cfg := withDefaults(Config{MainCapacity: 60, MainRefillPerSec: 0.0001, BackgroundFloor: 20, FallbackDivisor: 4, Now: clk.now})
+	var f fallbackBuckets
+	// Local main capacity 15, floor 5: background gets 10.
+	granted := 0
+	for i := 0; i < 50; i++ {
+		if ok, _ := f.allow(ClassBackground, cfg); ok {
+			granted++
+		}
+	}
+	if granted != 10 {
+		t.Fatalf("local background granted %d, want 10 (15 minus a floor of 5)", granted)
+	}
+	for i := 0; i < 5; i++ {
+		if ok, _ := f.allow(ClassMain, cfg); !ok {
+			t.Fatalf("local live call %d refused with the floor unspent", i)
+		}
+	}
+	if ok, _ := f.allow(ClassMain, cfg); ok {
+		t.Error("local main allowed a call with no tokens left")
+	}
+}
