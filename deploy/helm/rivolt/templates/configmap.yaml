@@ -27,6 +27,10 @@ data:
   {{- if .Values.adminOnly }}
   RIVOLT_DB_MAX_CONNS: {{ $db.adminMaxConns | default 5 | quote }}
   {{- else }}
+  {{- /* With an HPA the pod count is not replicaCount (DA on #1319): require explicit sizes. */}}
+  {{- if and (dig "enabled" false (.Values.autoscaling | default dict)) (not $db.systemMaxConns) }}
+  {{- fail "dbConnections: autoscaling is enabled, so replicaCount is not the pod count; set dbConnections.systemMaxConns (and requestMaxConns) for autoscaling.maxReplicas + surge" }}
+  {{- end }}
   {{- $pods := add (int .Values.replicaCount) (max 1 $surge) }}
   {{- $per := div (int ($db.budget | default 48)) $pods }}
   {{- $floor := int ($db.minPerPod | default 6) }}
