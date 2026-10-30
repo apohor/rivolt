@@ -260,6 +260,25 @@ affinity:
 # ---------------------------------------------------------------------------
 # Application configuration
 # ---------------------------------------------------------------------------
+# -- Database connections per pod (_shared/db-connection-budget.md). budget is the app pods' share
+# of max_connections: floor(0.8 x (max_connections - superuser_reserved)) minus the configured caps
+# of the other clients (kratos, hydra, the reporting role, the exporter, a migrate Job) and the admin
+# release. Each pod gets budget / (replicaCount + maxSurge), system and request pool together,
+# capped at 20 each; below minPerPod the chart fails to render. With 100 / 3 reserved and 24 + 5 for
+# the others and admin: 48, so 16 per pod at 2 replicas and 8 at 5.
+dbConnections:
+  # -- The app pods' share of max_connections.
+  budget: 48
+  # -- The least a pod can run on (lease tick, a lock-holding job, guarded writes, requests).
+  minPerPod: 6
+  # -- RIVOLT_REQUEST_DATABASE_URL is set: split each pod's share, half to the request pool.
+  requestPool: false
+  # -- Explicit sizes, overriding the derivation (and the floor check).
+  systemMaxConns: ""
+  requestMaxConns: ""
+  # -- The admin release's system pool (adminOnly: no requests from users, no sweeps).
+  adminMaxConns: 5
+
 config:
   # Required as soon as any OIDC provider is configured. The OIDC
   # redirect URL is derived from this; must match what's registered
