@@ -108,10 +108,16 @@ func GrantApp(ctx context.Context, d *sql.DB, role string) (bool, error) {
 				fmt.Sprintf(`GRANT SELECT ON %s TO %s`, id, role))
 		}
 	}
-	for _, s := range stmts {
-		if _, err := d.ExecContext(ctx, s); err != nil {
-			return true, fmt.Errorf("app grant %q: %w", s, err)
+	// One replica at a time (grant_lock.go); the statements run on the connection holding the lock.
+	if err := withGrantLock(ctx, d, func(q grantExec) error {
+		for _, s := range stmts {
+			if _, err := q.ExecContext(ctx, s); err != nil {
+				return fmt.Errorf("app grant %q: %w", s, err)
+			}
 		}
+		return nil
+	}); err != nil {
+		return true, err
 	}
 	return true, nil
 }

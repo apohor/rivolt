@@ -71,12 +71,16 @@ func GrantReadonly(ctx context.Context, d *sql.DB, role string) (bool, error) {
 		stmts = append(stmts, fmt.Sprintf(`GRANT SELECT (%s) ON %s TO %s`,
 			strings.Join(cols, ", "), t, role))
 	}
-	for _, s := range stmts {
-		if _, err := d.ExecContext(ctx, s); err != nil {
-			return true, fmt.Errorf("readonly grant %q: %w", s, err)
+	// One replica at a time (grant_lock.go): the grants and the query-stats function's
+	// CREATE OR REPLACE run on the connection holding the lock.
+	if err := withGrantLock(ctx, d, func(q grantExec) error {
+		for _, s := range stmts {
+			if _, err := q.ExecContext(ctx, s); err != nil {
+				return fmt.Errorf("readonly grant %q: %w", s, err)
+			}
 		}
-	}
-	if err := ensureQueryStats(ctx, d, role); err != nil {
+		return ensureQueryStats(ctx, q, role)
+	}); err != nil {
 		return true, err
 	}
 	return true, nil
@@ -109,7 +113,7 @@ $$`
 
 // ensureQueryStats creates rivolt_query_stats() for role when the pg_stat_statements extension exists (CNPG
 // creates it once the library is preloaded); without it, nothing. Idempotent, like the grants around it.
-func ensureQueryStats(ctx context.Context, d *sql.DB, role string) error {
+func ensureQueryStats(ctx context.Context, d grantExec, role string) error {
 	var schema string
 	err := d.QueryRowContext(ctx,
 		`SELECT pg_catalog.quote_ident(n.nspname) FROM pg_catalog.pg_extension e
