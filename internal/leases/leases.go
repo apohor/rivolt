@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sort"
 	"sync"
 	"time"
@@ -368,6 +369,12 @@ type Coordinator struct {
 	// the check.
 	streaming    func(vehicleID string) bool
 	onUnstreamed func(vehicleID string)
+
+	// jitter spreads the ticks by up to +-jitter in lead mode, so pods do not race for the same free
+	// groups; onSelfFence is told when this pod stopped everything because its renewals failed past
+	// the local deadline.
+	jitter      time.Duration
+	onSelfFence func()
 	// unstreamed[vehicleID] is when the current episode's last
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
@@ -419,7 +426,11 @@ func NewCoordinator(
 	onAcquire, onRelease func(vehicleID string),
 	logger *slog.Logger,
 ) *Coordinator {
-	return newCoordinator(store, vehicles, onAcquire, onRelease, logger, store.ttl/4)
+	c := newCoordinator(store, vehicles, onAcquire, onRelease, logger, store.tickInterval())
+	if store.GroupLeading() {
+		c.jitter = groupTickJitter
+	}
+	return c
 }
 
 func newCoordinator(
@@ -559,7 +570,7 @@ func (c *Coordinator) SetAuthoritative(fn func(ctx context.Context) ([]string, e
 func (c *Coordinator) Run(ctx context.Context) error {
 	c.reconcile(ctx)
 
-	t := time.NewTicker(c.reconcileInterval)
+	t := time.NewTimer(c.nextTick())
 	defer t.Stop()
 	for {
 		select {
@@ -567,10 +578,19 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-t.C:
 			c.reconcile(ctx)
+			t.Reset(c.nextTick())
 		case <-c.trigger:
 			c.reconcile(ctx)
 		}
 	}
+}
+
+// nextTick is the reconcile interval, plus or minus the jitter in lead mode.
+func (c *Coordinator) nextTick() time.Duration {
+	if c.jitter <= 0 {
+		return c.reconcileInterval
+	}
+	return c.reconcileInterval + time.Duration(rand.Int63n(int64(2*c.jitter))) - c.jitter
 }
 
 // leaseTTL is the lease lifetime the loop was built for: it renews every TTL/4.
@@ -611,7 +631,11 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	if c.isClosing() {
 		return
 	}
-	rctx, cancel := context.WithTimeout(ctx, c.reconcileInterval/2)
+	budget := c.reconcileInterval / 2
+	if c.jitter > 0 && budget < groupRenewTimeout {
+		budget = groupRenewTimeout // lead mode ticks every 5 s; the renew statement timeout is 3 s
+	}
+	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	// Renew first. Any vehicle missing from the renew result is one
@@ -794,15 +818,29 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	if !ok || !gl.GroupLeading() || c.isClosing() {
 		return nil
 	}
-	res, err := gl.LeadGroups(ctx)
+	dbctx, dbcancel := context.WithTimeout(ctx, groupRenewTimeout)
+	defer dbcancel()
+	res, err := gl.LeadGroups(dbctx)
 	if err != nil {
 		c.log.Warn("group lead pass failed", "err", err.Error())
-		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && c.onDryRun != nil && lp.PastLocalDeadline() {
-			c.onDryRun("local", 1)
+		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && lp.PastLocalDeadline() {
+			// The renews have failed for longer than the local deadline: the DB row may expire
+			// (and a peer take the groups) any moment. Stop every subscription now, before it does.
+			if c.onDryRun != nil {
+				c.onDryRun("local", 1)
+			}
+			c.log.Warn("group lease renewals failed past the local deadline: stopping every subscription")
+			c.fenceAll()
+			if dg, ok := c.store.(interface{ DropGroups() }); ok {
+				dg.DropGroups()
+			}
+			if c.onSelfFence != nil {
+				c.onSelfFence()
+			}
 		}
 		return &leadView{vehicleGroup: map[string]string{}, held: map[string]int64{}}
 	}
-	vg, err := gl.GroupVehicles(ctx)
+	vg, err := gl.GroupVehicles(dbctx)
 	if err != nil {
 		c.log.Warn("group vehicles failed", "err", err.Error())
 		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
@@ -856,6 +894,10 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	}
 	return &leadView{vehicleGroup: vg, held: res.Held}
 }
+
+// SetSelfFenceObserver wires the callback fired when the pod stops everything because its group
+// lease renewals failed past the local deadline. Optional.
+func (c *Coordinator) SetSelfFenceObserver(fn func()) { c.onSelfFence = fn }
 
 // SetGroupObserver wires the metrics for the group leases: held is told the number
 // of groups this pod holds after every pass, dryRun the number of tokens that

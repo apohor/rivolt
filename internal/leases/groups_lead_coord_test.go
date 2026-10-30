@@ -171,3 +171,66 @@ func TestShutdownMarksDrainingFirst(t *testing.T) {
 		t.Errorf("reconcile after Shutdown made calls: %v", ls.calls()[len(got):])
 	}
 }
+
+type fencingStore struct {
+	*leaderStore
+	past    bool
+	dropped bool
+}
+
+func (f *fencingStore) PastLocalDeadline() bool { return f.past }
+func (f *fencingStore) DropGroups()             { f.dropped = true; f.past = false }
+
+func TestLeadCoordinator_SelfFencesPastTheLocalDeadline(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1", "v2": "g2"},
+		res: GroupLead{Held: map[string]int64{"g1": 1, "g2": 1}}}
+	fs := &fencingStore{leaderStore: ls}
+	c := newCoordinator(fs, func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(string) {}, func(v string) { ls.note("stop:" + v) }, nil, time.Hour)
+	fences := 0
+	c.SetSelfFenceObserver(func() { fences++ })
+	c.reconcile(context.Background())
+	if len(c.owned) != 2 {
+		t.Fatalf("owned %v", c.owned)
+	}
+	// Renewals fail, but not for long enough: nothing stops.
+	ls.leadErr = errors.New("db slow")
+	c.reconcile(context.Background())
+	if len(c.owned) != 2 || fences != 0 {
+		t.Fatalf("stopped before the local deadline: owned=%d fences=%d", len(c.owned), fences)
+	}
+	// Past the local deadline: every subscription stops, the tokens are dropped, once.
+	fs.past = true
+	c.reconcile(context.Background())
+	if len(c.owned) != 0 || fences != 1 || !fs.dropped {
+		t.Fatalf("owned=%d fences=%d dropped=%v, want 0/1/true", len(c.owned), fences, fs.dropped)
+	}
+	c.reconcile(context.Background())
+	if fences != 1 {
+		t.Errorf("self-fenced again: %d", fences)
+	}
+}
+
+func TestNextTickJitterStaysInTheBand(t *testing.T) {
+	c := newCoordinator(newFakeStore(), nil, func(string) {}, func(string) {}, nil, groupTick)
+	if c.nextTick() != groupTick {
+		t.Fatal("no jitter configured, the tick should be exact")
+	}
+	c.jitter = groupTickJitter
+	lo, hi := groupTick, groupTick
+	for i := 0; i < 2000; i++ {
+		d := c.nextTick()
+		if d < groupTick-groupTickJitter || d >= groupTick+groupTickJitter {
+			t.Fatalf("tick %v outside 5 s +- 1 s", d)
+		}
+		if d < lo {
+			lo = d
+		}
+		if d > hi {
+			hi = d
+		}
+	}
+	if hi-lo < time.Second {
+		t.Errorf("ticks vary only %v: no jitter", hi-lo)
+	}
+}
