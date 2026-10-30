@@ -437,3 +437,19 @@ func (s *Store) queryEpochsStolen(ctx context.Context, q string, args ...any) (m
 	}
 	return out, stolen, rows.Err()
 }
+
+// Deadline is the local lease deadline for the vehicle's group: when the last renew was sent plus the
+// local deadline (monotonic). ok is false with lead mode off; a vehicle whose group this pod does not
+// hold has a deadline in the past.
+func (s *Store) Deadline(vehicleID string) (time.Time, bool) {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	if !s.lead {
+		return time.Time{}, false
+	}
+	g, ok := s.vehicleGroup[vehicleID]
+	if _, held := s.groups[g]; !ok || !held || s.groupOKAt.IsZero() {
+		return time.Unix(0, 0), true
+	}
+	return s.groupOKAt.Add(s.localDeadline()), true
+}

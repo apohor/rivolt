@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"github.com/apohor/rivolt/internal/fence"
 	"strings"
 	"time"
 )
@@ -317,6 +318,12 @@ func (m *StateMonitor) restState(ctx context.Context, vehicleID, reason string) 
 	// The client notes the request for wake attribution; the reason
 	// rides along as its detail.
 	ctx = withActionReason(ctx, reason)
+	// Only the vehicle's owner calls Rivian, and never past its local lease deadline.
+	ctx, cancel, ok := m.rivianCtx(ctx, vehicleID)
+	if !ok {
+		return nil, fence.ErrFenced
+	}
+	defer cancel()
 	if m.restFn != nil {
 		return m.restFn(ctx, vehicleID)
 	}

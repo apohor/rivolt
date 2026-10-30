@@ -808,6 +808,39 @@ func (m *StateMonitor) fenceState(ctx context.Context, vehicleID, kind string) (
 	return ctx, st
 }
 
+// rivianCtx is the context for a Rivian call (REST, a WebSocket dial) made on behalf of a vehicle:
+// its deadline is the vehicle's local lease deadline, so after a pause or a failed renew no request
+// goes out (the context is already done on resume). The warm-up does not apply: the new owner
+// connects at once. A group this pod does not hold (or whose deadline has passed) is refused and
+// counted as fenced{kind="rivian"}; lead mode off is unchanged.
+func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID string) (context.Context, context.CancelFunc, bool) {
+	noop := func() {}
+	if m.fenceSrc == nil {
+		return ctx, noop, true
+	}
+	if _, st := m.fenceSrc.Fence(vehicleID); st == fence.Off {
+		return ctx, noop, true
+	} else if st == fence.Lost {
+		if m.onFenced != nil {
+			m.onFenced("rivian")
+		}
+		return ctx, noop, false
+	}
+	if d, ok := m.fenceSrc.(fence.Deadliner); ok {
+		if at, has := d.Deadline(vehicleID); has {
+			if !time.Now().Before(at) {
+				if m.onFenced != nil {
+					m.onFenced("rivian")
+				}
+				return ctx, noop, false
+			}
+			dctx, cancel := context.WithDeadline(ctx, at)
+			return dctx, cancel, true
+		}
+	}
+	return ctx, noop, true
+}
+
 // fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
 // pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
 // nothing; the sample is dropped, not queued: the next frame carries the state.
@@ -1435,6 +1468,17 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		if !m.waitReauthClear(ctx, vehicleID) {
 			break
 		}
+		// Not ours to dial: the group is not held, or its local lease deadline has passed. Wait for the
+		// coordinator to stop this subscription or the lease to come back; never dial meanwhile.
+		if _, cancelGate, ok := m.rivianCtx(ctx, vehicleID); !ok {
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+			}
+			continue
+		} else {
+			cancelGate()
+		}
 		// WithCancelCause so the watchdog can stamp the cancellation
 		// with errStaleSubscription. Without that we can't
 		// distinguish "Rivian gateway stopped pushing for 10m and we
@@ -1909,7 +1953,12 @@ func (m *StateMonitor) chargingSessionMetadataFetcher(ctx context.Context, vehic
 			if fetched {
 				continue
 			}
-			sess, err := m.client.LiveSession(ctx, vehicleID)
+			lctx, lcancel, ok := m.rivianCtx(ctx, vehicleID)
+			if !ok {
+				continue
+			}
+			sess, err := m.client.LiveSession(lctx, vehicleID)
+			lcancel()
 			if err != nil {
 				if ctx.Err() == nil {
 					m.logger.Debug("rivian live-session fetch failed", "vehicle", vehicleID, "err", err.Error())
