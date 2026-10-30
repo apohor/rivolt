@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -208,6 +209,11 @@ type StateMonitor struct {
 	// as a row in vehicle_state. Drives and charges capture derived
 	// sessions on gear/chargerState transitions.
 	samplesStore *samples.Store
+
+	// fenceSrc and onFenced guard the owner-side writes with the group lease (single-owner M2);
+	// both nil in M1 and with the lead flag off. See fence.Source.
+	fenceSrc fence.Source
+	onFenced func(kind string)
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
 
@@ -774,6 +780,35 @@ func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drive
 	m.samplesStore = samplesStore
 	m.drivesStore = drivesStore
 	m.chargesStore = chargesStore
+}
+
+// SetFence wires the group-lease fence: src says what this pod may write for a vehicle, and
+// onFenced is told (with the write class) each time a write is refused or skipped because the
+// lease is gone. Safe to call before Start.
+func (m *StateMonitor) SetFence(src fence.Source, onFenced func(kind string)) {
+	m.fenceSrc, m.onFenced = src, onFenced
+}
+
+// fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
+// pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
+// nothing; the sample is dropped, not queued: the next frame carries the state.
+func (m *StateMonitor) fenceCtx(ctx context.Context, vehicleID, kind string) (context.Context, bool) {
+	if m.fenceSrc == nil {
+		return ctx, true
+	}
+	tok, st := m.fenceSrc.Fence(vehicleID)
+	switch st {
+	case fence.Held:
+		return fence.With(ctx, tok), true
+	case fence.Warming:
+		return ctx, false
+	case fence.Lost:
+		if m.onFenced != nil {
+			m.onFenced(kind)
+		}
+		return ctx, false
+	}
+	return ctx, true
 }
 
 // SetLiveStateStore wires the cross-restart accumulator persistence
