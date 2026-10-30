@@ -12,12 +12,9 @@ import (
 // A final write that lands in the post-steal warm-up (a session that has closed, so no later frame
 // repeats it) is made once, after the warm-up, under the fence of that moment.
 func TestAfterWarmUpWritesOnceUnderTheFenceOfThatMoment(t *testing.T) {
-	old := warmUpRetry
-	warmUpRetry = 20 * time.Millisecond
-	defer func() { warmUpRetry = old }()
-
 	tok := fence.Token{Group: "g", Pod: "p", Epoch: 4}
 	m := NewStateMonitor(nil, nil)
+	m.warmWait = 20 * time.Millisecond
 	m.SetFence(fakeFence{tok: tok, st: fence.Held}, func(string) {})
 	var wrote atomic.Int32
 	var got atomic.Value
@@ -39,6 +36,7 @@ func TestAfterWarmUpWritesOnceUnderTheFenceOfThatMoment(t *testing.T) {
 
 	// Lost by then: dropped, not written.
 	m2 := NewStateMonitor(nil, nil)
+	m2.warmWait = 20 * time.Millisecond
 	lost := 0
 	m2.SetFence(fakeFence{st: fence.Lost}, func(string) { lost++ })
 	ran := make(chan struct{}, 1)
@@ -51,6 +49,7 @@ func TestAfterWarmUpWritesOnceUnderTheFenceOfThatMoment(t *testing.T) {
 
 	// Refused by the database: counted.
 	m3 := NewStateMonitor(nil, nil)
+	m3.warmWait = 20 * time.Millisecond
 	fenced := make(chan string, 1)
 	m3.SetFence(fakeFence{tok: tok, st: fence.Held}, func(k string) { fenced <- k })
 	m3.afterWarmUp("veh", func(context.Context) error { return fence.ErrFenced }, "drives")
@@ -80,10 +79,8 @@ func (f *seqFence) Fence(string) (fence.Token, fence.State) {
 
 func runAfterWarmUp(t *testing.T, states []fence.State) (wrote int32, counted int32) {
 	t.Helper()
-	old := warmUpRetry
-	warmUpRetry = 15 * time.Millisecond
-	defer func() { warmUpRetry = old }()
 	m := NewStateMonitor(nil, nil)
+	m.warmWait = 15 * time.Millisecond
 	var c atomic.Int32
 	m.SetFence(&seqFence{states: states, tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}}, func(string) { c.Add(1) })
 	var w atomic.Int32

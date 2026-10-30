@@ -214,6 +214,7 @@ type StateMonitor struct {
 	// both nil in M1 and with the lead flag off. See fence.Source.
 	fenceSrc fence.Source
 	onFenced func(kind string)
+	warmWait time.Duration // tests only: shortens the wait of a deferred final write
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
 
@@ -823,7 +824,7 @@ func (m *StateMonitor) afterWarmUp(vehicleID string, write func(context.Context)
 }
 
 func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context) error, kind string, tries int) {
-	time.AfterFunc(warmUpRetry, func() {
+	time.AfterFunc(m.warmUpWait(), func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wctx, st := m.fenceState(ctx, vehicleID, kind)
@@ -851,7 +852,15 @@ func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context
 }
 
 // warmUpRetry is just over the 5 s warm-up.
-var warmUpRetry = 5200 * time.Millisecond
+const warmUpRetry = 5200 * time.Millisecond
+
+// warmUpWait is how long a deferred final write waits: warmUpRetry, or the test's override.
+func (m *StateMonitor) warmUpWait() time.Duration {
+	if m.warmWait > 0 {
+		return m.warmWait
+	}
+	return warmUpRetry
+}
 
 // fenced counts a write the database refused because the lease is gone.
 func (m *StateMonitor) fenced(kind, vehicleID string) {
