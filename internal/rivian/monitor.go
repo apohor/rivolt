@@ -841,6 +841,27 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID string) (context
 	return ctx, noop, true
 }
 
+// redisCtx is the context for a live-state write to Redis: with the fence token when this pod holds
+// the vehicle's group or is still warming up (the epoch CAS orders it against the old owner, so the
+// new owner may write its snapshots at once; the warm-up is for database commits), unchanged when
+// lead mode is off, and false (the loss counted) when the group is not ours.
+func (m *StateMonitor) redisCtx(ctx context.Context, vehicleID string) (context.Context, bool) {
+	if m.fenceSrc == nil {
+		return ctx, true
+	}
+	tok, st := m.fenceSrc.Fence(vehicleID)
+	switch st {
+	case fence.Held, fence.Warming:
+		return fence.With(ctx, tok), true
+	case fence.Lost:
+		if m.onFenced != nil {
+			m.onFenced("redis")
+		}
+		return ctx, false
+	}
+	return ctx, true
+}
+
 // fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
 // pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
 // nothing; the sample is dropped, not queued: the next frame carries the state.
@@ -3459,8 +3480,12 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 			snap := *cached // value copy; publish outside the lock
 			snap.VehicleStateFrameAt = frameAt
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if err := m.liveStateStore.PutState(pctx, vehicleID, &snap, LiveStateSnapshotTTL); err != nil {
-				m.logger.Debug("live state publish failed", "vehicle", vehicleID, "err", err.Error())
+			if rctx, ok := m.redisCtx(pctx, vehicleID); ok {
+				if err := m.liveStateStore.PutState(rctx, vehicleID, &snap, LiveStateSnapshotTTL); errors.Is(err, fence.ErrFenced) {
+					m.fenced("redis", vehicleID) // a newer owner has published: this pod is the stale one
+				} else if err != nil {
+					m.logger.Debug("live state publish failed", "vehicle", vehicleID, "err", err.Error())
+				}
 			}
 			cancel()
 		}

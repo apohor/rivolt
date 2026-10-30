@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // LiveStateStore persists per-vehicle in-flight session accumulators
@@ -258,7 +260,55 @@ func (s *RedisLiveStateStore) Save(ctx context.Context, vehicleID string, snap L
 	if err != nil {
 		return fmt.Errorf("encode livestate: %w", err)
 	}
-	return s.rdb.Set(ctx, s.key(vehicleID), blob, ttl).Err()
+	return s.write(ctx, vehicleID, s.key(vehicleID), blob, ttl)
+}
+
+// epochTTL keeps a vehicle's highest-seen lease epoch beyond the longest data TTL, so a stale
+// owner's write is still refused after the snapshot it would overwrite has expired.
+const epochTTL = 3 * time.Hour
+
+// epochKey holds the highest group-lease epoch that has written this vehicle's snapshots.
+func (s *RedisLiveStateStore) epochKey(vehicleID string) string { return s.key(vehicleID) + ":epoch" }
+
+// writeScript writes a value only if the stored epoch is not above the writer's (a Lua CAS, so the
+// check and the write are one atomic step in Redis): KEYS[1] the epoch key, KEYS[2] the data key;
+// ARGV[1] the writer's epoch, ARGV[2] the value, ARGV[3] the data TTL in ms, ARGV[4] the epoch TTL
+// in ms. Returns 1 when written, 0 when a newer owner has written.
+var writeScript = redis.NewScript(`
+local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
+local mine = tonumber(ARGV[1])
+if cur > mine then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[4])
+redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+return 1`)
+
+// deleteScript is writeScript for a delete.
+var deleteScript = redis.NewScript(`
+local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
+local mine = tonumber(ARGV[1])
+if cur > mine then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+redis.call('DEL', KEYS[2])
+return 1`)
+
+// write sets key to blob. With a fence token in the context (the owner under a group lease) it is
+// the epoch CAS: a pod whose epoch is below the highest written is refused with fence.ErrFenced, so
+// a paused or partitioned old owner cannot overwrite the new owner's snapshot. Without a token it is
+// the plain SET, as before.
+func (s *RedisLiveStateStore) write(ctx context.Context, vehicleID, key string, blob []byte, ttl time.Duration) error {
+	tok, ok := fence.From(ctx)
+	if !ok {
+		return s.rdb.Set(ctx, key, blob, ttl).Err()
+	}
+	n, err := writeScript.Run(ctx, s.rdb, []string{s.epochKey(vehicleID), key},
+		tok.Epoch, blob, ttl.Milliseconds(), epochTTL.Milliseconds()).Int()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fence.ErrFenced
+	}
+	return nil
 }
 
 // Load reads the snapshot for vehicleID. The bool is false (with nil
@@ -288,7 +338,18 @@ func (s *RedisLiveStateStore) Delete(ctx context.Context, vehicleID string) erro
 	if s == nil || s.rdb == nil {
 		return nil
 	}
-	return s.rdb.Del(ctx, s.key(vehicleID)).Err()
+	tok, ok := fence.From(ctx)
+	if !ok {
+		return s.rdb.Del(ctx, s.key(vehicleID)).Err()
+	}
+	n, err := deleteScript.Run(ctx, s.rdb, []string{s.epochKey(vehicleID), s.key(vehicleID)}, tok.Epoch, epochTTL.Milliseconds()).Int()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fence.ErrFenced
+	}
+	return nil
 }
 
 // stateKey scopes the live-State snapshot under a ":state" suffix so it
@@ -310,7 +371,7 @@ func (s *RedisLiveStateStore) PutState(ctx context.Context, vehicleID string, st
 	if err != nil {
 		return fmt.Errorf("encode live state: %w", err)
 	}
-	return s.rdb.Set(ctx, s.stateKey(vehicleID), blob, ttl).Err()
+	return s.write(ctx, vehicleID, s.stateKey(vehicleID), blob, ttl)
 }
 
 // GetState reads the published live State for vehicleID. Returns

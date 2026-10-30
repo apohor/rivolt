@@ -464,7 +464,7 @@ func (s *Store) Fence(vehicleID string) (fence.Token, fence.State) {
 		return fence.Token{}, fence.Lost
 	}
 	if at, stolen := s.stolenAt[g]; stolen && time.Since(at) < warmUp {
-		return fence.Token{}, fence.Warming
+		return fence.Token{Group: g, Pod: s.podID, Epoch: e}, fence.Warming
 	}
 	return fence.Token{Group: g, Pod: s.podID, Epoch: e}, fence.Held
 }
