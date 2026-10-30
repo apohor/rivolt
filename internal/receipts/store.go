@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -36,23 +37,24 @@ func (s *Store) claim(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 	if summaries {
 		col = "last_summary_at"
 	}
-	// The conditional upsert returns a row only when it inserted or the
-	// guard held; a user claimed within the interval returns none.
+	// The conditional upsert affects a row only when it inserted or the
+	// interval guard held; a user claimed within the interval affects none.
+	// With a fence token (the group's owner) it is also refused, as
+	// fence.ErrFenced, when the lease is gone.
 	q := fmt.Sprintf(`
 		INSERT INTO rivian_receipt_sync (user_id, last_attempt_at, last_summary_at)
-		VALUES ($1, NOW(), CASE WHEN $3::boolean THEN NOW() END)
+		SELECT $1::uuid, NOW(), CASE WHEN $3::boolean THEN NOW() END
+		 WHERE `+fence.OK+`
 		ON CONFLICT (user_id) DO UPDATE
 		   SET last_attempt_at = NOW(),
 		       last_summary_at = CASE WHEN $3::boolean THEN NOW() ELSE rivian_receipt_sync.last_summary_at END
-		 WHERE rivian_receipt_sync.%s IS NULL
-		    OR rivian_receipt_sync.%s < NOW() - $2::interval
-		RETURNING 1`, col, col)
-	var one int
-	err := s.db.QueryRowContext(ctx, q, uid, fmt.Sprintf("%d microseconds", minInterval.Microseconds()), summaries).Scan(&one)
-	if err == sql.ErrNoRows {
-		return false, nil
+		 WHERE (rivian_receipt_sync.%s IS NULL
+		    OR rivian_receipt_sync.%s < NOW() - $2::interval)`, col, col)
+	n, err := fence.Exec(ctx, s.db, q, uid, fmt.Sprintf("%d microseconds", minInterval.Microseconds()), summaries)
+	if err != nil {
+		return false, err
 	}
-	return err == nil, err
+	return n > 0, nil
 }
 
 // MarkResult stores the outcome of a claimed attempt. The error text is
@@ -60,14 +62,14 @@ func (s *Store) claim(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 // body.
 func (s *Store) MarkResult(ctx context.Context, uid uuid.UUID, runErr error) error {
 	if runErr == nil {
-		_, err := s.db.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_success_at = NOW(), last_error = NULL WHERE user_id = $1`, uid)
+		_, err := fence.Exec(ctx, s.db, `UPDATE rivian_receipt_sync SET last_success_at = NOW(), last_error = NULL WHERE user_id = $1 AND `+fence.OK, uid)
 		return err
 	}
 	msg := runErr.Error()
 	if len(msg) > 200 {
 		msg = msg[:200]
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_error = $2 WHERE user_id = $1`, uid, msg)
+	_, err := fence.Exec(ctx, s.db, `UPDATE rivian_receipt_sync SET last_error = $2 WHERE user_id = $1 AND `+fence.OK, uid, msg)
 	return err
 }
 
@@ -75,30 +77,63 @@ func (s *Store) MarkResult(ctx context.Context, uid uuid.UUID, runErr error) err
 // already have (a receipt can finalize later) and keeping detail and
 // match state.
 func (s *Store) UpsertReceipts(ctx context.Context, uid uuid.UUID, in []rivian.SessionSummary) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `
+	const q = `
 		INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, energy_kwh, range_added_km, vendor, city)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6,''), $7, $8, NULLIF($9,''), NULLIF($10,''))
+		SELECT $1::uuid, $2::text, $3::timestamptz, $4::timestamptz, $5::numeric, NULLIF($6::text,''),
+		       $7::double precision, $8::double precision, NULLIF($9::text,''), NULLIF($10::text,'')
+		 WHERE ` + fence.OK + `
 		ON CONFLICT (user_id, transaction_id) DO UPDATE SET
 		    started_at = EXCLUDED.started_at, ended_at = EXCLUDED.ended_at,
 		    total_cost = EXCLUDED.total_cost, currency = EXCLUDED.currency,
 		    energy_kwh = EXCLUDED.energy_kwh, range_added_km = EXCLUDED.range_added_km,
-		    vendor = EXCLUDED.vendor, city = EXCLUDED.city, fetched_at = NOW()`)
-	if err != nil {
+		    vendor = EXCLUDED.vendor, city = EXCLUDED.city, fetched_at = NOW()`
+	return s.inChunks(ctx, len(in), func(ctx context.Context, tx *sql.Tx, i int) error {
+		r := in[i]
+		_, err := fence.Exec(ctx, tx, q, uid, r.TransactionID, r.StartedAt, r.EndedAt,
+			nullFloat(r.TotalCost), r.Currency, nullFloat(r.EnergyKWh), nullFloat(r.RangeAddedKm), r.Vendor, r.City)
 		return err
+	})
+}
+
+// guardedChunk bounds how many rows one guarded transaction writes: a guarded transaction is capped
+// at fence.TxCap (2 s), and a user's first summaries call can return their whole history.
+const guardedChunk = 50
+
+// inChunks runs fn for each of n items in transactions. Without a fence token it is one plain
+// transaction, as before. With one, each transaction is bounded and holds at
+// most guardedChunk items (fence.InTx), so an owner's last commit lands within the bound after its lease ends;
+// a refusal (fence.ErrFenced) stops the run, and chunks already committed stay (each is whole).
+func (s *Store) inChunks(ctx context.Context, n int, fn func(ctx context.Context, tx *sql.Tx, i int) error) error {
+	if n == 0 {
+		return nil
 	}
-	defer stmt.Close()
-	for _, r := range in {
-		if _, err := stmt.ExecContext(ctx, uid, r.TransactionID, r.StartedAt, r.EndedAt,
-			nullFloat(r.TotalCost), r.Currency, nullFloat(r.EnergyKWh), nullFloat(r.RangeAddedKm), r.Vendor, r.City); err != nil {
+	if _, guarded := fence.From(ctx); !guarded {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		for i := 0; i < n; i++ {
+			if err := fn(ctx, tx, i); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}
+	for start := 0; start < n; start += guardedChunk {
+		end := min(start+guardedChunk, n)
+		if err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
+			for i := start; i < end; i++ {
+				if err := fn(tctx, tx, i); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // Unmatched lists the user's receipts that no charge claims yet.
@@ -138,42 +173,34 @@ func (s *Store) CandidateCharges(ctx context.Context, uid uuid.UUID, from, to ti
 // billed amount in receipt_*. A charge's cost, cost_source and
 // price_per_kwh are left alone.
 func (s *Store) Apply(ctx context.Context, uid uuid.UUID, pairs []Pair) error {
-	if len(pairs) == 0 {
-		return nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	for _, p := range pairs {
-		if _, err := tx.ExecContext(ctx, `
+	return s.inChunks(ctx, len(pairs), func(ctx context.Context, tx *sql.Tx, i int) error {
+		p := pairs[i]
+		if _, err := fence.Exec(ctx, tx, `
 			UPDATE rivian_receipts SET charge_id = $3, matched_at = NOW()
-			 WHERE id = $1 AND user_id = $2 AND charge_id IS NULL`, p.ReceiptID, uid, p.ChargeID); err != nil {
+			 WHERE id = $1 AND user_id = $2 AND charge_id IS NULL AND `+fence.OK, p.ReceiptID, uid, p.ChargeID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `
+		_, err := fence.Exec(ctx, tx, `
 			UPDATE charges c
 			   SET receipt_cost = r.total_cost, receipt_currency = r.currency,
 			       receipt_txn_id = r.transaction_id, receipt_source = 'rivian_receipt', updated_at = NOW()
 			  FROM rivian_receipts r
-			 WHERE r.id = $1 AND r.user_id = $2 AND c.id = $3 AND c.user_id = $2 AND c.receipt_txn_id IS NULL`,
-			p.ReceiptID, uid, p.ChargeID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+			 WHERE r.id = $1 AND r.user_id = $2 AND c.id = $3 AND c.user_id = $2 AND c.receipt_txn_id IS NULL AND `+fence.OK,
+			p.ReceiptID, uid, p.ChargeID)
+		return err
+	})
 }
 
 // RefreshMatched copies a changed amount or currency from a receipt to the
 // charge it is linked to.
 func (s *Store) RefreshMatched(ctx context.Context, uid uuid.UUID) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := fence.Exec(ctx, s.db, `
 		UPDATE charges c
 		   SET receipt_cost = r.total_cost, receipt_currency = r.currency, updated_at = NOW()
 		  FROM rivian_receipts r
 		 WHERE r.user_id = $1 AND r.charge_id = c.id AND c.user_id = $1
-		   AND (c.receipt_cost IS DISTINCT FROM r.total_cost OR c.receipt_currency IS DISTINCT FROM r.currency)`, uid)
+		   AND (c.receipt_cost IS DISTINCT FROM r.total_cost OR c.receipt_currency IS DISTINCT FROM r.currency)
+		   AND `+fence.OK, uid)
 	return err
 }
 
@@ -217,10 +244,10 @@ func (s *Store) SaveDetail(ctx context.Context, uid uuid.UUID, txn string, c *ri
 	if c != nil && c.Vendor != "" {
 		vendor = sql.NullString{String: c.Vendor, Valid: true}
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := fence.Exec(ctx, s.db, `
 		UPDATE rivian_receipts
 		   SET charger_name = $3, is_home_charger = $4, vendor = COALESCE($5, vendor), detail_fetched_at = NOW()
-		 WHERE user_id = $1 AND transaction_id = $2`, uid, txn, name, home, vendor)
+		 WHERE user_id = $1 AND transaction_id = $2 AND `+fence.OK, uid, txn, name, home, vendor)
 	return err
 }
 

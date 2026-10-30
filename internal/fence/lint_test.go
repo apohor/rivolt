@@ -46,22 +46,16 @@ var deferredToM4 = map[string]string{
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
-	"samples.Store.InsertBulk":      "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"receipts.Store.claim":          "receipts PR: the claim insert of the owner's receipts sync",
-	"receipts.Store.UpsertReceipts": "receipts PR: the owner's receipts fetch",
-	"receipts.Store.SaveDetail":     "receipts PR: the owner's receipts fetch",
-	"receipts.Store.Apply":          "receipts PR: matches a receipt to a charge after the owner's fetch",
-	"receipts.Store.MarkResult":     "receipts PR: the owner's sync result",
-	"receipts.Store.RefreshMatched": "receipts PR: runs inside the owner's syncer (syncer.go)",
-	"db.ClaimOTAFetch":              "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.MarkOTAUnavailable":         "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.SetVehicleOTA":              "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.SeedOTANotices":             "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.ClaimOTANotice":             "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.UpsertVehicleFromSync":      "vehicle metadata PR: the monitor's vehicle-info hook (cmd/rivolt/main.go); connect and /api/vehicles stay unguarded (no token)",
-	"cmd/rivolt.runServer":          "vehicle metadata PR: the monitor's battery-capacity hook writes vehicles.pack_kwh inline; move it into db and guard it",
-	"milestones.pgStore.Insert":     "sends PR: the milestone row of the owner's drive/charge close hook (checker.Check); CatchUp and Backfill stay unguarded",
-	"leftopen.pgSource.Claim":       "sends PR: the left-open episode claim, made from the vehicle's monitor state on the owner",
+	"samples.Store.InsertBulk":  "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
+	"db.ClaimOTAFetch":          "OTA PR: the owner's OTA details sync (otadetails)",
+	"db.MarkOTAUnavailable":     "OTA PR: the owner's OTA details sync (otadetails)",
+	"db.SetVehicleOTA":          "OTA PR: the owner's OTA details sync (otadetails)",
+	"db.SeedOTANotices":         "OTA PR: the owner's OTA details sync (otadetails)",
+	"db.ClaimOTANotice":         "OTA PR: the owner's OTA details sync (otadetails)",
+	"db.UpsertVehicleFromSync":  "vehicle metadata PR: the monitor's vehicle-info hook (cmd/rivolt/main.go); connect and /api/vehicles stay unguarded (no token)",
+	"cmd/rivolt.runServer":      "vehicle metadata PR: the monitor's battery-capacity hook writes vehicles.pack_kwh inline; move it into db and guard it",
+	"milestones.pgStore.Insert": "sends PR: the milestone row of the owner's drive/charge close hook (checker.Check); CatchUp and Backfill stay unguarded",
+	"leftopen.pgSource.Claim":   "sends PR: the left-open episode claim, made from the vehicle's monitor state on the owner",
 }
 
 // notOwnerSide is permanent. Each entry names who calls it.
@@ -267,7 +261,7 @@ var writeSQL = regexp.MustCompile(`(?is)\b(INSERT\s+INTO\s+[a-z_]+|UPDATE\s+[a-z
 
 // guarded reports whether a function body (or a statement it uses) carries the fence.
 func guarded(src string) bool {
-	return strings.Contains(src, "rivolt_lease_ok") || strings.Contains(src, "fence.From(") || strings.Contains(src, "guardedInsert") || strings.Contains(src, "execOwnerWrite(") || strings.Contains(src, "guardedChargeUpsert")
+	return strings.Contains(src, "rivolt_lease_ok") || strings.Contains(src, "fence.From(") || strings.Contains(src, "guardedInsert") || strings.Contains(src, "execOwnerWrite(") || strings.Contains(src, "guardedChargeUpsert") || strings.Contains(src, "fence.Exec(")
 }
 
 // writers returns "pkg.Recv.Func" for every function under internal/ and cmd/ whose string

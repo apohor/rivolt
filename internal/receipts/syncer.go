@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -53,7 +55,8 @@ const (
 
 // Result is what one Sync did, for logs and tests.
 type Result struct {
-	Skipped     bool // claimed by another run within the interval
+	Skipped     bool // claimed by another run within the interval, or not this pod's user
+	NotOwner    bool // skipped because another pod owns the user's group (lead mode)
 	Fetched     int  // summaries returned
 	Matched     int  // new receipt-to-charge links
 	Details     int  // detail calls that succeeded
@@ -74,6 +77,26 @@ type Syncer struct {
 
 	mu     sync.Mutex
 	timers map[uuid.UUID]stopper
+
+	// fence, when set, says whether this pod owns the user's group (single-owner, lead mode).
+	fence atomic.Pointer[userFencer]
+}
+
+// UserFencer resolves a user to the fence state of their group: the lease store implements it.
+type UserFencer interface {
+	FenceUser(ctx context.Context, uid string) (fence.Token, fence.State, error)
+}
+
+type userFencer struct{ UserFencer }
+
+// SetFence makes the sync run only on the pod that owns the user's group, with its writes guarded
+// by that lease (lead mode); with lead mode off the store says Off and nothing changes.
+func (s *Syncer) SetFence(f UserFencer) {
+	if f == nil {
+		s.fence.Store(nil)
+		return
+	}
+	s.fence.Store(&userFencer{f})
 }
 
 type stopper interface{ Stop() bool }
@@ -104,6 +127,23 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 	if s.enabled != nil && !s.enabled(uid) {
 		res.Skipped = true
 		return res, nil
+	}
+	// Single-owner: only the pod that holds the user's group syncs, and its writes carry the lease.
+	// Checked before the claim, so a pod that doesn't own the user never takes the claim (which
+	// would hold the owner off for the whole interval) and never touches the Rivian account.
+	if f := s.fence.Load(); f != nil {
+		tok, st, err := f.FenceUser(ctx, uid.String())
+		if err != nil {
+			return res, err
+		}
+		switch st {
+		case fence.Held:
+			ctx = fence.With(ctx, tok)
+		case fence.Warming, fence.Lost:
+			res.Skipped = true
+			res.NotOwner = true
+			return res, nil
+		}
 	}
 	acct := s.accounts.For(uid)
 	src, ok := acct.(rivian.ReceiptSource)
