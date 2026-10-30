@@ -126,3 +126,22 @@ func TestRegisterDBPoolReportsTheLimit(t *testing.T) {
 		}
 	}
 }
+
+// The lease counters exist at 0 from boot: an alert on increase() needs the series to be there before
+// its first increment.
+func TestLeaseCountersExistFromBoot(t *testing.T) {
+	m := New()
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	for _, kind := range LeaseFencedKinds {
+		if !strings.Contains(body, `rivolt_lease_fenced_total{kind="`+kind+`"} 0`) {
+			t.Errorf("rivolt_lease_fenced_total{kind=%q} is not exported at 0 from boot", kind)
+		}
+	}
+	for _, source := range []string{"db", "local"} {
+		if !strings.Contains(body, `rivolt_lease_fence_would_reject_total{source="`+source+`"} 0`) {
+			t.Errorf("rivolt_lease_fence_would_reject_total{source=%q} is not exported at 0 from boot", source)
+		}
+	}
+}
