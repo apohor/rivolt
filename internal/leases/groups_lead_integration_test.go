@@ -83,7 +83,7 @@ func converge(ctx context.Context, t *testing.T, pods []*leases.Store, limit int
 func TestLead_SpreadsAcrossPods_3_5_2(t *testing.T) {
 	pool := setup(t)
 	ctx := context.Background()
-	const groups = 12
+	const groups = 30
 	seedSessionGroups(ctx, t, pool, groups)
 
 	a, b, c := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b"), leadStore(t, pool, "pod-c")
