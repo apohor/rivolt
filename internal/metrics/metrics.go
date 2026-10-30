@@ -57,6 +57,10 @@ type Metrics struct {
 	// LeaseFenced counts owner-side writes refused or skipped because this pod no longer holds the
 	// group lease, by write class (samples, ...). Alert on > 0 for 10 minutes.
 	LeaseFenced *prometheus.CounterVec
+	// LeaseShed counts the lead-mode shed decisions of a pod over its fair share, by choice: idle
+	// (a sleeping group), awake (no sleeping one), deferred (every group over the share had an open
+	// drive or charge, so nothing moved that pass).
+	LeaseShed *prometheus.CounterVec
 	// LeaseUnstreamed counts episodes of a lease this pod holds without
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
@@ -311,6 +315,13 @@ func New() *Metrics {
 				Help: "Group lease tokens held by this pod that the fence check would have refused (dry run). source is db (rivolt_lease_ok) or local (renewals failing past the local deadline).",
 			},
 			[]string{"source"},
+		),
+		LeaseShed: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_lease_shed_total",
+				Help: "Lead-mode shed decisions of a pod over its fair share, by choice (idle, awake, deferred: every group over the share had an open drive or charge).",
+			},
+			[]string{"choice"},
 		),
 		LeaseFenced: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -572,6 +583,7 @@ func New() *Metrics {
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
+		m.LeaseShed,
 		m.LeaseUnstreamed,
 		m.ReauthRaiseDeferred,
 		m.RivianAccountMismatch,
