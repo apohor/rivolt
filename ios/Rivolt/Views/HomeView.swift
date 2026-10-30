@@ -36,6 +36,7 @@ struct HomeView: View {
     @State private var clockTick = Date()
     @State private var places = PlacesModel()
     @State private var kpi = KpiModel()
+    @State private var yourWeek = YourWeekModel()
     @State private var recentCharges: [ChargeBrief] = []
     /// The Rivian connection, read once for the "expires" notice (nothing in the demo).
     @State private var rivian: RivianStatus?
@@ -75,6 +76,7 @@ struct HomeView: View {
                                 }
                             }
                             if !state.isDemo { threeThings }
+                            if let w = yourWeek.week { YourWeekStrip(week: w, demo: state.isDemo) }
                             KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
                                     idleLoading: charts.isLoading)
                             // The web's order after the tiles: where it charges, then the two charts.
@@ -198,6 +200,8 @@ struct HomeView: View {
         async let k: Void = kpi.load(source: state.client, vehicleID: id, month: month, scopeLedger: vehicles.count > 1,
                                       lastChargeEnd: lastChargeEnd, force: force)
         _ = await (c, p, k)
+        // After the others: the demo server limits heavy reads a minute, and the strip is the least important of them.
+        await yourWeek.load(source: state.client, vehicleID: id, force: force)
     }
 
     /// `force` is for a pull or the Refresh button: only then are the charts read again before their cache expires.
