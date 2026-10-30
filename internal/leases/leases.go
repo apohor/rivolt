@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 )
@@ -806,40 +807,49 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		c.log.Warn("group vehicles failed", "err", err.Error())
 		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
 	}
-	gone := map[string]bool{}
-	for _, g := range res.Lost {
-		gone[g] = true
-	}
+	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is
+	// stopped, waited for and released, in that order. This covers lost groups, vehicle leases
+	// left from M1 or from drift, and the shed and retired groups.
+	giving := map[string]bool{}
 	for _, g := range res.Shed {
-		gone[g] = true
+		giving[g] = true
 	}
-	if len(gone) > 0 {
+	for _, g := range res.Retire {
+		giving[g] = true
+	}
+	c.mu.Lock()
+	var stop []string
+	for vid := range c.owned {
+		g, known := vg[vid]
+		if _, held := res.Held[g]; !known || !held || giving[g] {
+			stop = append(stop, vid)
+		}
+	}
+	c.mu.Unlock()
+	sort.Strings(stop)
+	failed := map[string]bool{}
+	for _, vid := range stop {
+		c.log.Info("lease released: group not held, or over its share", "vehicle", vid)
+		c.onRelease(vid)
+		c.waitStopped(ctx, vid)
+		if rerr := c.store.Release(ctx, vid); rerr != nil {
+			c.log.Warn("group lead vehicle release failed", "vehicle", vid, "err", rerr.Error())
+			failed[vg[vid]] = true
+			continue
+		}
 		c.mu.Lock()
-		var stop []string
-		for vid := range c.owned {
-			if gone[vg[vid]] {
-				stop = append(stop, vid)
-			}
-		}
+		delete(c.owned, vid)
 		c.mu.Unlock()
-		for _, vid := range stop {
-			c.log.Info("lease released: group no longer ours or over its share", "vehicle", vid)
-			c.onRelease(vid)
-			c.waitStopped(ctx, vid)
-			if rerr := c.store.Release(ctx, vid); rerr != nil {
-				c.log.Warn("group lead vehicle release failed", "vehicle", vid, "err", rerr.Error())
-				continue
-			}
-			c.mu.Lock()
-			delete(c.owned, vid)
-			c.mu.Unlock()
+	}
+	for g := range giving {
+		if failed[g] {
+			continue // a vehicle is still leased: keep the group and retry next pass
 		}
-		for _, g := range append(append([]string(nil), res.Shed...), res.Retire...) {
-			if rerr := gl.ReleaseGroup(ctx, g); rerr != nil {
-				c.log.Warn("group release failed", "err", rerr.Error())
-			}
-			delete(res.Held, g)
+		if rerr := gl.ReleaseGroup(ctx, g); rerr != nil {
+			c.log.Warn("group release failed", "err", rerr.Error())
+			continue
 		}
+		delete(res.Held, g)
 	}
 	if c.onGroups != nil {
 		c.onGroups(len(res.Held))

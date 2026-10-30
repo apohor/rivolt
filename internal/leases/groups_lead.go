@@ -273,7 +273,7 @@ func (s *Store) ReleaseGroup(ctx context.Context, group string) error {
 	delete(s.groups, group)
 	s.groupMu.Unlock()
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp() WHERE group_id::text = $1 AND pod_id = $2`,
+		`UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp() WHERE group_id = $1::uuid AND pod_id = $2`,
 		group, s.podID)
 	return err
 }
