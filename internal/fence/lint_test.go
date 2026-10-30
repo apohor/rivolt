@@ -29,25 +29,23 @@ const enforcementComplete = false
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
-	"samples.Store.InsertBulk":       "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"engage.pgStore.Claim":           "sends PR: the epoch goes into the claim insert, so a zombie cannot claim (charging complete, left-open, plug reminder, milestones); other callers, such as the statement job, have no token",
-	"engage.pgStore.Mark":            "sends PR: result of a claimed send",
-	"engage.pgStore.RecordSkip":      "sends PR: a finished skip row is a claim too",
-	"push.Store.CreateNotification":  "sends PR: the notification row of an owner-triggered send",
-	"push.Store.RegisterActivity":    "sends PR: Live Activity start, owner-side",
-	"push.Store.EndActivity":         "sends PR: Live Activity end, owner-side",
-	"push.Store.SetAPNsLive":         "sends PR: Live Activity state, owner-side",
-	"push.Store.claimActivityUpdate": "sends PR: the Live Activity update claim",
-	"receipts.Store.claim":           "receipts PR: the claim insert of the owner's receipts sync",
-	"receipts.Store.UpsertReceipts":  "receipts PR: the owner's receipts fetch",
-	"receipts.Store.SaveDetail":      "receipts PR: the owner's receipts fetch",
-	"receipts.Store.Apply":           "receipts PR: matches a receipt to a charge after the owner's fetch",
-	"receipts.Store.MarkResult":      "receipts PR: the owner's sync result",
-	"receipts.Store.RefreshMatched":  "receipts PR: runs inside the owner's syncer (syncer.go)",
+	"samples.Store.InsertBulk":      "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
+	"receipts.Store.claim":          "receipts PR: the claim insert of the owner's receipts sync",
+	"receipts.Store.UpsertReceipts": "receipts PR: the owner's receipts fetch",
+	"receipts.Store.SaveDetail":     "receipts PR: the owner's receipts fetch",
+	"receipts.Store.Apply":          "receipts PR: matches a receipt to a charge after the owner's fetch",
+	"receipts.Store.MarkResult":     "receipts PR: the owner's sync result",
+	"receipts.Store.RefreshMatched": "receipts PR: runs inside the owner's syncer (syncer.go)",
 }
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
+	"engage.pgStore.Mark":                  "bookkeeping of a claim that was already guarded (status sending -> sent/failed); a refusal here would leave the row stuck in 'sending'",
+	"push.Store.CreateNotification":        "the notification text of a send; reached only from hooks the recorder gates on the fence (StateMonitor.hookFence) and from user actions, never on its own",
+	"push.Store.RegisterActivity":          "user action (api/push_apns.go: the app starts a Live Activity)",
+	"push.Store.EndActivity":               "user action (api/push_apns.go)",
+	"push.Store.SetAPNsLive":               "user action (api/push_apns.go: the Live Activity switch)",
+	"push.Store.claimActivityUpdate":       "interval claim of the RunLive loop, which sends only for vehicles whose live state this pod holds; known gap until M4 (non-owners still hold state): the min-interval claim dedupes, and the end of an activity goes through the gated close hook",
 	"samples.Store.Reset":                  "user action (reset data)",
 	"samples.Thinner.thin":                 "singleton maintenance job",
 	"samples.Thinner.dropExpiredFull":      "singleton maintenance job",

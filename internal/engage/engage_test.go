@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 type row struct {
@@ -288,5 +290,27 @@ func TestBudgetedPushNeedsAZone(t *testing.T) {
 	e2, _ := engine(g, at(20)) // 15:00 local
 	if out, _ := send(e2, push, &n); out != Sent {
 		t.Errorf("push with the statement zone: %s", out)
+	}
+}
+
+type fencedStore struct{ *fakeStore }
+
+func (fencedStore) Claim(context.Context, Msg, time.Time, time.Time, int) (bool, bool, error) {
+	return false, false, fence.ErrFenced
+}
+
+// A claim refused because this pod lost the account's group lease sends nothing, and is not an error.
+func TestFencedClaimSendsNothing(t *testing.T) {
+	f := newFake("UTC", true)
+	e := &Engage{Store: fencedStore{f}, Now: func() time.Time { return at(12) }}
+	var seen []string
+	e.Observe = func(k, o string) { seen = append(seen, k+":"+o) }
+	delivered := 0
+	out, err := send(e, Msg{User: uuid.New(), Kind: "k", Key: "x", Channel: Push, Utility: true, Toggle: on}, &delivered)
+	if err != nil || out != Fenced || delivered != 0 {
+		t.Fatalf("out=%q err=%v delivered=%d, want fenced, nil, 0", out, err, delivered)
+	}
+	if len(seen) != 1 || seen[0] != "k:fenced" {
+		t.Errorf("observed %v", seen)
 	}
 }

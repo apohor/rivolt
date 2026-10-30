@@ -849,6 +849,28 @@ func (m *StateMonitor) fenceCtx(ctx context.Context, vehicleID, kind string) (co
 	return c, st == fence.Off || st == fence.Held
 }
 
+// hookFence decides whether a close hook (the owner-triggered sends: charging complete, milestones,
+// trip recap, the Live Activity end, receipts and OTA syncs) may run now. A pod that does not hold
+// the vehicle's group sends nothing: Lost skips the hook (the new owner's recorder closes the same
+// session and runs its own); Warming runs it once after the warm-up (run is called with that
+// moment's fence); Held runs it with the fence token in the context, so a claim insert made with
+// that context carries the epoch (engage.Claim, RecordSkip). Off (lead mode off) is unchanged.
+func (m *StateMonitor) hookFence(ctx context.Context, vehicleID string, run func(context.Context)) (context.Context, bool) {
+	c, st := m.fenceState(ctx, vehicleID, "sends")
+	switch st {
+	case fence.Off, fence.Held:
+		return c, true
+	case fence.Warming:
+		m.afterWarmUp(vehicleID, func(fc context.Context) error {
+			hc, cancel := context.WithTimeout(context.WithoutCancel(fc), 30*time.Second)
+			defer cancel()
+			run(hc)
+			return nil
+		}, "sends")
+	}
+	return ctx, false
+}
+
 // afterWarmUp runs a final write (a session that has closed, so no later frame repeats it) once
 // the post-steal warm-up is over, under the fence of that moment. If the group is warming again (a
 // second steal) it waits once more; if the group is lost the write is dropped, counted and logged.
