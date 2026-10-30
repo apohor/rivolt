@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -174,6 +175,9 @@ func TestScheduleNudgeOnPlugIn(t *testing.T) {
 }
 
 func TestChargingScheduleLoopReadsOnConnectAndNudge(t *testing.T) {
+	oldJitter := scheduleConnectJitter
+	scheduleConnectJitter = 0
+	defer func() { scheduleConnectJitter = oldJitter }()
 	m, calls := schedMonitor(schedHomeLat, schedHomeLon)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -272,5 +276,66 @@ func TestChargingSchedulesOtherErrorsKeepRetrying(t *testing.T) {
 	m.readChargingSchedules(ctx, "v", 0)
 	if calls != 2 || m.cache["v"].ChargingSchedulesUnavailable {
 		t.Errorf("calls %d unavailable %v; an outage must not back off or mark", calls, m.cache["v"].ChargingSchedulesUnavailable)
+	}
+}
+
+// A read refused by the shared Rivian budget (a handover burst) is retried once after the wait it names, and
+// the read is recorded when the retry works.
+func TestScheduleReadRetriesOnceAfterARateLimit(t *testing.T) {
+	oldCap, oldJitter := scheduleRetryCap, scheduleRetryJitter
+	scheduleRetryCap, scheduleRetryJitter = 50*time.Millisecond, time.Millisecond
+	defer func() { scheduleRetryCap, scheduleRetryJitter = oldCap, oldJitter }()
+
+	m, calls := schedMonitor(schedHomeLat, schedHomeLon)
+	failures := 1
+	inner := m.fetchSchedules
+	m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+		if failures > 0 {
+			failures--
+			calls.Add(1)
+			return nil, &ErrRateLimited{RetryAfter: 10 * time.Millisecond}
+		}
+		return inner(ctx, v)
+	}
+	m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+	if calls.Load() != 2 {
+		t.Fatalf("fetch calls = %d, want 2 (the refusal and one retry)", calls.Load())
+	}
+	m.mu.Lock()
+	_, recorded := m.scheduleReads["v"]
+	m.mu.Unlock()
+	if !recorded {
+		t.Error("the retried read was not recorded")
+	}
+
+	// A second refusal is not retried again (one retry only).
+	calls.Store(0)
+	failures = 2
+	m2, calls2 := schedMonitor(schedHomeLat, schedHomeLon)
+	n := 0
+	m2.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		n++
+		calls2.Add(1)
+		return nil, &ErrRateLimited{RetryAfter: time.Millisecond}
+	}
+	m2.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+	if n != 2 {
+		t.Errorf("fetch calls on a persistent refusal = %d, want 2", n)
+	}
+}
+
+func TestDescribeNamesOurGatesAndTheRootType(t *testing.T) {
+	cases := map[string]error{
+		"rate limited, retry after 3s": fmt.Errorf("GetChargingSchedule: %w", &ErrRateLimited{RetryAfter: 3 * time.Second}),
+		"rivian upstream breaker open": fmt.Errorf("x: %w", ErrUpstreamBreakerOpen),
+		"error (*errors.errorString)":  fmt.Errorf("wrapped: %w", errors.New("secret body text")),
+	}
+	for want, err := range cases {
+		if got := Describe(err); got != want {
+			t.Errorf("Describe(%v) = %q, want %q", err, got, want)
+		}
+	}
+	if strings.Contains(Describe(fmt.Errorf("w: %w", errors.New("secret body text"))), "secret") {
+		t.Error("Describe leaked the cause's text")
 	}
 }
