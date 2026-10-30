@@ -1767,7 +1767,24 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		return
 	}
 	row := m.liveChargeRow(vehicleID, c)
-	if err := m.chargesStore.Upsert(ctx, row); err != nil {
+	wctx, st := m.fenceState(ctx, vehicleID, "charges")
+	switch st {
+	case fence.Lost:
+		return // not ours any more; the coordinator is stopping this vehicle
+	case fence.Warming:
+		// Taken from a pod that did not release it: wait out the warm-up before the first write. The
+		// open session writes again on its next frame; a charge that closes in the window is written
+		// once, here, when it ends (its energy is in the row built now, not lost).
+		if c.final {
+			m.afterWarmUp(vehicleID, func(fc context.Context) error { return m.chargesStore.Upsert(fc, row) }, "charges")
+		}
+		return
+	}
+	if err := m.chargesStore.Upsert(wctx, row); err != nil {
+		if errors.Is(err, fence.ErrFenced) {
+			m.fenced("charges", vehicleID)
+			return
+		}
 		if sessionOverlapRejected(err) {
 			if !c.rejected {
 				m.logger.Warn("live charge rejected: overlaps another live charge for this vehicle (duplicate recorder?); retrying with a trimmed start",
@@ -2375,9 +2392,17 @@ func (m *StateMonitor) closeStaleOpenCharges(ctx context.Context, vehicleID, kee
 	if m.chargesStore == nil {
 		return
 	}
-	cctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	fctx, ok := m.fenceCtx(ctx, vehicleID, "charges")
+	if !ok {
+		return
+	}
+	cctx, cancel := context.WithTimeout(fctx, 1*time.Second)
 	defer cancel()
 	n, err := m.chargesStore.CloseStaleOpenLive(cctx, vehicleID, keepID)
+	if errors.Is(err, fence.ErrFenced) {
+		m.fenced("charges", vehicleID)
+		return
+	}
 	if err != nil {
 		m.noteWriteFailure("stale_charge", vehicleID, keepID, err)
 		return

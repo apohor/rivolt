@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // openLiveFinalStates is the canonical whitelist of charges.final_state
@@ -254,34 +255,29 @@ func (s *Store) MarkFree(ctx context.Context, externalID, currency string) (int6
 	return n, nil
 }
 
-// Upsert inserts or replaces a charge by external_id within the
-// (user_id, vehicle_id) scope.
-func (s *Store) Upsert(ctx context.Context, c Charge) error {
-	vid, err := s.vehicles.Resolve(ctx, c.VehicleID)
-	if err != nil {
-		return err
-	}
-	month, url := CleanEstimate(c.EstimateMonth, c.EstimateURL)
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO charges (
-			user_id, vehicle_id, external_id,
-			started_at, ended_at,
-			start_soc_pct, end_soc_pct,
-			energy_added_kwh, miles_added,
-			max_power_kw, avg_power_kw, final_state,
-			lat, lon, source,
-			cost, currency, price_per_kwh,
-			thermal_kwh,
-			active_seconds,
-			cost_source, network, place,
-			network_state, network_confidence, network_evidence,
-			rivian_charger,
-			estimate_month, estimate_url,
-			charge_limit_pct,
-			place_override, location_override,
-			metadata
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32,
-			CASE WHEN $33::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END)
+// chargeColumns is the column list Upsert writes, in args order; metadata (last) is computed from
+// the energy-estimated flag.
+var chargeColumns = []string{
+	"user_id", "vehicle_id", "external_id",
+	"started_at", "ended_at",
+	"start_soc_pct", "end_soc_pct",
+	"energy_added_kwh", "miles_added",
+	"max_power_kw", "avg_power_kw", "final_state",
+	"lat", "lon", "source",
+	"cost", "currency", "price_per_kwh",
+	"thermal_kwh",
+	"active_seconds",
+	"cost_source", "network", "place",
+	"network_state", "network_confidence", "network_evidence",
+	"rivian_charger",
+	"estimate_month", "estimate_url",
+	"charge_limit_pct",
+	"place_override", "location_override",
+}
+
+// chargeOnConflict is the update half of the upsert, shared by the plain and the guarded
+// statement; $EST is the energy-estimated flag's parameter.
+const chargeOnConflict = `
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -330,8 +326,39 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			charge_limit_pct = COALESCE(EXCLUDED.charge_limit_pct, charges.charge_limit_pct),
 			-- Sticky: an estimated energy stays marked, whatever re-saves the row later.
-			metadata         = CASE WHEN $33::boolean THEN charges.metadata || '{"energy_estimated": true}'::jsonb ELSE charges.metadata END,
-			updated_at       = NOW()`,
+			metadata         = CASE WHEN $EST::boolean THEN charges.metadata || '{"energy_estimated": true}'::jsonb ELSE charges.metadata END,
+			updated_at       = NOW()`
+
+// plainChargeUpsert binds the 32 columns and the estimated flag ($33).
+var plainChargeUpsert = `
+		INSERT INTO charges (` + strings.Join(chargeColumns, ", ") + `, metadata
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32,
+			CASE WHEN $33::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END)` + strings.ReplaceAll(chargeOnConflict, "$EST", "$33")
+
+// guardedChargeUpsert writes the charge only if rivolt_lease_ok(group, pod, epoch) holds when the
+// statement starts, and says so in the same statement: (false, 0) refused, (true, 1) written. The
+// columns arrive as one JSON document ($4, see fence.RowJSON) and the energy-estimated flag as $5.
+var guardedChargeUpsert = `
+	WITH ok AS MATERIALIZED (SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint) AS ok),
+	ins AS (
+		INSERT INTO charges (` + strings.Join(chargeColumns, ", ") + `, metadata
+		) SELECT ` + "r." + strings.Join(chargeColumns, ", r.") + `,
+		         CASE WHEN $5::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END
+		  FROM ok, json_populate_record(NULL::charges, $4::json) r WHERE ok.ok` + strings.ReplaceAll(chargeOnConflict, "$EST", "$5") + `
+		RETURNING 1)
+	SELECT (SELECT ok FROM ok), (SELECT count(*) FROM ins)`
+
+// Upsert inserts or replaces a charge by external_id. With a fence token in the context (the live
+// recorder of a pod that holds the group lease) the write is guarded by the lease in the same
+// statement and returns fence.ErrFenced when the lease is gone; without one it is the plain
+// statement, as for imports, restores and repairs.
+func (s *Store) Upsert(ctx context.Context, c Charge) error {
+	vid, err := s.vehicles.Resolve(ctx, c.VehicleID)
+	if err != nil {
+		return err
+	}
+	month, url := CleanEstimate(c.EstimateMonth, c.EstimateURL)
+	args := []any{
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
 		nullIfZero(c.StartSoCPct), nullIfZero(c.EndSoCPct),
@@ -349,7 +376,23 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfEmpty(month), nullIfEmpty(url),
 		nullableFloatPtr(c.ChargeLimitPct),
 		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride),
-		c.EnergyEstimated)
+	}
+	if tok, ok := fence.From(ctx); ok {
+		doc, err := fence.RowJSON(chargeColumns, args)
+		if err != nil {
+			return err
+		}
+		var allowed bool
+		var n int
+		if err := s.db.QueryRowContext(ctx, guardedChargeUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc), c.EnergyEstimated).Scan(&allowed, &n); err != nil {
+			return err
+		}
+		if !allowed {
+			return fence.ErrFenced
+		}
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, plainChargeUpsert, append(args, c.EnergyEstimated)...)
 	return err
 }
 
@@ -557,6 +600,40 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 	return &c, nil
 }
 
+// execOwnerWrite runs an UPDATE of the live recorder's charge rows. The query ends its WHERE with
+// {{LEASE}}: with a fence token in the context that becomes AND rivolt_lease_ok(group, pod, epoch)
+// (the check is in the statement itself), without one it is empty. When a guarded statement
+// changed nothing it asks whether the lease is gone (the row may simply not exist), and returns
+// fence.ErrFenced if so.
+func (s *Store) execOwnerWrite(ctx context.Context, query string, args ...any) (int, error) {
+	tok, guarded := fence.From(ctx)
+	if !guarded {
+		res, err := s.db.ExecContext(ctx, strings.ReplaceAll(query, "{{LEASE}}", ""), args...)
+		if err != nil {
+			return 0, err
+		}
+		n, _ := res.RowsAffected()
+		return int(n), nil
+	}
+	k := len(args)
+	query = strings.ReplaceAll(query, "{{LEASE}}", fmt.Sprintf("AND rivolt_lease_ok($%d::uuid, $%d::text, $%d::bigint)", k+1, k+2, k+3))
+	res, err := s.db.ExecContext(ctx, query, append(args, tok.Group, tok.Pod, tok.Epoch)...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		var ok bool
+		if err := s.db.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint)`, tok.Group, tok.Pod, tok.Epoch).Scan(&ok); err != nil {
+			return 0, err
+		}
+		if !ok {
+			return 0, fence.ErrFenced
+		}
+	}
+	return int(n), nil
+}
+
 // CloseStaleOpenLive marks every live-sourced charge for the vehicle
 // whose external_id is NOT keepID and whose final_state is still a
 // non-terminal "charging_*" as abandoned. Returns rows updated.
@@ -565,20 +642,19 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 	if err != nil {
 		return 0, err
 	}
-	res, err := s.db.ExecContext(ctx, `
+	n, err := s.execOwnerWrite(ctx, `
 		UPDATE charges
 		SET final_state = 'abandoned', updated_at = NOW()
 		WHERE user_id = $1 AND vehicle_id = $2
 		  AND source = 'live'
 		  AND external_id <> $3
 		  -- Same whitelist as LatestOpenLive.
-		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger') {{LEASE}}`,
 		s.userID, vid, keepID)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // CloseStaleOpenLiveBefore is the unattended janitor variant: marks
@@ -587,20 +663,19 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 // self-heal sessions left open by a previous process that died
 // mid-charge and never came back. Returns rows updated.
 func (s *Store) CloseStaleOpenLiveBefore(ctx context.Context, before time.Time) (int, error) {
-	res, err := s.db.ExecContext(ctx, `
+	n, err := s.execOwnerWrite(ctx, `
 		UPDATE charges
 		SET final_state = 'abandoned', updated_at = NOW()
 		WHERE user_id = $1
 		  AND source = 'live'
 		  AND ended_at < $2
 		  -- Same whitelist as LatestOpenLive.
-		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger') {{LEASE}}`,
 		s.userID, before.UTC())
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // StaleOpenCandidate is one row the janitor is considering for
@@ -657,7 +732,7 @@ func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]Stal
 // open, still live) so a concurrent terminal-state push that closed
 // the row legitimately can't be undone here.
 func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState string) (int, error) {
-	res, err := s.db.ExecContext(ctx, `
+	n, err := s.execOwnerWrite(ctx, `
 		UPDATE charges
 		SET ended_at = NOW(),
 		    final_state = COALESCE(NULLIF($3, ''), final_state),
@@ -666,13 +741,12 @@ func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState stri
 		  AND external_id = $2
 		  AND source = 'live'
 		  -- Same whitelist as LatestOpenLive.
-		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger') {{LEASE}}`,
 		s.userID, externalID, finalState)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // AbandonOpenLive closes one specific open live row as abandoned.
@@ -682,20 +756,19 @@ func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState stri
 // closed legitimately by a terminal-state push between the list
 // and the close.
 func (s *Store) AbandonOpenLive(ctx context.Context, externalID string) (int, error) {
-	res, err := s.db.ExecContext(ctx, `
+	n, err := s.execOwnerWrite(ctx, `
 		UPDATE charges
 		SET final_state = 'abandoned', updated_at = NOW()
 		WHERE user_id = $1
 		  AND external_id = $2
 		  AND source = 'live'
 		  -- Same whitelist as LatestOpenLive.
-		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger') {{LEASE}}`,
 		s.userID, externalID)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return n, nil
 }
 
 // Dedupe is a no-op on Postgres — UNIQUE (vehicle_id, external_id)

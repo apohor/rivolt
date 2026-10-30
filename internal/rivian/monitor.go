@@ -1042,16 +1042,26 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 		if ctx.Err() != nil {
 			return
 		}
+		// The janitor acts for the vehicle's owner only: no REST call and no write for a group this pod
+		// does not hold (or is still warming up for).
+		fctx, owner := m.fenceCtx(ctx, c.RivianVehicleID, "charges")
+		if !owner {
+			continue
+		}
 		stillCharging, finalState := m.confirmStillCharging(ctx, c.RivianVehicleID)
-		opCtx, opCancel := context.WithTimeout(ctx, 5*time.Second)
+		opCtx, opCancel := context.WithTimeout(fctx, 5*time.Second)
 		if stillCharging {
-			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); err != nil {
+			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); errors.Is(err, fence.ErrFenced) {
+				m.fenced("charges", c.RivianVehicleID)
+			} else if err != nil {
 				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				refreshed++
 			}
 		} else {
-			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); err != nil {
+			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); errors.Is(err, fence.ErrFenced) {
+				m.fenced("charges", c.RivianVehicleID)
+			} else if err != nil {
 				m.noteWriteFailure("stale_charge", c.RivianVehicleID, c.ExternalID, err)
 			} else {
 				abandoned++
