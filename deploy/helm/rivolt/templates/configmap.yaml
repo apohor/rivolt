@@ -17,6 +17,32 @@ data:
          that apply while Redis is down are a share of the shared ones, 1/this each. */}}
   {{- $surge := int (dig "rollingUpdate" "maxSurge" 1 (.Values.updateStrategy | default dict)) }}
   RIVOLT_REPLICA_DIVISOR: {{ .Values.config.replicaDivisor | default (add (int .Values.replicaCount) (max 1 $surge)) | quote }}
+  {{- /* Database connections per pod (_shared/db-connection-budget.md, DA Oct 30): the app's share of
+         max_connections, split over the pods that may run at once (replicas + surge). Below the
+         floor the chart refuses to render: raise max_connections and the budget first. */}}
+  {{- $db := .Values.dbConnections | default dict }}
+  {{- if or (hasKey .Values.config.extraEnv "RIVOLT_DB_MAX_CONNS") (hasKey .Values.config.extraEnv "RIVOLT_REQUEST_DB_MAX_CONNS") }}
+  {{- fail "set the pool sizes with dbConnections.systemMaxConns / requestMaxConns, not config.extraEnv" }}
+  {{- end }}
+  {{- if .Values.adminOnly }}
+  RIVOLT_DB_MAX_CONNS: {{ $db.adminMaxConns | default 5 | quote }}
+  {{- else }}
+  {{- $pods := add (int .Values.replicaCount) (max 1 $surge) }}
+  {{- $per := div (int ($db.budget | default 48)) $pods }}
+  {{- $floor := int ($db.minPerPod | default 6) }}
+  {{- if and (not $db.systemMaxConns) (lt $per $floor) }}
+  {{- fail (printf "dbConnections: %d connections per pod for %d pods (replicas + surge) is under the floor of %d; raise max_connections and dbConnections.budget first" $per $pods $floor) }}
+  {{- end }}
+  {{- $req := 0 }}
+  {{- if $db.requestPool }}
+  {{- $req = min 20 (div (add $per 1) 2) }}
+  {{- $per = sub $per $req }}
+  {{- end }}
+  RIVOLT_DB_MAX_CONNS: {{ $db.systemMaxConns | default (min 20 $per) | quote }}
+  {{- if $db.requestPool }}
+  RIVOLT_REQUEST_DB_MAX_CONNS: {{ $db.requestMaxConns | default $req | quote }}
+  {{- end }}
+  {{- end }}
   RIVOLT_SECURE_COOKIE: {{ .Values.config.secureCookie | quote }}
   {{- if .Values.adminOnly }}
   {{- if .Values.ingress.enabled }}
