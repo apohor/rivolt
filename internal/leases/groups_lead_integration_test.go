@@ -228,8 +228,16 @@ func TestLead_ReKeyGuardUnderConcurrentPasses(t *testing.T) {
 			wg.Add(1)
 			go func(s *leases.Store) {
 				defer wg.Done()
-				if _, err := s.LeadGroups(ctx); err != nil {
+				r, err := s.LeadGroups(ctx)
+				if err != nil {
 					t.Errorf("%s: %v", s.PodID(), err)
+					return
+				}
+				// the coordinator's part: retired groups are released once their vehicles stopped
+				for _, g := range append(append([]string(nil), r.Shed...), r.Retire...) {
+					if err := s.ReleaseGroup(ctx, g); err != nil {
+						t.Errorf("%s release: %v", s.PodID(), err)
+					}
 				}
 			}(s)
 		}
