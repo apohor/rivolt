@@ -43,7 +43,7 @@ func TestClaimAndSkip_FencedByTheGroupLease(t *testing.T) {
 	now := time.Now()
 	since := now.Add(-engage.BudgetWindow)
 	msg := func(key string) engage.Msg {
-		return engage.Msg{User: uid, Kind: "fence-test", Key: key, Channel: engage.Push}
+		return engage.Msg{User: uid, Kind: "fence_test", Key: key, Channel: engage.Push}
 	}
 	rows := func() int {
 		var n int
@@ -77,7 +77,7 @@ func TestClaimAndSkip_FencedByTheGroupLease(t *testing.T) {
 		if _, _, err := store.Claim(fence.With(ctx, bad), msg("c"), now, since, 4); !errors.Is(err, fence.ErrFenced) {
 			t.Errorf("claim, %s: err = %v, want ErrFenced", name, err)
 		}
-		if _, err := store.RecordSkip(fence.With(ctx, bad), uid, "fence-test", "s", engage.Push, engage.StatusEmpty, now); !errors.Is(err, fence.ErrFenced) {
+		if _, err := store.RecordSkip(fence.With(ctx, bad), uid, "fence_test", "s", engage.Push, engage.StatusEmpty, now); !errors.Is(err, fence.ErrFenced) {
 			t.Errorf("skip, %s: err = %v, want ErrFenced", name, err)
 		}
 	}
@@ -97,7 +97,7 @@ func TestClaimAndSkip_FencedByTheGroupLease(t *testing.T) {
 	if ok, _, err := store.Claim(nctx, msg("d"), now, since, 4); err != nil || !ok {
 		t.Errorf("new owner's claim of the same key = %v, %v", ok, err)
 	}
-	if ok, err := store.RecordSkip(nctx, uid, "fence-test", "s", engage.Push, engage.StatusEmpty, now); err != nil || !ok {
+	if ok, err := store.RecordSkip(nctx, uid, "fence_test", "s", engage.Push, engage.StatusEmpty, now); err != nil || !ok {
 		t.Errorf("new owner's skip = %v, %v", ok, err)
 	}
 	// No token (jobs, imports): the plain statements, unchanged.
