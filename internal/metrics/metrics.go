@@ -616,8 +616,20 @@ func New() *Metrics {
 		m.TireStatusTotal,
 		m.RequestAcquiresWithoutUser,
 	)
+	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
+	// is an increase (a series that first appears at 1 has increase() == 0, and the alert would miss the
+	// very event it is for). Keep the label values in step with the callers.
+	for _, kind := range LeaseFencedKinds {
+		m.LeaseFenced.WithLabelValues(kind).Add(0)
+	}
+	for _, source := range []string{"db", "local"} {
+		m.LeaseFenceWouldReject.WithLabelValues(source).Add(0)
+	}
 	return m
 }
+
+// LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
+var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian"}
 
 // Handler returns the http.Handler for /metrics scoped to this
 // Metrics' private registry. Mount under /metrics with no auth — the
