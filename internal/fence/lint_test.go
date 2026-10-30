@@ -14,7 +14,7 @@ import (
 )
 
 // The unguarded-write lint (single-owner design 4.3, test 9): every function in samples, drives,
-// charges and the recorder files that writes owner-side tables must carry the fence (the
+// charges, rivian, engage, push, packhealth, receipts and secrets that writes must carry the fence (the
 // rivolt_lease_ok guard or a fence token from the context), or be listed here with a reason.
 //
 // notYetGuarded is the work list of the enforcement PRs. It only shrinks: each PR that guards a
@@ -25,8 +25,12 @@ import (
 
 const enforcementComplete = false
 
+// The guard is context-based (a fence token in ctx), so a function that owners and non-owners both
+// call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
+// until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
 	"samples.Store.InsertBatch":              "guarded by the sample-insert PR (#1291); remove this entry when it merges",
+	"samples.Store.InsertBulk":               "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
 	"drives.Store.Upsert":                    "drives PR",
 	"charges.Store.Upsert":                   "charges PR",
 	"charges.Store.AbandonOpenLive":          "charges PR (live charge session)",
@@ -37,26 +41,69 @@ var notYetGuarded = map[string]string{
 	"charges.Store.ConfirmNetwork":           "classify in the charges PR: owner close hook or user action",
 	"charges.Store.MarkFree":                 "classify in the charges PR: owner close hook or user action",
 	"charges.Store.UpdatePricing":            "classify in the charges PR: owner close hook or user action",
+	"engage.pgStore.Claim":                   "sends PR: the epoch goes into the claim insert, so a zombie cannot claim (charging complete, left-open, plug reminder, milestones); other callers, such as the statement job, have no token",
+	"engage.pgStore.Mark":                    "sends PR: result of a claimed send",
+	"engage.pgStore.RecordSkip":              "sends PR: a finished skip row is a claim too",
+	"push.Store.CreateNotification":          "sends PR: the notification row of an owner-triggered send",
+	"push.Store.RegisterActivity":            "sends PR: Live Activity start, owner-side",
+	"push.Store.EndActivity":                 "sends PR: Live Activity end, owner-side",
+	"push.Store.SetAPNsLive":                 "sends PR: Live Activity state, owner-side",
+	"push.Store.claimActivityUpdate":         "sends PR: the Live Activity update claim",
+	"packhealth.Store.Upsert":                "pack-health PR: samples written at charge end by the owner",
+	"receipts.Store.claim":                   "receipts PR: the claim insert of the owner's receipts sync",
+	"receipts.Store.UpsertReceipts":          "receipts PR: the owner's receipts fetch",
+	"receipts.Store.SaveDetail":              "receipts PR: the owner's receipts fetch",
+	"receipts.Store.Apply":                   "receipts PR: matches a receipt to a charge after the owner's fetch",
+	"receipts.Store.MarkResult":              "receipts PR: the owner's sync result",
+	"receipts.Store.RefreshMatched":          "receipts PR: runs inside the owner's syncer (syncer.go)",
+	"secrets.Store.Put":                      "session PR: the owner's persist (csrf heal, refresh) takes epoch AND version CAS; login keeps the plain write (a new session, version only)",
+	"secrets.Store.PutTx":                    "session PR: as Put, inside the session transaction",
+	"secrets.setSignedIn":                    "session PR: written in the session's transaction",
 }
 
+// notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
-	"samples.Store.InsertBulk":          "replay catch-up and imports: no Rivian session, no lease",
-	"samples.Store.Reset":               "user action (reset data)",
-	"samples.Thinner.thin":              "singleton maintenance job",
-	"samples.Thinner.dropExpiredFull":   "singleton maintenance job",
-	"samples.Thinner.rethinPair":        "singleton maintenance job",
-	"drives.Store.Reset":                "user action (reset data)",
-	"drives.Store.SetTrailerOverride":   "user action",
-	"charges.Store.Reset":               "user action (reset data)",
-	"charges.Store.DeleteByExternalID":  "user action / import",
-	"charges.Store.RestampPlace":        "user action",
-	"charges.Store.UndoRestamp":         "user action",
-	"charges.Store.SetLocationOverride": "user action",
-	"charges.Store.SetPlaceOverride":    "user action",
-	"charges.Store.SetNetworkPrice":     "user action",
+	"samples.Store.Reset":                  "user action (reset data)",
+	"samples.Thinner.thin":                 "singleton maintenance job",
+	"samples.Thinner.dropExpiredFull":      "singleton maintenance job",
+	"samples.Thinner.rethinPair":           "singleton maintenance job",
+	"drives.Store.Reset":                   "user action (reset data)",
+	"drives.Store.SetTrailerOverride":      "user action",
+	"charges.Store.Reset":                  "user action (reset data)",
+	"charges.Store.DeleteByExternalID":     "user action / import",
+	"charges.Store.RestampPlace":           "user action",
+	"charges.Store.UndoRestamp":            "user action",
+	"charges.Store.SetLocationOverride":    "user action",
+	"charges.Store.SetPlaceOverride":       "user action",
+	"charges.Store.SetNetworkPrice":        "user action",
+	"engage.pgStore.Purge":                 "retention job",
+	"push.PurgeActivities":                 "retention job (cmd/rivolt/main.go)",
+	"push.PurgeNotifications":              "retention job (cmd/rivolt/main.go)",
+	"push.Store.Delete":                    "user action (unsubscribe)",
+	"push.Store.DeleteAPNsDevice":          "user action (device removal)",
+	"push.Store.deleteAPNsDeviceByID":      "cleanup of a dead device token",
+	"push.Store.deleteActivityByID":        "cleanup of a dead activity token",
+	"push.Store.SaveVAPID":                 "one-time key setup",
+	"push.Store.SetAPNsLeftOpen":           "user action (settings)",
+	"push.Store.SetAPNsOptIns":             "user action (settings)",
+	"push.Store.SetAPNsPrefs":              "user action (settings)",
+	"push.Store.SetLeftOpen":               "user action (settings)",
+	"push.Store.SetOptIns":                 "user action (settings)",
+	"push.Store.SwitchOffAll":              "user action (settings)",
+	"push.Store.Upsert":                    "user action (subscribe)",
+	"push.Store.UpsertAPNsDevice":          "user action (device registration)",
+	"push.Store.touchAPNsDevice":           "device check-in from the app",
+	"packhealth.Store.BackfillAll":         "one-off backfill job (cmd/rivolt/main.go)",
+	"receipts.Store.purge":                 "user action and retention job (DeleteForUser / opt-out purge)",
+	"secrets.Store.Delete":                 "user action (logout, delete, disconnect)",
+	"secrets.Store.DeleteTx":               "user action (logout, delete, disconnect)",
+	"secrets.RivianSessionLister.backfill": "one-time sign-in time backfill",
 }
 
-var writeSQL = regexp.MustCompile(`(?is)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+[a-z_]+`)
+// Not SQL, so not in this lint: the Redis live-state writes (the epoch CAS PR) and the Rivian calls
+// (the deadline-context PR) are tracked as their own enforcement steps.
+
+var writeSQL = regexp.MustCompile(`(?is)\b(INSERT\s+INTO\s+[a-z_]+|UPDATE\s+[a-z_]+(\s+[a-z_]+)?\s+SET\b|DELETE\s+FROM\s+[a-z_]+)`)
 
 // guarded reports whether a function body carries the fence.
 func guarded(src string) bool {
@@ -68,7 +115,7 @@ func guarded(src string) bool {
 func writers(t *testing.T) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	dirs := []string{"samples", "drives", "charges", "rivian"}
+	dirs := []string{"samples", "drives", "charges", "rivian", "engage", "push", "packhealth", "receipts", "secrets"}
 	for _, d := range dirs {
 		files, err := filepath.Glob(filepath.Join("..", d, "*.go"))
 		if err != nil {
@@ -77,9 +124,6 @@ func writers(t *testing.T) map[string]bool {
 		for _, f := range files {
 			base := filepath.Base(f)
 			if strings.HasSuffix(base, "_test.go") {
-				continue
-			}
-			if d == "rivian" && !strings.Contains(base, "recorder") && !strings.Contains(base, "charging_schedule") {
 				continue
 			}
 			fset := token.NewFileSet()
