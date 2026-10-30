@@ -198,16 +198,38 @@ func (s *Store) ListByVehicle(ctx context.Context, vehicleID uuid.UUID, limit in
 	return out, rows.Err()
 }
 
+// backfillLockID makes the hourly BackfillAll run on one replica at a time
+// (pg_try_advisory_lock), as the scheduled jobs in samples and archive do:
+// it recomputes every vehicle, so N replicas would do it N times an hour.
+const backfillLockID int64 = 0x72765f706b686c // "rv_pkhl"
+
 // BackfillAll iterates every vehicle and runs BackfillVehicle.
 // Idempotent (Upsert replaces on conflict). Designed to be called
 // from a startup hydrate sweep AND a recurring ticker so newly
 // recorded charges become samples without a per-charge recorder
 // hook. Returns the total count of inserted/updated rows across
 // all vehicles.
+//
+// One replica at a time: a call that finds the pass already running
+// on another replica (the advisory lock is held) does nothing and
+// returns 0, nil; that replica's pass covers the hour.
 func (s *Store) BackfillAll(ctx context.Context) (int, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
 	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	var locked bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, backfillLockID).Scan(&locked); err != nil {
+		return 0, err
+	}
+	if !locked {
+		return 0, nil
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, backfillLockID) //nolint:errcheck
 	// Prune previously-stored samples that no longer pass the
 	// current sanity cap or qualification filter. Without this,
 	// tightening either side (raising the kWh floor, restricting
