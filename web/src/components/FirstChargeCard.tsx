@@ -70,7 +70,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives, demo = fal
                 </h2>
                 <p className="mt-1 text-sm text-neutral-400">
                   {v.home
-                    ? `Priced at your home rate of ${rateText(v.rate)}. Every charge from now on is priced the same way and lands in Money.`
+                    ? `Priced at your home rate of ${rateText(v.rate)}. Every home charge from now on is priced the same way and lands in Money.`
                     : "Every charge from now on is priced and lands in Money."}
                 </p>
                 {v.perMile && (

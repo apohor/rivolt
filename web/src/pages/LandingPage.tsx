@@ -52,7 +52,7 @@ export default function LandingPage() {
           <div>
             <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">What your Rivian actually costs.</h1>
             <p className="mt-4 text-lg text-neutral-300">
-              Every charge and trip priced at your rates, or flagged when we can&apos;t price it, with the source of
+              Every charge and trip priced from what Rivian billed or your rates, or flagged when we can&apos;t price it, with the source of
               every number. Open source. Self-host it or let us run it.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">

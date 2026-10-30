@@ -403,7 +403,7 @@ struct MoneyContent: View {
             Text(rateSet ? "No charges recorded yet" : "Nothing priced yet").themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
             Text(rateSet
                  ? "No charges recorded in \(MoneyLogic.monthTitle(m.period, calendar: calendar)). They appear here as you charge."
-                 : "Charges show up here priced at your home rate once Rivolt has recorded one. Set your rate in Settings → Charging so new charges are priced as they arrive.")
+                 : "Charges show up here with their cost once Rivolt has recorded one. Set your home rate in Settings → Charging so home charges are priced as they arrive.")
                 .themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             if !rateSet, let u = url(.homeRate) {
                 Button("Set home rate") { openURL(u) }.buttonStyle(ThemeSecondaryButtonStyle()).padding(.top, 4)
