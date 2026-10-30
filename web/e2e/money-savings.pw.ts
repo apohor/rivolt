@@ -93,14 +93,14 @@ test("share statement: the off-peak share toggle shows only with a share, and is
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0, offpeak_share_pct: 61.6, offpeak_share_sessions: 9 }), []);
-  await page.getByRole("button", { name: "Share statement" }).click();
+  await page.getByRole("button", { name: "Share statement" }).first().click();
   const sheet = page.locator("[data-share-sheet]");
   const toggle = sheet.getByLabel(/Include off-peak share/);
   await expect(toggle).not.toBeChecked();
   await expect(sheet).toContainText("No rates, no dollars, no times.");
   await toggle.check();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Share statement" }).click();
+  await page.getByRole("button", { name: "Share statement" }).first().click();
   await expect(sheet.getByLabel(/Include off-peak share/)).not.toBeChecked();
   expect((await new AxeBuilder({ page }).include("[data-share-sheet]").analyze()).violations.filter((x) => x.impact === "serious" || x.impact === "critical")).toEqual([]);
   await ctx.close();
@@ -110,7 +110,7 @@ test("share statement: no share from the server, no toggle", async ({ browser })
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0 }), []);
-  await page.getByRole("button", { name: "Share statement" }).click();
+  await page.getByRole("button", { name: "Share statement" }).first().click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/Include cost/)).toBeVisible();
   await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
   await ctx.close();
@@ -120,11 +120,41 @@ test("flat rate: no Off-peak savings card at all, and the share sheet has no off
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await open(page, () => ({ version: 1, flat_rate: true, reason: "flat_rate", basis: "You said your electricity is one flat rate, so there are no off-peak hours." }), [], { card: false });
-  await expect(page.getByRole("button", { name: "Share statement" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Share statement" }).first()).toBeVisible();
   await expect(page.locator("[data-savings]")).toHaveCount(0);
   await expect(page.getByText("Off-peak savings")).toHaveCount(0);
   await expect(page.getByText("one flat rate")).toHaveCount(0);
-  await page.getByRole("button", { name: "Share statement" }).click();
+  await page.getByRole("button", { name: "Share statement" }).first().click();
   await expect(page.locator("[data-share-sheet]").getByLabel(/off-peak/i)).toHaveCount(0);
+  await ctx.close();
+});
+
+test("share nudge: shown once under the statement, 'Not now' removes it for good, and it opens the same masked sheet", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0 }), []);
+  const nudge = page.locator("[data-share-nudge]");
+  await expect(nudge).toBeVisible();
+  await expect(nudge).toContainText("Share what charging cost this month");
+  await expect(nudge).toContainText("Nothing is posted");
+  await nudge.getByRole("button", { name: "Not now" }).click();
+  await expect(nudge).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("[data-savings]")).toBeVisible();
+  await expect(page.locator("[data-share-nudge]")).toHaveCount(0);
+  // The sheet itself still works from the header button, cost off.
+  await page.getByRole("button", { name: "Share statement" }).first().click();
+  await expect(page.getByRole("dialog").getByRole("checkbox", { name: /Include cost/ })).not.toBeChecked();
+  await ctx.close();
+});
+
+test("share nudge: its button opens the sheet and uses the nudge up", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 5, sessions_moved: 4, sessions_left_out: 0 }), []);
+  await page.locator("[data-share-nudge]").getByRole("button", { name: "Share statement" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator("[data-share-nudge]")).toHaveCount(0);
   await ctx.close();
 });
