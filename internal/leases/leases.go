@@ -53,6 +53,8 @@ type Store struct {
 	groupMu   sync.Mutex
 	groups    map[string]int64
 	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
+	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
+	draining  bool
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -695,6 +697,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 
 	c.healSplitUsers(rctx)
 
+	// Lead mode: the group lease decides which vehicles this pod may acquire.
+	lead := c.leadGroups(rctx)
+
 	c.healUnstreamed()
 
 	// Pull the cluster's vehicle set and try to acquire anything we
@@ -718,6 +723,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 				// only recreate an orphan — skip.
 				continue
 			}
+		}
+		if lead != nil && !lead.allows(vid) {
+			continue
 		}
 		c.mu.Lock()
 		_, alreadyOwned := c.owned[vid]
@@ -747,8 +755,96 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		}
 	}
 
-	c.renewGroups(rctx)
+	if lead == nil {
+		c.renewGroups(rctx)
+	}
 	c.fireCount()
+}
+
+// groupLeader is the optional part of a store that leads with the group lease (lead mode).
+type groupLeader interface {
+	GroupLeading() bool
+	LeadGroups(ctx context.Context) (GroupLead, error)
+	ReleaseGroup(ctx context.Context, group string) error
+	GroupVehicles(ctx context.Context) (map[string]string, error)
+}
+
+// leadView is which vehicles the held groups allow this pass.
+type leadView struct {
+	vehicleGroup map[string]string
+	held         map[string]int64
+}
+
+func (l *leadView) allows(vid string) bool {
+	g, ok := l.vehicleGroup[vid]
+	if !ok {
+		return false
+	}
+	_, held := l.held[g]
+	return held
+}
+
+// leadGroups runs the lead-mode group pass: renew and acquire groups, stop the vehicles of
+// groups lost or shed (stop, wait, then release the vehicle lease and, for a shed group, the
+// group row). Returns nil when lead mode is off or the pass failed; a failed pass acquires
+// nothing and leaves what is held alone.
+func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
+	gl, ok := c.store.(groupLeader)
+	if !ok || !gl.GroupLeading() || c.isClosing() {
+		return nil
+	}
+	res, err := gl.LeadGroups(ctx)
+	if err != nil {
+		c.log.Warn("group lead pass failed", "err", err.Error())
+		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && c.onDryRun != nil && lp.PastLocalDeadline() {
+			c.onDryRun("local", 1)
+		}
+		return &leadView{vehicleGroup: map[string]string{}, held: map[string]int64{}}
+	}
+	vg, err := gl.GroupVehicles(ctx)
+	if err != nil {
+		c.log.Warn("group vehicles failed", "err", err.Error())
+		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
+	}
+	gone := map[string]bool{}
+	for _, g := range res.Lost {
+		gone[g] = true
+	}
+	for _, g := range res.Shed {
+		gone[g] = true
+	}
+	if len(gone) > 0 {
+		c.mu.Lock()
+		var stop []string
+		for vid := range c.owned {
+			if gone[vg[vid]] {
+				stop = append(stop, vid)
+			}
+		}
+		c.mu.Unlock()
+		for _, vid := range stop {
+			c.log.Info("lease released: group no longer ours or over its share", "vehicle", vid)
+			c.onRelease(vid)
+			c.waitStopped(ctx, vid)
+			if rerr := c.store.Release(ctx, vid); rerr != nil {
+				c.log.Warn("group lead vehicle release failed", "vehicle", vid, "err", rerr.Error())
+				continue
+			}
+			c.mu.Lock()
+			delete(c.owned, vid)
+			c.mu.Unlock()
+		}
+		for _, g := range res.Shed {
+			if rerr := gl.ReleaseGroup(ctx, g); rerr != nil {
+				c.log.Warn("group release failed", "err", rerr.Error())
+			}
+			delete(res.Held, g)
+		}
+	}
+	if c.onGroups != nil {
+		c.onGroups(len(res.Held))
+	}
+	return &leadView{vehicleGroup: vg, held: res.Held}
 }
 
 // SetGroupObserver wires the metrics for the group leases: held is told the number
