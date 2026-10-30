@@ -4,7 +4,7 @@ import SwiftUI
 enum SettingsLogic {
     enum Row: String, Equatable {
         case connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
-        case export, deleteAccount, privacy, terms, acknowledgements
+        case export, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
             switch self {
@@ -25,6 +25,7 @@ enum SettingsLogic {
             case .deleteAccount: return "Delete account"
             case .privacy: return "Privacy policy"
             case .terms: return "Terms"
+            case .support: return "Support"
             case .acknowledgements: return "Acknowledgements"
             }
         }
@@ -48,6 +49,7 @@ enum SettingsLogic {
             case .deleteAccount: return "trash"
             case .privacy: return "hand.raised"
             case .terms: return "doc.text"
+            case .support: return "questionmark.circle"
             case .acknowledgements: return "heart"
             }
         }
@@ -71,7 +73,7 @@ enum SettingsLogic {
         out += [
             Group(title: "App", rows: [.appearance]),
             Group(title: "Data", rows: [.export, .deleteAccount]),
-            Group(title: "About", rows: [.privacy, .terms, .acknowledgements]),
+            Group(title: "About", rows: [.privacy, .terms, .support, .acknowledgements]),
         ]
         return out
     }
@@ -181,6 +183,8 @@ struct SettingsView: View {
             Link(destination: state.serverURL.appending(path: "privacy")) { label(row) }
         case .terms:
             Link(destination: state.serverURL.appending(path: "terms")) { label(row) }
+        case .support:
+            Link(destination: state.serverURL.appending(path: "support")) { label(row) }
         case .acknowledgements:
             NavigationLink { AcknowledgementsView() } label: { label(row) }
         }

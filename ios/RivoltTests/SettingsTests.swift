@@ -15,7 +15,7 @@ final class SettingsTests: XCTestCase {
             ["Notifications", "Notifications"],
             ["App", "Appearance"],
             ["Data", "Export your data", "Delete account"],
-            ["About", "Privacy policy", "Terms", "Acknowledgements"],
+            ["About", "Privacy policy", "Terms", "Support", "Acknowledgements"],
         ])
     }
 
@@ -38,5 +38,14 @@ final class SettingsTests: XCTestCase {
         let rows = SettingsLogic.groups(notificationsOffered: true).flatMap(\.rows)
         XCTAssertEqual(Set(rows.map(\.title)).count, rows.count)
         XCTAssertTrue(rows.allSatisfy { !$0.symbol.isEmpty })
+    }
+}
+
+extension SettingsTests {
+    func testSupportOpensTheWebsSupportPage() {
+        let rows = SettingsLogic.groups(notificationsOffered: true).first { $0.title == "About" }?.rows
+        XCTAssertEqual(rows, [.privacy, .terms, .support, .acknowledgements])
+        XCTAssertEqual(SettingsLogic.Row.support.title, "Support")
+        XCTAssertFalse(SettingsLogic.Row.support.symbol.isEmpty)
     }
 }
