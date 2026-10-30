@@ -22,8 +22,10 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.getByRole("heading", { name: "How to undo it", level: 2 })).toBeVisible();
       const text = await doc.innerText();
       expect(text).toContain("Authorized Driver");
-      expect(text).toContain("password is never stored");
-            expect(text).toContain("not affiliated with, endorsed by or sponsored by Rivian");
+      expect(text).toContain("Your Rivian password is used once to sign in and is never stored");
+      expect(text).toContain("such as drives, charges, battery and location");
+      expect(text).toContain("sends no commands to your truck");
+      expect(text).toContain("not affiliated with, endorsed by or sponsored by Rivian");
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `safe-to-connect-${w}-${theme}.png`), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
