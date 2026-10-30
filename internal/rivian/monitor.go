@@ -1223,6 +1223,22 @@ func (m *StateMonitor) Subscribed(vehicleID string) bool {
 	return ok
 }
 
+// SessionActivity reports whether the recorder has an open drive or charge
+// for vehicleID, and whether its latest state says it is asleep. The lease
+// coordinator never sheds the group of a vehicle with an open session, and
+// prefers a sleeping one (design 4.7).
+func (m *StateMonitor) SessionActivity(vehicleID string) (open, asleep bool) {
+	m.sessMu.Lock()
+	if ls := m.sessions[vehicleID]; ls != nil {
+		open = ls.drive != nil || ls.charge != nil
+	}
+	m.sessMu.Unlock()
+	if st, _ := m.Latest(vehicleID); st != nil {
+		asleep = strings.EqualFold(strings.TrimSpace(st.PowerState), "sleep")
+	}
+	return open, asleep
+}
+
 // Unsubscribe tears down the background subscription for vehicleID
 // if one is running, and is a no-op otherwise. Used by the lease
 // coordinator when this pod loses ownership of a vehicle to a peer.

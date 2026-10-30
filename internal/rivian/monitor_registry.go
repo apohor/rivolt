@@ -610,6 +610,30 @@ func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
 	return false
 }
 
+// SessionActivity reports whether any monitor on this pod has an open drive
+// or charge for the vehicle, and whether it is asleep (no monitor with an
+// open session, and one whose latest state says sleep). No database lookup:
+// the lease coordinator calls it in its pass.
+func (r *MonitorRegistry) SessionActivity(rivianVehicleID string) (open, asleep bool) {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m == nil {
+			continue
+		}
+		o, a := m.SessionActivity(rivianVehicleID)
+		if o {
+			return true, false
+		}
+		asleep = asleep || a
+	}
+	return false, asleep
+}
+
 // Unsubscribe tears the vehicle's subscription down on every monitor
 // that runs it, not only its current owner's. After an owner flip (users
 // sharing a VIN) the old owner's run is still the one streaming; routing

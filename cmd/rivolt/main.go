@@ -1784,6 +1784,17 @@ func runServer() {
 			},
 		)
 		coord.SetStreamingCheck(monitorRegistry.Streaming)
+		// Lead mode: a shed never takes a group with an open drive or charge and prefers a sleeping
+		// one; a vehicle mid-session follows its group when a shared vehicle re-keys it (design 4.7).
+		coord.SetActivityCheck(func(vid string) leases.Activity {
+			switch open, asleep := monitorRegistry.SessionActivity(vid); {
+			case open:
+				return leases.ActivityBusy
+			case asleep:
+				return leases.ActivityIdle
+			}
+			return leases.ActivityAwake
+		}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
 		coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
 		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
 		// counts, and asks the coordinator to look at its groups now.

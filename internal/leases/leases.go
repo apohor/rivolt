@@ -374,6 +374,13 @@ type Coordinator struct {
 	streaming    func(vehicleID string) bool
 	onUnstreamed func(vehicleID string)
 
+	// activity, when set (lead mode), says what a vehicle this pod runs is doing, so a shed never
+	// takes a group with an open drive or charge and prefers a sleeping one, and a vehicle whose
+	// group changed mid-session takes its new group along (Coordinator.SetActivityCheck). onShed is
+	// told each shed decision: "idle", "awake" or "deferred" (every group over the share busy).
+	activity func(vehicleID string) Activity
+	onShed   func(choice string)
+
 	// jitter spreads the ticks by up to +-jitter in lead mode, so pods do not race for the same free
 	// groups; onSelfFence is told when this pod stopped everything because its renewals failed past
 	// the local deadline.
@@ -500,6 +507,26 @@ func (c *Coordinator) SetCountObserver(fn func(count int)) {
 // Safe to call before Run.
 func (c *Coordinator) SetStreamingCheck(fn func(vehicleID string) bool) {
 	c.streaming = fn
+}
+
+// Activity is what a vehicle is doing, for the lead-mode shed choice (design 4.7).
+type Activity int
+
+const (
+	// ActivityIdle is a vehicle asleep (or with no state yet): moving its group costs nothing.
+	ActivityIdle Activity = iota
+	// ActivityAwake is awake with no open session.
+	ActivityAwake
+	// ActivityBusy has an open drive or charge: its group is never shed (prod gate d), and a group
+	// change under it is followed, not handed over.
+	ActivityBusy
+)
+
+// SetActivityCheck wires the per-vehicle activity probe the lead-mode shed uses, and an optional
+// observer of each shed decision. Without it the shed takes the store's default (highest id).
+// Safe to call before Run.
+func (c *Coordinator) SetActivityCheck(fn func(vehicleID string) Activity, onShed func(choice string)) {
+	c.activity, c.onShed = fn, onShed
 }
 
 // SetUnstreamedObserver wires a callback fired once per episode of a
@@ -931,6 +958,8 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		c.log.Warn("group vehicles failed", "err", err.Error())
 		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
 	}
+	c.followOpenSessions(ctx, gl, vg, res.Held)
+	res.Shed = c.chooseShed(res, vg)
 	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is
 	// stopped, waited for and released, in that order. This covers lost groups, vehicle leases
 	// left from M1 or from drift, and the shed and retired groups.
@@ -979,6 +1008,110 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		c.onGroups(len(res.Held))
 	}
 	return &leadView{vehicleGroup: vg, held: res.Held}
+}
+
+// groupActivity is the busiest activity among the vehicles of each group that this pod runs.
+func (c *Coordinator) groupActivity(vg map[string]string) map[string]Activity {
+	c.mu.Lock()
+	owned := make([]string, 0, len(c.owned))
+	for vid := range c.owned {
+		owned = append(owned, vid)
+	}
+	c.mu.Unlock()
+	out := map[string]Activity{}
+	for _, vid := range owned {
+		g, ok := vg[vid]
+		if !ok {
+			continue
+		}
+		if a := c.activity(vid); a > out[g] {
+			out[g] = a
+		}
+	}
+	return out
+}
+
+// chooseShed picks the group to shed this pass from the store's order: never one with an open drive
+// or charge, a sleeping one before an awake one, the store's order otherwise. All busy: nothing is
+// shed this pass (the next pass looks again).
+func (c *Coordinator) chooseShed(res GroupLead, vg map[string]string) []string {
+	if c.activity == nil || len(res.Shed) == 0 {
+		return res.Shed
+	}
+	order := res.ShedOrder
+	if len(order) == 0 {
+		order = res.Shed
+	}
+	act := c.groupActivity(vg)
+	best, bestAct := "", ActivityBusy
+	for _, g := range order {
+		if a := act[g]; a < bestAct {
+			best, bestAct = g, a
+			if a == ActivityIdle {
+				break
+			}
+		}
+	}
+	// The choices are metrics.LeaseShedChoices (pre-created at 0 for the deferral alert); keep them in step.
+	choice := map[Activity]string{ActivityIdle: "idle", ActivityAwake: "awake", ActivityBusy: "deferred"}[bestAct]
+	if c.onShed != nil {
+		c.onShed(choice)
+	}
+	if best == "" {
+		c.log.Info("group shed deferred: every group over the share has an open drive or charge")
+		return nil
+	}
+	return []string{best}
+}
+
+// groupAcquirer is the optional part of a lead-mode store that takes given groups outside the share.
+type groupAcquirer interface {
+	AcquireGroups(ctx context.Context, groups []string) (map[string]int64, error)
+}
+
+// followOpenSessions keeps a vehicle with an open drive or charge on this pod when its group changed
+// under it (a shared vehicle re-keyed or split the group, so the vehicle now maps to a group this pod
+// does not hold): the new group is taken outside the fair share if it is free, instead of the
+// vehicle being stopped mid-session. A group another pod holds, or one that is no longer a
+// candidate (the session was removed), cannot be followed; that vehicle stops as before.
+func (c *Coordinator) followOpenSessions(ctx context.Context, gl groupLeader, vg map[string]string, held map[string]int64) {
+	ga, ok := gl.(groupAcquirer)
+	if !ok || c.activity == nil {
+		return
+	}
+	c.mu.Lock()
+	owned := make([]string, 0, len(c.owned))
+	for vid := range c.owned {
+		owned = append(owned, vid)
+	}
+	c.mu.Unlock()
+	want := map[string]bool{}
+	for _, vid := range owned {
+		g, known := vg[vid]
+		if _, h := held[g]; !known || h {
+			continue
+		}
+		if c.activity(vid) == ActivityBusy {
+			want[g] = true
+		}
+	}
+	if len(want) == 0 {
+		return
+	}
+	groups := make([]string, 0, len(want))
+	for g := range want {
+		groups = append(groups, g)
+	}
+	sort.Strings(groups)
+	got, err := ga.AcquireGroups(ctx, groups)
+	if err != nil {
+		c.log.Warn("group acquire for an open session failed", "err", err.Error())
+		return
+	}
+	for g, e := range got {
+		held[g] = e
+		c.log.Info("group followed: a vehicle with an open session moved to it", "group", g)
+	}
 }
 
 // SetSelfFenceObserver wires the callback fired when the pod stops everything because its group

@@ -30,9 +30,13 @@ type GroupLead struct {
 	// Lost are groups held last pass that are no longer ours (expired and taken, or no longer a
 	// candidate). Their subscriptions must stop; the row is not ours to release.
 	Lost []string
-	// Shed are groups held beyond the fair share. The caller stops them and then calls
-	// ReleaseGroup: stop first, release second.
+	// Shed are groups held beyond the fair share (one per pass). The caller stops them and then
+	// calls ReleaseGroup: stop first, release second.
 	Shed []string
+	// ShedOrder is every held group in the order a shed takes them (highest id first), set when
+	// the pod is over its share; Shed is its first. A coordinator that knows which groups are
+	// busy (an open drive or charge) picks the first idle one instead (Coordinator.SetActivityCheck).
+	ShedOrder []string
 	// Retire are held rows that are no longer candidates (the session was removed, or the group was
 	// re-keyed). Same rule as Shed: stop first, then ReleaseGroup. They are also in Lost.
 	Retire []string
@@ -308,14 +312,62 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 
 	if over := len(held) - share; over > 0 {
 		// One group per pass, the highest id: a fixed order so two passes never pick differently.
-		ids := append([]string(nil), keep...)
-		res.Shed = append(res.Shed, ids[len(ids)-1])
+		for i := len(keep) - 1; i >= 0; i-- {
+			res.ShedOrder = append(res.ShedOrder, keep[i])
+		}
+		res.Shed = res.ShedOrder[:1:1]
 	}
 	if s.isDraining() {
-		res.Shed = nil // a draining pod releases everything at shutdown, not one by one
+		res.Shed, res.ShedOrder = nil, nil // a draining pod releases everything at shutdown, not one by one
 	}
 	res.Held = held
 	return res, nil
+}
+
+// AcquireGroups takes the given candidate groups when they are free (no row, expired, or released),
+// outside the fair share and the newest-generation grace, and returns the ones it got with their
+// epochs. The coordinator calls it for a vehicle with an open drive or charge whose group changed
+// under it (re-keyed or split by a shared vehicle), so the session is not handed over mid-way; the
+// next passes shed the group once it is idle. A draining pod acquires nothing. The re-key guard
+// holds as in LeadGroups.
+func (s *Store) AcquireGroups(ctx context.Context, groups []string) (map[string]int64, error) {
+	if len(groups) == 0 || s.isDraining() {
+		return map[string]int64{}, nil
+	}
+	ttl := fmt.Sprintf("%d seconds", int(s.ttl.Seconds()))
+	got, stolen, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
+		prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held FROM account_leases),
+		ins AS (
+		INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+		SELECT c.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
+		  FROM cand c LEFT JOIN account_leases a ON a.group_id::text = c.gid
+		 WHERE c.gid = ANY($3::text[])
+		   AND (a.group_id IS NULL OR a.expires_at < now() OR a.pod_id IS NULL)
+		   AND NOT EXISTS (
+		       SELECT 1 FROM grp m JOIN account_leases o ON o.group_id::text = m.user_id::text
+		        WHERE m.gid = c.gid AND o.group_id::text <> c.gid
+		          AND o.pod_id IS NOT NULL AND o.pod_id <> $1 AND o.expires_at > now())
+		ON CONFLICT (group_id) DO UPDATE SET
+		    pod_id = EXCLUDED.pod_id, epoch = EXCLUDED.epoch, acquired_at = EXCLUDED.acquired_at,
+		    renewed_at = EXCLUDED.renewed_at, expires_at = EXCLUDED.expires_at, released_at = NULL
+		WHERE account_leases.pod_id IS NULL OR account_leases.expires_at < now()
+		RETURNING group_id, epoch)
+		SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false) FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
+		s.podID, ttl, groups)
+	if err != nil {
+		return nil, fmt.Errorf("lease acquire for an open session: %w", err)
+	}
+	s.groupMu.Lock()
+	for g, e := range got {
+		s.groups[g] = e
+		if stolen[g] {
+			s.stolenAt[g] = time.Now()
+		} else {
+			delete(s.stolenAt, g)
+		}
+	}
+	s.groupMu.Unlock()
+	return got, nil
 }
 
 // ReleaseGroup gives one group row back (pod_id NULL, released_at set) after its subscriptions
