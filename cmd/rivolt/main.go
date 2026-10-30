@@ -1789,6 +1789,7 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
+		coord.SetFrameObserver(monitorRegistry.LatestAt, appMetrics.LeaseAcquireToFrame.Observe)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
