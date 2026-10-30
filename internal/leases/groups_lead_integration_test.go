@@ -88,7 +88,12 @@ func TestLead_SpreadsAcrossPods_3_5_2(t *testing.T) {
 
 	a, b, c := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b"), leadStore(t, pool, "pod-c")
 	// A starts alone and takes everything (the prod shape today).
-	if r := pass(ctx, t, a); len(r.Held) != groups {
+	// (at most 20 groups per pass, so two passes)
+	var r leases.GroupLead
+	for i := 0; i < 3 && len(r.Held) < groups; i++ {
+		r = pass(ctx, t, a)
+	}
+	if len(r.Held) != groups {
 		t.Fatalf("a alone holds %d, want %d", len(r.Held), groups)
 	}
 
