@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // Channel is how a message is delivered.
@@ -44,6 +46,9 @@ const (
 	SkippedBudget = "skipped_budget"
 	SkippedNoTZ   = "skipped_no_tz"
 	SkippedWindow = "skipped_window"
+	// Fenced: the claim was refused because this pod no longer holds the account's group lease; the
+	// owner sends it (or already has).
+	Fenced = "fenced"
 )
 
 // Claim statuses a producer may record without sending (see Engage.Skip).
@@ -190,6 +195,9 @@ func (e *Engage) Send(ctx context.Context, m Msg, deliver func(ctx context.Conte
 		}
 	}
 	claimed, over, err := e.Store.Claim(ctx, m, now, since, MonthlyBudget)
+	if errors.Is(err, fence.ErrFenced) {
+		return done(Fenced, nil)
+	}
 	if err != nil {
 		return done("", fmt.Errorf("engage: claim: %w", err))
 	}

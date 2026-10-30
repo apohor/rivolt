@@ -1188,6 +1188,9 @@ func runServer() {
 		// on and started an activity.
 		if pushSvc != nil && pushSvc.LiveEnabled() && pushFactory != nil && pgPool != nil {
 			liveSrc := push.LiveSourceFunc(func(uid uuid.UUID, rivianVehicleID string) (float64, float64, float64, bool) {
+				if !mayPushFor(&liveFence, rivianVehicleID) {
+					return 0, 0, 0, false
+				}
 				m := monitorRegistry.For(uid)
 				if m == nil {
 					return 0, 0, 0, false
@@ -1731,6 +1734,7 @@ func runServer() {
 		// On: TTL 30 s, ticks every 5 s +-1 s. Off by default, in every environment, until the chart's
 		// prestop hook and 45 s grace period are live: without draining a rollout moves groups twice.
 		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
+		liveFence.Set(leaseStore)
 		vehicleSource := leases.NewVehicleSource(
 			func() []string {
 				infos := monitorRegistry.AllVehicleInfo()

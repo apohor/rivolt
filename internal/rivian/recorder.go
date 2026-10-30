@@ -1138,6 +1138,10 @@ func (m *StateMonitor) runChargeCloseHook(row charges.Charge) {
 	}()
 	hctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
 	defer cancel()
+	hctx, ok := m.hookFence(hctx, row.VehicleID, func(c context.Context) { m.chargeCloseHook(c, row) })
+	if !ok {
+		return
+	}
 	m.chargeCloseHook(hctx, row)
 }
 
@@ -1154,6 +1158,10 @@ func (m *StateMonitor) runDriveCloseHook(row drives.Drive) {
 	}()
 	hctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
 	defer cancel()
+	hctx, ok := m.hookFence(hctx, row.VehicleID, func(c context.Context) { m.driveCloseHook(c, row) })
+	if !ok {
+		return
+	}
 	m.driveCloseHook(hctx, row)
 }
 
