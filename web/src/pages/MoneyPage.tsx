@@ -9,6 +9,7 @@ import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
+import { ShareNudge, readShareNudgeDismissed, rememberShareNudgeDismissed, shareNudgeShows } from "../components/ShareNudge";
 import { SavingsCard } from "../components/SavingsCard";
 import { OffpeakPrompt } from "../components/OffpeakPrompt";
 import { fetchSavings, offpeakShareOf } from "../lib/savings";
@@ -567,6 +568,16 @@ function ShareStatementButton({
 }) {
   const [open, setOpen] = useState(false);
   const sample = inDemo();
+  // The one-time nudge: gone for good once dismissed or once the sheet has been opened from anywhere.
+  const [nudgeGone, setNudgeGone] = useState(readShareNudgeDismissed);
+  const dismissNudge = () => {
+    setNudgeGone(true);
+    rememberShareNudgeDismissed();
+  };
+  const openSheet = () => {
+    dismissNudge();
+    setOpen(true);
+  };
   // The off-peak share for this month, from the same sessions as the savings card; no share (no schedule, too few sessions) means no toggle.
   // Read with the page, not when the sheet opens: the sheet itself makes no request.
   const share = useQuery({ queryKey: ["savings", m.period], queryFn: ({ signal }) => fetchSavings(m.period, signal), staleTime: 5 * 60_000, retry: 0, enabled: !sample });
@@ -579,7 +590,7 @@ function ShareStatementButton({
     <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openSheet}
         disabled={disabled}
         className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
         title="An image of your month. No places or addresses; cost only if you add it"
@@ -591,6 +602,7 @@ function ShareStatementButton({
           Your statement is ready to share. Tap Share statement.
         </span>
       )}
+      {shareNudgeShows({ sample, disabled, prompt, dismissed: nudgeGone }) && <ShareNudge onShare={openSheet} onLater={dismissNudge} />}
       {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle withOffpeakToggle={offpeakShare != null} onClose={() => setOpen(false)} />}
     </div>
   );
