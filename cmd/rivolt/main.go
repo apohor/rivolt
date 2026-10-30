@@ -1803,7 +1803,13 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
-		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, appMetrics.LeaseAcquireToFrame.Observe)
+		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
+			state := "idle"
+			if active {
+				state = "active"
+			}
+			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
+		})
 		if receiptSyncer != nil {
 			receiptSyncer.SetFence(leaseStore)
 		}

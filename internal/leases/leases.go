@@ -392,7 +392,7 @@ type Coordinator struct {
 	// flag-on bar: release to first streamed frame <= 12 s). Guarded by mu.
 	acquiredAt map[string]time.Time
 	frameAt    func(vehicleID string) time.Time
-	onFrame    func(seconds float64)
+	onFrame    func(seconds float64, active bool)
 	// unstreamed[vehicleID] is when the current episode's last
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
@@ -851,7 +851,7 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 
 // SetFrameObserver wires the acquire-to-first-frame measurement: frameAt is when the newest frame for
 // a vehicle arrived on this pod (zero when none), observe is told the seconds from acquire to it.
-func (c *Coordinator) SetFrameObserver(frameAt func(vehicleID string) time.Time, observe func(seconds float64)) {
+func (c *Coordinator) SetFrameObserver(frameAt func(vehicleID string) time.Time, observe func(seconds float64, active bool)) {
 	c.frameAt, c.onFrame = frameAt, observe
 }
 
@@ -891,7 +891,10 @@ func (c *Coordinator) observeFrames() {
 			delete(c.acquiredAt, vid)
 			c.mu.Unlock()
 		case !f.IsZero() && !f.Before(at):
-			c.onFrame(f.Sub(at).Seconds())
+			// Active means an open drive or charge when the first frame is seen (the recorder rehydrates the
+			// open session on first contact, so at the acquire itself a new owner has none yet).
+			active := c.activity != nil && c.activity(vid) == ActivityBusy
+			c.onFrame(f.Sub(at).Seconds(), active)
 			c.mu.Lock()
 			delete(c.acquiredAt, vid)
 			c.mu.Unlock()
