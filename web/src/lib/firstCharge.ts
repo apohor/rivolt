@@ -3,11 +3,14 @@ import type { Charge, Drive } from "./api";
 // What the first-charge card says, from the history the Now page already has: the first charge (priced or
 // not), or, before any charge, the first drive. Null once the first week is over, or with nothing recorded.
 export const FIRST_CARD_DAYS = 7;
+// The card's last day: from six full days after the first record until the card goes (the day-7 line shows here).
+export const LAST_DAY_AFTER_MS = (FIRST_CARD_DAYS - 1) * 86_400_000;
 
-export type FirstChargeView =
+export type FirstChargeView = (
   | { state: "A"; chargeID: string; kwh: number; cost: number; currency: string; rate: number; home: boolean; perMile?: { cost: number; miles: number } }
   | { state: "B"; chargeID: string; kwh: number }
-  | { state: "C"; driveID: string; miles: number; miPerKwh: number | null };
+  | { state: "C"; driveID: string; miles: number; miPerKwh: number | null }
+) & { lastDay: boolean };
 
 const t = (iso: string): number => new Date(iso).getTime();
 // Level 2 and slower is a home-style charge; anything faster is a DC fast charge, which has its own pricing.
@@ -19,10 +22,12 @@ export function firstChargeView(o: { charges: Charge[]; drives: Drive[]; homeRat
   const drive = [...o.drives].filter((d) => d.DistanceMi > 0).sort((a, b) => t(a.StartedAt) - t(b.StartedAt))[0];
   const anchor = Math.min(charge ? t(charge.StartedAt) : Infinity, drive ? t(drive.StartedAt) : Infinity);
   if (!Number.isFinite(anchor) || now - anchor > FIRST_CARD_DAYS * 86_400_000) return null;
+  const lastDay = now - anchor >= LAST_DAY_AFTER_MS;
   if (charge) {
     const cost = charge.Cost > 0 ? charge.Cost : (charge.estimated_cost ?? 0);
     if (o.homeRate > 0 && cost > 0) {
       return {
+        lastDay,
         state: "A",
         chargeID: charge.ID,
         kwh: charge.EnergyAddedKWh,
@@ -34,10 +39,10 @@ export function firstChargeView(o: { charges: Charge[]; drives: Drive[]; homeRat
         ...(charge.MilesAdded >= 1 && cost / charge.MilesAdded >= 0.005 ? { perMile: { cost: cost / charge.MilesAdded, miles: charge.MilesAdded } } : {}),
       };
     }
-    return { state: "B", chargeID: charge.ID, kwh: charge.EnergyAddedKWh };
+    return { lastDay, state: "B", chargeID: charge.ID, kwh: charge.EnergyAddedKWh };
   }
   if (drive) {
-    return { state: "C", driveID: drive.ID, miles: drive.DistanceMi, miPerKwh: drive.EnergyUsedKWh > 0 ? drive.DistanceMi / drive.EnergyUsedKWh : null };
+    return { lastDay, state: "C", driveID: drive.ID, miles: drive.DistanceMi, miPerKwh: drive.EnergyUsedKWh > 0 ? drive.DistanceMi / drive.EnergyUsedKWh : null };
   }
   return null;
 }

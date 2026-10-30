@@ -9,6 +9,7 @@ import { InstallOfferRow } from "./InstallOfferRow";
 import { pushSupported, subscribeThisDevice } from "../lib/push";
 import { appPath } from "../lib/demo";
 import { Card } from "./ui";
+import { FirstWeekLine } from "./FirstWeekLine";
 
 const DISMISS_KEY = "rivolt.firstCharge.dismissed";
 const NOTIFY_HIDE_KEY = "rivolt.firstCharge.notifyHidden";
@@ -127,6 +128,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives, demo = fal
             </>
           )}
         </div>
+        {!demo && v.lastDay && <FirstWeekLine />}
         {!demo && (
         <ul className="space-y-2">
           <NotifyRow />
