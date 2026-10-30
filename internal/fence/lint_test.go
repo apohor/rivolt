@@ -47,11 +47,6 @@ var deferredToM4 = map[string]string{
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
 	"samples.Store.InsertBulk":  "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"db.ClaimOTAFetch":          "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.MarkOTAUnavailable":     "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.SetVehicleOTA":          "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.SeedOTANotices":         "OTA PR: the owner's OTA details sync (otadetails)",
-	"db.ClaimOTANotice":         "OTA PR: the owner's OTA details sync (otadetails)",
 	"db.UpsertVehicleFromSync":  "vehicle metadata PR: the monitor's vehicle-info hook (cmd/rivolt/main.go); connect and /api/vehicles stay unguarded (no token)",
 	"cmd/rivolt.runServer":      "vehicle metadata PR: the monitor's battery-capacity hook writes vehicles.pack_kwh inline; move it into db and guard it",
 	"milestones.pgStore.Insert": "sends PR: the milestone row of the owner's drive/charge close hook (checker.Check); CatchUp and Backfill stay unguarded",

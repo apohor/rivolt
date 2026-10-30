@@ -1028,9 +1028,10 @@ func runServer() {
 	// mode skips it (no recorder, no WS).
 	// Not on the admin deployment: no monitors means no recorder, leases,
 	// receipts or OTA sync (all hang off the registry).
-	// The receipts sync, when built below, gets the lease store's fence once the lease coordinator
-	// exists (single-owner: only the owner of a user's group syncs it, in lead mode).
+	// The receipts and OTA syncs, when built below, get the lease store's fence once the lease
+	// coordinator exists (single-owner: only the owner of a user's group syncs it, in lead mode).
 	var receiptSyncer *receipts.Syncer
+	var otaSyncer *otadetails.Syncer
 	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" && !adminOnlyMode {
 		monitorRegistry = rivian.NewMonitorRegistry(
 			pgPool, accountRegistry,
@@ -1256,7 +1257,7 @@ func runServer() {
 			// OTA release details (version, release-notes link): once a day
 			// per vehicle and when a monitor connects (after the rows above
 			// exist), stored in vehicles.metadata and served by /api/vehicles.
-			otaSyncer := otadetails.New(pgPool, accountRegistry,
+			otaSyncer = otadetails.New(pgPool, accountRegistry,
 				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) }, logger)
 			if pushSvc != nil && pushFactory != nil {
 				otaSyncer.SetNotifier(func(u otadetails.Update) {
@@ -1810,6 +1811,9 @@ func runServer() {
 		coord.SetFrameObserver(monitorRegistry.LatestAt, appMetrics.LeaseAcquireToFrame.Observe)
 		if receiptSyncer != nil {
 			receiptSyncer.SetFence(leaseStore)
+		}
+		if otaSyncer != nil {
+			otaSyncer.SetFence(leaseStore)
 		}
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
