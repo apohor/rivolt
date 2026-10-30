@@ -116,11 +116,13 @@ func ApplySampleWeather(ctx context.Context, d *sql.DB) (int64, error) {
 // ends.
 func RunWeather(ctx context.Context, d *sql.DB, every time.Duration, log func(msg string, args ...any)) {
 	tick := func() {
-		if n, err := ApplySampleWeather(ctx, d); err != nil {
-			log("demo: sample weather pass failed", "err", err.Error())
-		} else if n > 0 {
-			log("demo: sample weather applied", "rows", n)
-		}
+		onOneReplica(ctx, d, "weather", func() {
+			if n, err := ApplySampleWeather(ctx, d); err != nil {
+				log("demo: sample weather pass failed", "err", err.Error())
+			} else if n > 0 {
+				log("demo: sample weather applied", "rows", n)
+			}
+		})
 	}
 	tick()
 	t := time.NewTicker(every)

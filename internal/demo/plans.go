@@ -318,11 +318,13 @@ func SeedPlans(ctx context.Context, d *sql.DB, sf *settings.Factory, now time.Ti
 // ends, so they follow the replay onto each loop's trip.
 func RunPlans(ctx context.Context, d *sql.DB, sf *settings.Factory, every time.Duration, log func(msg string, args ...any)) {
 	tick := func() {
-		if n, err := SeedPlans(ctx, d, sf, time.Now()); err != nil {
-			log("demo: saved plan pass failed", "err", err.Error())
-		} else if n > 0 {
-			log("demo: saved plans updated", "rows", n)
-		}
+		onOneReplica(ctx, d, "plans", func() {
+			if n, err := SeedPlans(ctx, d, sf, time.Now()); err != nil {
+				log("demo: saved plan pass failed", "err", err.Error())
+			} else if n > 0 {
+				log("demo: saved plans updated", "rows", n)
+			}
+		})
 	}
 	tick()
 	t := time.NewTicker(every)
