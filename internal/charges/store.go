@@ -384,7 +384,11 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		}
 		var allowed bool
 		var n int
-		if err := s.db.QueryRowContext(ctx, guardedChargeUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc), c.EnergyEstimated).Scan(&allowed, &n); err != nil {
+		// Bounded transaction (2 s cap, 2 s statement timeout): a write that passed the lease check
+		// and then waits on a lock is cancelled, not committed after the lease expired.
+		if err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
+			return tx.QueryRowContext(tctx, guardedChargeUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc), c.EnergyEstimated).Scan(&allowed, &n)
+		}); err != nil {
 			return err
 		}
 		if !allowed {
@@ -617,19 +621,26 @@ func (s *Store) execOwnerWrite(ctx context.Context, query string, args ...any) (
 	}
 	k := len(args)
 	query = strings.ReplaceAll(query, "{{LEASE}}", fmt.Sprintf("AND rivolt_lease_ok($%d::uuid, $%d::text, $%d::bigint)", k+1, k+2, k+3))
-	res, err := s.db.ExecContext(ctx, query, append(args, tok.Group, tok.Pod, tok.Epoch)...)
+	var n int64
+	err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(tctx, query, append(args, tok.Group, tok.Pod, tok.Epoch)...)
+		if err != nil {
+			return err
+		}
+		n, _ = res.RowsAffected()
+		if n == 0 {
+			var ok bool
+			if err := tx.QueryRowContext(tctx, `SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint)`, tok.Group, tok.Pod, tok.Epoch).Scan(&ok); err != nil {
+				return err
+			}
+			if !ok {
+				return fence.ErrFenced
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		var ok bool
-		if err := s.db.QueryRowContext(ctx, `SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint)`, tok.Group, tok.Pod, tok.Epoch).Scan(&ok); err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, fence.ErrFenced
-		}
 	}
 	return int(n), nil
 }

@@ -29,30 +29,21 @@ const enforcementComplete = false
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
-	"samples.Store.InsertBulk":               "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"charges.Store.Upsert":                   "charges PR",
-	"charges.Store.AbandonOpenLive":          "charges PR (live charge session)",
-	"charges.Store.RefreshOpenLive":          "charges PR (live charge session)",
-	"charges.Store.CloseStaleOpenLive":       "charges PR (live charge session)",
-	"charges.Store.CloseStaleOpenLiveBefore": "charges PR (live charge session)",
-	"charges.Store.ApplyNetworkRate":         "classify in the charges PR: owner close hook or user action",
-	"charges.Store.ConfirmNetwork":           "classify in the charges PR: owner close hook or user action",
-	"charges.Store.MarkFree":                 "classify in the charges PR: owner close hook or user action",
-	"charges.Store.UpdatePricing":            "classify in the charges PR: owner close hook or user action",
-	"engage.pgStore.Claim":                   "sends PR: the epoch goes into the claim insert, so a zombie cannot claim (charging complete, left-open, plug reminder, milestones); other callers, such as the statement job, have no token",
-	"engage.pgStore.Mark":                    "sends PR: result of a claimed send",
-	"engage.pgStore.RecordSkip":              "sends PR: a finished skip row is a claim too",
-	"push.Store.CreateNotification":          "sends PR: the notification row of an owner-triggered send",
-	"push.Store.RegisterActivity":            "sends PR: Live Activity start, owner-side",
-	"push.Store.EndActivity":                 "sends PR: Live Activity end, owner-side",
-	"push.Store.SetAPNsLive":                 "sends PR: Live Activity state, owner-side",
-	"push.Store.claimActivityUpdate":         "sends PR: the Live Activity update claim",
-	"receipts.Store.claim":                   "receipts PR: the claim insert of the owner's receipts sync",
-	"receipts.Store.UpsertReceipts":          "receipts PR: the owner's receipts fetch",
-	"receipts.Store.SaveDetail":              "receipts PR: the owner's receipts fetch",
-	"receipts.Store.Apply":                   "receipts PR: matches a receipt to a charge after the owner's fetch",
-	"receipts.Store.MarkResult":              "receipts PR: the owner's sync result",
-	"receipts.Store.RefreshMatched":          "receipts PR: runs inside the owner's syncer (syncer.go)",
+	"samples.Store.InsertBulk":       "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
+	"engage.pgStore.Claim":           "sends PR: the epoch goes into the claim insert, so a zombie cannot claim (charging complete, left-open, plug reminder, milestones); other callers, such as the statement job, have no token",
+	"engage.pgStore.Mark":            "sends PR: result of a claimed send",
+	"engage.pgStore.RecordSkip":      "sends PR: a finished skip row is a claim too",
+	"push.Store.CreateNotification":  "sends PR: the notification row of an owner-triggered send",
+	"push.Store.RegisterActivity":    "sends PR: Live Activity start, owner-side",
+	"push.Store.EndActivity":         "sends PR: Live Activity end, owner-side",
+	"push.Store.SetAPNsLive":         "sends PR: Live Activity state, owner-side",
+	"push.Store.claimActivityUpdate": "sends PR: the Live Activity update claim",
+	"receipts.Store.claim":           "receipts PR: the claim insert of the owner's receipts sync",
+	"receipts.Store.UpsertReceipts":  "receipts PR: the owner's receipts fetch",
+	"receipts.Store.SaveDetail":      "receipts PR: the owner's receipts fetch",
+	"receipts.Store.Apply":           "receipts PR: matches a receipt to a charge after the owner's fetch",
+	"receipts.Store.MarkResult":      "receipts PR: the owner's sync result",
+	"receipts.Store.RefreshMatched":  "receipts PR: runs inside the owner's syncer (syncer.go)",
 }
 
 // notOwnerSide is permanent. Each entry names who calls it.
@@ -69,6 +60,10 @@ var notOwnerSide = map[string]string{
 	"charges.Store.UndoRestamp":            "user action",
 	"charges.Store.SetLocationOverride":    "user action",
 	"charges.Store.SetPlaceOverride":       "user action",
+	"charges.Store.ApplyNetworkRate":       "user action (api/charges.go: the network rate button)",
+	"charges.Store.ConfirmNetwork":         "user action (api/charges.go)",
+	"charges.Store.MarkFree":               "user action (api/charges.go)",
+	"charges.Store.UpdatePricing":          "user action (api/charges.go; also the demo seeder)",
 	"charges.Store.SetNetworkPrice":        "user action",
 	"engage.pgStore.Purge":                 "retention job",
 	"push.PurgeActivities":                 "retention job (cmd/rivolt/main.go)",
@@ -105,7 +100,7 @@ var writeSQL = regexp.MustCompile(`(?is)\b(INSERT\s+INTO\s+[a-z_]+|UPDATE\s+[a-z
 
 // guarded reports whether a function body carries the fence.
 func guarded(src string) bool {
-	return strings.Contains(src, "rivolt_lease_ok") || strings.Contains(src, "fence.From(") || strings.Contains(src, "guardedInsert")
+	return strings.Contains(src, "rivolt_lease_ok") || strings.Contains(src, "fence.From(") || strings.Contains(src, "guardedInsert") || strings.Contains(src, "execOwnerWrite(") || strings.Contains(src, "guardedChargeUpsert")
 }
 
 // writers returns "pkg.Recv.Func" for every function in the scanned files whose string literals
