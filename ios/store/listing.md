@@ -14,7 +14,7 @@ Rivolt: EV drives and charging
 Drives, charging cost, truck
 
 ## Promotional text
-Free and open source. See your Rivian's drives, what each charge cost and where the figure came from, tire pressures and sleep health, with Lock Screen widgets. Unofficial.
+Free and open source. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health, with Lock Screen widgets. Unofficial.
 
 ## Description
 Rivolt is a free, open-source companion for Rivian owners. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from.
