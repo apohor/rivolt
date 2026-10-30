@@ -26,7 +26,7 @@ func TestCloseHooksAreGatedByTheFence(t *testing.T) {
 		{"off", fence.Off, true, false, 0},
 		{"held", fence.Held, true, true, 0},
 		{"lost", fence.Lost, false, false, 1},
-		{"warming", fence.Warming, false, false, 0}, // runs later; checked below
+		{"warming", fence.Warming, false, false, 1}, // a group that never stops warming: re-armed once, then dropped and counted; the case that does finish is the next test
 	} {
 		m := NewStateMonitor(nil, nil)
 		m.warmWait = 10 * time.Millisecond
@@ -43,7 +43,7 @@ func TestCloseHooksAreGatedByTheFence(t *testing.T) {
 		m.SetDriveCloseHook(func(ctx context.Context, _ drives.Drive) { ran.Add(1) })
 		m.runChargeCloseHook(charges.Charge{ID: "c", VehicleID: "veh"})
 		m.runDriveCloseHook(drives.Drive{ID: "d", VehicleID: "veh"})
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		want := int32(0)
 		if c.wantRun {
 			want = 2
