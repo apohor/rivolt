@@ -29,7 +29,6 @@ const enforcementComplete = false
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
-	"samples.Store.InsertBatch":              "guarded by the sample-insert PR (#1291); remove this entry when it merges",
 	"samples.Store.InsertBulk":               "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
 	"drives.Store.Upsert":                    "drives PR",
 	"charges.Store.Upsert":                   "charges PR",
