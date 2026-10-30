@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -25,9 +26,13 @@ func TestGrants_OneReplicaAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	const role = "ro_grant_lock"
-	if _, err := pool.ExecContext(ctx, `CREATE ROLE `+role+` NOLOGIN`); err != nil {
-		t.Fatal(err)
+	// Roles are cluster-wide and the test databases share a server: a name per test.
+	role := "ro_grant_lock_" + randHex(t, 6)
+	appRole := "rivolt_app_lock_" + randHex(t, 6)
+	for _, r := range []string{role, appRole} {
+		if _, err := pool.ExecContext(ctx, `CREATE ROLE `+r+` NOLOGIN`); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	other, err := pool.Conn(ctx)
@@ -63,22 +68,29 @@ func TestGrants_OneReplicaAtATime(t *testing.T) {
 		t.Fatal("GrantReadonly still waiting after the lock was freed")
 	}
 
-	// A rollout: many replicas at once all succeed.
+	// A rollout: many replicas at once, both grant sets (EnsureAppGrants and EnsureReadonlyGrants
+	// call these), all succeed.
 	var wg sync.WaitGroup
-	errs := make(chan error, 8)
+	errs := make(chan error, 16)
 	for i := 0; i < 8; i++ {
-		wg.Add(1)
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			if _, err := db.GrantReadonly(ctx, pool, role); err != nil {
 				errs <- err
 			}
 		}()
+		go func() {
+			defer wg.Done()
+			if ok, err := db.GrantApp(ctx, pool, appRole); err != nil || !ok {
+				errs <- fmt.Errorf("GrantApp = %v, %v", ok, err)
+			}
+		}()
 	}
 	wg.Wait()
 	close(errs)
 	for err := range errs {
-		t.Errorf("concurrent GrantReadonly: %v", err)
+		t.Errorf("concurrent grants: %v", err)
 	}
 	// The lock is free afterwards.
 	var got bool
