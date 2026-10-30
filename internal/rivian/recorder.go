@@ -1683,7 +1683,24 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 		return
 	}
 	row := m.liveDriveRow(vehicleID, d)
-	if err := m.drivesStore.Upsert(ctx, row); err != nil {
+	wctx, st := m.fenceState(ctx, vehicleID, "drives")
+	switch st {
+	case fence.Lost:
+		return // not ours any more; the coordinator is stopping this vehicle
+	case fence.Warming:
+		// Taken from a pod that did not release it: wait out the warm-up before the first write. The
+		// open session writes again on its next frame; a drive that closes in the window is written
+		// once, here, when it ends.
+		if d.final {
+			m.afterWarmUp(vehicleID, func(c context.Context) error { return m.drivesStore.Upsert(c, row) }, "drives")
+		}
+		return
+	}
+	if err := m.drivesStore.Upsert(wctx, row); err != nil {
+		if errors.Is(err, fence.ErrFenced) {
+			m.fenced("drives", vehicleID)
+			return
+		}
 		if sessionOverlapRejected(err) {
 			if !d.rejected {
 				m.logger.Warn("live drive rejected: overlaps another live drive for this vehicle (duplicate recorder?); retrying with a trimmed start",

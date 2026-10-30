@@ -4,6 +4,7 @@ package drives
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // Drive is a single drive session. ID is the importer/recorder's
@@ -136,23 +138,18 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 // without a foreign key (see Reset).
 var perDriveTables = []string{"drive_recaps", "drive_efficiency", "drive_weather", "drive_weather_series"}
 
-// Upsert inserts or replaces a drive by external_id within the
-// (user_id, vehicle_id) scope.
-func (s *Store) Upsert(ctx context.Context, d Drive) error {
-	vid, err := s.vehicles.Resolve(ctx, d.VehicleID)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO drives (
+// driveColumns is the column list Upsert writes, in args order.
+const driveColumns = `
 			user_id, vehicle_id, external_id,
 			started_at, ended_at,
 			start_soc_pct, end_soc_pct,
 			start_odometer_mi, end_odometer_mi, distance_mi,
 			start_lat, start_lon, end_lat, end_lon,
 			max_speed_mph, avg_speed_mph, energy_used_kwh, source,
-			route_polyline, trailer, trailer_override
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+			route_polyline, trailer, trailer_override`
+
+// driveOnConflict is the update half of the upsert, shared by the plain and the guarded statement.
+const driveOnConflict = `
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at        = EXCLUDED.started_at,
 			ended_at          = EXCLUDED.ended_at,
@@ -177,7 +174,67 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			-- ever set by a value (a restore) or SetTrailerOverride, never cleared by a re-recording.
 			trailer           = COALESCE(EXCLUDED.trailer, drives.trailer),
 			trailer_override  = COALESCE(EXCLUDED.trailer_override, drives.trailer_override),
-			updated_at        = NOW()`,
+			updated_at        = NOW()`
+
+// guardedDriveUpsert writes the drive only if rivolt_lease_ok(group, pod, epoch) holds when the
+// statement starts, and says in the same statement whether it was refused: (false, 0) refused,
+// (true, 1) written. The row travels as one JSON document so the columns keep their own types
+// (json_populate_record) with no per-column casts.
+const guardedDriveUpsert = `
+	WITH ok AS MATERIALIZED (SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint) AS ok),
+	ins AS (
+		INSERT INTO drives (` + driveColumns + `
+		) SELECT r.user_id, r.vehicle_id, r.external_id, r.started_at, r.ended_at,
+		         r.start_soc_pct, r.end_soc_pct, r.start_odometer_mi, r.end_odometer_mi, r.distance_mi,
+		         r.start_lat, r.start_lon, r.end_lat, r.end_lon,
+		         r.max_speed_mph, r.avg_speed_mph, r.energy_used_kwh, r.source,
+		         r.route_polyline, r.trailer, r.trailer_override
+		  FROM ok, json_populate_record(NULL::drives, $4::json) r WHERE ok.ok` + driveOnConflict + `
+		RETURNING 1)
+	SELECT (SELECT ok FROM ok), (SELECT count(*) FROM ins)`
+
+// Upsert inserts or replaces a drive by external_id within the
+// (user_id, vehicle_id) scope. With a fence token in the context (the live recorder of a pod
+// that holds the group lease) the write is guarded by the lease in the same statement and
+// returns fence.ErrFenced when the lease is gone.
+func (s *Store) Upsert(ctx context.Context, d Drive) error {
+	vid, err := s.vehicles.Resolve(ctx, d.VehicleID)
+	if err != nil {
+		return err
+	}
+	if tok, ok := fence.From(ctx); ok {
+		doc, err := json.Marshal(map[string]any{
+			"user_id": s.userID, "vehicle_id": vid, "external_id": d.ID,
+			"started_at": d.StartedAt.UTC(), "ended_at": d.EndedAt.UTC(),
+			"start_soc_pct": jsonNum(d.StartSoCPct), "end_soc_pct": jsonNum(d.EndSoCPct),
+			"start_odometer_mi": jsonNum(d.StartOdometerMi), "end_odometer_mi": jsonNum(d.EndOdometerMi),
+			"distance_mi": jsonNum(d.DistanceMi),
+			"start_lat":   jsonNum(d.StartLat), "start_lon": jsonNum(d.StartLon),
+			"end_lat": jsonNum(d.EndLat), "end_lon": jsonNum(d.EndLon),
+			"max_speed_mph": jsonNum(d.MaxSpeedMph), "avg_speed_mph": jsonNum(d.AvgSpeedMph),
+			"energy_used_kwh": jsonNum(d.EnergyUsedKWh), "source": d.Source,
+			"route_polyline": jsonStr(d.RoutePolyline), "trailer": d.Trailer, "trailer_override": d.TrailerOverride,
+		})
+		if err != nil {
+			return err
+		}
+		var allowed bool
+		var n int
+		// In a bounded transaction (2 s cap, 2 s statement timeout): an upsert that passed the lease
+		// check and then waits on a row lock is cancelled, not committed after the lease expired.
+		if err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
+			return tx.QueryRowContext(tctx, guardedDriveUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc)).Scan(&allowed, &n)
+		}); err != nil {
+			return err
+		}
+		if !allowed {
+			return fence.ErrFenced
+		}
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO drives (`+driveColumns+`
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`+driveOnConflict,
 		s.userID, vid, d.ID,
 		d.StartedAt.UTC(), d.EndedAt.UTC(),
 		nullIfZero(d.StartSoCPct), nullIfZero(d.EndSoCPct),
@@ -424,6 +481,22 @@ func nullIfZero(f float64) sql.NullFloat64 {
 		return sql.NullFloat64{}
 	}
 	return sql.NullFloat64{Float64: f, Valid: true}
+}
+
+// jsonNum and jsonStr are nullIfZero and nullIfEmpty for the JSON document of the guarded upsert
+// (sql.Null* marshal as structs, not as values).
+func jsonNum(f float64) any {
+	if f == 0 {
+		return nil
+	}
+	return f
+}
+
+func jsonStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func nullIfEmpty(s string) sql.NullString {

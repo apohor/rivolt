@@ -214,6 +214,7 @@ type StateMonitor struct {
 	// both nil in M1 and with the lead flag off. See fence.Source.
 	fenceSrc fence.Source
 	onFenced func(kind string)
+	warmWait time.Duration // tests only: shortens the wait of a deferred final write
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
 
@@ -789,26 +790,84 @@ func (m *StateMonitor) SetFence(src fence.Source, onFenced func(kind string)) {
 	m.fenceSrc, m.onFenced = src, onFenced
 }
 
-// fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
-// pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
-// nothing; the sample is dropped, not queued: the next frame carries the state.
-func (m *StateMonitor) fenceCtx(ctx context.Context, vehicleID, kind string) (context.Context, bool) {
+// fenceState says what this pod may write for vehicleID, with the context a guarded write must use
+// (carrying the fence token when it holds the group). Lost is counted as kind.
+func (m *StateMonitor) fenceState(ctx context.Context, vehicleID, kind string) (context.Context, fence.State) {
 	if m.fenceSrc == nil {
-		return ctx, true
+		return ctx, fence.Off
 	}
 	tok, st := m.fenceSrc.Fence(vehicleID)
 	switch st {
 	case fence.Held:
-		return fence.With(ctx, tok), true
-	case fence.Warming:
-		return ctx, false
+		return fence.With(ctx, tok), st
 	case fence.Lost:
 		if m.onFenced != nil {
 			m.onFenced(kind)
 		}
-		return ctx, false
 	}
-	return ctx, true
+	return ctx, st
+}
+
+// fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
+// pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
+// nothing; the sample is dropped, not queued: the next frame carries the state.
+func (m *StateMonitor) fenceCtx(ctx context.Context, vehicleID, kind string) (context.Context, bool) {
+	c, st := m.fenceState(ctx, vehicleID, kind)
+	return c, st == fence.Off || st == fence.Held
+}
+
+// afterWarmUp runs a final write (a session that has closed, so no later frame repeats it) once
+// the post-steal warm-up is over, under the fence of that moment. If the group is warming again (a
+// second steal) it waits once more; if the group is lost the write is dropped, counted and logged.
+func (m *StateMonitor) afterWarmUp(vehicleID string, write func(context.Context) error, kind string) {
+	m.afterWarmUpN(vehicleID, write, kind, 2)
+}
+
+func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context) error, kind string, tries int) {
+	time.AfterFunc(m.warmUpWait(), func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		wctx, st := m.fenceState(ctx, vehicleID, kind)
+		switch st {
+		case fence.Off, fence.Held:
+		case fence.Warming:
+			if tries > 1 {
+				m.afterWarmUpN(vehicleID, write, kind, tries-1)
+				return
+			}
+			m.logger.Warn("deferred final write dropped: the group is still warming up", "kind", kind, "vehicle", vehicleID)
+			return
+		default: // Lost (already counted by fenceState)
+			m.logger.Warn("deferred final write dropped: the group lease is gone", "kind", kind, "vehicle", vehicleID)
+			return
+		}
+		if err := write(wctx); err != nil {
+			if errors.Is(err, fence.ErrFenced) {
+				m.fenced(kind, vehicleID)
+				return
+			}
+			m.logger.Warn("deferred final write failed", "kind", kind, "vehicle", vehicleID, "err", err.Error())
+		}
+	})
+}
+
+// warmUpRetry is just over the 5 s warm-up.
+const warmUpRetry = 5200 * time.Millisecond
+
+// warmUpWait is how long a deferred final write waits: warmUpRetry, or the test's override.
+func (m *StateMonitor) warmUpWait() time.Duration {
+	if m.warmWait > 0 {
+		return m.warmWait
+	}
+	return warmUpRetry
+}
+
+// fenced counts a write the database refused because the lease is gone.
+func (m *StateMonitor) fenced(kind, vehicleID string) {
+	if m.onFenced != nil {
+		m.onFenced(kind)
+	}
+	m.logger.Warn("write refused: the group lease is gone", "kind", kind, "vehicle", vehicleID)
 }
 
 // SetLiveStateStore wires the cross-restart accumulator persistence
