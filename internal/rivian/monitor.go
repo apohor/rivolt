@@ -300,17 +300,19 @@ type StateMonitor struct {
 	// week after Rivian said the account can't read them. Guarded by mu.
 	scheduleUnavailableUntil map[string]time.Time
 	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
-	// vehicleInfoHook receives each RefreshVehicleInfo result (trim, image,
-	// pack guess) so it can be persisted. Set before Start; called outside
-	// the monitor lock and must not block.
-	vehicleInfoHook func([]Vehicle)
+	// vehicleInfoHook receives the vehicles RefreshVehicleInfo fetched (trim,
+	// image, pack guess) so they can be persisted, with the context the write
+	// uses (the group's fence token when this pod holds it). Set before
+	// Start; called outside the monitor lock and must not block.
+	vehicleInfoHook func(context.Context, []Vehicle)
 
 	// batteryCapacityHook fires from observeBatteryCapacity when the
 	// vehicle-reported usable pack kWh changes. Wired by the
 	// MonitorRegistry to a closure that UPDATEs vehicles.pack_kwh
 	// so a process restart doesn't lose the live observation. nil
-	// when no persistence is wired (legacy paths, tests).
-	batteryCapacityHook func(vehicleID string, kwh float64)
+	// when no persistence is wired (legacy paths, tests). The context
+	// carries the group's fence token when this pod holds it.
+	batteryCapacityHook func(ctx context.Context, vehicleID string, kwh float64)
 
 	// startupStagger spaces out the first WS connect attempt of each
 	// run() goroutine so a coordinator-driven mass-acquire (or a
@@ -3817,15 +3819,45 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 	m.mu.Unlock()
 	// Persist what was just fetched, outside the lock: no extra Rivian
 	// call, so vehicles.trim / image_url fill from the same two requests.
-	if hook != nil && len(refreshed) > 0 {
-		hook(refreshed)
+	if hook != nil {
+		m.persistVehicleInfo(hook, refreshed)
 	}
 	return nil
 }
 
+// persistVehicleInfo hands the refreshed vehicles to the hook under each
+// vehicle's group fence: a vehicle whose group this pod does not hold (or is
+// still warming up) is left to the owner's next refresh. One call per token
+// (a user's vehicles share a group, so normally one).
+func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle), refreshed []Vehicle) {
+	type batch struct {
+		ctx context.Context
+		vs  []Vehicle
+	}
+	var batches []batch
+	byTok := map[fence.Token]int{}
+	for _, v := range refreshed {
+		wctx, ok := m.fenceCtx(context.Background(), v.ID, "vehicle_info")
+		if !ok {
+			continue
+		}
+		tok, _ := fence.From(wctx)
+		i, seen := byTok[tok]
+		if !seen {
+			i = len(batches)
+			byTok[tok] = i
+			batches = append(batches, batch{ctx: wctx})
+		}
+		batches[i].vs = append(batches[i].vs, v)
+	}
+	for _, b := range batches {
+		hook(b.ctx, b.vs)
+	}
+}
+
 // SetVehicleInfoHook wires the persister RefreshVehicleInfo calls with the
 // vehicles it just cached. nil disables. Safe to call before Start.
-func (m *StateMonitor) SetVehicleInfoHook(h func([]Vehicle)) {
+func (m *StateMonitor) SetVehicleInfoHook(h func(context.Context, []Vehicle)) {
 	m.mu.Lock()
 	m.vehicleInfoHook = h
 	m.mu.Unlock()
@@ -3948,8 +3980,12 @@ func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
 	// + the user_id captured in the closure at SetBatteryCapacityHook
 	// time; it write-throughs to vehicles.pack_kwh so a future
 	// process restart (which drops vehicleInfo) sees the right value.
+	// Only under the group's fence: the owner's own monitor observes and
+	// writes the same capacity.
 	if changed && hook != nil {
-		hook(vehicleID, kwh)
+		if wctx, ok := m.fenceCtx(context.Background(), vehicleID, "vehicle_info"); ok {
+			hook(wctx, vehicleID, kwh)
+		}
 	}
 }
 
@@ -3958,7 +3994,7 @@ func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
 // a vehicle. The hook is called outside the monitor lock and
 // MUST be non-blocking — callers typically dispatch a goroutine
 // that performs the DB UPDATE.
-func (m *StateMonitor) SetBatteryCapacityHook(hook func(vehicleID string, kwh float64)) {
+func (m *StateMonitor) SetBatteryCapacityHook(hook func(ctx context.Context, vehicleID string, kwh float64)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.batteryCapacityHook = hook

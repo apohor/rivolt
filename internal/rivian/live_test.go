@@ -732,7 +732,7 @@ func TestRefreshVehicleInfoFeedsTheHook(t *testing.T) {
 	}
 	mon := NewStateMonitor(c, nil)
 	var got []Vehicle
-	mon.SetVehicleInfoHook(func(vs []Vehicle) { got = vs })
+	mon.SetVehicleInfoHook(func(_ context.Context, vs []Vehicle) { got = vs })
 	before := len(g.capturedReqs)
 	if err := mon.RefreshVehicleInfo(context.Background()); err != nil {
 		t.Fatal(err)

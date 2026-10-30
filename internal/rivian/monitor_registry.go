@@ -60,8 +60,8 @@ type MonitorRegistry struct {
 	extraDriveClose    []func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
-	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
-	vehicleInfoFor     func(uid uuid.UUID) func([]Vehicle)
+	batteryCapacityFor func(uid uuid.UUID) func(ctx context.Context, vehicleID string, kwh float64)
+	vehicleInfoFor     func(uid uuid.UUID) func(context.Context, []Vehicle)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
 	dcfcEstimateFor    func(uid uuid.UUID) DCFCEstimator
@@ -166,7 +166,7 @@ func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) L
 // one of the user's vehicles. Typically wires through to a SQL
 // UPDATE on vehicles.pack_kwh so a future restart sees the right
 // nameplate without having to wait for another live observation.
-func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UUID) func(vehicleID string, kwh float64)) {
+func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UUID) func(ctx context.Context, vehicleID string, kwh float64)) {
 	r.mu.Lock()
 	r.batteryCapacityFor = factory
 	r.mu.Unlock()
@@ -175,7 +175,7 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 // SetVehicleInfoHookFactory wires the per-user persister for the vehicle
 // metadata (trim, image, pack guess) each monitor fetches in
 // RefreshVehicleInfo.
-func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) func([]Vehicle)) {
+func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) func(context.Context, []Vehicle)) {
 	r.mu.Lock()
 	r.vehicleInfoFor = factory
 	r.mu.Unlock()
