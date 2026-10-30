@@ -350,3 +350,68 @@ func TestDescribeNamesOurGatesAndTheRootType(t *testing.T) {
 		t.Error("Describe leaked the cause's text")
 	}
 }
+
+// Schedule reads are counted by outcome: ok, retried_ok (after a refusal), dropped (refused on every try),
+// error (anything else). A vehicle with no schedules for its account is not counted.
+func TestScheduleReadOutcomesAreCounted(t *testing.T) {
+	oldCap, oldBase, oldJitter := scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter
+	scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = 2*time.Millisecond, time.Millisecond, time.Millisecond
+	defer func() { scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = oldCap, oldBase, oldJitter }()
+
+	run := func(script []error) string {
+		m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+		inner := m.fetchSchedules
+		i := 0
+		m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+			var err error
+			if i < len(script) {
+				err = script[i]
+			}
+			i++
+			if err != nil {
+				return nil, err
+			}
+			return inner(ctx, v)
+		}
+		var got []string
+		m.SetScheduleObserver(func(o string) { got = append(got, o) })
+		m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+		return strings.Join(got, ",")
+	}
+	refused := &ErrRateLimited{RetryAfter: time.Millisecond}
+	always := make([]error, scheduleRetryTries)
+	for i := range always {
+		always[i] = refused
+	}
+	for name, c := range map[string]struct {
+		script []error
+		want   string
+	}{
+		"first try works":       {nil, "ok"},
+		"works after a refusal": {[]error{refused}, "retried_ok"},
+		"refused on every try":  {always, "dropped"},
+		"another error":         {[]error{errors.New("boom")}, "error"},
+	} {
+		if got := run(c.script); got != c.want {
+			t.Errorf("%s: outcomes = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// A trip plan is a user waiting: it draws from the priority lane of the shared Rivian budget, not the main
+// one the post-acquire background burst drains.
+func TestPlanTripUsesThePriorityLane(t *testing.T) {
+	rl := &classRecorder{}
+	c := &LiveClient{rateLimit: rl}
+	_, _ = c.PlanTrip(context.Background(), PlanTripInput{}) // refused for lack of a session after the budget check
+	if rl.class != "priority" {
+		t.Errorf("PlanTrip drew from the %q lane, want priority", rl.class)
+	}
+}
+
+type classRecorder struct{ class string }
+
+func (r *classRecorder) Allow(ctx context.Context, class string) (bool, time.Duration) {
+	r.class = class
+	return true, 0
+}
