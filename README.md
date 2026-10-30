@@ -3,7 +3,7 @@
 [![build](https://github.com/apohor/rivolt/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/apohor/rivolt/actions/workflows/build.yml) [![release](https://img.shields.io/github/v/release/apohor/rivolt)](https://github.com/apohor/rivolt/releases/latest) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 > Free, open-source tracker for Rivian owners: what your Rivian actually
-> costs. Charging cost at your own rate, trips, efficiency and lease miles.
+> costs. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
  · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
@@ -17,7 +17,7 @@ affiliated with, endorsed by or sponsored by Rivian.
 
 ## What it does
 
-- **Every charge and trip priced at your rate**, with the source of each
+- **Every charge and trip priced from what Rivian billed, your rate, or a labelled estimate**, with the source of each
   number shown (billed, home rate, network estimate, or entered by you).
 - **Trip planner** that estimates what a road trip will cost, with weather
   and efficiency analysis.

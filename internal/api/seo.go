@@ -49,7 +49,7 @@ var seoPages = map[string]map[string]seoPage{
 		"/": {
 			title: "Rivolt: Rivian charging cost, trip and efficiency tracker",
 			desc:  "Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. " + notAffiliated,
-			summary: "Rivolt is a free, open-source tracker for Rivian owners. It records drives and charges, prices charging at your own rate, " +
+			summary: "Rivolt is a free, open-source tracker for Rivian owners. It records drives and charges, prices each charge from what Rivian billed, your rate, or a labelled estimate, " +
 				"shows efficiency, and projects lease miles. Try the sample truck at https://demo.rivolt.dev. " + notAffiliated,
 		},
 		"/privacy": {

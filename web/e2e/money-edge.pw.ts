@@ -103,7 +103,7 @@ const SCENARIOS: Scenario[] = [
     charging: { home_price_per_kwh: 0, home_currency: "USD", gas_price_per_gallon: 0, comparison_mpg: 0 },
     vehicles: [],
     summaryMonths: false,
-    text: [/Nothing priced yet/, /Charges show up here priced at your home rate/, /Set home rate/],
+    text: [/Nothing priced yet/, /Charges show up here with their cost/, /Set home rate/],
     absent: [/NaN|undefined|Infinity/],
   },
 ];
