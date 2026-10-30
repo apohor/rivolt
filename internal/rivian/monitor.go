@@ -836,6 +836,9 @@ func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context
 				return
 			}
 			m.logger.Warn("deferred final write dropped: the group is still warming up", "kind", kind, "vehicle", vehicleID)
+			if m.onFenced != nil {
+				m.onFenced(kind) // every lost final write shows on the metric, not only in the logs
+			}
 			return
 		default: // Lost (already counted by fenceState)
 			m.logger.Warn("deferred final write dropped: the group lease is gone", "kind", kind, "vehicle", vehicleID)

@@ -95,8 +95,8 @@ func TestAfterWarmUpReArmsOnceAndCountsALoss(t *testing.T) {
 	if w, _ := runAfterWarmUp(t, []fence.State{fence.Warming, fence.Held}); w != 1 {
 		t.Errorf("warming then held: %d writes, want 1 (re-armed)", w)
 	}
-	if w, _ := runAfterWarmUp(t, []fence.State{fence.Warming, fence.Warming, fence.Held}); w != 0 {
-		t.Errorf("warming twice: %d writes, want 0 (gave up after one re-arm)", w)
+	if w, c := runAfterWarmUp(t, []fence.State{fence.Warming, fence.Warming, fence.Held}); w != 0 || c != 1 {
+		t.Errorf("warming twice: %d writes, %d counted, want 0 and 1 (gave up after one re-arm, counted)", w, c)
 	}
 	if w, c := runAfterWarmUp(t, []fence.State{fence.Lost}); w != 0 || c != 1 {
 		t.Errorf("lost: %d writes, %d counted, want 0 and 1", w, c)
