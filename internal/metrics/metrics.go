@@ -647,7 +647,7 @@ func New() *Metrics {
 var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
-var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian"}
+var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian", "vehicle_info"}
 
 // Handler returns the http.Handler for /metrics scoped to this
 // Metrics' private registry. Mount under /metrics with no auth — the
