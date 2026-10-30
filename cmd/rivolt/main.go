@@ -107,6 +107,8 @@ func main() {
 		case "--help", "-h", "help":
 			printUsage()
 			return
+		case "prestop":
+			os.Exit(runPrestop(os.Args[2:], os.Stderr))
 		case "migrate":
 			os.Exit(runMigrate(os.Args[2:]))
 		case "reprice":
@@ -125,10 +127,21 @@ func main() {
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "archive":
 			os.Exit(runArchive(os.Args[2:]))
+		default:
+			// Anything that is not a flag is a subcommand this binary does not have. Starting the
+			// server for it would boot a second Rivolt in a pod whose chart execs a subcommand the
+			// image predates (new chart, old image).
+			if isUnknownSubcommand(os.Args[1]) {
+				fmt.Fprintf(os.Stderr, "rivolt: unknown command %q\n", os.Args[1])
+				os.Exit(2)
+			}
 		}
 	}
 	runServer()
 }
+
+// isUnknownSubcommand reports whether the first argument is a word rather than a flag.
+func isUnknownSubcommand(arg string) bool { return arg != "" && !strings.HasPrefix(arg, "-") }
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `rivolt — self-hosted Rivian companion
@@ -327,6 +340,9 @@ func runServer() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// SIGUSR1 from `rivolt prestop` (the chart's exec preStop hook) starts the drain. Registered
+	// first thing: an unhandled SIGUSR1 would end the process.
+	drainSigs := notifyDrain()
 
 	// Bring up OTel before anything that might want to record a
 	// span (DB pings, Rivian token refresh on boot). Init returns
@@ -1803,6 +1819,12 @@ func runServer() {
 			coord.TriggerReconcile()
 		}()
 		leaseCoordinator = coord
+		go watchDrain(drainSigs, func() {
+			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer dcancel()
+			coord.MarkDraining(dctx)
+			logger.Info("draining: no new leases will be taken")
+		})
 	}
 
 	webFS := web.Assets()
@@ -2859,7 +2881,7 @@ func runServer() {
 		logger.Warn("shutdown error", "err", err.Error())
 	}
 	// Let the detached work (re-auth email, close hooks, vehicle-info writes) finish
-	// before the database goes away. Bounded: 3 s leases + 10 s HTTP + 10 s here fits
+	// before the database goes away. Bounded: 3 s leases + 10 s HTTP + 8 s here fits
 	// the 30 s grace period.
 	if !bg.Default.Wait(bgShutdownWait) {
 		logger.Warn("background work still running at shutdown; closing anyway", "waited", bgShutdownWait.String())
