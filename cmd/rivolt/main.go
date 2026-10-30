@@ -2670,6 +2670,8 @@ func runServer() {
 				_, err := pushSvc.DeliverLeftOpen(ctx, pushFactory.For(uid), model, kinds, minutes)
 				return err
 			},
+			// Single-owner: alert only while this pod holds the vehicle's group (Off with lead mode off).
+			Fence:  liveFence.Fence,
 			Logger: logger,
 		}
 		go leftOpen.Run(ctx)

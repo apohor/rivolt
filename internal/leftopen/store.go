@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -56,16 +57,18 @@ func (s *pgSource) Latest(uid uuid.UUID, rivianID string) (*rivian.State, time.T
 func (s *pgSource) Claim(ctx context.Context, uid, vehicleID uuid.UUID, episodeStart time.Time) (bool, error) {
 	// One alert per episode, and none within Cooldown of the vehicle's last (a pod change restarts the in-memory
 	// episode clock, and a door opened and closed again and again must not repeat itself).
-	res, err := s.db.ExecContext(ctx, `
+	// The claim carries the group lease when the job holds the vehicle's group (fence.Exec; plain
+	// without a token): a pod that lost it cannot claim, so the owner's alert is not blocked.
+	n, err := fence.Exec(ctx, s.db, `
 		INSERT INTO left_open_alerts (user_id, vehicle_id, episode_started_at)
 		SELECT $1, $2, $3
 		 WHERE NOT EXISTS (SELECT 1 FROM left_open_alerts WHERE vehicle_id = $2 AND sent_at > now() - make_interval(secs => $4))
+		   AND `+fence.OK+`
 		ON CONFLICT (vehicle_id, episode_started_at) DO NOTHING`, uid, vehicleID, episodeStart.UTC(), Cooldown.Seconds())
 	if err != nil {
 		return false, err
 	}
-	n, err := res.RowsAffected()
-	return n == 1, err
+	return n == 1, nil
 }
 
 func (s *pgSource) Prune(ctx context.Context, before time.Time) (int64, error) {

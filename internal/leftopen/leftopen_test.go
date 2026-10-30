@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -250,4 +251,73 @@ func TestAnotherPodsClaimOrAFailedDeliveryStopsASecondSend(t *testing.T) {
 	if fails != 1 {
 		t.Errorf("delivery tried %d times", fails)
 	}
+}
+
+type tokenSource struct {
+	*fakeSource
+	gotToken bool
+	err      error
+}
+
+func (t *tokenSource) Claim(ctx context.Context, uid, vid uuid.UUID, start time.Time) (bool, error) {
+	_, t.gotToken = fence.From(ctx)
+	if t.err != nil {
+		return false, t.err
+	}
+	return t.fakeSource.Claim(ctx, uid, vid, start)
+}
+
+// The alert is made only while the pod holds the vehicle's group, and then its claim carries the token.
+func TestTheAlertFollowsTheFence(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		st        fence.State
+		claims    int
+		delivered int
+		token     bool
+	}{
+		{"lead mode off", fence.Off, 1, 1, false},
+		{"held", fence.Held, 1, 1, true},
+		{"warming", fence.Warming, 0, 0, false},
+		{"lost", fence.Lost, 0, 0, false},
+	} {
+		j, src, out := openForAWhile(t)
+		ts := &tokenSource{fakeSource: src}
+		j.Source = ts
+		j.Fence = func(string) (fence.Token, fence.State) { return fence.Token{Group: "g", Pod: "p", Epoch: 2}, c.st }
+		j.Tick(context.Background())
+		if ts.claims != c.claims || len(*out) != c.delivered || ts.gotToken != c.token {
+			t.Errorf("%s: claims=%d delivered=%d token=%v, want %d/%d/%v", c.name, ts.claims, len(*out), ts.gotToken, c.claims, c.delivered, c.token)
+		}
+	}
+}
+
+// A claim refused because the lease went between the check and the claim sends nothing and is retried
+// by the owner, not by this pod.
+func TestAFencedClaimSendsNothing(t *testing.T) {
+	j, src, out := openForAWhile(t)
+	ts := &tokenSource{fakeSource: src, err: fence.ErrFenced}
+	j.Source = ts
+	j.Fence = func(string) (fence.Token, fence.State) {
+		return fence.Token{Group: "g", Pod: "p", Epoch: 2}, fence.Held
+	}
+	j.Tick(context.Background())
+	if len(*out) != 0 {
+		t.Fatalf("delivered %d alerts for a fenced claim", len(*out))
+	}
+}
+
+// openForAWhile primes a job so that its next tick is the one that alerts.
+func openForAWhile(t *testing.T) (*Job, *fakeSource, *[]sent) {
+	t.Helper()
+	j, src, out, now := rig()
+	open := parked()
+	open.PowerState, open.FrunkClosed = "ready", false
+	src.state, src.at = open, t0
+	j.Tick(context.Background())
+	slept := parked()
+	slept.FrunkClosed = false
+	src.state = slept
+	*now = t0.Add(OpenFor)
+	return j, src, out
 }

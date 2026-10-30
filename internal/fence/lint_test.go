@@ -46,9 +46,7 @@ var deferredToM4 = map[string]string{
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
 // until it takes the token, whoever else calls it.
 var notYetGuarded = map[string]string{
-	"samples.Store.InsertBulk":  "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
-	"milestones.pgStore.Insert": "sends PR: the milestone row of the owner's drive/charge close hook (checker.Check); CatchUp and Backfill stay unguarded",
-	"leftopen.pgSource.Claim":   "sends PR: the left-open episode claim, made from the vehicle's monitor state on the owner",
+	"samples.Store.InsertBulk": "the monitor's replay catch-up flush (rivian/replay_catchup.go) is owner-side and flushes on lease loss; the import caller stays unguarded (no token in ctx)",
 }
 
 // notOwnerSide is permanent. Each entry names who calls it.

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 type pgStore struct{ db *sql.DB }
@@ -39,15 +41,17 @@ func (s *pgStore) Insert(ctx context.Context, r Row) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	res, err := s.db.ExecContext(ctx, `
+	// The owner's insert carries the group lease (fence.Exec; plain without a token): a zombie's first
+	// insert would flip `inserted` and cost the owner its notification. CatchUp and Backfill carry no token.
+	n, err := fence.Exec(ctx, s.db, `
 		INSERT INTO milestones (user_id, vehicle_id, key, status, achieved_at, detail)
-		VALUES ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
+		SELECT $1::uuid, $2::uuid, $3::text, $4::text, $5::timestamptz, $6::jsonb
+		 WHERE `+fence.OK+`
 		ON CONFLICT (user_id, vehicle_id, key) DO NOTHING`,
 		r.User, r.Vehicle, r.Key, r.Status, r.AchievedAt.UTC(), string(detail))
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
 	return n == 1, nil
 }
 
