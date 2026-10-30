@@ -13,11 +13,13 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -110,6 +112,21 @@ type Syncer struct {
 	logger   *slog.Logger
 	sleep    func(ctx context.Context, d time.Duration)
 	notify   Notifier
+
+	// fence, when set, says which vehicles' groups this pod owns (single-owner, lead mode).
+	fence atomic.Pointer[vehicleFencer]
+}
+
+type vehicleFencer struct{ fence.Source }
+
+// SetFence makes the sync fetch only the vehicles whose group this pod owns, each write carrying
+// that lease (lead mode); with lead mode off the source says Off and nothing changes.
+func (s *Syncer) SetFence(f fence.Source) {
+	if f == nil {
+		s.fence.Store(nil)
+		return
+	}
+	s.fence.Store(&vehicleFencer{f})
 }
 
 // SetNotifier makes the syncer announce new and installed versions. Call
@@ -178,16 +195,41 @@ func newSyncer(st store, accounts rivian.AccountRegistry, users func(context.Con
 // stops at the first upstream error: the rest wait for the next pass. It
 // returns how many vehicles were fetched.
 func (s *Syncer) SyncUser(ctx context.Context, uid uuid.UUID) (int, error) {
-	src, ok := s.accounts.For(uid).(rivian.OTASource)
-	if !ok || src == nil {
-		return 0, nil
-	}
 	ids, err := s.st.Vehicles(ctx, uid)
 	if err != nil {
 		return 0, err
 	}
-	fetched := 0
+	// Single-owner: only the vehicles whose group this pod holds, each with its own token on the
+	// context so every write for it carries the lease. Decided before the claim and before the
+	// Rivian account is touched, so a pod that owns none of the user's vehicles does nothing.
+	type owned struct {
+		id  string
+		ctx context.Context
+	}
+	var mine []owned
 	for _, id := range ids {
+		vctx := ctx
+		if f := s.fence.Load(); f != nil {
+			tok, st := f.Fence(id)
+			switch st {
+			case fence.Held:
+				vctx = fence.With(ctx, tok)
+			case fence.Warming, fence.Lost:
+				continue
+			}
+		}
+		mine = append(mine, owned{id, vctx})
+	}
+	if len(mine) == 0 {
+		return 0, nil
+	}
+	src, ok := s.accounts.For(uid).(rivian.OTASource)
+	if !ok || src == nil {
+		return 0, nil
+	}
+	fetched := 0
+	for _, o := range mine {
+		id, ctx := o.id, o.ctx
 		if ctx.Err() != nil {
 			return fetched, ctx.Err()
 		}
