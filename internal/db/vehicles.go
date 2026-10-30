@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // VehicleResolver translates Rivian gateway vehicle-id strings
@@ -326,10 +328,15 @@ type VehicleSync struct {
 // UpsertVehicleFromSync creates or refreshes the vehicles row for one
 // vehicle the user owns. Existing values are kept when the sync has none
 // (COALESCE), including trim and image_url, which the upsert used to drop.
+// With a fence token in ctx (the monitor's vehicle-info hook) the write
+// carries the group lease and a refused one is fence.ErrFenced; connect
+// and /api/vehicles call it without one, as before.
 func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v VehicleSync) error {
-	_, err := d.ExecContext(ctx, `
+	_, err := fence.Exec(ctx, d, `
 		INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, trim, pack_kwh, image_url)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, ''), NULLIF($8, 0)::double precision, NULLIF($9, ''))
+		SELECT $1::uuid, $2::text, NULLIF($3::text, ''), NULLIF($4::text, ''), NULLIF($5::text, ''), NULLIF($6::int, 0),
+		       NULLIF($7::text, ''), NULLIF($8::double precision, 0), NULLIF($9::text, '')
+		 WHERE `+fence.OK+`
 		ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
 			vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
 			display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
@@ -343,6 +350,17 @@ func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v V
 			pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
 			updated_at   = NOW()
 	`, userID, v.RivianID, v.VIN, v.Name, v.Model, v.ModelYear, v.Trim, v.PackKWh, v.ImageURL)
+	return err
+}
+
+// SetVehiclePackKWh mirrors the vehicle-reported pack capacity into
+// vehicles.pack_kwh (the monitor's battery-capacity hook), only touching a
+// row whose value differs. The hook's context carries the group's fence
+// token, so a pod that lost the group writes nothing (fence.ErrFenced).
+func SetVehiclePackKWh(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID string, kwh float64) error {
+	_, err := fence.Exec(ctx, d, `
+		UPDATE vehicles SET pack_kwh = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2 AND (pack_kwh IS NULL OR pack_kwh <> $3) AND `+fence.OK, userID, rivianID, kwh)
 	return err
 }
 

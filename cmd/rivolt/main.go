@@ -1224,19 +1224,13 @@ func runServer() {
 		// trim-table guess. Runs off the recorder goroutine on a
 		// short timeout so DB hiccups can't stall the WS path.
 		if pgPool != nil {
-			monitorRegistry.SetBatteryCapacityHookFactory(func(uid uuid.UUID) func(vehicleID string, kwh float64) {
-				return func(vehicleID string, kwh float64) {
+			monitorRegistry.SetBatteryCapacityHookFactory(func(uid uuid.UUID) func(context.Context, string, float64) {
+				return func(hctx context.Context, vehicleID string, kwh float64) {
 					bg.Go(func() {
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						// WithoutCancel keeps the fence token the monitor put in hctx.
+						ctx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 5*time.Second)
 						defer cancel()
-						_, err := pgPool.ExecContext(ctx, `
-							UPDATE vehicles
-							SET pack_kwh = $3, updated_at = NOW()
-							WHERE user_id = $1
-							  AND rivian_vehicle_id = $2
-							  AND (pack_kwh IS NULL OR pack_kwh <> $3)
-						`, uid, vehicleID, kwh)
-						if err != nil {
+						if err := db.SetVehiclePackKWh(ctx, pgPool, uid, vehicleID, kwh); err != nil {
 							logger.Warn("persist battery capacity",
 								"user_id", uid.String(),
 								"vehicle_id", vehicleID,
@@ -1265,10 +1259,11 @@ func runServer() {
 				})
 			}
 			go otaSyncer.Run(ctx)
-			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
-				return func(vs []rivian.Vehicle) {
+			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func(context.Context, []rivian.Vehicle) {
+				return func(hctx context.Context, vs []rivian.Vehicle) {
 					bg.Go(func() {
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						// WithoutCancel keeps the fence token the monitor put in hctx.
+						ctx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 10*time.Second)
 						defer cancel()
 						for _, v := range vs {
 							if v.ID == "" {
