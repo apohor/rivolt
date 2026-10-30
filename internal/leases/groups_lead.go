@@ -459,6 +459,12 @@ func (s *Store) Fence(vehicleID string) (fence.Token, fence.State) {
 	if !ok {
 		return fence.Token{}, fence.Lost
 	}
+	return s.tokenLocked(g)
+}
+
+// tokenLocked is the fence state of group g for this pod (caller holds groupMu, lead mode on): held
+// and renewed within the local deadline, and past the warm-up if it was stolen.
+func (s *Store) tokenLocked(g string) (fence.Token, fence.State) {
 	e, held := s.groups[g]
 	if !held || s.groupOKAt.IsZero() || time.Since(s.groupOKAt) > s.localDeadline() {
 		return fence.Token{}, fence.Lost

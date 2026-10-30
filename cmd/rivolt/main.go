@@ -1028,6 +1028,9 @@ func runServer() {
 	// mode skips it (no recorder, no WS).
 	// Not on the admin deployment: no monitors means no recorder, leases,
 	// receipts or OTA sync (all hang off the registry).
+	// The receipts sync, when built below, gets the lease store's fence once the lease coordinator
+	// exists (single-owner: only the owner of a user's group syncs it, in lead mode).
+	var receiptSyncer *receipts.Syncer
 	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" && !adminOnlyMode {
 		monitorRegistry = rivian.NewMonitorRegistry(
 			pgPool, accountRegistry,
@@ -1287,7 +1290,7 @@ func runServer() {
 		// rivian_receipts flag; one summaries call per user a day plus one
 		// after a charge closes, details paced (internal/receipts).
 		if pgPool != nil && flagsStore != nil {
-			receiptSyncer := receipts.NewSyncer(
+			receiptSyncer = receipts.NewSyncer(
 				receipts.NewStore(pgPool), accountRegistry,
 				// Operator flag AND the user's own opt-in (off by default).
 				func(uid uuid.UUID) bool {
@@ -1805,6 +1808,9 @@ func runServer() {
 			})
 		}
 		coord.SetFrameObserver(monitorRegistry.LatestAt, appMetrics.LeaseAcquireToFrame.Observe)
+		if receiptSyncer != nil {
+			receiptSyncer.SetFence(leaseStore)
+		}
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
