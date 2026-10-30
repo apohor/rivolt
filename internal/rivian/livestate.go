@@ -268,6 +268,12 @@ func (s *RedisLiveStateStore) Save(ctx context.Context, vehicleID string, snap L
 const epochTTL = 3 * time.Hour
 
 // epochKey holds the highest group-lease epoch that has written this vehicle's snapshots.
+//
+// Cluster note: the CAS scripts touch this key and the data key together, which needs one hash slot.
+// The data keys carry no hash tag today, and giving them one would orphan every existing snapshot
+// (rehydration after a deploy would find nothing) and change the purger's patterns, so the layout is
+// left as it is. This Valkey is standalone; a move to a cluster must retag the livestate keys
+// (<prefix>:livestate:{<uid>:<vehicle>}) in the same change, with a migration of the live ones.
 func (s *RedisLiveStateStore) epochKey(vehicleID string) string { return s.key(vehicleID) + ":epoch" }
 
 // writeScript writes a value only if the stored epoch is not above the writer's (a Lua CAS, so the
