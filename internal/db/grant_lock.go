@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"log/slog"
+	"time"
 )
 
 // grantLockID serializes the role grants across replicas. Two sessions that GRANT (or ALTER DEFAULT
@@ -22,7 +24,17 @@ type grantExec interface {
 
 // withGrantLock runs fn on one connection that holds the grant lock, waiting for it (bounded by
 // ctx). If the unlock fails the connection is discarded, so a pooled session never keeps the lock.
-func withGrantLock(ctx context.Context, d *sql.DB, fn func(q grantExec) error) error {
+// Each pass logs one line: the grant set, how long it waited for the lock and how long the pass
+// took (ms only), so the boot cost at N replicas is measured before sizing past 2 (DA on #1313).
+func withGrantLock(ctx context.Context, d *sql.DB, set string, fn func(q grantExec) error) (err error) {
+	start := time.Now()
+	var waited time.Duration
+	defer func() {
+		slog.Default().Info("role grants pass", "set", set,
+			"lock_wait_ms", waited.Milliseconds(),
+			"pass_ms", (time.Since(start) - waited).Milliseconds(),
+			"ok", err == nil)
+	}()
 	conn, err := d.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("grant lock: %w", err)
@@ -34,7 +46,10 @@ func withGrantLock(ctx context.Context, d *sql.DB, fn func(q grantExec) error) e
 		}
 		_ = conn.Close()
 	}()
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, grantLockID); err != nil {
+	lockAt := time.Now()
+	_, err = conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, grantLockID)
+	waited = time.Since(lockAt)
+	if err != nil {
 		return fmt.Errorf("grant lock: %w", err)
 	}
 	return fn(conn)
