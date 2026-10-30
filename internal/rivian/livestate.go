@@ -280,6 +280,8 @@ func (s *RedisLiveStateStore) epochKey(vehicleID string) string { return s.key(v
 // check and the write are one atomic step in Redis): KEYS[1] the epoch key, KEYS[2] the data key;
 // ARGV[1] the writer's epoch, ARGV[2] the value, ARGV[3] the data TTL in ms, ARGV[4] the epoch TTL
 // in ms. Returns 1 when written, 0 when a newer owner has written.
+//
+// Needs a hash tag {...} on both keys if Valkey is ever clustered (see epochKey).
 var writeScript = redis.NewScript(`
 local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
 local mine = tonumber(ARGV[1])
@@ -288,7 +290,7 @@ redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[4])
 redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
 return 1`)
 
-// deleteScript is writeScript for a delete.
+// deleteScript is writeScript for a delete (the same hash-tag note applies).
 var deleteScript = redis.NewScript(`
 local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
 local mine = tonumber(ARGV[1])
