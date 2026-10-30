@@ -32,7 +32,7 @@ data:
   {{- fail "dbConnections: autoscaling is enabled, so replicaCount is not the pod count; set dbConnections.systemMaxConns (and requestMaxConns) for autoscaling.maxReplicas + surge" }}
   {{- end }}
   {{- $pods := add (int .Values.replicaCount) (max 1 $surge) }}
-  {{- $per := div (int ($db.budget | default 48)) $pods }}
+  {{- $per := div (int ($db.budget | default 43)) $pods }}
   {{- $floor := int ($db.minPerPod | default 6) }}
   {{- if and (not $db.systemMaxConns) (lt $per $floor) }}
   {{- fail (printf "dbConnections: %d connections per pod for %d pods (replicas + surge) is under the floor of %d; raise max_connections and dbConnections.budget first" $per $pods $floor) }}
