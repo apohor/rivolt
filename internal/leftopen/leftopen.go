@@ -19,12 +19,14 @@ package leftopen
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -123,6 +125,11 @@ type Job struct {
 	Deliver func(ctx context.Context, uid uuid.UUID, model string, kinds []string, minutes int) error
 	Now     func() time.Time
 	Logger  *slog.Logger
+	// Fence says what this pod may do for a vehicle (the group lease, lead mode). Nil, or Off, is as
+	// before. An alert is made only while the pod holds the vehicle's group; the claim then carries
+	// the epoch. A pod that does not hold it, or is still warming up, skips the tick (the owner
+	// alerts; this pod would only race it for the marker).
+	Fence func(rivianID string) (fence.Token, fence.State)
 
 	// episodes: when each vehicle's current open episode was first seen. In memory: a restart starts the count again
 	// (a late alert, never a duplicate one: the marker stops that).
@@ -209,8 +216,21 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 	if a, ok := j.alerted[v.VehicleID]; ok && a.Equal(start) {
 		return
 	}
+	if j.Fence != nil {
+		tok, st := j.Fence(v.RivianID)
+		switch st {
+		case fence.Held:
+			ctx = fence.With(ctx, tok)
+		case fence.Warming, fence.Lost:
+			return // not ours to alert; leave the episode as it is for the owner or a later tick
+		}
+	}
 	j.alerted[v.VehicleID] = start
 	won, err := j.Source.Claim(ctx, v.UserID, v.VehicleID, start)
+	if errors.Is(err, fence.ErrFenced) {
+		delete(j.alerted, v.VehicleID) // the lease went between the check and the claim: not this pod's alert
+		return
+	}
 	if err != nil {
 		delete(j.alerted, v.VehicleID) // try again next tick
 		j.log("left-open: claim failed", "err", err.Error())

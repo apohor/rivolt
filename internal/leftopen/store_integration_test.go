@@ -4,12 +4,14 @@ package leftopen
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/testpg"
 )
 
@@ -92,5 +94,46 @@ func TestMarkerAndCandidates(t *testing.T) {
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM left_open_alerts WHERE vehicle_id = $1`, vOn).Scan(&left)
 	if left != 0 {
 		t.Errorf("%d markers survived the vehicle", left)
+	}
+}
+
+// The left-open claim carries the group lease when the job holds the vehicle's group.
+func TestClaim_FencedByTheGroupLease(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, _ := db.EnsureUser(ctx, pool, "lo-fence")
+	var veh uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,'lo-fence-veh','R1S') RETURNING id`, uid).Scan(&veh); err != nil {
+		t.Fatal(err)
+	}
+	var epochA int64
+	if err := pool.QueryRowContext(ctx, `
+		INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+		VALUES ($1, 'pod-a', nextval('account_lease_epoch'), now(), now(), now() + interval '30 seconds')
+		RETURNING epoch`, uid).Scan(&epochA); err != nil {
+		t.Fatal(err)
+	}
+	src := NewSource(pool, nil, uuid.Nil)
+	start := time.Now().UTC().Truncate(time.Second)
+	for name, bad := range map[string]fence.Token{
+		"stale epoch": {Group: uid.String(), Pod: "pod-a", Epoch: epochA - 1},
+		"other pod":   {Group: uid.String(), Pod: "pod-b", Epoch: epochA},
+	} {
+		if _, err := src.Claim(fence.With(ctx, bad), uid, veh, start); !errors.Is(err, fence.ErrFenced) {
+			t.Errorf("%s: %v, want ErrFenced", name, err)
+		}
+	}
+	// A refused claim wrote nothing, so the owner's claim still wins.
+	if ok, err := src.Claim(fence.With(ctx, fence.Token{Group: uid.String(), Pod: "pod-a", Epoch: epochA}), uid, veh, start); err != nil || !ok {
+		t.Fatalf("owner's claim = %v %v, want true nil", ok, err)
+	}
+	// A repeat under a valid lease is "already alerted", not a refusal.
+	if ok, err := src.Claim(fence.With(ctx, fence.Token{Group: uid.String(), Pod: "pod-a", Epoch: epochA}), uid, veh, start); err != nil || ok {
+		t.Fatalf("repeat claim = %v %v, want false nil", ok, err)
 	}
 }
