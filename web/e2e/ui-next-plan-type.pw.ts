@@ -22,7 +22,7 @@ async function audit(page: Page) {
       const el = n.parentElement!;
       if (seen.has(el)) continue;
       seen.add(el);
-      if (el.closest(".leaflet-container, .leaflet-control-container, .leaflet-pane, script, style")) continue;
+      if (el.closest(".leaflet-container, .leaflet-control-container, .leaflet-pane, .maplibregl-map, script, style")) continue;
       const cs = getComputedStyle(el);
       const size = Math.round(parseFloat(cs.fontSize) * 100) / 100;
       const w = Number(cs.fontWeight);

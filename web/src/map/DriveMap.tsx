@@ -4,41 +4,18 @@
 // the map is unavailable and leaves the rest of the page standing.
 import { useEffect, useMemo, useRef } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";
-import { ensureConfig, tilesDEM, tilesGlyphsURL, tilesPMTilesURL, valhallaBase } from "../lib/config";
+import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
-import { BASEMAP_ATTRIBUTION, buildStyle, plainStyle, type MapFlavor } from "./style";
+import { styleFor } from "./base";
+import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
+import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { boundsOf, routeData, setRoute, speedRuns, type LatLng } from "./route";
 import { snapToRoads, type SnapPoint } from "./snap";
 import { cursorElement, flavorControl, foldCredits, pinElement, speedLegend, stalenessBadge, tilesNotice } from "./controls";
 
 type Point = { lat: number; lon: number; t?: number; s?: number };
-
-export const TILES_UNAVAILABLE_TEXT = "Map tiles unavailable on this server";
-
-// MapUnavailable is what the card shows when this browser cannot draw WebGL: plain words, the box kept so the layout does not jump.
-export function MapUnavailable({ height }: { height: number }) {
-  return (
-    <div
-      role="status"
-      data-map-unavailable
-      className="flex items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900/50 px-4 text-center text-sm text-neutral-400"
-      style={{ height }}
-    >
-      The map can&apos;t be drawn in this browser (WebGL is off or unsupported). The drive&apos;s figures and charts below are unaffected.
-    </div>
-  );
-}
-
-// styleFor is the style for a flavour from what the server advertises: the full basemap when it advertises a tile archive, a plain background
-// when it does not.
-function styleFor(flavor: MapFlavor) {
-  const tiles = tilesPMTilesURL();
-  if (!tiles.startsWith("/")) return plainStyle(flavor);
-  const dem = tilesDEM();
-  return buildStyle({ flavor, origin: location.origin, tilesPath: tiles, glyphsPath: tilesGlyphsURL(), dem: dem.url ? dem : null });
-}
 
 export function DriveMap({
   points,
@@ -118,6 +95,7 @@ export function DriveMap({
         fadeDuration: 150,
       });
       mapRef.current = map;
+      el.setAttribute("data-flavor", flavor);
       map.touchZoomRotate.disableRotation();
       // Click to enable the wheel; leaving the map disables it again, so the page keeps scrolling over the map.
       map.scrollZoom.disable();
@@ -139,6 +117,7 @@ export function DriveMap({
       const setFlavor = (f: MapFlavor) => {
         if (f === flavor) return;
         flavor = f;
+        el.setAttribute("data-flavor", f);
         map.setStyle(styleFor(f));
       };
       let legend: ReturnType<typeof speedLegend> | undefined;

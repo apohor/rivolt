@@ -1,7 +1,7 @@
 // Prints the gzip size of the lazy MapLibre map chunk and fails above the cap.
 //   node scripts/map-bundle-size.mjs [distDir] [capKB]
 // The map chunk is everything a map page loads on top of the app: the maplibre-gl library, its worker and
-// stylesheet, and the app's own map code (the files that contain the "rivolt-route" source id). The dist dir
+// stylesheet, and the app's own map code (the files that contain the "rivolt-route" or "rivolt-chargers" source ids). The dist dir
 // defaults to the one `npm run build` writes (../internal/web/dist).
 import { readdirSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -12,7 +12,7 @@ const capKB = Number(process.argv[3] || 480);
 const dir = join(dist, "assets");
 
 const files = readdirSync(dir).filter((f) => /\.(js|mjs|css)$/.test(f));
-const mapFiles = files.filter((f) => f.startsWith("maplibre-gl") || readFileSync(join(dir, f), "utf8").includes("rivolt-route"));
+const mapFiles = files.filter((f) => f.startsWith("maplibre-gl") || readFileSync(join(dir, f), "utf8").includes("rivolt-route") || readFileSync(join(dir, f), "utf8").includes("rivolt-chargers"));
 if (!mapFiles.length) {
   console.error(`no map chunk found in ${dir}`);
   process.exit(1);

@@ -15,7 +15,7 @@ for (const theme of ["dark", "light"] as const) {
     await page.goto("/demo/trips/plan");
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
-    await expect(page.locator("[data-plan-area='map'] .leaflet-marker-icon").first()).toBeVisible();
+    await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
     // The page brings the map into view by itself; wait for the scroll and the map's fit to finish, not for a guessed time.
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await settled(page, ["[data-plan-area='map']", "[data-plan-sheet]"]);
@@ -25,7 +25,7 @@ for (const theme of ["dark", "light"] as const) {
       const map = document.querySelector("[data-plan-area='map']")!.getBoundingClientRect();
       const top = Math.max(map.top, bar.bottom);
       const visible = Math.max(0, Math.min(map.bottom, sheet.top) - top);
-      const markers = [...document.querySelectorAll("[data-plan-area='map'] .leaflet-marker-icon")].map((m) => m.getBoundingClientRect());
+      const markers = [...document.querySelectorAll("[data-plan-area='map'] .maplibregl-marker")].map((m) => m.getBoundingClientRect());
       const hidden = markers.filter((m) => m.top < bar.bottom || m.bottom > sheet.top).length;
       return { scrollY: window.scrollY, visible, frac: visible / sheet.top, hidden, n: markers.length, focusInMap: !!document.activeElement?.closest("[data-plan-area='map']") };
     });

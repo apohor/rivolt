@@ -11,7 +11,7 @@ export async function settled(page: Page, selectors: string[], { frames = 8, tim
         let last = "";
         let same = 0;
         const snapshot = () => {
-          const boxes = [...selectors.flatMap((s) => [...document.querySelectorAll(s)]), ...document.querySelectorAll(".leaflet-marker-icon")].map((el) => {
+          const boxes = [...selectors.flatMap((s) => [...document.querySelectorAll(s)]), ...document.querySelectorAll(".leaflet-marker-icon, .maplibregl-marker")].map((el) => {
             const r = el.getBoundingClientRect();
             return `${Math.round(r.top * 10)},${Math.round(r.left * 10)},${Math.round(r.width * 10)},${Math.round(r.height * 10)}`;
           });

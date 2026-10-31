@@ -76,7 +76,7 @@ for (const s of SHOTS) {
           fullPage: true,
           animations: "disabled",
           caret: "hide",
-          mask: [page.locator(".leaflet-tile-pane")],
+          mask: [page.locator(".leaflet-tile-pane, .maplibregl-canvas")],
           maxDiffPixelRatio: 0.002,
         });
         await ctx.close();

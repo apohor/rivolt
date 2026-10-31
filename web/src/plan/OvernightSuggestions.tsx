@@ -2,7 +2,7 @@ import { ProLimitNotice } from "../components/ProLimitNotice";
 import { proLimitOf } from "../lib/proLimit";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type TripRoute } from "../lib/api";
-import { decodePolyline6 } from "../components/TripRouteMap";
+import { decodePolyline6 } from "../map/tripPure";
 import { inDemo } from "../lib/demo";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { rangePerHour } from "../lib/chargeRange";
