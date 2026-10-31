@@ -160,7 +160,7 @@ func TestAuthMePlanFields(t *testing.T) {
 	if off["plan"] != "pro" || off["plan_source"] != "billing_off" || off["billing_enabled"] != false || off["plan_period_end"] != nil || off["plan_trial_ends"] != nil {
 		t.Errorf("billing off: %v", off)
 	}
-	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_ended_at", "plan_ended_source", "billing_enabled", "history_days"} {
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_cancels_at", "plan_grace_ends", "plan_ended_at", "plan_ended_source", "billing_enabled", "history_days"} {
 		if _, has := off[k]; !has {
 			t.Errorf("billing off: %q missing (null is fine, absent is not)", k)
 		}
@@ -174,7 +174,7 @@ func TestAuthMePlanFields(t *testing.T) {
 		t.Errorf("demo: %v", b)
 	}
 	b := meAs(t, uid, on) // the lookup fails
-	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_ended_at", "plan_ended_source", "billing_enabled", "history_days"} {
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_cancels_at", "plan_grace_ends", "plan_ended_at", "plan_ended_source", "billing_enabled", "history_days"} {
 		if _, has := b[k]; has {
 			t.Errorf("a failed lookup still sent %q: %v", k, b)
 		}

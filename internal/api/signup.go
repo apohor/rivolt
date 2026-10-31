@@ -260,6 +260,11 @@ type PlanFields struct {
 	PlanSource    *string    `json:"plan_source"`
 	PlanPeriodEnd *time.Time `json:"plan_period_end"`
 	PlanTrialEnds *time.Time `json:"plan_trial_ends"`
+	// PlanCancelsAt is set while a paid subscription is set to not renew: Pro until then ("cancelled, paid until ...", Resubscribe).
+	// PlanGraceEnds is set while a paid subscription's renewal has failed and the 7-day grace is running ("payment failed, update your
+	// card by ..."). Both null otherwise; plan_period_end is the same instant (grace included) in either case.
+	PlanCancelsAt *time.Time `json:"plan_cancels_at"`
+	PlanGraceEnds *time.Time `json:"plan_grace_ends"`
 	// PlanEndedAt and PlanEndedSource describe a lapse: on a free account that once had Pro, when the most recent grant stopped and which
 	// source it was (stripe, apple, trial, founding, grant), for "Your Pro ended on ...". Null on an account that never had Pro.
 	PlanEndedAt     *time.Time `json:"plan_ended_at"`
@@ -281,7 +286,7 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 
 // planFromState is the plan fields for a computed state.
 func planFromState(st entitlements.State, billing bool) *PlanFields {
-	pf := &PlanFields{Plan: "free", BillingEnabled: billing, PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanEndedAt: st.EndedAt}
+	pf := &PlanFields{Plan: "free", BillingEnabled: billing, PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanCancelsAt: st.CancelsAt, PlanGraceEnds: st.GraceEnds, PlanEndedAt: st.EndedAt}
 	if !st.Pro {
 		days := histwin.FreeDays
 		pf.HistoryDays = &days

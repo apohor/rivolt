@@ -120,6 +120,8 @@ export const _errProRequired: Wide<ProLimitBody> = errProRequired;
 // Fixtures with no web type to check, each with why. The guard in fixtures.contract.test.ts fails for a fixture that is neither
 // imported above nor listed here, so a new fixture cannot skip this check.
 export const iosOnlyFixtures: Record<string, string> = {
+  "me_plan_cancelled.json": "Pro 20: a subscription set to not renew (plan_cancels_at); the web wires the plan-card state in a follow-up",
+  "me_plan_grace.json": "Pro 20: a failed renewal inside the 7-day grace (plan_grace_ends); the web wires the plan-card state in a follow-up",
   "demo_trips.json": "the demo's sample trip list, the embedded bytes verbatim (demo_trip_fixtures_test.go); the iPhone's demo Plan tab opens them",
   "demo_trip_plan_single.json": "a demo sample trip's stored plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "demo_trip_plan_two_days.json": "a demo sample trip's stored two-day plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",

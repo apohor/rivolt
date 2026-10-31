@@ -117,3 +117,35 @@ func TestEntitlementsAgainstPostgres(t *testing.T) {
 		t.Errorf("rows left after account delete: %d %v", n, err)
 	}
 }
+
+// The cancel flag and a failed renewal are read from the table into the plan card's two states.
+func TestCancelAndGraceAgainstPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, _ := db.EnsureUser(ctx, pool, "ent-cancel")
+	s := New(pool, Config{Billing: true})
+	now := time.Now().UTC().Truncate(time.Second)
+	s.now = func() time.Time { return now }
+	end := now.Add(10 * 24 * time.Hour)
+	if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end, external_id, cancel_at_period_end)
+		VALUES ($1, 'stripe', 'active', $2, 'sub_cancel_1', true)`, uid, end); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.State(ctx, uid)
+	if err != nil || !st.Pro || st.CancelsAt == nil || !st.CancelsAt.Equal(end) || st.GraceEnds != nil {
+		t.Fatalf("cancelled: %+v %v, want Pro with CancelsAt = %v", st, err, end)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE entitlements SET status = 'past_due', cancel_at_period_end = false, current_period_end = $2 WHERE user_id = $1`, uid, now.Add(-2*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	s.Invalidate(uid)
+	want := now.Add(-2 * 24 * time.Hour).Add(Grace)
+	if st, err = s.State(ctx, uid); err != nil || !st.Pro || st.GraceEnds == nil || !st.GraceEnds.Equal(want) || st.CancelsAt != nil {
+		t.Fatalf("past due: %+v %v, want Pro with GraceEnds = %v", st, err, want)
+	}
+}

@@ -63,6 +63,8 @@ func iosFixtureTargets() map[string]any {
 		"me_plan_subscriber.json": &meResponse{},
 		"me_plan_apple.json":      &meResponse{},
 		"me_plan_lapsed.json":     &meResponse{},
+		"me_plan_cancelled.json":  &meResponse{}, // a subscription set to not renew: Pro until plan_cancels_at
+		"me_plan_grace.json":      &meResponse{}, // a failed renewal inside the 7-day grace: plan_grace_ends
 		// The 402 bodies of the free plan's limits (Sprint 14, item 2): act on the code.
 		"err_outside_free_window.json": &paywallBody{},
 		"err_pro_required.json":        &paywallBody{},
