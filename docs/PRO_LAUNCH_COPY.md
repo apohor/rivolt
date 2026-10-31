@@ -149,3 +149,48 @@ costs, trips, efficiency and lease mileage. Free tier and Pro; self-hostable."
 
 "Your free year of Pro ends on FOUNDING_END_DATE. Nothing is deleted; keep Pro
 from Settings → Plan, or do nothing."
+
+## 10. Paywall, plan card and lapse state (for ux, Pro 9)
+
+Title: **Rivolt Pro**
+Subtitle: Full history, multi-day trips and widgets, from $3.99 a month.
+
+What's included (one list, as shown):
+- Unlimited history and trends (free: the last 90 days)
+- Range near a temperature
+- Multi-day trip plans with hotel and campground overnights
+- Re-plan from where the truck is, and plan-vs-actual after the trip
+- Unlimited saved trips (free: 3)
+- Every vehicle shown (free: 1)
+- iPhone: Lock Screen and Home Screen widgets, the charging Live Activity
+- Always free, on every plan: recording, every alert, imports, share cards, the full export, deletion
+
+Plan choices (two options, nothing pre-selected):
+- Yearly: $34.99 a year (about $2.92 a month)
+- Monthly: $3.99 a month
+
+Trial line, web (trial granted at sign-up, no card): "You have 14 days of Pro free, with no card. It ends on {trial_end} on its own; nothing is charged unless you subscribe."
+Trial line, web, after the trial: "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time."
+Trial line, iPhone (Apple introductory offer): "14 days free, then $34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of the trial or any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
+
+Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is today, and that I can cancel in one step from Settings → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
+Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
+Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted."
+
+Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
+Manage subscription: label "Manage subscription"; helper, iPhone: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."; web: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends."
+
+Lapse banner (dismissable, Now and Settings): "Your Pro ended on {date}. Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data)." Buttons: "Keep Pro" · "Export everything" · "Dismiss"
+Payment-failed banner (7-day grace, web only): "A payment for Rivolt Pro failed. Update your card in Settings → Plan by {grace_end} to keep Pro. Either way, nothing is deleted."
+
+Settings plan card states (title, line, action):
+- Free: "Free" · "Recording, alerts, the last 90 days and the full export, always." · "See Pro"
+- Trial: "Pro trial, ends {date}" · "No card, nothing is charged. Afterwards the free tier keeps every recording and the full export." · "Keep Pro"
+- Pro via Apple: "Rivolt Pro, renews {date}" · "Billed through Apple." · "Manage subscription"
+- Pro via Stripe: "Rivolt Pro, renews {date}" · "Billed through Stripe, $34.99 a year [or $3.99 a month]." · "Manage subscription"
+- Pro, cancelled but still paid up: "Rivolt Pro until {date}" · "Cancelled; Pro stays on until then. Nothing is deleted after." · "Resubscribe"
+- Founding year: "Rivolt Pro, free until {date}" · "Yours at no charge for the first year; no card, nothing is charged. We'll email you 30 days before it ends." · "See what free keeps"
+- Grace: "Rivolt Pro, payment failed" · "Update your card by {grace_end} to keep Pro. Nothing is deleted either way." · "Update card"
+- Self-hosted (billing off): "Rivolt Pro" · "Everything is on; this server has billing off." · none
+
+Every sheet ends with: "Unofficial, not affiliated with Rivian."
