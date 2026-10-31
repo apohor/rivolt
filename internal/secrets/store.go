@@ -77,18 +77,23 @@ func (s *Store) Put(ctx context.Context, userID uuid.UUID, name string, plaintex
 	if err != nil {
 		return fmt.Errorf("secrets: seal: %w", err)
 	}
-	const q = `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id, name) DO UPDATE
-		SET ciphertext = EXCLUDED.ciphertext,
-		    kek_id     = EXCLUDED.kek_id,
-		    updated_at = EXCLUDED.updated_at`
-	_, err = s.db.ExecContext(ctx, q, userID, name, blob, s.sealer.KEKID(), time.Now().UTC())
+	_, err = s.db.ExecContext(ctx, upsertSecret, userID, name, blob, s.sealer.KEKID())
 	if err != nil {
 		return fmt.Errorf("secrets: insert: %w", err)
 	}
 	return nil
 }
+
+// upsertSecret writes a secret and its version. updated_at IS the version other pods compare (a Rivian session's version decides whether a
+// stale pod's rejection may flag the user, db.RaiseNeedsReauthIfCurrent), so it comes from the DATABASE's clock, never a pod's, and never
+// goes backwards: the greater of the database's now and one microsecond past the row's previous version. A pod with a fast clock cannot
+// leave a version in the future that a later, honest sign-in sorts below.
+const upsertSecret = `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
+	VALUES ($1, $2, $3, $4, clock_timestamp())
+	ON CONFLICT (user_id, name) DO UPDATE
+	SET ciphertext = EXCLUDED.ciphertext,
+	    kek_id     = EXCLUDED.kek_id,
+	    updated_at = GREATEST(clock_timestamp(), user_secrets.updated_at + interval '1 microsecond')`
 
 // PutTx is Put plus fn, run in the same transaction after the row is written: if fn fails
 // nothing is written.
@@ -108,13 +113,7 @@ func (s *Store) PutTx(ctx context.Context, userID uuid.UUID, name string, plaint
 		return fmt.Errorf("secrets: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id, name) DO UPDATE
-		SET ciphertext = EXCLUDED.ciphertext,
-		    kek_id     = EXCLUDED.kek_id,
-		    updated_at = EXCLUDED.updated_at`,
-		userID, name, blob, s.sealer.KEKID(), time.Now().UTC()); err != nil {
+	if _, err := tx.ExecContext(ctx, upsertSecret, userID, name, blob, s.sealer.KEKID()); err != nil {
 		return fmt.Errorf("secrets: insert: %w", err)
 	}
 	if fn != nil {
