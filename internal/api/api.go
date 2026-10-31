@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/statement"
+	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 )
@@ -186,6 +187,10 @@ type Deps struct {
 	// server-to-server notifications (consent revoked, Apple account deleted, relay email
 	// off or on). Public (Apple calls it, no cookie), behind a body cap and a per-IP limit.
 	AppleNotifications http.Handler
+	// StripeWebhook, when non-nil, is POST /api/billing/stripe/webhook: Stripe's signed events, applied to the entitlement table
+	// (internal/stripebill). Public (Stripe calls it, no cookie; the signature is the credential), behind a body cap and a per-IP limit.
+	// nil (no RIVOLT_STRIPE_WEBHOOK_SECRET): the route does not exist.
+	StripeWebhook http.Handler
 	// Passkeys, when non-nil, adds WebAuthn sign-in to Rivolt's email accounts: the management routes under /api/auth/passkeys
 	// and, with Hydra and Kratos wired, the passkey sign-in on the Hydra login page. nil: no passkey route exists.
 	Passkeys *passkeys.Service
@@ -656,6 +661,11 @@ func New(d Deps) http.Handler {
 		// deployment: the app never signs in there.
 		if !d.AdminOnly {
 			r.Get("/app/config", handleAppConfig(d))
+		}
+		if d.StripeWebhook != nil && !d.AdminOnly {
+			// Stripe retries with backoff and sends bursts when it catches up: generous per address, small bodies.
+			stripeLimiter := newIPLimiter(120, time.Minute, time.Hour)
+			r.With(stripeLimiter.Middleware, maxBodyBytes(stripebill.MaxBodyBytes)).Post("/billing/stripe/webhook", d.StripeWebhook.ServeHTTP)
 		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
