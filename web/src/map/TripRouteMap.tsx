@@ -155,6 +155,10 @@ export function TripRouteMap({
       });
       mapRef.current = map;
       el.setAttribute("data-flavor", flavor);
+      // data-map-idle: the map has drawn what it was asked to (style, tiles, the route); a spec waits for it before it looks.
+      el.removeAttribute("data-map-idle");
+      map.on("idle", () => el.setAttribute("data-map-idle", ""));
+      map.on("dataloading", () => el.removeAttribute("data-map-idle"));
       map.touchZoomRotate.disableRotation();
       map.scrollZoom.disable();
       map.on("click", () => map.scrollZoom.enable());
@@ -234,6 +238,7 @@ export function TripRouteMap({
       cleanups.push(() => { ro.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       map.once("load", () => fit(fitZoom));
       cleanups.push(() => {
+        el.removeAttribute("data-map-idle");
         popupRef.current?.remove();
         popupRef.current = null;
         map.remove();
