@@ -87,6 +87,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/singleton"
 	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/syntheticplan"
@@ -476,6 +477,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	singleton.SetObserver(func(job, outcome string) { appMetrics.SingletonRunsTotal.WithLabelValues(job, outcome).Inc() })
 	appMetrics.RegisterDBPool("system", pgPool)
 	if pgPool != nil {
 		n, why := db.SystemPoolSize(os.Getenv)
@@ -1253,6 +1255,10 @@ func runServer() {
 		// VAPID keypair leaves pushSvc nil, in which case the factory
 		// returns nil and the hook is never installed).
 		if pushSvc != nil && pushFactory != nil {
+			var confirmClaims engage.Store
+			if pgPool != nil {
+				confirmClaims = engage.NewStore(pgPool)
+			}
 			monitorRegistry.SetChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
 				userStore := pushFactory.For(uid)
 				if userStore == nil {
@@ -1278,7 +1284,13 @@ func runServer() {
 								pending, _, _ = cs.NetworkToConfirm(pctx)
 								cancel()
 							}
-							pushSvc.NotifyNetworkConfirm(userStore, uid.String(), e, pending)
+							cctx, ccancel := context.WithTimeout(context.Background(), 3*time.Second)
+							send, mark := claimNetworkConfirm(cctx, confirmClaims, uid, c.ID, time.Now())
+							if send {
+								pushSvc.NotifyNetworkConfirm(userStore, uid.String(), e, pending)
+								mark("sent")
+							}
+							ccancel()
 							return
 						}
 					}

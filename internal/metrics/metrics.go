@@ -239,6 +239,9 @@ type Metrics struct {
 	// Non-transactional messages (internal/engage), by kind and outcome (sent,
 	// failed, already_sent, skipped_*). No user ids in labels.
 	EngagementSendsTotal *prometheus.CounterVec
+	// Periodic jobs that run on one replica at a time (internal/singleton), by job and outcome (ran, skipped, error). "skipped" is another
+	// replica holding the job's lock: normal at N replicas, one per tick per extra pod. "error" is the lock itself failing.
+	SingletonRunsTotal *prometheus.CounterVec
 	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
 	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
 	DatedNoticesTotal *prometheus.CounterVec
@@ -507,6 +510,13 @@ func New() *Metrics {
 			Name: "rivolt_ws_frames_dropped_total",
 			Help: "Rivian WebSocket frames dropped because a subscription consumer was behind.",
 		}),
+		SingletonRunsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_singleton_runs_total",
+				Help: "Singleton periodic job attempts by job and outcome (ran, skipped, error).",
+			},
+			[]string{"job", "outcome"},
+		),
 		EngagementSendsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_engagement_sends_total",
@@ -694,6 +704,7 @@ func New() *Metrics {
 		m.FailLimiterFallbackTotal,
 		m.RateLimiterFallbackTotal,
 		m.EngagementSendsTotal,
+		m.SingletonRunsTotal,
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,
 		m.RecorderWriteFailuresTotal,

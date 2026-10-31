@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/apohor/rivolt/internal/singleton"
 )
 
 // PartitionJanitor keeps `vehicle_state` ahead of the clock by at
@@ -77,6 +79,16 @@ func (j *PartitionJanitor) EnsureLookahead(ctx context.Context) error {
 	return firstErr
 }
 
+// partitionJanitorLockID makes one replica at a time create the partitions: two creating the same month at once can fail
+// on the partition's name, and N replicas would each do the hourly work.
+const partitionJanitorLockID int64 = 0x72765f7061726a // "rv_parj"
+
+// tick is EnsureLookahead on the replica that holds the janitor lock; the others skip the tick (the next one covers it).
+func (j *PartitionJanitor) tick(ctx context.Context) error {
+	_, err := singleton.Run(ctx, j.db, "partition_janitor", singleton.Key{ID: partitionJanitorLockID}, j.EnsureLookahead)
+	return err
+}
+
 // Run blocks until ctx is cancelled, calling EnsureLookahead on an
 // `interval` ticker. Intended to be launched as a dedicated
 // goroutine at startup. Errors are logged, never returned — the
@@ -90,7 +102,7 @@ func (j *PartitionJanitor) Run(ctx context.Context) {
 	// of partitions, so this is belt-and-suspenders on the
 	// "I deployed Jul 1 and the migration ran Dec 15 last year"
 	// case.
-	if err := j.EnsureLookahead(ctx); err != nil {
+	if err := j.tick(ctx); err != nil {
 		slog.Warn("samples partition janitor: initial ensure failed",
 			"err", err.Error())
 	}
@@ -101,10 +113,17 @@ func (j *PartitionJanitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := j.EnsureLookahead(ctx); err != nil {
+			if err := j.tick(ctx); err != nil {
 				slog.Warn("samples partition janitor: ensure failed",
 					"err", err.Error())
 			}
 		}
+	}
+}
+
+// Tick runs one janitor pass under the lock, as Run does on its timer; the error is logged, not returned.
+func (j *PartitionJanitor) Tick(ctx context.Context) {
+	if err := j.tick(ctx); err != nil {
+		slog.Warn("samples partition janitor: ensure failed", "err", err.Error())
 	}
 }
