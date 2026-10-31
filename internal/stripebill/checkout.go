@@ -96,6 +96,10 @@ func currencySymbol(c string) string {
 // into our sessions. The launch pre-flight reads this same list.
 func PinnedPaymentMethods() []string { return []string{"card", "link"} }
 
+// BillingAddressCollection is what every Checkout session asks Stripe for: the customer's billing address, required. Rivolt Pro is sold in the
+// US only; the address gives the webhook a country to check, and Stripe Tax needs it anyway.
+const BillingAddressCollection = "required"
+
 // CheckoutParams are the inputs of one session, exposed so a test can see exactly what is sent to Stripe.
 type CheckoutParams struct {
 	Form        url.Values
@@ -151,6 +155,7 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 		"consent_collection[terms_of_service]": {"required"},
 		"custom_text[submit][message]":         {ConsentLine(price, first, now)},
 	}
+	form.Set("billing_address_collection", BillingAddressCollection)
 	for i, m := range PinnedPaymentMethods() {
 		form.Set(fmt.Sprintf("payment_method_types[%d]", i), m)
 	}

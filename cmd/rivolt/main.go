@@ -517,7 +517,13 @@ func runServer() {
 		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
 	}
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
-		stripeWebhook = &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+		wh := &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger,
+			// The US-only guard: a billing address outside the US is counted and logged (country code only); the account keeps Pro.
+			OnNonUS: func(string) { appMetrics.BillingNonUSTotal.Inc() }}
+		if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" {
+			wh.Countries = &stripebill.Client{SecretKey: key}
+		}
+		stripeWebhook = wh
 	}
 	// Hosted Checkout and the Customer Portal (Pro 7b): only with a secret key and both prices; otherwise the routes do not exist.
 	if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" && pgPool != nil {

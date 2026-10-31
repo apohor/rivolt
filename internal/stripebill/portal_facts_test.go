@@ -17,6 +17,8 @@ func factsServer(t *testing.T, portal, price string) *Client {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/v1/billing_portal/configurations"):
 			_, _ = w.Write([]byte(portal))
+		case strings.HasPrefix(r.URL.Path, "/v1/customers/"):
+			_, _ = w.Write([]byte(price))
 		case r.URL.Path == "/v1/tax/settings":
 			_, _ = w.Write([]byte(price))
 		case strings.HasPrefix(r.URL.Path, "/v1/payment_method_configurations"):
@@ -76,6 +78,15 @@ func TestTaxActive(t *testing.T) {
 		c := factsServer(t, `{}`, body)
 		if got, err := c.TaxActive(context.Background()); err != nil || got != want {
 			t.Errorf("TaxActive(%s) = %v %v, want %v", body, got, err, want)
+		}
+	}
+}
+
+func TestCustomerCountry(t *testing.T) {
+	for body, want := range map[string]string{`{"address":{"country":"de"}}`: "DE", `{"address":null}`: "", `{}`: ""} {
+		c := factsServer(t, `{}`, body)
+		if got, err := c.CustomerCountry(context.Background(), "cus_x"); err != nil || got != want {
+			t.Errorf("CustomerCountry(%s) = %q %v, want %q", body, got, err, want)
 		}
 	}
 }

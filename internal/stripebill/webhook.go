@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +53,16 @@ type Handler struct {
 	// Observe, when set, is told each event's outcome: applied, duplicate, ignored (a type or state that changes nothing), unmapped (no
 	// account for the object), stale (older than what was applied), or rejected (bad signature). A fixed vocabulary; no user data.
 	Observe func(eventType, outcome string)
+	// Countries reads a customer's billing country for the US-only check on subscription changes (nil: only Checkout's own country is
+	// checked). OnNonUS is told each billing country that is not the US, the code only: for the counter. Neither ever changes what the
+	// event does: a non-US account still gets Pro, and the operator is told (see checkCountry).
+	Countries interface {
+		CustomerCountry(ctx context.Context, customer string) (string, error)
+	}
+	OnNonUS func(country string)
+	// seen remembers the (customer, country) pairs already reported by this process, so a customer whose subscription changes every month is
+	// reported once, not at each event.
+	seen sync.Map
 }
 
 // Outcomes.
@@ -108,6 +120,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Invalidate(uid)
 	}
 	h.observe(ev.Type, outcome)
+	h.checkCountry(r.Context(), ev, outcome)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -322,4 +335,55 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 		return "", uuid.Nil, err
 	}
 	return OutcomeApplied, uid, nil
+}
+
+// checkCountry is the US-only guard: Rivolt Pro is sold in the United States only. After an event has been applied it looks at the billing
+// country: on checkout.session.completed the one the customer entered at Checkout, on customer.subscription.updated the customer's address,
+// read from Stripe. An address changed later in the Portal emits customer.updated, which is not subscribed to, so that change is caught at
+// the next subscription change (a plan change, or the renewal at the latest). A country other than the US is reported (a WARN with the
+// country code and the opaque Stripe customer id, never the address or any name or email, and OnNonUS for the counter) and NOTHING else: the account keeps the Pro it paid for, because refusing
+// silently is worse; the operator refunds in full, cancels and writes to the customer (docs/launch-flip.md in rivolt-infra). Best effort: a
+// failure to read the country is not the event's failure.
+func (h *Handler) checkCountry(ctx context.Context, ev Event, outcome string) {
+	if outcome != OutcomeApplied {
+		return
+	}
+	var customer, country string
+	switch ev.Type {
+	case "checkout.session.completed":
+		var cs CheckoutSession
+		if json.Unmarshal(ev.Data.Object, &cs) != nil {
+			return
+		}
+		customer, country = cs.Customer, strings.ToUpper(strings.TrimSpace(cs.CustomerDetails.Address.Country))
+	case "customer.subscription.updated":
+		var sub Subscription
+		if json.Unmarshal(ev.Data.Object, &sub) != nil || sub.Customer == "" || h.Countries == nil {
+			return
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		c, err := h.Countries.CustomerCountry(cctx, sub.Customer)
+		if err != nil {
+			return
+		}
+		customer, country = sub.Customer, c
+	default:
+		return
+	}
+	if country == "" || country == "US" {
+		return
+	}
+	key := customer + "/" + country
+	if _, dup := h.seen.LoadOrStore(key, true); dup {
+		return
+	}
+	if h.OnNonUS != nil {
+		h.OnNonUS(country)
+	}
+	if h.Log != nil {
+		// The customer id is an opaque Stripe id (no name, email or address): the operator finds the customer by it, since Stripe's search
+		// does not filter by address country.
+		h.Log.Warn("stripe webhook: a billing address outside the US; the account keeps Pro, the operator refunds and cancels", "country", country, "customer", customer, "event_type", ev.Type)
+	}
 }

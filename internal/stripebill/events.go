@@ -90,6 +90,12 @@ type CheckoutSession struct {
 	Customer          string `json:"customer"`
 	Subscription      string `json:"subscription"`
 	ClientReferenceID string `json:"client_reference_id"`
+	// CustomerDetails.Address.Country is the billing country the customer entered (two letters), when Checkout collected it.
+	CustomerDetails struct {
+		Address struct {
+			Country string `json:"country"`
+		} `json:"address"`
+	} `json:"customer_details"`
 }
 
 // Charge is the part of a Charge (charge.refunded) Rivolt reads. (A dispute object carries no customer, so mapping it to an account needs
