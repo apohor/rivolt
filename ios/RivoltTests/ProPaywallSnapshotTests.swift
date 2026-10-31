@@ -7,9 +7,10 @@ import XCTest
 final class ProPaywallSnapshotTests: XCTestCase {
     func testRenderTheFreeAccountsSheet() throws {
         Theme.registerFonts()
-        let page = ProPaywallView(plan: .free)
+        let page = ProPaywallView(plan: .free).content
             .environment(AppState())
-            .frame(width: 390, height: 1100)
+            .frame(width: 390)
+            .fixedSize(horizontal: false, vertical: true)
             .background(ThemePageBackground())
         for scheme in [ColorScheme.light, .dark] {
             let renderer = ImageRenderer(content: page.environment(\.colorScheme, scheme))
