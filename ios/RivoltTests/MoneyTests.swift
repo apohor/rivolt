@@ -389,6 +389,7 @@ private final class FakeMoney: MoneySource, @unchecked Sendable {
     private var _monthCalls: [(String, String, String?)] = []
     private var _summaryCalls = 0
     private var _fail: Int?
+    private var _failMessage = "no"
 
     var monthCalls: [(String, String, String?)] { lock.withLock { _monthCalls } }
     var summaryCalls: Int { lock.withLock { _summaryCalls } }
@@ -396,13 +397,18 @@ private final class FakeMoney: MoneySource, @unchecked Sendable {
         get { lock.withLock { _fail } }
         set { lock.withLock { _fail = newValue } }
     }
+    /// The error text of a failed read (the server's error code for a 402).
+    var failMessage: String {
+        get { lock.withLock { _failMessage } }
+        set { lock.withLock { _failMessage = newValue } }
+    }
 
     func ledgerMonth(month: String, timeZone: String, vehicleID: String?) async throws -> LedgerMonth {
-        let f: Int? = lock.withLock {
+        let (f, msg): (Int?, String) = lock.withLock {
             _monthCalls.append((month, timeZone, vehicleID))
-            return _fail
+            return (_fail, _failMessage)
         }
-        if let f { throw APIError.server(status: f, message: "no") }
+        if let f { throw APIError.server(status: f, message: msg) }
         return try edited(LedgerMonth.self, "ledger_monthly") { o in
             o["period"] = month
             o["is_current_month"] = month == "2026-10"
@@ -432,6 +438,24 @@ private final class FakeMoney: MoneySource, @unchecked Sendable {
 final class MoneyModelTests: XCTestCase {
     private let cal = chicago()
     private let now = at("2026-10-12T17:00:00Z")
+
+    func testAMonthOutsideAFreeAccountsWindowIsALimitNotAnError() async throws {
+        let src = FakeMoney()
+        src.fail = 402
+        src.failMessage = "outside_free_window"
+        let model = MoneyModel()
+        let old = PeriodMonth(containing: at("2026-05-15T17:00:00Z"), calendar: cal)
+        await model.load(source: src, vehicleID: nil, period: old, now: now, calendar: cal)
+        XCTAssertNil(model.month)
+        XCTAssertEqual(model.limit, .outsideFreeWindow)
+        XCTAssertNil(model.error, "a limit is not shown as 'Couldn't load this month'")
+        // The current month then loads normally, and the limit is gone.
+        src.fail = nil
+        let cur = PeriodMonth(containing: now, calendar: cal)
+        await model.load(source: src, vehicleID: nil, period: cur, now: now, calendar: cal)
+        XCTAssertNotNil(model.month)
+        XCTAssertNil(model.limit)
+    }
 
     func testAMonthIsReadOnceIn15MinutesAndA429KeepsWhatIsShown() async throws {
         let src = FakeMoney()

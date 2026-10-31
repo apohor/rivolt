@@ -99,6 +99,19 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertTrue(ProLimit.proRequired.text().contains("kept either way"))
     }
 
+    func testTheCSVOfAnOlderMonthIsProOnlyForAFreeOrLapsedAccount() {
+        XCTAssertEqual(PlanLogic.monthsBack("2026-10", now: "2026-10"), 0)
+        XCTAssertEqual(PlanLogic.monthsBack("2026-08", now: "2026-10"), 2)
+        XCTAssertEqual(PlanLogic.monthsBack("2026-07", now: "2026-10"), 3)
+        XCTAssertEqual(PlanLogic.monthsBack("2025-12", now: "2026-02"), 2)
+        XCTAssertEqual(PlanLogic.monthsBack("junk", now: "2026-10"), 0)
+        XCTAssertFalse(PlanLogic.csvIsPro(.free, month: "2026-08", now: "2026-10"))
+        XCTAssertTrue(PlanLogic.csvIsPro(.free, month: "2026-07", now: "2026-10"))
+        XCTAssertTrue(PlanLogic.csvIsPro(.lapsed(endedOn: nil, source: nil), month: "2026-01", now: "2026-10"))
+        XCTAssertFalse(PlanLogic.csvIsPro(.off, month: "2020-01", now: "2026-10"))
+        XCTAssertFalse(PlanLogic.csvIsPro(.pro(source: "apple", periodEnd: nil), month: "2020-01", now: "2026-10"))
+    }
+
     func testNothingCanBeBoughtYetAndTheScreenSaysSo() async {
         do {
             try await UnavailablePurchasing().purchase(yearly: true)

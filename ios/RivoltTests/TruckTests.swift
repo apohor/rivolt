@@ -317,6 +317,7 @@ private final class FakeTruck: TruckSource, @unchecked Sendable {
     private let lock = NSLock()
     private var _calls: [String] = []
     private var _fail: Int?
+    private var _failMessage = "no"
     private var _lease = true
 
     var calls: [String] {
@@ -327,17 +328,22 @@ private final class FakeTruck: TruckSource, @unchecked Sendable {
         get { lock.withLock { _fail } }
         set { lock.withLock { _fail = newValue } }
     }
+    /// The error text of a failed read (the server's error code for a 402).
+    var failMessage: String {
+        get { lock.withLock { _failMessage } }
+        set { lock.withLock { _failMessage = newValue } }
+    }
     var lease: Bool {
         get { lock.withLock { _lease } }
         set { lock.withLock { _lease = newValue } }
     }
 
     private func check(_ name: String) throws {
-        let f: Int? = lock.withLock {
+        let (f, msg): (Int?, String) = lock.withLock {
             _calls.append(name)
-            return _fail
+            return (_fail, _failMessage)
         }
-        if let f { throw APIError.server(status: f, message: "no") }
+        if let f { throw APIError.server(status: f, message: msg) }
     }
 
     func vehicleState(id: String) async throws -> VehicleState { try check("state"); return try Fixture.decode(VehicleState.self, "state") }
@@ -389,6 +395,20 @@ final class TruckModelTests: XCTestCase {
         await model.load(source: src, vehicleID: "v2", metric: false, now: now.addingTimeInterval(21 * 60))
         XCTAssertEqual(model.drain, .failed)
         XCTAssertNil(model.state)
+    }
+
+    func testAFreeAccountsProCardsAreLimitedNotFailed() async {
+        let src = FakeTruck()
+        src.fail = 402
+        src.failMessage = "pro_required"
+        let model = TruckModel()
+        await model.load(source: src, vehicleID: "v1", metric: false, now: now)
+        XCTAssertEqual(model.pack, .limited)
+        XCTAssertEqual(model.trends, .limited)
+        // A card that failed some other way stays failed; a 402 whose code is not ours is not a limit.
+        src.failMessage = "no"
+        await model.load(source: src, vehicleID: "v2", metric: false, now: now)
+        XCTAssertEqual(model.pack, .failed)
     }
 
     func testTheLeaseStatusIsOnlyAskedWithTerms() async {

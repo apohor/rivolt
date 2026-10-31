@@ -19,6 +19,8 @@ struct MoneyView: View {
     @State private var exportFile: MoneyExportFile?
     @State private var csvBusy = false
     @State private var csvError: String?
+    @State private var plan: PlanState = .off
+    @State private var showPro = false
 
     private var selected: Vehicle? { vehicles.first { $0.id == selectedID } ?? vehicles.first }
     /// Only an account with more than one truck sends it; otherwise the ledger covers the account.
@@ -36,8 +38,9 @@ struct MoneyView: View {
                             OffpeakPromptView()
                             MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
                                          noticeHidden: $noticeHidden, serverURL: state.serverURL,
-                                         export: MoneyContent.Export(busy: csvBusy, error: csvError,
-                                                                     share: { showShare = true }, csv: { Task { await exportCSV() } }))
+                                         export: MoneyContent.Export(busy: csvBusy, error: csvError, csvIsPro: csvIsPro,
+                                                                     share: { showShare = true }, csv: { if csvIsPro { showPro = true } else { Task { await exportCSV() } } }),
+                                         onThisMonth: { period = PeriodMonth(containing: .now, calendar: .current) })
                         }
                     }
                 }
@@ -52,6 +55,8 @@ struct MoneyView: View {
                 guard vehiclesLoaded else { return }
                 await model.load(source: state.client, vehicleID: scope, period: period)
             }
+            .task { if !state.isDemo { plan = PlanLogic.state(try? await state.client.me()) } }
+            .sheet(isPresented: $showPro) { ProPaywallView(plan: plan).followsAppearance() }
             .task(id: savingsWhich) { await model.loadSavings(source: state.client, which: savingsWhich) }
             .onChange(of: filter) {
                 if filter == .confirm { Task { await model.loadConfirm(source: state.client) } }
@@ -109,6 +114,12 @@ struct MoneyView: View {
         vehiclesLoaded = true
     }
 
+    /// The CSV of a month a free account's statement no longer shows is part of Pro (backend #1370).
+    private var csvIsPro: Bool {
+        guard let m = model.month else { return false }
+        return PlanLogic.csvIsPro(plan, month: m.period, now: MoneyLogic.period(PeriodMonth(containing: .now, calendar: .current), calendar: .current))
+    }
+
     /// The month as the web's CSV, cut in the same zone and for the same truck as the page. Read only when asked.
     private func exportCSV() async {
         guard let m = model.month, !csvBusy else { return }
@@ -119,6 +130,7 @@ struct MoneyView: View {
             let data = try await state.client.ledgerCSV(month: m.period, timeZone: TimeZone.current.identifier, vehicleID: scope)
             exportFile = try MoneyExportFile.csv(data, month: m.period)
         } catch {
+            if ProLimit.of(error) != nil { showPro = true; return }
             csvError = "Couldn't make the CSV. \(UserFacingError.words(error))"
         }
     }
@@ -164,10 +176,14 @@ struct MoneyContent: View {
     var usesMetric: Bool = NowFormat.usesMetric
     /// Share statement and Download CSV; nil draws them disabled (tests).
     var export: Export?
+    /// Back to the current month, from a month outside a free account's window.
+    var onThisMonth: (() -> Void)?
 
     struct Export {
         var busy = false
         var error: String?
+        /// The CSV of this month is part of Pro for this account: the button says so and opens Pro, it does not download.
+        var csvIsPro = false
         let share: () -> Void
         let csv: () -> Void
     }
@@ -202,6 +218,11 @@ struct MoneyContent: View {
                 }
             } else if model.unavailable {
                 MoneyMessage(icon: "creditcard", text: "Money isn't available for this account on this server yet.")
+            } else if let limit = model.limit {
+                VStack(alignment: .leading, spacing: 12) {
+                    ProLimitNote(limit: limit)
+                    if let onThisMonth { Button("Back to this month", action: onThisMonth).buttonStyle(ThemeSecondaryButtonStyle()) }
+                }
             } else if let e = model.error {
                 MoneyMessage(icon: "exclamationmark.triangle", text: "Couldn't load this month. \(e)")
             } else {
@@ -347,7 +368,7 @@ struct MoneyContent: View {
                 if !isDemo {
                     Button { export?.csv() } label: {
                         HStack(spacing: 6) {
-                            Text("Download CSV")
+                            Text(export?.csvIsPro == true ? "Download CSV (Pro)" : "Download CSV")
                             if export?.busy == true { ProgressView().controlSize(.mini) }
                         }
                     }

@@ -39,6 +39,8 @@ final class MoneyModel {
     private(set) var isLoading = false
     /// The month could not be read and nothing is on screen for it.
     private(set) var error: String?
+    /// A free account's limit for this month (HTTP 402 outside_free_window): shown as a note, not an error.
+    private(set) var limit: ProLimit?
     /// The server has no ledger for this account (404/501: Money is off for it, or an older server).
     private(set) var unavailable = false
 
@@ -84,6 +86,7 @@ final class MoneyModel {
             previous = nil
             homeRateSet = nil
             error = nil
+            limit = nil
             shownKey = key
         }
         isLoading = true
@@ -96,11 +99,15 @@ final class MoneyModel {
         guard shownKey == key else { return }
         unavailable = false
         switch mm {
-        case .success(let v): month = v; error = nil
+        case .success(let v): month = v; error = nil; limit = nil
         case .failure(let e):
             if Self.isMissing(e) { unavailable = true }
             // A 429 or a dropped connection keeps the figures already shown for this truck and month.
-            if month == nil { error = UserFacingError.words(e) }
+            if let l = ProLimit.of(e) {
+                limit = l
+            } else if month == nil {
+                error = UserFacingError.words(e)
+            }
         }
         if let ss { summary = ss }
 

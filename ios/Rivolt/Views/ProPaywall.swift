@@ -38,6 +38,29 @@ enum PlanLogic {
         return n == 0 ? "ends today" : "\(n) \(n == 1 ? "day" : "days") left"
     }
 
+    /// What a free account's Money shows (backend #1370): this month and the two before it.
+    static let freeMonths = 3
+
+    /// Whole calendar months from `month` ("2026-07") up to `now` ("2026-10"): 3 for July when it is October; 0 for a malformed month.
+    static func monthsBack(_ month: String, now: String) -> Int {
+        func parts(_ s: String) -> (Int, Int)? {
+            let p = s.split(separator: "-")
+            guard p.count == 2, let y = Int(p[0]), let m = Int(p[1]), (1...12).contains(m) else { return nil }
+            return (y, m)
+        }
+        guard let a = parts(month), let b = parts(now) else { return 0 }
+        return (b.0 - a.0) * 12 + (b.1 - a.1)
+    }
+
+    /// True when this plan shows only the last `freeMonths` months and the month is older: its CSV is part of Pro. Pro, billing off and the
+    /// demo (`.off`) see everything.
+    static func csvIsPro(_ plan: PlanState, month: String, now: String) -> Bool {
+        switch plan {
+        case .free, .lapsed: return monthsBack(month, now: now) >= freeMonths
+        default: return false
+        }
+    }
+
     /// The App Store's own page for managing or cancelling a subscription (Apple 3.1.2, A6).
     static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
 }
@@ -131,6 +154,34 @@ enum ProLimit: Equatable {
         case .outsideFreeWindow: return "This is older than the last \(freeDays) days that the free plan shows. It is kept, and it is in your export; Pro shows all of it."
         case .proRequired: return "This is part of Rivolt Pro. Everything you recorded is kept either way."
         }
+    }
+}
+
+/// What a screen shows in place of an error when the server answers a free account's limit (HTTP 402): why, that nothing is lost, and,
+/// where the server bills, the way to Pro.
+struct ProLimitNote: View {
+    @Environment(AppState.self) private var state
+    let limit: ProLimit
+    var freeDays: Int = 90
+    @State private var plan: PlanState = .off
+    @State private var showing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(limit.text(freeDays: freeDays)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            if plan != .off {
+                Button("See Pro") { showing = true }.buttonStyle(ThemeSecondaryButtonStyle())
+            }
+        }
+        .padding(4 * Theme.unit)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .themeCard(padding: 0)
+        .accessibilityElement(children: .contain)
+        .task {
+            guard !state.isDemo else { return }
+            plan = PlanLogic.state(try? await state.client.me())
+        }
+        .sheet(isPresented: $showing) { ProPaywallView(plan: plan).followsAppearance() }
     }
 }
 
