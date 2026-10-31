@@ -20,6 +20,14 @@ func TestEnergyEstimatedIsServed(t *testing.T) {
 	if !strings.Contains(string(raw), `"energy_estimated":true`) {
 		t.Errorf("activity charge: %s, want true", raw)
 	}
+	// The part credited across telemetry gaps rides along when there is one, and is absent when not.
+	raw, _ = json.Marshal(activityCharge{ID: "c", EnergyEstimated: true, GapKWh: 4.5})
+	if !strings.Contains(string(raw), `"gap_kwh":4.5`) {
+		t.Errorf("activity charge: %s, want gap_kwh 4.5", raw)
+	}
+	if raw, _ = json.Marshal(activityCharge{ID: "c"}); strings.Contains(string(raw), "gap_kwh") {
+		t.Errorf("activity charge without a gap: %s, want no gap_kwh", raw)
+	}
 
 	// The CSV export: a last column, in step with the header, true only for the estimated row.
 	e := sampleExport()

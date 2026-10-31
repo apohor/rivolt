@@ -1620,10 +1620,19 @@ type ChargeEnergyObserver interface {
 	OnChargeEnergyFloor()
 }
 
+// gapMaterialShare is the share of a charge's energy that, when credited across gaps, makes the energy an estimate: the
+// row is marked energy_estimated (and its cost with it) like a floored one, with gap_kwh saying how much. Below it the
+// credit is a rounding-sized part of a measured total and gap_kwh alone carries it. Gap credit does not feed the floor counter.
+const gapMaterialShare = 0.10
+
+func gapIsMaterial(gapKWh, energy float64) bool {
+	return gapKWh > 0 && energy > 0 && gapKWh >= gapMaterialShare*energy
+}
+
 // noteEnergyFloor counts and logs a floored charge once, however many times its row is rebuilt. The log carries the vehicle id
 // every line of the recorder carries, and the energies, never a place.
-func (m *StateMonitor) noteEnergyFloor(vehicleID string, c *liveCharge, row charges.Charge) {
-	if !row.EnergyEstimated || !c.floorNoted.CompareAndSwap(false, true) {
+func (m *StateMonitor) noteEnergyFloor(vehicleID string, c *liveCharge, row charges.Charge, floored bool) {
+	if !floored || !c.floorNoted.CompareAndSwap(false, true) {
 		return
 	}
 	m.mu.RLock()
@@ -2063,7 +2072,7 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 		StartSoCPct:     c.startSoC,
 		EndSoCPct:       c.endSoC,
 		EnergyAddedKWh:  energy,
-		EnergyEstimated: energyEstimated,
+		EnergyEstimated: energyEstimated || gapIsMaterial(gapKWh, energy),
 		GapKWh:          gapKWh,
 		MilesAdded:      milesAdded,
 		MaxPowerKW:      maxPower,
@@ -2206,7 +2215,7 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 	m.mu.RUnlock()
 	row.Place = PlaceOf(row.Lat, row.Lon, homeNow)
 	trimCharge(&row, c.trim)
-	m.noteEnergyFloor(vehicleID, c, row)
+	m.noteEnergyFloor(vehicleID, c, row, energyEstimated)
 	return row
 }
 

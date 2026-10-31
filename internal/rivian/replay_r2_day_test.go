@@ -85,8 +85,8 @@ func TestCorpusR2DriveChargeDrive(t *testing.T) {
 	// 4.4 hours, and the rest is credited from the SoC gained across the gaps (kept apart as gap_kwh), at most what 7.5 kW
 	// could deliver in them.
 	near("charge kWh", c.EnergyAddedKWh, 32.7, 1.0)
-	if c.GapKWh < 20 || c.GapKWh > c.EnergyAddedKWh || c.EnergyEstimated {
-		t.Errorf("gap %.2f kWh of %.2f (estimated %v), want most of the energy credited as gaps and not the floor", c.GapKWh, c.EnergyAddedKWh, c.EnergyEstimated)
+	if c.GapKWh < 20 || c.GapKWh > c.EnergyAddedKWh || !c.EnergyEstimated {
+		t.Errorf("gap %.2f kWh of %.2f (estimated %v), want most of the energy credited as gaps and so marked estimated", c.GapKWh, c.EnergyAddedKWh, c.EnergyEstimated)
 	}
 	near("charge peak kW", c.MaxPowerKW, 7.5, 0.1)
 	near("charge start SoC", c.StartSoCPct, 48.2, 0.3)

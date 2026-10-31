@@ -73,3 +73,28 @@ func TestResumedChargeCreditsTheStretchSinceItsRow(t *testing.T) {
 		t.Errorf("gap %.2f after another resume, want %.2f", got.gapKWh, c.gapKWh)
 	}
 }
+
+// Energy that is materially (10 % or more) credited across gaps is an estimate and is marked like a floored one, with gap_kwh
+// saying how much; a small credit leaves the mark off but still shows. Gap credit never feeds the floor counter.
+func TestGapCreditedChargeIsMarkedEstimated(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	obs := &floorCount{}
+	m.sleepObserver = obs
+	m.vehicleInfo[chargeTestVehicle] = &Vehicle{ID: chargeTestVehicle, Model: "R1T", PackKWh: 100}
+	t0 := time.Date(2026, 10, 18, 7, 0, 0, 0, time.UTC)
+	mk := func(energy, gap float64) *liveCharge {
+		return &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(4 * time.Hour), startSoC: 20, endSoC: 50, maxPower: 7.5,
+			energyIntKWh: energy, gapKWh: gap, activeSeconds: 4 * 3600, finalState: "charging_complete"}
+	}
+	row := m.liveChargeRow(chargeTestVehicle, mk(30, 12))
+	if !row.EnergyEstimated || math.Abs(row.GapKWh-12) > 1e-9 || row.EnergyAddedKWh != 30 {
+		t.Errorf("40%% of the energy credited: estimated %v, gap %.2f, energy %.2f; want marked, 12, 30", row.EnergyEstimated, row.GapKWh, row.EnergyAddedKWh)
+	}
+	row = m.liveChargeRow(chargeTestVehicle, mk(30, 1))
+	if row.EnergyEstimated || math.Abs(row.GapKWh-1) > 1e-9 {
+		t.Errorf("a small credit: estimated %v, gap %.2f; want unmarked and 1", row.EnergyEstimated, row.GapKWh)
+	}
+	if obs.n != 0 {
+		t.Errorf("gap credit counted %d times as the energy floor, want 0", obs.n)
+	}
+}
