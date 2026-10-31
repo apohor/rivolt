@@ -6,6 +6,8 @@ import { R2CheckedSettings } from "../components/R2Checked";
 import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
 import { settingsAnchor } from "../lib/settingsAnchor";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { planState } from "../lib/plan";
+import { DELETE_APPLE_NOTE } from "../lib/proCopy";
 import { inDemo } from "../lib/demo";
 import DemoSettings from "./DemoSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -2729,7 +2731,10 @@ function DangerZonePanel() {
 // profile, sealed Rivian credentials, push subscriptions, sessions),
 // removes the user from the IdP, and signs out. There's a confirm
 // gate because the action is irreversible.
-function DeleteAccountBlock() {
+export function DeleteAccountBlock() {
+  const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
+  const plan = planState(me.data);
+  const paysApple = plan.kind === "pro" && plan.source === "apple";
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2759,6 +2764,11 @@ function DeleteAccountBlock() {
         identity provider. This is irreversible — back up first if
         you want a copy.
       </p>
+      {paysApple && (
+        <p role="note" data-delete-apple-note className="text-xs text-amber-300 mb-3 max-w-xl">
+          {DELETE_APPLE_NOTE}
+        </p>
+      )}
       {!confirming ? (
         <button
           type="button"

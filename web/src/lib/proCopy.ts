@@ -117,3 +117,7 @@ export function lapseBanner(state: PlanState): string {
   const on = state.kind === "lapsed" ? planDate(state.endedOn) : "";
   return `Your Pro ended${on ? ` on ${on}` : ""}. Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
 }
+
+// Shown in the delete-account flow of an account paying through the App Store: the server cannot cancel an Apple subscription, so the
+// person must (the iPhone's delete sheet says the same).
+export const DELETE_APPLE_NOTE = "Cancel your App Store subscription first in iPhone Settings → Subscriptions; deleting your Rivolt account doesn't cancel it.";
