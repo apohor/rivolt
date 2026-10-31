@@ -174,7 +174,7 @@ func TestMondayReadoutAgainstFixtures(t *testing.T) {
 	ev(in, "anon-7", "statement_share", `{"kind":"png"}`)
 	ev(in, "anon-8", "statement_share", `{"kind":"csv"}`)
 	for _, uid := range []uuid.UUID{a, d} {
-		if _, err := pool.ExecContext(ctx, `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://push.example/'||$1::text, 'k', 'a')`, uid); err != nil {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, 'https://push.example/' || $2::text, 'k', 'a')`, uid, uid.String()); err != nil {
 			t.Fatal(err)
 		}
 	}
