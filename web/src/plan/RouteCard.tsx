@@ -41,12 +41,15 @@ export function RouteCard({
   forceNext = false,
   stacked = false,
   chooser,
+  dayLabel,
 }: {
   route: TripRoute;
   index: number;
   allRoutes: TripRoute[];
   originLabel: string;
   destLabel: string;
+  // "Day 2" on a multi-day plan: the map's legend card says which day its legs belong to.
+  dayLabel?: string;
   onAddStop?: StopAdder;
   onAddOvernight?: OvernightAdder;
   onPreviewStop?: StopPreviewer;
@@ -260,6 +263,7 @@ export function RouteCard({
               selectedIdx={selectedStop}
               onSelectStop={(idx) => setSelectedStop(idx)}
               departureAt={departureAt}
+              dayLabel={dayLabel}
             />
           </Suspense>
         </div>
@@ -322,6 +326,7 @@ export function RouteCard({
             selectedIdx={selectedStop}
             onSelectStop={(idx) => setSelectedStop(idx)}
             departureAt={departureAt}
+            dayLabel={dayLabel}
           />
         </Suspense>
       </div>
