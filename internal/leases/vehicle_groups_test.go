@@ -159,3 +159,57 @@ func TestSetVehicleGroupsCopiesItsArgument(t *testing.T) {
 		t.Errorf("the store saw the caller's later edits: %q", got)
 	}
 }
+
+// The store interface the lead pass needs includes SetVehicleGroups: a store without it is not a lead-mode store at all (it does not
+// compile as one), instead of the pass skipping the call and every vehicle reading Lost. And the pass hands the map over, to a fake
+// that only records it.
+func TestLeadPassHandsTheMapToTheStoreInterface(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1"}, res: GroupLead{Held: map[string]int64{"g1": 1}}}
+	var gl groupLeader = ls // fails to compile if SetVehicleGroups leaves the interface
+	_ = gl
+	c := newLeadCoord(ls, []string{"v1"})
+	c.reconcile(context.Background())
+	ls.lmu.Lock()
+	got := ls.setVG
+	ls.lmu.Unlock()
+	if got["v1"] != "g1" {
+		t.Fatalf("the pass handed %v to the store, want v1 -> g1", got)
+	}
+}
+
+// offLeader is a lead-mode-capable store with lead mode off.
+type offLeader struct{ *leaderStore }
+
+func (offLeader) GroupLeading() bool { return false }
+
+// Lead mode requested but a store that would not lead (not a lead-mode store at all, or one with lead off) is an error at startup and
+// from Run, never a silent pass of the old per-vehicle mode; with lead mode not requested the same stores are fine.
+func TestLeadModeRequestedButInactiveIsAnError(t *testing.T) {
+	mk := func(s storeAPI) *Coordinator {
+		return newCoordinator(s, func(context.Context) ([]string, error) { return nil, nil }, func(string) {}, func(string) {}, nil, time.Hour)
+	}
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{}, res: GroupLead{Held: map[string]int64{}}}
+	for name, store := range map[string]storeAPI{"plain store": newFakeStore(), "lead mode off": offLeader{ls}} {
+		c := mk(store)
+		if err := c.CheckLeadMode(true); !errors.Is(err, ErrLeadModeInactive) {
+			t.Errorf("%s, requested: %v, want ErrLeadModeInactive", name, err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := c.Run(ctx); !errors.Is(err, ErrLeadModeInactive) {
+			t.Errorf("%s, requested: Run returned %v, want ErrLeadModeInactive (not a silent loop)", name, err)
+		}
+		cancel()
+		c2 := mk(store)
+		if err := c2.CheckLeadMode(false); err != nil {
+			t.Errorf("%s, not requested: %v, want nil", name, err)
+		}
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		if err := c2.Run(ctx2); errors.Is(err, ErrLeadModeInactive) {
+			t.Errorf("%s, not requested: Run refused", name)
+		}
+		cancel2()
+	}
+	if err := mk(ls).CheckLeadMode(true); err != nil {
+		t.Errorf("a lead-mode store with lead on, requested: %v, want nil", err)
+	}
+}

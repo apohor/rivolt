@@ -391,6 +391,9 @@ type Coordinator struct {
 	// fencedThisPass makes one self-fence event count once, whichever path finds it first (reconcile's own deadline check or the
 	// group pass). Reset at the start of each reconcile.
 	fencedThisPass bool
+	// leadRequested is set from RIVOLT_GROUP_LEAD (CheckLeadMode): the operator asked for lead mode, so a coordinator that would
+	// quietly run the old per-vehicle mode instead is an error, not a fallback.
+	leadRequested bool
 
 	// acquiredAt is when each vehicle was acquired and has not yet shown a frame; frameAt says when the
 	// newest frame for a vehicle arrived; onFrame is told the seconds from acquire to that frame (the
@@ -611,6 +614,9 @@ func (c *Coordinator) SetAuthoritative(fn func(ctx context.Context) ([]string, e
 // Reconciles once immediately so a freshly-started pod doesn't wait
 // reconcileInterval before claiming any vehicles.
 func (c *Coordinator) Run(ctx context.Context) error {
+	if err := c.leadModeProblem(); err != nil {
+		return err
+	}
 	c.reconcile(ctx)
 
 	t := time.NewTimer(c.nextTick())
@@ -632,6 +638,27 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			c.reconcile(ctx)
 		}
 	}
+}
+
+// ErrLeadModeInactive: lead mode was requested but this coordinator would not lead.
+var ErrLeadModeInactive = errors.New("leases: lead mode was requested (RIVOLT_GROUP_LEAD=1) but the lease store is not leading; refusing to run the old per-vehicle mode in its place")
+
+func (c *Coordinator) leadModeProblem() error {
+	if !c.leadRequested {
+		return nil
+	}
+	if gl, ok := c.store.(groupLeader); !ok || !gl.GroupLeading() {
+		return ErrLeadModeInactive
+	}
+	return nil
+}
+
+// CheckLeadMode records whether the operator asked for lead mode and returns ErrLeadModeInactive if so but the store would not lead:
+// the lead pass skips a store that is not a lead-mode store without a word, and a pod that believes it is in lead mode while it runs
+// the old mode is the worst state to be in. main refuses to start on the error; Run returns it too.
+func (c *Coordinator) CheckLeadMode(requested bool) error {
+	c.leadRequested = requested
+	return c.leadModeProblem()
 }
 
 // nextTick is the reconcile interval, plus or minus the jitter in lead mode.
@@ -954,7 +981,14 @@ type groupLeader interface {
 	LeadGroups(ctx context.Context) (GroupLead, error)
 	ReleaseGroup(ctx context.Context, group string) error
 	GroupVehicles(ctx context.Context) (map[string]string, error)
+	// SetVehicleGroups hands the store the vehicle -> group map the pass just read. It is part of the interface, not an optional
+	// extra: a lead-mode store without it answers Lost for every vehicle, so a pod that holds every group refuses all of its own
+	// writes (the preview bug of Oct 31). A store that lacks it does not compile.
+	SetVehicleGroups(vg map[string]string)
 }
+
+// The real store is a lead-mode store; this fails the build, not a pass, if it stops being one.
+var _ groupLeader = (*Store)(nil)
 
 // leadView is which vehicles the held groups allow this pass.
 type leadView struct {
@@ -1009,9 +1043,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	// Install the vehicle -> group map before anything below acquires or subscribes a vehicle: the fence (Fence, Deadline) looks
 	// vehicles up in it, and a vehicle missing from it reads Lost however the group stands. A pass that failed to read the map
 	// (above) leaves the last one: tokenLocked still needs the group held and renewed within the local deadline.
-	if sv, ok := c.store.(interface{ SetVehicleGroups(map[string]string) }); ok {
-		sv.SetVehicleGroups(vg)
-	}
+	gl.SetVehicleGroups(vg)
 	c.followOpenSessions(ctx, gl, vg, res.Held)
 	res.Shed = c.chooseShed(res, vg)
 	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is

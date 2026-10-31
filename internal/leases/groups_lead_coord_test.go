@@ -16,7 +16,8 @@ type leaderStore struct {
 	log        []string
 	res        GroupLead
 	leadErr    error
-	vgErr      error // GroupVehicles fails
+	vgErr      error             // GroupVehicles fails
+	setVG      map[string]string // what the coordinator last handed SetVehicleGroups
 	vg         map[string]string
 	releaseErr map[string]error
 }
@@ -32,6 +33,11 @@ func (l *leaderStore) calls() []string {
 	return append([]string(nil), l.log...)
 }
 func (l *leaderStore) GroupLeading() bool { return true }
+func (l *leaderStore) SetVehicleGroups(vg map[string]string) {
+	l.lmu.Lock()
+	l.setVG = vg
+	l.lmu.Unlock()
+}
 func (l *leaderStore) LeadGroups(context.Context) (GroupLead, error) {
 	if l.leadErr != nil {
 		return GroupLead{}, l.leadErr
