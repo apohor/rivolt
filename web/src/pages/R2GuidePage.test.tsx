@@ -42,5 +42,6 @@ describe("the R2 guide matches the Truck card's checked list", () => {
     const section = guide.slice(head, guide.indexOf("## Day 1: connect"));
     expect(section.match(/^\d\. \*\*/gm)).toHaveLength(5);
     expect(section.toLowerCase()).not.toContain("will wait");
+    expect(section.toLowerCase()).not.toContain("within minutes");
   });
 });
