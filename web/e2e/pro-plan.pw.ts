@@ -67,3 +67,19 @@ test("billing off: no plan screen anywhere", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-plan-notice]")).toHaveCount(0);
 });
+
+test("a failed payment in the grace shows the banner, Pro stays on, and nothing says it was deleted", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await withPlan(page, { plan: "pro", plan_source: "stripe", plan_period_end: "2026-12-08T00:00:00Z", plan_trial_ends: null, plan_cancels_at: null, plan_grace_ends: "2026-12-08T00:00:00Z", plan_ended_at: null, plan_ended_source: null, billing_enabled: true, history_days: null });
+  await page.goto("/");
+  const banner = page.locator("[data-plan-notice=grace]");
+  await expect(banner).toContainText("A payment for Rivolt Pro failed");
+  await expect(banner).toContainText("nothing is deleted");
+  await expect(banner.getByRole("button", { name: "Update card" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: path.join(SHOTS, "pro-grace-iphone-dark.png") });
+  await page.goto("/settings#plan");
+  await expect(page.locator("[data-plan-card=pro]")).toContainText("payment failed");
+  await ctx.close();
+});

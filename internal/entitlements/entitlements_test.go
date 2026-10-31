@@ -200,3 +200,32 @@ func TestCancelAndGraceStates(t *testing.T) {
 		}
 	}
 }
+
+// The free Pro a subscription must wait for: the latest end among a running trial and the founding year, nothing for an ended or past row.
+func TestActiveFreeEnd(t *testing.T) {
+	day := 24 * time.Hour
+	if _, ok := ActiveFreeEnd(nil, t0); ok {
+		t.Error("no rows reads as free Pro")
+	}
+	if got, ok := ActiveFreeEnd([]Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}}, t0); !ok || !got.Equal(*at(5 * day)) {
+		t.Errorf("a running trial: %v %v", got, ok)
+	}
+	rows := []Row{
+		{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)},
+		{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(200 * day)},
+	}
+	if got, ok := ActiveFreeEnd(rows, t0); !ok || !got.Equal(*at(200 * day)) {
+		t.Errorf("trial and founding: %v %v, want the founding end", got, ok)
+	}
+	for name, r := range map[string]Row{
+		"an ended trial":    {Source: SourceTrial, Status: StatusEnded, PeriodEnd: at(5 * day)},
+		"a past founding":   {Source: SourceFounding, Status: StatusActive, PeriodEnd: at(-day)},
+		"a paid row":        {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(30 * day)},
+		"a grant":           {Source: SourceGrant, Status: StatusActive, PeriodEnd: at(30 * day)},
+		"a row with no end": {Source: SourceTrial, Status: StatusActive},
+	} {
+		if _, ok := ActiveFreeEnd([]Row{r}, t0); ok {
+			t.Errorf("%s reads as free Pro", name)
+		}
+	}
+}

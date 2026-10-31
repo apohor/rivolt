@@ -27,16 +27,17 @@ var appWrites = map[string]bool{
 	// Also allowed, by pattern (appSessionRevokePath): DELETE /api/auth/sessions/{uuid}, to sign one device out from the phone.
 	// Not allowed: POST /api/auth/sessions/revoke-others, which from a leaked phone token would sign the owner out everywhere
 	// at once and leave the attacker's session as the last one standing.
-	"POST /api/push/apns/register":      true, // notifications
-	"POST /api/push/apns/unregister":    true,
-	"POST /api/push/apns/preferences":   true,
-	"POST /api/push/apns/test":          true,
-	"POST /api/push/apns/activity":      true, // charging Live Activity
-	"POST /api/push/apns/activity/end":  true,
-	"POST /api/push/apns/activity/test": true,
-	"POST /api/milestones/dismiss":      true, // hide a milestone card
-	"PATCH /api/settings/charging":      true, // the home rate, merged field by field (settings_charging.go)
-	"PATCH /api/settings/units":         true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
+	"POST /api/push/apns/register":        true, // notifications
+	"POST /api/push/apns/unregister":      true,
+	"POST /api/push/apns/preferences":     true,
+	"POST /api/push/apns/test":            true,
+	"POST /api/push/apns/activity":        true, // charging Live Activity
+	"POST /api/push/apns/activity/end":    true,
+	"POST /api/push/apns/activity/test":   true,
+	"POST /api/milestones/dismiss":        true, // hide a milestone card
+	"POST /api/billing/apple/transaction": true, // the app reports its StoreKit purchase (internal/applebill); the transaction is verified and must carry the account's token
+	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
+	"PATCH /api/settings/units":           true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
 	// The rest of Settings → Charging and the planner defaults on the iPhone (owner go, Oct 26). Each replaces one setting of the
 	// account's own and nothing else: no stored charge, price or statement is rewritten (a price book only prices future sessions
 	// and the planner's estimates), a leaked token can at worst set wrong numbers that the next write undoes, and each write is

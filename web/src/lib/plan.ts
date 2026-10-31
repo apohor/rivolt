@@ -6,14 +6,15 @@ import type { AuthUser } from "./api";
 
 export type PlanFields = Pick<
   AuthUser,
-  "plan" | "plan_source" | "plan_period_end" | "plan_trial_ends" | "plan_ended_at" | "plan_ended_source" | "billing_enabled" | "history_days"
+  "plan" | "plan_source" | "plan_period_end" | "plan_trial_ends" | "plan_cancels_at" | "plan_grace_ends" | "plan_ended_at" | "plan_ended_source" | "billing_enabled" | "history_days"
 >;
 
 export type PlanState =
   | { kind: "off" } // billing is off: everything is on, nothing mentions a plan
   | { kind: "free" } // never had Pro
   | { kind: "trial"; ends: string }
-  | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null }
+  // cancelsAt: set to not renew, Pro stays on until then. graceEnds: a renewal payment failed, Pro stays on until then (7 days).
+  | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null; cancelsAt?: string | null; graceEnds?: string | null }
   | { kind: "lapsed"; endedOn: string | null; endedSource: string | null }; // had Pro or a trial, now on the free window
 
 const DAY = 86_400_000;
@@ -25,7 +26,7 @@ export function planState(me: PlanFields | null | undefined): PlanState {
     if (me.plan_source === "trial") return { kind: "trial", ends: me.plan_trial_ends ?? me.plan_period_end ?? "" };
     const s = me.plan_source;
     const source = s === "apple" || s === "stripe" || s === "founding" || s === "grant" ? s : "grant";
-    return { kind: "pro", source, periodEnd: me.plan_period_end ?? null };
+    return { kind: "pro", source, periodEnd: me.plan_period_end ?? null, cancelsAt: me.plan_cancels_at ?? null, graceEnds: me.plan_grace_ends ?? null };
   }
   if (me.plan_ended_at) return { kind: "lapsed", endedOn: me.plan_ended_at, endedSource: me.plan_ended_source ?? null };
   return { kind: "free" };

@@ -376,7 +376,7 @@ func TestPortalAndReturningCustomerAgainstPostgres(t *testing.T) {
 	if got, want := last.Get("customer"), "cus_"+r.uid.String()[:8]; got != want {
 		t.Errorf("the portal was opened for %q, want the account's own customer %q", got, want)
 	}
-	if last.Get("return_url") != "https://rivolt.example/settings/plan" {
+	if last.Get("return_url") != "https://rivolt.example/settings#plan" {
 		t.Errorf("return_url = %q", last.Get("return_url"))
 	}
 	if _, err := svc.Checkout(ctx, r.uid, "year"); err != nil {

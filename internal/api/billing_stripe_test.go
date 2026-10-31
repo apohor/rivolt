@@ -25,7 +25,7 @@ func (p billingPlans) Billing() bool { return p.on }
 func (p billingPlans) State(context.Context, uuid.UUID) (entitlements.State, error) {
 	return p.state, nil
 }
-func (p billingPlans) TrialEnd(context.Context, uuid.UUID) (time.Time, bool, error) {
+func (p billingPlans) FreeUntil(context.Context, uuid.UUID) (time.Time, bool, error) {
 	return time.Time{}, false, nil
 }
 

@@ -7,6 +7,10 @@ enum PlanState: Equatable {
     case free
     case trial(ends: Date?)
     case pro(source: String, periodEnd: Date?)
+    /// A paid subscription set to not renew: Pro stays on until `until`.
+    case cancelled(source: String, until: Date?)
+    /// A renewal payment failed: Pro stays on until `until` (the 7-day grace) while the payment is retried.
+    case paymentFailed(source: String, until: Date?)
     case lapsed(endedOn: Date?, source: String?)
 }
 
@@ -18,7 +22,11 @@ enum PlanLogic {
         if plan == "pro" {
             if me.planSource == "trial" { return .trial(ends: me.planTrialEnds ?? me.planPeriodEnd) }
             let known = ["apple", "stripe", "founding", "grant"]
-            return .pro(source: known.contains(me.planSource ?? "") ? (me.planSource ?? "grant") : "grant", periodEnd: me.planPeriodEnd)
+            let source = known.contains(me.planSource ?? "") ? (me.planSource ?? "grant") : "grant"
+            // A failed payment first (it needs the person), then a cancellation: a cancelled plan must never say it renews.
+            if source == "stripe", let g = me.planGraceEnds { return .paymentFailed(source: source, until: g) }
+            if source == "stripe" || source == "apple", let c = me.planCancelsAt { return .cancelled(source: source, until: c) }
+            return .pro(source: source, periodEnd: me.planPeriodEnd)
         }
         if let ended = me.planEndedAt { return .lapsed(endedOn: ended, source: me.planEndedSource) }
         return .free
@@ -116,6 +124,10 @@ enum ProCopy {
                 return ("Rivolt Pro, free until \(PlanLogic.date(end) ?? "the end of the year")", "Yours at no charge for the first year; no card, nothing is charged. We'll email you 30 days before it ends.")
             default: return ("Rivolt Pro", "Granted to this account.")
             }
+        case .cancelled(_, let until):
+            return ("Rivolt Pro until \(PlanLogic.date(until) ?? "the end of the period")", "Cancelled; Pro stays on until then. Nothing is deleted after.")
+        case .paymentFailed(_, let until):
+            return ("Rivolt Pro, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
         case .lapsed(let on, _):
             return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
         }
@@ -212,8 +224,10 @@ struct ProPaywallView: View {
     @State private var message: String?
 
     private var subscribed: Bool {
-        if case .pro(let source, _) = plan { return source == "apple" || source == "stripe" }
-        return false
+        switch plan {
+        case .pro(let source, _), .cancelled(let source, _), .paymentFailed(let source, _): return source == "apple" || source == "stripe"
+        default: return false
+        }
     }
 
     var body: some View {

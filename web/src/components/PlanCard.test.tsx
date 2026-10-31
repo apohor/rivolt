@@ -80,3 +80,38 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
     expect(screen.queryByRole("button", { name: "See Pro" })).toBeNull();
   });
 });
+
+import cancelled from "../../../ios/RivoltTests/Fixtures/me_plan_cancelled.json";
+import grace from "../../../ios/RivoltTests/Fixtures/me_plan_grace.json";
+
+describe("a cancelled subscription and a failed payment", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it("a cancelled but paid-up plan says so and never says it renews", async () => {
+    renderWith(cancelled, <PlanCard now={now} />);
+    expect(await screen.findByText(/Rivolt Pro until .*2026/)).toBeInTheDocument();
+    expect(screen.getByText("Cancelled; Pro stays on until then. Nothing is deleted after.")).toBeInTheDocument();
+    expect(screen.queryByText(/renews/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Resubscribe" })).toBeInTheDocument();
+  });
+
+  it("a failed payment inside the grace says to update the card, with Pro still on and nothing deleted", async () => {
+    renderWith(grace, <><PlanCard now={now} /><PlanNotice /></>);
+    expect(await screen.findByText("Rivolt Pro, payment failed")).toBeInTheDocument();
+    expect(screen.getByText(/Update your card by .*2026 to keep Pro\. Nothing is deleted either way\./)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Update card" })).toHaveLength(2); // the card and the banner
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/A payment for Rivolt Pro failed\. Update your card in Settings → Account → Plan by .*2026/);
+    expect(banner).toHaveTextContent("nothing is deleted");
+  });
+
+  it("does not show the grace banner for a healthy plan", async () => {
+    renderWith(stripe, <PlanNotice />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.querySelector("[data-plan-notice]")).toBeNull();
+  });
+});

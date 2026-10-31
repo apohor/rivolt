@@ -30,7 +30,7 @@ const MinTrialLead = 48 * time.Hour
 type Plans interface {
 	Billing() bool
 	State(ctx context.Context, uid uuid.UUID) (entitlements.State, error)
-	TrialEnd(ctx context.Context, uid uuid.UUID) (time.Time, bool, error)
+	FreeUntil(ctx context.Context, uid uuid.UUID) (time.Time, bool, error)
 }
 
 // Service creates Checkout and Customer Portal sessions. The account is always the signed-in one, passed by the handler from the session:
@@ -106,7 +106,9 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 	now := s.now()
 	first := now
 	var trialEnd time.Time
-	if end, ok, err := s.Plans.TrialEnd(ctx, uid); err != nil {
+	// Billing starts when the account's free Pro (a running trial, or the founding year) ends, never earlier: buying early must not bill
+	// twice for the same months.
+	if end, ok, err := s.Plans.FreeUntil(ctx, uid); err != nil {
 		return out, err
 	} else if ok {
 		trialEnd = end
@@ -122,8 +124,8 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 		"line_items[0][quantity]": {"1"},
 		"client_reference_id":     {uidStr},
 		"subscription_data[metadata][" + MetadataUserID + "]": {uidStr},
-		"success_url":                          {s.BaseURL + "/settings/plan?checkout=success"},
-		"cancel_url":                           {s.BaseURL + "/settings/plan?checkout=cancelled"},
+		"success_url":                          {s.BaseURL + "/settings?checkout=success#plan"},
+		"cancel_url":                           {s.BaseURL + "/settings?checkout=cancelled#plan"},
 		"consent_collection[terms_of_service]": {"required"},
 		"custom_text[submit][message]":         {ConsentLine(price, first, now)},
 	}
@@ -168,7 +170,7 @@ func (s *Service) Portal(ctx context.Context, uid uuid.UUID) (string, error) {
 	if cust == "" {
 		return "", ErrNoCustomer
 	}
-	return s.Client.PortalSessionURL(ctx, cust, s.BaseURL+"/settings/plan")
+	return s.Client.PortalSessionURL(ctx, cust, s.BaseURL+"/settings#plan")
 }
 
 func (s *Service) customerOf(ctx context.Context, uid uuid.UUID) (string, error) {

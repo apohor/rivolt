@@ -33,6 +33,24 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertNil(try me("me_plan_founding").historyDays)
     }
 
+    func testACancelledPlanAndAFailedPaymentAreTheirOwnStates() throws {
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_cancelled")), .cancelled(source: "stripe", until: d("2026-12-01T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_grace")), .paymentFailed(source: "stripe", until: d("2026-12-08T00:00:00Z")))
+        // Healthy plans carry neither key as a value.
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: d("2026-12-01T00:00:00Z")))
+        // A founding or granted plan is never "cancelled", whatever the field says.
+        let founding = try JSON.decoder().decode(AuthUser.self, from: Data(#"{"username":"a","plan":"pro","plan_source":"founding","plan_cancels_at":"2027-01-01T00:00:00Z","billing_enabled":true}"#.utf8))
+        XCTAssertEqual(PlanLogic.state(founding), .pro(source: "founding", periodEnd: nil))
+        let cancelled = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_cancelled"))))
+        XCTAssertTrue(cancelled.title.hasPrefix("Rivolt Pro until"))
+        XCTAssertEqual(cancelled.line, "Cancelled; Pro stays on until then. Nothing is deleted after.")
+        XCTAssertFalse((cancelled.title + cancelled.line).contains("renews"))
+        let failed = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_grace"))))
+        XCTAssertEqual(failed.title, "Rivolt Pro, payment failed")
+        XCTAssertTrue(failed.line.hasPrefix("Update your card from the payment email we sent, by"))
+        XCTAssertTrue(failed.line.hasSuffix("Nothing is deleted either way."))
+    }
+
     func testALapseComesFromPlanEndedAt() throws {
         XCTAssertEqual(PlanLogic.state(try me("me_plan_lapsed")), .lapsed(endedOn: d("2026-10-01T00:00:00Z"), source: "stripe"))
     }

@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/launchnotice"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -232,6 +233,9 @@ type Metrics struct {
 	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
 	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
 	DatedNoticesTotal *prometheus.CounterVec
+	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
+	// a bundle, environment or product that is not this deployment's. Pre-created at 0.
+	AppleNotificationsTotal *prometheus.CounterVec
 	// Claims left in 'sending' past 15 minutes: a crash between claim and
 	// delivery. Never resent, so a nonzero value is how a lost message shows.
 	EngagementStuckSending prometheus.Gauge
@@ -485,6 +489,13 @@ func New() *Metrics {
 			},
 			[]string{"kind", "outcome"},
 		),
+		AppleNotificationsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_apple_notifications_total",
+				Help: "App Store Server Notifications by outcome.",
+			},
+			[]string{"outcome"},
+		),
 		DatedNoticesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_dated_notices_total",
@@ -656,6 +667,7 @@ func New() *Metrics {
 		m.FailLimiterFallbackTotal,
 		m.EngagementSendsTotal,
 		m.DatedNoticesTotal,
+		m.AppleNotificationsTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
 		m.EngagementStuckSending,
@@ -685,6 +697,9 @@ func New() *Metrics {
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
 	// is an increase (a series that first appears at 1 has increase() == 0, and the alert would miss the
 	// very event it is for). Keep the label values in step with the callers.
+	for _, outcome := range applebill.Outcomes {
+		m.AppleNotificationsTotal.WithLabelValues(outcome).Add(0)
+	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
 	for _, kind := range launchnotice.MetricKinds {
 		for _, outcome := range launchnotice.Outcomes {

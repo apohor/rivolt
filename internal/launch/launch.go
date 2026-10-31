@@ -55,7 +55,8 @@ var Items = []Item{
 	// Money: Stripe and StoreKit.
 	{ID: "stripe-webhook", What: "Stripe webhook signature is verified and handling is idempotent on the event id; a refund or revoke ends the entitlement and invalidates the plan cache",
 		Cleared: true, ClearedBy: "#1390", Proof: "TestVerifySignatureRefuses,TestStripeWebhookAgainstPostgres,TestStripeWebhookRefusesAndRollsBack,TestStripeWebhookEventOrder"},
-	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id; a refund or revoke ends the entitlement and invalidates the plan cache"},
+	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id; a refund or revoke ends the entitlement and invalidates the plan cache",
+		Cleared: true, ClearedBy: "#1399", Proof: "TestAppleRootIsThePublishedOne,TestVerifyRejects,TestDecide,TestAppleBillingAgainstPostgres"},
 	{ID: "account-deletion-cancels-stripe", What: "account deletion cancels the Stripe subscription, with a retry queue and an alert when it cannot"},
 	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal"},
 
@@ -70,7 +71,7 @@ var Items = []Item{
 	{ID: "checkout-consent", What: "the checkout consent line (\"first charge on <date>\") is generated from the Checkout session, with a test",
 		Cleared: true, ClearedBy: "#1398", Proof: "TestConsentLine,TestCheckoutDuringATrial,TestBuildCheckoutForANewAccount"},
 	{ID: "clients-gated", What: "web and iPhone show Pro UI only when billing_enabled is true (client tests are the proof)",
-		Cleared: true, ClearedBy: "#1365,#1368", Proof: "web/src/lib/plan.test.ts,ios/RivoltTests/ProPaywallTests.swift"},
+		Cleared: true, ClearedBy: "#1365,#1368,#1395", Proof: "web/src/lib/plan.test.ts,web/e2e/pro-plan.pw.ts,ios/RivoltTests/ProPaywallTests.swift"},
 	{ID: "delete-range-ui", What: "web and iPhone offer \"Delete history before a month\" (POST /api/data/delete-range), and the old drive and charge 402 screens keep per-row Delete reachable, so a free user has a path to the privacy exit"},
 }
 

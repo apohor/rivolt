@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/archive"
@@ -51,15 +52,15 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/email"
-	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/engage"
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
-	"github.com/apohor/rivolt/internal/launch"
 	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
+	"github.com/apohor/rivolt/internal/launch"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/leftopen"
 	"github.com/apohor/rivolt/internal/logging"
@@ -74,11 +75,11 @@ import (
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
+	"github.com/apohor/rivolt/internal/r2arrival"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
 	"github.com/apohor/rivolt/internal/rivian"
-	"github.com/apohor/rivolt/internal/r2arrival"
 	"github.com/apohor/rivolt/internal/rivianexpiry"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -508,6 +509,27 @@ func runServer() {
 				AutomaticTax: rivian.ParseBoolEnv(os.Getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")),
 			}
 		}
+	}
+
+	// StoreKit (Pro 5): only when RIVOLT_APPLE_IAP_BUNDLE_ID is set; without it the routes do not exist. With billing on, the product list is required.
+	// A half-configured deployment stops here rather than accepting any product under the bundle.
+	appleIAP, appleErr := applebill.ConfigFromEnv(os.Getenv, rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")))
+	if appleErr != nil {
+		logger.Error("StoreKit is misconfigured; refusing to start", "err", appleErr.Error())
+		os.Exit(1)
+	}
+	var appleNotifications http.Handler
+	var appleTransaction *applebill.Transaction
+	if appleIAP != nil && pgPool != nil {
+		verifier, verr := applebill.NewVerifier()
+		if verr != nil {
+			logger.Error("StoreKit: Apple's root certificate could not be loaded; refusing to start", "err", verr.Error())
+			os.Exit(1)
+		}
+		appleNotifications = &applebill.Handler{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
+			Observe: func(outcome string) { appMetrics.AppleNotificationsTotal.WithLabelValues(outcome).Inc() }}
+		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+		logger.Info("StoreKit enabled", "environment", appleIAP.Environment)
 	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
@@ -2087,11 +2109,11 @@ func runServer() {
 		// cookies are legitimately issued (rivolt.dev on prod AND preview:
 		// not each install's own host, or preview would accept prod's
 		// cookie). Unset leaves the guard off.
-		KratosHost:        os.Getenv("RIVOLT_KRATOS_COOKIE_HOST"),
-		CookieSecret:      cookieSecret,
-		SecureCookie:      secureCookie,
-		OnAuth:            func(method string) { appMetrics.AuthRequestsTotal.WithLabelValues(method).Inc() },
-		UserIDFor:         db.UserIDFor,
+		KratosHost:   os.Getenv("RIVOLT_KRATOS_COOKIE_HOST"),
+		CookieSecret: cookieSecret,
+		SecureCookie: secureCookie,
+		OnAuth:       func(method string) { appMetrics.AuthRequestsTotal.WithLabelValues(method).Inc() },
+		UserIDFor:    db.UserIDFor,
 		UsernameFor: func(ctx context.Context, uid uuid.UUID) (string, error) {
 			if pgPool == nil {
 				return "", nil
@@ -2604,6 +2626,8 @@ func runServer() {
 		}
 		// Stripe webhook event ids (the replay guard): Stripe retries for about three days, so a month is kept.
 		jobs = append(jobs, retention.Job{Name: "stripe_events", Run: func(ctx context.Context) (int64, error) { return stripebill.PurgeEvents(ctx, pgPool) }})
+		// App Store notification ids (the replay guard): Apple retries for days, so a month is kept.
+		jobs = append(jobs, retention.Job{Name: "apple_events", Run: func(ctx context.Context) (int64, error) { return applebill.PurgeEvents(ctx, pgPool) }})
 		// Passkey ceremonies that were begun and never finished (a challenge lives five minutes).
 		if passkeySvc != nil {
 			jobs = append(jobs, retention.Job{Name: "webauthn_ceremonies", Run: func(ctx context.Context) (int64, error) {
@@ -2865,42 +2889,44 @@ func runServer() {
 		RivianExpiryEmails:    rivianExpiryEmails,
 		// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
 		// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro.
-		Entitlements:          entitlementsSvc,
-		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
-		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
+		Entitlements:    entitlementsSvc,
+		FailLimiterKey:  api.FailLimiterKey(cookieSecret),
+		PurgeUserCaches: func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{
 			DB: pgPool, Flags: flagsStore, Version: version,
 			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),
 			PrometheusURL:   os.Getenv("RIVOLT_PROMETHEUS_URL"),
 			Namespace:       os.Getenv("RIVOLT_HEALTH_NAMESPACE"),
 		}),
-		Access:             accessVerifier,
-		AdminDebugProbes:   adminDebugProbes,
-		OIDC:               oidcSvc,
-		AppleNotifications: appleNotifier,
-		StripeWebhook:      stripeWebhook,
-		StripeBilling:      stripeBilling,
-		AppAuth:            appAuth,
-		IOSAppIDs:          iosAppIDs,
-		WebFS:              webFS,
-		Version:            version,
-		DB:                 requestDB,         // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
-		SystemDB:           pgPool,            // login, admin and the other system paths (S2-3 moves them here one by one)
-		LoginForgetter:     rememberedRevoker, // plain sign-out also forgets Hydra's remembered login (shared computers)
-		SessionRevoker:     sessionRevoker,    // support's "secure this account" revokes every session and app token
-		RememberedRevoker:  rememberedRevoker,
-		RequestPoolOn:      requestDB != pgPool,
-		Logger:             logger,
-		Flags:              flagsStore,
-		AIBudget:           reqStores.AIBudget, // request pool: one (user_id, day) row per caller
-		Secrets:            reqStores.Secrets,  // request pool: the Rivian sign-in surface reads and writes the caller's own session
-		SystemSecrets:      secretsStore,       // admin refresh of another user's Rivian session
-		Metrics:            appMetrics,
-		Users:              userProvider,
-		AppleRevocation:    appleRevocation,
-		SignupRequests:     signupRequestStore,
-		Email:              mailer,
-		BaseURL:            publicBaseURL,
+		Access:                accessVerifier,
+		AdminDebugProbes:      adminDebugProbes,
+		OIDC:                  oidcSvc,
+		AppleNotifications:    appleNotifier,
+		StripeWebhook:         stripeWebhook,
+		StripeBilling:         stripeBilling,
+		AppleIAPNotifications: appleNotifications,
+		AppleIAPTransaction:   appleTransaction,
+		AppAuth:               appAuth,
+		IOSAppIDs:             iosAppIDs,
+		WebFS:                 webFS,
+		Version:               version,
+		DB:                    requestDB,         // request handling (the request pool when RIVOLT_REQUEST_DATABASE_URL is set)
+		SystemDB:              pgPool,            // login, admin and the other system paths (S2-3 moves them here one by one)
+		LoginForgetter:        rememberedRevoker, // plain sign-out also forgets Hydra's remembered login (shared computers)
+		SessionRevoker:        sessionRevoker,    // support's "secure this account" revokes every session and app token
+		RememberedRevoker:     rememberedRevoker,
+		RequestPoolOn:         requestDB != pgPool,
+		Logger:                logger,
+		Flags:                 flagsStore,
+		AIBudget:              reqStores.AIBudget, // request pool: one (user_id, day) row per caller
+		Secrets:               reqStores.Secrets,  // request pool: the Rivian sign-in surface reads and writes the caller's own session
+		SystemSecrets:         secretsStore,       // admin refresh of another user's Rivian session
+		Metrics:               appMetrics,
+		Users:                 userProvider,
+		AppleRevocation:       appleRevocation,
+		SignupRequests:        signupRequestStore,
+		Email:                 mailer,
+		BaseURL:               publicBaseURL,
 		// Release notes for /changelog and /changelog.atom, from the public
 		// GitHub Releases (fixed URL, cached). RIVOLT_CHANGELOG=false turns
 		// them off; the admin deployment never serves them.

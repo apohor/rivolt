@@ -39,6 +39,8 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   }
 
   const stripe = state.kind === "pro" && state.source === "stripe";
+  const cancelled = state.kind === "pro" && !!state.cancelsAt;
+  const failed = state.kind === "pro" && !!state.graceEnds;
   const apple = state.kind === "pro" && state.source === "apple";
   const trial = trialLine(state);
   return createPortal(
@@ -63,7 +65,13 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
 
         {stripe || apple ? (
           <div className="space-y-2">
-            <p className="text-sm text-neutral-300">You're subscribed{state.kind === "pro" && state.periodEnd ? `; the current period ends ${planDate(state.periodEnd)}` : ""}.</p>
+            <p className="text-sm text-neutral-300">
+              {failed
+                ? `A payment failed. Pro stays on until ${planDate(state.kind === "pro" ? state.graceEnds : null)}; update your card to keep it.`
+                : cancelled
+                  ? `You cancelled. Pro stays on until ${planDate(state.kind === "pro" ? state.cancelsAt : null)}, and nothing is deleted after.`
+                  : `You're subscribed${state.kind === "pro" && state.periodEnd ? `; the current period ends ${planDate(state.periodEnd)}` : ""}.`}
+            </p>
             {stripe ? (
               <>
                 <button type="button" className={btn} disabled={busy} onClick={() => void open(() => backend.billingPortal())}>{PRO.manageStripe}</button>

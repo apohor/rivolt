@@ -89,7 +89,7 @@ func (p fakePlans) Billing() bool { return p.billing }
 func (p fakePlans) State(context.Context, uuid.UUID) (entitlements.State, error) {
 	return p.state, nil
 }
-func (p fakePlans) TrialEnd(context.Context, uuid.UUID) (time.Time, bool, error) {
+func (p fakePlans) FreeUntil(context.Context, uuid.UUID) (time.Time, bool, error) {
 	return p.trial, !p.trial.IsZero(), nil
 }
 
@@ -141,8 +141,8 @@ func TestBuildCheckoutForANewAccount(t *testing.T) {
 		"line_items[0][quantity]": "1",
 		"client_reference_id":     uid.String(),
 		"subscription_data[metadata][rivolt_user_id]": uid.String(),
-		"success_url":                          "https://rivolt.example/settings/plan?checkout=success",
-		"cancel_url":                           "https://rivolt.example/settings/plan?checkout=cancelled",
+		"success_url":                          "https://rivolt.example/settings?checkout=success#plan",
+		"cancel_url":                           "https://rivolt.example/settings?checkout=cancelled#plan",
 		"consent_collection[terms_of_service]": "required",
 		"custom_text[submit][message]":         "First charge today: $34.99, then $34.99 every year until you cancel. Cancel any time in Settings.",
 	} {
@@ -281,5 +281,56 @@ func TestAutomaticTaxIsOptIn(t *testing.T) {
 	}
 	if got := f.posts[0].Get("automatic_tax[enabled]"); got != "true" {
 		t.Errorf("automatic_tax[enabled] = %q with tax on", got)
+	}
+}
+
+// The pages Stripe sends the buyer back to must exist: the Plan card is /settings#plan (there is no /settings/plan route), and the card reads
+// ?checkout=success|cancelled to say "Pro is on" or "no charge was made".
+func TestReturnURLsPointAtThePlanCard(t *testing.T) {
+	f := newFakeStripe(t)
+	svc := newService(f, fakePlans{billing: true}, launchDay)
+	if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); err != nil {
+		t.Fatal(err)
+	}
+	form := f.posts[0]
+	if got := form.Get("success_url"); got != "https://rivolt.example/settings?checkout=success#plan" {
+		t.Errorf("success_url = %q", got)
+	}
+	if got := form.Get("cancel_url"); got != "https://rivolt.example/settings?checkout=cancelled#plan" {
+		t.Errorf("cancel_url = %q", got)
+	}
+	for _, k := range []string{"success_url", "cancel_url"} {
+		if strings.Contains(form.Get(k), "/settings/plan") {
+			t.Errorf("%s points at a route that does not exist: %q", k, form.Get(k))
+		}
+	}
+}
+
+// A founding account that subscribes early is not billed while its free founding year runs: billing starts when it ends (trial_end), and the
+// consent line names that date. A founding year ending within Stripe's 48-hour minimum is floored like a trial.
+func TestCheckoutDuringTheFoundingYear(t *testing.T) {
+	f := newFakeStripe(t)
+	end := launchDay.AddDate(0, 0, 200)
+	svc := newService(f, fakePlans{billing: true, state: entitlements.State{Pro: true, Source: entitlements.SourceFounding}, trial: end}, launchDay)
+	if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); err != nil {
+		t.Fatalf("a founding account was refused: %v", err)
+	}
+	form := f.posts[0]
+	if got := form.Get("subscription_data[trial_end]"); got != strconv.FormatInt(end.Unix(), 10) {
+		t.Errorf("trial_end = %q, want the founding year's end %d", got, end.Unix())
+	}
+	if got, want := form.Get("custom_text[submit][message]"), "First charge on June 19, 2027: $34.99, then $34.99 every year until you cancel. Cancel any time in Settings."; got != want {
+		t.Errorf("consent line:\n got %q\nwant %q", got, want)
+	}
+
+	soon := launchDay.Add(30 * time.Hour)
+	svc = newService(f, fakePlans{billing: true, state: entitlements.State{Pro: true, Source: entitlements.SourceFounding}, trial: soon}, launchDay)
+	if _, err := svc.Checkout(context.Background(), uuid.New(), "month"); err != nil {
+		t.Fatal(err)
+	}
+	form = f.posts[len(f.posts)-1]
+	floor := launchDay.Add(MinTrialLead + time.Minute)
+	if got := form.Get("subscription_data[trial_end]"); got != strconv.FormatInt(floor.Unix(), 10) {
+		t.Errorf("trial_end for a founding year ending in 30 h = %q, want the 48 h floor %d", got, floor.Unix())
 	}
 }

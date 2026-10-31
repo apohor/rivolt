@@ -370,6 +370,8 @@ export type Drive = {
   // 0018 leave it empty, in which case the overview map falls back
   // to a straight start → end line.
   RoutePolyline?: string;
+  // The drive moved but its truck sent no usable live location, so it has no route (a truck that never sends one). Absent on older servers.
+  LocationUnavailable?: boolean;
   // Locally-computed cost. The backend bills each drive at the
   // rate of the most recent charge that ended before it started
   // (RAN, home, or manual override), falling back to a blended
@@ -2283,6 +2285,10 @@ export type AuthUser = {
   plan_period_end?: string | null;
   // RFC 3339: the 14-day trial's end, only while a trial is what grants Pro.
   plan_trial_ends?: string | null;
+  // A paid subscription set to not renew: Pro stays on until this instant (equal to the period end); null otherwise.
+  plan_cancels_at?: string | null;
+  // A failed renewal inside the 7-day grace: update the payment method by this instant to keep Pro; null otherwise.
+  plan_grace_ends?: string | null;
   // A lapse: the account is free now and had Pro until this instant, from this source; null when it never had Pro.
   plan_ended_at?: string | null;
   plan_ended_source?: string | null;

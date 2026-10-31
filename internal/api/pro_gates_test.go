@@ -15,7 +15,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -272,5 +274,42 @@ func TestLedgerParamsLimitFreeVehicle(t *testing.T) {
 	}
 	if id, _, ok := ask(context.Background(), ""); !ok || id != "" {
 		t.Errorf("no limit: %q %v, want every vehicle", id, ok)
+	}
+}
+
+// The StoreKit routes exist only where StoreKit is configured: a default router has neither.
+func TestAppleBillingRoutesAreOptional(t *testing.T) {
+	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	has := func(d Deps) map[string]bool {
+		out := map[string]bool{}
+		_ = chi.Walk(New(d).(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+			if strings.HasPrefix(route, "/api/billing/apple") {
+				out[method+" "+strings.TrimSuffix(route, "/")] = true
+			}
+			return nil
+		})
+		return out
+	}
+	if got := has(Deps{}); len(got) != 0 {
+		t.Errorf("a default router has StoreKit routes: %v", got)
+	}
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := has(Deps{Auth: svc, AppleIAPNotifications: stub, AppleIAPTransaction: &applebill.Transaction{}})
+	if !got["POST /api/billing/apple/notifications"] || !got["POST /api/billing/apple/transaction"] {
+		t.Errorf("a configured router lacks them: %v", got)
+	}
+}
+
+// A response narrowed to the free account's vehicle says so in a header; one that is not narrowed does not.
+func TestVehicleScopeHeader(t *testing.T) {
+	// freeVehicleMiddleware needs a plan lookup; with no database it limits nothing, so no header.
+	rec := httptest.NewRecorder()
+	freeVehicleMiddleware(&proVehicles{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/api/drives", nil).WithContext(auth.WithUser(context.Background(), uuid.New())))
+	if got := rec.Header().Get(VehicleScopeHeader); got != "" {
+		t.Errorf("an unlimited response carries the header: %q", got)
 	}
 }
