@@ -155,6 +155,7 @@ var notOwnerSide = map[string]string{
 	"db.ResetUserArchive":                     "user action (reset data)",
 	"db.DeleteUserArchiveBefore":              "user action (delete history before a month)",
 	"db.DeleteUserHistoryBefore":              "user action (delete history before a month)",
+	"histfloor.Raise":                         "user action (delete history: raises the floor before the deletes)",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
 	"db.deleteUserTx":                         "user action / inactive purge (account deletion)",

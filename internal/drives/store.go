@@ -13,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/histfloor"
 )
 
 // Drive is a single drive session. ID is the importer/recorder's
@@ -223,6 +224,13 @@ const guardedDriveUpsert = `
 // that holds the group lease) the write is guarded by the lease in the same statement and
 // returns fence.ErrFenced when the lease is gone.
 func (s *Store) Upsert(ctx context.Context, d Drive) error {
+	// A drive that starts before the user's history floor is deleted history coming back (a late close, a catch-up): dropped whole,
+	// not cut, so no half of it survives. A user's own import or restore passes histfloor.Bypass.
+	if below, err := histfloor.Below(ctx, s.db, s.userID, d.StartedAt); err != nil {
+		return err
+	} else if below {
+		return nil
+	}
 	vid, err := s.vehicles.Resolve(ctx, d.VehicleID)
 	if err != nil {
 		return err

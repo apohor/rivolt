@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/histfloor"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/statement"
@@ -674,6 +675,12 @@ func TestDeleteRangeAgainstPostgres(t *testing.T) {
 	}
 	if code := post(free, `{"before":"`+cut+`","confirm":true}`); code != http.StatusOK {
 		t.Fatalf("delete-range: %d", code)
+	}
+	if got, err := histfloor.Get(ctx, pool, free); err != nil || !got.Equal(cutoffMonth) {
+		t.Errorf("history floor after delete-range = %v (%v), want the cutoff %v", got, err, cutoffMonth)
+	}
+	if got, _ := histfloor.Get(ctx, pool, other); !got.IsZero() {
+		t.Errorf("another account got a floor: %v", got)
 	}
 	for _, c := range []struct {
 		table, id string
