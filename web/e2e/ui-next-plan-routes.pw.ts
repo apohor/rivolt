@@ -53,7 +53,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.locator("[data-plan-area='map'] [data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
       await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
       await page.screenshot({ path: path.join(SHOTS, `plan-routes-${v.name}-${theme}-b.png`) });
-      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
       const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await ctx.close();

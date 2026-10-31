@@ -13,7 +13,7 @@ import { useAdminOnly, useDemoOnly, useTripPlannerEnabled } from "./lib/config";
 import { pageLoaders } from "./lib/pageLoaders";
 
 // Route pages are split into their own chunks so the initial bundle
-// doesn't carry every page's deps (leaflet, uPlot, markdown) up front;
+// doesn't carry every page's deps (maps, uPlot, markdown) up front;
 // each loads on first navigation behind the Suspense fallback below.
 // The loaders are shared with AppLayout so the nav can prefetch them.
 const HomePage = lazy(pageLoaders.home);

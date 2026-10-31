@@ -47,11 +47,11 @@ for (const vp of [
     await views.getByRole("button", { name: "Map" }).click();
     await expect(page).toHaveURL(/view=map/);
     // One map at a time on All: a Drives | Charges layer toggle instead of two stacked maps.
-    await expect(page.locator("[data-activity-view='map'] .leaflet-container")).toHaveCount(1);
-    await expect(page.locator("[data-activity-view='map'] .leaflet-container").first()).toBeVisible();
+    await expect(page.locator("[data-activity-view='map'] .maplibregl-map")).toHaveCount(1);
+    await expect(page.locator("[data-activity-view='map'] .maplibregl-map").first()).toBeVisible();
     await page.screenshot({ path: path.join(SHOTS, `activity-map-${vp.name}.png`) });
     await page.getByRole("group", { name: "Map layer" }).getByRole("button", { name: /Charges/ }).click();
-    await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] .leaflet-container")).toBeVisible();
+    await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] .maplibregl-map")).toBeVisible();
     await expect(page.locator("[data-activity-view='map'] section[aria-label='Drives']")).toHaveCount(0);
 
     await views.getByRole("button", { name: "Feed" }).click();
@@ -76,5 +76,5 @@ test("demo: tables render read-only and keep tab=activity", async ({ page }) => 
   await expect(page.locator("[data-activity-view='table'] table").first()).toBeVisible();
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Map" }).click();
   await expect(page).toHaveURL(/\/demo\/activity\?view=map/);
-  await expect(page.locator("[data-activity-view='map'] .leaflet-container").first()).toBeVisible();
+  await expect(page.locator("[data-activity-view='map'] .maplibregl-map").first()).toBeVisible();
 });

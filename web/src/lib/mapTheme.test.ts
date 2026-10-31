@@ -34,7 +34,7 @@ describe("map flavor follows the app theme", () => {
   it("does not persist a per-map choice", () => {
     // The D/L override lives in DriveMap's closure. Nothing may write
     // the retired storage key.
-    const src = fs.readFileSync(path.join(__dirname, "../components/DriveMap.tsx"), "utf8");
+    const src = fs.readFileSync(path.join(__dirname, "../map/DriveMap.tsx"), "utf8");
     expect(src).not.toContain("rivolt:basemap-flavor");
     expect(src).not.toMatch(/localStorage\.setItem\([^)]*flavor/i);
   });

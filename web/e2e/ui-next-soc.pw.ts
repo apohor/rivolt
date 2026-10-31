@@ -58,7 +58,7 @@ for (const theme of ["dark", "light"] as const) {
         await expect(svg).toHaveAttribute("aria-label", /^Battery level by day\./);
         await expect(page.getByText(/Battery capacity/)).toHaveCount(0);
         await chartArea(page).screenshot({ path: path.join(SHOTS, `soc-${v.name}-${theme}-${state}.png`) }).catch(() => {});
-        const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+        const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
         const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
         expect(summary, summary.join("\n")).toEqual([]);
         await ctx.close();

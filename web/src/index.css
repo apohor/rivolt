@@ -57,78 +57,6 @@
   .app-safe-bottom {
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
   }
-
-  /* Leaflet theming. We ship Carto's dark_all tiles so we just need to
-   match the map background and tone down the attribution bar. */
-  .leaflet-container {
-    background: #0a0a0a;
-  }
-  .leaflet-control-attribution {
-    background: rgba(10, 10, 10, 0.7) !important;
-    color: #a3a3a3 !important;
-    /* The one map-caption size (src/lib/mapCaption.ts, type.mapCaption): Leaflet's own is 12 px. */
-    font-size: 11px !important;
-  }
-  .leaflet-control-attribution a {
-    color: #10b981 !important;
-  }
-
-  /* Leaflet popups default to white-on-white -- our charger popup
-   content is light text (color:#fafafa) so we need a dark popup
-   shell to match the rest of the dark map UI. The tip (the small
-   triangle pointing at the marker) gets the same treatment, plus
-   we recolor the close button so it doesn't disappear. */
-  .leaflet-container .leaflet-popup-content-wrapper,
-  .leaflet-popup-content-wrapper {
-    background: #171717 !important;
-    color: #fafafa !important;
-    border: 1px solid #262626 !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
-  }
-  .leaflet-container .leaflet-popup-content-wrapper *,
-  .leaflet-popup-content-wrapper * {
-    color: #fafafa;
-  }
-  .leaflet-container .leaflet-popup-tip,
-  .leaflet-popup-tip {
-    background: #171717 !important;
-    border: 1px solid #262626 !important;
-  }
-  .leaflet-container .leaflet-popup-close-button,
-  .leaflet-popup-close-button {
-    color: #a3a3a3 !important;
-  }
-  .leaflet-container .leaflet-popup-close-button:hover,
-  .leaflet-popup-close-button:hover {
-    color: #fafafa !important;
-  }
-
-  /* Leaflet tooltips. Default is white-on-white once we ship light text
-   inside them (waypoint tooltips, charger labels). Match the popup
-   shell so labels are readable over the dark basemap. */
-  .leaflet-container .leaflet-tooltip,
-  .leaflet-tooltip {
-    background: #171717 !important;
-    color: #fafafa !important;
-    border: 1px solid #262626 !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
-  }
-  .leaflet-container .leaflet-tooltip-top:before,
-  .leaflet-tooltip-top:before {
-    border-top-color: #262626 !important;
-  }
-  .leaflet-container .leaflet-tooltip-bottom:before,
-  .leaflet-tooltip-bottom:before {
-    border-bottom-color: #262626 !important;
-  }
-  .leaflet-container .leaflet-tooltip-left:before,
-  .leaflet-tooltip-left:before {
-    border-left-color: #262626 !important;
-  }
-  .leaflet-container .leaflet-tooltip-right:before,
-  .leaflet-tooltip-right:before {
-    border-right-color: #262626 !important;
-  }
 }
 
 /* Hide native number-input spinners. They're ugly in dark mode and the
@@ -523,11 +451,6 @@ html[data-theme='light'] {
 }
 :root svg path[data-bar]:hover {
   filter: drop-shadow(0 0 5px currentColor);
-}
-
-/* Maps: the route layers glow subtly. */
-:root:not([data-theme='light']) .leaflet-overlay-pane canvas {
-  filter: drop-shadow(0 0 3px oklch(78% 0.15 168 / 0.55));
 }
 
 /* Skeletons shimmer instead of pulsing. */

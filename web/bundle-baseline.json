@@ -1,0 +1,5 @@
+{
+  "commit": "731be13e",
+  "totalGzipKB": 558.1,
+  "note": "Total gzip of every shipped js/mjs/css asset in the last main build before the MapLibre swap (Leaflet + protomaps-leaflet), measured with scripts/bundle-total.mjs. The Maps budget is against this."
+}

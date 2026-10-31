@@ -9,10 +9,6 @@ import { isTermsRequiredError } from "./lib/terms";
 import { registerServiceWorker } from "./pwa";
 // Catches the browser's install prompt early (it fires once, at load); the first-charge card offers it.
 import "./lib/installPrompt";
-// Leaflet stylesheet first so index.css can override the popup theme.
-// DriveMap's lazy import would otherwise land it after index.css and
-// the popup renders with Leaflet's default white background.
-import "leaflet/dist/leaflet.css";
 import "./index.css";
 
 // A request the server refused with terms_required means the Terms gate should be showing: refetch who we are.

@@ -28,7 +28,7 @@ for (const v of VIEWS) {
       await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
       await page.waitForTimeout(900);
       await page.screenshot({ path: path.join(SHOTS, `uinext-plan-${v.name}-${state}.png`), fullPage: v.name === "iphone" });
-      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
       const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await ctx.close();

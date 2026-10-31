@@ -10,7 +10,7 @@ import { VehicleScopeNote } from "../components/VehicleScopeNote";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { DriveTable } from "../components/ActivityTables";
 import { WindowPicker } from "../components/WindowPicker";
-import { DrivesOverviewMap } from "../components/DriveMap";
+import { DrivesOverviewMap } from "../map/DrivesOverviewMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { usePreferences } from "../lib/preferences";

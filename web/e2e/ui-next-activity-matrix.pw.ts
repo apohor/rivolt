@@ -38,7 +38,7 @@ for (const theme of ["dark", "light"] as const) {
               if (inner > lh * 1.6) out.wrap.push(`${(c.textContent || "").trim().slice(0, 20)} (${Math.round(inner / lh)} lines)`);
             });
           });
-          const ctrls = [...document.querySelectorAll("main button, main [role='tab'], main a")].filter((e) => (e as HTMLElement).offsetParent && !e.closest("tr, .leaflet-container, .maplibregl-map, [data-ui-feed]"));
+          const ctrls = [...document.querySelectorAll("main button, main [role='tab'], main a")].filter((e) => (e as HTMLElement).offsetParent && !e.closest("tr, .maplibregl-map, [data-ui-feed]"));
           const rects = ctrls.map((e) => ({ n: (e.textContent || "").trim().slice(0, 16), r: e.getBoundingClientRect() }));
           for (let i = 0; i < rects.length; i++)
             for (let j = i + 1; j < rects.length; j++) {
@@ -50,7 +50,7 @@ for (const theme of ["dark", "light"] as const) {
           for (let n = walker.nextNode(); n; n = walker.nextNode()) {
             if (!(n.textContent ?? "").trim()) continue;
             const el = n.parentElement!;
-            if (seen.has(el) || (el as HTMLElement).offsetParent === null || el.closest(".leaflet-container, .maplibregl-map, svg")) continue;
+            if (seen.has(el) || (el as HTMLElement).offsetParent === null || el.closest(".maplibregl-map, svg")) continue;
             seen.add(el);
             const cs = getComputedStyle(el);
             const size = Math.round(parseFloat(cs.fontSize) * 10) / 10;

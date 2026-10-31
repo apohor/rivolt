@@ -199,3 +199,35 @@ export function foldCredits(container: HTMLElement): void {
     true,
   );
 }
+
+// chipLegend is a bottom-left card of coloured dots and labels (the charges map's power classes), in the basemap's card colours.
+export function chipLegend(items: { color: string; label: string }[], active: MapFlavor = "dark"): IControl & { refresh: (f: MapFlavor) => void } {
+  let root: HTMLElement | undefined;
+  const refresh = (f: MapFlavor) => {
+    if (!root) return;
+    const c = CHIP[f];
+    root.style.background = c.bg;
+    root.style.borderColor = c.border;
+    root.style.color = c.text;
+    root.style.boxShadow = c.shadow;
+  };
+  const c = control(() => {
+    const div = document.createElement("div");
+    div.className = "maplibregl-ctrl rivolt-charge-legend";
+    div.style.cssText =
+      "border:1px solid;border-radius:6px;padding:4px 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;" +
+      `font:${MAP_CAPTION_PX}px/1.1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
+    for (const it of items) {
+      const span = document.createElement("span");
+      span.style.cssText = "display:inline-flex;align-items:center;gap:3px";
+      const dot = document.createElement("span");
+      dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:9999px;background:${it.color}`;
+      span.append(dot, document.createTextNode(it.label));
+      div.appendChild(span);
+    }
+    root = div;
+    refresh(active);
+    return div;
+  });
+  return Object.assign(c, { refresh });
+}

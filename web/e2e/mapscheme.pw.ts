@@ -71,7 +71,7 @@ for (const [vpName, vp] of [
   }
 }
 
-test("System follows an OS switch while the map is open", async ({ browser }) => {
+test("iphone: System follows an OS switch while the map is open", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await setup(page);

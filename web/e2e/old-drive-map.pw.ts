@@ -73,7 +73,7 @@ for (const v of [
     const shots = path.join(process.cwd(), "e2e", "__screenshots__");
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, `old-drive-map-${v.n}-dark.png`), fullPage: true });
-    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
     const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
     expect(summary, summary.join("\n")).toEqual([]);
     await ctx.close();

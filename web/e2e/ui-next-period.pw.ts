@@ -91,7 +91,7 @@ for (const v of [
     await page.getByRole("group", { name: "Time scope" }).getByRole("button", { name: "Week" }).click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SHOTS, `uinext-period-week-${v.name}.png`) });
-    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
     const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
     expect(summary, summary.join("\n")).toEqual([]);
     await ctx.close();

@@ -15,7 +15,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { ChargeTable, chargingSeconds, labelMap } from "../components/ActivityTables";
 import type { ChargePlaceLabel } from "../lib/chargePlace";
 import { WindowPicker } from "../components/WindowPicker";
-import { ChargesOverviewMap } from "../components/DriveMap";
+import { ChargesOverviewMap } from "../map/ChargesOverviewMap";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
