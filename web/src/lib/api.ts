@@ -10,6 +10,7 @@ import type { OffpeakSchedule } from "./offpeak";
 //   GET /api/push/vapid-key      → { public_key }
 //   POST /api/push/subscribe     → persists a browser subscription
 
+import { noteVehicleScope } from "./vehicleScope";
 import { IMPERSONATE_HEADER, impersonationHeaderID } from "./impersonation";
 
 // How many samples a drive or charge detail page asks for. The server buckets a window that goes over the limit across its
@@ -91,6 +92,7 @@ async function request<T>(
     // data under the "Sample truck" banner (a real session wins over the demo user), so the demo sends none.
     ...(inDemo() ? { credentials: "omit" as const } : {}),
   });
+  if (res.ok) noteVehicleScope(url, res);
   const text = await res.text();
   let parsed: unknown = undefined;
   if (text) {
