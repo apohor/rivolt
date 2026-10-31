@@ -16,6 +16,12 @@ import (
 	"github.com/apohor/rivolt/internal/testpg"
 )
 
+type fakeRenewals struct{ rs []Renewal }
+
+func (f fakeRenewals) AnnualRenewals(context.Context, time.Time, time.Time) ([]Renewal, error) {
+	return f.rs, nil
+}
+
 // The dated notices against real rows: the founding-year-end sweep gives every account in the window one notice (in-app for all, email for
 // a verified address), extends a year found under 30 days from its end to 30 days from now in the same transaction that claims its email,
 // and is idempotent; the renewal reminder is one per renewal period.

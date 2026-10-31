@@ -326,12 +326,7 @@ func (s PGDated) PrepareFounding(ctx context.Context, c FoundingCandidate, now t
 			p.ExtendedFrom = end.UTC().Format("2006-01-02")
 		}
 		p.End = newEnd.UTC().Format("2006-01-02")
-		// The stated day ends at 24:00 UTC, so the year really runs to the end of that day.
-		endOfDay := newEnd.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
-		if endOfDay.Before(newEnd) {
-			endOfDay = newEnd
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE entitlements SET current_period_end = $2, updated_at = now() WHERE user_id = $1 AND source = 'founding'`, c.UserID, endOfDay); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE entitlements SET current_period_end = $2, updated_at = now() WHERE user_id = $1 AND source = 'founding'`, c.UserID, newEnd); err != nil {
 			return Prepared{}, err
 		}
 	}
@@ -370,9 +365,9 @@ func (s PGDated) PrepareFounding(ctx context.Context, c FoundingCandidate, now t
 }
 
 func (s PGDated) MarkSent(ctx context.Context, uid uuid.UUID, kind string) error {
-	return Store{DB: s.DB}.MarkSent(ctx, uid, kind)
+	return Store(s).MarkSent(ctx, uid, kind)
 }
 
 func (s PGDated) ReleaseClaim(ctx context.Context, uid uuid.UUID, kind string) error {
-	return Store{DB: s.DB}.ReleaseClaim(ctx, uid, kind)
+	return Store(s).ReleaseClaim(ctx, uid, kind)
 }

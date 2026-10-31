@@ -105,7 +105,7 @@ func TestFoundingNoticeSendsOncePerAccount(t *testing.T) {
 			t.Error("an unverified address got an email")
 		}
 	}
-	if st, _ := j.RunOnce(context.Background()); st.Sent != 1-1 && len(m.msgs) != 2 {
+	if st, _ := j.RunOnce(context.Background()); st.Sent != 0 || len(m.msgs) != 2 {
 		t.Errorf("second run sent more: %+v, %d emails", st, len(m.msgs))
 	}
 	if len(*seen) == 0 {
@@ -187,12 +187,6 @@ func TestFoundingCopy(t *testing.T) {
 }
 
 // ---- renewal reminder (a stub until the billing item wires a source)
-
-type fakeRenewals struct{ rs []Renewal }
-
-func (f fakeRenewals) AnnualRenewals(context.Context, time.Time, time.Time) ([]Renewal, error) {
-	return f.rs, nil
-}
 
 func TestRenewalJobWithoutASourceSendsNothing(t *testing.T) {
 	st, err := (&RenewalJob{}).RunOnce(context.Background())
