@@ -214,6 +214,11 @@ type StateMonitor struct {
 	// both nil in M1 and with the lead flag off. See fence.Source.
 	fenceSrc fence.Source
 	onFenced func(kind string)
+	// refusal bookkeeping for the rate-limited WARN next to each fenced{kind} increment (see refuse): the epoch this monitor last
+	// held per vehicle, and when each (kind, vehicle) was last logged.
+	refuseMu   sync.Mutex
+	heldEpoch  map[string]int64
+	refusedLog map[string]time.Time
 	warmWait time.Duration // tests only: shortens the wait of a deferred final write
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
@@ -806,13 +811,61 @@ func (m *StateMonitor) fenceState(ctx context.Context, vehicleID, kind string) (
 	tok, st := m.fenceSrc.Fence(vehicleID)
 	switch st {
 	case fence.Held:
+		m.noteHeld(vehicleID, tok)
 		return fence.With(ctx, tok), st
 	case fence.Lost:
-		if m.onFenced != nil {
-			m.onFenced(kind)
-		}
+		m.refuse(vehicleID, kind)
 	}
 	return ctx, st
+}
+
+// noteHeld remembers the epoch this pod held for a vehicle, so a later refusal can say which lease it was acting on.
+func (m *StateMonitor) noteHeld(vehicleID string, tok fence.Token) {
+	if tok.Epoch == 0 {
+		return
+	}
+	m.refuseMu.Lock()
+	if m.heldEpoch == nil {
+		m.heldEpoch = map[string]int64{}
+	}
+	m.heldEpoch[vehicleID] = tok.Epoch
+	m.refuseMu.Unlock()
+}
+
+// refuseLogEvery is how often one (kind, vehicle) may log a refused owner-side action.
+const refuseLogEvery = time.Minute
+
+// refuse counts one refused owner-side action under kind (rivolt_lease_fenced_total) and logs one WARN per kind per vehicle per
+// minute with the epoch the pod last held, so the log and the counter come from the same place and cannot disagree. The vehicle id
+// is shortened to its last four characters; nothing else about the user is logged.
+func (m *StateMonitor) refuse(vehicleID, kind string) {
+	if m.onFenced != nil {
+		m.onFenced(kind)
+	}
+	m.refuseMu.Lock()
+	key := kind + "|" + vehicleID
+	last, seen := m.refusedLog[key]
+	now := time.Now()
+	log := !seen || now.Sub(last) >= refuseLogEvery
+	if log {
+		if m.refusedLog == nil {
+			m.refusedLog = map[string]time.Time{}
+		}
+		m.refusedLog[key] = now
+	}
+	epoch := m.heldEpoch[vehicleID]
+	m.refuseMu.Unlock()
+	if log && m.logger != nil {
+		m.logger.Warn("owner-side action refused: the group lease is not held", "kind", kind, "epoch_last_held", epoch, "vehicle", shortVehicle(vehicleID))
+	}
+}
+
+// shortVehicle is the last four characters of a vehicle id.
+func shortVehicle(id string) string {
+	if len(id) <= 4 {
+		return id
+	}
+	return "…" + id[len(id)-4:]
 }
 
 // rivianCtx is the context for a Rivian call (REST, a WebSocket dial) made on behalf of a vehicle:
@@ -828,17 +881,13 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID string) (context
 	if _, st := m.fenceSrc.Fence(vehicleID); st == fence.Off {
 		return ctx, noop, true
 	} else if st == fence.Lost {
-		if m.onFenced != nil {
-			m.onFenced("rivian")
-		}
+		m.refuse(vehicleID, "rivian")
 		return ctx, noop, false
 	}
 	if d, ok := m.fenceSrc.(fence.Deadliner); ok {
 		if at, has := d.Deadline(vehicleID); has {
 			if !time.Now().Before(at) {
-				if m.onFenced != nil {
-					m.onFenced("rivian")
-				}
+				m.refuse(vehicleID, "rivian")
 				return ctx, noop, false
 			}
 			dctx, cancel := context.WithDeadline(ctx, at)
@@ -859,11 +908,10 @@ func (m *StateMonitor) redisCtx(ctx context.Context, vehicleID string) (context.
 	tok, st := m.fenceSrc.Fence(vehicleID)
 	switch st {
 	case fence.Held, fence.Warming:
+		m.noteHeld(vehicleID, tok)
 		return fence.With(ctx, tok), true
 	case fence.Lost:
-		if m.onFenced != nil {
-			m.onFenced("redis")
-		}
+		m.refuse(vehicleID, "redis")
 		return ctx, false
 	}
 	return ctx, true
@@ -919,9 +967,7 @@ func (m *StateMonitor) afterWarmUpN(vehicleID string, write func(context.Context
 				return
 			}
 			m.logger.Warn("deferred final write dropped: the group is still warming up", "kind", kind, "vehicle", vehicleID)
-			if m.onFenced != nil {
-				m.onFenced(kind) // every lost final write shows on the metric, not only in the logs
-			}
+			m.refuse(vehicleID, kind) // every lost final write shows on the metric, not only in the logs
 			return
 		default: // Lost (already counted by fenceState)
 			m.logger.Warn("deferred final write dropped: the group lease is gone", "kind", kind, "vehicle", vehicleID)
@@ -950,10 +996,7 @@ func (m *StateMonitor) warmUpWait() time.Duration {
 
 // fenced counts a write the database refused because the lease is gone.
 func (m *StateMonitor) fenced(kind, vehicleID string) {
-	if m.onFenced != nil {
-		m.onFenced(kind)
-	}
-	m.logger.Warn("write refused: the group lease is gone", "kind", kind, "vehicle", vehicleID)
+	m.refuse(vehicleID, kind)
 }
 
 // SetLiveStateStore wires the cross-restart accumulator persistence

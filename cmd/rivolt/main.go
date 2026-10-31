@@ -1040,6 +1040,9 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Lead mode: until the lease store is installed as the fence (SetFence, after the boot hydrate sweep below), every group
+		// reads as Lost, not Off, so a monitor the sweep started cannot write or call Rivian unfenced in that window.
+		monitorRegistry.RequireFence(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		// Sleep gate: vehicles listed in the sleep_safe_vehicles flag
 		// have their non-vehicleState subscriptions parked while asleep;
 		// every vehicle's sleeps are timed into the sleeps metric.
@@ -1415,6 +1418,16 @@ func runServer() {
 		} else {
 			logger.Info("elevation lookup disabled", "reason", "ELEVATION_ENABLED!=1 (opt-in)")
 		}
+	}
+
+	// Backend-side Valhalla client. Used by the live recorder to
+	// route-fill GPS-lag gaps in the live drive polyline so a dropped
+	// fix sequence doesn't leave a straight-line shortcut across the
+	// actual drive. Installed before the boot hydrate sweep below: a
+	// monitor copies it when it is built, so one built earlier never has it.
+	if valhallaClient := maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")); valhallaClient != nil && monitorRegistry != nil {
+		monitorRegistry.SetRouteFiller(valhallaClient)
+		logger.Info("recorder route-fill enabled", "backend", "valhalla")
 	}
 
 	// Public demo (RIVOLT_DEMO=true on a replay install; preview only):
@@ -1833,6 +1846,7 @@ func runServer() {
 			return leases.ActivityAwake
 		}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
 		coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
+		coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
 		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
 		// counts, and asks the coordinator to look at its groups now.
 		if monitorRegistry != nil {
@@ -2451,15 +2465,6 @@ func runServer() {
 	}
 	if valhallaProxy != nil {
 		logger.Info("valhalla same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_VALHALLA_BASE_URL"))
-	}
-
-	// Backend-side Valhalla client. Used by the live recorder to
-	// route-fill GPS-lag gaps in the live drive polyline so a dropped
-	// fix sequence doesn't leave a straight-line shortcut across the
-	// actual drive.
-	if valhallaClient := maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")); valhallaClient != nil && monitorRegistry != nil {
-		monitorRegistry.SetRouteFiller(valhallaClient)
-		logger.Info("recorder route-fill enabled", "backend", "valhalla")
 	}
 
 	// Tiles same-origin proxy. RIVOLT_TILES_BASE_URL points at the

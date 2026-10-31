@@ -48,7 +48,11 @@ type MonitorRegistry struct {
 	samples        *samples.Factory
 	settings       *settings.Factory
 	elevation      ElevationLookup
+	fenceMu        sync.RWMutex // guards fenceSrc, onFenced and requireFence; monitors read them on every guarded write
 	fenceSrc       fence.Source
+	requireFence   bool
+	started        bool // a monitor has been built: setters called after this reach only monitors built later
+	lateWirings    int
 	onScheduleRead func(outcome string)
 	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
 	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
@@ -117,14 +121,91 @@ func NewMonitorRegistry(
 // their lifetime from. Must be called once at boot before Start.
 // SetFence wires the group-lease fence into every monitor the registry builds (see
 // StateMonitor.SetFence). Call before monitors start.
+//
+// Monitors do not keep a copy: each gets registryFence, which reads the source installed here at the moment of every check, so
+// this reaches monitors the boot hydrate sweep already started (main installs the lease store after that sweep).
 func (r *MonitorRegistry) SetFence(src fence.Source, onFenced func(kind string)) {
-	r.mu.Lock()
+	r.fenceMu.Lock()
 	r.fenceSrc, r.onFenced = src, onFenced
-	r.mu.Unlock()
+	r.fenceMu.Unlock()
+}
+
+// RequireFence says lead mode is on: until SetFence installs a source, every group reads as Lost (a write is refused, a Rivian
+// call is not made) instead of Off (unfenced). Call it before any monitor starts, in the same breath as the registry is built.
+func (r *MonitorRegistry) RequireFence(on bool) {
+	r.fenceMu.Lock()
+	r.requireFence = on
+	r.fenceMu.Unlock()
+}
+
+// registryFence is the fence source every registry-built monitor has: the registry's current one, else Lost when lead mode
+// requires a fence that is not installed yet, else Off.
+type registryFence struct{ r *MonitorRegistry }
+
+func (f registryFence) Fence(vehicleID string) (fence.Token, fence.State) {
+	f.r.fenceMu.RLock()
+	src, require := f.r.fenceSrc, f.r.requireFence
+	f.r.fenceMu.RUnlock()
+	if src != nil {
+		return src.Fence(vehicleID)
+	}
+	if require {
+		return fence.Token{}, fence.Lost
+	}
+	return fence.Token{}, fence.Off
+}
+
+// Deadline forwards the installed source's local lease deadline for the vehicle (rivianCtx bounds every Rivian call by it, so after a
+// pause the request's context is already done). No source, or one without deadlines: none. Without this method registryFence would
+// hide the installed source's Deadliner from the type assertion in rivianCtx and the bound would silently vanish.
+func (f registryFence) Deadline(vehicleID string) (time.Time, bool) {
+	f.r.fenceMu.RLock()
+	src := f.r.fenceSrc
+	f.r.fenceMu.RUnlock()
+	if d, ok := src.(fence.Deadliner); ok {
+		return d.Deadline(vehicleID)
+	}
+	return time.Time{}, false
+}
+
+// registryFence must offer everything a monitor probes its fence source for (rivianCtx asks for fence.Deadliner).
+var (
+	_ fence.Source    = registryFence{}
+	_ fence.Deadliner = registryFence{}
+)
+
+// fenced forwards a refused write to the counter installed now.
+func (r *MonitorRegistry) fenced(kind string) {
+	r.fenceMu.RLock()
+	fn := r.onFenced
+	r.fenceMu.RUnlock()
+	if fn != nil {
+		fn(kind)
+	}
+}
+
+// wiring is called by every setter that monitors copy when they are built (not the forwarders above and below, which reach running
+// monitors). A call after the first monitor was built reaches only monitors built later: the ones the boot hydrate sweep already
+// started keep what they had. That is logged as an error and counted, because it is a wiring-order bug, not a runtime condition.
+// r.mu must be held.
+func (r *MonitorRegistry) wiring(setter string) {
+	if !r.started {
+		return
+	}
+	r.lateWirings++
+	r.logger.Error("monitor registry: set after monitors started; the monitors already running keep the old value", "setter", setter)
+}
+
+// LateWirings counts setters called after the first monitor was built.
+func (r *MonitorRegistry) LateWirings() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lateWirings
 }
 
 func (r *MonitorRegistry) SetParent(ctx context.Context) {
 	r.mu.Lock()
+	r.wiring("SetParent")
 	r.parent = ctx
 	r.mu.Unlock()
 }
@@ -136,6 +217,7 @@ func (r *MonitorRegistry) SetParent(ctx context.Context) {
 // of lat/lon, not a per-user query).
 func (r *MonitorRegistry) SetElevationLookup(e ElevationLookup) {
 	r.mu.Lock()
+	r.wiring("SetElevationLookup")
 	r.elevation = e
 	r.mu.Unlock()
 }
@@ -145,6 +227,7 @@ func (r *MonitorRegistry) SetElevationLookup(e ElevationLookup) {
 // one client serves all users.
 func (r *MonitorRegistry) SetRouteFiller(rf RouteFiller) {
 	r.mu.Lock()
+	r.wiring("SetRouteFiller")
 	r.routeFiller = rf
 	r.mu.Unlock()
 }
@@ -156,6 +239,7 @@ func (r *MonitorRegistry) SetRouteFiller(rf RouteFiller) {
 // restarts and lease handoffs. Safe to call at boot before any Start.
 func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) LiveStateStore) {
 	r.mu.Lock()
+	r.wiring("SetLiveStateStoreFactory")
 	r.liveStateStore = factory
 	r.mu.Unlock()
 }
@@ -169,6 +253,7 @@ func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) L
 // nameplate without having to wait for another live observation.
 func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UUID) func(ctx context.Context, vehicleID string, kwh float64)) {
 	r.mu.Lock()
+	r.wiring("SetBatteryCapacityHookFactory")
 	r.batteryCapacityFor = factory
 	r.mu.Unlock()
 }
@@ -178,6 +263,7 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 // RefreshVehicleInfo.
 func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) func(context.Context, []Vehicle)) {
 	r.mu.Lock()
+	r.wiring("SetVehicleInfoHookFactory")
 	r.vehicleInfoFor = factory
 	r.mu.Unlock()
 }
@@ -190,6 +276,7 @@ func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) 
 // Safe to call at boot before any Start.
 func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
+	r.wiring("SetDriveCloseHookFactory")
 	r.driveCloseHook = factory
 	r.mu.Unlock()
 }
@@ -200,6 +287,7 @@ func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) D
 // Start.
 func (r *MonitorRegistry) SetDCFCDetectorFactory(factory func(uid uuid.UUID) DCFCDetector) {
 	r.mu.Lock()
+	r.wiring("SetDCFCDetectorFactory")
 	r.dcfcDetectFor = factory
 	r.mu.Unlock()
 }
@@ -209,6 +297,7 @@ func (r *MonitorRegistry) SetDCFCDetectorFactory(factory func(uid uuid.UUID) DCF
 // at boot before any Start.
 func (r *MonitorRegistry) SetDCFCEstimatorFactory(factory func(uid uuid.UUID) DCFCEstimator) {
 	r.mu.Lock()
+	r.wiring("SetDCFCEstimatorFactory")
 	r.dcfcEstimateFor = factory
 	r.mu.Unlock()
 }
@@ -218,6 +307,7 @@ func (r *MonitorRegistry) SetDCFCEstimatorFactory(factory func(uid uuid.UUID) DC
 // before any Start.
 func (r *MonitorRegistry) SetDCFCPriceLookupFactory(factory func(uid uuid.UUID) DCFCPriceLookup) {
 	r.mu.Lock()
+	r.wiring("SetDCFCPriceLookupFactory")
 	r.dcfcPriceFor = factory
 	r.mu.Unlock()
 }
@@ -233,6 +323,7 @@ func (r *MonitorRegistry) SetDCFCPriceLookupFactory(factory func(uid uuid.UUID) 
 // false (and the subscribe stays a no-op) when no session is stored.
 func (r *MonitorRegistry) SetSessionRehydrator(fn func(ctx context.Context, uid uuid.UUID) bool) {
 	r.mu.Lock()
+	r.wiring("SetSessionRehydrator")
 	r.rehydrate = fn
 	r.mu.Unlock()
 }
@@ -242,6 +333,7 @@ func (r *MonitorRegistry) SetSessionRehydrator(fn func(ctx context.Context, uid 
 // side-effects on charge close.
 func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
 	r.mu.Lock()
+	r.wiring("SetChargeCloseHookFactory")
 	r.chargeCloseHook = factory
 	r.mu.Unlock()
 }
@@ -252,6 +344,7 @@ func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) 
 // order registered, for each close.
 func (r *MonitorRegistry) AddDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
+	r.wiring("AddDriveCloseHookFactory")
 	r.extraDriveClose = append(r.extraDriveClose, factory)
 	r.mu.Unlock()
 }
@@ -262,6 +355,7 @@ func (r *MonitorRegistry) AddDriveCloseHookFactory(factory func(uid uuid.UUID) D
 // hook runs, in order registered, for each close.
 func (r *MonitorRegistry) AddChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
 	r.mu.Lock()
+	r.wiring("AddChargeCloseHookFactory")
 	r.extraChargeClose = append(r.extraChargeClose, factory)
 	r.mu.Unlock()
 }
@@ -307,6 +401,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		return e.monitor
 	}
 
+	r.started = true
 	mctx, cancel := context.WithCancel(parent)
 	var mon *StateMonitor
 	if lc != nil {
@@ -319,7 +414,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
 	}
 	mon.SetStagger(r.stagger)
-	mon.SetFence(r.fenceSrc, r.onFenced)
+	mon.SetFence(registryFence{r}, r.fenced)
 	mon.SetScheduleObserver(r.scheduleObserver())
 	mon.SetStores(
 		r.samples.For(uid),
@@ -427,6 +522,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 // every monitor started afterwards (see StateMonitor.sleepGate).
 func (r *MonitorRegistry) SetSleepSafe(fn func(vehicleID string) bool) {
 	r.mu.Lock()
+	r.wiring("SetSleepSafe")
 	r.sleepSafe = fn
 	r.mu.Unlock()
 }
@@ -435,6 +531,7 @@ func (r *MonitorRegistry) SetSleepSafe(fn func(vehicleID string) bool) {
 // monitor started afterwards (see wake_safety.go).
 func (r *MonitorRegistry) SetWakeSafety(fn func(vehicleID string) WakeSafety) {
 	r.mu.Lock()
+	r.wiring("SetWakeSafety")
 	r.wakeSafety = fn
 	r.mu.Unlock()
 }
@@ -443,6 +540,7 @@ func (r *MonitorRegistry) SetWakeSafety(fn func(vehicleID string) WakeSafety) {
 // monitor started afterwards.
 func (r *MonitorRegistry) SetSleepObserver(o SleepObserver) {
 	r.mu.Lock()
+	r.wiring("SetSleepObserver")
 	r.sleepObserver = o
 	r.mu.Unlock()
 }
