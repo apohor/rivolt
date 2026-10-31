@@ -60,9 +60,6 @@ data:
   {{- with .Values.config.oidc.providers }}
   RIVOLT_OIDC_PROVIDERS: {{ . | quote }}
   {{- end }}
-  {{- with .Values.config.trustedProxyCIDR }}
-  RIVOLT_TRUSTED_PROXY_CIDR: {{ . | quote }}
-  {{- end }}
   {{- range $k, $v := .Values.config.extraEnv }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}

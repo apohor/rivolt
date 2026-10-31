@@ -265,10 +265,9 @@ Consequences:
   just emit a metric, learn what normal looks like.
 - Privilege-sensitive actions (password change, credential reset)
   should rotate the session ID.
-- Proxy-header auth (`X-Forwarded-User` from oauth2-proxy etc.)
-  stays **stateless** — skips the sessions table entirely, because
-  the upstream IdP already owns session lifecycle. Only the
-  built-in cookie login path creates rows.
+- Proxy-header auth (`X-Forwarded-User` from oauth2-proxy etc.) was
+  removed (N48): the server refuses to start while
+  `RIVOLT_TRUSTED_PROXY_CIDR` is set. Sign in with OIDC.
 - `ErrInvalidToken` is a single opaque sentinel covering
   bad-format / not-found / revoked / expired. Prevents side-channel
   on state.

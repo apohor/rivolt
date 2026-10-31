@@ -261,6 +261,12 @@ func runServer() {
 	logger := slog.New(logging.NewContextHandler(inner))
 	slog.SetDefault(logger)
 
+	// Settings that no longer exist are refused, not ignored (header sign-in, N48).
+	if err := removedSettingError(os.Getenv); err != nil {
+		logger.Error("refusing to start: " + err.Error())
+		os.Exit(1)
+	}
+
 	// Standalone public demo (RIVOLT_DEMO_ONLY): refuse a half-configured
 	// install, then make sure no sign-in, mail, push or AI subsystem can
 	// come up from stray environment, before any flag default reads it.
@@ -1944,11 +1950,6 @@ func runServer() {
 	// wrong for anyone who doesn't like being logged out twice a
 	// week.
 	//
-	// RIVOLT_TRUSTED_PROXY_CIDR enables Option-B SSO: comma-separated
-	// subnets whose X-Forwarded-Preferred-Username header will be
-	// honoured. Empty (the default) means header-based auth is off,
-	// and a forged header from any client is ignored.
-	//
 	// RIVOLT_SECURE_COOKIE defaults to true; set to "false" for pure
 	// http:// deployments where the browser would otherwise refuse
 	// to store the session cookie.
@@ -1957,26 +1958,6 @@ func runServer() {
 	// request resolve to the named user. Local-dev only — it's the
 	// equivalent of disabling auth, gated by an explicit opt-in env
 	// so production never lights it up by accident.
-	trustedNets, err := auth.ParseTrustedCIDRs(os.Getenv("RIVOLT_TRUSTED_PROXY_CIDR"))
-	if err != nil {
-		logger.Error("bad RIVOLT_TRUSTED_PROXY_CIDR", "err", err.Error())
-		os.Exit(1)
-	}
-	// Header SSO believes the user header from any peer in this list. A
-	// network-wide entry (the pod network, a /16) trusts the ingress and every
-	// neighbour, so anyone who reaches the app through them can sign in as any
-	// user by sending the header. With OIDC sign-in configured (a public
-	// site) that is a refusal to start; otherwise a loud error at every boot.
-	oidcConfigured := strings.TrimSpace(os.Getenv("RIVOLT_OIDC_PROVIDERS")) != ""
-	if broad, cerr := auth.CheckTrustedProxies(trustedNets, oidcConfigured); cerr != nil {
-		logger.Error("refusing to start: "+cerr.Error(), "cidrs", strings.Join(broad, ","))
-		os.Exit(1)
-	} else if len(broad) > 0 {
-		logger.Error("RIVOLT_TRUSTED_PROXY_CIDR is too broad: it trusts the user header from every address in "+strings.Join(broad, ", ")+
-			" (the pod network or a /16 or wider). Anyone who can reach this app through those peers can sign in as any user. "+
-			"Trust only the exact address of an authenticating proxy (a /32), or unset it.",
-			"cidrs", strings.Join(broad, ","))
-	}
 	cookieSecret, err := decodeHexSecret(os.Getenv("RIVOLT_COOKIE_SECRET"))
 	if err != nil {
 		logger.Error("bad RIVOLT_COOKIE_SECRET", "err", err.Error())
@@ -2059,7 +2040,6 @@ func runServer() {
 		KratosHost:        os.Getenv("RIVOLT_KRATOS_COOKIE_HOST"),
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
-		TrustedProxyCIDRs: trustedNets,
 		OnAuth:            func(method string) { appMetrics.AuthRequestsTotal.WithLabelValues(method).Inc() },
 		UserIDFor:         db.UserIDFor,
 		UsernameFor: func(ctx context.Context, uid uuid.UUID) (string, error) {
@@ -2163,8 +2143,7 @@ func runServer() {
 		logger.Info("sessions store ready — cookies are opaque, revocable")
 	}
 
-	// OIDC: third issuer alongside static creds + trusted-proxy
-	// header. Disabled when RIVOLT_OIDC_PROVIDERS is empty so a
+	// OIDC: second issuer alongside static creds. Disabled when RIVOLT_OIDC_PROVIDERS is empty so a
 	// fresh install ships zero behaviour change. When enabled it
 	// requires pgPool (we need EnsureUserFull and a sessions
 	// store) — emit a clear error rather than silently dropping.
@@ -2326,17 +2305,16 @@ func runServer() {
 	if signupgate.Disabled() {
 		logger.Info("signups disabled (RIVOLT_SIGNUP_DISABLED): /signup, access requests and first sign-in of unknown identities are closed; existing and admin-created users are unaffected")
 	}
-	authEnforced := oidcSvc != nil || len(trustedNets) > 0 || bypassUserID != uuid.Nil
+	authEnforced := oidcSvc != nil || bypassUserID != uuid.Nil
 	if authEnforced {
 		logger.Info("auth enforced",
 			"oidc", oidcSvc != nil,
-			"trusted_cidrs", len(trustedNets),
 			"bypass", bypassUserID != uuid.Nil,
 			"secure_cookie", secureCookie,
 			"cookie_secret", cookieSecretSource,
 		)
 	} else {
-		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
+		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
 	// RIVOLT_IMPERSONATION_DISABLED is the admin "View as user" kill

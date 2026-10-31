@@ -141,7 +141,7 @@ type Metrics struct {
 	FunnelEventsTotal *prometheus.CounterVec
 
 	// Authenticated requests by how they were authenticated: cookie, kratos,
-	// header (trusted-proxy SSO), bypass. A fixed vocabulary; no user data.
+	// bypass. A fixed vocabulary; no user data.
 	// (Impersonation is logged but not counted separately: it rides on a
 	// cookie-authenticated admin.)
 	AuthRequestsTotal *prometheus.CounterVec
