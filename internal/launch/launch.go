@@ -61,7 +61,8 @@ var Items = []Item{
 		Cleared: true, ClearedBy: "#1411", Proof: "TestDeleteCustomerIfClear,TestAccountClosureAgainstPostgres,TestAccountClosureWaitsForOpenInvoices"},
 	{ID: "account-deletion-cancels-stripe", What: "account deletion cancels the Stripe subscription, with a retry queue and an alert when it cannot",
 		Cleared: true, ClearedBy: "#1408", Proof: "TestAccountClosureAgainstPostgres,TestAccountClosureWithoutAKeyQueues,TestAccountClosureRefusesWhenItCannotQueue,TestCancelCustomerSubscriptions"},
-	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal"},
+	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal",
+		Cleared: true, ClearedBy: "#1414", Proof: "TestPurchaseConfirmationFromTheWebhookState,TestPaymentFailedNoticeInTheGrace,TestRenewalSource,TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel"},
 
 	// Terms, consent and clients.
 	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect",

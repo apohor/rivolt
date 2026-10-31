@@ -84,11 +84,12 @@ func (s Store) ReleaseClaim(ctx context.Context, uid uuid.UUID, kind string) err
 	return err
 }
 
-// List is the account's notices that are still within their window, newest first (the caller's account only, by row-level security).
+// List is the account's notices that are still within their window, newest first (the caller's account only, by row-level security). The
+// transactional billing emails (kinds billing_*) are email-only: they have rows here for their claim, and are never listed.
 func (s Store) List(ctx context.Context, uid uuid.UUID, now time.Time) ([]Notice, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT kind, params, shows_until, created_at, email_sent_at, dismissed_at FROM account_notices
-		 WHERE user_id = $1 AND shows_until > $2 ORDER BY created_at DESC`, uid, now)
+		 WHERE user_id = $1 AND shows_until > $2 AND kind NOT LIKE 'billing\_%' ORDER BY created_at DESC`, uid, now)
 	if err != nil {
 		return nil, err
 	}

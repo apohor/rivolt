@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/billingmail"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/launchnotice"
@@ -37,8 +38,25 @@ func startDatedNoticeJob(d Deps) {
 			}
 		},
 	}
-	// The renewal reminder has no source until the Stripe billing item lands (Pro 7); a nil source sends nothing.
-	renewals := &launchnotice.RenewalJob{Store: launchnotice.Store{DB: d.SystemDB}, Mailer: d.Email, Logger: d.Logger, Skip: skip, Observe: observe}
+	// The renewal reminder reads the annual Stripe subscriptions (billingmail.RenewalSource); with none, nothing.
+	renewals := &launchnotice.RenewalJob{Source: billingmail.RenewalSource{DB: d.SystemDB}, Store: launchnotice.Store{DB: d.SystemDB}, Mailer: d.Email, Logger: d.Logger, Skip: skip, Observe: observe}
+	// The transactional billing emails (purchase confirmation, payment failed), caught up every few minutes from the state the Stripe webhook
+	// wrote: a nil mailer sends nothing, and an install with no Stripe subscriptions has nothing to send.
+	billing := &billingmail.Job{DB: d.SystemDB, Mailer: d.Email, Logger: d.Logger, Skip: skip, Observe: observe}
+	go func() {
+		t := time.NewTimer(3 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			if st, err := billing.RunOnce(ctx); err != nil {
+				slog.Warn("billing email run failed", "err", err.Error())
+			} else if st.Considered > 0 {
+				slog.Info("billing email run", "considered", st.Considered, "sent", st.Sent, "failed", st.Failed, "skipped", st.Skipped)
+			}
+			cancel()
+			t.Reset(5 * time.Minute)
+		}
+	}()
 	go func() {
 		t := time.NewTimer(2 * time.Minute) // let the pod settle first
 		defer t.Stop()

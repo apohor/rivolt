@@ -29,6 +29,13 @@ type Subscription struct {
 	Items             struct {
 		Data []struct {
 			CurrentPeriodEnd int64 `json:"current_period_end"`
+			Price            struct {
+				UnitAmount int64  `json:"unit_amount"`
+				Currency   string `json:"currency"`
+				Recurring  struct {
+					Interval string `json:"interval"`
+				} `json:"recurring"`
+			} `json:"price"`
 		} `json:"data"`
 	} `json:"items"`
 	Metadata map[string]string `json:"metadata"`
@@ -48,6 +55,16 @@ func (s Subscription) PeriodEnd() time.Time {
 		return time.Time{}
 	}
 	return time.Unix(end, 0).UTC()
+}
+
+// Terms is what the subscription costs and how often it renews, from its first item's price (empty and zero when the event carries none).
+func (s Subscription) Terms() (interval string, amount int64, currency string) {
+	for _, it := range s.Items.Data {
+		if it.Price.Recurring.Interval != "" && it.Price.UnitAmount > 0 {
+			return it.Price.Recurring.Interval, it.Price.UnitAmount, it.Price.Currency
+		}
+	}
+	return "", 0, ""
 }
 
 // WillCancel is a subscription set to stop at the period end, by either of Stripe's two ways of saying so.

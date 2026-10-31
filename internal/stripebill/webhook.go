@@ -261,10 +261,17 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		return OutcomeStale, uuid.Nil, nil
 	}
 	// Events can arrive out of order: only the newest one per subscription moves the entitlement.
+	interval, amount, currency := sub.Terms()
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO billing_stripe_subs (subscription_id, user_id, last_event_created) VALUES ($1, $2, $3)
-		ON CONFLICT (subscription_id) DO UPDATE SET last_event_created = EXCLUDED.last_event_created, updated_at = now()
-		 WHERE billing_stripe_subs.last_event_created <= EXCLUDED.last_event_created`, sub.ID, uid, ev.Created)
+		INSERT INTO billing_stripe_subs (subscription_id, user_id, last_event_created, price_interval, unit_amount, currency, trialing)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5::bigint, 0), NULLIF($6, ''), $7)
+		ON CONFLICT (subscription_id) DO UPDATE SET last_event_created = EXCLUDED.last_event_created, updated_at = now(),
+		    price_interval = COALESCE(EXCLUDED.price_interval, billing_stripe_subs.price_interval),
+		    unit_amount    = COALESCE(EXCLUDED.unit_amount, billing_stripe_subs.unit_amount),
+		    currency       = COALESCE(EXCLUDED.currency, billing_stripe_subs.currency),
+		    trialing       = EXCLUDED.trialing
+		 WHERE billing_stripe_subs.last_event_created <= EXCLUDED.last_event_created`,
+		sub.ID, uid, ev.Created, interval, amount, currency, sub.Status == "trialing")
 	if err != nil {
 		return "", uuid.Nil, err
 	}

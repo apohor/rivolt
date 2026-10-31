@@ -23,7 +23,7 @@ var detachedContextAllowed = map[string]struct {
 	"rivian.go":          {1, "notifyAdmin: sends mail, touches no store"},
 	"signup_requests.go": {1, "notifyAdmin: sends mail, touches no store"},
 	"statement_email.go": {1, "the statement sweep: a system-pool job across users"},
-	"dated_notices.go":   {1, "the dated Pro notices sweep: a system-pool job across users"},
+	"dated_notices.go":   {2, "the dated Pro notices sweep and the billing email sweep: system-pool jobs across users"},
 	"vehicles.go":        {1, "the monitor's async vehicle refresh: the monitor and its hooks are system-side"},
 	"weekly_recap.go":    {1, "the weekly recap sweep: a system-pool job across users"},
 }
