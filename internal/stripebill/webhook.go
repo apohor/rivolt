@@ -200,6 +200,19 @@ func accountFor(ctx context.Context, tx *sql.Tx, metadata map[string]string, cus
 	return uid, err
 }
 
+// customerClosed reports whether the Stripe customer belonged to an account that was deleted (stripe_closed_customers).
+func customerClosed(ctx context.Context, tx *sql.Tx, customer string) (bool, error) {
+	if customer == "" {
+		return false, nil
+	}
+	var one int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM stripe_closed_customers WHERE customer_id = $1`, customer).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // subscriptionChanged applies a subscription's state to the account's stripe entitlement.
 func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event) (string, uuid.UUID, error) {
 	var sub Subscription
@@ -219,6 +232,13 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		return "", uuid.Nil, err
 	}
 	if uid == uuid.Nil {
+		// The customer of an account that was deleted (its subscriptions were cancelled by the deletion): nothing to apply, and retrying
+		// for days would only get the endpoint switched off. Acknowledged.
+		if closed, err := customerClosed(ctx, tx, sub.Customer); err != nil {
+			return "", uuid.Nil, err
+		} else if closed {
+			return OutcomeIgnored, uuid.Nil, nil
+		}
 		// Not acknowledged: the whole delivery (claim included) rolls back and Stripe retries, by which time the checkout event that
 		// links the customer has usually been applied. A subscription that is not Rivolt's keeps retrying until Stripe gives up.
 		if h.Log != nil {
@@ -278,6 +298,11 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 		return "", uuid.Nil, err
 	}
 	if uid == uuid.Nil {
+		if closed, err := customerClosed(ctx, tx, ch.Customer); err != nil {
+			return "", uuid.Nil, err
+		} else if closed {
+			return OutcomeIgnored, uuid.Nil, nil
+		}
 		h.observe(ev.Type, OutcomeUnmapped)
 		return "", uuid.Nil, ErrUnmapped
 	}

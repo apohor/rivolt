@@ -327,6 +327,8 @@ type Deps struct {
 	// AppleRevocation revokes (or queues the revoke of) an account's
 	// Sign in with Apple token before any account deletion. nil-safe.
 	AppleRevocation *AppleRevocation
+	// StripeClosure cancels (or queues the cancel of) an account's Stripe subscriptions before any account deletion. nil-safe.
+	StripeClosure *stripebill.AccountClosure
 	// SignupRequests, when non-nil, enables the public-facing
 	// "request beta access" form at POST /api/signup/request and
 	// the admin review surface at /api/admin/signup-requests/*.
@@ -1382,7 +1384,7 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
 					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.systemSecrets(), d.SystemDB, d.Logger)) // system pool: another user's secrets
 				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
-					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.AppleRevocation, d.PurgeUserCaches, d.Logger))
+					Delete("/users/{id}", handleAdminUserDelete(d.SystemDB, d.Users, d.preDeletes(), d.PurgeUserCaches, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.With(audit(auditSpec{action: "settings.ai", targetType: "settings", targetID: "ai", fields: true})).
 					Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))

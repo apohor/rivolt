@@ -26,6 +26,12 @@ type fakeStripe struct {
 	headers   []http.Header
 	priceGets int
 	fail      bool
+	// subs: customer id -> [subscription id, status] in list order; pageSize 0 = one page.
+	subs          map[string][][2]string
+	pageSize      int
+	listGets      int
+	deleted       []string
+	deleteQueries []url.Values
 }
 
 const (
@@ -70,6 +76,37 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			f.posts = append(f.posts, r.PostForm)
 			f.headers = append(f.headers, r.Header.Clone())
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "bps_test_1", "url": portalPage})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/subscriptions":
+			f.listGets++
+			cust := r.URL.Query().Get("customer")
+			if f.subs == nil || f.subs[cust] == nil {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such customer"}}`))
+				return
+			}
+			all := f.subs[cust]
+			start := 0
+			if after := r.URL.Query().Get("starting_after"); after != "" {
+				for i, sub := range all {
+					if sub[0] == after {
+						start = i + 1
+					}
+				}
+			}
+			end := start + f.pageSize
+			if f.pageSize == 0 || end > len(all) {
+				end = len(all)
+			}
+			var data []map[string]any
+			for _, sub := range all[start:end] {
+				data = append(data, map[string]any{"id": sub[0], "status": sub[1]})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": end < len(all)})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/subscriptions/"):
+			id := strings.TrimPrefix(r.URL.Path, "/v1/subscriptions/")
+			f.deleted = append(f.deleted, id)
+			f.deleteQueries = append(f.deleteQueries, r.URL.Query())
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "canceled"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -332,5 +369,40 @@ func TestCheckoutDuringTheFoundingYear(t *testing.T) {
 	floor := launchDay.Add(MinTrialLead + time.Minute)
 	if got := form.Get("subscription_data[trial_end]"); got != strconv.FormatInt(floor.Unix(), 10) {
 		t.Errorf("trial_end for a founding year ending in 30 h = %q, want the 48 h floor %d", got, floor.Unix())
+	}
+}
+
+// Account deletion cancels every live subscription of the customer (pages included), skips the ones already over, never prorates or
+// invoices, and treats an unknown customer as nothing to do.
+func TestCancelCustomerSubscriptions(t *testing.T) {
+	f := newFakeStripe(t)
+	f.pageSize = 2
+	f.subs = map[string][][2]string{"cus_TEST_A": {
+		{"sub_1", "canceled"}, {"sub_2", "active"}, {"sub_3", "trialing"}, {"sub_4", "past_due"}, {"sub_5", "incomplete_expired"}, {"sub_6", "active"},
+	}}
+	c := &Client{BaseURL: f.srv.URL, SecretKey: testKey}
+	n, err := c.CancelCustomerSubscriptions(context.Background(), "cus_TEST_A")
+	if err != nil || n != 4 {
+		t.Fatalf("cancelled %d, %v; want 4 (active, trialing, past_due, active)", n, err)
+	}
+	if got := strings.Join(f.deleted, ","); got != "sub_2,sub_3,sub_4,sub_6" {
+		t.Errorf("cancelled %s", got)
+	}
+	for _, q := range f.deleteQueries {
+		if q.Get("invoice_now") != "false" || q.Get("prorate") != "false" {
+			t.Errorf("a cancel asked for an invoice or proration: %v", q)
+		}
+	}
+	if f.listGets < 3 {
+		t.Errorf("listed %d pages, want the three the data needs", f.listGets)
+	}
+	// An unknown customer (already deleted at Stripe) is nothing to cancel, not an error.
+	if n, err := c.CancelCustomerSubscriptions(context.Background(), "cus_TEST_gone"); err != nil || n != 0 {
+		t.Errorf("an unknown customer: %d, %v", n, err)
+	}
+	// Stripe failing is an error (the caller queues a retry).
+	f.fail = true
+	if _, err := c.CancelCustomerSubscriptions(context.Background(), "cus_TEST_A"); err == nil {
+		t.Error("a failing Stripe was reported as success")
 	}
 }

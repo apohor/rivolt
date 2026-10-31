@@ -77,6 +77,11 @@ type Metrics struct {
 	// EntitlementsLookupErrors counts failed reads of an account's Pro entitlement rows. The plan fails open (the account counts as Pro
 	// where an answer is needed), so a sustained failure is invisible to users and shows only here.
 	EntitlementsLookupErrors prometheus.Counter
+	// StripeCancelPending and StripeCancelOldestSeconds are the queue of Stripe cancellations of deleted accounts that have not worked yet:
+	// how many, and how long the oldest has waited. Anything above 0 for more than an hour means a deleted person may still be billed:
+	// the alert.
+	StripeCancelPending       prometheus.Gauge
+	StripeCancelOldestSeconds prometheus.Gauge
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -329,6 +334,18 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name: "rivolt_entitlements_lookup_errors_total",
 				Help: "Failed reads of an account's Pro entitlement rows (the plan fails open).",
+			},
+		),
+		StripeCancelPending: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "rivolt_stripe_cancel_pending",
+				Help: "Stripe cancellations of deleted accounts still queued (the cancel failed or Stripe is not configured here).",
+			},
+		),
+		StripeCancelOldestSeconds: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "rivolt_stripe_cancel_oldest_seconds",
+				Help: "Seconds the oldest queued Stripe cancellation of a deleted account has waited (0 when none).",
 			},
 		),
 		LeaseRenew: prometheus.NewCounterVec(
@@ -642,6 +659,8 @@ func New() *Metrics {
 		m.LeaseSelfFence,
 		m.LeaseRenew,
 		m.EntitlementsLookupErrors,
+		m.StripeCancelPending,
+		m.StripeCancelOldestSeconds,
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
