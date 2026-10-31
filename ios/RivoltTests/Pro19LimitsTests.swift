@@ -50,3 +50,39 @@ final class Pro19LimitsTests: XCTestCase {
         XCTAssertEqual(ProCopy.primaryVehicleSaved("Alpha"), "Done. The free plan now shows Alpha.")
     }
 }
+
+final class VehicleScopeTests: XCTestCase {
+    private func v(_ id: String, _ model: String, _ name: String) throws -> Vehicle {
+        let json = #"{"id":"\#(id)","vin":"\#(id)","name":"\#(name)","model":"\#(model)"}"#
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return try d.decode(Vehicle.self, from: Data(json.utf8))
+    }
+
+    func testNamesTheModelAndTheNicknameOnlyWhenTwoShareAModel() throws {
+        let mixed = [try v("a", "R1T", "Rex"), try v("b", "R1S", "Sue")]
+        XCTAssertEqual(VehicleScope.name(mixed, id: "a"), "R1T")
+        let same = [try v("a", "R1S", "Rex"), try v("b", "R1S", "Sue")]
+        XCTAssertEqual(VehicleScope.name(same, id: "b"), "Sue")
+        XCTAssertNil(VehicleScope.name(mixed, id: "zzz"))
+        XCTAssertEqual(VehicleScope.sentence("R1T"), "Showing R1T. Pro includes all vehicles.")
+    }
+
+    func testOnlyTheLimitedRoutesCount() {
+        XCTAssertTrue(VehicleScope.isScoped("/api/ledger/monthly?month=2026-10"))
+        XCTAssertTrue(VehicleScope.isScoped("/api/drives?limit=5"))
+        XCTAssertTrue(VehicleScope.isScoped("/api/ledger/monthly.csv"))
+        XCTAssertFalse(VehicleScope.isScoped("/api/vehicles"))
+        XCTAssertFalse(VehicleScope.isScoped("/api/year-in-rivolt"))
+    }
+
+    @MainActor func testHeaderSetsAndAbsenceClears() {
+        let s = VehicleScope()
+        s.note(path: "/api/vehicles", header: "a")
+        XCTAssertNil(s.id)
+        s.note(path: "/api/drives?limit=5", header: "a")
+        XCTAssertEqual(s.id, "a")
+        s.note(path: "/api/activity?month=x", header: nil)
+        XCTAssertNil(s.id)
+    }
+}

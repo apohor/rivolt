@@ -37,6 +37,7 @@ struct MoneyView: View {
                         ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit)
                     } else {
                         VStack(spacing: 16) {
+                            VehicleScopeNote(vehicles: vehicles)
                             YearCardView()
                             OffpeakPromptView()
                             MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,

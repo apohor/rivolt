@@ -185,8 +185,11 @@ struct ActivityView: View {
     }
 
     private var titleRow: some View {
-        ThemeTitleRow(title: "Activity") {
-            PeriodControl()
+        VStack(spacing: 0) {
+            ThemeTitleRow(title: "Activity") {
+                PeriodControl()
+            }
+            VehicleScopeNote(vehicles: vehicles).padding(.horizontal, 4 * Theme.unit)
         }
     }
 

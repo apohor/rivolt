@@ -738,6 +738,10 @@ actor APIClient {
             }
             throw APIError.server(status: http.statusCode, message: message)
         }
+        if VehicleScope.isScoped(path) {
+            let header = http.value(forHTTPHeaderField: "X-Rivolt-Vehicle-Scope")
+            Task { @MainActor in VehicleScope.shared.note(path: path, header: header) }
+        }
         return (data, http)
     }
 }
