@@ -3,11 +3,12 @@ import SwiftUI
 /// What Settings lists and in what order, with no view code so a test can see it. It mirrors the web's Settings tabs and names.
 enum SettingsLogic {
     enum Row: String, Equatable {
-        case connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
+        case plan, connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
         case export, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
             switch self {
+            case .plan: return "Rivolt Pro"
             case .connection: return "Connection details"
             case .signOut: return "Sign out"
             case .devices: return "Signed-in devices"
@@ -32,6 +33,7 @@ enum SettingsLogic {
 
         var symbol: String {
             switch self {
+            case .plan: return "sparkles"
             case .connection: return "antenna.radiowaves.left.and.right"
             case .signOut: return "rectangle.portrait.and.arrow.right"
             case .devices: return "iphone.and.macbook"
@@ -62,9 +64,10 @@ enum SettingsLogic {
     }
 
     /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), App, Data and About, as the web's tabs.
-    static func groups(notificationsOffered: Bool) -> [Group] {
+    /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan.
+    static func groups(notificationsOffered: Bool, planOffered: Bool = false) -> [Group] {
         var out = [
-            Group(title: "Account", rows: [.connection, .signOut]),
+            Group(title: "Account", rows: (planOffered ? [.plan] : []) + [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
             Group(title: "Vehicle", rows: [.vehicleProfile, .homeLocation, .units]),
             Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
@@ -96,11 +99,12 @@ struct SettingsView: View {
 
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showDelete = false
+    @State private var plan: PlanState = .off
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered)) { group in
+                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off)) { group in
                     Section {
                         ForEach(group.rows, id: \.rawValue) { row in rowView(row) }
                     } header: {
@@ -126,7 +130,11 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }.font(Theme.sans(ThemeTokens.typeValue, .medium)).tint(Theme.accent)
                 }
             }
-            .sheet(isPresented: $showDelete) { DeleteAccountSheet().followsAppearance() }
+            .sheet(isPresented: $showDelete) { DeleteAccountSheet(billing: plan != .off).followsAppearance() }
+            .task {
+                guard !state.isDemo else { return }
+                plan = PlanLogic.state(try? await state.client.me())
+            }
         }
         .environment(\.inSettings, true)
     }
@@ -142,6 +150,8 @@ struct SettingsView: View {
     @ViewBuilder
     private func rowView(_ row: SettingsLogic.Row) -> some View {
         switch row {
+        case .plan:
+            NavigationLink { ProPaywallView(plan: plan) } label: { label(row) }
         case .connection:
             NavigationLink { ConnectionDetailsView(diagnostics: state.connection, serverURL: state.serverURL) } label: { label(row) }
         case .signOut:
