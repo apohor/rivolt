@@ -513,6 +513,9 @@ func New(d Deps) http.Handler {
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
 	}
+	// ls builds every per-IP and per-user rate limiter: counted across replicas in Redis where the install has it, per pod otherwise
+	// (and per pod whenever Redis cannot answer, never unlimited).
+	ls := d.limiterSet()
 	// The free plan's one-vehicle display limit (pro_vehicles.go).
 	pv := &proVehicles{db: d.DB, settings: d.Settings, ent: d.Entitlements, log: d.Logger}
 	vehicleGate := vehicleGateMiddleware(pv)
@@ -603,7 +606,7 @@ func New(d Deps) http.Handler {
 					d.Metrics.DemoRateLimitedTotal.WithLabelValues(routeClass, scope).Inc()
 				}
 			}
-			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
+			r.Use(demoAccessMW(ls, demo.UserID(), demo.VehicleID(), newDemoLimiter(ls, "demo-access"), newDemoGlobalLimiter(ls, "demo-access-global")))
 		}
 		// impersonationMW must run immediately after auth resolves
 		// the real identity and before any route reads
@@ -651,7 +654,7 @@ func New(d Deps) http.Handler {
 
 	// Release notes are public and cheap (a cached copy), but limited per IP
 	// like the other unauthenticated reads.
-	clLimiter := newIPLimiter(60, time.Minute, time.Hour)
+	clLimiter := ls.ip("changelog", 60, time.Minute, time.Hour)
 
 	r.Route("/api", func(r chi.Router) {
 		// Health + auth endpoints stay reachable without a session,
@@ -681,12 +684,12 @@ func New(d Deps) http.Handler {
 		}
 		if d.StripeWebhook != nil && !d.AdminOnly {
 			// Stripe retries with backoff and sends bursts when it catches up: generous per address, small bodies.
-			stripeLimiter := newIPLimiter(120, time.Minute, time.Hour)
+			stripeLimiter := ls.ip("stripe-webhook", 120, time.Minute, time.Hour)
 			r.With(stripeLimiter.Middleware, maxBodyBytes(stripebill.MaxBodyBytes)).Post("/billing/stripe/webhook", d.StripeWebhook.ServeHTTP)
 		}
 		if d.AppleIAPNotifications != nil && !d.AdminOnly {
 			// Apple retries with backoff and sends bursts when it catches up: generous per address, small bodies.
-			iapLimiter := newIPLimiter(120, time.Minute, time.Hour)
+			iapLimiter := ls.ip("apple-iap-notifications", 120, time.Minute, time.Hour)
 			r.With(iapLimiter.Middleware, maxBodyBytes(applebill.MaxBodyBytes)).Post("/billing/apple/notifications", d.AppleIAPNotifications.ServeHTTP)
 		}
 		if d.Auth != nil {
@@ -701,7 +704,7 @@ func New(d Deps) http.Handler {
 				if as := d.accountSecurityAPI(); as != nil {
 					// Change the password, or secure the account: the owner's way back in from a hijacked session. Not on the
 					// admin deployment; the app token and view-as are refused in the handler.
-					asLimiter := newIPLimiter(20, time.Minute, time.Hour)
+					asLimiter := ls.ip("account-password", 20, time.Minute, time.Hour)
 					r.With(asLimiter.Middleware).Post("/password", as.change)
 					r.With(asLimiter.Middleware).Post("/secure", as.secure)
 				}
@@ -709,7 +712,7 @@ func New(d Deps) http.Handler {
 					d.OIDC.Mount(r)
 				}
 				if pk := d.passkeyAPI(); pk != nil && !d.AdminOnly {
-					pkLimiter := newIPLimiter(30, time.Minute, time.Hour)
+					pkLimiter := ls.ip("passkeys", 30, time.Minute, time.Hour)
 					r.With(pkLimiter.Middleware).Route("/passkeys", func(r chi.Router) {
 						r.Get("/", pk.list)
 						r.Post("/register/begin", pk.registerBegin)
@@ -720,7 +723,7 @@ func New(d Deps) http.Handler {
 				}
 				if d.AppleNotifications != nil && !d.AdminOnly {
 					// A real notification is ~1 KB and Apple sends few: 30 a minute per address is generous.
-					appleLimiter := newIPLimiter(30, time.Minute, time.Hour)
+					appleLimiter := ls.ip("apple-id-notifications", 30, time.Minute, time.Hour)
 					r.With(appleLimiter.Middleware, maxBodyBytes(appleid.MaxNotificationBody)).Post("/apple/notifications", d.AppleNotifications.ServeHTTP)
 				}
 				// The iPhone app's sign-in: start → the usual OIDC sign-in →
@@ -728,8 +731,8 @@ func New(d Deps) http.Handler {
 				if d.AppAuth != nil && d.OIDC != nil && !d.AdminOnly {
 					// Per IP, per pod (DA on #769): start writes a row for an
 					// anonymous caller; token redeems codes.
-					startLimiter := newIPLimiter(10, time.Minute, time.Hour)
-					tokenLimiter := newIPLimiter(10, time.Minute, time.Hour)
+					startLimiter := ls.ip("app-auth-start", 10, time.Minute, time.Hour)
+					tokenLimiter := ls.ip("app-auth-token", 10, time.Minute, time.Hour)
 					r.Route("/app", func(r chi.Router) {
 						r.With(startLimiter.Middleware).Get("/start", d.AppAuth.handleAppStart(d))
 						r.Get("/finish", d.AppAuth.handleAppFinishPage(d))
@@ -760,7 +763,7 @@ func New(d Deps) http.Handler {
 						pk.Failures, pk.Remember = failures, hd.rememberForSeconds()
 						hd.Passkeys = pk
 					}
-					mountHydraBridge(r, hd)
+					mountHydraBridge(r, ls, hd)
 				}
 			})
 		}
@@ -778,7 +781,7 @@ func New(d Deps) http.Handler {
 				startWeeklyJob(d)
 			}
 			wu := &weeklyUnsub{db: d.SystemDB, signer: d.WeeklySigner, now: time.Now} // system pool: a signed link, no session
-			wl := newIPLimiter(30, time.Minute, time.Hour)
+			wl := ls.ip("weekly-unsubscribe", 30, time.Minute, time.Hour)
 			wl.key = demoClientKey
 			r.With(wl.Middleware).Get("/weekly-recap/unsubscribe", wu.get)
 			r.With(wl.Middleware, maxBodyBytes(4096)).Post("/weekly-recap/unsubscribe", wu.post)
@@ -788,7 +791,7 @@ func New(d Deps) http.Handler {
 		// POST performs it (RFC 8058). 404 without a signer or DB.
 		if d.SystemDB != nil && d.StatementSigner != nil {
 			stm := newStatementAPI(d.SystemDB, d, d.StatementSigner) // system pool: a signed link, no session
-			unsubLimiter := newIPLimiter(30, time.Minute, time.Hour)
+			unsubLimiter := ls.ip("statement-unsubscribe", 30, time.Minute, time.Hour)
 			unsubLimiter.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
 			r.With(unsubLimiter.Middleware).Get("/statement-email/unsubscribe", stm.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/statement-email/unsubscribe", stm.unsubscribePost)
@@ -811,7 +814,7 @@ func New(d Deps) http.Handler {
 			r.Get("/demo", handleDemoInfo)
 			// Preset trips for the demo planner: static GETs behind the
 			// same per-client then install-wide demo limits.
-			dl, dg := newDemoLimiter(), newDemoGlobalLimiter()
+			dl, dg := newDemoLimiter(ls, "demo-trips"), newDemoGlobalLimiter(ls, "demo-trips-global")
 			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips)
 			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips/{id}/plan", handleDemoTripPlan)
 		}
@@ -832,7 +835,7 @@ func New(d Deps) http.Handler {
 		// through. Beta scale: 5/hr is generous for a human filling
 		// out the form and trivial to enforce.
 		if d.SignupRequests != nil && !signupgate.Disabled() {
-			signupReqLimiter, signupReqGlobal := newSignupRequestLimiters(signupReqPerIPPerHour, signupReqGlobalPerHour)
+			signupReqLimiter, signupReqGlobal := newSignupRequestLimiters(ls, signupReqPerIPPerHour, signupReqGlobalPerHour)
 			r.With(signupReqLimiter.Middleware, signupReqGlobal.Middleware, maxBodyBytes(maxJSONBody)).Post(
 				"/signup/request",
 				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger, newAutoApprove(d)),
@@ -850,7 +853,7 @@ func New(d Deps) http.Handler {
 			startEventsPurge(d.SystemDB) // regardless of the flag: retention is a promise. System pool: a retention job across users
 		}
 		if d.SystemDB != nil && eventsEnabled() {
-			evLimiter := newIPLimiter(eventsRatePerMin, time.Minute, time.Hour)
+			evLimiter := ls.ip("events", eventsRatePerMin, time.Minute, time.Hour)
 			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", handleEvents(newPGEventsSink(d.SystemDB))) // system pool: anonymous callers have no user, and the row's user is optional
 		}
 
@@ -892,22 +895,22 @@ func New(d Deps) http.Handler {
 			// strips the prefix from r.URL.Path itself; the
 			// proxy.Director then forwards as-is.
 			if d.ValhallaProxy != nil {
-				r.Mount("/maps/valhalla", valhallaMount(d.ValhallaProxy))
+				r.Mount("/maps/valhalla", valhallaMount(ls, d.ValhallaProxy))
 			}
 			if d.TilesProxy != nil {
-				r.Mount("/maps/tiles", tilesMount(d.TilesProxy))
+				r.Mount("/maps/tiles", tilesMount(ls, d.TilesProxy))
 			}
 			// The label glyphs are in the binary: always there, same auth as the tiles (and the demo's tile reads, demo.go). There is no sprite.
-			r.Mount("/maps/glyphs", glyphsMount())
+			r.Mount("/maps/glyphs", glyphsMount(ls))
 			if d.DEMProxy != nil {
-				r.Mount("/maps/dem", demMount(d.DEMProxy))
+				r.Mount("/maps/dem", demMount(ls, d.DEMProxy))
 			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range
 			// reads per planner re-render) with one POST that returns
 			// the decoded POI list.
 			if d.ChargersArchive != nil {
-				r.With(mapsUserLimiter(mapsChargersAlongPerMin).Middleware).Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
+				r.With(ls.user("chargers-along", mapsChargersAlongPerMin).Middleware).Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
 			}
 			// Onboarding — marks the first-run stepper as done for the
 			// current user. Called by the frontend when the user
@@ -929,7 +932,7 @@ func New(d Deps) http.Handler {
 
 			// The signed-in account reports its StoreKit purchase (internal/applebill): ten a minute per user.
 			if d.AppleIAPTransaction != nil && !d.AdminOnly {
-				r.With(mapsUserLimiter(10).Middleware).Post("/billing/apple/transaction", withUser(d.AppleIAPTransaction.Serve))
+				r.With(ls.user("apple-iap-transaction", 10).Middleware).Post("/billing/apple/transaction", withUser(d.AppleIAPTransaction.Serve))
 			}
 			// Service notices (notices.go): the Pro launch notice, shown in the app until its date.
 			if d.DB != nil {
@@ -974,18 +977,18 @@ func New(d Deps) http.Handler {
 				r.Post("/apns/preferences", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
 				}))
-				apnsActivityLimiter := mapsUserLimiter(30)
+				apnsActivityLimiter := ls.user("apns-activity", 30)
 				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivity(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity/end", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityEnd(d.PushService, d.Push.For(uid))(w, r)
 				}))
-				apnsActivityTestLimiter := mapsUserLimiter(3)
+				apnsActivityTestLimiter := ls.user("apns-activity-test", 3)
 				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
-				apnsTestLimiter := mapsUserLimiter(6)
+				apnsTestLimiter := ls.user("apns-test", 6)
 				r.With(apnsTestLimiter.Middleware).Post("/apns/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
@@ -1149,7 +1152,7 @@ func New(d Deps) http.Handler {
 			// Home electricity cost settings, applied locally to estimate
 			// the price of sessions Rivian reports as free (home AC, L2,
 			// non-RAN public chargers).
-			settingsWriteLimiter := mapsUserLimiter(30)
+			settingsWriteLimiter := ls.user("settings-write", 30)
 			r.Route("/settings/charging", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingSettingsGet(d.Settings.For(uid))(w, r)
@@ -1229,7 +1232,7 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/statement-email", withUser(stm.putSettings))
 				r.With(historyWindowMiddleware(d.Entitlements)).Get("/statement-email/preview", withUser(stm.preview))
 			}
-			homeWriteLimiter, homeSearchLimiter := mapsUserLimiter(10), mapsUserLimiter(20)
+			homeWriteLimiter, homeSearchLimiter := ls.user("home-write", 10), ls.user("home-search", 20)
 			var homeNotice *homeChangeNotice
 			if d.Email != nil {
 				homeNotice = &homeChangeNotice{mail: d.Email, db: d.DB}
@@ -1509,7 +1512,7 @@ func New(d Deps) http.Handler {
 			// rows (the first two also classify and cluster them), so they share one
 			// per-user ceiling: 30 a minute, with a Retry-After on the 429. A Home
 			// refresh is three calls and the app caches for 15 minutes; a loop is not.
-			aggLimiter := mapsUserLimiter(30)
+			aggLimiter := ls.user("aggregates", 30)
 			r.With(win, freeVeh, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleActivity(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
@@ -1621,7 +1624,7 @@ func New(d Deps) http.Handler {
 			// Where to sleep: hotels with a listed Level 2 charger near the
 			// day's drive budget. Archive-only, no Rivian call.
 			if d.ChargersArchive != nil {
-				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
+				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements), ls.user("trips-overnight", tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
 			}
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
@@ -1637,7 +1640,7 @@ func New(d Deps) http.Handler {
 			// Plan vs Actual (B12): compare a saved trip with the outing
 			// that happened.
 			// Saves, edits and links: 30 a minute per user, for the web and the phone alike.
-			savedTripWriteLimiter := mapsUserLimiter(30)
+			savedTripWriteLimiter := ls.user("saved-trip-write", 30)
 			if d.DB != nil && d.Trips != nil {
 				pa := newPlanActualAPI(d.DB, d.Trips, d.Settings)
 				r.With(proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/actual", withUser(pa.actual))
@@ -1666,7 +1669,7 @@ func New(d Deps) http.Handler {
 			// provider as weather; privacy trade-off is identical).
 			// Returns city-level matches sorted by population so the
 			// SPA can render a sensible suggestion dropdown.
-			r.With(mapsUserLimiter(geocodePerMin).Middleware).Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(ls.user("geocode", geocodePerMin).Middleware).Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleGeocode(d.Photon)(w, r)
 			}))
 		}) // end of timed authenticated /api group
@@ -1741,7 +1744,7 @@ func New(d Deps) http.Handler {
 			r.Post("/data/delete-range", handleDataDeleteRange(d))
 			r.Delete("/data/account", handleDataAccountDelete(d))
 			if d.StripeBilling != nil && !d.AdminOnly {
-				billingLimiter := mapsUserLimiter(10)
+				billingLimiter := ls.user("billing", 10)
 				r.With(billingLimiter.Middleware).Post("/billing/checkout", withUser(handleBillingCheckout(d.StripeBilling)))
 				r.With(billingLimiter.Middleware).Post("/billing/portal", withUser(handleBillingPortal(d.StripeBilling)))
 			}

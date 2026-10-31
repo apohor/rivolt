@@ -54,8 +54,8 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	r := chi.NewRouter()
-	r.Mount("/api/maps/valhalla", valhallaMount(up))
-	r.Mount("/api/maps/tiles", tilesMount(up))
+	r.Mount("/api/maps/valhalla", valhallaMount(nil, up))
+	r.Mount("/api/maps/tiles", tilesMount(nil, up))
 	do := func(method, path string) int {
 		var body io.Reader
 		if method == http.MethodPost {
@@ -108,7 +108,7 @@ func TestMapMountsCapTheTrace(t *testing.T) {
 	hits := 0
 	up := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++; w.WriteHeader(200) })
 	r := chi.NewRouter()
-	r.Mount("/api/maps/valhalla", valhallaMount(up))
+	r.Mount("/api/maps/valhalla", valhallaMount(nil, up))
 	trace := func(n int) int {
 		var b strings.Builder
 		b.WriteString(`{"shape":[`)
@@ -138,7 +138,7 @@ func TestMapMountsLimitPerUser(t *testing.T) {
 	t.Parallel()
 	up := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	r := chi.NewRouter()
-	r.Mount("/api/maps/valhalla", valhallaMount(up))
+	r.Mount("/api/maps/valhalla", valhallaMount(nil, up))
 	call := func(uid uuid.UUID) int {
 		req := httptest.NewRequest("POST", "/api/maps/valhalla/route", strings.NewReader(`{"locations":[]}`))
 		req = req.WithContext(auth.WithUser(req.Context(), uid))
@@ -236,8 +236,8 @@ func TestMapProxyThroughTheRouterSendsNoClientAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := chi.NewRouter()
-	r.Mount("/api/maps/valhalla", valhallaMount(proxy))
-	r.Mount("/api/maps/tiles", tilesMount(proxy))
+	r.Mount("/api/maps/valhalla", valhallaMount(nil, proxy))
+	r.Mount("/api/maps/tiles", tilesMount(nil, proxy))
 	front := httptest.NewServer(r)
 	defer front.Close()
 

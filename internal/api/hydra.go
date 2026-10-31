@@ -379,17 +379,17 @@ func emailLocalPart(email string) string {
 // login routes are a password endpoint on the public internet, so each has a
 // per-IP limit (the real client address, from the trusted proxy header): the
 // POST is tight, the GET looser.
-func mountHydraBridge(r chi.Router, hd hydraDeps) {
-	loginGet := newIPLimiter(30, time.Minute, time.Hour)
+func mountHydraBridge(r chi.Router, ls *limiterSet, hd hydraDeps) {
+	loginGet := ls.ip("hydra-login-get", 30, time.Minute, time.Hour)
 	loginGet.key = demoClientKey
-	loginPost := newIPLimiter(10, time.Minute, time.Hour)
+	loginPost := ls.ip("hydra-login-post", 10, time.Minute, time.Hour)
 	loginPost.key = demoClientKey
 	r.Route("/hydra", func(r chi.Router) {
 		r.With(loginGet.Middleware).Get("/login", hydraLoginGET(hd))
 		r.With(loginPost.Middleware).Post("/login", hydraLoginPOST(hd))
 		r.Get("/consent", hydraConsentGET(hd))
 		if hd.Passkeys != nil {
-			pk := newIPLimiter(20, time.Minute, time.Hour)
+			pk := ls.ip("hydra-passkey", 20, time.Minute, time.Hour)
 			pk.key = demoClientKey
 			r.With(pk.Middleware).Post("/passkey/begin", hd.Passkeys.hydraBegin)
 			r.With(pk.Middleware).Post("/passkey/finish", hd.Passkeys.hydraFinish)

@@ -227,6 +227,10 @@ type Metrics struct {
 	// fell back to the per-pod count (the cross-replica count was unavailable). Alert on a
 	// sustained rate: the limit is then up to pods x max.
 	FailLimiterFallbackTotal prometheus.Counter
+	// RateLimiterFallbackTotal counts requests a rate limiter (per IP or per user) decided from its per-pod
+	// bucket because Redis could not answer, by limiter name (a fixed set of route names, never an address or a user). Alert on a sustained
+	// rate: the limits are then up to pods x limit.
+	RateLimiterFallbackTotal *prometheus.CounterVec
 	// WebSocket "next" frames dropped because a subscription's 16-slot channel
 	// was full (a consumer stuck behind a slow database). A missed gear frame
 	// can merge or lose a drive.
@@ -495,6 +499,10 @@ func New() *Metrics {
 			Name: "rivolt_fail_limiter_fallback_total",
 			Help: "Failed-login limiter calls Redis could not serve; the per-pod count was used instead.",
 		}),
+		RateLimiterFallbackTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rate_limiter_fallback_total",
+			Help: "Requests a rate limiter decided from its per-pod bucket because Redis could not answer, by limiter.",
+		}, []string{"limiter"}),
 		WSFramesDroppedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_ws_frames_dropped_total",
 			Help: "Rivian WebSocket frames dropped because a subscription consumer was behind.",
@@ -684,6 +692,7 @@ func New() *Metrics {
 		m.DemoRateLimitedTotal,
 		m.LoginLockoutsTotal,
 		m.FailLimiterFallbackTotal,
+		m.RateLimiterFallbackTotal,
 		m.EngagementSendsTotal,
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,

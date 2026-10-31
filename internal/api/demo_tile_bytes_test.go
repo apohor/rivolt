@@ -60,7 +60,7 @@ func TestDemoTileByteBudgetDefaults(t *testing.T) {
 func TestDemoTileByteBudgets(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO_TILES_MB_PER_CLIENT_PER_HOUR", "2") // four 512 KiB reads
 	t.Setenv("RIVOLT_DEMO_TILES_MB_GLOBAL_PER_HOUR", "5")
-	h, _ := demoChain(newDemoLimiter(), nil)
+	h, _ := demoChain(newDemoLimiter(nil, "t"), nil)
 	read := func(client, rng string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/maps/tiles/us.pmtiles", nil)
