@@ -51,3 +51,23 @@ func TestReadStats(t *testing.T) {
 		t.Errorf("stripe/past_due grew by %d, want 1", d)
 	}
 }
+
+// On an empty entitlements table a successful read still returns a 0 for founding, so the gauge exports a series and "no grants yet" is
+// not mistaken for "the read is failing".
+func TestReadStatsEmptyTableExportsZeros(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	// Whatever rows other tests left, every known pair has an entry after a successful read; the zero fill itself is unit-tested.
+	got, err := entitlements.ReadStats(ctx, pool, db.UserIDFor(db.DemoUsername))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.ByKind[[2]string{"founding", "active"}]; !ok {
+		t.Errorf("no founding/active entry after a successful read: %v", got.ByKind)
+	}
+}

@@ -15,6 +15,25 @@ type Stats struct {
 	Accounts int
 }
 
+// knownSources and knownStatuses are the (source, status) pairs a row can have. A successful read reports every pair, 0 for the ones with no
+// row, so an empty table still exports a series per pair: a dashboard or alert can tell "no founding grants" (0) from "the read never
+// succeeded" (no series at all).
+var (
+	knownSources  = []string{SourceStripe, SourceApple, SourceFounding, SourceGrant, SourceTrial}
+	knownStatuses = []string{StatusActive, StatusPastDue, StatusEnded}
+)
+
+// fillKnown sets every known (source, status) pair that has no count to 0.
+func fillKnown(m map[[2]string]int) {
+	for _, src := range knownSources {
+		for _, st := range knownStatuses {
+			if _, ok := m[[2]string{src, st}]; !ok {
+				m[[2]string{src, st}] = 0
+			}
+		}
+	}
+}
+
 // ReadStats reads the counts (two read-only queries).
 func ReadStats(ctx context.Context, db *sql.DB, demo uuid.UUID) (Stats, error) {
 	st := Stats{ByKind: map[[2]string]int{}}
@@ -34,6 +53,7 @@ func ReadStats(ctx context.Context, db *sql.DB, demo uuid.UUID) (Stats, error) {
 	if err := rows.Err(); err != nil {
 		return st, err
 	}
+	fillKnown(st.ByKind)
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id <> $1`, demo).Scan(&st.Accounts); err != nil {
 		return st, err
 	}
