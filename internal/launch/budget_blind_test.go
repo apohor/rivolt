@@ -34,6 +34,7 @@ var planReaders = map[string]string{
 	"internal/stripebill":   "writes Stripe entitlements; reads the plan to refuse a double subscription",
 	"internal/billingmail":  "the grace length for the payment-failed email",
 	"internal/entitlements": "itself",
+	"internal/preflight":    "the read-only launch pre-flight (rivolt launch-preflight): the founding grant's dry-run counts (PlanFounding) in a read-only transaction; it reads no account's plan and is not on the Rivian path",
 }
 
 func goFiles(t *testing.T, root, dir string, includeTests bool) []string {

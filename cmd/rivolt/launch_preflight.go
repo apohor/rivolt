@@ -59,7 +59,7 @@ func runLaunchPreflight(args []string) int {
 	}
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
 		rdb := redis.NewClient(redisOptions(addr, os.Getenv))
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 		in.RedisTime = func(ctx context.Context) (bool, error) {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
