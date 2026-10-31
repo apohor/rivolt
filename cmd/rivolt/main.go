@@ -130,6 +130,8 @@ func main() {
 			os.Exit(runRepairRouteGaps(os.Args[2:]))
 		case "announce":
 			os.Exit(runAnnounce(os.Args[2:]))
+		case "entitlements-founding":
+			os.Exit(runEntitlementsFounding(os.Args[2:]))
 		case "launch-notice":
 			os.Exit(runLaunchNotice(os.Args[2:]))
 		case "archive":
@@ -192,6 +194,13 @@ Usage:
                   user id prefixes only; --apply sends and records each
                   user id in --sent-log so a re-run resumes; --test-to
                   sends to one user. Never migrates; never prints emails.
+  rivolt entitlements-founding --launch T [--apply --expect-count N --expect-sha SHA]
+                  Rivolt Pro: Pro free for one year from launch to every
+                  account that exists at launch (the demo excluded). Dry
+                  run lists user id prefixes and an ids hash; --apply
+                  needs that count and hash, grants in one transaction,
+                  checks founding rows = accounts - demo, and is
+                  idempotent. Never migrates; never prints emails.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
   rivolt repair-charge-blips [--ids-out FILE]                              (dry run: counts and the id-list sha256)
@@ -2791,6 +2800,9 @@ func runServer() {
 	}
 	// Rivolt Pro's billing may not be switched on while any launch-readiness item is pending (internal/launch): selling Pro with half
 	// of it missing sells a promise the server does not keep.
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) {
+		db.SetNewAccountTrial(entitlements.TrialLength) // every new account starts a 14-day Pro trial (once per account, a row, never a charge)
+	}
 	if pending := launch.Gate(rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING"))); len(pending) > 0 {
 		logger.Error("RIVOLT_BILLING is on but the Pro launch-readiness list has pending items; refusing to start (see internal/launch)", "pending", strings.Join(pending, ","))
 		os.Exit(1)

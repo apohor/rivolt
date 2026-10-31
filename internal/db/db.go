@@ -201,6 +201,7 @@ func EnsureUserVerified(ctx context.Context, d *sql.DB, username, email, display
 	if inserted {
 		// A brand-new account (the upsert inserted rather than updated).
 		RecordServerEvent(ctx, d, id, EventSignupComplete, map[string]any{"method": signupMethod(ctx)})
+		startNewAccountTrial(ctx, d, id, u)
 	}
 	// Env-driven admin promotion: idempotent UPDATE that no-ops
 	// when the user is already admin or when the email doesn't
@@ -437,6 +438,7 @@ func CreateUser(ctx context.Context, d *sql.DB, username, email, displayName, ro
 	if n == 0 {
 		return uuid.Nil, ErrUserExists
 	}
+	startNewAccountTrial(ctx, d, id, u)
 	return id, nil
 }
 
