@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -201,5 +202,16 @@ func TestDemoNetworksAreTheOwnersOwnRates(t *testing.T) {
 		if r.MemberPrice != 0 && r.MemberPrice >= r.PricePerKWh {
 			t.Errorf("%s: member %v not below guest %v", r.Name, r.MemberPrice, r.PricePerKWh)
 		}
+	}
+}
+
+// The demo account's id is one value everywhere: the founding grant (internal/entitlements) excludes db.UserIDFor(db.DemoUsername), and the
+// rest of the app uses demo.UserID(). If they ever diverged the founding job would grant the demo account.
+func TestDemoUserIDIsTheOneTheFoundingGrantExcludes(t *testing.T) {
+	if UserID() != db.UserIDFor(db.DemoUsername) {
+		t.Fatalf("demo.UserID() = %s, db.UserIDFor(db.DemoUsername) = %s", UserID(), db.UserIDFor(db.DemoUsername))
+	}
+	if Username != db.DemoUsername {
+		t.Fatalf("demo.Username %q != db.DemoUsername %q", Username, db.DemoUsername)
 	}
 }
