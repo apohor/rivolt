@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/histwin"
+	"github.com/apohor/rivolt/internal/launch"
 )
 
 type windowClass struct {
@@ -270,7 +271,7 @@ func TestPrivacyAndExportRoutesAreAlwaysFree(t *testing.T) {
 	}
 }
 
-// HistoryWindowComplete says the todo list is empty; they cannot disagree.
+// The launch item "history-window" is cleared exactly when no route is todo; they cannot disagree.
 func TestWindowCompleteMatchesTheTodoList(t *testing.T) {
 	var todo []string
 	for key, c := range routeClasses {
@@ -279,11 +280,12 @@ func TestWindowCompleteMatchesTheTodoList(t *testing.T) {
 		}
 	}
 	sort.Strings(todo)
-	if HistoryWindowComplete && len(todo) > 0 {
-		t.Errorf("HistoryWindowComplete is true but %d routes are still todo: %v", len(todo), todo)
+	cleared := launch.Cleared("history-window")
+	if cleared && len(todo) > 0 {
+		t.Errorf("launch item history-window is cleared but %d routes are still todo: %v", len(todo), todo)
 	}
-	if !HistoryWindowComplete && len(todo) == 0 {
-		t.Error("no route is todo: set HistoryWindowComplete = true (after the delete-by-range ships)")
+	if !cleared && len(todo) == 0 {
+		t.Error("no route is todo: clear the launch item history-window")
 	}
 }
 
