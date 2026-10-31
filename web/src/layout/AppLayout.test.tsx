@@ -54,6 +54,13 @@ describe("AppLayout", () => {
     }
     const sub = screen.getByRole("navigation", { name: "Truck sections" });
     expect(within(sub).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    // Settings is one tap from every screen: a 44 px header button, active on /settings, on top of the Truck sub-link.
+    const header = screen.getByRole("banner");
+    const button = within(header).getByRole("link", { name: "Settings" });
+    expect(button).toHaveAttribute("href", "/settings");
+    expect(button).toHaveAttribute("aria-current", "page");
+    expect(button.className).toContain("h-11");
+    expect(button.className).toContain("w-11");
     // The header carries no connection pill or Sign out in the shell.
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     // No flag to ask for any more.
