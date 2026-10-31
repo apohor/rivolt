@@ -68,17 +68,20 @@ func TestClearedItemsHaveTheirProof(t *testing.T) {
 			}
 			continue
 		}
-		if !regexp.MustCompile(`^#\d+$`).MatchString(it.ClearedBy) {
-			t.Errorf("%s is cleared but ClearedBy is %q, want a PR like #1374", it.ID, it.ClearedBy)
+		if !regexp.MustCompile(`^#\d+(,#\d+)*$`).MatchString(it.ClearedBy) {
+			t.Errorf("%s is cleared but ClearedBy is %q, want a PR like #1374 (several comma-separated)", it.ID, it.ClearedBy)
 		}
-		if strings.HasPrefix(it.Proof, "Test") {
-			if !testFuncs[it.Proof] {
-				t.Errorf("%s: proof %s is not a test function in the repo", it.ID, it.Proof)
-			}
-		} else if it.Proof == "" {
+		if it.Proof == "" {
 			t.Errorf("%s is cleared without a proof", it.ID)
-		} else if _, err := os.Stat(filepath.Join(root, it.Proof)); err != nil {
-			t.Errorf("%s: proof file %s does not exist", it.ID, it.Proof)
+		}
+		for _, proof := range strings.Split(it.Proof, ",") {
+			if strings.HasPrefix(proof, "Test") {
+				if !testFuncs[proof] {
+					t.Errorf("%s: proof %s is not a test function in the repo", it.ID, proof)
+				}
+			} else if _, err := os.Stat(filepath.Join(root, proof)); err != nil {
+				t.Errorf("%s: proof file %s does not exist", it.ID, proof)
+			}
 		}
 	}
 }

@@ -17,8 +17,8 @@ type Item struct {
 	What string // what must be true before billing is on
 	// Cleared is true once the PR that builds the item has merged with its proof.
 	Cleared   bool
-	ClearedBy string // the PR, "#1374"; required when Cleared
-	// Proof is a Go test function name ("TestX") or a repo-relative path to a client test file; required when Cleared.
+	ClearedBy string // the PR, "#1374" (several: "#1365,#1368"); required when Cleared
+	// Proof is a Go test function name ("TestX") or a repo-relative path to a client test file; several, comma-separated. Required when Cleared.
 	Proof string
 }
 
@@ -37,8 +37,8 @@ var Items = []Item{
 	{ID: "gate-plan-vs-actual", What: "plan-vs-actual is Pro on the server"},
 	{ID: "gate-saved-trips", What: "the saved-trips cap is 3 for free; extras stay readable and deletable, not editable"},
 	{ID: "gate-vehicles", What: "a free account shows 1 vehicle; the rest are Pro"},
-	{ID: "gate-share-cards", What: "the Pro-only share cards are refused to free accounts"},
-	{ID: "gate-widgets-live-activity", What: "Pro widgets and Live Activity server pushes are sent to Pro accounts only"},
+	// Unbuilt Pro surfaces (trip postcard, long-form year page, widget pushes) are not listed: there is nothing to gate yet. The route
+	// classification carries a permanent guard test that a new Pro surface cannot ship ungated.
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
 	{ID: "lapse-stops-pushes", What: "on lapse or trial end Live Activity pushes stop, that account's Live Activity tokens are deleted and widgets fall back to the free state"},
@@ -46,15 +46,20 @@ var Items = []Item{
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states"},
 
 	// Money: Stripe and StoreKit.
-	{ID: "stripe-webhook", What: "Stripe webhook signature is verified and handling is idempotent on the event id"},
-	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id"},
+	{ID: "stripe-webhook", What: "Stripe webhook signature is verified and handling is idempotent on the event id; a refund or revoke ends the entitlement and invalidates the plan cache"},
+	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id; a refund or revoke ends the entitlement and invalidates the plan cache"},
 	{ID: "account-deletion-cancels-stripe", What: "account deletion cancels the Stripe subscription, with a retry queue and an alert when it cannot"},
-	{ID: "billing-emails", What: "transactional billing emails are sent, and the renewal reminder job runs at least 30 days before renewal"},
+	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal"},
 
 	// Terms, consent and clients.
-	{ID: "terms-served", What: "the Terms version that covers paid plans (/terms/2026-10-23) is served"},
+	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect"},
+	{ID: "launch-notice", What: "the section 11 launch notice goes out by email AND in-app to every verified existing account, as a service email that ignores the engagement opt-out"},
+	{ID: "founding-expiry-notice", What: "a dated job sends an email plus an in-app notice at least 30 days before each founding year ends"},
+	{ID: "budget-tier-blind", What: "a test asserts the Rivian rate-limit classes and the poller never consult entitlements, so Pro never means more Rivian calls"},
 	{ID: "checkout-consent", What: "the checkout consent line (\"first charge on <date>\") is generated from the Checkout session, with a test"},
-	{ID: "clients-gated", What: "web and iPhone show Pro UI only when billing_enabled is true (client tests are the proof)"},
+	{ID: "clients-gated", What: "web and iPhone show Pro UI only when billing_enabled is true (client tests are the proof)",
+		Cleared: true, ClearedBy: "#1365,#1368", Proof: "web/src/lib/plan.test.ts,ios/RivoltTests/ProPaywallTests.swift"},
+	{ID: "delete-range-ui", What: "web and iPhone offer \"Delete history before a month\" (POST /api/data/delete-range), and the old drive and charge 402 screens keep per-row Delete reachable, so a free user has a path to the privacy exit"},
 }
 
 // Pending returns the IDs of the items not yet cleared, in list order.
