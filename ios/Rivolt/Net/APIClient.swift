@@ -92,6 +92,19 @@ actor APIClient {
         try await request("PATCH", "/api/settings/units", body: patch)
     }
 
+    // MARK: Primary vehicle (the one a free account shows)
+
+    private struct PrimaryVehicleBody: Codable { let vehicleId: String; private enum CodingKeys: String, CodingKey { case vehicleId = "vehicle_id" } }
+
+    func primaryVehicle() async throws -> String {
+        let r: PrimaryVehicleBody = try await request("GET", "/api/settings/primary-vehicle")
+        return r.vehicleId
+    }
+
+    func setPrimaryVehicle(vehicleID: String) async throws {
+        let _: Empty = try await request("PUT", "/api/settings/primary-vehicle", body: PrimaryVehicleBody(vehicleId: vehicleID))
+    }
+
     // MARK: Signed-in devices
 
     /// The browsers and iPhones signed in as this person (newest first as the server sends them).

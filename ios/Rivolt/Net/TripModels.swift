@@ -255,12 +255,14 @@ struct SavedTrip: Decodable, Equatable, Identifiable {
     var plan: JSONValue?
     var createdAt: Date?
     var updatedAt: Date?
+    /// On a free account, a trip past the free cap: it can be opened and deleted, not edited. Absent otherwise.
+    var readOnly: Bool?
 
-    init(id: String, name: String, inputs: JSONValue? = nil, plan: JSONValue? = nil, createdAt: Date? = nil, updatedAt: Date? = nil) {
-        self.id = id; self.name = name; self.inputs = inputs; self.plan = plan; self.createdAt = createdAt; self.updatedAt = updatedAt
+    init(id: String, name: String, inputs: JSONValue? = nil, plan: JSONValue? = nil, createdAt: Date? = nil, updatedAt: Date? = nil, readOnly: Bool? = nil) {
+        self.id = id; self.name = name; self.inputs = inputs; self.plan = plan; self.createdAt = createdAt; self.updatedAt = updatedAt; self.readOnly = readOnly
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, inputs, plan, createdAt, updatedAt }
+    private enum CodingKeys: String, CodingKey { case id, name, inputs, plan, createdAt, updatedAt, readOnly }
 }
 
 /// Any JSON value, kept as it came (so a saved trip's blobs round-trip without the app knowing their shape).

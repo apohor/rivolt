@@ -19,7 +19,8 @@ struct TruckView: View {
     @State private var pickedTemp: Double?
     @State private var autoTemp: Double?
 
-    private var selected: Vehicle? { vehicles.first { $0.id == selectedID } ?? vehicles.first }
+    @State private var pickedLocked = false
+    private var selected: Vehicle? { VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked) }
     private var metric: Bool { NowFormat.usesMetric }
     private var fahrenheit: Bool { !DisplayUnits.celsius }
     private var temp: Double { pickedTemp ?? autoTemp ?? TruckLogic.grid(fahrenheit: fahrenheit)[2] }
@@ -29,7 +30,9 @@ struct TruckView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 Group {
-                    if let v = selected {
+                    if let v = selected, v.proLocked == true {
+                        ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit)
+                    } else if let v = selected {
                         TruckContent(model: model, vehicle: v, drainKey: $drainKey, temp: temp, pickTemp: { pickedTemp = $0 },
                                      r2Dismissed: $r2Dismissed, month: month,
                                      notesLink: { id, which in try await state.client.otaNotesURL(vehicleID: id, which: which) },
@@ -57,17 +60,17 @@ struct TruckView: View {
             .refreshable { await reload() }
             .task { await loadVehicles() }
             .task(id: selected?.id) {
-                guard let id = selected?.id else { return }
+                guard let id = selected?.id, selected?.proLocked != true else { return }
                 pickedTemp = nil
                 autoTemp = nil
                 await model.load(source: state.client, vehicleID: id, metric: metric)
             }
             .task(id: "\(selected?.id ?? "")|\(month.key)") {
-                guard let id = selected?.id else { return }
+                guard let id = selected?.id, selected?.proLocked != true else { return }
                 await model.loadSleep(source: state.client, vehicleID: id, month: month)
             }
             .task(id: "\(selected?.id ?? "")|\(temp)") {
-                guard let id = selected?.id else { return }
+                guard let id = selected?.id, selected?.proLocked != true else { return }
                 await model.loadCold(source: state.client, vehicleID: id, tempC: temp, fahrenheit: fahrenheit, metric: metric)
                 // Until a chip is picked: the coldest one with enough history (the winter question).
                 if pickedTemp == nil, autoTemp == nil, let a = model.cold?.value?.available.min() { autoTemp = a }
@@ -85,8 +88,11 @@ struct TruckView: View {
         ThemeTitleRow(title: "Truck") {
             if vehicles.count > 1 {
                 Menu {
-                    Picker("Vehicle", selection: $selectedID) {
-                        ForEach(vehicles) { v in Text(v.name).tag(v.id) }
+                    Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
+                        selectedID = id
+                        pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
+                    })) {
+                        ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
                     }
                 } label: {
                     Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
@@ -101,9 +107,7 @@ struct TruckView: View {
     private func loadVehicles() async {
         do {
             vehicles = try await state.client.vehicles()
-            if selected == nil || !vehicles.contains(where: { $0.id == selectedID }) {
-                selectedID = vehicles.first?.id ?? ""
-            }
+            selectedID = VehicleChoice.id(vehicles, chosen: selectedID, pickedLocked: pickedLocked) ?? ""
             vehiclesError = nil
         } catch {
             if vehicles.isEmpty { vehiclesError = UserFacingError.words(error) }
