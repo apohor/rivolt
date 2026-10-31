@@ -923,6 +923,8 @@ export type EngagementSettings = {
   trip_recap?: boolean;
   plug_threshold_pct: number;
   plug_remind_at: string; // HH:MM, local, no later than 22:00
+  // The month ("2026-12", never a day) the driver expects an R2, for the one arrival email; null when none. Absent from an older server.
+  r2_arrival_month?: string | null;
 };
 
 // A milestone the truck reached (GET /api/milestones): once each per vehicle, with the server's own words.

@@ -43,6 +43,7 @@ import { useHomeRecheck } from "../components/HomeRecheck";
 import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocation";
 import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
+import { R2ArrivalControl } from "../components/R2Arrival";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
@@ -70,6 +71,7 @@ const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as 
 const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
   "ai-features": "account",
+  "r2-arrival": "account",
   "ambient-temp": "account",
   security: "security",
   passkeys: "security",
@@ -213,6 +215,7 @@ function SettingsPageInner() {
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
+          <R2ArrivalControl where="settings" />
           <AIFeaturesCard />
           <AmbientTempCard />
           <AppearanceCard />

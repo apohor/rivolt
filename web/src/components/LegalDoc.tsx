@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import { Link, useLocation } from "react-router-dom";
 import Logo from "./Logo";
 import { useSystemTheme } from "../lib/theme";
@@ -10,10 +10,39 @@ import { useSystemTheme } from "../lib/theme";
 const textOf = (children: React.ReactNode): string =>
   Array.isArray(children) ? children.map(textOf).join("") : typeof children === "string" ? children : "";
 
-export function LegalDoc({ source, other }: { source: string; other: { to: string; label: string } }) {
+const mdComponents: Components = {
+      h1: (p) => <h1 className="text-3xl font-semibold tracking-tight text-neutral-50" {...p} />,
+      h2: ({ children, ...p }) => {
+        const m = textOf(children).match(/^(\d+)\./);
+        return (
+          <h2 id={m ? m[1] : undefined} className="scroll-mt-4 pt-4 text-xl font-semibold text-neutral-50" {...p}>
+            {children}
+          </h2>
+        );
+      },
+      p: (p) => <p className="text-neutral-300" {...p} />,
+      ul: (p) => <ul className="list-disc space-y-2 pl-5 text-neutral-300 marker:text-neutral-600" {...p} />,
+      li: (p) => <li {...p} />,
+      strong: (p) => <strong className="font-semibold text-neutral-100" {...p} />,
+      code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-sm text-neutral-200" {...p} />,
+      a: ({ href, children, ...p }) =>
+        href?.startsWith("/") ? (
+          <Link to={href} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">{children}</Link>
+        ) : (
+          <a href={href} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200" target="_blank" rel="noopener noreferrer" {...p}>
+            {children}
+          </a>
+        ),
+};
+
+// `between` (with `splitAt`, the heading it goes in front of) puts a small interactive block inside the document, after the section
+// before that heading; the markdown on either side is rendered the same way.
+export function LegalDoc({ source, other, between, splitAt }: { source: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string }) {
   // Follow the device theme (light, dark or system) like the demo does.
   useSystemTheme(true);
   const { hash } = useLocation();
+  const at = between && splitAt ? source.indexOf(splitAt) : -1;
+  const parts: [string, string?] = at > 0 ? [source.slice(0, at), source.slice(at)] : [source];
   useEffect(() => {
     if (!hash) return;
     document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: "start" });
@@ -33,34 +62,9 @@ export function LegalDoc({ source, other }: { source: string; other: { to: strin
       </header>
       <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12" data-legal>
         <article className="space-y-4 text-base leading-relaxed">
-          <Markdown
-            components={{
-              h1: (p) => <h1 className="text-3xl font-semibold tracking-tight text-neutral-50" {...p} />,
-              h2: ({ children, ...p }) => {
-                const m = textOf(children).match(/^(\d+)\./);
-                return (
-                  <h2 id={m ? m[1] : undefined} className="scroll-mt-4 pt-4 text-xl font-semibold text-neutral-50" {...p}>
-                    {children}
-                  </h2>
-                );
-              },
-              p: (p) => <p className="text-neutral-300" {...p} />,
-              ul: (p) => <ul className="list-disc space-y-2 pl-5 text-neutral-300 marker:text-neutral-600" {...p} />,
-              li: (p) => <li {...p} />,
-              strong: (p) => <strong className="font-semibold text-neutral-100" {...p} />,
-              code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-sm text-neutral-200" {...p} />,
-              a: ({ href, children, ...p }) =>
-                href?.startsWith("/") ? (
-                  <Link to={href} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">{children}</Link>
-                ) : (
-                  <a href={href} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200" target="_blank" rel="noopener noreferrer" {...p}>
-                    {children}
-                  </a>
-                ),
-            }}
-          >
-            {source}
-          </Markdown>
+          <Markdown components={mdComponents}>{parts[0]}</Markdown>
+          {parts[1] !== undefined && between}
+          {parts[1] !== undefined && <Markdown components={mdComponents}>{parts[1]}</Markdown>}
         </article>
       </main>
       <footer className="border-t border-neutral-900 text-xs text-neutral-500">
