@@ -37,9 +37,6 @@ const (
 	StatusEnded   = "ended"
 )
 
-// TrialLength is the Pro trial every new account gets: 14 days, no card.
-const TrialLength = 14 * 24 * time.Hour
-
 // Grace is how long a paid subscription whose renewal failed stays Pro after its period end.
 const Grace = 7 * 24 * time.Hour
 
@@ -201,12 +198,12 @@ func ActiveTrialEnd(rows []Row, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// ActiveFreeEnd is the end of the account's free Pro: the latest end among its running trial and founding rows (false: neither is running).
+// ActiveFreeEnd is the end of the account's free Pro: the latest end among its running founding, grant and trial rows (false: none is running). A new account has none: nothing starts a trial any more, and the 'trial' source is only read, for rows that already exist.
 // A subscription bought while one of them runs must start billing when it ends, not at once (that would bill twice for the same months).
 func ActiveFreeEnd(rows []Row, now time.Time) (time.Time, bool) {
 	var best time.Time
 	for _, r := range rows {
-		if (r.Source == SourceTrial || r.Source == SourceFounding) && r.Status == StatusActive && r.PeriodEnd != nil && now.Before(*r.PeriodEnd) && r.PeriodEnd.After(best) {
+		if (r.Source == SourceTrial || r.Source == SourceFounding || r.Source == SourceGrant) && r.Status == StatusActive && r.PeriodEnd != nil && now.Before(*r.PeriodEnd) && r.PeriodEnd.After(best) {
 			best = *r.PeriodEnd
 		}
 	}

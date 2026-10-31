@@ -59,7 +59,7 @@ logic (default week, explicit week, year rollover, a non-Monday refused) was che
 
 ## Rivolt Pro numbers (part 2)
 
-Counts of entitlement rows, never accounts' identities; the demo is left out. A trial or founding row keeps `status = active` after its end (nothing
+Counts of entitlement rows, never accounts' identities; the demo is left out. No trial is started for new accounts any more (the trial counts only show rows from before that, preview rows, so expect zeros). A trial or founding row keeps `status = active` after its end (nothing
 flips it), so read `running_at_week_end`, not the status, for who is Pro. "Converted" means the account has a Stripe or Apple row created from the
 trial's start to one day after its end. `entitlements` is not on the read-only allowlist; putting it there (or a counts-only view over it) is a privacy
 decision for DA, like `events` above.

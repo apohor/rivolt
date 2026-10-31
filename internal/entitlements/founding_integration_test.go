@@ -126,8 +126,9 @@ func TestFoundingGrantAgainstPostgres(t *testing.T) {
 	}
 }
 
-// A brand-new account starts a 14-day trial, once, ever; the demo and an account that signs in again do not.
-func TestNewAccountTrialAgainstPostgres(t *testing.T) {
+// A brand-new account starts on the free plan: no entitlement row, whether sign-up goes through EnsureUser or EnsureUserFull, and
+// signing in again writes none either. The demo account has none.
+func TestNewAccountStartsFreeAgainstPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
@@ -135,56 +136,35 @@ func TestNewAccountTrialAgainstPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	t.Cleanup(func() { db.SetNewAccountTrial(0) })
 
-	before, err := db.EnsureUser(ctx, pool, "trial-before-billing") // billing off: no trial
+	a, err := db.EnsureUser(ctx, pool, "free-new-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1`, before).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("a trial started with billing off: %d %v", n, err)
-	}
-
-	db.SetNewAccountTrial(entitlements.TrialLength)
-	start := time.Now()
-	uid, err := db.EnsureUserFull(ctx, pool, "trial-new", "", "")
+	b, err := db.EnsureUserFull(ctx, pool, "free-new-b", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var end time.Time
-	if err := pool.QueryRowContext(ctx, `SELECT current_period_end FROM entitlements WHERE user_id = $1 AND source = 'trial' AND status = 'active'`, uid).Scan(&end); err != nil {
-		t.Fatalf("a new account has no trial: %v", err)
-	}
-	if d := end.Sub(start); d < entitlements.TrialLength-time.Minute || d > entitlements.TrialLength+time.Minute {
-		t.Errorf("the trial runs %v, want 14 days", d)
-	}
-	ent := entitlements.New(pool, entitlements.Config{Billing: true})
-	if st, _ := ent.State(ctx, uid); !st.Pro || st.Source != entitlements.SourceTrial || st.TrialEnds == nil {
-		t.Errorf("a trial account reads %+v", st)
-	}
-
-	// Signing in again is not a new account, and a trial row that ended is never replaced: one trial per account, ever.
-	if _, err := pool.ExecContext(ctx, `UPDATE entitlements SET status = 'ended', current_period_end = now() - interval '1 day' WHERE user_id = $1`, uid); err != nil {
+	if _, err := db.EnsureUserFull(ctx, pool, "free-new-b", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.EnsureUserFull(ctx, pool, "trial-new", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if started, err := db.StartTrial(ctx, pool, uid, entitlements.TrialLength); err != nil || started {
-		t.Errorf("a second trial started: %v %v", started, err)
-	}
-	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1 AND source = 'trial' AND status = 'ended'`, uid).Scan(&n); err != nil || n != 1 {
-		t.Errorf("the ended trial was replaced: %d %v", n, err)
-	}
-
-	// The demo account never gets one.
 	demoID, err := db.EnsureUserFull(ctx, pool, db.DemoUsername, "", "Demo")
 	if err != nil {
 		t.Fatal(err)
 	}
+	ent := entitlements.New(pool, entitlements.Config{Billing: true})
+	for name, uid := range map[string]uuid.UUID{"EnsureUser": a, "EnsureUserFull": b} {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1`, uid).Scan(&n); err != nil || n != 0 {
+			t.Errorf("%s: a new account has %d entitlement rows (%v), want none", name, n, err)
+		}
+		if st, err := ent.State(ctx, uid); err != nil || st.Pro {
+			t.Errorf("%s: a new account reads %+v %v, want free", name, st, err)
+		}
+	}
+	var n int
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1`, demoID).Scan(&n); err != nil || n != 0 {
-		t.Errorf("the demo got a trial: %d %v", n, err)
+		t.Errorf("the demo got a row: %d %v", n, err)
 	}
 }
 
