@@ -1,4 +1,5 @@
 import type { Vehicle } from "../lib/api";
+import { pickerLabel } from "../lib/proVehicles";
 
 // VehiclePicker is the multi-vehicle-aware replacement for the
 // old `vehicles[0]` assumption on single-vehicle pages.
@@ -44,7 +45,7 @@ export function VehiclePicker({
       >
         {vehicles.map((v) => (
           <option key={v.id} value={v.id}>
-            {displayName(v)}
+            {pickerLabel(displayName(v), v)}
           </option>
         ))}
       </select>

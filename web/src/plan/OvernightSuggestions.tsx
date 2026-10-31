@@ -1,3 +1,5 @@
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import { proLimitOf } from "../lib/proLimit";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type TripRoute } from "../lib/api";
 import { decodePolyline6 } from "../components/TripRouteMap";
@@ -27,6 +29,15 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
     staleTime: 10 * 60_000,
   });
   const d = q.data;
+  // A free account (HTTP 402): hotels and campgrounds with a charger are Pro, so say that instead of showing nothing.
+  const limit = proLimitOf(q.error);
+  if (limit) {
+    return (
+      <section data-overnight-suggestions-pro aria-label={`Where to sleep on day ${day}`}>
+        <ProLimitNotice limit={limit} feature="planner" />
+      </section>
+    );
+  }
   if (!d || d.target.reaches_end) return null;
   const aboutIn = formatDistance(d.target.along_m / 1000, distanceUnit);
   const fallback = d.fallback_stays ?? [];

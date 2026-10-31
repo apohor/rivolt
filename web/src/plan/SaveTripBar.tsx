@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import type { ProLimit } from "../lib/proLimit";
 
 // SaveTripBar: Save trip, on the result itself. The only other place to save a trip is a name field on the
 // Saved tab, away from the result, and the star next to each place saves a place, not the trip: people
@@ -9,6 +11,7 @@ export function SaveTripBar({
   saving,
   error,
   savedName,
+  limit,
   onSave,
   onShowSaved,
 }: {
@@ -19,6 +22,8 @@ export function SaveTripBar({
   error: string | null;
   // The name it was just saved under, until the next change.
   savedName: string | null;
+  // A free account's cap on saved trips was hit (HTTP 402): the note replaces the error line.
+  limit?: ProLimit | null;
   onSave: (name: string) => void;
   onShowSaved: () => void;
 }) {
@@ -81,6 +86,11 @@ export function SaveTripBar({
               </button>
             </span>
           )}
+        </div>
+      )}
+      {limit && (
+        <div className="mt-2">
+          <ProLimitNotice limit={limit} feature="saved-trips" />
         </div>
       )}
       {error && (

@@ -13,6 +13,7 @@ import { ColdRangeCard } from "../components/ColdRangeCard";
 import DrainCard from "../components/DrainCard";
 import { TruckSummary } from "../components/TruckSummary";
 import { VehiclePicker } from "../components/VehiclePicker";
+import { LockedVehicleNotice } from "../components/LockedVehicle";
 import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
@@ -97,6 +98,19 @@ export default function TruckPage() {
         <Card>
           <p className="text-sm text-neutral-400">Connect your Rivian to see pack health and sleep here.</p>
         </Card>
+      </div>
+    );
+  }
+
+  if (vehicle?.pro_locked) {
+    return (
+      <div className="space-y-4" data-ui-grid="truck">
+        <PageHeader
+          title="Truck"
+          subtitle={name}
+          actions={<VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />}
+        />
+        <LockedVehicleNotice name={vehicle.name || undefined} />
       </div>
     );
   }
