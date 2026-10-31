@@ -77,6 +77,9 @@ type activityCharge struct {
 	Network           string    `json:"network"`
 	// EnergyEstimated: the energy was estimated from the SoC gain (its metered count had been lost), so the cost is too.
 	EnergyEstimated bool `json:"energy_estimated"`
+	// GapKWh: the part of the energy credited for stretches the recorder had no readings for, from the SoC gained across
+	// them (not metered). Absent when none.
+	GapKWh float64 `json:"gap_kwh,omitempty"`
 }
 
 type activityResponse struct {
@@ -375,7 +378,7 @@ func handleActivity(ds *drives.Store, cs *charges.Store, settingsStore *settings
 					EnergyAddedKWh: c.EnergyAddedKWh, StartSoCPct: c.StartSoCPct, EndSoCPct: c.EndSoCPct, MaxPowerKW: c.MaxPowerKW,
 					Cost: c.Cost, Currency: c.Currency, CostSourceEff: costSrc,
 					EstimatedCost: c.EstimatedCost, EstimatedCurrency: c.EstimatedCurrency,
-					Kind: kind, Place: place, Network: c.Network, EnergyEstimated: c.EnergyEstimated,
+					Kind: kind, Place: place, Network: c.Network, EnergyEstimated: c.EnergyEstimated, GapKWh: c.GapKWh,
 				})
 			}
 		}

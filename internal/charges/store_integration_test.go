@@ -1428,6 +1428,20 @@ func TestReaders_ReturnEnergyEstimated(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("walk", got)
+
+	// gap_kwh round-trips through the metadata, and a re-save that carries none leaves the stored one alone.
+	gap := sampleCharge("rd-gap", "rv-rd", start.Add(-10*time.Hour), "charging_complete")
+	gap.EnergyEstimated, gap.GapKWh = true, 4.5
+	if err := store.Upsert(ctx, gap); err != nil {
+		t.Fatal(err)
+	}
+	gap.GapKWh = 0
+	if err := store.Upsert(ctx, gap); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := store.GetByExternalID(ctx, "rd-gap"); err != nil || c == nil || c.GapKWh != 4.5 || !c.EnergyEstimated {
+		t.Errorf("gap charge read back as %+v (%v), want gap 4.5 and estimated", c, err)
+	}
 	open, err := store.LatestOpenLive(ctx, "rv-rd")
 	if err != nil || open == nil || open.ID != "rd-est" || !open.EnergyEstimated {
 		t.Errorf("open-live: %+v %v, want rd-est marked", open, err)

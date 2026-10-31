@@ -142,6 +142,24 @@ type Charge struct {
 	// restart took it) and the energy was estimated from the SoC gain. Stored in metadata ("energy_estimated"), set
 	// and never cleared by an upsert (a row read back and re-saved keeps it).
 	EnergyEstimated bool
+	// GapKWh is the part of EnergyAddedKWh credited for stretches the recorder had no power frames for (a dropout
+	// longer than its integration cap) from the SoC the pack gained across them, not metered. 0 when none. Stored
+	// in metadata ("gap_kwh"); an upsert with 0 leaves a stored value alone.
+	GapKWh float64
+}
+
+// chargeMetaDoc is the metadata an upsert merges into the row: the energy marks, only the ones that are set,
+// so a re-save that carries none leaves the stored ones alone.
+func chargeMetaDoc(c Charge) string {
+	doc := map[string]any{}
+	if c.EnergyEstimated {
+		doc["energy_estimated"] = true
+	}
+	if c.GapKWh > 0 {
+		doc["gap_kwh"] = math.Round(c.GapKWh*1000) / 1000
+	}
+	b, _ := json.Marshal(doc)
+	return string(b)
 }
 
 // Store wraps the charges table.
@@ -337,25 +355,25 @@ const chargeOnConflict = `
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			charge_limit_pct = COALESCE(EXCLUDED.charge_limit_pct, charges.charge_limit_pct),
 			-- Sticky: an estimated energy stays marked, whatever re-saves the row later.
-			metadata         = CASE WHEN $EST::boolean THEN charges.metadata || '{"energy_estimated": true}'::jsonb ELSE charges.metadata END,
+			metadata         = charges.metadata || $META::jsonb,
 			updated_at       = NOW()`
 
-// plainChargeUpsert binds the 32 columns and the estimated flag ($33).
+// plainChargeUpsert binds the 32 columns and the metadata document ($33, see chargeMetaDoc).
 var plainChargeUpsert = `
 		INSERT INTO charges (` + strings.Join(chargeColumns, ", ") + `, metadata
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean,$28,$29,$30,$31,$32,
-			CASE WHEN $33::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END)` + strings.ReplaceAll(chargeOnConflict, "$EST", "$33")
+			$33::jsonb)` + strings.ReplaceAll(chargeOnConflict, "$META", "$33")
 
 // guardedChargeUpsert writes the charge only if rivolt_lease_ok(group, pod, epoch) holds when the
 // statement starts, and says so in the same statement: (false, 0) refused, (true, 1) written. The
-// columns arrive as one JSON document ($4, see fence.RowJSON) and the energy-estimated flag as $5.
+// columns arrive as one JSON document ($4, see fence.RowJSON) and the metadata document as $5.
 var guardedChargeUpsert = `
 	WITH ok AS MATERIALIZED (SELECT rivolt_lease_ok($1::uuid, $2::text, $3::bigint) AS ok),
 	ins AS (
 		INSERT INTO charges (` + strings.Join(chargeColumns, ", ") + `, metadata
 		) SELECT ` + "r." + strings.Join(chargeColumns, ", r.") + `,
-		         CASE WHEN $5::boolean THEN '{"energy_estimated": true}'::jsonb ELSE '{}'::jsonb END
-		  FROM ok, json_populate_record(NULL::charges, $4::json) r WHERE ok.ok` + strings.ReplaceAll(chargeOnConflict, "$EST", "$5") + `
+		         $5::jsonb
+		  FROM ok, json_populate_record(NULL::charges, $4::json) r WHERE ok.ok` + strings.ReplaceAll(chargeOnConflict, "$META", "$5") + `
 		RETURNING 1)
 	SELECT (SELECT ok FROM ok), (SELECT count(*) FROM ins)`
 
@@ -404,7 +422,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		// Bounded transaction (2 s cap, 2 s statement timeout): a write that passed the lease check
 		// and then waits on a lock is cancelled, not committed after the lease expired.
 		if err := fence.InTx(ctx, s.db, func(tctx context.Context, tx *sql.Tx) error {
-			return tx.QueryRowContext(tctx, guardedChargeUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc), c.EnergyEstimated).Scan(&allowed, &n)
+			return tx.QueryRowContext(tctx, guardedChargeUpsert, tok.Group, tok.Pod, tok.Epoch, string(doc), chargeMetaDoc(c)).Scan(&allowed, &n)
 		}); err != nil {
 			return err
 		}
@@ -413,7 +431,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		}
 		return nil
 	}
-	_, err = s.db.ExecContext(ctx, plainChargeUpsert, append(args, c.EnergyEstimated)...)
+	_, err = s.db.ExecContext(ctx, plainChargeUpsert, append(args, chargeMetaDoc(c))...)
 	return err
 }
 
@@ -530,7 +548,8 @@ func (s *Store) listWindow(ctx context.Context, limit int, rivianVehicleID strin
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -560,7 +579,7 @@ func (s *Store) listWindow(ctx context.Context, limit int, rivianVehicleID strin
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
 		); err != nil {
 			return nil, err
 		}
@@ -601,7 +620,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -632,7 +652,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
+		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
 	); err != nil {
 		return nil, err
 	}
@@ -873,7 +893,8 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -898,7 +919,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
 		); err != nil {
 			return err
 		}
@@ -1115,7 +1136,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,''),
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
-		       COALESCE(c.metadata->>'energy_estimated' = 'true', false)
+		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -1139,7 +1161,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated,
+		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
 	); err != nil {
 		return nil, err
 	}
@@ -1251,14 +1273,14 @@ func (s *Store) LiveOverlap(ctx context.Context, rivianVehicleID, excludeID stri
 
 // RestampResult counts what RestampPlace changed (or would change).
 type RestampResult struct {
-	DryRun               bool       `json:"dry_run"`
-	Changed              int        `json:"changed"`
-	ToHome               int        `json:"to_home"`
-	ToAway               int        `json:"to_away"`
-	Unchanged            int        `json:"unchanged"`
-	SkippedUserPriced    int        `json:"skipped_user_priced"`
+	DryRun            bool `json:"dry_run"`
+	Changed           int  `json:"changed"`
+	ToHome            int  `json:"to_home"`
+	ToAway            int  `json:"to_away"`
+	Unchanged         int  `json:"unchanged"`
+	SkippedUserPriced int  `json:"skipped_user_priced"`
 	// SkippedOverridden: charges whose home/away the user set by hand, never re-checked.
-	SkippedOverridden int `json:"skipped_overridden"`
+	SkippedOverridden    int        `json:"skipped_overridden"`
 	WouldPriceAtHomeRate int        `json:"would_price_at_home_rate"`
 	TotalCostDelta       float64    `json:"total_cost_delta"`
 	Currency             string     `json:"currency"`
