@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
 import { buildYearShareModel, yearCardYear, yearFileName } from "../lib/yearInRivolt";
-import { track } from "../lib/track";
 import { Card } from "./ui";
 import { ShareSheet } from "./ShareSheet";
 
@@ -58,7 +57,6 @@ export function YearCard({ now }: { now?: Date }) {
           build={(includeCost) => buildYearShareModel(y, { includeCost }) ?? model}
           fileName={yearFileName(year)}
           withCostToggle={!!y.cost}
-          onShared={() => track("statement_share", { kind: "png" })}
           onClose={() => setOpen(false)}
         />
       )}
