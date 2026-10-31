@@ -21,6 +21,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/statement"
 )
@@ -445,5 +446,154 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 	before := "/ledger/trips?from=" + now.AddDate(0, 0, -300).Format("2006-01-02") + "&to=" + now.AddDate(0, 0, -200).Format("2006-01-02")
 	if code, body := get(free, before); code != 200 {
 		t.Errorf("trips wholly before the window: %d %s", code, body)
+	}
+}
+
+// The analytics reads under the free window (part 3): raw samples, the sleep series and the efficiency insights are clamped to the window
+// (a free account asking for a year gets the last 90 days; Pro gets what it asks for); trends, range near a temperature and the capacity
+// estimate are Pro-only (402 pro_required on a free account).
+func TestAnalyticsWindowAgainstPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	free, _ := db.EnsureUser(ctx, pool, "ana-free")
+	pro, _ := db.EnsureUser(ctx, pool, "ana-pro")
+	if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'grant', 'active', NULL)`, pro); err != nil {
+		t.Fatal(err)
+	}
+	resolvers := db.NewVehicleResolverFactory(pool)
+	df := drives.NewFactory(pool, resolvers)
+	smf := samples.NewFactory(pool, resolvers)
+	now := time.Now().UTC().Truncate(time.Second)
+	day := func(daysAgo int) time.Time {
+		d := now.AddDate(0, 0, -daysAgo)
+		return time.Date(d.Year(), d.Month(), d.Day(), 10, 0, 0, 0, time.UTC)
+	}
+	old, recent := day(300), day(5)
+	for _, u := range []uuid.UUID{free, pro} {
+		for _, at := range []time.Time{old, recent} {
+			if err := df.For(u).Upsert(ctx, drives.Drive{ID: "ana-drive-" + at.Format("0102"), VehicleID: "rv-ana", StartedAt: at, EndedAt: at.Add(30 * time.Minute),
+				StartSoCPct: 80, EndSoCPct: 70, DistanceMi: 12, EnergyUsedKWh: 5, AvgSpeedMph: 40, Source: "live"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var vid uuid.UUID
+		if err := pool.QueryRowContext(ctx, `SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = 'rv-ana'`, u).Scan(&vid); err != nil {
+			t.Fatal(err)
+		}
+		// Two parked samples an hour apart on each day, the car asleep.
+		for _, at := range []time.Time{old, recent} {
+			if _, err := pool.ExecContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, at); err != nil {
+				t.Fatal(err)
+			}
+			for _, h := range []int{0, 1} {
+				if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (vehicle_id, user_id, at, source, battery_level_pct, power_state, shift_state, charging_state)
+					VALUES ($1, $2, $3, 'live', 70, 'sleep', 'P', 'not_charging')`, vid, u, at.Add(time.Duration(h)*time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+
+	ent := entitlements.New(pool, entitlements.Config{Billing: true})
+	win := historyWindowMiddleware(ent)
+	proOnly := proOnlyMiddleware(ent)
+	rt := chi.NewRouter()
+	rt.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u, _ := uuid.Parse(r.Header.Get("X-Test-User"))
+			next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), u)))
+		})
+	})
+	userHandler := func(f func(uid uuid.UUID) http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			uid, _ := auth.UserFromContext(r.Context())
+			f(uid)(w, r)
+		}
+	}
+	rt.With(win).Get("/samples", userHandler(func(u uuid.UUID) http.HandlerFunc { return handleSamples(smf.For(u)) }))
+	rt.With(win).Get("/sleep-activity", userHandler(func(u uuid.UUID) http.HandlerFunc { return handleSleepActivity(u, smf.For(u)) }))
+	rt.With(win).Get("/insights/efficiency", userHandler(func(u uuid.UUID) http.HandlerFunc { return handleEfficiencyInsights(smf.For(u), nil) }))
+	rt.With(proOnly).Get("/vehicles/{vehicleID}/trends", userHandler(func(u uuid.UUID) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { handleVehicleTrends(pool)(u, w, r) }
+	}))
+	rt.With(proOnly).Get("/vehicles/{vehicleID}/cold-range", userHandler(func(u uuid.UUID) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { handleColdRange(pool)(u, w, r) }
+	}))
+	rt.With(proOnly).Get("/vehicles/{vehicleID}/pack-health", userHandler(func(u uuid.UUID) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { handlePackHealthGet(pool, nil)(u, w, r) }
+	}))
+	get := func(u uuid.UUID, path string) (int, []byte) {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Test-User", u.String())
+		rec := httptest.NewRecorder()
+		rt.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.Bytes()
+	}
+	ts := func(t time.Time) string { return url_(t) }
+	since := ts(now.AddDate(0, 0, -350))
+	until := ts(now.Add(time.Hour))
+
+	// Raw samples: the free account's year-long range is clamped to the window (the old samples are not returned); Pro gets all four.
+	count := func(u uuid.UUID, path string) int {
+		code, body := get(u, path)
+		var rows []json.RawMessage
+		if code != 200 || json.Unmarshal(body, &rows) != nil {
+			t.Fatalf("%s: %d %s", path, code, body)
+		}
+		return len(rows)
+	}
+	if n := count(free, "/samples?since="+since+"&until="+until); n != 2 {
+		t.Errorf("free samples over 350 days: %d rows, want the 2 inside the window", n)
+	}
+	if n := count(pro, "/samples?since="+since+"&until="+until); n != 4 {
+		t.Errorf("pro samples over 350 days: %d rows, want 4", n)
+	}
+
+	// The sleep series: one day inside the window for free, both for Pro. (The cache key carries the clamped range, so one plan can't be
+	// served the other's series.)
+	if n := count(free, "/sleep-activity?since="+since+"&until="+until); n != 1 {
+		t.Errorf("free sleep-activity: %d days, want 1", n)
+	}
+	if n := count(pro, "/sleep-activity?since="+since+"&until="+until); n != 2 {
+		t.Errorf("pro sleep-activity: %d days, want 2", n)
+	}
+	if n := count(free, "/sleep-activity?since="+since+"&until="+until); n != 1 {
+		t.Errorf("free sleep-activity after a Pro request for the same range: %d days, want 1 (a cached Pro series was served)", n)
+	}
+
+	// Efficiency insights: a free account asking for a year gets exactly the answer for the window; Pro's covers the old drive too.
+	body := func(u uuid.UUID, path string) string {
+		code, b := get(u, path)
+		if code != 200 {
+			t.Fatalf("%s: %d %s", path, code, b)
+		}
+		return string(b)
+	}
+	freeYear := body(free, "/insights/efficiency?since="+since+"&until="+until)
+	freeWindow := body(free, "/insights/efficiency?since="+ts(now.AddDate(0, 0, -80))+"&until="+until)
+	proYear := body(pro, "/insights/efficiency?since="+since+"&until="+until)
+	if freeYear != freeWindow {
+		t.Errorf("a free account's year of insights differs from its window:\nyear   %s\nwindow %s", freeYear, freeWindow)
+	}
+	if freeYear == proYear {
+		t.Errorf("a free and a Pro account got the same year of insights: the old drive was not left out for free")
+	}
+
+	// Pro-only reads.
+	for _, p := range []string{"/vehicles/rv-ana/trends", "/vehicles/rv-ana/cold-range", "/vehicles/rv-ana/pack-health"} {
+		code, b := get(free, p)
+		var pb paywallBody
+		_ = json.Unmarshal(b, &pb)
+		if code != http.StatusPaymentRequired || pb.Error != "pro_required" {
+			t.Errorf("free %s: %d %s, want 402 pro_required", p, code, b)
+		}
+		if code, b := get(pro, p); code == http.StatusPaymentRequired {
+			t.Errorf("pro %s: %d %s, a Pro account was refused", p, code, b)
+		}
 	}
 }
