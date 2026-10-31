@@ -4,7 +4,9 @@
 // engagement_prefs.r2_arrival_month, off until chosen). On the first weekday of that month, at 08:00 in their time zone, they
 // get one email with the connect steps. It goes only to a verified address, only while no vehicle is connected, only when the
 // user has not turned engagement emails off, counts against the engagement budget, and is claimed in engagement_sends under the
-// month, so it is sent at most once across replicas and restarts. It is never sent after its month, and never a second time.
+// month, so it is sent at most once across replicas and restarts. It is never sent after its month, and never a second time. Once
+// its email is claimed (sent, failed or already sent) the month is deleted, and a month that has ended is deleted by the sweep: the
+// due list is capped, so finished rows must not crowd later users out, and the month is not kept past its purpose.
 package r2arrival
 
 import (
@@ -44,6 +46,9 @@ const (
 type Source interface {
 	Due(ctx context.Context, from, to time.Time) ([]db.R2ArrivalDue, error)
 	StillWanted(ctx context.Context, uid uuid.UUID, month time.Time) (bool, error)
+	// Clear deletes the user's month if it is still this one; ClearEnded deletes every month that has ended.
+	Clear(ctx context.Context, uid uuid.UUID, month time.Time) error
+	ClearEnded(ctx context.Context, now time.Time) (int64, error)
 }
 
 // Mailer sends an email.
@@ -114,6 +119,11 @@ func (j *Job) Sweep(ctx context.Context) {
 		return
 	}
 	now := j.now()
+	if n, err := j.Source.ClearEnded(ctx, now); err != nil {
+		j.log().Warn("r2 arrival sweep: clear ended months", "err", err.Error())
+	} else if n > 0 {
+		j.log().Info("r2 arrival: deleted ended months", "count", n)
+	}
 	// Candidate months: this one in any zone, so the month before and after UTC's.
 	cur := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
 	due, err := j.Source.Due(ctx, cur.AddDate(0, -1, 0), cur.AddDate(0, 1, 0))
@@ -154,6 +164,14 @@ func (j *Job) send(ctx context.Context, c db.R2ArrivalDue, now time.Time) {
 	if err != nil {
 		j.log().Warn("r2 arrival send", "outcome", outcome, "err", err.Error())
 	}
+	// The claim is final for sent, failed (never retried under the month) and already sent: the month has served its purpose.
+	// A skip (budget, no longer wanted, fenced) is tried again, so the month stays.
+	switch outcome {
+	case engage.Sent, engage.Failed, engage.AlreadySent:
+		if err := j.Source.Clear(ctx, c.UserID, c.Month); err != nil {
+			j.log().Warn("r2 arrival: delete the month", "err", err.Error())
+		}
+	}
 }
 
 func (j *Job) outcome(o string) {
@@ -171,14 +189,14 @@ func BuildMessage(to string, month time.Time, baseURL, token string) email.Messa
 		"You asked for one note in " + month.Month().String() + ": when your R2 arrives, here is how to connect it to Rivolt.\n\n" +
 		"1. In the Rivian app, add the second Rivian account you created as an Authorized Driver on the R2, and accept the invite by signing in to the Rivian app once with that account.\n" +
 		"2. In Rivolt, Settings → Account → Connect Rivian, and sign in with that account. Your password is used once and never stored.\n" +
-		"3. Drive or charge once; the first drive or charge appears within minutes of finishing.\n\n" +
+		"3. Drive or charge once; it shows up in Activity once it ends.\n\n" +
 		"If the truck is still a way off, change the month in Settings; if you'd rather not hear from us, delete the reminder there. " +
 		"Drives, charges and plug-in are recorded on the first R2s on Rivolt; a few fields aren't in yet, and the Truck tab says which.\n\n" +
 		"The Rivolt team\nsupport@rivolt.dev\nRivolt is unofficial and not affiliated with Rivian.\n\n" +
 		"Delete this reminder: " + unsub + "\n"
 	return email.Message{
 		To:      to,
-		Subject: "Your R2 may be here: connect it in two minutes",
+		Subject: "Your R2 may be here: how to connect it to Rivolt",
 		Text:    text,
 		Headers: map[string]string{
 			"List-Unsubscribe":      "<" + unsub + ">",

@@ -3362,6 +3362,14 @@ func (s r2ArrivalSource) Due(ctx context.Context, from, to time.Time) ([]db.R2Ar
 	return db.ListR2ArrivalDue(ctx, s.db, from, to)
 }
 
+func (s r2ArrivalSource) Clear(ctx context.Context, uid uuid.UUID, month time.Time) error {
+	return db.ClearR2ArrivalMonthFor(ctx, s.db, uid, month)
+}
+
+func (s r2ArrivalSource) ClearEnded(ctx context.Context, now time.Time) (int64, error) {
+	return db.ClearEndedR2ArrivalMonths(ctx, s.db, now)
+}
+
 func (s r2ArrivalSource) StillWanted(ctx context.Context, uid uuid.UUID, month time.Time) (bool, error) {
 	return db.R2ArrivalStillWanted(ctx, s.db, uid, month)
 }

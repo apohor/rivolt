@@ -51,8 +51,19 @@ func (f *fakeStore) StuckSending(context.Context, time.Duration, time.Time) (int
 func (f *fakeStore) Purge(context.Context, time.Time) (int64, error) { return 0, nil }
 
 type fakeSource struct {
-	due    []db.R2ArrivalDue
-	wanted bool
+	due        []db.R2ArrivalDue
+	wanted     bool
+	cleared    []uuid.UUID
+	endedCalls int
+}
+
+func (s *fakeSource) Clear(_ context.Context, uid uuid.UUID, _ time.Time) error {
+	s.cleared = append(s.cleared, uid)
+	return nil
+}
+func (s *fakeSource) ClearEnded(context.Context, time.Time) (int64, error) {
+	s.endedCalls++
+	return 0, nil
 }
 
 func (s *fakeSource) Due(context.Context, time.Time, time.Time) ([]db.R2ArrivalDue, error) {
@@ -189,11 +200,11 @@ func TestSweepSkipsWhatNoLongerApplies(t *testing.T) {
 
 func TestMessageHasTheApprovedWordingAndAnUnsubscribe(t *testing.T) {
 	m := BuildMessage("a@example.test", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), "https://rivolt.dev/", "TOK")
-	if m.Subject != "Your R2 may be here: connect it in two minutes" || m.To != "a@example.test" {
+	if m.Subject != "Your R2 may be here: how to connect it to Rivolt" || m.To != "a@example.test" {
 		t.Fatalf("%q to %q", m.Subject, m.To)
 	}
 	for _, want := range []string{
-		"You asked for one note in December:", "Authorized Driver", "Settings → Account → Connect Rivian", "never stored",
+		"You asked for one note in December:", "Authorized Driver", "Settings → Account → Connect Rivian", "never stored", "it shows up in Activity once it ends",
 		"recorded on the first R2s on Rivolt", "The Rivolt team", "unofficial and not affiliated with Rivian",
 		"https://rivolt.dev/api/r2-arrival/unsubscribe?t=TOK",
 	} {
@@ -205,7 +216,39 @@ func TestMessageHasTheApprovedWordingAndAnUnsubscribe(t *testing.T) {
 		t.Errorf("headers: %v", m.Headers)
 	}
 	// A day or place of delivery never appears: the message only knows the month.
+	for _, claim := range []string{"minutes", "two minutes", "within"} {
+		if strings.Contains(m.Text+m.Subject, claim) {
+			t.Errorf("the message makes a timing claim: %q", claim)
+		}
+	}
 	if strings.Contains(m.Text, "2026") {
 		t.Error("the message names a year")
+	}
+}
+
+func TestTheMonthIsDeletedOnceItsEmailIsFinalAndEndedMonthsEveryTime(t *testing.T) {
+	uid := uuid.New()
+	loc, _ := time.LoadLocation("America/Chicago")
+	src := &fakeSource{wanted: true, due: []db.R2ArrivalDue{{UserID: uid, Email: "a@example.test", Month: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}}}
+	j, mail, _ := job(t, time.Date(2026, 11, 3, 9, 0, 0, 0, loc), "America/Chicago", true, src)
+	j.Sweep(context.Background())
+	if len(mail.sent) != 1 || len(src.cleared) != 1 || src.cleared[0] != uid || src.endedCalls != 1 {
+		t.Fatalf("sent %d, cleared %v, ended-month sweeps %d", len(mail.sent), src.cleared, src.endedCalls)
+	}
+	// A second pass finds the claim and still deletes the month (a crash between claim and delete must not leave it).
+	j.Sweep(context.Background())
+	if len(mail.sent) != 1 || len(src.cleared) != 2 {
+		t.Fatalf("already sent: sent %d, cleared %d", len(mail.sent), len(src.cleared))
+	}
+	// Over the budget, or no longer wanted: kept, to be tried again within the month.
+	src2 := &fakeSource{wanted: true, due: src.due}
+	j2, _, st := job(t, time.Date(2026, 11, 3, 9, 0, 0, 0, loc), "America/Chicago", true, src2)
+	st.used = engage.MonthlyBudget
+	j2.Sweep(context.Background())
+	src2.wanted = false
+	j3, _, _ := job(t, time.Date(2026, 11, 3, 9, 0, 0, 0, loc), "America/Chicago", true, src2)
+	j3.Sweep(context.Background())
+	if len(src2.cleared) != 0 {
+		t.Fatalf("deleted a month whose email did not go: %v", src2.cleared)
 	}
 }

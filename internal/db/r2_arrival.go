@@ -58,6 +58,26 @@ func R2ArrivalStillWanted(ctx context.Context, d *sql.DB, uid uuid.UUID, month t
 	return err == nil, err
 }
 
+// ClearR2ArrivalMonthFor removes the user's month only if it is still this one: after the email for it is claimed, so the user
+// stops matching the due list (the list is capped, so finished rows must not stay in it). A month changed since is left alone.
+func ClearR2ArrivalMonthFor(ctx context.Context, d *sql.DB, uid uuid.UUID, month time.Time) error {
+	_, err := d.ExecContext(ctx, `UPDATE engagement_prefs SET r2_arrival_month = NULL, updated_at = NOW()
+		WHERE user_id = $1 AND r2_arrival_month = $2::date`, uid, month.Format("2006-01-02"))
+	return err
+}
+
+// ClearEndedR2ArrivalMonths deletes every month that has ended in any zone (before the previous UTC month): it has served its
+// purpose and is not kept. One statement; returns how many.
+func ClearEndedR2ArrivalMonths(ctx context.Context, d *sql.DB, now time.Time) (int64, error) {
+	cur := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	res, err := d.ExecContext(ctx, `UPDATE engagement_prefs SET r2_arrival_month = NULL, updated_at = NOW()
+		WHERE r2_arrival_month < $1::date`, cur.AddDate(0, -1, 0).Format("2006-01-02"))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ClearR2ArrivalMonth removes the user's chosen month (the email's one-click link, and Settings' Delete). Idempotent.
 func ClearR2ArrivalMonth(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 	_, err := d.ExecContext(ctx, `UPDATE engagement_prefs SET r2_arrival_month = NULL, updated_at = NOW() WHERE user_id = $1 AND r2_arrival_month IS NOT NULL`, uid)

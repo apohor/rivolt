@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +145,86 @@ func TestR2ArrivalMonth(t *testing.T) {
 	var n int
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&n); err != nil || n != 0 {
 		t.Errorf("rows left after account delete: %d %v", n, err)
+	}
+}
+
+// The due list is capped at 500, so users whose email is done must leave it: 501 finished rows must not hide the 502nd, and a month
+// that has ended is deleted by the sweep's one statement, not kept.
+func TestR2ArrivalFinishedRowsDoNotCrowdOutLaterUsers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	now := time.Now().UTC()
+	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	var ids []uuid.UUID
+	for i := 0; i < 502; i++ {
+		name := "r2a-cap-" + strconv.Itoa(i)
+		u, err := db.EnsureUserVerified(ctx, pool, name, name+"@x.test", name, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.ExecContext(ctx, `INSERT INTO engagement_prefs (user_id, r2_arrival_month) VALUES ($1, $2::date)
+			ON CONFLICT (user_id) DO UPDATE SET r2_arrival_month = EXCLUDED.r2_arrival_month`, u, month.Format("2006-01-02")); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, u)
+	}
+	last := ids[len(ids)-1]
+	// Order is by month then id: find the user the cap would hide, whichever it is.
+	due, err := db.ListR2ArrivalDue(ctx, pool, month, month)
+	if err != nil || len(due) != 500 {
+		t.Fatalf("the list is capped at 500: %d %v", len(due), err)
+	}
+	listed := map[uuid.UUID]bool{}
+	for _, d := range due {
+		listed[d.UserID] = true
+	}
+	var hidden []uuid.UUID
+	for _, u := range ids {
+		if !listed[u] {
+			hidden = append(hidden, u)
+		}
+	}
+	if len(hidden) != 2 {
+		t.Fatalf("two users beyond the cap: %d", len(hidden))
+	}
+	// Their emails go: the job deletes each listed user's month; then the hidden ones are listed.
+	for _, d := range due {
+		if err := db.ClearR2ArrivalMonthFor(ctx, pool, d.UserID, d.Month); err != nil {
+			t.Fatal(err)
+		}
+	}
+	due, err = db.ListR2ArrivalDue(ctx, pool, month, month)
+	if err != nil || len(due) != 2 {
+		t.Fatalf("after the first 500 are done the rest are listed: %d %v", len(due), err)
+	}
+	// A changed month is not deleted by a stale clear.
+	if err := db.ClearR2ArrivalMonthFor(ctx, pool, last, month.AddDate(0, 3, 0)); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_prefs WHERE user_id = $1 AND r2_arrival_month IS NOT NULL`, last).Scan(&n)
+	if n != 1 {
+		t.Errorf("a clear for another month deleted this one")
+	}
+
+	// Ended months: two months back and earlier go; last month (a zone behind UTC may still be in it) and this one stay.
+	for off, name := range map[int]string{-3: "old", -2: "older", -1: "prev"} {
+		u, _ := db.EnsureUserVerified(ctx, pool, "r2a-end-"+name, "r2a-end-"+name+"@x.test", name, true)
+		pool.ExecContext(ctx, `INSERT INTO engagement_prefs (user_id, r2_arrival_month) VALUES ($1, $2::date)
+			ON CONFLICT (user_id) DO UPDATE SET r2_arrival_month = EXCLUDED.r2_arrival_month`, u, month.AddDate(0, off, 0).Format("2006-01-02"))
+	}
+	if _, err := db.ClearEndedR2ArrivalMonths(ctx, pool, now); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_prefs p JOIN users u ON u.id = p.user_id
+		WHERE u.username LIKE 'r2a-end-%' AND p.r2_arrival_month IS NOT NULL`).Scan(&left)
+	if left != 1 {
+		t.Errorf("only last month's row stays: %d", left)
 	}
 }
