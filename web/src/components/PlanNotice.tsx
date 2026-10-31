@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { planState } from "../lib/plan";
-import { lapseBanner } from "../lib/proCopy";
+import { graceBanner, lapseBanner, PRO } from "../lib/proCopy";
 import { ProSheet } from "./ProSheet";
 
 const KEY = "rivolt.planNotice.dismissed";
@@ -23,6 +23,27 @@ export function PlanNotice() {
   const id = state.kind === "lapsed" ? (state.endedOn ?? "lapsed") : "";
   const [gone, setGone] = useState(() => (id ? dismissedFor(id) : false));
   const [open, setOpen] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  // A failed payment inside the 7-day grace: not dismissible (it needs doing), and Pro stays on while Stripe retries.
+  const grace = graceBanner(state);
+  if (grace) {
+    return (
+      <div role="alert" data-plan-notice="grace" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-100">
+        <span>{grace}</span>
+        <button
+          type="button"
+          className="underline underline-offset-2"
+          onClick={() => {
+            setProblem(null);
+            backend.billingPortal().then(({ url }) => window.location.assign(url)).catch(() => setProblem(PRO.billingUnavailable));
+          }}
+        >
+          Update card
+        </button>
+        {problem && <span role="status" className="basis-full text-amber-300">{problem}</span>}
+      </div>
+    );
+  }
   if (state.kind !== "lapsed" || gone) return null;
   return (
     <div role="note" data-plan-notice className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-2 text-xs text-sky-100">

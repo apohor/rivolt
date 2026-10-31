@@ -78,6 +78,16 @@ export function planCardCopy(state: PlanState, daysLeftText?: string): { title: 
         action: "Keep Pro",
       };
     case "pro":
+      // A failed payment comes first: it is the one that needs the person to do something (web only: Apple handles its own).
+      if (state.graceEnds && state.source === "stripe")
+        return { title: "Rivolt Pro, payment failed", line: `Update your card by ${planDate(state.graceEnds) || "the end of the week"} to keep Pro. Nothing is deleted either way.`, action: "Update card" };
+      // A subscription set to not renew must not say it renews.
+      if (state.cancelsAt && (state.source === "stripe" || state.source === "apple"))
+        return {
+          title: `Rivolt Pro until ${planDate(state.cancelsAt) || planDate(state.periodEnd) || "the end of the period"}`,
+          line: "Cancelled; Pro stays on until then. Nothing is deleted after.",
+          action: state.source === "stripe" ? "Resubscribe" : "Manage subscription",
+        };
       if (state.source === "apple") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Apple.", action: "Manage subscription" };
       if (state.source === "stripe") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Stripe.", action: "Manage subscription" };
       if (state.source === "founding")
@@ -94,6 +104,12 @@ export function planCardCopy(state: PlanState, daysLeftText?: string): { title: 
         action: "Keep Pro",
       };
   }
+}
+
+// The payment-failed banner (7-day grace, web only): shown while Stripe is retrying; nothing is deleted either way.
+export function graceBanner(state: PlanState): string | null {
+  if (state.kind !== "pro" || state.source !== "stripe" || !state.graceEnds) return null;
+  return `A payment for Rivolt Pro failed. Update your card in Settings → Account → Plan by ${planDate(state.graceEnds) || "the end of the week"} to keep Pro. Either way, nothing is deleted.`;
 }
 
 // The lapse banner (dismissable, on Now and in Settings).
