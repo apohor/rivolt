@@ -298,6 +298,17 @@ type liveCharge struct {
 	progressKWh       float64
 	progressActiveSec float64
 
+	// lastPowerSoC is the SoC at lastPowerAt, the start of a gap the next power frame may close.
+	lastPowerSoC float64
+	// gapKWh and gapSeconds are the energy and time credited for stretches with no power frames (a dropout over
+	// maxIntegrationGap) from the SoC gained across them; gapKWh is part of energyIntKWh. clampedSeconds is every
+	// second a gap was cut short of, credited or not; resumes counts the times this charge was picked up from its
+	// stored row. All four ride on the floor's log line.
+	gapKWh         float64
+	gapSeconds     float64
+	clampedSeconds float64
+	resumes        int
+
 	// floorNoted is set once the energy floor's counter and log have been written for this charge.
 	floorNoted atomic.Bool
 }
@@ -370,6 +381,40 @@ func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
 	}
 	c.lastPowerAt = t
 	c.lastPowerKW = kw
+}
+
+// accumulate is accumulateEnergy that also accounts for a gap. When the frame follows a dropout longer than
+// maxIntegrationGap and the SoC rose across it, the energy the pack gained in the gap that the capped integral did
+// not cover is credited, bounded by what the gap's own power could have delivered and by the SoC-implied pack
+// energy times ChargeWallToPackFactor, and kept apart in gapKWh. Without a SoC rise or a pack size nothing is
+// credited (the clamp stays), so a gap is never turned into energy by this alone.
+func (c *liveCharge) accumulate(t time.Time, kw, soc, packKWh float64) {
+	prevAt, prevKW, prevSoC, prevInt := c.lastPowerAt, c.lastPowerKW, c.lastPowerSoC, c.energyIntKWh
+	accumulateEnergy(c, t, kw)
+	if c.lastPowerAt.Equal(t) && !t.IsZero() {
+		c.lastPowerSoC = soc
+	} else {
+		return
+	}
+	if prevAt.IsZero() || t.Sub(prevAt) <= maxIntegrationGap {
+		return
+	}
+	cut := t.Sub(prevAt) - maxIntegrationGap
+	c.clampedSeconds += cut.Seconds()
+	if packKWh <= 0 || soc <= prevSoC {
+		return
+	}
+	counted := c.energyIntKWh - prevInt
+	byPower := t.Sub(prevAt).Hours()*(prevKW+kw)/2 - counted
+	bySoC := (soc-prevSoC)/100*packKWh*ChargeWallToPackFactor - counted
+	credit := math.Min(byPower, bySoC)
+	if credit <= 0 {
+		return
+	}
+	c.energyIntKWh += credit
+	c.gapKWh += credit
+	c.gapSeconds += cut.Seconds()
+	c.activeSeconds += cut.Seconds()
 }
 
 // record is the central recorder entry point, called from every cache
@@ -1296,7 +1341,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
-			accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+			s.charge.accumulate(curr.At, curr.ChargerPowerKW, curr.BatteryLevelPct, m.PackKWhFor(curr.VehicleID))
 			s.charge.noteProgress(curr.At)
 			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -1321,7 +1366,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
-		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.accumulate(curr.At, curr.ChargerPowerKW, curr.BatteryLevelPct, m.PackKWhFor(curr.VehicleID))
 		s.charge.noteProgress(curr.At)
 		s.charge.noteLimit(curr.ChargeTargetPct)
 		m.bondCharge(curr.VehicleID, s.charge.id)
@@ -1336,7 +1381,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
-		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.accumulate(curr.At, curr.ChargerPowerKW, curr.BatteryLevelPct, m.PackKWhFor(curr.VehicleID))
 		s.charge.noteProgress(curr.At)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
@@ -1372,7 +1417,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		s.charge.noteLimit(curr.ChargeTargetPct)
-		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.accumulate(curr.At, curr.ChargerPowerKW, curr.BatteryLevelPct, m.PackKWhFor(curr.VehicleID))
 		s.charge.finalState = curr.ChargerState
 		s.charge.final = true // a rejected charge retries once more at close
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -1590,7 +1635,8 @@ func (m *StateMonitor) noteEnergyFloor(vehicleID string, c *liveCharge, row char
 	if m.logger != nil {
 		m.logger.Warn("charge energy replaced by an estimate from the SoC gain (the integral had lost energy)",
 			"vehicle", vehicleID, "id", c.id, "kwh", row.EnergyAddedKWh, "active_s", c.activeSeconds,
-			"soc_gain", c.endSoC-c.startSoC)
+			"soc_gain", c.endSoC-c.startSoC, "integral_kwh", c.energyIntKWh, "gap_kwh", c.gapKWh,
+			"clamped_s", int(c.clampedSeconds), "resumes", c.resumes)
 	}
 }
 
@@ -1611,6 +1657,10 @@ func (m *StateMonitor) seedChargeEnergyFromRow(sess *liveSessions, curr *State) 
 	if row.EnergyAddedKWh > sess.charge.energyIntKWh {
 		sess.charge.energyIntKWh, sess.charge.progressKWh = row.EnergyAddedKWh, row.EnergyAddedKWh
 	}
+	if row.GapKWh > sess.charge.gapKWh {
+		sess.charge.gapKWh = row.GapKWh
+	}
+	sess.charge.resumes++
 	if row.ActiveSeconds > sess.charge.activeSeconds {
 		sess.charge.activeSeconds, sess.charge.progressActiveSec = row.ActiveSeconds, row.ActiveSeconds
 	}
@@ -1933,8 +1983,14 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 	// Only on the closing build: the mark is sticky, and a transient mid-charge dip (an SoC step before its energy) must not
 	// mark a charge that ends up metered. An open row shows its live energy.
 	energyEstimated := false
+	// The credited gap energy rides on the row while the energy is the integral's; a floored (replaced) energy
+	// has no gap part of its own.
+	gapKWh := math.Min(c.gapKWh, energy)
 	if closing := c.final || !charges.IsOpenLiveFinalState(c.finalState); closing && maxPower > 0 {
 		energy, energyEstimated = chargeEnergyFloor(energy, maxPower, c.startSoC, c.endSoC, m.PackKWhFor(vehicleID))
+		if energyEstimated {
+			gapKWh = 0
+		}
 	}
 
 	// Physical plausibility cap (L2/home only). Delivered energy can
@@ -2008,6 +2064,7 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 		EndSoCPct:       c.endSoC,
 		EnergyAddedKWh:  energy,
 		EnergyEstimated: energyEstimated,
+		GapKWh:          gapKWh,
 		MilesAdded:      milesAdded,
 		MaxPowerKW:      maxPower,
 		AvgPowerKW:      avg,
@@ -2365,7 +2422,9 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		"vehicle", curr.VehicleID,
 		"id", row.ID,
 		"started_at", row.StartedAt,
-		"age", m.since(row.StartedAt).Round(time.Second))
+		"age", m.since(row.StartedAt).Round(time.Second),
+		// What the resumed integral starts from, to tell a lost total from a lost stretch afterwards.
+		"row_kwh", row.EnergyAddedKWh, "row_active_s", row.ActiveSeconds, "row_gap_kwh", row.GapKWh)
 	return c
 }
 
@@ -2384,7 +2443,7 @@ func limitFromRow(row *charges.Charge) float64 {
 }
 
 func liveChargeFromRow(row *charges.Charge) *liveCharge {
-	return &liveCharge{
+	c := &liveCharge{
 		id:         row.ID,
 		startedAt:  row.StartedAt,
 		startSoC:   row.StartSoCPct,
@@ -2397,6 +2456,7 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 		// Continue the energy and active-charging-time accumulators from
 		// the persisted values so a mid-charge restart doesn't reset them.
 		energyIntKWh:      row.EnergyAddedKWh,
+		gapKWh:            row.GapKWh,
 		progressKWh:       row.EnergyAddedKWh,
 		activeSeconds:     row.ActiveSeconds,
 		progressActiveSec: row.ActiveSeconds,
@@ -2407,7 +2467,14 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 		// window on the first idle frame after a restart.
 		lastMeaningfulAt: row.EndedAt,
 		lastProgressAt:   row.EndedAt,
+		resumes:          1,
 	}
+	// The row's last frame anchors the integral, so the stretch between it and the first frame after the resume
+	// (a restart, a handoff) is a gap like any other, credited from the SoC gained across it.
+	if row.AvgPowerKW >= chargingPowerFloorKW && !row.EndedAt.IsZero() {
+		c.lastPowerAt, c.lastPowerKW, c.lastPowerSoC = row.EndedAt, row.AvgPowerKW, row.EndSoCPct
+	}
+	return c
 }
 
 // closeStaleOpenCharges marks every live charge row for the vehicle
