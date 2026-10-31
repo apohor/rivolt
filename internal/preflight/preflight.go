@@ -125,13 +125,6 @@ func pathOf(u string) string {
 	return p.Path
 }
 
-func stripFragment(u string) string {
-	if i := strings.IndexByte(u, '#'); i >= 0 {
-		return u[:i]
-	}
-	return u
-}
-
 // Run builds the report.
 func Run(ctx context.Context, in Input) *Report {
 	r := &Report{}
