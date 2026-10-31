@@ -891,6 +891,8 @@ func New(d Deps) http.Handler {
 			if d.TilesProxy != nil {
 				r.Mount("/maps/tiles", tilesMount(d.TilesProxy))
 			}
+			// The label glyphs are in the binary: always there, same auth as the tiles (and the demo's tile reads, demo.go). There is no sprite.
+			r.Mount("/maps/glyphs", glyphsMount())
 			if d.DEMProxy != nil {
 				r.Mount("/maps/dem", demMount(d.DEMProxy))
 			}

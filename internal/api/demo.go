@@ -245,10 +245,24 @@ const demoDEMPrefix = "/api/maps/dem"
 // demoDEMTileCost is what one terrain tile is charged against the demo's tile byte budgets: a Terrarium tile is under 100 KB.
 const demoDEMTileCost = 96 << 10
 
-// isDemoMapAssetPath reports whether p is a static map asset the anonymous demo may read: one terrain tile.
+// demoGlyphsPrefix is the anonymous label route: the demo's map needs the same label glyphs, embedded in the binary and public data.
+const demoGlyphsPrefix = "/api/maps/glyphs"
+
+// isDemoMapAssetPath reports whether p is a static map asset the anonymous demo may read: one terrain tile, or one shipped label glyph range.
 func isDemoMapAssetPath(p string) bool {
-	rest, ok := strings.CutPrefix(p, demoDEMPrefix)
-	return ok && maps.DEMPath(rest)
+	if rest, ok := strings.CutPrefix(p, demoDEMPrefix); ok && maps.DEMPath(rest) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(p, demoGlyphsPrefix)
+	return ok && maps.GlyphSize(rest) > 0
+}
+
+// demoMapAssetCost is the byte charge of one static map asset: a glyph range by its size, a terrain tile by the cap above.
+func demoMapAssetCost(p string) int {
+	if rest, ok := strings.CutPrefix(p, demoGlyphsPrefix); ok {
+		return maps.GlyphSize(rest)
+	}
+	return demoDEMTileCost
 }
 
 // demoHeavyTZ is the set of time zones an anonymous visitor may ask the
@@ -561,7 +575,7 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 			}))
 			if asset {
 				// A whole terrain tile: no Range, a fixed byte charge, the same per-client then install-wide order as tiles.
-				cost := func(*http.Request) int { return demoDEMTileCost }
+				cost := func(r *http.Request) int { return demoMapAssetCost(r.URL.Path) }
 				tiles.Middleware(tileBytes.MiddlewareN(cost)(
 					tilesGlobal.Middleware(tileBytesGlobal.MiddlewareN(cost)(serve)))).ServeHTTP(w, r)
 				return
