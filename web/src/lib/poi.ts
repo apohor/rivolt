@@ -19,7 +19,7 @@
 // Both archives are reached through the rivolt API's same-origin
 // /api/maps/tiles proxy, so authn is automatic via the session
 // cookie. PMTiles + @mapbox/vector-tile are already in the SPA
-// bundle as transitive deps of protomaps-leaflet, so reading the
+// bundle as direct dependencies, so reading the
 // raw tile bytes costs nothing extra at runtime.
 
 import { inDemo } from "./demo";

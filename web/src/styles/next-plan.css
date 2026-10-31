@@ -518,7 +518,7 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
-:root [data-plan-next] *:not(.leaflet-container *):not(svg *) {
+:root [data-plan-next] *:not(.maplibregl-map *):not(svg *) {
   font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-variant-numeric: tabular-nums;
 }

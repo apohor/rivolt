@@ -13,7 +13,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 for (const who of ["signed-in", "demo"] as const) {
   for (const theme of ["dark", "light"] as const) {
     for (const w of [390, 1280] as const) {
-      test(`route clears the Chargers chips · ${who} · ${w}px · ${theme}`, async ({ browser }) => {
+      test(`route clears the Chargers chips · ${who} · ${w === 390 ? "iphone" : "desktop"} ${w}px · ${theme}`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: { width: w, height: w === 390 ? 844 : 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {

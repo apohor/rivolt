@@ -47,12 +47,22 @@ for (const vp of [
     await views.getByRole("button", { name: "Map" }).click();
     await expect(page).toHaveURL(/view=map/);
     // One map at a time on All: a Drives | Charges layer toggle instead of two stacked maps.
-    await expect(page.locator("[data-activity-view='map'] .leaflet-container")).toHaveCount(1);
-    await expect(page.locator("[data-activity-view='map'] .leaflet-container").first()).toBeVisible();
+    await expect(page.locator("[data-activity-view='map'] .maplibregl-map")).toHaveCount(1);
+    await expect(page.locator("[data-activity-view='map'] .maplibregl-map").first()).toBeVisible();
+    // The shot is of the drawn map, not of an empty one.
+    await expect(page.locator("[data-activity-view='map'] [data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
     await page.screenshot({ path: path.join(SHOTS, `activity-map-${vp.name}.png`) });
     await page.getByRole("group", { name: "Map layer" }).getByRole("button", { name: /Charges/ }).click();
-    await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] .leaflet-container")).toBeVisible();
+    await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] .maplibregl-map")).toBeVisible();
     await expect(page.locator("[data-activity-view='map'] section[aria-label='Drives']")).toHaveCount(0);
+    // The Charges layer carries the power-class legend.
+    await expect(page.locator("[data-activity-view='map'] .rivolt-charge-legend")).toBeVisible();
+    await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] [data-map-drawn]:not([data-map-drawn='0'])")).toBeAttached();
+    // The legend wraps inside the map and ends left of the credits' (i): it never runs under it.
+    const legendBox = await page.locator("[data-activity-view='map'] .rivolt-charge-legend").boundingBox();
+    const infoBox = await page.locator("[data-activity-view='map'] section[aria-label='Charges'] .maplibregl-ctrl-attrib-button").boundingBox();
+    expect(legendBox!.x + legendBox!.width).toBeLessThanOrEqual(infoBox!.x);
+    await page.screenshot({ path: path.join(SHOTS, `activity-map-charges-${vp.name}.png`) });
 
     await views.getByRole("button", { name: "Feed" }).click();
     await expect(page).not.toHaveURL(/view=/);
@@ -76,5 +86,5 @@ test("demo: tables render read-only and keep tab=activity", async ({ page }) => 
   await expect(page.locator("[data-activity-view='table'] table").first()).toBeVisible();
   await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Map" }).click();
   await expect(page).toHaveURL(/\/demo\/activity\?view=map/);
-  await expect(page.locator("[data-activity-view='map'] .leaflet-container").first()).toBeVisible();
+  await expect(page.locator("[data-activity-view='map'] .maplibregl-map").first()).toBeVisible();
 });

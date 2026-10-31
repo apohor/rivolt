@@ -18,7 +18,8 @@ import { useSelectedVehicle } from "../lib/selectedVehicle";
 import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView } from "../lib/activityView";
 import { ChargeTable, DriveTable, labelMap } from "../components/ActivityTables";
 import { chargePlaceLabel } from "../lib/chargePlace";
-import { ChargesOverviewMap, DrivesOverviewMap } from "../components/DriveMap";
+import { ChargesOverviewMap } from "../map/ChargesOverviewMap";
+import { DrivesOverviewMap } from "../map/DrivesOverviewMap";
 import { usePreferences } from "../lib/preferences";
 import { formatDuration, durationSeconds } from "../lib/format";
 import {

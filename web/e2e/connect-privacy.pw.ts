@@ -25,7 +25,7 @@ for (const theme of ["dark", "light"] as const) {
       const [lb, sb] = await Promise.all([line.boundingBox(), page.getByRole("button", { name: /^Sign in/ }).first().boundingBox()]);
       expect(lb!.y + lb!.height).toBeLessThanOrEqual(sb!.y);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
-      const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
+      const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await ctx.close();

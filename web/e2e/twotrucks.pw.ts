@@ -10,7 +10,7 @@ import { e2eNow } from "./clock";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-test("route map ignores a second truck's samples", async ({ page }) => {
+test("iphone: route map ignores a second truck's samples", async ({ page }) => {
   const T0 = e2eNow() - 3 * 3_600_000;
   const mk = (vid: string, lat0: number, lon0: number, i: number) => ({
     VehicleID: vid, At: new Date(T0 + i * 5000).toISOString(),

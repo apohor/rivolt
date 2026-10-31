@@ -233,6 +233,11 @@ jobs:
         working-directory: web
         run: node scripts/map-bundle-size.mjs ../internal/web/dist 480
 
+      # Maps 1c: the whole build against the last Leaflet-era build (bundle-baseline.json). Measured +378.7 KB at the swap; the gate is +380.
+      - name: Bundle total vs the pre-MapLibre baseline
+        working-directory: web
+        run: node scripts/bundle-total.mjs ../internal/web/dist --baseline bundle-baseline.json 380
+
   # The Helm chart: chart-testing lint (yamllint, Chart.yaml schema and, on PRs, a
   # version bump for any chart change), helm lint --strict and a render of every
   # deploy/helm/rivolt/ci/*-values.yaml case (defaults, CNPG, existingSecret,

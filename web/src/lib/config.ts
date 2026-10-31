@@ -21,7 +21,7 @@ import { inDemo } from "./demo";
 export type RuntimeConfig = {
   tiles: {
     // url is the same-origin URL of the served .pmtiles bundle.
-    // protomaps-leaflet pulls tiles out of it via HTTP byte-range
+    // the map pulls tiles out of it via HTTP byte-range
     // reads. Empty means no self-hosted tile server is wired: maps
     // show a "tiles unavailable" notice on a plain background.
     url: string;
@@ -228,7 +228,7 @@ export function valhallaBase(): string {
 // tilesPMTilesURL returns the same-origin URL of the .pmtiles
 // bundle, or "" when no self-hosted tile server is wired. The
 // caller picks a basemap based on this: non-empty switches the
-// drive map to a vector basemap via protomaps-leaflet; empty keeps
+// maps to a vector basemap via MapLibre; empty keeps
 // the "tiles unavailable" notice.
 export function tilesPMTilesURL(): string {
   // The demo uses the same self-hosted basemap archive as the signed-in

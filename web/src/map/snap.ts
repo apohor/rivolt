@@ -14,7 +14,7 @@ export type SnapPoint = { lat: number; lon: number; t?: number; s?: number };
 // or null on failure. Used to fill gaps where map-matching gave up
 // (between sub-matchings, or across true GPS dropouts) with a path
 // that follows actual roads instead of a straight chord.
-async function valhallaRoutePair(
+export async function valhallaRoutePair(
   from: [number, number],
   to: [number, number],
   signal: AbortSignal,

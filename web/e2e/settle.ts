@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 // Resolves when the page has stopped moving: the scroll position and the boxes of everything matching `selectors` (and every
-// Leaflet marker on the page) are the same for `frames` animation frames in a row. A fixed wait is a guess at how long a
+// map marker on the page) are the same for `frames` animation frames in a row. A fixed wait is a guess at how long a
 // smooth scroll and a map fit take; on a slow WebKit runner it was too short now and then. Fails after `timeoutMs`.
 export async function settled(page: Page, selectors: string[], { frames = 8, timeoutMs = 10_000 } = {}): Promise<void> {
   await page.evaluate(
@@ -11,7 +11,7 @@ export async function settled(page: Page, selectors: string[], { frames = 8, tim
         let last = "";
         let same = 0;
         const snapshot = () => {
-          const boxes = [...selectors.flatMap((s) => [...document.querySelectorAll(s)]), ...document.querySelectorAll(".leaflet-marker-icon, .maplibregl-marker")].map((el) => {
+          const boxes = [...selectors.flatMap((s) => [...document.querySelectorAll(s)]), ...document.querySelectorAll(".maplibregl-marker")].map((el) => {
             const r = el.getBoundingClientRect();
             return `${Math.round(r.top * 10)},${Math.round(r.left * 10)},${Math.round(r.width * 10)},${Math.round(r.height * 10)}`;
           });

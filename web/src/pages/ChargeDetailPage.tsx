@@ -15,7 +15,7 @@ import { backend, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { rateBasisLabel, whyLine, type NetworkState } from "../lib/autoNetwork";
 import { LineChart } from "../components/charts";
-import { ChargeMap } from "../components/DriveMap";
+import { ChargeMap } from "../map/ChargeMap";
 import { useHomeRecheck } from "../components/HomeRecheck";
 import {
   displayTimeZone,
