@@ -61,7 +61,7 @@ func handleChargesToConfirm(store *charges.Store, settingsStore *settings.Store,
 			writeJSON(w, http.StatusOK, out)
 			return
 		}
-		rows, err := store.ListRecent(r.Context(), 5000)
+		rows, err := listChargesFor(r.Context(), store, 5000)
 		if err != nil {
 			http.Error(w, "could not read charges", http.StatusInternalServerError)
 			return

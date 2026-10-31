@@ -26,6 +26,8 @@ type SavedTrip struct {
 	Advice    json.RawMessage `json:"advice,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt time.Time       `json:"updated_at"`
+	// ReadOnly is set on the list of a free account for a trip past the free plan's cap: it can be viewed and deleted, not edited.
+	ReadOnly bool `json:"read_only,omitempty"`
 }
 
 // MaxPerUser is how many saved trips one account may keep. A browser user never gets near it; the cap bounds what a leaked phone
@@ -79,6 +81,31 @@ func (s *Store) List(ctx context.Context) ([]SavedTrip, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// Count is how many saved trips the account keeps.
+func (s *Store) Count(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM saved_trips WHERE user_id = $1`, s.userID).Scan(&n)
+	return n, err
+}
+
+// Recent returns the ids of the n most recently updated trips (ties broken by id, so the answer is stable).
+func (s *Store) Recent(ctx context.Context, n int) (map[uuid.UUID]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM saved_trips WHERE user_id = $1 ORDER BY updated_at DESC, id LIMIT $2`, s.userID, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]bool{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
 	}
 	return out, rows.Err()
 }

@@ -636,3 +636,16 @@ func TestRender_IOSAppLine(t *testing.T) {
 		t.Errorf("html:\n%s", r.HTML)
 	}
 }
+
+// A note (a free account's "Showing <vehicle>. Pro includes all vehicles.") is in both bodies; no note, no line.
+func TestRenderCarriesTheNote(t *testing.T) {
+	in := baseInput()
+	if r := Render(in); strings.Contains(r.Text, "Showing") || strings.Contains(r.HTML, "Showing") {
+		t.Error("a note appeared without one")
+	}
+	in.Note = "Showing R1T. Pro includes all vehicles."
+	r := Render(in)
+	if r.Silent || !strings.Contains(r.Text, in.Note) || !strings.Contains(r.HTML, in.Note) {
+		t.Errorf("the note is missing:\n%s", r.Text)
+	}
+}

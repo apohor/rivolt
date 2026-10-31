@@ -471,6 +471,12 @@ func runServer() {
 		logger.Info("system database pool", "max_conns", n, "because", why)
 	}
 
+	// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
+	// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro. Built here so the push service
+	// (Live Activities are Pro) and the API share one.
+	entitlementsSvc := entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger,
+		OnLookupError: func() { appMetrics.EntitlementsLookupErrors.Inc() }})
+
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
 	// pgPool stays the system pool: the monitor and recorder, background jobs, admin and pre-auth paths.
 	requestDB, closeRequestDB, rerr := openRequestSide(ctx, os.Getenv, pgPool, func(c context.Context) {
@@ -558,6 +564,7 @@ func runServer() {
 					logger.Warn("APNs disabled", "err", aerr.Error())
 				} else {
 					pushSvc.WithAPNs(a)
+					pushSvc.WithProCheck(entitlementsSvc.Pro)
 					logger.Info("APNs enabled", "topic", a.Topic())
 					// The charging Live Activity: off unless RIVOLT_APNS_LIVE is set.
 					if live := strings.EqualFold(os.Getenv("RIVOLT_APNS_LIVE"), "true") || os.Getenv("RIVOLT_APNS_LIVE") == "1"; live {
@@ -2823,8 +2830,7 @@ func runServer() {
 		RivianExpiryEmails:    rivianExpiryEmails,
 		// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
 		// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro.
-		Entitlements: entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger,
-			OnLookupError: func() { appMetrics.EntitlementsLookupErrors.Inc() }}),
+		Entitlements:          entitlementsSvc,
 		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
 		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{

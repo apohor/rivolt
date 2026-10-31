@@ -503,7 +503,7 @@ func TestStatementSavingsMatchesTheEndpoint(t *testing.T) {
 	}
 	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return sch }
 
-	got, err := newStatementSavings(a)(context.Background(), uid, "2026-09", chi)
+	got, err := newStatementSavings(a, nil)(context.Background(), uid, "2026-09", chi)
 	if err != nil || got == nil {
 		t.Fatalf("%v %v", got, err)
 	}

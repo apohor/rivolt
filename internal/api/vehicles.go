@@ -277,7 +277,7 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 
 // hasSession says whether the user has a stored Rivian session (nil: none can be stored, so none is). It decides
 // what a client with no session means: never linked (an empty list) or linked but unreadable right now (an error).
-func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error)) http.HandlerFunc {
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error), onlyVehicle func(context.Context) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
@@ -447,6 +447,14 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 			if mon != nil {
 				if st, _ := mon.Latest(vs[i].ID); st != nil {
 					liveFieldSupport(vs[i].FieldSupport, st)
+				}
+			}
+		}
+		// A free account with several vehicles sees one: the others stay listed, marked, so the user knows they are there.
+		if onlyVehicle != nil {
+			if only := onlyVehicle(r.Context()); only != "" {
+				for i := range vs {
+					vs[i].ProLocked = vs[i].ID != only
 				}
 			}
 		}

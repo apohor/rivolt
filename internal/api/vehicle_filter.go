@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"unicode"
 )
@@ -22,6 +23,24 @@ func vehicleFilter(w http.ResponseWriter, r *http.Request) (string, bool) {
 			http.Error(w, "vehicle_id has unexpected characters", http.StatusBadRequest)
 			return "", false
 		}
+	}
+	return limitFreeVehicle(w, r.Context(), id)
+}
+
+// limitFreeVehicle applies a free account's one-vehicle display limit to a requested vehicle id (a Rivian id, "" for every vehicle): the
+// unfiltered request becomes the primary vehicle, another vehicle is Pro (402, written, false). With no limit on the request it returns
+// id unchanged.
+func limitFreeVehicle(w http.ResponseWriter, ctx context.Context, id string) (string, bool) {
+	only, _ := ctx.Value(freeVehicleKey{}).(string)
+	if only == "" {
+		return id, true
+	}
+	if id == "" {
+		return only, true
+	}
+	if id != only {
+		writeProRequired(w)
+		return "", false
 	}
 	return id, true
 }

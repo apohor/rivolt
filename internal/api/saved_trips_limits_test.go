@@ -22,12 +22,12 @@ func TestSavedTripBodyTooLargeAnswersJSON(t *testing.T) {
 	big := `{"name":"x","inputs":{"a":1},"plan":{"pad":"` + strings.Repeat("a", savedTripMaxBytes) + `"}}`
 	for name, call := range map[string]func(*httptest.ResponseRecorder, *http.Request){
 		"create": func(rec *httptest.ResponseRecorder, req *http.Request) {
-			handleSavedTripCreate(&trips.Store{})(rec, req)
+			handleSavedTripCreate(&trips.Store{}, nil, uuid.Nil)(rec, req)
 		},
 		"update": func(rec *httptest.ResponseRecorder, req *http.Request) {
 			rc := chi.NewRouteContext()
 			rc.URLParams.Add("id", uuid.NewString())
-			handleSavedTripUpdate(&trips.Store{})(rec, req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rc)))
+			handleSavedTripUpdate(&trips.Store{}, nil, uuid.Nil)(rec, req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rc)))
 		},
 	} {
 		rec := httptest.NewRecorder()
@@ -53,13 +53,13 @@ func TestSavedTripSizeCheckBoundary(t *testing.T) {
 
 func TestSavedTripErrorsAreJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handleSavedTripCreate(&trips.Store{})(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(`{"name":" ","inputs":{}}`)))
+	handleSavedTripCreate(&trips.Store{}, nil, uuid.Nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(`{"name":" ","inputs":{}}`)))
 	var out struct{ Error, Class string }
 	if rec.Code != http.StatusBadRequest || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.Class != "invalid" || out.Error != "name required" {
 		t.Errorf("%d %s, want 400 {error:\"name required\", class:invalid}", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	handleSavedTripCreate(nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(`{}`)))
+	handleSavedTripCreate(nil, nil, uuid.Nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(`{}`)))
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"class":"no_user"`) {
 		t.Errorf("no user: %d %s", rec.Code, rec.Body.String())
 	}

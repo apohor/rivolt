@@ -14,6 +14,7 @@ import (
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
+	"github.com/google/uuid"
 )
 
 // Payload is the JSON body we deliver to the service worker. The SW
@@ -59,6 +60,8 @@ type Service struct {
 	// apns, when set, also delivers to the user's iPhone app installs (nil: off).
 	apns *APNs
 	live bool // Live Activity updates (RIVOLT_APNS_LIVE); needs apns
+	// isPro, when set, is asked before a routine Live Activity update: Live Activities are a Pro feature. Nil: everyone (billing off).
+	isPro func(ctx context.Context, userID uuid.UUID) bool
 
 	// ttlSeconds is the push server's "keep-alive" budget for a
 	// notification. 24h is the common default — long enough to survive a

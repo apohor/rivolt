@@ -200,7 +200,7 @@ func TestStatementMonthly_MatchesLedgerBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	la := newLedgerAPI(pool, settings.NewFactory(pool))
-	got, err := newStatementMonthly(la)(ctx, uid, "2026-09", time.UTC)
+	got, err := newStatementMonthly(la, nil)(ctx, uid, "2026-09", time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}

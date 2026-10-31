@@ -119,6 +119,13 @@ func (s *Service) WithLive(on bool) *Service {
 	return s
 }
 
+// WithProCheck makes routine Live Activity updates Pro-only: for an account the check calls free, the update is not sent; instead each of
+// its running activities gets one end (the final state, so the card closes) and its token is forgotten. The check must fail open.
+func (s *Service) WithProCheck(isPro func(ctx context.Context, userID uuid.UUID) bool) *Service {
+	s.isPro = isPro
+	return s
+}
+
 // LiveEnabled reports whether Live Activity updates are sent.
 func (s *Service) LiveEnabled() bool { return s != nil && s.apns != nil && s.live }
 
@@ -142,6 +149,12 @@ func (s *Service) sendLive(ctx context.Context, store *Store, vehicleID uuid.UUI
 	acts, err := store.ListLiveActivities(ctx, vehicleID)
 	if err != nil {
 		s.logger.Warn("push: list live activities failed")
+		return 0
+	}
+	if event == LiveUpdate && s.isPro != nil && !s.isPro(ctx, store.userID) {
+		// The account is free (a lapse, a trial end): close every running activity with its final state, so no card is left frozen on the
+		// lock screen, and forget the tokens (sendLiveTo does, after an end). Later updates find nothing to send to.
+		s.sendLiveTo(ctx, store, acts, LiveEnd, st, false)
 		return 0
 	}
 	return s.sendLiveTo(ctx, store, acts, event, st, event == LiveUpdate)

@@ -33,15 +33,20 @@ var Items = []Item{
 		Cleared: true, ClearedBy: "#1377", Proof: "TestHistoryFloor"},
 
 	// Feature gates the paywall copy promises.
-	{ID: "gate-planner", What: "the multi-day planner and re-plan are Pro on the server"},
-	{ID: "gate-plan-vs-actual", What: "plan-vs-actual is Pro on the server"},
-	{ID: "gate-saved-trips", What: "the saved-trips cap is 3 for free; extras stay readable and deletable, not editable"},
-	{ID: "gate-vehicles", What: "a free account shows 1 vehicle; the rest are Pro"},
+	{ID: "gate-planner", What: "the multi-day planner and re-plan are Pro on the server",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestMultidayNeedsPro,TestProGateRoutesCarryTheirMiddleware,TestProFeatureGatesAgainstPostgres"},
+	{ID: "gate-plan-vs-actual", What: "plan-vs-actual is Pro on the server",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestProGateRoutesCarryTheirMiddleware,TestProFeatureGatesAgainstPostgres"},
+	{ID: "gate-saved-trips", What: "the saved-trips cap is 3 for free; extras stay readable and deletable, not editable",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestProFeatureGatesAgainstPostgres"},
+	{ID: "gate-vehicles", What: "a free account shows 1 vehicle; the rest are Pro",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestVehicleFilterFreeVehicle,TestVehicleListShowsEveryVehicleAndMarksTheExtras,TestLedgerParamsLimitFreeVehicle,TestProFeatureGatesAgainstPostgres"},
 	// Unbuilt Pro surfaces (trip postcard, long-form year page, widget pushes) are not listed: there is nothing to gate yet. The route
 	// classification carries a permanent guard test that a new Pro surface cannot ship ungated.
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
-	{ID: "lapse-stops-pushes", What: "on lapse or trial end Live Activity pushes stop, that account's Live Activity tokens are deleted and widgets fall back to the free state"},
+	{ID: "lapse-stops-pushes", What: "on lapse or trial end each running Live Activity gets one end with its final state and its token is deleted, and no further Live Activity pushes are sent (widgets do not exist yet: the Pro-surface guard test covers them)",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestLiveActivityEndsOnLapse"},
 	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account",
 		Cleared: true, ClearedBy: "#1384", Proof: "TestFoundingGrantAgainstPostgres,TestNewAccountTrialAgainstPostgres"},
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states",

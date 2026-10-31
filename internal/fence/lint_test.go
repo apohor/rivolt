@@ -156,6 +156,8 @@ var notOwnerSide = map[string]string{
 	"db.DeleteUserArchiveBefore":              "user action (delete history before a month)",
 	"db.DeleteUserHistoryBefore":              "user action (delete history before a month)",
 	"histfloor.Raise":                         "user action (delete history: raises the floor before the deletes)",
+	"db.StartTrial":                           "sign-up time account write (a brand-new account's trial row), not owner-side",
+	"entitlements.ApplyFounding":              "operator CLI (rivolt entitlements-founding), not owner-side",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
 	"db.deleteUserTx":                         "user action / inactive purge (account deletion)",

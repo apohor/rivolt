@@ -518,7 +518,7 @@ func handleChargeClusters(store *charges.Store) http.HandlerFunc {
 		// Pull the full usable window — clustering is cheap and the
 		// store caps list size anyway. A bigger corpus just gives
 		// better Home detection.
-		rows, err := store.ListRecent(r.Context(), 5000)
+		rows, err := listChargesFor(r.Context(), store, 5000)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -579,3 +579,11 @@ func handleChargeClusters(store *charges.Store) http.HandlerFunc {
 // which LLM provider Rivolt uses for AI features (weekly digest, trip
 // planner, anomaly explanations). The manager enforces the redaction
 // contract: API keys are reported as has_key=true/false, never echoed back.
+
+// listChargesFor is store.ListRecent, limited to the primary vehicle for a free account with several vehicles.
+func listChargesFor(ctx context.Context, store *charges.Store, limit int) ([]charges.Charge, error) {
+	if only, _ := ctx.Value(freeVehicleKey{}).(string); only != "" {
+		return store.ListRecentForVehicle(ctx, only, limit)
+	}
+	return store.ListRecent(ctx, limit)
+}

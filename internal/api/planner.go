@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/trips"
@@ -312,7 +313,7 @@ func savedTripTooLarge(w http.ResponseWriter, name string, b savedTripBody) bool
 	return true
 }
 
-func handleSavedTripsList(store *trips.Store) http.HandlerFunc {
+func handleSavedTripsList(store *trips.Store, ent *entitlements.Service, uid uuid.UUID) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			tripError(w, http.StatusUnauthorized, "no_user", "no user")
@@ -326,11 +327,12 @@ func handleSavedTripsList(store *trips.Store) http.HandlerFunc {
 		if out == nil {
 			out = []trips.SavedTrip{}
 		}
+		markReadOnlyTrips(r.Context(), ent, uid, out)
 		writeJSON(w, http.StatusOK, out)
 	}
 }
 
-func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
+func handleSavedTripCreate(store *trips.Store, ent *entitlements.Service, uid uuid.UUID) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			tripError(w, http.StatusUnauthorized, "no_user", "no user")
@@ -357,6 +359,13 @@ func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
 		if savedTripTooLarge(w, name, b) {
 			return
 		}
+		if ok, err := savedTripCreateGate(r.Context(), ent, uid, store); err != nil {
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
+			return
+		} else if !ok {
+			writeProRequiredLimit(w, FreeSavedTrips)
+			return
+		}
 		t, err := store.Create(r.Context(), name, b.Inputs, b.Plan, b.Advice)
 		if errors.Is(err, trips.ErrLimit) {
 			tripError(w, http.StatusUnprocessableEntity, "trip_limit", fmt.Sprintf("you can keep up to %d saved trips; delete one on the web to save another", trips.MaxPerUser))
@@ -376,7 +385,7 @@ func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
 	}
 }
 
-func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
+func handleSavedTripUpdate(store *trips.Store, ent *entitlements.Service, uid uuid.UUID) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			tripError(w, http.StatusUnauthorized, "no_user", "no user")
@@ -406,6 +415,13 @@ func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
 			return
 		}
 		if savedTripTooLarge(w, name, b) {
+			return
+		}
+		if ok, err := savedTripEditable(r.Context(), ent, uid, store, id); err != nil {
+			tripError(w, http.StatusInternalServerError, "internal", "could not save the trip")
+			return
+		} else if !ok {
+			writeProRequiredLimit(w, FreeSavedTrips)
 			return
 		}
 		t, err := store.Update(r.Context(), id, name, b.Inputs, b.Plan, b.Advice)

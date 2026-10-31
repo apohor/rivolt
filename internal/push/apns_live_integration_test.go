@@ -4,6 +4,7 @@ package push
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -444,4 +445,66 @@ func TestTestLive(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Error("the activities were not forgotten after the test's end")
+}
+
+// A lapse closes the lock-screen card: the first routine update for an account that is no longer Pro sends each running activity exactly
+// one END (the final state) and no update, and the tokens are gone afterwards, so a later update sends nothing. A Pro account's updates
+// are unaffected.
+func TestLiveActivityEndsOnLapse(t *testing.T) {
+	ctx, pool := apnsDB(t)
+	uid, _ := db.EnsureUser(ctx, pool, "live-lapse-a")
+	st, _ := OpenStore(pool, uid)
+	sess := session(t, ctx, pool, uid)
+	var veh uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, 'live-lapse-v') RETURNING id`, uid).Scan(&veh); err != nil {
+		t.Fatal(err)
+	}
+	const dev = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	if err := st.UpsertAPNsDevice(ctx, sess, APNsDevice{Token: dev, Env: EnvProduction, BundleID: "me.apoh.rivolt"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.SetAPNsLive(ctx, dev, true); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	a1, a2 := act(4), act(5)
+	for _, tk := range []string{a1, a2} {
+		if err := st.RegisterActivity(ctx, dev, tk, veh); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key, pemKey := testKey(t)
+	var mu sync.Mutex
+	events := map[string][]string{}
+	a := apnsServer(t, key, pemKey, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		ev := "update"
+		if strings.Contains(string(b), `"event":"end"`) {
+			ev = "end"
+		}
+		mu.Lock()
+		events[r.URL.Path] = append(events[r.URL.Path], ev)
+		mu.Unlock()
+	})
+	pro := true
+	svc := &Service{apns: a, logger: untimedLogger(&bytes.Buffer{})}
+	svc.WithLive(true).WithProCheck(func(context.Context, uuid.UUID) bool { return pro })
+	state := NewLiveState(63, 11.4, 37)
+
+	if n := svc.UpdateLive(ctx, st, veh, state); n != 2 {
+		t.Fatalf("pro update reached %d, want 2", n)
+	}
+	pro = false
+	svc.UpdateLive(ctx, st, veh, state) // the lapse is seen: each activity is ended
+	svc.UpdateLive(ctx, st, veh, state) // and nothing is left to send to
+	if n, _ := st.ActivityCount(ctx); n != 0 {
+		t.Errorf("%d activity rows after the lapse, want 0", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, tk := range []string{a1, a2} {
+		got := events["/3/device/"+tk]
+		if len(got) != 2 || got[0] != "update" || got[1] != "end" {
+			t.Errorf("Apple saw %v for an activity, want one update (while Pro) then exactly one end", got)
+		}
+	}
 }

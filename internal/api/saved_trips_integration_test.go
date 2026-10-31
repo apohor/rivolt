@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/testpg"
 	"github.com/apohor/rivolt/internal/trips"
@@ -35,7 +37,7 @@ func TestSavedTripsEdgesAreJSON(t *testing.T) {
 	post := func(name string) (int, struct{ Error, Class string }) {
 		rec := httptest.NewRecorder()
 		body := fmt.Sprintf(`{"name":%q,"inputs":{"o":"x"}}`, name)
-		handleSavedTripCreate(store)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(body)))
+		handleSavedTripCreate(store, nil, uuid.Nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/saved", strings.NewReader(body)))
 		var out struct{ Error, Class string }
 		_ = json.Unmarshal(rec.Body.Bytes(), &out)
 		return rec.Code, out
