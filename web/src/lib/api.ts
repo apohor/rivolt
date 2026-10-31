@@ -2319,6 +2319,8 @@ export type AuthUser = {
   manage_subscription?: boolean;
   // How many days of history this account sees: 90 on free, null (unlimited) otherwise.
   history_days?: number | null;
+  // Billing is off (a rollback) but the account holds a live Stripe subscription: show a minimal Plan card with Manage subscription.
+  manage_subscription?: boolean;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was

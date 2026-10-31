@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { planState } from "../lib/plan";
 import { checkoutMessage, checkoutReturn, POLL_EVERY_MS, POLL_TIMES, withoutCheckout, type CheckoutReturn } from "../lib/checkoutReturn";
-import { planCardCopy } from "../lib/proCopy";
+import { planCardCopy, PRO } from "../lib/proCopy";
 import { Card } from "./ui";
 import { ProSheet } from "./ProSheet";
 
@@ -35,7 +35,9 @@ export function PlanCard() {
   }, [back, proIsOn, tries, qc]);
   const state = planState(me.data);
   const copy = planCardCopy(state);
-  if (!copy) return null;
+  // Billing switched off (a rollback) while a Stripe subscription is live: the person can still change or cancel it, and nothing else about
+  // plans appears.
+  if (!copy) return me.data?.manage_subscription ? <ManageOnlyCard /> : null;
   return (
     <Card title="Plan" id="plan">
       <div data-plan-card={state.kind} className="space-y-2">
@@ -49,6 +51,36 @@ export function PlanCard() {
         {copy.action && <button type="button" className={btn} onClick={() => setOpen(true)}>{copy.action}</button>}
       </div>
       {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+    </Card>
+  );
+}
+
+function ManageOnlyCard() {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  return (
+    <Card title="Plan" id="plan">
+      <div data-plan-card="manage-only" className="space-y-2">
+        <p className="text-sm font-medium text-neutral-100">Rivolt Pro</p>
+        <p className="text-sm text-neutral-300">Billed through Stripe. New purchases are switched off, but you can still change the plan, update the card or cancel.</p>
+        <button
+          type="button"
+          className={btn}
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setProblem(null);
+            backend
+              .billingPortal()
+              .then(({ url }) => window.location.assign(url))
+              .catch(() => setProblem(PRO.billingUnavailable))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {PRO.manageStripe}
+        </button>
+        {problem && <p role="status" className="text-xs text-amber-300">{problem}</p>}
+      </div>
     </Card>
   );
 }
