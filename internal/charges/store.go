@@ -468,6 +468,29 @@ func (s *Store) ListRecentForVehicle(ctx context.Context, rivianVehicleID string
 }
 
 func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID string) ([]Charge, error) {
+	return s.listWindow(ctx, limit, rivianVehicleID, nil, nil)
+}
+
+// ErrRangeTooLarge: a window holds more rows than one answer may carry.
+var ErrRangeTooLarge = errors.New("window holds more rows than one answer carries")
+
+var maxRangeRows = 9000
+
+// ListRange returns the user's listed charges that started in [from, to), newest first, from every truck. A window with more
+// than maxRangeRows returns ErrRangeTooLarge rather than a partial list.
+func (s *Store) ListRange(ctx context.Context, from, to time.Time) ([]Charge, error) {
+	rows, err := s.listWindow(ctx, maxRangeRows+1, "", &from, &to)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > maxRangeRows {
+		return nil, ErrRangeTooLarge
+	}
+	return rows, nil
+}
+
+// listWindow is listRecent narrowed to charges that started in [from, to) when those are set.
+func (s *Store) listWindow(ctx context.Context, limit int, rivianVehicleID string, from, to *time.Time) ([]Charge, error) {
 	if limit <= 0 {
 		limit = 50
 	} else if limit > 10000 {
@@ -496,8 +519,10 @@ func (s *Store) listRecent(ctx context.Context, limit int, rivianVehicleID strin
 		WHERE c.user_id = $1
 		  AND ended_at - started_at >= interval '1 minute'
 		  AND ($3::text = '' OR v.rivian_vehicle_id = $3::text)
+		  AND ($4::timestamptz IS NULL OR c.started_at >= $4::timestamptz)
+		  AND ($5::timestamptz IS NULL OR c.started_at < $5::timestamptz)
 		ORDER BY c.started_at DESC
-		LIMIT $2`, s.userID, limit, rivianVehicleID)
+		LIMIT $2`, s.userID, limit, rivianVehicleID, from, to)
 	if err != nil {
 		return nil, err
 	}

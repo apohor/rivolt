@@ -103,6 +103,8 @@ export const iosOnlyFixtures: Record<string, string> = {
   "demo_trip_plan_single.json": "a demo sample trip's stored plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "demo_trip_plan_two_days.json": "a demo sample trip's stored two-day plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "activity.json": "the activity feed is an iPhone screen; the web has no consumer",
+  "year_in_rivolt.json": "the Your-year card (year_in_rivolt.go): no client reads it yet; ux assigns it to a web type here (and removes this line) when the card is built",
+  "year_in_rivolt_not_yet.json": "the Your-year card (year_in_rivolt.go): no client reads it yet; ux assigns it to a web type here (and removes this line) when the card is built",
   "settings_offpeak.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",
   "settings_offpeak_empty.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",
   "error_offpeak_field.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",

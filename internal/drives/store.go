@@ -275,6 +275,25 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 	return s.listRecent(ctx, limit, true, "")
 }
 
+// ErrRangeTooLarge: a window holds more rows than one answer may carry.
+var ErrRangeTooLarge = errors.New("window holds more rows than one answer carries")
+
+// ListRange returns the user's listed drives (as ListRecent: a minute or more) that started in [from, to), newest first, from
+// every truck, without the route. At most maxRangeRows; a window with more returns ErrRangeTooLarge rather than a partial list,
+// for totals that must not be short.
+func (s *Store) ListRange(ctx context.Context, from, to time.Time) ([]Drive, error) {
+	rows, err := s.listWindow(ctx, maxRangeRows+1, false, "", &from, &to)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > maxRangeRows {
+		return nil, ErrRangeTooLarge
+	}
+	return rows, nil
+}
+
+var maxRangeRows = 9000
+
 // ListRecentForVehicle is ListRecent for one of the user's trucks, by its
 // Rivian vehicle id; polyline false leaves out the route as ListRecentSlim.
 // An id the user doesn't have returns no rows.
@@ -292,6 +311,11 @@ func (s *Store) ListRecentSlim(ctx context.Context, limit int) ([]Drive, error) 
 // listRecent lists the user's drives, newest first; rivianVehicleID, when set,
 // keeps one truck's.
 func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivianVehicleID string) ([]Drive, error) {
+	return s.listWindow(ctx, limit, polyline, rivianVehicleID, nil, nil)
+}
+
+// listWindow is listRecent narrowed to drives that started in [from, to) when those are set.
+func (s *Store) listWindow(ctx context.Context, limit int, polyline bool, rivianVehicleID string, from, to *time.Time) ([]Drive, error) {
 	routeCol := `''`
 	if polyline {
 		routeCol = `COALESCE(d.route_polyline,'')`
@@ -316,8 +340,10 @@ func (s *Store) listRecent(ctx context.Context, limit int, polyline bool, rivian
 		WHERE d.user_id = $1
 		  AND ended_at - started_at >= interval '1 minute'
 		  AND ($3::text = '' OR v.rivian_vehicle_id = $3::text)
+		  AND ($4::timestamptz IS NULL OR d.started_at >= $4::timestamptz)
+		  AND ($5::timestamptz IS NULL OR d.started_at < $5::timestamptz)
 		ORDER BY d.started_at DESC
-		LIMIT $2`, s.userID, limit, rivianVehicleID)
+		LIMIT $2`, s.userID, limit, rivianVehicleID, from, to)
 	if err != nil {
 		return nil, err
 	}

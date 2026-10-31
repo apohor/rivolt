@@ -1,0 +1,11 @@
+{
+  "eligible": true,
+  "year": 2026,
+  "miles": 8421.6,
+  "kwh": 3012.4,
+  "charge_count": 96,
+  "best_efficiency_mi_per_kwh": 3.4,
+  "longest_trip": {"miles": 412.8, "month": "2026-07"},
+  "coldest_drive": {"temp_f": 4.3, "month": "2026-01"},
+  "cost": {"amount": 611.25, "currency": "USD", "estimated": true}
+}
