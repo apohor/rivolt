@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/singleton"
 	"github.com/apohor/rivolt/internal/testpg"
 )
 
@@ -30,6 +31,11 @@ func TestDemoLoopsRunOnOnePodAtATime(t *testing.T) {
 		defer p.Close()
 		pools = append(pools, p)
 	}
+	// The helper counts every attempt: a pod that finds the pass taken must be counted as skipped, not left waiting for it.
+	var mu sync.Mutex
+	outcomes := map[string]int{}
+	singleton.SetObserver(func(job, outcome string) { mu.Lock(); outcomes[job+"/"+outcome]++; mu.Unlock() })
+	t.Cleanup(func() { singleton.SetObserver(func(string, string) {}) })
 	for _, job := range []string{"pricing", "weather", "plans"} {
 		var inFlight, maxInFlight, ran atomic.Int32
 		var wg sync.WaitGroup
@@ -60,6 +66,12 @@ func TestDemoLoopsRunOnOnePodAtATime(t *testing.T) {
 		}
 		if ran.Load() < 1 || ran.Load() > 3 {
 			t.Errorf("%s: the pass ran %d times across 3 pods", job, ran.Load())
+		}
+		mu.Lock()
+		counted, skipped, failed := outcomes["demo_"+job+"/ran"], outcomes["demo_"+job+"/skipped"], outcomes["demo_"+job+"/error"]
+		mu.Unlock()
+		if counted != int(ran.Load()) || counted+skipped != 3 || failed != 0 || skipped < 1 {
+			t.Errorf("%s: counted %d ran, %d skipped, %d errors for %d runs on 3 pods; want every attempt counted and a pod that found the pass taken skipping it", job, counted, skipped, failed, ran.Load())
 		}
 	}
 }
