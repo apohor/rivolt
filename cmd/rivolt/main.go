@@ -2523,6 +2523,17 @@ func runServer() {
 		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
 	}
 
+	// Terrain tiles (Terrarium PNG) for the web map's hillshade: RIVOLT_DEM_BASE_URL points at the in-cluster elevation mirror
+	// (http://elevation.elevation.svc.cluster.local). Empty disables the route, and the map draws no terrain.
+	demProxy, err := maps.NewProxy(os.Getenv("RIVOLT_DEM_BASE_URL"))
+	if err != nil {
+		logger.Error("dem proxy init", "err", err.Error())
+		os.Exit(1)
+	}
+	if demProxy != nil {
+		logger.Info("terrain tile same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_DEM_BASE_URL"))
+	}
+
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
 	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
 	// Empty disables; /api/geocode then falls through to Open-Meteo
@@ -2916,6 +2927,7 @@ func runServer() {
 		ValhallaProxy:    valhallaProxy,
 		Valhalla:         maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")), // the server calls it itself (overnight search); nil without the URL
 		TilesProxy:       tilesProxy,
+		DEMProxy:         demProxy,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		WeatherClient:    weather.NewClient(),

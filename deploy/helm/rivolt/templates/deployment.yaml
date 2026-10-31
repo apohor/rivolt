@@ -163,6 +163,11 @@ spec:
             - name: RIVOLT_TILES_BASE_URL
               value: {{ .tiles.baseUrl | quote }}
             {{- end }}
+            {{- if and .dem .dem.baseUrl }}
+            # Same-origin terrain tile proxy (Terrarium PNG, for the hillshade): mounts /api/maps/dem/{z}/{x}/{y}.png.
+            - name: RIVOLT_DEM_BASE_URL
+              value: {{ .dem.baseUrl | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.grafana.baseUrl }}
             # Operator's Grafana origin. Surfaced via /api/config so

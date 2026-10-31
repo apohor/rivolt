@@ -568,6 +568,11 @@ maps:
     baseUrl: ""
   tiles:
     baseUrl: ""
+  # Terrain tiles for the web map's hillshade (RIVOLT_DEM_BASE_URL). When set, the API mounts /api/maps/dem/{z}/{x}/{y}.png, forwards
+  # to this Terrarium PNG mirror ({z}/{x}/{y}.png under it) and advertises the route on /api/config. Typical in-cluster value:
+  # "http://elevation.elevation.svc.cluster.local" (the same mirror the recorder reads). Empty: no route, no terrain.
+  dem:
+    baseUrl: ""
 
 # ---------------------------------------------------------------------------
 # Elevation: per-sample altitude lookup
