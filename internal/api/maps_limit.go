@@ -14,6 +14,8 @@ import (
 const (
 	mapsValhallaPerMin = 60
 	mapsTilesPerMin    = 1200
+	// A hillshade view loads a few dozen terrain tiles and a pan more; the tiles are small and static.
+	mapsDEMPerMin = 1200
 	// Each call walks a tile box on the server (bounded by the corridor caps),
 	// so a re-render per route edit is fine and a loop is not.
 	mapsChargersAlongPerMin = 30
@@ -48,4 +50,10 @@ func valhallaMount(proxy http.Handler) http.Handler {
 func tilesMount(proxy http.Handler) http.Handler {
 	return mapsUserLimiter(mapsTilesPerMin).Middleware(
 		http.StripPrefix("/api/maps/tiles", maps.AllowTiles(proxy)))
+}
+
+// demMount is what api.go mounts at /api/maps/dem: Terrarium terrain tiles from the in-cluster elevation mirror, one tile per GET.
+func demMount(proxy http.Handler) http.Handler {
+	return mapsUserLimiter(mapsDEMPerMin).Middleware(
+		http.StripPrefix("/api/maps/dem", maps.AllowDEM(proxy)))
 }

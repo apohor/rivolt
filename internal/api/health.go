@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/iosapp"
+	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 )
@@ -116,7 +117,17 @@ func handleHealth(version string) http.HandlerFunc {
 // (/trace_route, /route) and PMTiles (drive map basemap), falling
 // back to a raw chord polyline when no snapping engine is wired.
 // Public so the SPA can fetch it without a session.
-func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
+// configExtras are the optional parts of /api/config that tests and older callers leave out.
+type configExtras struct {
+	// DEM: the terrain tile route is mounted (RIVOLT_DEM_BASE_URL).
+	DEM bool
+}
+
+func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
+	var ex configExtras
+	if len(extras) > 0 {
+		ex = extras[0]
+	}
 	type tilesCfg struct {
 		// URL is the full same-origin URL of the served basemap
 		// .pmtiles file (empty when not configured). protomaps-leaflet
@@ -131,6 +142,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// less accurate (planet build strips POI tags down to
 		// name/kind/min_zoom).
 		ChargersURL string `json:"chargers_url,omitempty"`
+		// DEMURL is the same-origin Terrarium terrain tile template ({z}/{x}/{y}) for the hillshade; empty when the route is not
+		// mounted. The client asks only for zooms DEMMinZoom..DEMMaxZoom; a tile the mirror lacks is a 404 and draws no terrain.
+		DEMURL     string `json:"dem_url,omitempty"`
+		DEMMinZoom int    `json:"dem_minzoom,omitempty"`
+		DEMMaxZoom int    `json:"dem_maxzoom,omitempty"`
 	}
 	type aiCfg struct {
 		// Enabled is true when the install has at least one
@@ -244,6 +260,10 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// yet, the URL still resolves; the SPA's PMTiles client
 		// will see a 404 on the file root and gracefully fall back.
 		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
+	}
+	if ex.DEM {
+		base.Tiles.DEMURL = "/api/maps/dem/{z}/{x}/{y}.png"
+		base.Tiles.DEMMinZoom, base.Tiles.DEMMaxZoom = maps.DEMClientMinZoom, maps.DEMClientMaxZoom
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()

@@ -365,6 +365,9 @@ type Deps struct {
 	// with byte-range support). nil leaves the route unmounted;
 	// the SPA falls back to CARTO's public dark raster basemap.
 	TilesProxy http.Handler
+	// DEMProxy, when non-nil, mounts a same-origin reverse proxy at /api/maps/dem/{z}/{x}/{y}.png that forwards to the in-cluster Terrarium
+	// elevation mirror (RIVOLT_DEM_BASE_URL), so the web map's hillshade and terrain make no third-party request. Same auth as the tiles.
+	DEMProxy http.Handler
 	// ChargersArchive, when non-nil, exposes a server-side
 	// chargers-along-corridor query at /api/maps/chargers-along.
 	// Backed by an in-memory copy of chargers.pmtiles so the SPA
@@ -654,7 +657,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
@@ -887,6 +890,9 @@ func New(d Deps) http.Handler {
 			}
 			if d.TilesProxy != nil {
 				r.Mount("/maps/tiles", tilesMount(d.TilesProxy))
+			}
+			if d.DEMProxy != nil {
+				r.Mount("/maps/dem", demMount(d.DEMProxy))
 			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range

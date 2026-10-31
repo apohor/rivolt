@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/demo"
+	"github.com/apohor/rivolt/internal/maps"
 )
 
 // Public read-only demo (B7b). When demo.Enabled (RIVOLT_DEMO=true on a
@@ -237,6 +238,19 @@ func demoTileRangeOK(h string) int {
 
 func isDemoTilePath(p string) bool { return p == demoTilesPath || p == demoChargersTilesPath }
 
+// demoDEMPrefix is the anonymous terrain route: the demo's map draws a hillshade like the app's, from the same in-cluster mirror. Static
+// public elevation data, one whole tile per GET; it spends the tile budgets (a tile is charged demoDEMTileCost bytes) and needs no Range.
+const demoDEMPrefix = "/api/maps/dem"
+
+// demoDEMTileCost is what one terrain tile is charged against the demo's tile byte budgets: a Terrarium tile is under 100 KB.
+const demoDEMTileCost = 96 << 10
+
+// isDemoMapAssetPath reports whether p is a static map asset the anonymous demo may read: one terrain tile.
+func isDemoMapAssetPath(p string) bool {
+	rest, ok := strings.CutPrefix(p, demoDEMPrefix)
+	return ok && maps.DEMPath(rest)
+}
+
 // demoHeavyTZ is the set of time zones an anonymous visitor may ask the
 // heavy reads for. Anything else is dropped, so the query string can't be
 // used to dodge the response cache.
@@ -415,7 +429,7 @@ func demoAllowed(method, path, vehicleID string) bool {
 		return false
 	}
 	p := strings.TrimSuffix(path, "/")
-	if demoExactPaths[p] || isDemoTilePath(path) {
+	if demoExactPaths[p] || isDemoTilePath(path) || isDemoMapAssetPath(path) {
 		return true
 	}
 	return demoPerDrivePath(p) || demoPerChargePath(p) || demoSavedTripActualPath(p) ||
@@ -528,7 +542,8 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 			}
 			p := strings.TrimSuffix(r.URL.Path, "/")
 			tile := isDemoTilePath(r.URL.Path)
-			if !tile {
+			asset := isDemoMapAssetPath(r.URL.Path)
+			if !tile && !asset {
 				// Demo-user data is served on the same URLs signed-in
 				// users call: no shared or browser cache may keep one
 				// side's response for the other.
@@ -544,6 +559,13 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			}))
+			if asset {
+				// A whole terrain tile: no Range, a fixed byte charge, the same per-client then install-wide order as tiles.
+				cost := func(*http.Request) int { return demoDEMTileCost }
+				tiles.Middleware(tileBytes.MiddlewareN(cost)(
+					tilesGlobal.Middleware(tileBytesGlobal.MiddlewareN(cost)(serve)))).ServeHTTP(w, r)
+				return
+			}
 			if tile {
 				// A byte-range read of bounded size only; per-client
 				// before global (see below), own budgets.

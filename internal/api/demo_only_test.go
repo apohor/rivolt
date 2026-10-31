@@ -40,6 +40,8 @@ func TestDemoOnlyPublicSet(t *testing.T) {
 		{"GET", "/api/charges", true},
 		{"GET", "/api/vehicles/" + demoVeh + "/drain", true},
 		{"GET", "/api/maps/tiles/us.pmtiles", true},
+		{"GET", "/api/maps/dem/9/100/200.png", true},
+		{"GET", "/api/maps/dem/13/0/0.png", false},
 		// everything an account or write surface would be
 		{"POST", "/api/config", false},
 		{"POST", "/api/auth/logout", false},
