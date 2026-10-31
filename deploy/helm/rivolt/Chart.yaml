@@ -5,7 +5,7 @@ description: |
   CloudNativePG Cluster CR for in-cluster Postgres, ExternalSecret-friendly
   for cluster operators who already run Postgres elsewhere.
 type: application
-version: 0.16.2
+version: 0.17.0
 appVersion: "0.19.13"
 home: https://github.com/apohor/rivolt
 sources:
