@@ -59,7 +59,8 @@ var Items = []Item{
 
 	// Terms, consent and clients.
 	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect"},
-	{ID: "launch-notice", What: "the section 11 launch notice goes out by email AND in-app to every verified existing account, as a service email that ignores the engagement opt-out"},
+	{ID: "launch-notice", What: "the section 11 launch notice goes out by email AND in-app to every verified existing account, as a service email that ignores the engagement opt-out",
+		Cleared: true, ClearedBy: "#1389", Proof: "TestLaunchNoticeApplyIsIdempotentAndEngagementBlind,TestLaunchNoticeAgainstPostgres,TestLaunchNoticeDryRunPrintsCountsOnly"},
 	{ID: "founding-expiry-notice", What: "a dated job sends an email plus an in-app notice at least 30 days before each founding year ends"},
 	{ID: "budget-tier-blind", What: "a test asserts the Rivian rate-limit classes and the poller never consult entitlements, so Pro never means more Rivian calls",
 		Cleared: true, ClearedBy: "#1388", Proof: "TestRivianSideNeverConsultsThePlan"},
