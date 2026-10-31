@@ -3,7 +3,7 @@
 // (.rivolt-flavor-control and its buttons) keep working.
 import type { IControl, Map as MLMap } from "maplibre-gl";
 import { MAP_CAPTION_PX } from "../lib/mapCaption";
-import { usedSpeedBuckets } from "../lib/speedBuckets";
+import { MODE_LABEL, MODE_TITLE, rampCSS, type Mode } from "./metrics";
 import type { MapFlavor } from "./style";
 
 function control(make: (map: MLMap) => HTMLElement, after?: (el: HTMLElement, map: MLMap) => void): IControl & { el?: HTMLElement } {
@@ -81,54 +81,6 @@ export function flavorControl(active: MapFlavor, pick: (f: MapFlavor) => void): 
   return Object.assign(c, { refresh });
 }
 
-// speedLegend is a small bottom-left chip naming the speed bands a drive uses ("mph  <5  25  50  65+"), the full range on hover.
-export function speedLegend(speeds: (number | undefined)[], active: MapFlavor = "dark"): IControl & { refresh: (f: MapFlavor) => void } {
-  const bands = usedSpeedBuckets(speeds);
-  let root: HTMLElement | undefined;
-  const swatches: HTMLElement[] = [];
-  const units: HTMLElement[] = [];
-  const refresh = (f: MapFlavor) => {
-    if (!root) return;
-    const c = CHIP[f];
-    root.style.background = c.bg;
-    root.style.borderColor = c.border;
-    root.style.color = c.text;
-    for (const u of units) u.style.color = c.muted;
-    for (const sw of swatches) sw.style.boxShadow = c.swatchEdge === "transparent" ? "none" : `0 0 0 1px ${c.swatchEdge}`;
-  };
-  const c = control(
-    () => {
-      const div = document.createElement("div");
-      div.className = "maplibregl-ctrl rivolt-speed-legend";
-      div.style.cssText =
-        "border:1px solid;border-radius:5px;padding:1px 4px;display:flex;gap:4px;align-items:center;" +
-        `font:${MAP_CAPTION_PX}px/1.1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);opacity:0.9;pointer-events:none;`;
-      root = div;
-      const unit = document.createElement("span");
-      unit.textContent = "mph";
-      units.push(unit);
-      div.appendChild(unit);
-      for (const b of bands) {
-        const item = document.createElement("span");
-        item.title = b.range;
-        item.style.cssText = "display:inline-flex;align-items:center;gap:2px";
-        const sw = document.createElement("span");
-        sw.style.cssText = `display:inline-block;width:6px;height:3px;background:${b.color};border-radius:2px`;
-        swatches.push(sw);
-        item.append(sw, document.createTextNode(b.label));
-        div.appendChild(item);
-      }
-      refresh(active);
-      return div;
-    },
-    // On a phone the one-line attribution (bottom-right) would run under the legend's right end: lift the legend above it.
-    (el, map) => {
-      if (map.getContainer().clientWidth < 520) el.style.marginBottom = "22px";
-    },
-  );
-  return Object.assign(c, { refresh });
-}
-
 // stalenessBadge is the amber top-right pill: the GPS fix behind the route is older than wall-clock would suggest.
 export function stalenessBadge(fixAgeSeconds: number): IControl {
   return control(() => {
@@ -198,6 +150,127 @@ export function foldCredits(container: HTMLElement): void {
     },
     true,
   );
+}
+
+// modeLegend is the bottom-left card of the drive map: a Speed / Efficiency / Elevation switch (only when more than one mode qualifies) and,
+// under it, the active mode's name, a gradient bar and the values at its two ends (the 5th and 95th percentile the colours are scaled to).
+export type LegendState = { mode: Mode; flavor: MapFlavor; ramp: string[]; lo: string; hi: string };
+export function modeLegend(
+  modes: Mode[],
+  onMode: (m: Mode) => void,
+  initial: LegendState,
+  // On a phone the D/L basemap picker lives in the card (a small segmented control), so no separate control covers a label.
+  dl?: (f: MapFlavor) => void,
+): IControl & { update: (s: LegendState) => void } {
+  let root: HTMLElement | undefined;
+  const buttons = new Map<Mode, HTMLButtonElement>();
+  const dlButtons = new Map<MapFlavor, HTMLButtonElement>();
+  let title: HTMLElement, lo: HTMLElement, hi: HTMLElement, bar: HTMLElement;
+  const update = (s: LegendState) => {
+    if (!root) return;
+    const c = CHIP[s.flavor];
+    root.style.background = c.bg;
+    root.style.borderColor = c.border;
+    root.style.color = c.text;
+    root.style.boxShadow = c.shadow;
+    root.setAttribute("data-mode", s.mode);
+    title.textContent = MODE_TITLE[s.mode];
+    title.style.color = c.muted;
+    lo.textContent = s.lo;
+    hi.textContent = s.hi;
+    // The end values are the numbers the colours mean: full text colour, semibold; the title is the quieter line.
+    lo.style.cssText = hi.style.cssText = "font-weight:600;white-space:nowrap";
+    bar.style.background = rampCSS(s.ramp);
+    for (const [m, b] of buttons) {
+      const on = m === s.mode;
+      b.setAttribute("aria-pressed", String(on));
+      b.style.background = on ? "#262626" : "transparent";
+      b.style.color = on ? "#fafafa" : c.muted;
+    }
+    for (const [f, b] of dlButtons) {
+      const on = f === s.flavor;
+      b.style.background = on ? "#262626" : "transparent";
+      b.style.color = on ? "#fafafa" : c.muted;
+    }
+  };
+  const c = control(() => {
+    const div = document.createElement("div");
+    div.className = "maplibregl-ctrl rivolt-speed-legend rivolt-legend";
+    div.style.cssText =
+      "border:1px solid;border-radius:8px;padding:4px 6px;display:flex;flex-direction:column;gap:3px;max-width:min(300px,72vw);" +
+      `font:${MAP_CAPTION_PX}px/1.2 ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
+    const top = document.createElement("div");
+    top.style.cssText = "display:flex;gap:6px;align-items:center";
+    if (modes.length > 1) {
+      const row = document.createElement("div");
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", "Route colour");
+      row.style.cssText = "display:flex;gap:2px;flex:1";
+      for (const m of modes) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = MODE_LABEL[m];
+        b.style.cssText = "flex:1;border:0;border-radius:5px;padding:2px 6px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;";
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onMode(m);
+        });
+        row.appendChild(b);
+        buttons.set(m, b);
+      }
+      top.appendChild(row);
+    }
+    title = document.createElement("div");
+    title.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+    const scale = document.createElement("div");
+    scale.style.cssText = "display:flex;align-items:center;gap:6px";
+    lo = document.createElement("span");
+    hi = document.createElement("span");
+    bar = document.createElement("span");
+    bar.style.cssText = "flex:1;min-width:56px;height:6px;border-radius:3px";
+    scale.append(lo, bar, hi);
+    if (dl) {
+      // Same class, titles and active look as the standalone picker, so it is found the same way.
+      const grp = document.createElement("div");
+      grp.className = "rivolt-flavor-control";
+      grp.style.cssText = "display:inline-flex;gap:2px;margin-left:auto";
+      for (const f of ["dark", "light"] as MapFlavor[]) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = f[0].toUpperCase();
+        b.title = `${f[0].toUpperCase()}${f.slice(1)} basemap`;
+        b.style.cssText = "width:20px;height:20px;border:1px solid transparent;border-radius:4px;background:transparent;cursor:pointer;padding:0;font:inherit;font-weight:600;";
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          dl(f);
+        });
+        grp.appendChild(b);
+        dlButtons.set(f, b);
+      }
+      top.appendChild(grp);
+    }
+    if (top.childElementCount > 0) div.appendChild(top);
+    div.append(title, scale);
+    root = div;
+    update(initial);
+    return div;
+  },
+  // On a phone the one-line attribution (bottom-right) would run under the card's right end: lift the card above it.
+  (el, map) => {
+    if (map.getContainer().clientWidth < 520) el.style.marginBottom = "22px";
+  });
+  return Object.assign(c, { update });
+}
+
+// readoutElement is the pill beside the scrub dot: the time and the active mode's value there.
+export function readoutElement(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "rivolt-readout";
+  el.textContent = text;
+  el.style.cssText =
+    "background:rgba(14,17,21,0.92);color:#F5F5F5;border:1px solid #1D2127;border-radius:9999px;padding:2px 8px;white-space:nowrap;pointer-events:none;" +
+    `font:600 ${MAP_CAPTION_PX + 1}px/1.3 ui-sans-serif,system-ui;box-shadow:0 1px 2px rgba(0,0,0,0.4);`;
+  return el;
 }
 
 // chipLegend is a bottom-left card of coloured dots and labels (the charges map's power classes), in the basemap's card colours.

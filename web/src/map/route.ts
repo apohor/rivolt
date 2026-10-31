@@ -91,3 +91,63 @@ export function setRoute(map: MLMap, data: RouteData, flavor: "dark" | "light" =
     map.addLayer({ id: LAYERS[3], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "gap"], paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2, "line-opacity": 0.7, "line-dasharray": [3, 3] } });
   }
 }
+
+// ---- the drive map's route: one gradient-coloured track, with the dashed/routed fills over it ----
+
+export const TRACK_SOURCE = "rivolt-track";
+const DRIVE_LAYERS = ["rivolt-track-glow", "rivolt-track-casing", "rivolt-track-main", "rivolt-drive-gapcase", "rivolt-drive-routed", "rivolt-drive-gap"];
+const CASING = { dark: "#06080C", light: "#FFFFFF" } as const;
+
+export type DriveRoute = {
+  // The whole track in order, [lat, lon]: the recorded trace, or the matched segments joined end to end.
+  track: LatLng[];
+  // A line-gradient expression's [progress, colour, ...] stops along the track (metrics.gradientStops).
+  stops: (number | string)[];
+  // Where the match gave up: road-routed fills (solid) and true dropouts (dashed), drawn neutral over the track.
+  routedGaps?: LatLng[][];
+  gaps?: { from: LatLng; to: LatLng }[];
+};
+
+const gradientExpr = (stops: (number | string)[]) => ["interpolate", ["linear"], ["line-progress"], ...stops] as never;
+
+// setDriveRoute puts the drive's route on the map, creating its sources and layers on first use and replacing the data and gradient after. Safe to
+// call again after a style change. The layers go below `beforeId` (the basemap's first label) so place names stay readable over the line.
+export function setDriveRoute(map: MLMap, r: DriveRoute, flavor: "dark" | "light", beforeId?: string): void {
+  const trackData = {
+    type: "FeatureCollection" as const,
+    features: r.track.length >= 2 ? [{ type: "Feature" as const, geometry: { type: "LineString" as const, coordinates: r.track.map(lonlat) }, properties: {} }] : [],
+  };
+  const fills = routeData({ runs: [], routedGaps: r.routedGaps, gaps: r.gaps });
+  const ts = map.getSource(TRACK_SOURCE) as GeoJSONSource | undefined;
+  if (ts) ts.setData(trackData as never);
+  else map.addSource(TRACK_SOURCE, { type: "geojson", lineMetrics: true, data: trackData as never });
+  const rs = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
+  if (rs) rs.setData(fills as never);
+  else map.addSource(ROUTE_SOURCE, { type: "geojson", data: fills as never });
+  const round = { "line-cap": "round", "line-join": "round" } as const;
+  const grad = gradientExpr(r.stops);
+  if (!map.getLayer(DRIVE_LAYERS[0])) {
+    const dark = flavor === "dark";
+    map.addLayer({ id: DRIVE_LAYERS[0], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 14, "line-blur": 9, "line-opacity": dark ? 0.5 : 0.3, "line-gradient": grad } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[1], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 8, "line-color": CASING[flavor], "line-opacity": 0.92 } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[2], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 4.6, "line-gradient": grad } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[3], type: "line", source: ROUTE_SOURCE, filter: ["in", ["get", "kind"], ["literal", ["routed", "gap"]]], layout: round, paint: { "line-width": 7, "line-color": CASING[flavor], "line-opacity": 0.92 } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[4], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "routed"], layout: round, paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2.5, "line-opacity": 0.8 } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[5], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "gap"], paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2, "line-opacity": 0.8, "line-dasharray": [3, 3] } }, beforeId);
+  } else {
+    setDriveGradient(map, r.stops);
+  }
+}
+
+// setDriveGradient recolours the track (a colour-mode switch) without touching its geometry.
+export function setDriveGradient(map: MLMap, stops: (number | string)[]): void {
+  const grad = gradientExpr(stops);
+  for (const id of [DRIVE_LAYERS[0], DRIVE_LAYERS[2]]) {
+    if (map.getLayer(id)) map.setPaintProperty(id, "line-gradient", grad);
+  }
+}
+
+// firstLabelLayer is the id of the style's first symbol layer, so the route can go under the place names.
+export function firstLabelLayer(map: MLMap): string | undefined {
+  return map.getStyle()?.layers?.find((l) => l.type === "symbol")?.id;
+}

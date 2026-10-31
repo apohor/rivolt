@@ -36,7 +36,19 @@ class FakeMap {
   on(ev: string, fn: (e?: unknown) => void) { (this.handlers[ev] ??= []).push(fn); return this; }
   once(ev: string, fn: (e?: unknown) => void) { return this.on(ev, fn); }
   fire(ev: string) { for (const h of this.handlers[ev] ?? []) h(); }
-  addControl(c: { constructor: { name: string }; el?: HTMLElement }, pos: string) { this.controls.push(`${pos}:${(c as { __n?: string }).__n ?? c.constructor.name}`); return this; }
+  addControl(c: { constructor: { name: string }; onAdd?: (m: unknown) => HTMLElement }, pos: string) {
+    this.controls.push(`${pos}:${(c as { __n?: string }).__n ?? c.constructor.name}`);
+    // Our own controls are real; mount their DOM so a test can read it.
+    if (typeof c.onAdd === "function") document.body.appendChild(c.onAdd(this));
+    return this;
+  }
+  paint = new Map<string, unknown>();
+  setPaintProperty(id: string, prop: string, v: unknown) { this.paint.set(`${id}:${prop}`, v); }
+  getStyle() { return { layers: [] }; }
+  images = new Set<string>();
+  hasImage(id: string) { return this.images.has(id); }
+  addImage(id: string) { this.images.add(id); }
+  removeImage(id: string) { this.images.delete(id); }
   addSource(id: string) { this.sources.set(id, { setData: vi.fn() }); }
   getSource(id: string) { return this.sources.get(id); }
   addLayer(l: { id: string }) { this.layers.add(l.id); }
@@ -46,6 +58,9 @@ class FakeMap {
   jumpTo = vi.fn();
   fitBounds = vi.fn();
   resize = vi.fn();
+  triggerRepaint = vi.fn();
+  queryRenderedFeatures() { return []; }
+  off() { return this; }
   project() { return { x: 0, y: 0 }; }
   getContainer() { return document.body; }
   remove() { this.removed = true; }
@@ -62,6 +77,8 @@ const ctl = (n: string) => class { __n = n; };
 const fakeML = { Map: FakeMap, Marker: FakeMarker, NavigationControl: ctl("nav"), AttributionControl: ctl("attribution") };
 
 const line = Array.from({ length: 6 }, (_, i) => ({ lat: 40 + i * 0.01, lon: -100 - i * 0.01, t: 1000 + i * 10, s: 20 + i * 10 }));
+// A made-up long drive near (10, 10) with speed, altitude, battery and odometer on every sample: 12 miles, 14 points of battery.
+const full = Array.from({ length: 121 }, (_, i) => ({ lat: 10 + i * 0.0015, lon: 10, t: 1000 + i * 20, s: 40 + (i % 5) * 5, alt: 100 + i * 2, soc: 80 - (0.083 * i + 0.54 * (1 - Math.cos(i / 9))), odo: 5000 + i * 0.1 }));
 
 beforeEach(() => {
   FakeMarker.all = [];
@@ -70,7 +87,11 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   document.documentElement.setAttribute("data-theme", "dark");
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+  document.body.querySelectorAll(".maplibregl-ctrl").forEach((e) => e.remove());
+});
 
 describe("DriveMap", () => {
   it("says the map is unavailable, and loads nothing, when WebGL is not available", () => {
@@ -84,7 +105,7 @@ describe("DriveMap", () => {
     webgl.mockReturnValue(true);
     const { unmount } = render(<DriveMap points={line} />);
     await waitFor(() => expect(FakeMap.last).toBeDefined());
-    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-route-main")).toBe(true));
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
     const m = FakeMap.last!;
     const style = JSON.stringify(m.styleCalls[0]);
     expect(style).toContain("pmtiles://" + location.origin + "/api/maps/tiles/us.pmtiles");
@@ -102,12 +123,52 @@ describe("DriveMap", () => {
   it("a flavour change restyles the map and puts the route back", async () => {
     webgl.mockReturnValue(true);
     render(<DriveMap points={line} />);
-    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-route-main")).toBe(true));
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
     const m = FakeMap.last!;
     document.documentElement.setAttribute("data-theme", "light");
     await waitFor(() => expect(m.styleCalls).toHaveLength(2));
     expect(JSON.stringify(m.styleCalls[0])).not.toEqual(JSON.stringify(m.styleCalls[1]));
-    await waitFor(() => expect(m.layers.has("rivolt-route-main")).toBe(true));
+    await waitFor(() => expect(m.layers.has("rivolt-track-main")).toBe(true));
+  });
+
+  it("offers Speed, Efficiency and Elevation when the drive has the values, and a mode switch repaints the gradient", async () => {
+    webgl.mockReturnValue(true);
+    render(<DriveMap points={full} packKWh={135} />);
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rivolt-legend [aria-label='Route colour'] button")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["Speed", "Efficiency", "Elevation"]);
+    expect(document.querySelector(".rivolt-legend")?.textContent).toMatch(/Speed/);
+    buttons[1].click();
+    expect(FakeMap.last!.paint.get("rivolt-track-main:line-gradient")).toBeDefined();
+    expect(document.querySelector(".rivolt-legend")?.getAttribute("data-mode")).toBe("eff");
+    expect(document.querySelector(".rivolt-legend")?.textContent).toMatch(/Efficiency \(from battery change\)/);
+  });
+
+  it("on a phone the D/L picker is inside the legend card, not a separate control", async () => {
+    webgl.mockReturnValue(true);
+    render(<DriveMap points={full} packKWh={135} />);
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
+    // jsdom's container is 0 px wide: a phone.
+    expect(FakeMap.last!.controls.some((c) => c.endsWith(":flavorControl") || c.startsWith("top-right"))).toBe(false);
+    const dl = [...document.querySelectorAll<HTMLButtonElement>(".rivolt-legend .rivolt-flavor-control button")];
+    expect(dl.map((b) => b.title)).toEqual(["Dark basemap", "Light basemap"]);
+    dl[1].click();
+    await waitFor(() => expect(FakeMap.last!.styleCalls).toHaveLength(2));
+  });
+
+  it("hides the switch when only one mode qualifies", async () => {
+    webgl.mockReturnValue(true);
+    render(<DriveMap points={line} />);
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
+    expect(document.querySelector(".rivolt-legend [aria-label='Route colour'] button")).toBeNull();
+    expect(document.querySelector(".rivolt-legend")?.getAttribute("data-mode")).toBe("speed");
+  });
+
+  it("hides Efficiency without a pack size and Elevation without altitude", async () => {
+    webgl.mockReturnValue(true);
+    render(<DriveMap points={full.map((p) => ({ ...p, alt: undefined }))} />);
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
+    expect(document.querySelector(".rivolt-legend [aria-label='Route colour'] button")).toBeNull();
   });
 
   it("shows a drive with one frozen fix as a point, not a route", async () => {
