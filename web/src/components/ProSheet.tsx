@@ -114,7 +114,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
             <button type="button" className={solid} disabled={!interval || !agreed || busy} onClick={() => interval && void open(() => backend.billingCheckout(interval))}>
               {interval ? checkoutLabel(interval) : "Choose a plan"}
             </button>
-            <p className="text-xs text-neutral-500">{PRO.underButton}</p>
+            <p className="text-xs text-neutral-500">{PRO.underButton} <span data-us-billing>{PRO.usBilling}</span></p>
           </div>
         )}
         {msg && <p role="status" className="text-xs text-amber-300">{msg}</p>}

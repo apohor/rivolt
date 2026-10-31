@@ -78,6 +78,15 @@ describe("ProSheet", () => {
     }
   });
 
+  it("says under the Subscribe button that web purchases need a US billing address, and only where one can subscribe", () => {
+    const a = renderSheet(free);
+    expect(screen.getByText(PRO.usBilling)).toBeInTheDocument();
+    expect(screen.getByText(PRO.usBilling).closest("p")?.textContent).toContain("Stop paying and nothing is deleted.");
+    a.unmount();
+    renderSheet(planState(stripeMe));
+    expect(screen.queryByText(PRO.usBilling)).toBeNull();
+  });
+
   it("says plainly that billing isn't available while it is mocked, and charges nothing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, headers: { get: () => "text/plain" }, text: async () => "not found" }) as unknown as Response));
     renderSheet(free);

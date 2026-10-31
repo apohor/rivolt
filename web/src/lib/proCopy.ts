@@ -25,6 +25,8 @@ export const PRO = {
     month: { label: "Monthly", price: "$3.99", unit: "a month", extra: "", renews: "monthly" },
   },
   underButton: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted.",
+  // Stripe Checkout is US-only at launch (DA E1). Web only: the iPhone sheet leaves territories to Apple.
+  usBilling: "Web purchases need a US billing address for now.",
   manageStripe: "Manage subscription",
   manageStripeHelp: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends.",
   manageApple: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends. On your iPhone: Settings → your name → Subscriptions.",
