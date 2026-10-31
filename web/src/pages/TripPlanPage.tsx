@@ -26,6 +26,8 @@ import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
 import { withNight } from "../plan/stays";
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import { proLimitOf, type ProLimit } from "../lib/proLimit";
 
 
 // Preset destinations come from the user's saved favorites
@@ -325,7 +327,8 @@ export default function TripPlanPage() {
         readOnly={inDemo()}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
-        saveError={(saveTripMutation.error as Error | null)?.message}
+        saveError={proLimitOf(saveTripMutation.error) ? undefined : (saveTripMutation.error as Error | null)?.message}
+        saveLimit={proLimitOf(saveTripMutation.error)}
       />
     </>
   );
@@ -335,7 +338,8 @@ export default function TripPlanPage() {
         defaultName={defaultTripName}
         activeName={activeTripName}
         saving={saveTripMutation.isPending}
-        error={saveTripMutation.error ? (saveTripMutation.error as Error).message : null}
+        error={saveTripMutation.error && !proLimitOf(saveTripMutation.error) ? (saveTripMutation.error as Error).message : null}
+        limit={proLimitOf(saveTripMutation.error)}
         savedName={saveTripMutation.isSuccess ? saveTripMutation.data.name : null}
         onSave={(name) => saveTripMutation.mutate({ name, id: activeTripName === name ? activeTripId : null })}
         onShowSaved={() => setPlanTab("saved")}
@@ -812,6 +816,7 @@ function SavedTripsCard({
   onDelete,
   onSave,
   saveError,
+  saveLimit,
   readOnly = false,
 }: {
   readOnly?: boolean;
@@ -826,6 +831,8 @@ function SavedTripsCard({
   onDelete: (id: string) => void;
   onSave: (name: string, id: string | null) => void;
   saveError?: string;
+  // The free plan's cap on saved trips was hit by a save (HTTP 402 with the limit).
+  saveLimit?: ProLimit | null;
 }) {
   const [name, setName] = useState("");
   const active = trips.find((t) => t.id === activeId) ?? null;
@@ -875,6 +882,15 @@ function SavedTripsCard({
                     {tripSubtitle(t.inputs)}
                   </span>
                 </button>
+                {t.read_only && (
+                  <span
+                    data-trip-locked
+                    title="Past the free plan's saved trips: you can open and delete it, and Pro lets you edit it"
+                    className="shrink-0 rounded-full border border-neutral-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-neutral-400"
+                  >
+                    Pro to edit
+                  </span>
+                )}
                 {!readOnly && (
                   <button
                     type="button"
@@ -904,11 +920,14 @@ function SavedTripsCard({
         />
         <button
           type="submit"
-          disabled={!canSave || saveDisabled || !name.trim()}
+          disabled={!canSave || saveDisabled || !name.trim() || (!!active?.read_only && active.name === name.trim())}
           className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm text-neutral-100 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {active && active.name === name.trim() ? "Update" : "Save"}
         </button>
+        {active?.read_only && active.name === name.trim() && (
+          <span className="basis-full text-xs text-neutral-500">This trip is past the free plan's saved trips, so it is read-only: open it or delete it, or save it under a new name once you have room.</span>
+        )}
       </form>
       )}
       {!readOnly && !canSave && (
@@ -918,6 +937,11 @@ function SavedTripsCard({
       )}
       {saveError && (
         <p className="mt-2 text-xs text-red-400">{saveError}</p>
+      )}
+      {saveLimit && (
+        <div className="mt-3">
+          <ProLimitNotice limit={saveLimit} feature="saved-trips" />
+        </div>
       )}
     </Card>
   );
@@ -1375,11 +1399,20 @@ function formatGeocode(r: GeocodeResult): string {
 
 // PlanError is the inline failure under the form, scrolled into view because on
 // a phone the result area starts below the fold.
-function PlanError({ error }: { error: unknown }) {
+export function PlanError({ error }: { error: unknown }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [error]);
+  const limit = proLimitOf(error);
+  // A free account's multi-day plan, overnight or re-plan (HTTP 402): why, what stays free, and the way to Pro.
+  if (limit) {
+    return (
+      <div ref={ref}>
+        <ProLimitNotice limit={limit} feature="planner" />
+      </div>
+    );
+  }
   const { title, detail } = planErrorCopy(error);
   return (
     <div ref={ref}>

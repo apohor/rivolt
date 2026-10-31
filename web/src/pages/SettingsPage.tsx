@@ -45,6 +45,7 @@ import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { R2ArrivalControl } from "../components/R2Arrival";
 import { PlanCard } from "../components/PlanCard";
+import { PrimaryVehicleCard } from "../components/PrimaryVehicleCard";
 import { DeleteHistoryCard } from "../components/DeleteHistoryCard";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
@@ -96,6 +97,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   import: "data",
   danger: "data",
   "delete-history": "data",
+  "primary-vehicle": "vehicle",
 };
 
 // How far down the sticky bars reach once stuck: the top nav and, in the new look, the page's own title row
@@ -242,6 +244,7 @@ function SettingsPageInner() {
 
       {tab === "vehicle" && (
         <>
+          <PrimaryVehicleCard />
           <Card title="Vehicle profile" id="profile">
             <VehicleProfilePanel />
           </Card>

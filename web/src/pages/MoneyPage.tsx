@@ -21,6 +21,7 @@ import { OffpeakPrompt } from "../components/OffpeakPrompt";
 import { fetchSavings, offpeakShareOf } from "../lib/savings";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
+import { LockedVehicleNotice } from "../components/LockedVehicle";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import {
   currentMonth,
@@ -97,17 +98,21 @@ export default function MoneyPage() {
   });
   const { selectedID, select } = useSelectedVehicle(vehicles.data);
   const vehicleID = (vehicles.data?.length ?? 0) > 1 ? selectedID : undefined;
+  // A free account's non-primary vehicle has no statement to show (its history is Pro); say so rather than ask for it.
+  const lockedVehicle = vehicles.data?.find((v) => v.id === selectedID && v.pro_locked);
 
   const monthQ = useQuery({
     queryKey: ["ledger", "monthly", month, vehicleID ?? "", fixture],
     queryFn: ({ signal }) => fetchLedgerMonth(month, { vehicleID, fixture, signal }),
     staleTime: 60_000,
+    enabled: !lockedVehicle,
   });
   const summaryQ = useQuery({
     queryKey: ["ledger", "summary", vehicleID ?? "", fixture],
     queryFn: ({ signal }) => fetchLedgerSummary({ months: 24, vehicleID, fixture, signal }),
     staleTime: 5 * 60_000,
     retry: 1,
+    enabled: !lockedVehicle,
   });
 
   const toConfirmN = summaryQ.data?.data.to_confirm_count ?? null;
@@ -148,7 +153,9 @@ export default function MoneyPage() {
         </div>
       )}
 
-      {monthQ.isLoading ? (
+      {lockedVehicle ? (
+        <LockedVehicleNotice name={lockedVehicle.name || undefined} />
+      ) : monthQ.isLoading ? (
         <Spinner />
       ) : proLimitOf(monthQ.error) ? (
         <div className="space-y-3">
