@@ -17,6 +17,7 @@ import IOSInstallBanner from "../components/IOSInstallBanner";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
+import { PlanNotice } from "../components/PlanNotice";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -82,6 +83,7 @@ function UserLayout() {
         {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
         <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <DegradedBanner />
+          <PlanNotice />
           <SubNav tab={current} onPrefetch={prefetchRoute} />
           <Outlet />
         </main>

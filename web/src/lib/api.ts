@@ -1148,6 +1148,10 @@ export type YearInRivolt = {
 };
 
 export const backend = {
+  // MOCKED until the billing API merges (paid-tier-plan.md section 3): hosted Stripe Checkout and the Customer Portal each answer a
+  // URL to open. Nothing calls them while billing is off, because no screen offers them.
+  billingCheckout: (interval: "month" | "year") => api.post<{ url: string }>("/api/billing/checkout", { interval }),
+  billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
   yearInRivolt: (year?: number) => api.get<YearInRivolt>(`/api/year-in-rivolt${year ? `?year=${year}` : ""}`),
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
@@ -2267,6 +2271,15 @@ export type AuthUser = {
   units?: AccountUnits;
   // True when this server offers passkeys to the user (absent where they are off): the Passkeys card asks nothing otherwise.
   passkeys?: boolean;
+  // The plan, when this server bills (RIVOLT_BILLING). Absent where billing is off: the account has everything and no screen
+  // mentions a plan. MOCKED shape until the billing API merges (paid-tier-plan.md section 3); see lib/plan.ts.
+  plan?: "free" | "pro";
+  // "apple" | "stripe" | "trial" | "founding" | "grant"
+  source?: string;
+  // RFC 3339: when the current paid period, founding year or grant ends.
+  period_end?: string | null;
+  // RFC 3339: when the trial ends (present while a trial runs, and after it ended).
+  trial_ends?: string | null;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was
