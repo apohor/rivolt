@@ -18,6 +18,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/launchnotice"
 	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -130,7 +131,7 @@ func TestPurchaseConfirmationFromTheWebhookState(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%d emails to the account, want 1", len(got))
 	}
-	for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "the next charge is on September 21, 2027", "https://rivolt.dev/settings#plan"} {
+	for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "The next charge is on September 21, 2027", "https://rivolt.dev/settings#plan"} {
 		if !strings.Contains(got[0].Text, want) {
 			t.Errorf("the confirmation lacks %q:\n%s", want, got[0].Text)
 		}
@@ -164,7 +165,7 @@ func TestPurchaseConfirmationRules(t *testing.T) {
 	if st, err := trial.job.RunOnce(ctx); err != nil || st.Sent != 1 {
 		t.Fatalf("trialing: %+v %v", st, err)
 	}
-	if body := trial.mail.to(trial.addr)[0].Text; !strings.Contains(body, "free trial is running; your first charge is $34.99 on October 5, 2026") {
+	if body := trial.mail.to(trial.addr)[0].Text; !strings.Contains(body, "free period is running. Your first charge of $34.99 is on October 5, 2026") {
 		t.Errorf("trialing email:\n%s", body)
 	}
 
@@ -205,14 +206,14 @@ func TestPaymentFailedNoticeInTheGrace(t *testing.T) {
 	}
 	var failed []email.Message
 	for _, m := range r.mail.to(r.addr) {
-		if strings.Contains(m.Subject, "couldn't renew") {
+		if strings.Contains(m.Subject, "payment didn't go through") {
 			failed = append(failed, m)
 		}
 	}
 	if len(failed) != 1 {
 		t.Fatalf("%d payment-failed emails, want 1", len(failed))
 	}
-	if !strings.Contains(failed[0].Text, "stay on until September 28, 2027") || !strings.Contains(failed[0].Text, "https://rivolt.dev/settings#plan") {
+	if !strings.Contains(failed[0].Text, "stays on until September 28, 2027") || !strings.Contains(failed[0].Text, "https://rivolt.dev/settings#plan") {
 		t.Errorf("payment-failed email:\n%s", failed[0].Text)
 	}
 	for i := 0; i < 2; i++ {
@@ -220,7 +221,7 @@ func TestPaymentFailedNoticeInTheGrace(t *testing.T) {
 	}
 	n := 0
 	for _, m := range r.mail.to(r.addr) {
-		if strings.Contains(m.Subject, "couldn't renew") {
+		if strings.Contains(m.Subject, "payment didn't go through") {
 			n++
 		}
 	}
@@ -234,7 +235,7 @@ func TestPaymentFailedNoticeInTheGrace(t *testing.T) {
 	late.deliver("subscription_updated_past_due.json", nil)
 	late.job.Now = func() time.Time { return time.Unix(1821536000, 0).Add(10 * 24 * time.Hour) }
 	for _, m := range func() []email.Message { _, _ = late.job.RunOnce(ctx); return late.mail.to(late.addr) }() {
-		if strings.Contains(m.Subject, "couldn't renew") {
+		if strings.Contains(m.Subject, "payment didn't go through") {
 			t.Errorf("a payment-failed notice after the grace ended: %s", m.Subject)
 		}
 	}
@@ -281,5 +282,62 @@ func TestRenewalSource(t *testing.T) {
 		return false
 	}() {
 		t.Error("a subscription outside the window is listed")
+	}
+}
+
+// A real Stripe subscription id (about 28 characters, MIXED case) goes through the real notice INSERT (account_notices' kind must match
+// ^[a-z0-9_]{1,40}$), is confirmed once, and the billing rows never appear in the in-app notice list (they are email-only).
+func TestRealStripeSubscriptionIdsAndTheNoticeList(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "bm-realid", true)
+	realID := "sub_1MowQVLk" + strings.ToUpper(r.uid.String()[:4]) + "dIwHu7ix" + r.uid.String()[:4] + "eRlqHVzs"
+	if len(realID) < 28 || strings.ToLower(realID) == realID {
+		t.Fatalf("setup: %q is not a realistic mixed-case id", realID)
+	}
+	r.deliver("subscription_created_active.json", func(s string) string {
+		return strings.ReplaceAll(s, "sub_"+r.uid.String()[:8], realID)
+	})
+	st, err := r.job.RunOnce(ctx)
+	if err != nil || st.Sent != 1 || st.Failed != 0 {
+		t.Fatalf("a realistic subscription id: %+v %v (the notice INSERT must accept its kind)", st, err)
+	}
+	if n := len(r.mail.to(r.addr)); n != 1 {
+		t.Fatalf("%d emails, want 1", n)
+	}
+	var kind string
+	if err := r.pool.QueryRow(`SELECT kind FROM account_notices WHERE user_id = $1 AND kind LIKE 'billing_purchase_%'`, r.uid).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if kind != PurchaseKind(realID) {
+		t.Errorf("stored kind %q, want %q (the SQL and Go hashes must agree, or the 'already sent' check never matches)", kind, PurchaseKind(realID))
+	}
+	// Idempotent through the SQL hash: a rerun finds it already sent.
+	if st, _ := r.job.RunOnce(ctx); st.Sent != 0 || len(r.mail.to(r.addr)) != 1 {
+		t.Errorf("a rerun sent again: %+v", st)
+	}
+	// A billing row that is within its window is still never listed as an in-app notice.
+	store := launchnotice.Store{DB: r.pool}
+	future := time.Now().Add(24 * time.Hour)
+	if _, err := store.EnsureAny(ctx, r.uid, "billing_failed_20991231", FailureParams{GraceEnds: "2099-12-31"}, future); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnsureAny(ctx, r.uid, "launch_notice_probe", map[string]string{"x": "y"}, future); err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.List(ctx, r.uid, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawProbe bool
+	for _, n := range list {
+		if strings.HasPrefix(n.Kind, "billing_") {
+			t.Errorf("the in-app notice list contains a billing row: %s", n.Kind)
+		}
+		if n.Kind == "launch_notice_probe" {
+			sawProbe = true
+		}
+	}
+	if !sawProbe {
+		t.Error("the filter hid an ordinary notice too")
 	}
 }

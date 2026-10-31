@@ -14,7 +14,9 @@ package billingmail
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -95,7 +97,13 @@ type Failure struct {
 }
 
 // PurchaseKind and FailureKind are the notice kinds: one confirmation per subscription, one failed-payment notice per failed period.
-func PurchaseKind(subscription string) string { return "billing_purchase_" + subscription }
+//
+// A notice kind is at most 40 characters of [a-z0-9_] (account_notices' CHECK), and a real Stripe id is ~28 characters of MIXED case
+// ("sub_1MowQVLkdIwHu7ix..."), so the subscription is named by the first 16 hex of its sha256: deterministic, lower case, 33 characters.
+func PurchaseKind(subscription string) string {
+	sum := sha256.Sum256([]byte(subscription))
+	return "billing_purchase_" + hex.EncodeToString(sum[:8])
+}
 func FailureKind(periodEnd time.Time) string {
 	return "billing_failed_" + periodEnd.UTC().Format("20060102")
 }
@@ -213,7 +221,7 @@ func (j *Job) purchases(ctx context.Context, now time.Time) ([]Purchase, error) 
 		 WHERE e.source = 'stripe' AND e.status = 'active' AND e.current_period_end IS NOT NULL
 		   AND s.price_interval IS NOT NULL AND s.unit_amount IS NOT NULL
 		   AND s.updated_at > $1 AND `+eligibleUser+`
-		   AND NOT EXISTS (SELECT 1 FROM account_notices n WHERE n.user_id = e.user_id AND n.kind = 'billing_purchase_' || e.external_id AND n.email_sent_at IS NOT NULL)`,
+		   AND NOT EXISTS (SELECT 1 FROM account_notices n WHERE n.user_id = e.user_id AND n.kind = 'billing_purchase_' || substr(encode(sha256(convert_to(e.external_id, 'UTF8')), 'hex'), 1, 16) AND n.email_sent_at IS NOT NULL)`,
 		now.Add(-RecentFor))
 	if err != nil {
 		return nil, err

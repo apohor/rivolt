@@ -1,6 +1,7 @@
 package billingmail
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +26,17 @@ func TestPriceLabel(t *testing.T) {
 }
 
 func TestNoticeKindsCarryWhatTheyAreAbout(t *testing.T) {
-	if got := PurchaseKind("sub_123"); got != "billing_purchase_sub_123" {
-		t.Errorf("PurchaseKind = %q", got)
+	// A real Stripe id is ~28 characters of mixed case; the kind must still fit account_notices' CHECK (^[a-z0-9_]{1,40}$).
+	real := "sub_1MowQVLkdIwHu7ixeRlqHVzs"
+	kind := PurchaseKind(real)
+	if !noticeKindOK.MatchString(kind) {
+		t.Errorf("PurchaseKind(%q) = %q does not satisfy the notice kind pattern", real, kind)
+	}
+	if kind != PurchaseKind(real) || kind == PurchaseKind(real+"x") {
+		t.Error("PurchaseKind is not deterministic and distinct per subscription")
+	}
+	if !noticeKindOK.MatchString(FailureKind(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC))) {
+		t.Error("FailureKind does not satisfy the notice kind pattern")
 	}
 	end := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	if got := FailureKind(end); got != "billing_failed_20261201" {
@@ -43,7 +53,7 @@ func TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel(t *testing.T) {
 	paid := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2027-12-01"})
 	trial := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2026-12-11", Trialing: true})
 	for name, body := range map[string]string{"paid": paid, "trial": trial} {
-		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Cancelling keeps Pro until the end of the period you have paid for", "the full export is always free", "https://rivolt.dev/terms"} {
+		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Cancelling keeps Pro until the end of the period you have paid for", "the full export is always free", "https://rivolt.dev/terms", "https://rivolt.dev/privacy", "within 14 days of it for a full refund", "support@rivolt.dev"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s email lacks %q:\n%s", name, want, body)
 			}
@@ -54,17 +64,17 @@ func TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(paid, "charged $34.99 today; the next charge is on December 1, 2027") {
+	if !strings.Contains(paid, "charged $34.99 today. The next charge is on December 1, 2027") {
 		t.Errorf("paid email's charge line:\n%s", paid)
 	}
-	if !strings.Contains(trial, "free trial is running; your first charge is $34.99 on December 11, 2026") {
+	if !strings.Contains(trial, "free period is running. Your first charge of $34.99 is on December 11, 2026; nothing is charged before then") {
 		t.Errorf("trial email's charge line:\n%s", trial)
 	}
 }
 
 func TestPaymentFailedEmailStatesWhenGraceEndsAndHowToFixIt(t *testing.T) {
 	body := RenderFailure(FailureParams{GraceEnds: "2026-12-08"})
-	for _, want := range []string{"did not go through", "stay on until December 8, 2026", "update your card", "https://rivolt.dev/settings#plan", "moves to the free plan", "Nothing is deleted"} {
+	for _, want := range []string{"did not go through", "stays on until December 8, 2026", "Update card", "https://rivolt.dev/settings#plan", "moves to the free plan", "Nothing is deleted", "while your bank and Stripe retry"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("payment-failed email lacks %q:\n%s", want, body)
 		}
@@ -89,3 +99,6 @@ func TestRenderRefusesBadParams(t *testing.T) {
 		t.Error("a valid purchase does not render")
 	}
 }
+
+// account_notices.kind: CHECK (kind ~ '^[a-z0-9_]{1,40}$') (migration 0100).
+var noticeKindOK = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
