@@ -1197,6 +1197,10 @@ func handleDataReset(d Deps) http.HandlerFunc {
 			http.Error(w, "reset charges: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if err := db.DeleteUserHistoryBefore(ctx, d.DB, uid, time.Now().AddDate(1, 0, 0)); err != nil {
+			http.Error(w, "reset history: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"drives":  drivesN,
 			"charges": chargesN,
@@ -1249,21 +1253,25 @@ func handleDataDeleteRange(d Deps) http.HandlerFunc {
 		defer cancel()
 		samplesN, err := ss.DeleteBefore(ctx, cutoff)
 		if err != nil {
-			http.Error(w, "delete samples: "+err.Error(), http.StatusInternalServerError)
+			serverError(w, r, "delete samples", err)
 			return
 		}
 		if err := db.DeleteUserArchiveBefore(ctx, d.DB, uid, cutoff); err != nil {
-			http.Error(w, "delete archive: "+err.Error(), http.StatusInternalServerError)
+			serverError(w, r, "delete archive", err)
 			return
 		}
 		drivesN, err := ds.DeleteBefore(ctx, cutoff)
 		if err != nil {
-			http.Error(w, "delete drives: "+err.Error(), http.StatusInternalServerError)
+			serverError(w, r, "delete drives", err)
 			return
 		}
 		chargesN, err := cs.DeleteBefore(ctx, cutoff)
 		if err != nil {
-			http.Error(w, "delete charges: "+err.Error(), http.StatusInternalServerError)
+			serverError(w, r, "delete charges", err)
+			return
+		}
+		if err := db.DeleteUserHistoryBefore(ctx, d.DB, uid, cutoff); err != nil {
+			serverError(w, r, "delete history", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"drives": drivesN, "charges": chargesN, "samples": samplesN})

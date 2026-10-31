@@ -469,6 +469,34 @@ func deleteFromThinnedCopiesBeforeTx(ctx context.Context, tx *sql.Tx, uid uuid.U
 	return nil
 }
 
+// DeleteUserHistoryBefore removes the per-time history that hangs off charges and drives without a foreign key (or outlives them) and
+// is dated before cutoff: Rivian receipts (amount, vendor, city, charger), the undo copies of deleted charges, trip-plan links
+// (the plan snapshot has the route), stored push notification text and left-open alerts. Used by "delete my history before X" and by
+// the full history reset (a cutoff in the future). Rows that cascade with a charge (restamps, pack-health samples) go with it.
+func DeleteUserHistoryBefore(ctx context.Context, d *sql.DB, uid uuid.UUID, cutoff time.Time) error {
+	if d == nil || uid == uuid.Nil {
+		return nil
+	}
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	for _, q := range []string{
+		`DELETE FROM rivian_receipts WHERE user_id = $1 AND started_at < $2`,
+		`DELETE FROM charges_deleted_backup WHERE user_id = $1
+		   AND COALESCE(row->>'started_at', row->>'at', row->>'created_at', deleted_at::text)::timestamptz < $2`,
+		`DELETE FROM trip_plan_links WHERE user_id = $1 AND started_at < $2`,
+		`DELETE FROM push_notifications WHERE user_id = $1 AND created_at < $2`,
+		`DELETE FROM left_open_alerts WHERE user_id = $1 AND episode_started_at < $2`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, uid, cutoff); err != nil {
+			return fmt.Errorf("delete history before: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteUserArchiveBefore is "delete the history before month" for the telemetry archive: for every archived month earlier than
 // cutoff (which must be the first of a month, UTC, so no month is cut in half) it queues that month's objects for deletion and removes
 // the archive_months row, and it clears the user's rows older than cutoff from thinning's detached full copies. Months from cutoff on

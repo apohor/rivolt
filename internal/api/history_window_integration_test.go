@@ -634,6 +634,18 @@ func TestDeleteRangeAgainstPostgres(t *testing.T) {
 			VALUES ($1, 'rg-old-drive', 30.5, -97.5, $2, 'test', 10)`, u, old); err != nil {
 			t.Fatal(err)
 		}
+		for id, at := range map[string]time.Time{"rg-old": old, "rg-new": recent} {
+			if _, err := pool.ExecContext(ctx, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, city) VALUES ($1, $2, $3, $3, 'Testville')`, u, id, at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.ExecContext(ctx, `INSERT INTO push_notifications (id, user_id, kind, title, body, created_at) VALUES ($1, $2, 'x', 't', 'b', $3)`, uuid.New(), u, at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.ExecContext(ctx, `INSERT INTO charges_deleted_backup (batch_id, kind, charge_id, user_id, row) VALUES ($1, 'charge', $2, $3, jsonb_build_object('started_at', $4::timestamptz))`,
+				uuid.New(), uuid.New(), u, at); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for _, m := range []time.Time{old, recent} {
 			month := time.Date(m.Year(), m.Month(), 1, 0, 0, 0, 0, time.UTC)
 			if _, err := pool.ExecContext(ctx, `INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes)
@@ -677,6 +689,14 @@ func TestDeleteRangeAgainstPostgres(t *testing.T) {
 	}
 	if n := countRows(ctx, t, pool, `SELECT count(*) FROM drive_weather WHERE user_id = $1 AND drive_id = 'rg-old-drive'`, free); n != 0 {
 		t.Errorf("per-drive weather of a deleted drive remains: %d", n)
+	}
+	for _, tbl := range []string{"rivian_receipts", "push_notifications", "charges_deleted_backup"} {
+		if n := countRows(ctx, t, pool, `SELECT count(*) FROM `+tbl+` WHERE user_id = $1`, free); n != 1 {
+			t.Errorf("free %s: %d rows, want only the recent one", tbl, n)
+		}
+		if n := countRows(ctx, t, pool, `SELECT count(*) FROM `+tbl+` WHERE user_id = $1`, other); n != 2 {
+			t.Errorf("another account's %s: %d rows, want 2", tbl, n)
+		}
 	}
 	oldMonth := time.Date(old.Year(), old.Month(), 1, 0, 0, 0, 0, time.UTC)
 	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_months WHERE user_id = $1 AND month = $2`, free, oldMonth); n != 0 {
