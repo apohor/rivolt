@@ -1,4 +1,4 @@
-/* On a phone the credits start folded and stay folded until the "i" is tapped: the library reopens them whenever a source loads, and
+/* The credits start folded and stay folded until the "i" is tapped: the library reopens them whenever a source loads, and
    the terrain credit alone would fill the corner of the map over the route. The attribute is set by DriveMap. */
 .maplibregl-ctrl-attrib[data-fold]:not([data-open]) {
   padding: 2px 24px 2px 0;

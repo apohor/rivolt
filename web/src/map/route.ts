@@ -76,7 +76,7 @@ const LAYERS = ["rivolt-route-glow", "rivolt-route-main", "rivolt-route-routed",
 
 // setRoute puts the route on the map, creating its source and layers on first use and replacing the data after. Safe to call again after a
 // style change (setStyle drops added layers): it re-creates what is missing.
-export function setRoute(map: MLMap, data: RouteData): void {
+export function setRoute(map: MLMap, data: RouteData, flavor: "dark" | "light" = "dark"): void {
   const src = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
   if (src) {
     src.setData(data as never);
@@ -85,7 +85,7 @@ export function setRoute(map: MLMap, data: RouteData): void {
   }
   const round = { "line-cap": "round", "line-join": "round" } as const;
   if (!map.getLayer(LAYERS[0])) {
-    map.addLayer({ id: LAYERS[0], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "speed"], layout: round, paint: { "line-color": ROUTE_GLOW, "line-width": 9, "line-opacity": 0.18 } });
+    map.addLayer({ id: LAYERS[0], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "speed"], layout: round, paint: { "line-color": ROUTE_GLOW, "line-width": flavor === "light" ? 4.5 : 9, "line-opacity": flavor === "light" ? 0.25 : 0.18 } });
     map.addLayer({ id: LAYERS[1], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "speed"], layout: round, paint: { "line-color": ["get", "color"], "line-width": 3, "line-opacity": 0.95 } });
     map.addLayer({ id: LAYERS[2], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "routed"], layout: round, paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2.5, "line-opacity": 0.75 } });
     map.addLayer({ id: LAYERS[3], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "gap"], paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2, "line-opacity": 0.7, "line-dasharray": [3, 3] } });

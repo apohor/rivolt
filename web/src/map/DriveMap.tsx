@@ -8,7 +8,7 @@ import { ensureConfig, tilesDEM, tilesGlyphsURL, tilesPMTilesURL, valhallaBase }
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
-import { buildStyle, plainStyle, type MapFlavor } from "./style";
+import { BASEMAP_ATTRIBUTION, buildStyle, plainStyle, type MapFlavor } from "./style";
 import { boundsOf, routeData, setRoute, speedRuns, type LatLng } from "./route";
 import { snapToRoads, type SnapPoint } from "./snap";
 import { cursorElement, flavorControl, pinElement, speedLegend, stalenessBadge, tilesNotice } from "./controls";
@@ -16,7 +16,6 @@ import { cursorElement, flavorControl, pinElement, speedLegend, stalenessBadge, 
 type Point = { lat: number; lon: number; t?: number; s?: number };
 
 export const TILES_UNAVAILABLE_TEXT = "Map tiles unavailable on this server";
-const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
 
 // MapUnavailable is what the card shows when this browser cannot draw WebGL: plain words, the box kept so the layout does not jump.
 export function MapUnavailable({ height }: { height: number }) {
@@ -131,9 +130,9 @@ export function DriveMap({
       });
 
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-left");
-      map.addControl(new ml.AttributionControl({ compact: true, customAttribution: tiles ? undefined : OSM_ATTRIBUTION }), "bottom-right");
-      // On a phone the credits (terrain's is long) would fill the map's corner over the route: start them folded (map.css), "i" opens them.
-      if (el.clientWidth < 640) {
+      map.addControl(new ml.AttributionControl({ compact: true, customAttribution: BASEMAP_ATTRIBUTION }), "bottom-right");
+      // The credits (the terrain line is long) start folded to the (i), at any width: unfolded they cover the legend and the route (map.css).
+      {
         const attrib = el.querySelector(".maplibregl-ctrl-attrib");
         attrib?.setAttribute("data-fold", "");
         attrib?.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => attrib.toggleAttribute("data-open"));
@@ -146,12 +145,16 @@ export function DriveMap({
         flavor = f;
         map.setStyle(styleFor(f));
       };
-      const picker = flavorControl(flavor, (f) => { setFlavor(f); picker.refresh(f); });
+      let legend: ReturnType<typeof speedLegend> | undefined;
+      const picker = flavorControl(flavor, (f) => { setFlavor(f); picker.refresh(f); legend?.refresh(f); });
       map.addControl(picker, "top-right");
-      cleanups.push(onAppMapFlavor((f) => { setFlavor(f); picker.refresh(f); }));
+      cleanups.push(onAppMapFlavor((f) => { setFlavor(f); picker.refresh(f); legend?.refresh(f); }));
 
       const hasSpeed = speeds.some((s) => s != null && Number.isFinite(s));
-      if (hasSpeed) map.addControl(speedLegend(speeds), "bottom-left");
+      if (hasSpeed) {
+        legend = speedLegend(speeds, flavor);
+        map.addControl(legend, "bottom-left");
+      }
       if (typeof fixAgeSeconds === "number" && Number.isFinite(fixAgeSeconds) && fixAgeSeconds >= 5 * 60) map.addControl(stalenessBadge(fixAgeSeconds), "top-right");
 
       // What to keep framed: the raw trace first, the snapped route once it arrives; every resize refits to it.
@@ -164,7 +167,7 @@ export function DriveMap({
 
       let data = routeData({ runs: hasSpread ? speedRuns(latlngs, speeds) : [] });
       // The style (re)loads on creation and on every flavour change; the route layers go back on top each time.
-      map.on("style.load", () => { setRoute(map, data); });
+      map.on("style.load", () => { setRoute(map, data, flavor); });
 
       if (!hasSpread && latlngs.length > 0) map.jumpTo({ center: [latlngs[0][1], latlngs[0][0]], zoom: 16 });
 
@@ -216,7 +219,7 @@ export function DriveMap({
           }
           for (const r of plan.routedGaps) all.push(...r);
           data = routeData({ runs, routedGaps: plan.routedGaps, gaps: plan.gaps });
-          if (map.isStyleLoaded()) setRoute(map, data);
+          if (map.isStyleLoaded()) setRoute(map, data, flavor);
           const b = boundsOf(all);
           if (b) { fitBox = b; fit(); }
         });
