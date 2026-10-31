@@ -29,6 +29,12 @@ const (
 	SendFrom  = 45 * 24 * time.Hour
 )
 
+// The transactional billing emails' metric kinds (internal/billingmail): the purchase confirmation and the payment-failed notice.
+const (
+	KindBillingPurchase      = "billing_purchase"
+	KindBillingPaymentFailed = "billing_payment_failed"
+)
+
 // KindAnnualRenewal is the metric kind of the yearly-renewal reminder (its notice rows are per period: see RenewalKind).
 const KindAnnualRenewal = "annual_renewal"
 
@@ -45,7 +51,7 @@ const (
 // Outcomes lists them; MetricKinds lists the kinds. Add a new outcome here and the metric and its test follow.
 var (
 	Outcomes    = []string{OutcomeSent, OutcomeInApp, OutcomeSkipped, OutcomeFailed, OutcomeLate}
-	MetricKinds = []string{KindFoundingEnd, KindAnnualRenewal}
+	MetricKinds = []string{KindFoundingEnd, KindAnnualRenewal, KindBillingPurchase, KindBillingPaymentFailed}
 )
 
 // FoundingParams are the dates a founding-year-end notice states.
