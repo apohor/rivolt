@@ -175,9 +175,11 @@ Trial line, web (trial granted at sign-up, no card): "You have 14 days of Pro fr
 Trial line, web, after the trial: "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time."
 Trial line, iPhone (Apple introductory offer): "14 days free, then $34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of the trial or any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
 
-Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is today, and that I can cancel in one step from Settings → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
+Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
+Rule for {first_charge} (lead's decision, DA's rule): a subscription bought during the trial starts billing when the trial ends, so the remaining trial days are not lost. The phrase is generated from the actual Stripe Checkout session, "on {trial_end}" when the session has a trial end, "today" when there is no trial left; never hard-coded, with a test that the line and the session agree.
 Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
 Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted."
+iPhone, under the Subscribe button: "Terms · Privacy" (links to rivolt.dev/terms and rivolt.dev/privacy; Apple row A4), then "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
 
 Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
 Manage subscription: label "Manage subscription"; helper, iPhone: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."; web: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends."
