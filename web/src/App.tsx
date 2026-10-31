@@ -33,6 +33,7 @@ const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const ChangelogPage = lazy(() => import("./pages/ChangelogPage"));
 const ChargingNetworksPage = lazy(() => import("./pages/ChargingNetworksPage"));
 const R2GuidePage = lazy(() => import("./pages/R2GuidePage"));
+const TermsArchivePage = lazy(() => import("./pages/TermsArchivePage"));
 const SampleTripPage = lazy(() => import("./pages/SampleTripPage"));
 const SampleTripsHubPage = lazy(() => import("./pages/SampleTripPage").then((m) => ({ default: m.SampleTripsHubPage })));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -120,6 +121,7 @@ export default function App() {
       <Route path="sample-trips" element={<SampleTripsHubPage />} />
       <Route path="sample-trips/:slug" element={<SampleTripPage />} />
       <Route path="terms" element={<TermsPage />} />
+      <Route path="terms/2026-10-23" element={<TermsArchivePage />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="support" element={<SupportPage />} />

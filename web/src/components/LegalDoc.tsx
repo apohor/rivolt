@@ -37,7 +37,7 @@ const mdComponents: Components = {
 
 // `between` (with `splitAt`, the heading it goes in front of) puts a small interactive block inside the document, after the section
 // before that heading; the markdown on either side is rendered the same way.
-export function LegalDoc({ source, other, between, splitAt }: { source: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string }) {
+export function LegalDoc({ source, other, between, splitAt, top }: { source: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string; top?: React.ReactNode }) {
   // Follow the device theme (light, dark or system) like the demo does.
   useSystemTheme(true);
   const { hash } = useLocation();
@@ -62,6 +62,7 @@ export function LegalDoc({ source, other, between, splitAt }: { source: string; 
       </header>
       <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12" data-legal>
         <article className="space-y-4 text-base leading-relaxed">
+          {top}
           <Markdown components={mdComponents}>{parts[0]}</Markdown>
           {parts[1] !== undefined && between}
           {parts[1] !== undefined && <Markdown components={mdComponents}>{parts[1]}</Markdown>}

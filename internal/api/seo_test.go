@@ -397,3 +397,19 @@ func TestSEOInjection(t *testing.T) {
 		}
 	})
 }
+
+// The archived Terms (/terms/2026-10-23, Pro 16) are a stable address for what existing accounts accepted, not a page to index:
+// the head is not rewritten and the shell is marked noindex, while /terms stays the canonical, indexed page.
+func TestArchivedTermsAreServedButNotIndexed(t *testing.T) {
+	if _, _, ok := seoLookup(hostApp, "/terms/2026-10-23"); ok {
+		t.Error("/terms/2026-10-23 must not be an indexed SEO page")
+	}
+	if _, _, ok := seoLookup(hostApp, "/terms"); !ok {
+		t.Error("/terms must stay an indexed page")
+	}
+	for _, p := range append([]string{"/"}, sampleTripPaths()...) {
+		if p == "/terms/2026-10-23" {
+			t.Error("the archived Terms must not be in the sitemap")
+		}
+	}
+}
