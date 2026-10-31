@@ -5,6 +5,7 @@ package stripebill
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -347,5 +348,47 @@ func TestStripeEventsArePurged(t *testing.T) {
 	_ = r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_new_purge'`).Scan(&recent)
 	if old != 0 || recent != 1 {
 		t.Errorf("after the purge: old=%d recent=%d, want 0 and 1", old, recent)
+	}
+}
+
+// Portal and a returning customer against the real customer table: no customer is a refusal, and once Checkout has linked the customer
+// (the webhook) the portal opens for it and a second Checkout reuses it.
+func TestPortalAndReturningCustomerAgainstPostgres(t *testing.T) {
+	r := newRig(t, "stripe-portal")
+	f := newFakeStripe(t)
+	svc := &Service{
+		Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, DB: r.pool, Plans: fakePlans{billing: true},
+		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example",
+		Now: func() time.Time { return launchDay },
+	}
+	ctx := context.Background()
+	if _, err := svc.Portal(ctx, r.uid); !errors.Is(err, ErrNoCustomer) {
+		t.Fatalf("portal for an account with no customer: %v, want ErrNoCustomer", err)
+	}
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatalf("checkout.session.completed: %d", code)
+	}
+	url, err := svc.Portal(ctx, r.uid)
+	if err != nil || url != portalPage {
+		t.Fatalf("portal: %q %v", url, err)
+	}
+	last := f.posts[len(f.posts)-1]
+	if got, want := last.Get("customer"), "cus_"+r.uid.String()[:8]; got != want {
+		t.Errorf("the portal was opened for %q, want the account's own customer %q", got, want)
+	}
+	if last.Get("return_url") != "https://rivolt.example/settings/plan" {
+		t.Errorf("return_url = %q", last.Get("return_url"))
+	}
+	if _, err := svc.Checkout(ctx, r.uid, "year"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.posts[len(f.posts)-1].Get("customer"); got != "cus_"+r.uid.String()[:8] {
+		t.Errorf("a returning customer's checkout used customer %q, want theirs", got)
+	}
+	// Another account never gets this account's customer.
+	other := newRig(t, "stripe-portal-other")
+	svc.DB = other.pool
+	if _, err := svc.Portal(ctx, other.uid); !errors.Is(err, ErrNoCustomer) {
+		t.Errorf("another account's portal: %v, want ErrNoCustomer", err)
 	}
 }

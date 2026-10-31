@@ -489,8 +489,25 @@ func runServer() {
 	// Stripe's webhook (Pro 7): only when the signing secret is configured; without it the route does not exist. A subscription change
 	// drops the account's cached plan on this pod (the others see it within the cache's TTL).
 	var stripeWebhook http.Handler
+	var stripeBilling *stripebill.Service
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
 		stripeWebhook = &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+	}
+	// Hosted Checkout and the Customer Portal (Pro 7b): only with a secret key and both prices; otherwise the routes do not exist.
+	if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" && pgPool != nil {
+		prices := map[string]string{
+			"month": strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_PRICE_MONTHLY")),
+			"year":  strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_PRICE_YEARLY")),
+		}
+		if prices["month"] == "" || prices["year"] == "" || publicBaseURL == "" {
+			logger.Error("RIVOLT_STRIPE_SECRET_KEY is set but RIVOLT_STRIPE_PRICE_MONTHLY, RIVOLT_STRIPE_PRICE_YEARLY or the public base URL is not; Stripe Checkout stays off")
+		} else {
+			stripeBilling = &stripebill.Service{
+				Client: &stripebill.Client{SecretKey: key}, DB: pgPool, Plans: entitlementsSvc,
+				Prices: prices, BaseURL: strings.TrimRight(publicBaseURL, "/"),
+				AutomaticTax: rivian.ParseBoolEnv(os.Getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")),
+			}
+		}
 	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
@@ -2862,6 +2879,7 @@ func runServer() {
 		OIDC:               oidcSvc,
 		AppleNotifications: appleNotifier,
 		StripeWebhook:      stripeWebhook,
+		StripeBilling:      stripeBilling,
 		AppAuth:            appAuth,
 		IOSAppIDs:          iosAppIDs,
 		WebFS:              webFS,
