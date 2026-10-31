@@ -63,9 +63,9 @@ func TestPreflightReady(t *testing.T) {
 	}
 	for _, want := range []string{
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
-		"https://rivolt.dev/terms: reachable (HTTP 200)", "https://rivolt.dev/privacy: reachable (HTTP 200)", "https://rivolt.dev/settings: reachable (HTTP 200)",
+		"host: rivolt.example", "https://rivolt.example/terms: reachable (HTTP 200)", "https://rivolt.example/privacy: reachable (HTTP 200)", "https://rivolt.example/settings: reachable (HTTP 200)", "unsigned POST to rivolt.example: 400",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"unsigned POST: 400", "TIME as the app user: allowed", "Checkout offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"TIME as the app user: allowed", "Checkout offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -80,7 +80,7 @@ func TestPreflightPrintsNoSecrets(t *testing.T) {
 		in := okInput()
 		in.Getenv = env(map[string]string{"RIVOLT_BILLING": billing})
 		out := render(Run(context.Background(), in))
-		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_", "whsec", "price_", "com.example", "rivolt.example", "redis.example", "Production", "Sandbox"} {
+		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_", "whsec", "price_", "com.example", "redis.example", "Production", "Sandbox"} {
 			if strings.Contains(out, secret) {
 				t.Errorf("billing=%q: the report contains %q:\n%s", billing, secret, out)
 			}
@@ -237,41 +237,79 @@ func TestPreflightModeMismatchIsAWarning(t *testing.T) {
 	}
 }
 
-// The pages checked are exactly the ones the emails and the launch notice link to.
+// The pages checked are the ones the copy links to, on the deployment's own base URL; the Plan card and the export page are one path.
 func TestURLsAreTheOnesTheCopyLinksTo(t *testing.T) {
-	got := strings.Join(URLs(), " ")
-	for _, want := range []string{"https://rivolt.dev/terms ", "https://rivolt.dev/privacy ", "https://rivolt.dev/settings "} {
+	got := strings.Join(URLs("https://preview.example/"), " ")
+	for _, want := range []string{"https://preview.example/terms ", "https://preview.example/privacy ", "https://preview.example/settings"} {
 		if !strings.Contains(got+" ", want) {
 			t.Errorf("URLs lacks %q: %s", want, got)
 		}
 	}
-	for _, u := range URLs() {
-		if strings.Contains(u, "#") {
-			t.Errorf("%s keeps a fragment", u)
+	if strings.Count(got, "/settings") != 1 {
+		t.Errorf("the settings path is listed twice: %s", got)
+	}
+	for _, u := range URLs("https://preview.example") {
+		if strings.Contains(u, "#") || strings.Contains(u, "rivolt.dev") {
+			t.Errorf("%s keeps a fragment or the production host", u)
 		}
 	}
 }
 
-// The report is honest about what it cannot see: the manual steps are printed as unchecked boxes, the site check says the SPA answers 200
-// for any path, and the closing line tells the reader the figures are production's.
-func TestPreflightManualStepsAndLabels(t *testing.T) {
+// The probes go to this deployment (preview checks preview, not production), and the report says which host the webhook probe hit.
+func TestPreflightProbesTheConfiguredBase(t *testing.T) {
 	in := okInput()
-	in.Fetch = func(context.Context, string) (int, error) { return http.StatusOK, nil } // a made-up path answers 200 too
+	in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": "https://preview.example"})
+	var fetched, posted []string
+	in.Fetch = func(_ context.Context, u string) (int, error) {
+		fetched = append(fetched, u)
+		return http.StatusOK, nil
+	}
+	in.Webhook = func(_ context.Context, u string) (int, error) {
+		posted = append(posted, u)
+		return http.StatusBadRequest, nil
+	}
 	out := render(Run(context.Background(), in))
-	for _, want := range []string{
-		"== Site reachable (the SPA answers 200 for any path", "a made-up path also answers 200",
-		"== Manual steps", "[ ] Stripe Dashboard, public business details: the Terms of service URL", "[ ] Cloudflare: a skip (allow) rule",
-		"checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
-		"ACL DRYRUN", "[ ] before the flip: the Stripe key is in live mode on prod",
-		"share the report privately with DA and the lead; never in a GitHub PR, issue, commit or release note",
-	} {
+	for _, u := range fetched {
+		if !strings.HasPrefix(u, "https://preview.example/") {
+			t.Errorf("a page check went to %s, want the configured base", u)
+		}
+	}
+	if len(fetched) == 0 || len(posted) != 1 || posted[0] != "https://preview.example/api/billing/stripe/webhook" {
+		t.Errorf("fetched %v, posted %v", fetched, posted)
+	}
+	for _, want := range []string{"host: preview.example", "unsigned POST to preview.example: 400"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}
 	}
-	// A 302 or 403 from the webhook names Cloudflare.
-	in.Webhook = func(context.Context, string) (int, error) { return http.StatusForbidden, nil }
-	if out := render(Run(context.Background(), in)); !strings.Contains(out, "Cloudflare is redirecting or blocking Stripe") {
-		t.Errorf("the webhook problem does not name Cloudflare:\n%s", out)
+	// No base URL: the pages are not probed (the missing setting is already a problem), never a production fallback.
+	in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": ""})
+	fetched = nil
+	if r := Run(context.Background(), in); r.Ready() || len(fetched) != 0 {
+		t.Errorf("without a base URL: ready=%v, fetched %v; want not ready and nothing probed", r.Ready(), fetched)
+	}
+}
+
+// Several disallowed Checkout methods are ONE problem line listing them, not one line each.
+func TestPreflightOneLineForExtraCheckoutMethods(t *testing.T) {
+	in := okInput()
+	in.Stripe = func(context.Context) StripeFacts {
+		return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true,
+			CheckoutMethods: []string{"affirm", "card", "klarna", "us_bank_account"}}
+	}
+	r := Run(context.Background(), in)
+	n := 0
+	for _, p := range r.Problems {
+		if strings.Contains(p, "beyond cards and wallets") {
+			n++
+			for _, m := range []string{"affirm", "klarna", "us_bank_account"} {
+				if !strings.Contains(p, m) {
+					t.Errorf("the problem line lacks %s: %s", m, p)
+				}
+			}
+		}
+	}
+	if n != 1 || r.Ready() {
+		t.Errorf("%d method problem lines (ready=%v), want exactly one", n, r.Ready())
 	}
 }

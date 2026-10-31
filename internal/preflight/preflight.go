@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -92,23 +93,28 @@ func (r *Report) Print(w io.Writer) {
 	fmt.Fprintln(w, "These are production figures: share the report privately with DA and the lead; never in a GitHub PR, issue, commit or release note.")
 }
 
-// URLs are the pages the launch notice and the billing emails link to, checked as the emails state them.
-func URLs() []string {
+// URLs are the pages the launch notice and the billing emails link to, on this deployment's own public base URL (the emails themselves carry
+// rivolt.dev). Fragments are dropped; the Plan card and the export page are one path.
+func URLs(base string) []string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	var out []string
 	seen := map[string]bool{}
-	for _, u := range []string{
-		"https://rivolt.dev/terms",
-		"https://rivolt.dev/terms/2026-10-23", // the previous Terms, which the launch notice says apply until the new ones take effect
-		"https://rivolt.dev/privacy",
-		stripFragment(launchnotice.PlanURL),
-		stripFragment(launchnotice.ExportURL),
-	} {
-		if !seen[u] {
+	for _, p := range []string{"/terms", "/terms/2026-10-23" /* the previous Terms, which the launch notice says apply until the new ones take effect */, "/privacy", pathOf(launchnotice.PlanURL), pathOf(launchnotice.ExportURL)} {
+		if u := base + p; !seen[u] {
 			seen[u] = true
 			out = append(out, u)
 		}
 	}
 	return out
+}
+
+// pathOf is the path of an absolute URL, without its fragment.
+func pathOf(u string) string {
+	p, err := neturl.Parse(u)
+	if err != nil {
+		return ""
+	}
+	return p.Path
 }
 
 func stripFragment(u string) string {
@@ -126,6 +132,7 @@ func Run(ctx context.Context, in Input) *Report {
 		get = func(string) string { return "" }
 	}
 	billingOn := parseBool(get("RIVOLT_BILLING"))
+	baseURL := strings.TrimRight(strings.TrimSpace(firstNonEmpty(get("RIVOLT_PUBLIC_BASE_URL"), get("RIVOLT_BASE_URL"))), "/")
 
 	r.line("== Launch-readiness list (internal/launch)")
 	pending := launch.Pending()
@@ -163,8 +170,11 @@ func Run(ctx context.Context, in Input) *Report {
 	r.line("== Site reachable (the SPA answers 200 for any path; the Terms and notice routes are covered by tests)")
 	if in.Fetch == nil {
 		r.warn("not checked (offline)")
+	} else if baseURL == "" {
+		r.warn("not checked (no public base URL)")
 	} else {
-		for _, u := range URLs() {
+		r.line("  host: %s", hostOf(baseURL))
+		for _, u := range URLs(baseURL) {
 			code, err := in.Fetch(ctx, u)
 			switch {
 			case err != nil:
@@ -175,7 +185,7 @@ func Run(ctx context.Context, in Input) *Report {
 				r.line("  %s: reachable (HTTP 200)", u)
 			}
 		}
-		if code, err := in.Fetch(ctx, "https://rivolt.dev/preflight-no-such-page"); err == nil && code == http.StatusOK {
+		if code, err := in.Fetch(ctx, baseURL+"/preflight-no-such-page"); err == nil && code == http.StatusOK {
 			r.line("  a made-up path also answers 200: as expected for the SPA, so the lines above prove reachability only")
 		}
 	}
@@ -201,7 +211,6 @@ func Run(ctx context.Context, in Input) *Report {
 	present("RIVOLT_STRIPE_WEBHOOK_SECRET", true)
 	present("RIVOLT_STRIPE_PRICE_MONTHLY", true)
 	present("RIVOLT_STRIPE_PRICE_YEARLY", true)
-	baseURL := strings.TrimRight(strings.TrimSpace(firstNonEmpty(get("RIVOLT_PUBLIC_BASE_URL"), get("RIVOLT_BASE_URL"))), "/")
 	if baseURL == "" {
 		r.problem("RIVOLT_PUBLIC_BASE_URL (or RIVOLT_BASE_URL) is not set; Stripe Checkout stays off without it")
 	} else {
@@ -236,7 +245,7 @@ func Run(ctx context.Context, in Input) *Report {
 		case code != http.StatusBadRequest:
 			r.problem("an unsigned POST to the webhook endpoint got HTTP %d, want 400 (a 302 or 403 means Cloudflare is redirecting or blocking Stripe: Stripe's events would never arrive)", code)
 		default:
-			r.line("  unsigned POST: 400 (the handler refuses it for its signature)")
+			r.line("  unsigned POST to %s: 400 (the handler refuses it for its signature)", hostOf(baseURL))
 		}
 	}
 
@@ -314,13 +323,17 @@ func (r *Report) checkoutMethods(f StripeFacts) {
 	}
 	r.line("  Checkout offers: %s", strings.Join(f.CheckoutMethods, ", "))
 	card := false
+	var extra []string
 	for _, m := range f.CheckoutMethods {
 		if m == "card" {
 			card = true
 		}
 		if !allowedCheckoutMethods[m] {
-			r.problem("Checkout also offers %s: cards and wallets only (apple_pay, google_pay, link), because other methods' refund and dispute flows do not match the 14-day refund copy", m)
+			extra = append(extra, m)
 		}
+	}
+	if len(extra) > 0 {
+		r.problem("Checkout also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay, google_pay and link; other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
 	}
 	if !card {
 		r.problem("Checkout does not offer cards")
@@ -337,6 +350,15 @@ func ManualSteps() []string {
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
 		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
 	}
+}
+
+// hostOf is the host of a URL: which deployment a probe hit. A host is not a secret.
+func hostOf(u string) string {
+	p, err := neturl.Parse(u)
+	if err != nil || p.Host == "" {
+		return "(unparsed)"
+	}
+	return p.Host
 }
 
 func firstNonEmpty(ss ...string) string {
