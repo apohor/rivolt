@@ -43,6 +43,8 @@ type Input struct {
 	// Savings is the month's off-peak saving estimate, or nil. It is only ever
 	// built for a user who is already getting this email.
 	Savings *ledger.Savings
+	// Note, when set, is a line under the heading saying what the figures cover ("Showing R1T. Pro includes all vehicles." for a free account).
+	Note string
 }
 
 // Rendered is a ready-to-send message.
@@ -285,6 +287,9 @@ func Render(in Input) Rendered {
 	if delta != "" {
 		fmt.Fprintf(&t, "  %s\n", delta)
 	}
+	if in.Note != "" {
+		fmt.Fprintf(&t, "  %s\n", in.Note)
+	}
 	if len(sp) > 0 {
 		t.WriteString("\nWhere it went\n")
 		for _, s := range sp {
@@ -330,6 +335,9 @@ func Render(in Input) Rendered {
 	fmt.Fprintf(&h, `<h1 style="font-size:22px;margin:0 0 4px">%s</h1><p style="margin:0 0 4px;color:#555">%s</p>`, e(heading), e(facts))
 	if delta != "" {
 		fmt.Fprintf(&h, `<p style="margin:0 0 16px;color:#555">%s</p>`, e(delta))
+	}
+	if in.Note != "" {
+		fmt.Fprintf(&h, `<p style="margin:0 0 16px;color:#555">%s</p>`, e(in.Note))
 	}
 	if len(sp) > 0 {
 		h.WriteString(`<h2 style="font-size:16px;margin:20px 0 6px">Where it went</h2><table role="presentation" style="width:100%;border-collapse:collapse">`)

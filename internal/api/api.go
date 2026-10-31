@@ -491,6 +491,9 @@ func New(d Deps) http.Handler {
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
 	}
+	// The free plan's one-vehicle display limit (pro_vehicles.go).
+	pv := &proVehicles{db: d.DB, settings: d.Settings, ent: d.Entitlements, log: d.Logger}
+	vehicleGate := vehicleGateMiddleware(pv)
 	r := chi.NewRouter()
 
 	// The real client address, from CF-Connecting-IP and only when a trusted
@@ -921,14 +924,14 @@ func New(d Deps) http.Handler {
 					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityLimiter := mapsUserLimiter(30)
-				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivity(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity/end", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityEnd(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityTestLimiter := mapsUserLimiter(3)
-				r.With(apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsTestLimiter := mapsUserLimiter(6)
@@ -963,7 +966,7 @@ func New(d Deps) http.Handler {
 			}
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				hasSession := d.rivianSessionCheck(uid)
-				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession)(w, r)
+				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID)(w, r)
 			}))
 			// /api/vehicles/owned reads straight from the local
 			// vehicles table — used by the import picker so the
@@ -1023,49 +1026,49 @@ func New(d Deps) http.Handler {
 					ambient: ambientLookup(ambientOptIn(d.Settings), d.WeatherClient, newAmbientCache(), d.Logger, isDemoUser),
 					now:     time.Now,
 				}
-				r.With(vehicleScoped).Get("/vehicles/{vehicleID}/now", withUser(na.handle))
+				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/now", withUser(na.handle))
 			}
 			// Parked-drain card (B8): per-vehicle drain, idle-awake and
 			// sleep stats from vehicle_state. Read-only.
 			if d.DB != nil {
 				dr := newDrainAPI(newDrainStore(d.DB))
-				r.With(vehicleScoped).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
+				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
 			}
 			// This week's short sleeps against this truck's own last 30 days (display only).
-			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepHealth(uid, d.Samples.For(uid), time.Now)(w, r)
 			}))
-			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements)).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate, proOnlyMiddleware(d.Entitlements)).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
 			// One truck's own efficiency and battery trend by month (the Truck page chart).
-			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
-			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
-			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
+			r.With(vehicleScoped, vehicleGate, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
+			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
-			r.With(vehicleScoped).Get("/state/{vehicleID}/debug", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}/debug", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleStateDebug(clientFor(d, uid))(w, r)
 			}))
-			r.With(vehicleScoped).Get("/state/{vehicleID}/fresh", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}/fresh", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleStateFresh(clientFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
-			r.With(vehicleScoped).Get("/live-session/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/live-session/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveSession(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid))(w, r)
 			}))
-			r.With(vehicleScoped).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveDrive(monitorFor(d, uid))(w, r)
 			}))
 			r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargingSchemaProbe(clientFor(d, uid))(w, r)
 			}))
 			// PoC: live battery pack cell temperatures via Parallax.
-			r.With(vehicleScoped).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleBatteryTempProbe(clientFor(d, uid))(w, r)
 			}))
 			// RE tool: capture raw Parallax frames for a topic (default
 			// dynamics.vehicle.gnss) — ?rvms=a,b&max=N.
-			r.With(vehicleScoped).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, vehicleGate).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleParallaxRawProbe(clientFor(d, uid))(w, r)
 			}))
 			// Capability gate: SupportedFeatures per vehicle, incl.
@@ -1210,6 +1213,8 @@ func New(d Deps) http.Handler {
 			// rounded to ~11 km). Off by default; see ambient_temp.go.
 			r.Get("/settings/ambient-temp", withUser(handleAmbientTempGet(d.Settings)))
 			r.Put("/settings/ambient-temp", withUser(handleAmbientTempPut(d.Settings)))
+			r.Get("/settings/primary-vehicle", withUser(handlePrimaryVehicle(pv)))
+			r.Put("/settings/primary-vehicle", withUser(handlePrimaryVehicle(pv)))
 			r.Get("/settings/ai-consent", withUser(handleAIConsentGet(d.Settings)))
 			r.Put("/settings/ai-consent", withUser(handleAIConsentPut(d.Settings)))
 
@@ -1394,10 +1399,12 @@ func New(d Deps) http.Handler {
 			gz := middleware.Compress(5, "application/json")
 			// The free plan's history window (history_window.go): routes that return history are registered behind it.
 			win := historyWindowMiddleware(d.Entitlements)
-			r.With(win, gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			freeVeh := freeVehicleMiddleware(pv)
+			driveRow, chargeRow := rowVehicleMiddleware(pv, "drives"), rowVehicleMiddleware(pv, "charges")
+			r.With(win, freeVeh, gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
-			r.With(win).Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, driveRow).Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
@@ -1412,7 +1419,7 @@ func New(d Deps) http.Handler {
 			// thinking models (Gemini 3.1 Pro Preview), so the chi
 			// 30s middleware here would cut the call and return 502
 			// to the SPA mid-analysis.
-			r.With(win).Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, driveRow).Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyGet(d, uid)(w, r)
 			}))
 			// Standalone weather snapshot for a drive. Independent of
@@ -1421,7 +1428,7 @@ func New(d Deps) http.Handler {
 			// (e.g. operator never configured an LLM, or the drive
 			// is too short to be worth narrating). 404 = no row,
 			// regardless of whether the toggle is currently on.
-			r.With(win).Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, driveRow).Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherGet(d.DB, uid)(w, r)
 			}))
 			// Time-series sibling of the start-hour snapshot. Returns
@@ -1430,7 +1437,7 @@ func New(d Deps) http.Handler {
 			// drives from the archive endpoint). Empty array when
 			// the drive was never enriched. Drives the temperature
 			// + precipitation panel on the drive detail page.
-			r.With(win).Get("/drives/{id}/weather/series", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, driveRow).Get("/drives/{id}/weather/series", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherSeriesGet(d.DB, uid)(w, r)
 			}))
 			// Bulk weather backfill for historical drives. Each call
@@ -1441,7 +1448,7 @@ func New(d Deps) http.Handler {
 			r.Post("/drives/weather/backfill", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherBackfill(d, uid)(w, r)
 			}))
-			r.With(win, gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// What the iPhone's Home charts plot: compact drive and charge points
@@ -1452,14 +1459,14 @@ func New(d Deps) http.Handler {
 			// per-user ceiling: 30 a minute, with a Retry-After on the 429. A Home
 			// refresh is three calls and the app caches for 15 minutes; a loop is not.
 			aggLimiter := mapsUserLimiter(30)
-			r.With(win, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleActivity(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// Home / Away / Fast charge split for the iPhone (charge_split.go).
-			r.With(win, aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeSplit(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.With(win, aggLimiter.Middleware, gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware, gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChartPoints(d.Drives.For(uid), d.Charges.For(uid))(w, r)
 			}))
 			// "Your year in Rivolt": the signed-in user's own year, computed here (year_in_rivolt.go). Same ceiling as the other aggregates.
@@ -1510,7 +1517,7 @@ func New(d Deps) http.Handler {
 				}
 				handleConfirmChargeNetwork(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.With(win).Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, chargeRow).Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				st := d.Charges.For(uid)
 				if st == nil {
 					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
@@ -1519,34 +1526,34 @@ func New(d Deps) http.Handler {
 				handleGetCharge(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// The iPhone Money tab's "To confirm" list, coordinate-free (charges_to_confirm.go).
-			r.With(win, aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargesToConfirm(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.With(win).Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh).Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
 			// Money tab ledger: server-side spend/energy statement. Read-only.
 			r.Route("/ledger", func(r chi.Router) {
 				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
 				r.Get("/enabled", withUser(handleLedgerEnabled))
-				r.With(win).Get("/monthly", withUser(la.monthly))
-				r.With(win).Get("/monthly.csv", withUser(la.statementCSV))
-				r.With(win).Get("/summary", withUser(la.summary))
-				r.With(win).Get("/trips", withUser(la.trips))
-				r.With(win).Get("/savings", withUser(la.savings))
+				r.With(win, freeVeh).Get("/monthly", withUser(la.monthly))
+				r.With(win, freeVeh).Get("/monthly.csv", withUser(la.statementCSV))
+				r.With(win, freeVeh).Get("/summary", withUser(la.summary))
+				r.With(win, freeVeh).Get("/trips", withUser(la.trips))
+				r.With(win, freeVeh).Get("/savings", withUser(la.savings))
 			})
-			r.With(win, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).
-			r.With(win).Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh).Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
 			// Efficiency breakdowns (Insights): mi/kWh by outside
 			// temperature, average speed and drive mode over a period,
 			// from the user's own drives and samples.
-			r.With(win, defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				var store driveConditionLister
 				if st := d.Samples.For(uid); st != nil {
 					store = st
@@ -1563,7 +1570,7 @@ func New(d Deps) http.Handler {
 			// Where to sleep: hotels with a listed Level 2 charger near the
 			// day's drive budget. Archive-only, no Rivian call.
 			if d.ChargersArchive != nil {
-				r.With(requireTripPlannerEnabledMW(d.Flags), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
+				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements), mapsUserLimiter(tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
 			}
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
@@ -1582,23 +1589,23 @@ func New(d Deps) http.Handler {
 			savedTripWriteLimiter := mapsUserLimiter(30)
 			if d.DB != nil && d.Trips != nil {
 				pa := newPlanActualAPI(d.DB, d.Trips, d.Settings)
-				r.Get("/trips/saved/{id}/actual", withUser(pa.actual))
-				r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/link", withUser(pa.link))
-				r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
+				r.With(proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/actual", withUser(pa.actual))
+				r.With(proOnlyMiddleware(d.Entitlements), savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/link", withUser(pa.link))
+				r.With(proOnlyMiddleware(d.Entitlements), savedTripWriteLimiter.Middleware).Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
 			}
 			// Where a saved multi-day trip stands (which day is under way, where
 			// the truck is), for "re-plan from here". Reads only.
 			if d.DB != nil && d.Trips != nil {
-				r.With(requireTripPlannerEnabledMW(d.Flags)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
+				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
 			}
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSavedTripsList(d.Trips.For(uid))(w, r)
+				handleSavedTripsList(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
 			r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSavedTripCreate(d.Trips.For(uid))(w, r)
+				handleSavedTripCreate(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
 			r.With(savedTripWriteLimiter.Middleware).Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSavedTripUpdate(d.Trips.For(uid))(w, r)
+				handleSavedTripUpdate(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
 			r.Delete("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripDelete(d.Trips.For(uid))(w, r)
@@ -1635,7 +1642,7 @@ func New(d Deps) http.Handler {
 			// The user's own consent comes first, so a refused call is not
 			// charged to the budget.
 			aiGate := requireAIConsentMW(d.Settings)
-			r.With(historyWindowMiddleware(d.Entitlements), aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
 			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1644,7 +1651,7 @@ func New(d Deps) http.Handler {
 			// Multi-day orchestrator: N sequential planTrip2 calls.
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
-			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(requireTripPlannerEnabledMW(d.Flags), multidayProMiddleware(d.Entitlements)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanOwnRates(r.Context(), ownRatesFor(d, uid))))
 			}))
 		})

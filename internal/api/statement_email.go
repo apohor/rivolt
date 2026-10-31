@@ -35,18 +35,21 @@ type statementAPI struct {
 	job     *statement.Job // Build only: preview and send share one renderer
 	signer  *statement.Signer
 	now     func() time.Time
+	// scope says what a user's figures cover (see proVehicles.statementScope); the preview and the job use the same one.
+	scope func(ctx context.Context, uid uuid.UUID) (vehicleID, note string)
 }
 
 // newStatementMonthly adapts the ledger API's loader: the same
 // in-process path as GET /api/ledger/monthly, so the email's totals are
 // the Money tab's totals.
-func newStatementMonthly(la ledgerAPI) statement.MonthlyFunc {
+func newStatementMonthly(la ledgerAPI, pv *proVehicles) statement.MonthlyFunc {
 	return func(ctx context.Context, uid uuid.UUID, period string, loc *time.Location) (ledger.Monthly, error) {
 		p, err := ledger.ParsePeriod(period, loc)
 		if err != nil {
 			return ledger.Monthly{}, err
 		}
-		in, err := la.input(ctx, uid, ledgerParams{loc: loc, tzSource: "statement_email"}, p)
+		vehicle, _ := pv.statementScope(ctx, uid)
+		in, err := la.input(ctx, uid, ledgerParams{loc: loc, tzSource: "statement_email", vehicleID: vehicle}, p)
 		if err != nil {
 			return ledger.Monthly{}, err
 		}
@@ -56,13 +59,14 @@ func newStatementMonthly(la ledgerAPI) statement.MonthlyFunc {
 
 // newStatementSavings is the off-peak saving estimate for the statement email: the
 // same code as GET /api/ledger/savings for that month and the user's own schedule.
-func newStatementSavings(la ledgerAPI) statement.SavingsFunc {
+func newStatementSavings(la ledgerAPI, pv *proVehicles) statement.SavingsFunc {
 	return func(ctx context.Context, uid uuid.UUID, period string, loc *time.Location) (*ledger.Savings, error) {
 		p, err := ledger.ParsePeriod(period, loc)
 		if err != nil {
 			return nil, err
 		}
-		in, err := la.input(ctx, uid, ledgerParams{loc: loc, tzSource: "statement_email"}, p)
+		vehicle, _ := pv.statementScope(ctx, uid)
+		in, err := la.input(ctx, uid, ledgerParams{loc: loc, tzSource: "statement_email", vehicleID: vehicle}, p)
 		if err != nil {
 			return nil, err
 		}
@@ -82,14 +86,16 @@ func newStatementSavings(la ledgerAPI) statement.SavingsFunc {
 func newStatementAPI(pool *sql.DB, d Deps, signer *statement.Signer) *statementAPI {
 	store := statement.NewStore(pool)
 	la := newLedgerAPI(pool, d.Settings)
+	pv := &proVehicles{db: pool, settings: d.Settings, ent: d.Entitlements, log: d.Logger}
 	flag := func(string) bool { return false }
 	if d.Flags != nil {
 		flag = func(uid string) bool { return d.Flags.StatementEmail().Enabled(uid) }
 	}
 	return &statementAPI{
 		store: store, flag: flag, signer: signer, now: time.Now,
-		monthly: newStatementMonthly(la),
-		savings: newStatementSavings(la),
+		monthly: newStatementMonthly(la, pv),
+		savings: newStatementSavings(la, pv),
+		scope:   pv.statementScope,
 		job:     &statement.Job{Store: store, Signer: signer, BaseURL: d.BaseURL, Now: time.Now},
 	}
 }
@@ -230,6 +236,9 @@ func (a *statementAPI) preview(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 		return
 	}
 	cand := statement.Candidate{UserID: uid, Timezone: prefs.Timezone, Email: addr}
+	if a.scope != nil {
+		_, cand.Note = a.scope(r.Context(), uid)
+	}
 	var sv *ledger.Savings
 	if a.savings != nil {
 		if s, serr := a.savings(r.Context(), uid, period, loc); serr == nil {
@@ -319,11 +328,13 @@ func startStatementJob(d Deps, signer *statement.Signer) {
 	// System pool: a sweep across every opted-in user, with no request and so no user in context. Its settings reads go through the
 	// system-side factory for the same reason.
 	la := newLedgerAPI(d.sysDB(), d.systemSettings())
+	pv := &proVehicles{db: d.sysDB(), settings: d.systemSettings(), ent: d.Entitlements, log: d.Logger}
 	j := &statement.Job{
 		Store:   statement.NewStore(d.sysDB()),
 		Mailer:  d.Email,
-		Monthly: newStatementMonthly(la),
-		Savings: newStatementSavings(la),
+		Monthly: newStatementMonthly(la, pv),
+		Savings: newStatementSavings(la, pv),
+		NoteFor: func(ctx context.Context, uid uuid.UUID) string { _, n := pv.statementScope(ctx, uid); return n },
 		Signer:  signer,
 		BaseURL: d.BaseURL,
 		Logger:  d.Logger,
