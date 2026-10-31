@@ -57,6 +57,9 @@ type Drive struct {
 	Trailer *bool
 	// TrailerOverride is the user's own correction, nil when they have made none. Backup and restore carry both.
 	TrailerOverride *bool
+	// LocationUnavailable: the drive moved but its truck sent no usable live location, so it has no route (a truck whose
+	// location sharing is off, or whose GPS is not updating). Set by the live recorder; kept in drives.metadata.
+	LocationUnavailable bool
 }
 
 // HasTrailer is the effective value: the user's correction when there is one, else what the recorder saw.
@@ -172,7 +175,7 @@ const driveColumns = `
 			start_odometer_mi, end_odometer_mi, distance_mi,
 			start_lat, start_lon, end_lat, end_lon,
 			max_speed_mph, avg_speed_mph, energy_used_kwh, source,
-			route_polyline, trailer, trailer_override`
+			route_polyline, trailer, trailer_override, metadata`
 
 // driveOnConflict is the update half of the upsert, shared by the plain and the guarded statement.
 const driveOnConflict = `
@@ -200,6 +203,9 @@ const driveOnConflict = `
 			-- ever set by a value (a restore) or SetTrailerOverride, never cleared by a re-recording.
 			trailer           = COALESCE(EXCLUDED.trailer, drives.trailer),
 			trailer_override  = COALESCE(EXCLUDED.trailer_override, drives.trailer_override),
+			-- The live recorder knows whether the truck reported its location: its row sets or clears the flag. Any other source
+			-- (an import, a restore of another kind) leaves the metadata as it is.
+			metadata          = CASE WHEN EXCLUDED.source = 'live' THEN (drives.metadata - 'location_unavailable') || EXCLUDED.metadata ELSE drives.metadata END,
 			updated_at        = NOW()`
 
 // guardedDriveUpsert writes the drive only if rivolt_lease_ok(group, pod, epoch) holds when the
@@ -214,7 +220,7 @@ const guardedDriveUpsert = `
 		         r.start_soc_pct, r.end_soc_pct, r.start_odometer_mi, r.end_odometer_mi, r.distance_mi,
 		         r.start_lat, r.start_lon, r.end_lat, r.end_lon,
 		         r.max_speed_mph, r.avg_speed_mph, r.energy_used_kwh, r.source,
-		         r.route_polyline, r.trailer, r.trailer_override
+		         r.route_polyline, r.trailer, r.trailer_override, COALESCE(r.metadata, '{}'::jsonb)
 		  FROM ok, json_populate_record(NULL::drives, $4::json) r WHERE ok.ok` + driveOnConflict + `
 		RETURNING 1)
 	SELECT (SELECT ok FROM ok), (SELECT count(*) FROM ins)`
@@ -247,6 +253,7 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			"max_speed_mph": jsonNum(d.MaxSpeedMph), "avg_speed_mph": jsonNum(d.AvgSpeedMph),
 			"energy_used_kwh": jsonNum(d.EnergyUsedKWh), "source": d.Source,
 			"route_polyline": jsonStr(d.RoutePolyline), "trailer": d.Trailer, "trailer_override": d.TrailerOverride,
+			"metadata": driveMetadata(d),
 		})
 		if err != nil {
 			return err
@@ -267,7 +274,7 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO drives (`+driveColumns+`
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`+driveOnConflict,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb)`+driveOnConflict,
 		s.userID, vid, d.ID,
 		d.StartedAt.UTC(), d.EndedAt.UTC(),
 		nullIfZero(d.StartSoCPct), nullIfZero(d.EndSoCPct),
@@ -278,7 +285,7 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 		nullIfZero(d.EnergyUsedKWh),
 		d.Source,
 		nullIfEmpty(d.RoutePolyline),
-		d.Trailer, d.TrailerOverride)
+		d.Trailer, d.TrailerOverride, mustJSON(driveMetadata(d)))
 	return err
 }
 
@@ -367,7 +374,7 @@ func (s *Store) listWindow(ctx context.Context, limit int, polyline bool, rivian
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       `+routeCol+`, `+thinnedSQL+`, d.trailer, d.trailer_override
+		       `+routeCol+`, `+thinnedSQL+`, d.trailer, d.trailer_override, `+locationUnavailableSQL+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -391,7 +398,7 @@ func (s *Store) listWindow(ctx context.Context, limit int, polyline bool, rivian
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
-			&d.RoutePolyline, &d.Thinned, &tr, &tro,
+			&d.RoutePolyline, &d.Thinned, &tr, &tro, &d.LocationUnavailable,
 		); err != nil {
 			return nil, err
 		}
@@ -417,7 +424,7 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,''), `+thinnedSQL+`, d.trailer, d.trailer_override
+		       COALESCE(d.route_polyline,''), `+thinnedSQL+`, d.trailer, d.trailer_override, `+locationUnavailableSQL+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1 AND d.external_id = $2
@@ -428,7 +435,7 @@ func (s *Store) Get(ctx context.Context, externalID string) (*Drive, error) {
 		&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 		&d.MaxSpeedMph, &d.AvgSpeedMph,
 		&d.EnergyUsedKWh, &d.Source,
-		&d.RoutePolyline, &d.Thinned, &tr, &tro)
+		&d.RoutePolyline, &d.Thinned, &tr, &tro, &d.LocationUnavailable)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -473,7 +480,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Drive) error)
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
 		       COALESCE(d.energy_used_kwh,0), d.source,
-		       COALESCE(d.route_polyline,''), d.trailer, d.trailer_override
+		       COALESCE(d.route_polyline,''), d.trailer, d.trailer_override, `+locationUnavailableSQL+`
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -492,7 +499,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Drive) error)
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
-			&d.RoutePolyline, &tr, &tro,
+			&d.RoutePolyline, &tr, &tro, &d.LocationUnavailable,
 		); err != nil {
 			return err
 		}
@@ -668,3 +675,22 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 	}
 	return out, nil
 }
+
+// driveMetadata is what a drive row writes into drives.metadata: only the flag, and only when it is set (an absent key means false).
+func driveMetadata(d Drive) map[string]any {
+	if d.LocationUnavailable {
+		return map[string]any{"location_unavailable": true}
+	}
+	return map[string]any{}
+}
+
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// locationUnavailableSQL fills Drive.LocationUnavailable.
+const locationUnavailableSQL = `COALESCE((d.metadata->>'location_unavailable')::boolean, false)`
