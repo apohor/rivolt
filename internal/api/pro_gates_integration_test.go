@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/testpg"
 	"github.com/apohor/rivolt/internal/trips"
 )
@@ -298,5 +299,82 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 	}
 	if err := pool.QueryRowContext(ctx, `SELECT updated_at FROM saved_trips WHERE id = $1`, tripID).Scan(&after); err != nil || !after.Equal(before) {
 		t.Errorf("linking changed the saved trip's updated_at: %v -> %v (%v)", before, after, err)
+	}
+}
+
+// The statement email and its preview follow the Money tab: a free account with two vehicles gets the primary vehicle's figures and the
+// "Showing <vehicle>. Pro includes all vehicles." line; a Pro account gets both vehicles and no line. The preview and the email are
+// built from the same functions, so they show the same thing.
+func TestStatementEmailFollowsThePrimaryVehicle(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	free, _ := db.EnsureUser(ctx, pool, "stmt-free")
+	pro, _ := db.EnsureUser(ctx, pool, "stmt-pro")
+	if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'grant', 'active', NULL)`, pro); err != nil {
+		t.Fatal(err)
+	}
+	ent := entitlements.New(pool, entitlements.Config{Billing: true})
+	resolvers := db.NewVehicleResolverFactory(pool)
+	cf, sf := charges.NewFactory(pool, resolvers), settings.NewFactory(pool)
+	pv := &proVehicles{db: pool, settings: sf, ent: ent}
+
+	now := time.Now().UTC()
+	month := time.Date(now.Year(), now.Month(), 1, 12, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
+	period := month.Format("2006-01")
+	for _, u := range []uuid.UUID{free, pro} {
+		// rv-stmt-b has the later charge, so it is the default primary.
+		for veh, c := range map[string]struct {
+			day  int
+			cost float64
+		}{"rv-stmt-a": {3, 5}, "rv-stmt-b": {9, 8}} {
+			at := month.AddDate(0, 0, c.day)
+			if err := cf.For(u).Upsert(ctx, charges.Charge{ID: "stmt-" + veh, VehicleID: veh, StartedAt: at, EndedAt: at.Add(time.Hour), EnergyAddedKWh: 20,
+				Cost: c.cost, Currency: "USD", PricePerKWh: c.cost / 20, MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	la := newLedgerAPI(pool, sf)
+	monthly := newStatementMonthly(la, pv)
+	total := func(u uuid.UUID) float64 {
+		m, err := monthly(ctx, u, period, time.UTC)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.Spend.Total
+	}
+	if got := total(free); got != 8 {
+		t.Errorf("free statement total = %v, want 8 (the primary vehicle only)", got)
+	}
+	if got := total(pro); got != 13 {
+		t.Errorf("pro statement total = %v, want 13 (both vehicles)", got)
+	}
+	if _, note := pv.statementScope(ctx, free); !strings.HasPrefix(note, "Showing ") || !strings.HasSuffix(note, "Pro includes all vehicles.") {
+		t.Errorf("free note = %q", note)
+	}
+	if _, note := pv.statementScope(ctx, pro); note != "" {
+		t.Errorf("pro note = %q, want none", note)
+	}
+
+	// The preview's text is the email's: both render the same figures and the same line.
+	job := &statement.Job{Store: statement.NewStore(pool), BaseURL: "https://example.test", Now: time.Now}
+	for _, c := range []struct {
+		u       uuid.UUID
+		wantNot bool
+	}{{free, false}, {pro, true}} {
+		cur, _ := monthly(ctx, c.u, period, time.UTC)
+		_, note := pv.statementScope(ctx, c.u)
+		msg, ok := job.BuildWith(statement.Candidate{UserID: c.u, Email: "x@example.test", Note: note}, period, cur, nil, nil)
+		if !ok {
+			t.Fatal("silent month")
+		}
+		if strings.Contains(msg.Text, "Pro includes all vehicles") == c.wantNot || strings.Contains(msg.HTML, "Pro includes all vehicles") == c.wantNot {
+			t.Errorf("note in the email body: text=%v html=%v, pro=%v", strings.Contains(msg.Text, "Pro includes all vehicles"), strings.Contains(msg.HTML, "Pro includes all vehicles"), c.wantNot)
+		}
 	}
 }

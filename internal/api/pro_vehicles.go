@@ -210,3 +210,27 @@ func handlePrimaryVehicle(p *proVehicles) func(uuid.UUID, http.ResponseWriter, *
 		writeJSON(w, http.StatusOK, map[string]any{"vehicle_id": all[keyPrimaryVehicle]})
 	}
 }
+
+// statementScope is what a user's statement email (and its preview) covers: the Rivian id of the one vehicle a free account with several
+// vehicles is limited to, and the line the email carries about it. ("", "") for a Pro account, one vehicle, billing off or a failed lookup
+// (the whole account, no line). It needs no request: the job calls it per user, with the same rules as the middleware.
+func (p *proVehicles) statementScope(ctx context.Context, uid uuid.UUID) (vehicleID, note string) {
+	only := p.freeVehicle(ctx, uid)
+	if only == "" {
+		return "", ""
+	}
+	label := "your primary vehicle"
+	if vs, err := db.ListUserVehicles(ctx, p.db, uid); err == nil {
+		for _, v := range vs {
+			if v.RivianVehicleID == only {
+				switch {
+				case v.DisplayName != "":
+					label = v.DisplayName
+				case v.Model != "":
+					label = v.Model
+				}
+			}
+		}
+	}
+	return only, "Showing " + label + ". Pro includes all vehicles."
+}

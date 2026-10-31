@@ -35,6 +35,8 @@ type Candidate struct {
 	FirstName string
 	// HasApp: the account has a live iPhone-app session, so the app link is left out.
 	HasApp bool
+	// Note is what the figures cover, when it is not the whole account (a free account's primary vehicle); the Job fills it.
+	Note string
 }
 
 // Store is the persistence the job and the API need. The Postgres

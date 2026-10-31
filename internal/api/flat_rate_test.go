@@ -83,11 +83,11 @@ func TestFlatRateSavingsCarriesNoEstimate(t *testing.T) {
 func TestFlatRateStatementEmailHasNoSavingLine(t *testing.T) {
 	uid := uuid.New()
 	chi, _ := time.LoadLocation("America/Chicago")
-	got, err := newStatementSavings(flatRateAPI(t, uid, true))(context.Background(), uid, "2026-09", chi)
+	got, err := newStatementSavings(flatRateAPI(t, uid, true), nil)(context.Background(), uid, "2026-09", chi)
 	if err != nil || got != nil {
 		t.Errorf("flat rate: %+v %v, want no estimate", got, err)
 	}
-	got, err = newStatementSavings(flatRateAPI(t, uid, false))(context.Background(), uid, "2026-09", chi)
+	got, err = newStatementSavings(flatRateAPI(t, uid, false), nil)(context.Background(), uid, "2026-09", chi)
 	if err != nil || got == nil || got.CouldHaveSaved == nil {
 		t.Errorf("choice off: %+v %v, want the estimate", got, err)
 	}

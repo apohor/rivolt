@@ -38,6 +38,8 @@ type Job struct {
 	Mailer  Mailer
 	Monthly MonthlyFunc
 	Savings SavingsFunc // optional
+	// NoteFor, optional, says what a user's figures cover when it is not the whole account; Monthly and Savings must narrow the same way.
+	NoteFor func(ctx context.Context, uid uuid.UUID) string
 	Signer  *Signer
 	// Enabled reports whether the operator flag covers the user.
 	Enabled func(userID string) bool
@@ -166,6 +168,9 @@ func (j *Job) sendOne(ctx context.Context, c Candidate, period string, loc *time
 		_ = err
 		return "failed"
 	}
+	if j.NoteFor != nil {
+		c.Note = j.NoteFor(ctx, c.UserID)
+	}
 	cur, err := j.Monthly(ctx, c.UserID, period, loc)
 	if err != nil {
 		return fail("ledger_unavailable", err) // never send partial or estimated totals
@@ -205,7 +210,7 @@ func (j *Job) Build(c Candidate, period string, cur ledger.Monthly, prev *ledger
 func (j *Job) BuildWith(c Candidate, period string, cur ledger.Monthly, prev *ledger.Monthly, sv *ledger.Savings) (email.Message, bool) {
 	r := Render(Input{
 		Period: period, FirstName: firstName(c.FirstName), Currency: cur.Currency,
-		Month: cur, Prev: prev, Links: j.linksFor(c, period), Savings: sv,
+		Month: cur, Prev: prev, Links: j.linksFor(c, period), Savings: sv, Note: c.Note,
 	})
 	if r.Silent {
 		return email.Message{}, false
