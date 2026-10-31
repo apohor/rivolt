@@ -1,6 +1,6 @@
 //go:build integration
 
-package main
+package entitlements_test
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
-	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -39,11 +38,11 @@ func TestFoundingGrantAgainstPostgres(t *testing.T) {
 		}
 		existing = append(existing, id)
 	}
-	demoID, err := db.EnsureUserFull(ctx, pool, demo.Username, "", "Demo")
+	demoID, err := db.EnsureUserFull(ctx, pool, db.DemoUsername, "", "Demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if demoID != demo.UserID() {
+	if demoID != db.UserIDFor(db.DemoUsername) {
 		t.Fatal("demo id mismatch")
 	}
 	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, demoID, launch.AddDate(0, -3, 0)); err != nil {
@@ -63,7 +62,7 @@ func TestFoundingGrantAgainstPostgres(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	if code := foundingRun(ctx, pool, &out, &errOut, demoID, launch, false, -1, ""); code != 0 {
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, false, -1, ""); code != 0 {
 		t.Fatalf("dry run: %d %s", code, errOut.String())
 	}
 	rep, err := entitlements.PlanFounding(ctx, pool, demoID, launch)
@@ -84,17 +83,17 @@ func TestFoundingGrantAgainstPostgres(t *testing.T) {
 	}
 
 	// --apply refuses a count or hash that is not the dry run's.
-	if code := foundingRun(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant+1, rep.IDsHash()); code == 0 {
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant+1, rep.IDsHash()); code == 0 {
 		t.Error("apply went ahead with a wrong count")
 	}
-	if code := foundingRun(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, "deadbeef"); code == 0 {
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, "deadbeef"); code == 0 {
 		t.Error("apply went ahead with a wrong hash")
 	}
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE source = 'founding'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a refused apply wrote rows: %d %v", n, err)
 	}
 
-	if code := foundingRun(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, rep.IDsHash()); code != 0 {
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, rep.IDsHash()); code != 0 {
 		t.Fatalf("apply: %d %s", code, errOut.String())
 	}
 	// Every account at launch (not the demo, not the late one) is Pro until launch + 1 year, as a founding grant.
@@ -180,7 +179,7 @@ func TestNewAccountTrialAgainstPostgres(t *testing.T) {
 	}
 
 	// The demo account never gets one.
-	demoID, err := db.EnsureUserFull(ctx, pool, demo.Username, "", "Demo")
+	demoID, err := db.EnsureUserFull(ctx, pool, db.DemoUsername, "", "Demo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,14 +203,14 @@ func TestFoundingDryRunWritesNothing(t *testing.T) {
 	}
 	counts := func() (users, ents, demos int) {
 		t.Helper()
-		if err := pool.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM entitlements), (SELECT count(*) FROM users WHERE id = $1)`, demo.UserID()).Scan(&users, &ents, &demos); err != nil {
+		if err := pool.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM entitlements), (SELECT count(*) FROM users WHERE id = $1)`, db.UserIDFor(db.DemoUsername)).Scan(&users, &ents, &demos); err != nil {
 			t.Fatal(err)
 		}
 		return
 	}
 	u0, e0, d0 := counts()
 	var out, errOut bytes.Buffer
-	if code := foundingRun(ctx, pool, &out, &errOut, demo.UserID(), time.Now().UTC(), false, -1, ""); code != 0 {
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, db.UserIDFor(db.DemoUsername), time.Now().UTC(), false, -1, ""); code != 0 {
 		t.Fatalf("dry run: %d %s", code, errOut.String())
 	}
 	u1, e1, demos := counts()
