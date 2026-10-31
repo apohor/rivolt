@@ -82,7 +82,7 @@ recording and the full export."
 Trial card, last 3 days: "Pro ends in {n} days. Nothing is deleted either way.
 Keep Pro for $3.99 a month or $34.99 a year, or do nothing."
 
-Paywall (web, Settings → Plan; the Apple one follows Apple's 3.1.2 wording):
+Paywall (web, Settings → Account → Plan; the Apple one follows Apple's 3.1.2 wording):
 "Rivolt Pro · $3.99 a month or $34.99 a year · Renews automatically until you
 cancel · Cancel any time in one step from this page · 14-day refund on the first
 charge, no questions · Stop paying and nothing is deleted · Payment through
@@ -110,7 +110,7 @@ connected vehicle, every alert keeps working, and the full export of everything,
 including history older than 90 days, stays free. Export it first if you like:
 Settings → Data.
 
-**To keep Pro:** $3.99 a month or $34.99 a year, in Settings → Plan or in the
+**To keep Pro:** $3.99 a month or $34.99 a year, in Settings → Account → Plan or in the
 iPhone app. Or do nothing.
 
 The Rivolt team
@@ -150,7 +150,7 @@ costs, trips, efficiency and lease mileage. Free tier and Pro; self-hostable."
 ## 9. Statement email, last month of the free year (one line, existing send)
 
 "Your free year of Pro ends on FOUNDING_END_DATE. Nothing is deleted; keep Pro
-from Settings → Plan, or do nothing."
+from Settings → Account → Plan, or do nothing."
 
 ## 10. Paywall, plan card and lapse state (for ux, Pro 9)
 
@@ -175,7 +175,7 @@ Trial line, web (trial granted at sign-up, no card): "You have 14 days of Pro fr
 Trial line, web, after the trial: "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time."
 Trial line, iPhone (Apple introductory offer): "14 days free, then $34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of the trial or any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
 
-Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
+Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
 Rule for {first_charge} (lead's decision, DA's rule): a subscription bought during the trial starts billing when the trial ends, so the remaining trial days are not lost. The phrase is generated from the actual Stripe Checkout session, "on {trial_end}" when the session has a trial end, "today" when there is no trial left; never hard-coded, with a test that the line and the session agree.
 Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
 Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted."
@@ -185,7 +185,7 @@ Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on thi
 Manage subscription: label "Manage subscription"; helper, iPhone: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."; web: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends."
 
 Lapse banner (dismissable, Now and Settings): "Your Pro ended on {date}. Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data)." Buttons: "Keep Pro" · "Export everything" · "Dismiss"
-Payment-failed banner (7-day grace, web only): "A payment for Rivolt Pro failed. Update your card in Settings → Plan by {grace_end} to keep Pro. Either way, nothing is deleted."
+Payment-failed banner (7-day grace, web only): "A payment for Rivolt Pro failed. Update your card in Settings → Account → Plan by {grace_end} to keep Pro. Either way, nothing is deleted."
 
 Settings plan card states (title, line, action):
 - Free: "Free" · "Recording, alerts, the last 90 days and the full export, always." · "See Pro"
