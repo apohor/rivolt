@@ -8,6 +8,8 @@
 -- stripe_closed_customers remembers, for 30 days, the customers of accounts that were deleted. Stripe keeps sending events about a cancelled
 -- subscription (customer.subscription.deleted, a last invoice), and with no account to map them to the webhook would answer 500 for three days
 -- and Stripe would, in the end, switch the endpoint off. A customer in this table has its events acknowledged. Ids only.
+-- contract: the kind check is dropped and re-created in the same transaction as a strict SUPERSET (the kratos and apple clauses verbatim plus a
+-- stripe clause), so every row an older running version writes or reads is still valid and no running version needs the old constraint.
 DO $$
 BEGIN
     ALTER TABLE idp_delete_failures DROP CONSTRAINT IF EXISTS idp_delete_failures_kind_check;
