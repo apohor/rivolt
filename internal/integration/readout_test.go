@@ -188,6 +188,27 @@ func TestMondayReadoutAgainstFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Rivolt Pro (part 2): entitlement rows. a: a trial that started this week; b: a trial that started last week and still runs, and an Apple
+	// subscription whose renewal failed 3 days before the week's end (in its grace); c: a trial that ENDED this week and converted to Stripe
+	// two hours before it ended; d: an old trial that ended long ago with no purchase, and a founding year ending in 30 days; the demo's trial
+	// is in no number.
+	ent := func(uid uuid.UUID, source, status string, created time.Time, end *time.Time, cancel bool) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end, created_at, updated_at, cancel_at_period_end)
+			VALUES ($1, $2, $3, $4, $5, $5, $6)`, uid, source, status, end, created, cancel); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := func(tm time.Time) *time.Time { return &tm }
+	ent(a, "trial", "active", in, at(in.AddDate(0, 0, 14)), false)
+	ent(b, "trial", "active", prev, at(prev.AddDate(0, 0, 14)), false)
+	ent(b, "apple", "past_due", long, at(week.AddDate(0, 0, 7).AddDate(0, 0, -3)), false)
+	ent(c, "trial", "active", in.AddDate(0, 0, -14), at(in), false)
+	ent(c, "stripe", "active", in.Add(-2*time.Hour), at(week.AddDate(0, 3, 0)), true)
+	ent(d, "trial", "active", long, at(long.AddDate(0, 0, 14)), false)
+	ent(d, "founding", "active", long, at(week.AddDate(0, 0, 30)), false)
+	ent(demo, "trial", "active", in, at(in.AddDate(0, 0, 14)), false)
+
 	// Part 1 as a read-only role with the production allowlist (BYPASSRLS, like the CNPG-managed role).
 	role := "readout_ro_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
 	if _, err := pool.ExecContext(ctx, `CREATE ROLE `+role+` NOLOGIN BYPASSRLS`); err != nil {
@@ -223,7 +244,7 @@ func TestMondayReadoutAgainstFixtures(t *testing.T) {
 
 	// Part 2 is closed to that role, which is why it is marked owner-side.
 	ownerStmts := readoutStatements(t, "monday_owner.sql", fromTS, toTS)
-	for _, i := range []int{0, 2, 4} { // landing totals, plan_run/statement_share, alerts: events / push_* / engagement_prefs
+	for _, i := range []int{0, 2, 4, 6} { // landing totals, plan_run/statement_share, alerts, plans: events / push_* / engagement_prefs / entitlements
 		if rows, err := conn.QueryContext(ctx, ownerStmts[i]); err == nil {
 			rows.Close()
 			t.Errorf("owner-side statement %d ran as the read-only role; it must be closed to it", i)
@@ -234,8 +255,8 @@ func TestMondayReadoutAgainstFixtures(t *testing.T) {
 	_, _ = conn.ExecContext(ctx, `RESET ROLE`)
 
 	// Part 2 as the owner.
-	if len(ownerStmts) != 6 {
-		t.Fatalf("monday_owner.sql has %d statements, want 6", len(ownerStmts))
+	if len(ownerStmts) != 10 {
+		t.Fatalf("monday_owner.sql has %d statements, want 10", len(ownerStmts))
 	}
 	wantInts(t, "landing totals", firstRow(ctx, t, pool, ownerStmts[0]), map[string]int64{"views_total": 4, "distinct_browsers": 3})
 	top := firstRow(ctx, t, pool, ownerStmts[1])
@@ -262,6 +283,57 @@ func TestMondayReadoutAgainstFixtures(t *testing.T) {
 	wantInts(t, "alerts", firstRow(ctx, t, pool, ownerStmts[4]), map[string]int64{"any_switch_on": 2, "opted_in_extra": 1, "on_web": 2, "on_iphone": 0})
 	wantInts(t, "email and recap switches", firstRow(ctx, t, pool, ownerStmts[5]), map[string]int64{
 		"weekly_recap_on": 1, "trip_recap_on": 0, "statement_email_on": 1, "r2_arrival_reminder_set": 0})
+
+	// Rivolt Pro: plans by source and status, with who is running at the week's end (the demo's trial is in no row).
+	plans := map[string][2]int64{}
+	prows, err := pool.QueryContext(ctx, ownerStmts[6])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for prows.Next() {
+		var source, status string
+		var accounts, running int64
+		if err := prows.Scan(&source, &status, &accounts, &running); err != nil {
+			t.Fatal(err)
+		}
+		plans[source+"/"+status] = [2]int64{accounts, running}
+	}
+	prows.Close()
+	want := map[string][2]int64{
+		"apple/past_due":  {1, 1}, // b: in its grace
+		"founding/active": {1, 1}, // d
+		"stripe/active":   {1, 1}, // c
+		"trial/active":    {4, 2}, // a, b (running), c (ended this week), d (ended long ago); the demo's is left out
+	}
+	if len(plans) != len(want) {
+		t.Errorf("plans by source and status = %v, want %v", plans, want)
+	}
+	for k, v := range want {
+		if plans[k] != v {
+			t.Errorf("plans %s = %v, want %v", k, plans[k], v)
+		}
+	}
+	wantInts(t, "trials", firstRow(ctx, t, pool, ownerStmts[7]), map[string]int64{
+		"trials_started_this_week": 1, "trials_started_previous_week": 1, "trials_ended_this_week": 1,
+		"trials_ended_this_week_converted": 1, "trials_ever_converted": 1, "trials_ever": 4})
+	paidRows, err := pool.QueryContext(ctx, ownerStmts[8])
+	if err != nil {
+		t.Fatal(err)
+	}
+	paid := map[string][4]int64{}
+	for paidRows.Next() {
+		var source string
+		var started, ended, cancelling, grace int64
+		if err := paidRows.Scan(&source, &started, &ended, &cancelling, &grace); err != nil {
+			t.Fatal(err)
+		}
+		paid[source] = [4]int64{started, ended, cancelling, grace}
+	}
+	paidRows.Close()
+	if paid["stripe"] != [4]int64{1, 0, 1, 0} || paid["apple"] != [4]int64{0, 0, 0, 1} || len(paid) != 2 {
+		t.Errorf("paid subscriptions (started, ended, set to cancel, in grace) = %v, want stripe 1,0,1,0 and apple 0,0,0,1", paid)
+	}
+	wantInts(t, "founding year", firstRow(ctx, t, pool, ownerStmts[9]), map[string]int64{"founding_rows": 1, "ending_within_60_days": 1, "ended_by_week_end": 0})
 
 	// Counts only: nothing the readout selects looks like an id, an address or a place.
 	for _, f := range []string{"monday_ro.sql", "monday_owner.sql"} {
