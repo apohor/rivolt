@@ -124,7 +124,7 @@ export default function LandingPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <Claim
               title="Free"
-              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 90 days, the monthly statement, a single-day trip planner, three saved trips, share cards, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
+              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 90 days, the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, share cards, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
             />
             <Claim
               title="Rivolt Pro: $3.99 a month or $34.99 a year"
