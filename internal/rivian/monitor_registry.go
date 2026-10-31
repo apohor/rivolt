@@ -320,7 +320,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	}
 	mon.SetStagger(r.stagger)
 	mon.SetFence(r.fenceSrc, r.onFenced)
-	mon.SetScheduleObserver(r.onScheduleRead)
+	mon.SetScheduleObserver(r.scheduleObserver())
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),
@@ -546,11 +546,25 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 	mon.EnsureSubscribed(rivianVehicleID)
 }
 
-// SetScheduleObserver wires the schedule-read outcome counter into every monitor the registry builds.
+// SetScheduleObserver wires the schedule-read outcome counter into every monitor the registry builds, those already running
+// included: they call through the registry, they do not keep a copy. (They used to: the boot hydrate sweep starts the monitors
+// before main installs the counter, so on prod every boot-started monitor kept none and the counter read 0 beside real reads.)
 func (r *MonitorRegistry) SetScheduleObserver(fn func(outcome string)) {
 	r.mu.Lock()
 	r.onScheduleRead = fn
 	r.mu.Unlock()
+}
+
+// scheduleObserver is what a monitor gets: a forwarder that reads the registry's current observer at the moment of each read.
+func (r *MonitorRegistry) scheduleObserver() func(outcome string) {
+	return func(outcome string) {
+		r.mu.Lock()
+		fn := r.onScheduleRead
+		r.mu.Unlock()
+		if fn != nil {
+			fn(outcome)
+		}
+	}
 }
 
 // want remembers a subscription that could not start yet (no monitor for its owner).
