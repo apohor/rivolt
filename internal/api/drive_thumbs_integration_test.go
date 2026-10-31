@@ -48,16 +48,18 @@ func TestRouteThumbsAreUserScopedCappedAndSmall(t *testing.T) {
 	}
 	df := drives.NewFactory(pool, db.NewVehicleResolverFactory(pool))
 	start := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
-	mk := func(id string, poly string) drives.Drive {
-		return drives.Drive{ID: id, VehicleID: "rv-test-thumb", StartedAt: start, EndedAt: start.Add(40 * time.Minute), StartSoCPct: 80, EndSoCPct: 70, DistanceMi: 25, EnergyUsedKWh: 8, Source: "live", RoutePolyline: poly}
+	// Live drives of one vehicle may not overlap in time: each gets its own window.
+	mk := func(id string, poly string, hoursAgo int) drives.Drive {
+		s := start.Add(-time.Duration(hoursAgo) * time.Hour)
+		return drives.Drive{ID: id, VehicleID: "rv-test-thumb", StartedAt: s, EndedAt: s.Add(40 * time.Minute), StartSoCPct: 80, EndSoCPct: 70, DistanceMi: 25, EnergyUsedKWh: 8, Source: "live", RoutePolyline: poly}
 	}
-	if err := df.For(alice).Upsert(ctx, mk("live_thumb_a1", thumbTestRoute())); err != nil {
+	if err := df.For(alice).Upsert(ctx, mk("live_thumb_a1", thumbTestRoute(), 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := df.For(alice).Upsert(ctx, mk("live_thumb_a2", "")); err != nil { // a drive with no route
+	if err := df.For(alice).Upsert(ctx, mk("live_thumb_a2", "", 2)); err != nil { // a drive with no route
 		t.Fatal(err)
 	}
-	if err := df.For(bob).Upsert(ctx, mk("live_thumb_b1", thumbTestRoute())); err != nil {
+	if err := df.For(bob).Upsert(ctx, mk("live_thumb_b1", thumbTestRoute(), 0)); err != nil {
 		t.Fatal(err)
 	}
 

@@ -34,6 +34,7 @@ const (
 var routeClasses = map[string]windowClass{
 	// Windowed: behind historyWindowMiddleware; the response is narrowed to the free window.
 	"GET /api/drives":                     {"windowed", ""},
+	"GET /api/drives/route-thumbs":        {"windowed", ""},
 	"GET /api/drives/{id}":                {"windowed", ""},
 	"GET /api/drives/{id}/efficiency":     {"windowed", ""},
 	"POST /api/drives/{id}/efficiency":    {"windowed", ""},
