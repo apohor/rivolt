@@ -17,7 +17,7 @@ import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { ROUTE_UNIFORM, routeData, setRoute, type LatLng, type RouteFeature } from "./route";
-import { tilesNotice } from "./controls";
+import { foldCredits, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
@@ -165,11 +165,7 @@ export function TripRouteMap({
       });
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-left");
       map.addControl(new ml.AttributionControl({ compact: true, customAttribution: BASEMAP_ATTRIBUTION }), "bottom-right");
-      {
-        const attrib = el.querySelector(".maplibregl-ctrl-attrib");
-        attrib?.setAttribute("data-fold", "");
-        attrib?.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => attrib.toggleAttribute("data-open"));
-      }
+      foldCredits(el);
       if (!tiles) map.addControl(tilesNotice(TILES_UNAVAILABLE_TEXT), "bottom-left");
 
       // In the fill layout the charger chips float over the top of the map: pad the fit so the route clears them.
