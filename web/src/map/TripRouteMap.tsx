@@ -183,7 +183,10 @@ export function TripRouteMap({
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-leg-legend");
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
-        const top = fill ? (narrow ? 96 : 64) : 24;
+        // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
+        const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
+        const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom) : 24;
         const base = fill ? (narrow ? 40 : 24) : 24;
         const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
         return { top, bottom, left: 24, right: 24 };
@@ -273,7 +276,20 @@ export function TripRouteMap({
         });
       });
       ro.observe(el);
-      cleanups.push(() => { ro.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
+      // The chips grow when their "no chargers here" note appears (after the fit): reframe so the route still clears them, until the user moves
+      // the map themselves.
+      let touched = false;
+      map.on("dragstart", () => { touched = true; });
+      map.on("zoomstart", (e) => { if ((e as { originalEvent?: unknown }).originalEvent) touched = true; });
+      const chipsEl = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
+      let chipsH = chipsEl?.offsetHeight ?? 0;
+      const roChips = new ResizeObserver(() => {
+        if (!alive || mapRef.current !== map || touched || !chipsEl || chipsEl.offsetHeight === chipsH) return;
+        chipsH = chipsEl.offsetHeight;
+        fit(fitZoom);
+      });
+      if (chipsEl) roChips.observe(chipsEl);
+      cleanups.push(() => { ro.disconnect(); roChips.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       map.once("load", () => fit(fitZoom));
       cleanups.push(() => {
         popupRef.current?.remove();
