@@ -325,6 +325,11 @@ func serverError(w http.ResponseWriter, r *http.Request, what string, err error)
 // safe on every replica: the (user, period) claim row is the
 // idempotency key.
 func startStatementJob(d Deps, signer *statement.Signer) {
+	if signer == nil {
+		// Every email carries a signed unsubscribe link: without a signer there is nothing safe to send, and a nil one would panic mid-send.
+		slog.Warn("statement email job not started: no unsubscribe signer")
+		return
+	}
 	// System pool: a sweep across every opted-in user, with no request and so no user in context. Its settings reads go through the
 	// system-side factory for the same reason.
 	la := newLedgerAPI(d.sysDB(), d.systemSettings())
