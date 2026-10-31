@@ -1679,6 +1679,7 @@ func New(d Deps) http.Handler {
 			r.Get("/export", handleExport(d))
 			r.Post("/data/restore", handleDataRestore(d))
 			r.Delete("/data/sessions", handleDataReset(d))
+			r.Post("/data/delete-range", handleDataDeleteRange(d))
 			r.Delete("/data/account", handleDataAccountDelete(d))
 		}) // end of bulk-data authenticated /api group
 	})

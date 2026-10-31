@@ -431,6 +431,11 @@ func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 // thinning keeps detached for a week (vehicle_state_yYYYY_MM_full): they are
 // outside vehicle_state, so the users cascade doesn't reach them.
 func deleteFromThinnedCopiesTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	return deleteFromThinnedCopiesBeforeTx(ctx, tx, uid, nil)
+}
+
+// deleteFromThinnedCopiesBeforeTx is deleteFromThinnedCopiesTx limited to rows older than cutoff (nil: all of uid's rows).
+func deleteFromThinnedCopiesBeforeTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID, cutoff *time.Time) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		 WHERE n.nspname = current_schema() AND c.relkind = 'r'
@@ -453,11 +458,52 @@ func deleteFromThinnedCopiesTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) e
 	}
 	for _, t := range tables {
 		// The name comes from the catalog and matches the pattern above.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+t+`" WHERE user_id = $1`, uid); err != nil {
+		q, args := `DELETE FROM "`+t+`" WHERE user_id = $1`, []any{uid}
+		if cutoff != nil {
+			q, args = q+` AND at < $2`, append(args, *cutoff)
+		}
+		if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// DeleteUserArchiveBefore is "delete the history before month" for the telemetry archive: for every archived month earlier than
+// cutoff (which must be the first of a month, UTC, so no month is cut in half) it queues that month's objects for deletion and removes
+// the archive_months row, and it clears the user's rows older than cutoff from thinning's detached full copies. Months from cutoff on
+// are untouched. The user's data key stays: the later months still need it. Like ResetUserArchive it takes the archive lock, so an
+// object being written finishes first.
+func DeleteUserArchiveBefore(ctx context.Context, d *sql.DB, uid uuid.UUID, cutoff time.Time) error {
+	if d == nil || uid == uuid.Nil {
+		return nil
+	}
+	cutoff = cutoff.UTC()
+	if cutoff.Day() != 1 || cutoff.Hour() != 0 || cutoff.Minute() != 0 || cutoff.Second() != 0 || cutoff.Nanosecond() != 0 {
+		return fmt.Errorf("archive cutoff %s is not the start of a month", cutoff.Format(time.RFC3339))
+	}
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	// One prefix per (vehicle, month): "<vehicle>/<YYYY-MM>." covers the object and its manifest. Only a month with a row has objects.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO archive_deletions (user_id, prefix, requested_at)
+		SELECT $1::uuid, 'v1/u=' || $1::uuid::text || '/v=' || vehicle_id::text || '/' || to_char(month, 'YYYY-MM') || '.', clock_timestamp()
+		  FROM archive_months WHERE user_id = $1::uuid AND month < $2::date`, uid, cutoff); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM archive_months WHERE user_id = $1 AND month < $2::date`, uid, cutoff); err != nil {
+		return err
+	}
+	if err := deleteFromThinnedCopiesBeforeTx(ctx, tx, uid, &cutoff); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // lockArchiveUserTx takes uid's archive lock for the transaction: an archive

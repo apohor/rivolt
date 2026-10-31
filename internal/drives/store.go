@@ -134,6 +134,31 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// DeleteBefore deletes this user's drives that started before cutoff, with the per-drive rows that hang off them (see Reset), in
+// one transaction. Returns the number of drives deleted.
+func (s *Store) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	for _, t := range perDriveTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+t+` WHERE user_id = $1 AND drive_id IN
+			(SELECT external_id FROM drives WHERE user_id = $1 AND started_at < $2)`, s.userID, cutoff); err != nil {
+			return 0, fmt.Errorf("delete before, %s: %w", t, err)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM drives WHERE user_id = $1 AND started_at < $2`, s.userID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // perDriveTables are the tables keyed (user_id, drive_id) that hang off a drive
 // without a foreign key (see Reset).
 var perDriveTables = []string{"drive_recaps", "drive_efficiency", "drive_weather", "drive_weather_series"}

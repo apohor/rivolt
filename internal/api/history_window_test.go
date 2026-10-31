@@ -65,9 +65,8 @@ var routeClasses = map[string]windowClass{
 	"GET /api/trips/saved/{id}/actual":           {"exempt", "plan-vs-actual is a Pro FEATURE, gated by the feature-gating item, not by the history window"},
 	"GET /api/trips/saved/{id}/active":           {"exempt", "saved-trip state is gated by the feature-gating item (saved-trip cap), not by the history window"},
 
-	// Pending: the free account's delete-by-range (a privacy control for rows outside its window). It is a gate item: billing may not be turned
-	// on without it. The route does not exist yet (optionalRoutes); its PR moves this entry to exempt and flips HistoryWindowComplete.
-	"POST /api/data/delete-range": {"todo", "delete-by-range for rows outside the free window: " + always},
+	// The free account's delete-by-range (a privacy control for rows outside its window): a gate item for billing.
+	"POST /api/data/delete-range": {"exempt", "delete everything before a month, for rows outside the free window: " + always},
 
 	// Exempt, with reasons.
 	"GET /api/export":                             {"exempt", always + ": the complete account export"},
@@ -153,7 +152,7 @@ var prefixClasses = []struct{ prefix, why string }{
 
 // optionalRoutes are mounted only where a feature is configured; the test router may not have them, and they are classified here for the
 // installs that do.
-var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/data/delete-range": true}
+var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {
@@ -252,7 +251,7 @@ func TestEveryRouteIsClassified(t *testing.T) {
 // else changes in the table.
 func TestPrivacyAndExportRoutesAreAlwaysFree(t *testing.T) {
 	for _, key := range []string{
-		"GET /api/export", "GET /api/data/backup", "DELETE /api/data/account", "DELETE /api/data/sessions", "DELETE /api/charges/{id}",
+		"GET /api/export", "GET /api/data/backup", "DELETE /api/data/account", "DELETE /api/data/sessions", "POST /api/data/delete-range", "DELETE /api/charges/{id}",
 	} {
 		c, ok := routeClasses[key]
 		if !ok || c.kind != "exempt" || !strings.Contains(c.why, always) {

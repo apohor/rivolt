@@ -5,6 +5,7 @@ package api
 import (
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -596,4 +597,119 @@ func TestAnalyticsWindowAgainstPostgres(t *testing.T) {
 			t.Errorf("pro %s: %d %s, a Pro account was refused", p, code, b)
 		}
 	}
+}
+
+// The free account's delete-by-range (the privacy exit for rows outside its window): drives, charges and archived months before the cutoff
+// month go; the cutoff month on, and every other account's rows, stay. Free, no Pro needed; a malformed or future cutoff and a missing
+// confirm are refused.
+func TestDeleteRangeAgainstPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	free, _ := db.EnsureUser(ctx, pool, "range-free")
+	other, _ := db.EnsureUser(ctx, pool, "range-other")
+	resolvers := db.NewVehicleResolverFactory(pool)
+	cf, df, sf := charges.NewFactory(pool, resolvers), drives.NewFactory(pool, resolvers), samples.NewFactory(pool, resolvers)
+	now := time.Now().UTC().Truncate(time.Second)
+	old, recent := now.AddDate(0, 0, -380), now.AddDate(0, 0, -5)
+	cutoffMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -6, 0)
+	vid := uuid.New()
+	for _, u := range []uuid.UUID{free, other} {
+		for id, at := range map[string]time.Time{"rg-old-charge": old, "rg-new-charge": recent} {
+			if err := cf.For(u).Upsert(ctx, charges.Charge{ID: id, VehicleID: "rv-range", StartedAt: at, EndedAt: at.Add(time.Hour), EnergyAddedKWh: 10,
+				MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for id, at := range map[string]time.Time{"rg-old-drive": old, "rg-new-drive": recent} {
+			if err := df.For(u).Upsert(ctx, drives.Drive{ID: id, VehicleID: "rv-range", StartedAt: at, EndedAt: at.Add(30 * time.Minute), DistanceMi: 5, Source: "live"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := pool.ExecContext(ctx, `INSERT INTO drive_weather (user_id, drive_id, coarse_lat, coarse_lon, sampled_at, provider, temp_c)
+			VALUES ($1, 'rg-old-drive', 30.5, -97.5, $2, 'test', 10)`, u, old); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range []time.Time{old, recent} {
+			month := time.Date(m.Year(), m.Month(), 1, 0, 0, 0, 0, time.UTC)
+			if _, err := pool.ExecContext(ctx, `INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes)
+				VALUES ($1, $2, $3, 1, $3, $3, 'x', 1) ON CONFLICT DO NOTHING`, u, vid, month); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	h := handleDataDeleteRange(Deps{Drives: df, Charges: cf, Samples: sf, DB: pool})
+	post := func(u uuid.UUID, body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/data/delete-range", strings.NewReader(body))
+		req = req.WithContext(auth.WithUser(req.Context(), u))
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		return rec.Code
+	}
+	cut := cutoffMonth.Format("2006-01")
+	for _, body := range []string{`{"before":"` + cut + `"}`, `{"before":"nope","confirm":true}`, `{"before":"2999-01","confirm":true}`, `{}`} {
+		if code := post(free, body); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", body, code)
+		}
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM charges WHERE user_id = $1`, free); n != 2 {
+		t.Fatalf("refused requests deleted rows: %d charges left", n)
+	}
+	if code := post(free, `{"before":"`+cut+`","confirm":true}`); code != http.StatusOK {
+		t.Fatalf("delete-range: %d", code)
+	}
+	for _, c := range []struct {
+		table, id string
+		wantFree  int
+	}{{"charges", "rg-old-charge", 0}, {"charges", "rg-new-charge", 1}, {"drives", "rg-old-drive", 0}, {"drives", "rg-new-drive", 1}} {
+		q := `SELECT count(*) FROM ` + c.table + ` WHERE user_id = $1 AND external_id = '` + c.id + `'`
+		if n := countRows(ctx, t, pool, q, free); n != c.wantFree {
+			t.Errorf("free %s %s: %d rows, want %d", c.table, c.id, n, c.wantFree)
+		}
+		if n := countRows(ctx, t, pool, q, other); n != 1 {
+			t.Errorf("another account's %s %s: %d rows, want 1 (untouched)", c.table, c.id, n)
+		}
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM drive_weather WHERE user_id = $1 AND drive_id = 'rg-old-drive'`, free); n != 0 {
+		t.Errorf("per-drive weather of a deleted drive remains: %d", n)
+	}
+	oldMonth := time.Date(old.Year(), old.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_months WHERE user_id = $1 AND month = $2`, free, oldMonth); n != 0 {
+		t.Errorf("archive_months of the old month remains: %d", n)
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_months WHERE user_id = $1`, free); n != 1 {
+		t.Errorf("free archive_months: %d, want only the recent month", n)
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_months WHERE user_id = $1`, other); n != 2 {
+		t.Errorf("another account's archive_months: %d, want 2", n)
+	}
+	wantPrefix := "v1/u=" + free.String() + "/v=" + vid.String() + "/" + oldMonth.Format("2006-01") + "."
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_deletions WHERE user_id = $1 AND prefix = $2`, free, wantPrefix); n != 1 {
+		t.Errorf("archive deletion queued for the old month: %d, want 1", n)
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_deletions WHERE user_id = $1`, free); n != 1 {
+		t.Errorf("archive deletions queued: %d, want exactly the old month", n)
+	}
+	if n := countRows(ctx, t, pool, `SELECT count(*) FROM archive_deletions WHERE user_id = $1`, other); n != 0 {
+		t.Errorf("archive deletions queued for another account: %d", n)
+	}
+	if err := db.DeleteUserArchiveBefore(ctx, pool, free, cutoffMonth.Add(time.Hour)); err == nil {
+		t.Error("a cutoff that is not the start of a month was accepted")
+	}
+}
+
+func countRows(ctx context.Context, t *testing.T, pool interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, q string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+	return n
 }

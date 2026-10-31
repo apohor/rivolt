@@ -1205,6 +1205,71 @@ func handleDataReset(d Deps) http.HandlerFunc {
 	}
 }
 
+// handleDataDeleteRange is "delete my history before this month": POST /api/data/delete-range {"before":"2026-07","confirm":true}
+// deletes the signed-in user's drives, charges, raw samples and archived telemetry from before the first of that month (UTC). It is
+// the free plan's privacy exit for data outside its 90-day window, so it is exempt from the window and from Pro (always free), and it
+// works for every plan. The cutoff is a whole month, never later than the current one, so the archive's monthly objects are never cut
+// in half. Same order as handleDataReset: samples, archive, then drives and charges.
+func handleDataDeleteRange(d Deps) http.HandlerFunc {
+	type req struct {
+		Before  string `json:"before"`
+		Confirm bool   `json:"confirm"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		var in req
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&in); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		cutoff, err := time.Parse("2006-01", in.Before)
+		if err != nil {
+			http.Error(w, `"before" must be a month, like 2026-07`, http.StatusBadRequest)
+			return
+		}
+		now := time.Now().UTC()
+		if cutoff.After(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)) {
+			http.Error(w, `"before" cannot be after the current month`, http.StatusBadRequest)
+			return
+		}
+		if !in.Confirm {
+			http.Error(w, `"confirm": true is required`, http.StatusBadRequest)
+			return
+		}
+		ds, cs, ss := d.Drives.For(uid), d.Charges.For(uid), d.Samples.For(uid)
+		if ds == nil || cs == nil || ss == nil {
+			http.Error(w, "delete unavailable: stores not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := accountWriteContext(r)
+		defer cancel()
+		samplesN, err := ss.DeleteBefore(ctx, cutoff)
+		if err != nil {
+			http.Error(w, "delete samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := db.DeleteUserArchiveBefore(ctx, d.DB, uid, cutoff); err != nil {
+			http.Error(w, "delete archive: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		drivesN, err := ds.DeleteBefore(ctx, cutoff)
+		if err != nil {
+			http.Error(w, "delete drives: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		chargesN, err := cs.DeleteBefore(ctx, cutoff)
+		if err != nil {
+			http.Error(w, "delete charges: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"drives": drivesN, "charges": chargesN, "samples": samplesN})
+	}
+}
+
 // handleDataAccountDelete is the self-service counterpart to the
 // admin user-delete endpoint: a signed-in user can purge their own
 // account end-to-end. Mirrors the admin path's safety rails:

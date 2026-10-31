@@ -2800,6 +2800,10 @@ func runServer() {
 		logger.Error("RIVOLT_BILLING is on but the free plan's history window is not complete; refusing to start (see internal/api/history_window.go)")
 		os.Exit(1)
 	}
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) && !api.ProGatingComplete {
+		logger.Error("RIVOLT_BILLING is on but the Pro feature gates (plan-vs-actual, saved-trip cap, ...) are not all enforced; refusing to start (see internal/api/history_window.go)")
+		os.Exit(1)
+	}
 	handler := api.New(api.Deps{
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
 		Sessions:              sessionsAPI,

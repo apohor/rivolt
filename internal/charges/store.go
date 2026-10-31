@@ -178,6 +178,16 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// DeleteBefore deletes this user's charges that started before cutoff. Returns the number deleted.
+func (s *Store) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM charges WHERE user_id = $1 AND started_at < $2`, s.userID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // DeleteByExternalID removes a single charge row owned by this user.
 // Returns the number of rows deleted (0 if no match — caller should
 // treat that as 404). Scoped by user_id so a malicious external_id
