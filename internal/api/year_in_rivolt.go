@@ -20,7 +20,7 @@ import (
 // efficiency (no date, no place), the longest trip (miles and month), the coldest drive (temperature and month, only when
 // weather was recorded) and the cost with an estimate flag. No coordinates, places, dates finer than a month, or ids.
 //
-// Gates: at least yearMinDrives drives and yearMinCharges charges in the year, and an account at least yearMinAccountAge old.
+// Months and the year are UTC. Gates: at least yearMinDrives drives and yearMinCharges charges in the year, and an account at least yearMinAccountAge old.
 // When a gate fails the answer is {"eligible":false,"reason":...} and carries no figures, so a card cannot be drawn by accident.
 
 const (
@@ -29,7 +29,6 @@ const (
 	yearMinAccountAge = 30 * 24 * time.Hour
 	// A drive shorter than this says nothing about efficiency (a parking-lot shuffle can read 9 mi/kWh).
 	yearMinEfficiencyMi = 5.0
-	yearMaxRows         = 5000
 )
 
 type yearMonthMiles struct {
@@ -166,28 +165,23 @@ func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charg
 		to := from.AddDate(1, 0, 0)
 		var yd []drives.Drive
 		if ds != nil {
-			rows, err := ds.ListRecentForVehicle(ctx, "", yearMaxRows, false)
+			// By date range, never by "the newest N": a heavy user's cap could stop partway through last year and the totals
+			// would be short. A window too big for one answer fails closed.
+			rows, err := ds.ListRange(ctx, from, to)
 			if err != nil {
 				http.Error(w, "could not read drives", http.StatusInternalServerError)
 				return
 			}
-			for _, d := range drives.FilterReparking(rows) {
-				if !d.StartedAt.Before(from) && d.StartedAt.Before(to) {
-					yd = append(yd, d)
-				}
-			}
+			yd = drives.FilterReparking(rows)
 		}
 		var yc []yearCharge
 		if cs != nil {
-			rows, err := cs.ListRecent(ctx, yearMaxRows)
+			rows, err := cs.ListRange(ctx, from, to)
 			if err != nil {
 				http.Error(w, "could not read charges", http.StatusInternalServerError)
 				return
 			}
 			for _, c := range decorateCharges(ctx, rows, settingsStore, billed != nil && billed(ctx)) {
-				if c.StartedAt.Before(from) || !c.StartedAt.Before(to) {
-					continue
-				}
 				cur := c.Currency
 				if c.Cost <= 0 {
 					cur = c.EstimatedCurrency
