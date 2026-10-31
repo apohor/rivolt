@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/testpg"
 	"github.com/apohor/rivolt/internal/trips"
@@ -58,6 +59,21 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 		}
 	}
 
+	for _, u := range []uuid.UUID{free, pro} {
+		for i, veh := range []string{"rv-test-a", "rv-test-b"} {
+			at := now.Add(-time.Duration(40-10*i) * time.Hour)
+			if err := cf.For(u).Upsert(ctx, charges.Charge{ID: "gate-charge-" + veh, VehicleID: veh, StartedAt: at, EndedAt: at.Add(time.Hour),
+				EnergyAddedKWh: 10, MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// A year-old drive of the hidden vehicle, for delete-range.
+		old := now.AddDate(0, 0, -380)
+		if err := df.For(u).Upsert(ctx, drives.Drive{ID: "gate-old-drive-rv-test-a", VehicleID: "rv-test-a", StartedAt: old, EndedAt: old.Add(time.Hour), DistanceMi: 5, Source: "live"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	rt := chi.NewRouter()
 	rt.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +103,11 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 	rt.With(freeVehicleMiddleware(pv)).Get("/drives", as(func(u uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		handleDrives(df.For(u), cf.For(u), sf.For(u))(w, r)
 	}))
+	rt.With(freeVehicleMiddleware(pv)).Get("/activity", as(func(u uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		handleActivity(df.For(u), cf.For(u), sf.For(u), nil)(w, r)
+	}))
+	rt.Delete("/charges/{id}", as(func(u uuid.UUID, w http.ResponseWriter, r *http.Request) { handleDeleteCharge(cf.For(u))(w, r) }))
+	rt.Post("/data/delete-range", handleDataDeleteRange(Deps{Drives: df, Charges: cf, Samples: samples.NewFactory(pool, resolvers), DB: pool}))
 	rt.With(rowVehicleMiddleware(pv, "drives")).Get("/drives/{id}", ok)
 	rt.With(vehicleGateMiddleware(pv)).Get("/state/{vehicleID}", ok)
 	rt.Put("/settings/primary-vehicle", as(func(u uuid.UUID, w http.ResponseWriter, r *http.Request) { handlePrimaryVehicle(pv)(u, w, r) }))
@@ -209,8 +230,8 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 		}
 		return out
 	}
-	if got := rows(pro); len(got) != 2 {
-		t.Errorf("pro sees %v, want both vehicles' drives", got)
+	if got := rows(pro); len(got) != 3 {
+		t.Errorf("pro sees %v, want every drive of both vehicles (3)", got)
 	}
 	if got := rows(free); len(got) != 1 || got[0] != "gate-drive-rv-test-b" {
 		t.Errorf("free sees %v, want only the primary vehicle's drive", got)
@@ -234,9 +255,48 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 	code, b = call(free, http.MethodGet, "/state/rv-test-b", "")
 	wantPro("live state of the vehicle no longer primary", code, b)
 
+	// The activity feed follows the same rule as /drives: a free account's feed has only the primary vehicle's rows.
+	_, feedFree := call(free, http.MethodGet, "/activity", "")
+	_, feedPro := call(pro, http.MethodGet, "/activity", "")
+	if !strings.Contains(string(feedFree), "rv-test-a") || strings.Contains(string(feedFree), "rv-test-b") {
+		t.Errorf("free activity feed should show only the primary (rv-test-a, chosen above): %s", feedFree)
+	}
+	if !strings.Contains(string(feedPro), "rv-test-a") || !strings.Contains(string(feedPro), "rv-test-b") {
+		t.Errorf("pro activity feed should show both vehicles: %s", feedPro)
+	}
+
+	// Privacy exits work for the hidden vehicle (rv-test-b now) on a free account: deleting its charge and deleting a range that holds
+	// its old rows are not gated. (There is no per-vehicle delete or disconnect endpoint: the exits are per row, per range and per account.)
+	code, b = call(free, http.MethodDelete, "/charges/gate-charge-rv-test-b", "")
+	wantCode("delete a hidden vehicle's charge", code, http.StatusNoContent, b)
+	cut := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -6, 0).Format("2006-01")
+	code, b = call(free, http.MethodPost, "/data/delete-range", `{"before":"`+cut+`","confirm":true}`)
+	wantCode("delete-range", code, http.StatusOK, b)
+	var oldLeft int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM drives WHERE user_id = $1 AND external_id = 'gate-old-drive-rv-test-a'`, free).Scan(&oldLeft); err != nil || oldLeft != 0 {
+		t.Errorf("old drive of the vehicle after delete-range: %d %v, want 0", oldLeft, err)
+	}
+
 	// Nothing was deleted: both drives of both accounts are still stored.
 	var stored int
-	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM drives WHERE user_id IN ($1, $2)`, free, pro).Scan(&stored); err != nil || stored != 4 {
-		t.Errorf("drives stored: %d %v, want 4", stored, err)
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM drives WHERE user_id IN ($1, $2) AND external_id IN ('gate-drive-rv-test-a','gate-drive-rv-test-b')`, free, pro).Scan(&stored); err != nil || stored != 4 {
+		t.Errorf("drives stored: %d %v, want 4 (only what the user deleted is gone)", stored, err)
+	}
+
+	// Plan-vs-actual linking is an automatic write: it must not bump a saved trip's updated_at, or the 3 editable trips would shift.
+	var tripID uuid.UUID
+	var before, after time.Time
+	if err := pool.QueryRowContext(ctx, `SELECT id, updated_at FROM saved_trips WHERE user_id = $1 ORDER BY updated_at LIMIT 1`, pro).Scan(&tripID, &before); err != nil {
+		t.Fatal(err)
+	}
+	links := pgPlanLinks{db: pool}
+	if err := links.Link(ctx, pro, tripID, planLink{Day: 0, TripID: "gate-link", Status: "linked", StartedAt: now, EndedAt: now.Add(time.Hour), Snapshot: planSnapshot{Inputs: json.RawMessage(`{}`), Plan: json.RawMessage(`{}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := links.Unlink(ctx, pro, tripID, planLink{Day: 0, TripID: "gate-link", StartedAt: now, EndedAt: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT updated_at FROM saved_trips WHERE id = $1`, tripID).Scan(&after); err != nil || !after.Equal(before) {
+		t.Errorf("linking changed the saved trip's updated_at: %v -> %v (%v)", before, after, err)
 	}
 }

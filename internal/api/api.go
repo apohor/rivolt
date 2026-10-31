@@ -1457,11 +1457,11 @@ func New(d Deps) http.Handler {
 			// per-user ceiling: 30 a minute, with a Retry-After on the 429. A Home
 			// refresh is three calls and the app caches for 15 minutes; a loop is not.
 			aggLimiter := mapsUserLimiter(30)
-			r.With(win, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleActivity(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// Home / Away / Fast charge split for the iPhone (charge_split.go).
-			r.With(win, aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeSplit(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			r.With(win, freeVeh, aggLimiter.Middleware, gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1524,34 +1524,34 @@ func New(d Deps) http.Handler {
 				handleGetCharge(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// The iPhone Money tab's "To confirm" list, coordinate-free (charges_to_confirm.go).
-			r.With(win, aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargesToConfirm(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.With(win).Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh).Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
 			// Money tab ledger: server-side spend/energy statement. Read-only.
 			r.Route("/ledger", func(r chi.Router) {
 				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
 				r.Get("/enabled", withUser(handleLedgerEnabled))
-				r.With(win).Get("/monthly", withUser(la.monthly))
-				r.With(win).Get("/monthly.csv", withUser(la.statementCSV))
-				r.With(win).Get("/summary", withUser(la.summary))
-				r.With(win).Get("/trips", withUser(la.trips))
-				r.With(win).Get("/savings", withUser(la.savings))
+				r.With(win, freeVeh).Get("/monthly", withUser(la.monthly))
+				r.With(win, freeVeh).Get("/monthly.csv", withUser(la.statementCSV))
+				r.With(win, freeVeh).Get("/summary", withUser(la.summary))
+				r.With(win, freeVeh).Get("/trips", withUser(la.trips))
+				r.With(win, freeVeh).Get("/savings", withUser(la.savings))
 			})
-			r.With(win, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).
-			r.With(win).Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh).Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
 			// Efficiency breakdowns (Insights): mi/kWh by outside
 			// temperature, average speed and drive mode over a period,
 			// from the user's own drives and samples.
-			r.With(win, defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, freeVeh, defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				var store driveConditionLister
 				if st := d.Samples.For(uid); st != nil {
 					store = st

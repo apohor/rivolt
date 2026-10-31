@@ -266,7 +266,11 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 		// kept) rather than truncated to the oldest rows. The body stays
 		// a plain array; the flag is in headers so existing clients keep
 		// working.
-		res, err := store.ListBetweenDownsampledVehicle(r.Context(), strings.TrimSpace(r.URL.Query().Get("vehicle")), since, until, limit)
+		vehicle, ok := limitFreeVehicle(w, r.Context(), strings.TrimSpace(r.URL.Query().Get("vehicle")))
+		if !ok {
+			return
+		}
+		res, err := store.ListBetweenDownsampledVehicle(r.Context(), vehicle, since, until, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -333,7 +337,10 @@ func handleSleepActivity(uid uuid.UUID, store *samples.Store) http.HandlerFunc {
 				until = t
 			}
 		}
-		vehicle := r.URL.Query().Get("vehicle")
+		vehicle, ok := limitFreeVehicle(w, r.Context(), r.URL.Query().Get("vehicle"))
+		if !ok {
+			return
+		}
 		// Clamped to a free account's window BEFORE the key is made: the cache holds a series for exactly the range in its key, so a
 		// windowed request and a Pro one can never be served each other's series.
 		since = histwin.Clamp(r.Context(), since)

@@ -153,6 +153,11 @@ func (a ledgerAPI) params(w http.ResponseWriter, r *http.Request, uid uuid.UUID)
 			return p, false
 		}
 	}
+	// A free account's statements and totals cover its primary vehicle only (the full export has everything).
+	var ok bool
+	if p.vehicleID, ok = limitFreeVehicle(w, r.Context(), p.vehicleID); !ok {
+		return p, false
+	}
 	return p, true
 }
 

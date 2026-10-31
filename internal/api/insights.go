@@ -62,7 +62,11 @@ func handleEfficiencyInsights(store driveConditionLister, logger *slog.Logger) h
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
-		rows, err := store.DriveConditions(ctx, q.Get("vehicle"), since, until)
+		vehicle, ok := limitFreeVehicle(w, r.Context(), q.Get("vehicle"))
+		if !ok {
+			return
+		}
+		rows, err := store.DriveConditions(ctx, vehicle, since, until)
 		if err != nil {
 			if logger != nil {
 				logger.Warn("efficiency insights query failed", "err", err.Error())
