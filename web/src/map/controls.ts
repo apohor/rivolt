@@ -178,3 +178,24 @@ export function cursorElement(): HTMLElement {
   el.style.cssText = "display:block;width:12px;height:12px;border-radius:9999px;background:#fbbf24;border:2px solid #0a0a0a;pointer-events:none;";
   return el;
 }
+
+// foldCredits starts the attribution control folded to its (i) and makes data-open the one state behind it (map.css hides the credits unless
+// it is set). The library's own handler and the native <details> toggle both flip `open` on a tap and reopen it as sources load, so the tap
+// is taken in the capture phase, kept from them, and the element is held open: what shows is data-open alone.
+export function foldCredits(container: HTMLElement): void {
+  const attrib = container.querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib");
+  if (!attrib) return;
+  attrib.setAttribute("data-fold", "");
+  attrib.open = true;
+  attrib.addEventListener(
+    "click",
+    (e) => {
+      if (!(e.target as Element).closest(".maplibregl-ctrl-attrib-button")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      attrib.toggleAttribute("data-open");
+      attrib.open = true;
+    },
+    true,
+  );
+}

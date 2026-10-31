@@ -11,7 +11,7 @@ import { webglAvailable } from "./webgl";
 import { BASEMAP_ATTRIBUTION, buildStyle, plainStyle, type MapFlavor } from "./style";
 import { boundsOf, routeData, setRoute, speedRuns, type LatLng } from "./route";
 import { snapToRoads, type SnapPoint } from "./snap";
-import { cursorElement, flavorControl, pinElement, speedLegend, stalenessBadge, tilesNotice } from "./controls";
+import { cursorElement, flavorControl, foldCredits, pinElement, speedLegend, stalenessBadge, tilesNotice } from "./controls";
 
 type Point = { lat: number; lon: number; t?: number; s?: number };
 
@@ -132,11 +132,7 @@ export function DriveMap({
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-left");
       map.addControl(new ml.AttributionControl({ compact: true, customAttribution: BASEMAP_ATTRIBUTION }), "bottom-right");
       // The credits (the terrain line is long) start folded to the (i), at any width: unfolded they cover the legend and the route (map.css).
-      {
-        const attrib = el.querySelector(".maplibregl-ctrl-attrib");
-        attrib?.setAttribute("data-fold", "");
-        attrib?.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => attrib.toggleAttribute("data-open"));
-      }
+      foldCredits(el);
       if (!tiles) map.addControl(tilesNotice(TILES_UNAVAILABLE_TEXT), "bottom-left");
 
       // The D/L picker: a temporary override of the basemap that the app theme resets.

@@ -70,14 +70,32 @@ test("iphone: drive map makes no third-party request and trips no CSP rule", asy
   expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
 });
 
-test("iphone: the credits name Protomaps, OpenStreetMap and the terrain data", async ({ page }) => {
+test("iphone: the (i) opens and closes the credits", async ({ page }) => {
   await setup(page);
   await page.goto("/drives/drive-1");
   const attr = page.locator(".maplibregl-ctrl-attrib").first();
-  await expect(attr).toBeVisible();
+  const button = attr.locator(".maplibregl-ctrl-attrib-button");
+  const links = [attr.getByText("Protomaps"), attr.getByText("OpenStreetMap"), attr.getByText("USGS 3DEP")];
+  await expect(button).toBeVisible();
   // Folded to the (i) until tapped: the credits must not cover the map.
-  await attr.locator(".maplibregl-ctrl-attrib-button").click();
-  await expect(attr).toContainText("Protomaps");
-  await expect(attr).toContainText("OpenStreetMap");
-  await expect(attr).toContainText("USGS 3DEP");
+  for (const l of links) await expect(l).toBeHidden();
+  await button.click();
+  for (const l of links) await expect(l).toBeVisible();
+  await button.click();
+  for (const l of links) await expect(l).toBeHidden();
+});
+
+test("iphone: without WebGL the drive says the map is unavailable and its figures still show", async ({ page }) => {
+  await page.addInitScript(() => {
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
+      if (type === "webgl" || type === "webgl2" || type === "experimental-webgl") return null;
+      return (orig as (...a: unknown[]) => unknown).call(this, type, ...rest);
+    } as typeof orig;
+  });
+  await setup(page);
+  await page.goto("/drives/drive-1");
+  await expect(page.locator("[data-map-unavailable]")).toBeVisible();
+  await expect(page.locator(".maplibregl-canvas")).toHaveCount(0);
+  await expect(page.getByText("Distance", { exact: true }).first()).toBeVisible();
 });
