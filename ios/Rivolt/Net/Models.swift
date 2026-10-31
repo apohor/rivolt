@@ -8,13 +8,21 @@ struct AuthUser: Decodable, Equatable {
     let userId: String?
     /// The account's display units, when the server has the setting.
     var units: AccountUnits? = nil
-    /// The plan, only where the server bills (RIVOLT_BILLING). Absent where billing is off: the account has everything and no screen
-    /// mentions a plan. MOCKED shape until the billing API merges (paid-tier-plan.md section 3), the web's twin of `lib/plan.ts`.
+    /// The plan fields of `GET /api/auth/me` (Sprint 14, item 1). Absent only when the server's entitlement lookup failed: show nothing,
+    /// gate nothing. Fixtures: me.json (billing off) and me_plan_*.json.
     var plan: String? = nil
-    /// "apple" | "stripe" | "trial" | "founding" | "grant"
-    var source: String? = nil
-    var periodEnd: Date? = nil
-    var trialEnds: Date? = nil
+    /// What makes it Pro: "stripe" | "apple" | "trial" | "founding" | "grant" | "billing_off" | "demo"; nil on free.
+    var planSource: String? = nil
+    var planPeriodEnd: Date? = nil
+    /// Only while a trial is what grants Pro.
+    var planTrialEnds: Date? = nil
+    /// A lapse: free now, had Pro until this instant, from this source.
+    var planEndedAt: Date? = nil
+    var planEndedSource: String? = nil
+    /// False on a self-hosted or billing-off server: no paywall, price or Manage control.
+    var billingEnabled: Bool? = nil
+    /// 90 on free, nil (unlimited) otherwise.
+    var historyDays: Int? = nil
 }
 
 /// `POST /api/auth/app/token`: the app session token (a bearer token, kept in
