@@ -92,7 +92,7 @@ func TestDatedNoticesAgainstPostgres(t *testing.T) {
 			t.Errorf("an email went to %s", not)
 		}
 	}
-	if !strings.Contains(sentTo["paid@example.test"], "Your Rivolt Pro subscription continues; nothing changes for you on") {
+	if paid := sentTo["paid@example.test"]; !strings.Contains(paid, "Your Rivolt Pro subscription continues from that day, so nothing changes for you") || !strings.Contains(paid, "your next charge is on") || strings.Contains(paid, "What changes") {
 		t.Errorf("the subscriber's email lacks its line:\n%s", sentTo["paid@example.test"])
 	}
 	if strings.Contains(sentTo["normal@example.test"], "subscription continues") || strings.Contains(sentTo["normal@example.test"], "We moved this date") {

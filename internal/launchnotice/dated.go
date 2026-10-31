@@ -61,6 +61,9 @@ type FoundingParams struct {
 	ExtendedFrom string `json:"extended_from,omitempty"`
 	// Subscribed: a paid subscription outlasts the founding year, so nothing changes for the account on that date.
 	Subscribed bool `json:"subscribed,omitempty"`
+	// NextCharge is, for a subscribed account, the subscription's current period end (YYYY-MM-DD): the date of its next charge. Empty when
+	// the subscription has no end date to state.
+	NextCharge string `json:"next_charge,omitempty"`
 }
 
 // FoundingShowsUntil is the end of the day the founding year ends.
@@ -72,62 +75,71 @@ func (p FoundingParams) FoundingShowsUntil() (time.Time, error) {
 	return t.Add(24 * time.Hour), nil
 }
 
-// FoundingSubject is the subject of the founding-year-end email.
+// FoundingSubject is the subject of the founding-year-end email. A subscribed account's says its subscription continues.
 func FoundingSubject(p FoundingParams) string {
-	return "Your free year of Rivolt Pro ends on " + long(p.End)
+	s := "Your free year of Rivolt Pro ends on " + long(p.End)
+	if p.Subscribed {
+		s += "; your subscription continues"
+	}
+	return s
 }
 
-// RenderFoundingEmail is the plain-text founding-year-end email (copy section 4). A subscribed account gets the line that nothing changes
-// for it on that date; an extended year says so.
+// ExportURL is the Settings card that exports everything (the full export stays free).
+const ExportURL = "https://rivolt.dev/settings#export"
+
+// emailFooter is the footer of the transactional billing emails (internal/billingmail), so a notice reads like the rest of them.
+const emailFooter = "\nTerms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy\n\nThe Rivolt team\nsupport@rivolt.dev\nRivolt is unofficial and not affiliated with Rivian.\n"
+
+// RenderFoundingEmail is the plain-text founding-year-end email (copy section 4). Paragraphs are single lines, for the mail client to wrap.
+// A subscribed account gets a short note that its subscription continues, with no list of what a free account loses and no offer; a free
+// one gets what changes, what does not, how to export first and how to keep Pro. An extended year says so.
 func RenderFoundingEmail(p FoundingParams) string {
 	end := long(p.End)
-	var b strings.Builder
-	b.WriteString("Hi,\n\nYour account has had Rivolt Pro at no charge since Pro launched. That ends on " + end + ". Nothing is charged and nothing is deleted.\n\n")
+	extended := ""
 	if p.ExtendedFrom != "" {
-		b.WriteString("We moved this date from " + long(p.ExtendedFrom) + " to " + end + " so that you have at least 30 days' notice.\n\n")
+		extended = "We moved this date from " + long(p.ExtendedFrom) + " to " + end + " so that you have at least 30 days' notice.\n\n"
 	}
 	if p.Subscribed {
-		b.WriteString("Your Rivolt Pro subscription continues; nothing changes for you on " + end + ".\n\n")
+		charge := ""
+		if p.NextCharge != "" {
+			charge = " and your next charge is on " + long(p.NextCharge) + ", at the price shown on your Plan card"
+		}
+		return "Hi,\n\nYour free founding year of Rivolt Pro ends on " + end + ". Your Rivolt Pro subscription continues from that day, so nothing changes for you: Pro stays on" + charge + ".\n\n" +
+			extended +
+			"Your Plan card (sign in first): " + PlanURL + "\nExport everything any time: " + ExportURL + "\n" +
+			emailFooter
 	}
-	b.WriteString(foundingBody)
-	return b.String()
+	return "Hi,\n\nYour account has had Rivolt Pro at no charge since Pro launched. That ends on " + end + ". Nothing is charged and nothing is deleted.\n\n" +
+		extended +
+		foundingBody +
+		emailFooter
 }
 
 // RenderFoundingInApp is the in-app notice for the founding-year end.
 func RenderFoundingInApp(p FoundingParams) InApp {
 	end := long(p.End)
 	body := "Your free year of Rivolt Pro ends on " + end + ". Nothing is charged and nothing is deleted; the full export stays free."
+	links := []Link{{Label: "What changes", Href: "/support#free-and-pro"}, {Label: "Plan", Href: "/settings#plan"}, {Label: "Export", Href: "/settings#export"}}
 	if p.Subscribed {
-		body = "Your Rivolt Pro subscription continues; nothing changes for you on " + end + "."
+		body = "Your free founding year ends on " + end + ". Your subscription continues"
+		if p.NextCharge != "" {
+			body += "; next charge on " + long(p.NextCharge)
+		}
+		body += "."
+		links = []Link{{Label: "Plan", Href: "/settings#plan"}, {Label: "Export", Href: "/settings#export"}}
 	}
 	if p.ExtendedFrom != "" {
 		body += " We moved the date from " + long(p.ExtendedFrom) + " to give you at least 30 days' notice."
 	}
-	return InApp{
-		Title: "Your free year of Rivolt Pro ends on " + end,
-		Body:  body,
-		Links: []Link{{Label: "What changes", Href: "/support#free-and-pro"}, {Label: "Plan", Href: "/settings"}},
-	}
+	return InApp{Title: "Your free year of Rivolt Pro ends on " + end, Body: body, Links: links}
 }
 
-const foundingBody = `What changes on that date: Activity, Money and Truck show the last 90 days;
-the planner plans single-day trips; three saved trips stay editable and the rest
-stay read-only; one vehicle is shown at a time; trends and range near a
-temperature are not shown; the iPhone widgets and the charging Live Activity
-show the free state.
-
-What does not change: every drive and charge keeps being recorded on every
-connected vehicle, every alert keeps working, and the full export of everything,
-including history older than 90 days, stays free. Export it first if you like:
-Settings -> Data.
-
-To keep Pro: $3.99 a month or $34.99 a year, in Settings -> Account -> Plan or in the
-iPhone app. Or do nothing.
-
-The Rivolt team
-support@rivolt.dev
-Rivolt is unofficial and not affiliated with Rivian.
-`
+// foundingBody is the free account's email after the opening: one paragraph per line.
+const foundingBody = "What changes on that date: Activity, Money and Truck show the last 90 days; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the iPhone widgets and the charging Live Activity show the free state.\n\n" +
+	"What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than 90 days, stays free.\n\n" +
+	"Export everything first if you like: " + ExportURL + "\n\n" +
+	"To keep Pro, subscribe from your Plan card (sign in first), $3.99 a month or $34.99 a year, or in the iPhone app: " + PlanURL + "\n" +
+	"Or do nothing: nothing is deleted either way.\n"
 
 // Mailer sends one message.
 type Mailer interface {
@@ -139,8 +151,9 @@ type FoundingCandidate struct {
 	UserID     uuid.UUID
 	Email      string
 	Verified   bool
-	End        time.Time // the founding row's current_period_end
-	Subscribed bool      // a paid subscription that outlasts the founding year
+	End        time.Time  // the founding row's current_period_end
+	Subscribed bool       // a paid subscription that outlasts the founding year
+	NextCharge *time.Time // that subscription's current period end, when it has one
 }
 
 // Prepared is what a founding-year-end notice states, fixed in the same transaction that claimed it.
@@ -293,7 +306,10 @@ func (s PGDated) FoundingCandidates(ctx context.Context, now time.Time) ([]Found
 		SELECT e.user_id, COALESCE(u.email, ''), u.email_verified, e.current_period_end,
 		       EXISTS (SELECT 1 FROM entitlements p
 		                WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND p.status IN ('active', 'past_due')
-		                  AND (p.current_period_end IS NULL OR p.current_period_end > e.current_period_end))
+		                  AND (p.current_period_end IS NULL OR p.current_period_end > e.current_period_end)),
+		       (SELECT MAX(p.current_period_end) FROM entitlements p
+		         WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND p.status IN ('active', 'past_due')
+		           AND p.current_period_end > e.current_period_end)
 		  FROM entitlements e
 		  JOIN users u ON u.id = e.user_id
 		  LEFT JOIN account_notices n ON n.user_id = e.user_id AND n.kind = $3
@@ -308,8 +324,12 @@ func (s PGDated) FoundingCandidates(ctx context.Context, now time.Time) ([]Found
 	var out []FoundingCandidate
 	for rows.Next() {
 		var c FoundingCandidate
-		if err := rows.Scan(&c.UserID, &c.Email, &c.Verified, &c.End, &c.Subscribed); err != nil {
+		var next sql.NullTime
+		if err := rows.Scan(&c.UserID, &c.Email, &c.Verified, &c.End, &c.Subscribed, &next); err != nil {
 			return nil, err
+		}
+		if next.Valid {
+			c.NextCharge = &next.Time
 		}
 		out = append(out, c)
 	}
@@ -343,6 +363,9 @@ func (s PGDated) PrepareFounding(ctx context.Context, c FoundingCandidate, now t
 		return Prepared{}, err
 	}
 	p := FoundingParams{End: end.UTC().Format("2006-01-02"), ExtendedFrom: old.ExtendedFrom, Subscribed: c.Subscribed}
+	if c.Subscribed && c.NextCharge != nil {
+		p.NextCharge = c.NextCharge.UTC().Format("2006-01-02")
+	}
 	var prep Prepared
 	if end.Sub(now) < MinNotice {
 		newEnd := now.Add(MinNotice)
