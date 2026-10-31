@@ -17,6 +17,8 @@ func factsServer(t *testing.T, portal, price string) *Client {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/v1/billing_portal/configurations"):
 			_, _ = w.Write([]byte(portal))
+		case r.URL.Path == "/v1/tax/settings":
+			_, _ = w.Write([]byte(price))
 		case strings.HasPrefix(r.URL.Path, "/v1/payment_method_configurations"):
 			_, _ = w.Write([]byte(price))
 		case strings.HasPrefix(r.URL.Path, "/v1/prices/"):
@@ -66,5 +68,14 @@ func TestEnabledCheckoutMethods(t *testing.T) {
 	none := factsServer(t, `{}`, `{"data":[{"id":"x","is_default":false,"card":{"available":true,"display_preference":{"value":"on"}}}]}`)
 	if got, found, err := none.EnabledCheckoutMethods(context.Background()); err != nil || found || len(got) != 0 {
 		t.Errorf("no default configuration: %v %v %v", got, found, err)
+	}
+}
+
+func TestTaxActive(t *testing.T) {
+	for body, want := range map[string]bool{`{"status":"active"}`: true, `{"status":"pending"}`: false, `{}`: false} {
+		c := factsServer(t, `{}`, body)
+		if got, err := c.TaxActive(context.Background()); err != nil || got != want {
+			t.Errorf("TaxActive(%s) = %v %v, want %v", body, got, err, want)
+		}
 	}
 }

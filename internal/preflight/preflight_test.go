@@ -33,6 +33,7 @@ func okInput() Input {
 	return Input{
 		Getenv: env(nil),
 		Launch: launchAt,
+		Pinned: []string{"card", "link"},
 		Founding: func(context.Context, time.Time) (Founding, error) {
 			return Founding{Accounts: 11, Demo: 1, Eligible: 10, Already: 0, ToGrant: 10}, nil
 		},
@@ -63,9 +64,9 @@ func TestPreflightReady(t *testing.T) {
 	}
 	for _, want := range []string{
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
-		"https://rivolt.dev/terms: reachable (HTTP 200)", "https://rivolt.dev/privacy: reachable (HTTP 200)", "https://rivolt.dev/settings: reachable (HTTP 200)",
+		"host: rivolt.example", "https://rivolt.example/terms: reachable (HTTP 200)", "https://rivolt.example/privacy: reachable (HTTP 200)", "https://rivolt.example/settings: reachable (HTTP 200)", "unsigned POST to rivolt.example: 400",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"unsigned POST: 400", "TIME as the app user: allowed", "Checkout offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"TIME as the app user: allowed", "Checkout sessions pin payment methods: card, link", "default configuration offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -80,7 +81,7 @@ func TestPreflightPrintsNoSecrets(t *testing.T) {
 		in := okInput()
 		in.Getenv = env(map[string]string{"RIVOLT_BILLING": billing})
 		out := render(Run(context.Background(), in))
-		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_", "whsec", "price_", "com.example", "rivolt.example", "redis.example", "Production", "Sandbox"} {
+		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_", "whsec", "price_", "com.example", "redis.example", "Production", "Sandbox"} {
 			if strings.Contains(out, secret) {
 				t.Errorf("billing=%q: the report contains %q:\n%s", billing, secret, out)
 			}
@@ -145,21 +146,6 @@ func TestPreflightProblems(t *testing.T) {
 		"checkout offers no card": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts {
 				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"apple_pay"}}
-			}
-		},
-		"checkout offers klarna": func(in *Input) {
-			in.Stripe = func(context.Context) StripeFacts {
-				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"card", "klarna"}}
-			}
-		},
-		"checkout offers a bank method": func(in *Input) {
-			in.Stripe = func(context.Context) StripeFacts {
-				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"card", "us_bank_account"}}
-			}
-		},
-		"checkout methods unreadable": func(in *Input) {
-			in.Stripe = func(context.Context) StripeFacts {
-				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true}
 			}
 		},
 		"stripe unreadable is not ready": func(in *Input) {
@@ -237,41 +223,140 @@ func TestPreflightModeMismatchIsAWarning(t *testing.T) {
 	}
 }
 
-// The pages checked are exactly the ones the emails and the launch notice link to.
+// The pages checked are the ones the copy links to, on the deployment's own base URL; the Plan card and the export page are one path.
 func TestURLsAreTheOnesTheCopyLinksTo(t *testing.T) {
-	got := strings.Join(URLs(), " ")
-	for _, want := range []string{"https://rivolt.dev/terms ", "https://rivolt.dev/privacy ", "https://rivolt.dev/settings "} {
+	got := strings.Join(URLs("https://preview.example/"), " ")
+	for _, want := range []string{"https://preview.example/terms ", "https://preview.example/privacy ", "https://preview.example/settings"} {
 		if !strings.Contains(got+" ", want) {
 			t.Errorf("URLs lacks %q: %s", want, got)
 		}
 	}
-	for _, u := range URLs() {
-		if strings.Contains(u, "#") {
-			t.Errorf("%s keeps a fragment", u)
+	if strings.Count(got, "/settings") != 1 {
+		t.Errorf("the settings path is listed twice: %s", got)
+	}
+	for _, u := range URLs("https://preview.example") {
+		if strings.Contains(u, "#") || strings.Contains(u, "rivolt.dev") {
+			t.Errorf("%s keeps a fragment or the production host", u)
 		}
 	}
 }
 
-// The report is honest about what it cannot see: the manual steps are printed as unchecked boxes, the site check says the SPA answers 200
-// for any path, and the closing line tells the reader the figures are production's.
-func TestPreflightManualStepsAndLabels(t *testing.T) {
+// The deployment probes go to this deployment (preview checks preview), the email links are checked as the emails state them (rivolt.dev),
+// and the report says which host the webhook probe hit.
+func TestPreflightProbesTheConfiguredBase(t *testing.T) {
 	in := okInput()
-	in.Fetch = func(context.Context, string) (int, error) { return http.StatusOK, nil } // a made-up path answers 200 too
+	in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": "https://preview.example"})
+	var fetched, posted []string
+	in.Fetch = func(_ context.Context, u string) (int, error) {
+		fetched = append(fetched, u)
+		return http.StatusOK, nil
+	}
+	in.Webhook = func(_ context.Context, u string) (int, error) {
+		posted = append(posted, u)
+		return http.StatusBadRequest, nil
+	}
 	out := render(Run(context.Background(), in))
-	for _, want := range []string{
-		"== Site reachable (the SPA answers 200 for any path", "a made-up path also answers 200",
-		"== Manual steps", "[ ] Stripe Dashboard, public business details: the Terms of service URL", "[ ] Cloudflare: a skip (allow) rule",
-		"checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
-		"ACL DRYRUN", "[ ] before the flip: the Stripe key is in live mode on prod",
-		"share the report privately with DA and the lead; never in a GitHub PR, issue, commit or release note",
-	} {
+	var own, email int
+	for _, u := range fetched {
+		switch {
+		case strings.HasPrefix(u, "https://preview.example/"):
+			own++
+		case strings.HasPrefix(u, "https://rivolt.dev/"):
+			email++
+		default:
+			t.Errorf("a page check went to %s", u)
+		}
+	}
+	if own == 0 || email == 0 || len(posted) != 1 || posted[0] != "https://preview.example/api/billing/stripe/webhook" {
+		t.Errorf("deployment probes %d, email-link probes %d, posted %v", own, email, posted)
+	}
+	for _, want := range []string{"== Deployment reachable (RIVOLT_PUBLIC_BASE_URL", "host: preview.example", "== Email links (as the emails state them: rivolt.dev)", "unsigned POST to preview.example: 400"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}
 	}
-	// A 302 or 403 from the webhook names Cloudflare.
-	in.Webhook = func(context.Context, string) (int, error) { return http.StatusForbidden, nil }
-	if out := render(Run(context.Background(), in)); !strings.Contains(out, "Cloudflare is redirecting or blocking Stripe") {
-		t.Errorf("the webhook problem does not name Cloudflare:\n%s", out)
+	// No base URL: the deployment is not probed (the missing setting is already a problem), never with a production fallback.
+	in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": ""})
+	fetched = nil
+	if r := Run(context.Background(), in); r.Ready() {
+		t.Error("ready without a base URL")
+	}
+	for _, u := range fetched {
+		if !strings.HasPrefix(u, "https://rivolt.dev/") {
+			t.Errorf("probed %s without a base URL", u)
+		}
+	}
+}
+
+// Our Checkout sessions pin card and link, so extra methods in the Dashboard's default configuration are ONE warning listing all of them
+// (they cannot reach our sessions); if the sessions ever lose the pin, the same finding is a problem again.
+func TestPreflightExtraMethodsAreAWarningWhilePinned(t *testing.T) {
+	in := okInput()
+	in.Stripe = func(context.Context) StripeFacts {
+		return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true,
+			CheckoutMethods: []string{"affirm", "card", "klarna", "us_bank_account"}}
+	}
+	r := Run(context.Background(), in)
+	if !r.Ready() {
+		t.Fatalf("pinned sessions: extra default methods stopped the flip: %v", r.Problems)
+	}
+	n := 0
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "beyond cards and wallets") {
+			n++
+			for _, m := range []string{"affirm", "klarna", "us_bank_account", "3 method(s)", "pin card, link"} {
+				if !strings.Contains(w, m) {
+					t.Errorf("the warning lacks %q: %s", m, w)
+				}
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d warning lines for the extra methods, want exactly one", n)
+	}
+	// Without the pin it is a problem, and an empty or non-wallet pin counts as no pin.
+	for name, pin := range map[string][]string{"no pin": nil, "a pin with klarna": {"card", "klarna"}} {
+		in.Pinned = pin
+		r := Run(context.Background(), in)
+		if r.Ready() {
+			t.Errorf("%s: ready", name)
+		}
+		if !strings.Contains(render(r), "do not pin payment_method_types") && name == "no pin" {
+			t.Errorf("%s: no problem about the missing pin:\n%s", name, render(r))
+		}
+	}
+}
+
+// With automatic tax on, Stripe Tax must be active (and readable) in the mode of the key; with it off nothing is asked.
+func TestPreflightStripeTax(t *testing.T) {
+	good := StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true,
+		CheckoutMethods: []string{"card"}}
+	run := func(tax string, f StripeFacts) *Report {
+		in := okInput()
+		in.Getenv = env(map[string]string{"RIVOLT_STRIPE_AUTOMATIC_TAX": tax})
+		in.Stripe = func(context.Context) StripeFacts { return f }
+		return Run(context.Background(), in)
+	}
+	if r := run("", good); !r.Ready() {
+		t.Errorf("tax off: %v", r.Problems)
+	}
+	active := good
+	active.TaxRead, active.TaxActive = true, true
+	if r := run("true", active); !r.Ready() || !strings.Contains(render(r), "Stripe Tax: active") {
+		t.Errorf("tax on and active: %v\n%s", r.Problems, render(r))
+	}
+	inactive := good
+	inactive.TaxRead = true
+	if r := run("true", inactive); r.Ready() {
+		t.Error("tax on, Stripe Tax not active: ready")
+	}
+	if r := run("true", good); r.Ready() {
+		t.Error("tax on, Stripe Tax unreadable: ready")
+	}
+	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Customer Portal's update-payment-method follows that configuration") {
+		t.Error("the manual steps lack the live default payment-method configuration line")
+	}
+	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Stripe Tax is set up in live mode") {
+		t.Error("the manual steps lack the Stripe Tax line")
 	}
 }

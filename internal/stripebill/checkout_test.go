@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -572,5 +573,34 @@ func TestCheckoutFreePeriodExplainer(t *testing.T) {
 		if _, ok := f.posts[0][k]; ok {
 			t.Errorf("a free account's checkout sets %s", k)
 		}
+	}
+}
+
+// Every Checkout session pins the payment method types to card and link, so no Dashboard toggle can put a bank debit, buy-now-pay-later or
+// other delayed method into our sessions; the form carries exactly those two and no other payment method key.
+func TestCheckoutPinsPaymentMethodsToCardAndLink(t *testing.T) {
+	for name, plans := range map[string]fakePlans{
+		"a new account":      {billing: true},
+		"during a free year": {billing: true, trial: launchDay.Add(10 * 24 * time.Hour), state: entitlements.State{Pro: true, Source: entitlements.SourceFounding}},
+	} {
+		f := newFakeStripe(t)
+		svc := newService(f, plans, launchDay)
+		if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); err != nil {
+			t.Fatal(name, err)
+		}
+		form := f.posts[0]
+		var keys []string
+		for k := range form {
+			if strings.HasPrefix(k, "payment_method") {
+				keys = append(keys, k+"="+form.Get(k))
+			}
+		}
+		sort.Strings(keys)
+		if got, want := strings.Join(keys, " "), "payment_method_types[0]=card payment_method_types[1]=link"; got != want {
+			t.Errorf("%s: payment method keys %q, want exactly %q", name, got, want)
+		}
+	}
+	if got := strings.Join(PinnedPaymentMethods(), ","); got != "card,link" {
+		t.Errorf("PinnedPaymentMethods = %s", got)
 	}
 }

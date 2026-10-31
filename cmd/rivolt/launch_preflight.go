@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/preflight"
+	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/stripebill"
 )
 
@@ -56,6 +57,7 @@ func runLaunchPreflight(args []string) int {
 		in.Fetch = preflight.HTTPFetch
 		in.Webhook = preflight.HTTPPostUnsigned
 		in.Stripe = preflightStripe(os.Getenv)
+		in.Pinned = stripebill.PinnedPaymentMethods()
 	}
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
 		rdb := redis.NewClient(redisOptions(addr, os.Getenv))
@@ -118,6 +120,12 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 		// counts as unverified.
 		if methods, found, err := c.EnabledCheckoutMethods(ctx); err == nil && found {
 			f.CheckoutRead, f.CheckoutMethods = true, methods
+		}
+		// Stripe Tax is only asked about when automatic tax is on; a key that cannot read it leaves TaxRead false (unverified).
+		if rivian.ParseBoolEnv(getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")) {
+			if active, err := c.TaxActive(ctx); err == nil {
+				f.TaxRead, f.TaxActive = true, active
+			}
 		}
 		return f
 	}
