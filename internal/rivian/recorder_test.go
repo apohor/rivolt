@@ -2,7 +2,9 @@ package rivian
 
 import (
 	"context"
+	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -1419,5 +1421,110 @@ func TestIsChargingState(t *testing.T) {
 		if IsChargingState(cs) != want {
 			t.Errorf("IsChargingState(%q) = %v, want %v", cs, !want, want)
 		}
+	}
+}
+
+// A truck that sends no live location: the drive moves (odometer, speed) while every frame repeats one stale fix. The drive is flagged
+// location-unavailable so the apps can say why there is no route; a drive with changing fixes, a short move and a drive with no
+// position at all behave as they should.
+func TestDriveLocationUnavailable(t *testing.T) {
+	t0 := time.Date(2026, 10, 31, 16, 47, 0, 0, time.UTC)
+	stale := t0.Add(-30 * time.Minute)
+	run := func(frames []State) *liveDrive {
+		m := NewStateMonitor(nil, nil)
+		s := &liveSessions{}
+		ctx := context.Background()
+		for i := range frames {
+			_ = s.handleDriveLifecycle(&frames[i], nil, m, ctx)
+		}
+		if s.drive != nil {
+			t.Fatal("setup: the drive should be closed")
+		}
+		return s.lastClosed
+	}
+	const kmPerMi = 1.609344
+	mk := func(min int, gear string, mi float64, lat, lon float64, fix time.Time) State {
+		return State{VehicleID: "rv-test-1", At: t0.Add(time.Duration(min) * time.Minute), Gear: gear, OdometerKm: (60000 + mi) * kmPerMi,
+			SpeedKph: map[bool]float64{true: 60, false: 0}[gear == "D"], Latitude: lat, Longitude: lon, LocationFixAt: fix}
+	}
+
+	// 1. The same stale fix for the whole 5-mile drive.
+	d := run([]State{
+		mk(0, "D", 0, 32.77, -96.80, stale), mk(3, "D", 1.5, 32.77, -96.80, stale), mk(8, "D", 3.9, 32.77, -96.80, stale),
+		mk(13, "D", 5.2, 32.77, -96.80, stale), mk(14, "P", 5.2, 32.77, -96.80, stale),
+	})
+	if !d.locationUnavailable() {
+		t.Errorf("a drive of 5.2 mi on one stale fix is not flagged (fixes %d, path %d)", d.locFixes, len(d.path))
+	}
+	m := NewStateMonitor(nil, nil)
+	if row := m.liveDriveRow("rv-test-1", d); !row.LocationUnavailable {
+		t.Error("the row does not carry the flag")
+	}
+
+	// 2. Fixes that change: not flagged.
+	d = run([]State{
+		mk(0, "D", 0, 32.77, -96.80, t0), mk(3, "D", 1.5, 32.78, -96.81, t0.Add(3*time.Minute)), mk(8, "D", 3.9, 32.80, -96.83, t0.Add(8*time.Minute)),
+		mk(13, "D", 5.2, 32.82, -96.85, t0.Add(13*time.Minute)), mk(14, "P", 5.2, 32.82, -96.85, t0.Add(14*time.Minute)),
+	})
+	if d.locationUnavailable() {
+		t.Errorf("a drive with moving fixes is flagged (fixes %d)", d.locFixes)
+	}
+
+	// 3. A short move on one fix (under 0.5 mi) is not flagged.
+	d = run([]State{mk(0, "D", 0, 32.77, -96.80, stale), mk(1, "D", 0.2, 32.77, -96.80, stale), mk(2, "P", 0.3, 32.77, -96.80, stale)})
+	if d.locationUnavailable() {
+		t.Error("a 0.3 mi move is flagged")
+	}
+
+	// 4. No position at all (lat/lon zero) while it moves: flagged.
+	d = run([]State{mk(0, "D", 0, 0, 0, time.Time{}), mk(5, "D", 2.5, 0, 0, time.Time{}), mk(9, "D", 4.4, 0, 0, time.Time{}), mk(10, "P", 4.4, 0, 0, time.Time{})})
+	if !d.locationUnavailable() {
+		t.Errorf("a drive with no position at all is not flagged (fixes %d)", d.locFixes)
+	}
+}
+
+// The count survives a handover (the snapshot carries it), and a drive that rehydrated with a real path is never flagged even if the new
+// pod saw one fix since.
+func TestDriveLocationCountSurvivesHandover(t *testing.T) {
+	d := &liveDrive{id: "live_rv-test-1_d_1", startOdoMi: 60000, endOdoMi: 60003, locFixes: 40, locKey: "t1", path: [][2]float64{{32.7, -96.8}, {32.8, -96.9}}}
+	s := &liveSessions{drive: d}
+	back := liveSessionsFromSnapshot(s.snapshot())
+	if back.drive.locFixes != 40 || back.drive.locKey != "t1" {
+		t.Errorf("the snapshot lost the count: %d %q", back.drive.locFixes, back.drive.locKey)
+	}
+	d2 := &liveDrive{startOdoMi: 60000, endOdoMi: 60003, locFixes: 1, path: [][2]float64{{32.7, -96.8}, {32.8, -96.9}}}
+	if d2.locationUnavailable() {
+		t.Error("a drive with a multi-point path was flagged")
+	}
+}
+
+type locObserver struct{ n int }
+
+func (o *locObserver) OnSleepEnded(string, time.Duration, bool) {}
+func (o *locObserver) OnDriveLocationUnavailable()              { o.n++ }
+
+// The closed drive is counted once however many times it is closed (a reopened drive closes again), the log names the vehicle by its last
+// four characters, and a drive with fixes is not counted.
+func TestLocationUnavailableIsCountedOncePerDrive(t *testing.T) {
+	var logs strings.Builder
+	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	obs := &locObserver{}
+	m.SetSleepObserver(obs)
+	d := &liveDrive{id: "live_rv-test-1_d_1", startOdoMi: 60000, endOdoMi: 60005.2, locFixes: 1}
+	m.noteLocationUnavailable("rv-test-1", d)
+	m.noteLocationUnavailable("rv-test-1", d) // closed again after a reopen
+	if obs.n != 1 {
+		t.Errorf("counted %d times, want once", obs.n)
+	}
+	if !strings.Contains(logs.String(), "vehicle not reporting location during drives") || !strings.Contains(logs.String(), "id=live_rv-test-1_d_1") {
+		t.Errorf("log:\n%s", logs.String())
+	}
+	if strings.Contains(logs.String(), "vehicle=rv-test-1") || !strings.Contains(logs.String(), "vehicle=…st-1") {
+		t.Errorf("the vehicle id is not shortened to its last four characters:\n%s", logs.String())
+	}
+	ok := &liveDrive{id: "x", startOdoMi: 60000, endOdoMi: 60005, locFixes: 12, path: [][2]float64{{1, 2}, {3, 4}}}
+	m.noteLocationUnavailable("rv-test-1", ok)
+	if obs.n != 1 {
+		t.Error("a drive with fixes was counted")
 	}
 }

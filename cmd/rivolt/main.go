@@ -3222,6 +3222,14 @@ func (s *sleepMetrics) OnChargeEnergyFloor() {
 	s.m.ChargeEnergyFloorTotal.Inc()
 }
 
+// OnDriveLocationUnavailable implements rivian.DriveLocationObserver.
+func (s *sleepMetrics) OnDriveLocationUnavailable() {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.DrivesLocationUnavailableTotal.Inc()
+}
+
 // OnOTAStatus implements rivian.OTAObserver. class is from a fixed list or "other" (bounded cardinality).
 func (s *sleepMetrics) OnOTAStatus(class string) {
 	if s == nil || s.m == nil {

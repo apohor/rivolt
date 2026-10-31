@@ -172,6 +172,15 @@ type liveDrive struct {
 	// trailer integrates the trailer connector's state over the drive (trailer.go).
 	trailer trailerAcc
 
+	// locFixes counts the distinct location fixes the drive's driving frames carried (locKey is the last one's key: the GNSS fix
+	// time when the frame has one, else the position). A truck that sends no live location repeats one stale fix, or none, however far
+	// it goes. It is kept apart from path on purpose: path also takes route-fill points, and a counter that survives a handover
+	// (snapshot) keeps a drive that moved with fixes from reading as "no location" on its last stretch.
+	locFixes int
+	locKey   string
+	// locNoted: the closed drive was already logged and counted as "no location" (a drive that reopens and closes again is one drive).
+	locNoted bool
+
 	// Rolling "current end" so we can upsert as the drive grows. Each
 	// state update refreshes these; the final values are what lands in
 	// the drives table if the process dies mid-session.
@@ -709,6 +718,7 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		s.drive.final = true
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		m.noteLocationUnavailable(curr.VehicleID, s.drive)
 		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
 		rejected := s.drive.rejected
 		s.drive = nil
@@ -855,6 +865,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 				"id", s.drive.id,
 				"gap", gap.Round(time.Second))
 			m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+			m.noteLocationUnavailable(curr.VehicleID, s.drive)
 			s.drive = nil
 		}
 	}
@@ -900,6 +911,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			endLon:     curr.Longitude,
 		}
 		s.drive.trailer.observe(curr.At, curr.TrailerState)
+		s.drive.observeFix(curr)
 		if curr.Latitude != 0 || curr.Longitude != 0 {
 			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
 			s.drive.lastFixAt = curr.At
@@ -938,6 +950,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// A driving frame cancels any pending (uncorroborated) close —
 		// the P that started it was a phantom blip.
 		s.drive.pendingCloseAt = time.Time{}
+		s.drive.observeFix(curr)
 		if curr.Latitude != 0 || curr.Longitude != 0 {
 			// Fix-timestamp monotonicity: Parallax gnss is the GPS
 			// backbone and vehicleState fills detail between its ticks —
@@ -1025,6 +1038,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// accumulator. Hooks run with their own ctx so a slow
 		// network call (weather fetch) can't block the recorder.
 		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		m.noteLocationUnavailable(curr.VehicleID, s.drive)
 		// Phantom drives (zero duration + zero deltas) were skipped by
 		// upsertLiveDrive and never reached the store — don't run the
 		// post-close hook for them either.
@@ -1665,6 +1679,8 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		Source:          "live",
 		RoutePolyline:   encodePolyline(d.path),
 		Trailer:         d.trailer.result(d.endAt),
+		// Whether the drive moved without the truck reporting where it was; the live row sets and clears it (drives.Upsert).
+		LocationUnavailable: d.locationUnavailable(),
 	}
 	trimDrive(&row, d.trim, m.PackKWhFor(vehicleID))
 	return row
@@ -2450,4 +2466,54 @@ func (m *StateMonitor) readyUnreliable(vehicleID string) bool {
 	defer m.mu.RUnlock()
 	v := m.vehicleInfo[vehicleID]
 	return v != nil && strings.EqualFold(strings.TrimSpace(v.Model), "R2")
+}
+
+// observeFix counts a driving frame's location fix when it differs from the previous one. A frame with no position adds nothing.
+func (d *liveDrive) observeFix(curr *State) {
+	if curr.Latitude == 0 && curr.Longitude == 0 {
+		return
+	}
+	key := fmt.Sprintf("p%.6f,%.6f", curr.Latitude, curr.Longitude)
+	if !curr.LocationFixAt.IsZero() {
+		key = "t" + strconv.FormatInt(curr.LocationFixAt.UnixNano(), 10)
+	}
+	if key != d.locKey {
+		d.locKey = key
+		d.locFixes++
+	}
+}
+
+// locationUnavailableMinMi is how far a drive must go to say that its truck was not sharing its location during it.
+const locationUnavailableMinMi = 0.5
+
+// locationUnavailable: the drive moved (by the odometer) but its frames carried at most one distinct location fix and the path has at
+// most one point, so there is no route to draw. The path condition keeps a drive that rehydrated on another pod from reading as
+// unavailable just because the counters restarted.
+func (d *liveDrive) locationUnavailable() bool {
+	return driveDistanceMi(d) > locationUnavailableMinMi && d.locFixes <= 1 && len(d.path) <= 1
+}
+
+// DriveLocationObserver is optionally implemented by the SleepObserver (main's metrics adapter): told once for each closed drive that moved
+// without the truck reporting where it was (rivolt_drives_location_unavailable_total, no labels).
+type DriveLocationObserver interface {
+	OnDriveLocationUnavailable()
+}
+
+// noteLocationUnavailable logs and counts, once per drive, a closed drive that moved without the truck reporting where it was. The log
+// carries the last four characters of the vehicle id, the drive id and counts, never a place.
+func (m *StateMonitor) noteLocationUnavailable(vehicleID string, d *liveDrive) {
+	if d == nil || d.locNoted || !d.locationUnavailable() {
+		return
+	}
+	d.locNoted = true
+	if m.logger != nil {
+		m.logger.Warn("vehicle not reporting location during drives",
+			"vehicle", shortVehicle(vehicleID), "id", d.id, "distance_mi", math.Round(driveDistanceMi(d)*10)/10, "distinct_fixes", d.locFixes, "path_points", len(d.path))
+	}
+	m.mu.RLock()
+	obs := m.sleepObserver
+	m.mu.RUnlock()
+	if o, ok := obs.(DriveLocationObserver); ok {
+		o.OnDriveLocationUnavailable()
+	}
 }

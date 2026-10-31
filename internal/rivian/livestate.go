@@ -74,6 +74,9 @@ type LiveDriveSnapshot struct {
 	TrailerLast       string       `json:"trailer_last,omitempty"`
 	TrailerAt         time.Time    `json:"trailer_at,omitempty"`
 	Path              [][2]float64 `json:"path,omitempty"`
+	// Distinct location fixes seen so far (recorder.go liveDrive.locFixes), so a handover keeps the count.
+	LocFixes int    `json:"loc_fixes,omitempty"`
+	LocKey   string `json:"loc_key,omitempty"`
 }
 
 // LiveChargeSnapshot mirrors liveCharge.
@@ -141,7 +144,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			EndLat: d.endLat, EndLon: d.endLon,
 			TrailerPresentSec: d.trailer.present.Seconds(), TrailerKnownSec: d.trailer.known.Seconds(),
 			TrailerLast: d.trailer.last, TrailerAt: d.trailer.lastAt,
-			Path: path,
+			Path: path, LocFixes: d.locFixes, LocKey: d.locKey,
 		}
 	}
 	if s.charge != nil {
@@ -187,7 +190,7 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 				known:   time.Duration(d.TrailerKnownSec * float64(time.Second)),
 				last:    d.TrailerLast, lastAt: d.TrailerAt,
 			},
-			path: path,
+			path: path, locFixes: d.LocFixes, locKey: d.LocKey,
 		}
 	}
 	if snap.Charge != nil {

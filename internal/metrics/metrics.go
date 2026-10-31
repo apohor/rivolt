@@ -167,6 +167,8 @@ type Metrics struct {
 	// Charges whose energy the recorder replaced with an estimate from the SoC gain because its integral had lost energy
 	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
 	ChargeEnergyFloorTotal prometheus.Counter
+	// Closed drives that moved while the truck reported no live location (at most one distinct fix): "how many a day" without a log query.
+	DrivesLocationUnavailableTotal prometheus.Counter
 
 	// APNs device registrations refused because the token is registered to another account whose session is live and the
 	// caller was not the same install, by reason (install_mismatch or install_missing). No token, user or hash: /metrics is public.
@@ -554,6 +556,10 @@ func New() *Metrics {
 			},
 			[]string{"topic"},
 		),
+		DrivesLocationUnavailableTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_drives_location_unavailable_total",
+			Help: "Closed drives that moved while the vehicle reported no live location.",
+		}),
 		ChargeEnergyFloorTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_charge_energy_floor_total",
 			Help: "Charges whose energy was replaced by an estimate from the SoC gain (the recorder's integral had lost energy).",
@@ -667,6 +673,7 @@ func New() *Metrics {
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
 		m.ChargeEnergyFloorTotal,
+		m.DrivesLocationUnavailableTotal,
 		m.APNsRegisterRefusedTotal,
 		m.PasskeyRefusedTotal,
 		m.LogoutForgetAttemptsTotal,
