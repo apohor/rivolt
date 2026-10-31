@@ -19,7 +19,7 @@ struct ActivityView: View {
     private let calendar = Calendar.current
 
     private var vehicleID: String? {
-        vehicles.first { $0.id == selectedID }?.id ?? vehicles.first?.id
+        VehicleChoice.id(vehicles, chosen: selectedID)
     }
 
     private var days: [ActivityDay] {
@@ -185,8 +185,11 @@ struct ActivityView: View {
     }
 
     private var titleRow: some View {
-        ThemeTitleRow(title: "Activity") {
-            PeriodControl()
+        VStack(spacing: 0) {
+            ThemeTitleRow(title: "Activity") {
+                PeriodControl()
+            }
+            VehicleScopeNote(vehicles: vehicles).padding(.horizontal, 4 * Theme.unit)
         }
     }
 

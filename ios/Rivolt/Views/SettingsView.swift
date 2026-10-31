@@ -3,7 +3,7 @@ import SwiftUI
 /// What Settings lists and in what order, with no view code so a test can see it. It mirrors the web's Settings tabs and names.
 enum SettingsLogic {
     enum Row: String, Equatable {
-        case plan, connection, signOut, devices, passkeys, vehicleProfile, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
+        case plan, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
         case export, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
@@ -14,6 +14,7 @@ enum SettingsLogic {
             case .devices: return "Signed-in devices"
             case .passkeys: return "Passkeys"
             case .vehicleProfile: return "Vehicle profile"
+            case .primaryVehicle: return "Vehicle the free plan shows"
             case .homeLocation: return "Home location"
             case .units: return "Units"
             case .chargingRates: return "Charging rates"
@@ -39,6 +40,7 @@ enum SettingsLogic {
             case .devices: return "iphone.and.macbook"
             case .passkeys: return "person.badge.key"
             case .vehicleProfile: return "car"
+            case .primaryVehicle: return "car.2"
             case .homeLocation: return "house"
             case .units: return "ruler"
             case .chargingRates: return "bolt"
@@ -65,11 +67,11 @@ enum SettingsLogic {
 
     /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), App, Data and About, as the web's tabs.
     /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan.
-    static func groups(notificationsOffered: Bool, planOffered: Bool = false) -> [Group] {
+    static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false) -> [Group] {
         var out = [
             Group(title: "Account", rows: (planOffered ? [.plan] : []) + [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
-            Group(title: "Vehicle", rows: [.vehicleProfile, .homeLocation, .units]),
+            Group(title: "Vehicle", rows: [.vehicleProfile] + (planOffered && primaryVehicleOffered ? [.primaryVehicle] : []) + [.homeLocation, .units]),
             Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
         ]
         if notificationsOffered { out.append(Group(title: "Notifications", rows: [.notifications])) }
@@ -104,7 +106,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off)) { group in
+                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free)) { group in
                     Section {
                         ForEach(group.rows, id: \.rawValue) { row in rowView(row) }
                     } header: {
@@ -162,6 +164,8 @@ struct SettingsView: View {
             NavigationLink { PasskeysView() } label: { label(row) }
         case .vehicleProfile:
             NavigationLink { VehicleProfileView(vehicleID: vehicleID) } label: { label(row) }
+        case .primaryVehicle:
+            NavigationLink { PrimaryVehicleView() } label: { label(row) }
         case .homeLocation:
             NavigationLink { HomeLocationView(vehicleID: vehicleID) } label: { label(row) }
         case .units:
