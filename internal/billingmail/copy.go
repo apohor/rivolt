@@ -24,8 +24,7 @@ func longDate(iso string) string {
 func PurchaseSubject(PurchaseParams) string { return "Your Rivolt Pro subscription" }
 
 // RenderPurchase is the purchase confirmation: the renewal terms, how to cancel and the refund rule (Stripe's receipt has none of them).
-// Wording by growth. While the subscription is trialing the free period may be the 14-day trial or the founding year, so the line does not
-// name which.
+// Wording by growth. While the subscription is trialing the free period is the founding year or a grant, so the line does not name which.
 func RenderPurchase(p PurchaseParams) string {
 	var first string
 	if p.Trialing {

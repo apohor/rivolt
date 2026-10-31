@@ -5,6 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -201,7 +206,7 @@ func TestCancelAndGraceStates(t *testing.T) {
 	}
 }
 
-// The free Pro a subscription must wait for: the latest end among a running trial and the founding year, nothing for an ended or past row.
+// The free Pro a subscription must wait for: the latest end among a running trial, grant and the founding year, nothing for an ended or past row.
 func TestActiveFreeEnd(t *testing.T) {
 	day := 24 * time.Hour
 	if _, ok := ActiveFreeEnd(nil, t0); ok {
@@ -217,15 +222,51 @@ func TestActiveFreeEnd(t *testing.T) {
 	if got, ok := ActiveFreeEnd(rows, t0); !ok || !got.Equal(*at(200 * day)) {
 		t.Errorf("trial and founding: %v %v, want the founding end", got, ok)
 	}
+	// A grant with an end is free time a subscription waits for, as the founding year is.
+	if got, ok := ActiveFreeEnd([]Row{{Source: SourceGrant, Status: StatusActive, PeriodEnd: at(30 * day)}}, t0); !ok || !got.Equal(*at(30 * day)) {
+		t.Errorf("a running grant: %v %v", got, ok)
+	}
 	for name, r := range map[string]Row{
 		"an ended trial":    {Source: SourceTrial, Status: StatusEnded, PeriodEnd: at(5 * day)},
 		"a past founding":   {Source: SourceFounding, Status: StatusActive, PeriodEnd: at(-day)},
 		"a paid row":        {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(30 * day)},
-		"a grant":           {Source: SourceGrant, Status: StatusActive, PeriodEnd: at(30 * day)},
+		"an ended grant":    {Source: SourceGrant, Status: StatusEnded, PeriodEnd: at(30 * day)},
 		"a row with no end": {Source: SourceTrial, Status: StatusActive},
 	} {
 		if _, ok := ActiveFreeEnd([]Row{r}, t0); ok {
 			t.Errorf("%s reads as free Pro", name)
 		}
+	}
+}
+
+// Nothing writes the 'trial' source any more (a new account starts free): the source stays readable for rows that exist, but no
+// production code inserts one. Test files and migrations are not production writers.
+func TestNothingWritesTrialEntitlements(t *testing.T) {
+	root := "../.."
+	insert := regexp.MustCompile(`(?is)INSERT\s+INTO\s+entitlements[^;]*'trial'`)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if n := d.Name(); n == ".git" || n == "node_modules" || n == "migrations" || n == "web" || n == "ios" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if insert.Match(b) {
+			t.Errorf("%s inserts a 'trial' entitlement", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
