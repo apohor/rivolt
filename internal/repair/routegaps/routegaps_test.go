@@ -22,10 +22,9 @@ func line(lats ...float64) [][2]float64 {
 }
 
 type fakeFiller struct {
-	calls  int
-	fail   bool
-	shape  func(from, to [2]float64) [][2]float64
-	delays time.Duration
+	calls int
+	fail  bool
+	shape func(from, to [2]float64) [][2]float64
 }
 
 func (f *fakeFiller) RouteShape(ctx context.Context, from, to [2]float64) ([][2]float64, error) {
