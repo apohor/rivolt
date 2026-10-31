@@ -19,6 +19,7 @@ import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView 
 import { ChargeTable, DriveTable, labelMap } from "../components/ActivityTables";
 import { chargePlaceLabel } from "../lib/chargePlace";
 import { ChargesOverviewMap } from "../map/ChargesOverviewMap";
+import { RouteThumb } from "../components/RouteThumb";
 import { DrivesOverviewMap } from "../map/DrivesOverviewMap";
 import { usePreferences } from "../lib/preferences";
 import { formatDuration, durationSeconds } from "../lib/format";
@@ -310,7 +311,9 @@ function DriveCard({ item }: { item: DriveItem }) {
   const missing = driveMissingEnergy(d);
   const dur = d.DrivingSeconds && d.DrivingSeconds > 0 ? d.DrivingSeconds : durationSeconds(d.StartedAt, d.EndedAt);
   return (
-    <Link to={detailPath("drives", d.ID)} className={CARD}>
+    <Link to={detailPath("drives", d.ID)} className={`${CARD} flex items-center gap-3`}>
+      <RouteThumb driveId={d.ID} />
+      <div className="min-w-0 flex-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-neutral-100"><span aria-hidden>↗ </span>{title}</span>
         <span className="tabular-nums text-sm text-neutral-200">{d.DistanceMi.toFixed(1)} mi</span>
@@ -330,6 +333,7 @@ function DriveCard({ item }: { item: DriveItem }) {
         ) : (
           <span>{d.EnergyUsedKWh.toFixed(1)} kWh</span>
         )}
+      </div>
       </div>
     </Link>
   );

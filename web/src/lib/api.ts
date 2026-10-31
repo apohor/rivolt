@@ -1749,6 +1749,9 @@ export const backend = {
   // The store queries cap out at a few hundred rows so this stays cheap.
   // slim leaves the route polyline out of each row (the lists draw no maps): most of the weight of the full list.
   allDrives: (o: { slim?: boolean } = {}) => api.get<Drive[]>(`/api/drives?limit=5000${o.slim ? "&slim=1" : ""}`),
+  // The list's route thumbnails: for up to 60 drive ids, each one's route cut to a few points as a polyline (precision 5). An id with no route,
+  // or not the caller's, is absent from the answer.
+  routeThumbs: (ids: string[]) => api.get<Record<string, string>>(`/api/drives/route-thumbs?ids=${ids.map(encodeURIComponent).join(",")}`),
   // One drive with its route polyline and cost estimate. 404 for an unknown id or someone else's drive.
   drive: (id: string) => api.get<Drive>(`/api/drives/${encodeURIComponent(id)}`),
   // The user's own correction of whether a trailer was connected on a drive: true, false, or null to go back to what the truck reported.

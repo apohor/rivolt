@@ -359,6 +359,12 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         }),
         drive(4, 1, 34),
       ]);
+    // The drive list's route thumbnails: a made-up short polyline for each id asked (near (10, 10), nowhere real), 24 points.
+    if (p === "/api/drives/route-thumbs") {
+      const ids = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean);
+      const poly = encodeThumb(Array.from({ length: 24 }, (_, i) => [10 + i * 0.002, 10 + 0.01 * Math.sin(i / 3)] as [number, number]));
+      return json(route, Object.fromEntries(ids.map((id) => [id, poly])));
+    }
     if (p === "/api/charges") {
       return json(route, [
         charge(1, 0.5),
@@ -492,4 +498,28 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     // Anything else answers 404 like an absent feature.
     return json(route, { error: "not stubbed" }, 404);
   });
+}
+
+// encodeThumb is a precision-5 polyline of (lat, lon) points, for the stub's thumbnails.
+function encodeThumb(pts: [number, number][]): string {
+  let out = "";
+  let pLa = 0;
+  let pLo = 0;
+  const put = (v: number) => {
+    let u = v < 0 ? ~(v << 1) : v << 1;
+    while (u >= 0x20) {
+      out += String.fromCharCode((0x20 | (u & 0x1f)) + 63);
+      u >>= 5;
+    }
+    out += String.fromCharCode(u + 63);
+  };
+  for (const [la, lo] of pts) {
+    const a = Math.round(la * 1e5);
+    const b = Math.round(lo * 1e5);
+    put(a - pLa);
+    put(b - pLo);
+    pLa = a;
+    pLo = b;
+  }
+  return out;
 }

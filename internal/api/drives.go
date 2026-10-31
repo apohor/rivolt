@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -362,4 +363,70 @@ func handleSleepActivity(uid uuid.UUID, store *samples.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// maxThumbIDs is the most drives one thumbnail request names.
+const maxThumbIDs = 60
+
+// handleRouteThumbs serves the drive list's route thumbnails: for each of up to maxThumbIDs of the caller's own drives (?ids=a,b,c), its
+// stored route cut to a few points as a polyline, so the list can draw each drive's shape as a tiny SVG with no map and no tiles. An id the
+// caller does not have, that has no route, or that lies outside their plan's history window or vehicle is simply absent from the answer.
+// The points are not logged, and nothing is stored: the route is read, simplified and sent.
+func handleRouteThumbs(store *drives.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vehicleID, ok := vehicleFilter(w, r)
+		if !ok {
+			return
+		}
+		var ids []string
+		seen := map[string]bool{}
+		for _, id := range strings.Split(r.URL.Query().Get("ids"), ",") {
+			id = strings.TrimSpace(id)
+			if id == "" || seen[id] {
+				continue
+			}
+			if !validDriveID(id) {
+				http.Error(w, "ids has an unexpected id", http.StatusBadRequest)
+				return
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+		if len(ids) > maxThumbIDs {
+			http.Error(w, "too many ids", http.StatusBadRequest)
+			return
+		}
+		if store == nil || len(ids) == 0 {
+			writeJSON(w, http.StatusOK, map[string]string{})
+			return
+		}
+		stubs, err := store.RoutesByIDs(r.Context(), ids, vehicleID)
+		if err != nil {
+			http.Error(w, "could not read the routes", http.StatusInternalServerError)
+			return
+		}
+		stubs = windowRows(r.Context(), stubs, func(s drives.RouteStub) time.Time { return s.StartedAt })
+		out := make(map[string]string, len(stubs))
+		for _, s := range stubs {
+			if t := drives.ThumbPolyline(s.RoutePolyline); t != "" {
+				out[s.ID] = t
+			}
+		}
+		// The routes change only when a drive is edited; a few minutes of private caching saves the list its re-asks.
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// validDriveID: a drive's external id is short and plain (a uuid, or "live_" and the like); anything else is refused before it reaches a query.
+func validDriveID(id string) bool {
+	if len(id) == 0 || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if c > unicode.MaxASCII || !(unicode.IsLetter(c) || unicode.IsDigit(c) || c == '-' || c == '_' || c == ':' || c == '.') {
+			return false
+		}
+	}
+	return true
 }

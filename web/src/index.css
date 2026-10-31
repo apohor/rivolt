@@ -775,3 +775,45 @@ html[data-theme='light'] {
 :root[data-theme='light'] [data-ui-header] {
   background-color: oklch(99% 0 0);
 }
+
+/* The drive list's route thumbnails (components/RouteThumb.tsx): the shape and its two ends, in the drive map's colours. */
+.route-thumb {
+  display: inline-flex;
+  flex: none;
+  width: 64px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--color-neutral-800);
+  background: var(--color-neutral-950);
+  --thumb-line: #5ee9b5;
+  --thumb-casing: #06080c;
+  --thumb-start: #74d4ff;
+  --thumb-end: #ffb900;
+}
+:root[data-theme="light"] .route-thumb {
+  --thumb-line: #0fa37f;
+  --thumb-casing: #ffffff;
+  --thumb-start: #2b7de9;
+  --thumb-end: #f0a000;
+}
+.route-thumb-casing,
+.route-thumb-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.route-thumb-casing {
+  stroke: var(--thumb-casing);
+  stroke-width: 4.6;
+  opacity: 0.9;
+}
+.route-thumb-line {
+  stroke: var(--thumb-line);
+  stroke-width: 2.2;
+}
+.route-thumb-start {
+  fill: var(--thumb-start);
+}
+.route-thumb-end {
+  fill: var(--thumb-end);
+}
