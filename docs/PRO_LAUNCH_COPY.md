@@ -76,30 +76,55 @@ Paywall (web, Settings → Account → Plan; the Apple one follows Apple's 3.1.2
 
 ## 4. End-of-year notice (email and in-app, at least 30 days before FOUNDING_END_DATE; a dated task)
 
+Two variants, decided by whether a paid subscription outlasts the founding year. Both carry the Plan card link, the export link (the §11 "how to export first" promise) and the Terms · Privacy footer of the billing emails. No hard line wraps in the email bodies.
+
+### Free variant (no subscription)
+
 Subject: Your free year of Rivolt Pro ends on FOUNDING_END_DATE
 
 Hi,
 
-Your account has had Rivolt Pro at no charge since Pro launched. That ends on
-FOUNDING_END_DATE. Nothing is charged and nothing is deleted.
+Your account has had Rivolt Pro at no charge since Pro launched. That ends on FOUNDING_END_DATE. Nothing is charged and nothing is deleted.
 
-**What changes on that date:** Activity, Money and Truck show the last 90 days;
-the planner plans single-day trips; three saved trips stay editable and the rest
-stay read-only; one vehicle is shown at a time; trends and range near a
-temperature are not shown; the iPhone widgets and the charging Live Activity
-show the free state.
+[If the date was moved to give 30 days' notice: "We moved this date from {old date} to FOUNDING_END_DATE so that you have at least 30 days' notice."]
 
-**What does not change:** every drive and charge keeps being recorded on every
-connected vehicle, every alert keeps working, and the full export of everything,
-including history older than 90 days, stays free. Export it first if you like:
-Settings → Data.
+What changes on that date: Activity, Money and Truck show the last 90 days; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the iPhone widgets and the charging Live Activity show the free state.
 
-**To keep Pro:** $3.99 a month or $34.99 a year, in Settings → Account → Plan or in the
-iPhone app. Or do nothing.
+What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than 90 days, stays free.
+
+Export everything first if you like: https://rivolt.dev/settings#export
+
+To keep Pro, subscribe from your Plan card (sign in first), $3.99 a month or $34.99 a year, or in the iPhone app: https://rivolt.dev/settings#plan
+Or do nothing: nothing is deleted either way.
+
+Terms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy
 
 The Rivolt team
 support@rivolt.dev
 Rivolt is unofficial and not affiliated with Rivian.
+
+In-app (free variant): title "Your free year of Rivolt Pro ends on FOUNDING_END_DATE"; body "Nothing is charged and nothing is deleted; the full export stays free."; links "What changes" (/support#free-and-pro), "Plan" (/settings#plan), "Export" (/settings#export).
+
+### Subscribed variant (a paid subscription outlasts the founding year)
+
+Subject: Your free year of Rivolt Pro ends on FOUNDING_END_DATE; your subscription continues
+
+Hi,
+
+Your free founding year of Rivolt Pro ends on FOUNDING_END_DATE. Your Rivolt Pro subscription continues from that day, so nothing changes for you: Pro stays on and your next charge is on {next charge date}, at the price shown on your Plan card.
+
+[Moved-date line as above, if it applies.]
+
+Your Plan card (sign in first): https://rivolt.dev/settings#plan
+Export everything any time: https://rivolt.dev/settings#export
+
+Terms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy
+
+The Rivolt team
+support@rivolt.dev
+Rivolt is unofficial and not affiliated with Rivian.
+
+In-app (subscribed): title as the subject's first clause; body "Your free founding year ends on FOUNDING_END_DATE. Your subscription continues; next charge on {next charge date}."; links "Plan" (/settings#plan), "Export" (/settings#export). No list of what free loses, no prices, no "do nothing".
 
 ## 5. Demo clip end cards (re-encode on launch day)
 
