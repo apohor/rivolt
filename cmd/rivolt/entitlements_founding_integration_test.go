@@ -188,3 +188,34 @@ func TestNewAccountTrialAgainstPostgres(t *testing.T) {
 		t.Errorf("the demo got a trial: %d %v", n, err)
 	}
 }
+
+// The dry run is a pure read: it never creates the demo user (prod's users table may have no demo row; the CLI only computes the demo's
+// id, it never looks it up with a write) or any other row.
+func TestFoundingDryRunWritesNothing(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	if _, err := db.EnsureUser(ctx, pool, "dryrun-a"); err != nil {
+		t.Fatal(err)
+	}
+	counts := func() (users, ents, demos int) {
+		t.Helper()
+		if err := pool.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM entitlements), (SELECT count(*) FROM users WHERE id = $1)`, demo.UserID()).Scan(&users, &ents, &demos); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	u0, e0, d0 := counts()
+	var out, errOut bytes.Buffer
+	if code := foundingRun(ctx, pool, &out, &errOut, demo.UserID(), time.Now().UTC(), false, -1, ""); code != 0 {
+		t.Fatalf("dry run: %d %s", code, errOut.String())
+	}
+	u1, e1, demos := counts()
+	if u1 != u0 || e1 != e0 || demos != d0 {
+		t.Errorf("the dry run wrote: users %d -> %d, entitlements %d -> %d, demo rows %d -> %d", u0, u1, e0, e1, d0, demos)
+	}
+}
