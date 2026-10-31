@@ -130,6 +130,12 @@ function TripBody({ t }: { t: SampleTrip }) {
           <h1 className="text-3xl font-semibold tracking-tight text-neutral-50">{t.title}</h1>
           <p className="text-neutral-300">{t.intro}</p>
           <p className="text-sm text-neutral-400">A simulated sample plan: every figure is an estimate for a sample truck.</p>
+          {t.days.length > 1 && (
+            <p className="text-sm text-neutral-400">
+              Multi-day plans with overnights are a Rivolt Pro feature; the single-day planner is free, and every new account gets a 14-day Pro trial.{" "}
+              <a href="/support" className="underline underline-offset-2 hover:text-neutral-200">What is free and what Pro costs</a>.
+            </p>
+          )}
         </div>
         <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
           <div className={stat}><dt className="text-xs text-neutral-400">Distance</dt><dd className="text-neutral-100">{Math.round(tot.distance_mi)} mi</dd></div>

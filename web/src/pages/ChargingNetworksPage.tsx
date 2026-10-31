@@ -127,7 +127,7 @@ export default function ChargingNetworksPage() {
         </section>
 
         <p className="text-xs leading-relaxed text-neutral-500">
-          Unofficial, not affiliated with Rivian or with any charging network. Network names are used descriptively.{" "}
+          This page and the single-day planner are free; multi-day plans with overnights are a Rivolt Pro feature. Unofficial, not affiliated with Rivian or with any charging network. Network names are used descriptively.{" "}
           <a href="/sample-trips" className="underline underline-offset-2 hover:text-neutral-300">See sample trips planned with these prices</a>.
         </p>
       </main>
