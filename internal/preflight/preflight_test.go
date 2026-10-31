@@ -353,6 +353,9 @@ func TestPreflightStripeTax(t *testing.T) {
 	if r := run("true", good); r.Ready() {
 		t.Error("tax on, Stripe Tax unreadable: ready")
 	}
+	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Customer Portal's update-payment-method follows that configuration") {
+		t.Error("the manual steps lack the live default payment-method configuration line")
+	}
 	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Stripe Tax is set up in live mode") {
 		t.Error("the manual steps lack the Stripe Tax line")
 	}

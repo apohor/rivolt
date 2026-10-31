@@ -392,6 +392,7 @@ func ManualSteps() []string {
 		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
 		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
 		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
+		"Stripe Dashboard, Payment methods (the live default configuration): only cards and wallets are on. The Customer Portal's update-payment-method follows that configuration, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method that the Checkout pin does not cover",
 		"Stripe Tax is set up in live mode: origin address, and registrations where required (Texas first), since RIVOLT_STRIPE_AUTOMATIC_TAX is on; with no live tax setup, live Checkout fails",
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
 		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
