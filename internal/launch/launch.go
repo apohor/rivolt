@@ -55,7 +55,8 @@ var Items = []Item{
 	// Money: Stripe and StoreKit.
 	{ID: "stripe-webhook", What: "Stripe webhook signature is verified and handling is idempotent on the event id; a refund or revoke ends the entitlement and invalidates the plan cache",
 		Cleared: true, ClearedBy: "#1390", Proof: "TestVerifySignatureRefuses,TestStripeWebhookAgainstPostgres,TestStripeWebhookRefusesAndRollsBack,TestStripeWebhookEventOrder"},
-	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id; a refund or revoke ends the entitlement and invalidates the plan cache"},
+	{ID: "apple-jws", What: "Apple StoreKit notifications and transactions are verified (JWS chain) and idempotent on the notification id; a refund or revoke ends the entitlement and invalidates the plan cache",
+		Cleared: true, ClearedBy: "#1399", Proof: "TestAppleRootIsThePublishedOne,TestVerifyRejects,TestDecide,TestAppleBillingAgainstPostgres"},
 	{ID: "account-deletion-cancels-stripe", What: "account deletion cancels the Stripe subscription, with a retry queue and an alert when it cannot"},
 	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal"},
 
