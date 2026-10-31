@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,11 @@ import (
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/testpg"
 )
+
+var evtID = regexp.MustCompile(`"id": "(evt_[A-Za-z0-9_]+)"`)
+
+// eventRow is the stripe_events id a fixture's event is recorded under for this rig's account.
+func (r *rig) eventRow(id string) string { return id + "-" + r.uid.String()[:8] }
 
 type rig struct {
 	t        *testing.T
@@ -67,17 +73,13 @@ func (r *rig) deliver(file string, mutate func(string) string) int {
 	if mutate != nil {
 		body = mutate(body)
 	}
+	// Event ids are global in stripe_events and the tests share a database: every delivery's id carries this account's prefix.
+	body = evtID.ReplaceAllString(body, `"id": "${1}"`)
 	req := httptest.NewRequest(http.MethodPost, "/api/billing/stripe/webhook", strings.NewReader(body))
 	req.Header.Set("Stripe-Signature", Sign([]byte(body), testSecret, t0))
 	rec := httptest.NewRecorder()
 	r.h.ServeHTTP(rec, req)
 	return rec.Code
-}
-
-func (r *rig) uniq(id string) func(string) string {
-	return func(s string) string {
-		return strings.ReplaceAll(s, `"id": "`+id+`"`, `"id": "`+id+"-"+r.uid.String()[:8]+`"`)
-	}
 }
 
 func (r *rig) row() (status string, end time.Time, cancel bool, ext string, ok bool) {
@@ -149,7 +151,7 @@ func TestStripeWebhookAgainstPostgres(t *testing.T) {
 	// An OLDER event (created before the cancel) arriving late cannot undo it.
 	older := func(s string) string {
 		s = strings.ReplaceAll(s, `"created": 1790000001`, `"created": 1790000002`)
-		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_sub_created_late-`+r.uid.String()[:8]+`"`)
+		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_sub_created_late"`)
 	}
 	if code := r.deliver("subscription_created_active.json", older); code != 200 {
 		t.Fatal(code)
@@ -170,8 +172,12 @@ func TestStripeWebhookAgainstPostgres(t *testing.T) {
 		t.Errorf("a past-due subscription still grants after its grace: %+v", st)
 	}
 
-	// Deleted: ends.
-	if code := r.deliver("subscription_deleted.json", nil); code != 200 {
+	// Deleted: ends, whatever it was before (here past due, in its grace). The event is newer than the past-due one (event times matter:
+	// the newest per subscription wins).
+	at := func(from, to string) func(string) string {
+		return func(s string) string { return strings.ReplaceAll(s, `"created": `+from, `"created": `+to) }
+	}
+	if code := r.deliver("subscription_deleted.json", at("1790300000", "1821700000")); code != 200 {
 		t.Fatal(code)
 	}
 	if st := r.state(now); st.Pro {
@@ -180,8 +186,8 @@ func TestStripeWebhookAgainstPostgres(t *testing.T) {
 
 	// A partial refund changes nothing; a full one ends Pro and nothing older brings it back.
 	if code := r.deliver("subscription_created_active.json", func(s string) string {
-		s = strings.ReplaceAll(s, `"created": 1790000001`, `"created": 1790350000`)
-		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_resub-`+r.uid.String()[:8]+`"`)
+		s = strings.ReplaceAll(s, `"created": 1790000001`, `"created": 1821800000`)
+		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_resub"`)
 	}); code != 200 {
 		t.Fatal(code)
 	}
@@ -194,15 +200,15 @@ func TestStripeWebhookAgainstPostgres(t *testing.T) {
 	if st := r.state(now); !st.Pro {
 		t.Errorf("a partial refund ended Pro: %+v", st)
 	}
-	if code := r.deliver("charge_refunded_full.json", nil); code != 200 {
+	if code := r.deliver("charge_refunded_full.json", at("1790400000", "1821900000")); code != 200 {
 		t.Fatal(code)
 	}
 	if st := r.state(now); st.Pro {
 		t.Errorf("a full refund left Pro on: %+v", st)
 	}
 	late := func(s string) string {
-		s = strings.ReplaceAll(s, `"created": 1790000001`, `"created": 1790399999`) // before the refund (1790400000)
-		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_before_refund-`+r.uid.String()[:8]+`"`)
+		s = strings.ReplaceAll(s, `"created": 1790000001`, `"created": 1821899999`) // before the refund (1821900000)
+		return strings.ReplaceAll(s, `"id": "evt_sub_created_1"`, `"id": "evt_before_refund"`)
 	}
 	if code := r.deliver("subscription_created_active.json", late); code != 200 {
 		t.Fatal(code)
@@ -229,7 +235,7 @@ func TestStripeWebhookRefusesAndRollsBack(t *testing.T) {
 	if err := r.pool.QueryRow(`SELECT count(*) FROM entitlements WHERE user_id = $1`, r.uid).Scan(&n); err != nil || n != 0 {
 		t.Errorf("a refused delivery wrote %d rows (%v)", n, err)
 	}
-	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id LIKE 'evt_sub_created_1%'`).Scan(&n); err != nil || n != 0 {
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id LIKE 'evt_sub_created_1%' AND event_id LIKE '%' || $1`, r.uid.String()[:8]).Scan(&n); err != nil || n != 0 {
 		t.Errorf("a refused delivery recorded its event id (%d)", n)
 	}
 	// Unsigned and header-less requests too.
@@ -253,7 +259,7 @@ func TestStripeWebhookRefusesAndRollsBack(t *testing.T) {
 	if code := r.deliver("subscription_created_active.json", broken); code != http.StatusInternalServerError {
 		t.Errorf("a failing delivery answered %d, want 500", code)
 	}
-	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_sub_created_1'`).Scan(&n); err != nil || n != 0 {
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = $1`, r.eventRow("evt_sub_created_1")).Scan(&n); err != nil || n != 0 {
 		t.Errorf("a failed delivery kept its event id claimed (%d): the retry would be ignored", n)
 	}
 	if code := r.deliver("subscription_created_active.json", nil); code != 200 {
@@ -278,7 +284,7 @@ func TestStripeWebhookEventOrder(t *testing.T) {
 		t.Fatalf("an event for an account not linked yet answered %d, want 500 so Stripe retries", code)
 	}
 	var n int
-	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_sub_created_1'`).Scan(&n); err != nil || n != 0 {
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = $1`, r.eventRow("evt_sub_created_1")).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("the event stayed claimed (%d): its retry would be ignored and the user would never get Pro", n)
 	}
 	if _, _, _, _, ok := r.row(); ok {
