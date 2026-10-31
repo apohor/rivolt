@@ -44,6 +44,8 @@ import mePlanStripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.j
 import mePlanApple from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
 import mePlanFounding from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
 import mePlanLapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
+import mePlanCancelled from "../../../ios/RivoltTests/Fixtures/me_plan_cancelled.json";
+import mePlanGrace from "../../../ios/RivoltTests/Fixtures/me_plan_grace.json";
 import errOutside from "../../../ios/RivoltTests/Fixtures/err_outside_free_window.json";
 import errProRequired from "../../../ios/RivoltTests/Fixtures/err_pro_required.json";
 import yearNotYet from "../../../ios/RivoltTests/Fixtures/year_in_rivolt_not_yet.json";
@@ -114,14 +116,14 @@ export const _mePlanStripe: Wide<AuthUser> = mePlanStripe;
 export const _mePlanApple: Wide<AuthUser> = mePlanApple;
 export const _mePlanFounding: Wide<AuthUser> = mePlanFounding;
 export const _mePlanLapsed: Wide<AuthUser> = mePlanLapsed;
+export const _mePlanCancelled: Wide<AuthUser> = mePlanCancelled;
+export const _mePlanGrace: Wide<AuthUser> = mePlanGrace;
 export const _errOutsideFreeWindow: Wide<ProLimitBody> = errOutside;
 export const _errProRequired: Wide<ProLimitBody> = errProRequired;
 
 // Fixtures with no web type to check, each with why. The guard in fixtures.contract.test.ts fails for a fixture that is neither
 // imported above nor listed here, so a new fixture cannot skip this check.
 export const iosOnlyFixtures: Record<string, string> = {
-  "me_plan_cancelled.json": "Pro 20: a subscription set to not renew (plan_cancels_at); the web wires the plan-card state in a follow-up",
-  "me_plan_grace.json": "Pro 20: a failed renewal inside the 7-day grace (plan_grace_ends); the web wires the plan-card state in a follow-up",
   "demo_trips.json": "the demo's sample trip list, the embedded bytes verbatim (demo_trip_fixtures_test.go); the iPhone's demo Plan tab opens them",
   "demo_trip_plan_single.json": "a demo sample trip's stored plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "demo_trip_plan_two_days.json": "a demo sample trip's stored two-day plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",

@@ -16,6 +16,10 @@ struct AuthUser: Decodable, Equatable {
     var planPeriodEnd: Date? = nil
     /// Only while a trial is what grants Pro.
     var planTrialEnds: Date? = nil
+    /// A paid subscription set to not renew: Pro stays on until this instant.
+    var planCancelsAt: Date? = nil
+    /// A failed renewal inside the 7-day grace: Pro stays on until this instant.
+    var planGraceEnds: Date? = nil
     /// A lapse: free now, had Pro until this instant, from this source.
     var planEndedAt: Date? = nil
     var planEndedSource: String? = nil
