@@ -61,6 +61,8 @@ func iosFixtureTargets() map[string]any {
 		"me_plan_trial.json":          &meResponse{},
 		"me_plan_founding.json":       &meResponse{},
 		"me_plan_subscriber.json":     &meResponse{},
+		"me_plan_apple.json":          &meResponse{},
+		"me_plan_lapsed.json":         &meResponse{},
 		"me_signed_out.json":          &meSignedOut{},
 		"error_terms_required.json":   &termsRequiredBody{},
 		"error_not_connected.json":    &notConnectedBody{},

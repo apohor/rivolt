@@ -160,7 +160,7 @@ func TestAuthMePlanFields(t *testing.T) {
 	if off["plan"] != "pro" || off["plan_source"] != "billing_off" || off["billing_enabled"] != false || off["plan_period_end"] != nil || off["plan_trial_ends"] != nil {
 		t.Errorf("billing off: %v", off)
 	}
-	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "billing_enabled"} {
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_ended_at", "plan_ended_source", "billing_enabled"} {
 		if _, has := off[k]; !has {
 			t.Errorf("billing off: %q missing (null is fine, absent is not)", k)
 		}
@@ -174,7 +174,7 @@ func TestAuthMePlanFields(t *testing.T) {
 		t.Errorf("demo: %v", b)
 	}
 	b := meAs(t, uid, on) // the lookup fails
-	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "billing_enabled"} {
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "plan_ended_at", "plan_ended_source", "billing_enabled"} {
 		if _, has := b[k]; has {
 			t.Errorf("a failed lookup still sent %q: %v", k, b)
 		}
@@ -193,7 +193,7 @@ func TestPlanFieldsForAFreeAccount(t *testing.T) {
 	b, _ := json.Marshal(pf)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	if m["plan"] != "free" || m["plan_source"] != nil || m["plan_period_end"] != nil || m["plan_trial_ends"] != nil || m["billing_enabled"] != true {
+	if m["plan"] != "free" || m["plan_source"] != nil || m["plan_period_end"] != nil || m["plan_trial_ends"] != nil || m["plan_ended_at"] != nil || m["plan_ended_source"] != nil || m["billing_enabled"] != true {
 		t.Errorf("%s", b)
 	}
 }

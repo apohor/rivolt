@@ -255,11 +255,15 @@ type meResponse struct {
 // plan_period_end is when that grant ends (grace included), null on free or when it has no end. plan_trial_ends is the trial's end, only
 // while the trial is what grants Pro. billing_enabled false means this server sells nothing: clients hide every paywall control.
 type PlanFields struct {
-	Plan           string     `json:"plan"`
-	PlanSource     *string    `json:"plan_source"`
-	PlanPeriodEnd  *time.Time `json:"plan_period_end"`
-	PlanTrialEnds  *time.Time `json:"plan_trial_ends"`
-	BillingEnabled bool       `json:"billing_enabled"`
+	Plan          string     `json:"plan"`
+	PlanSource    *string    `json:"plan_source"`
+	PlanPeriodEnd *time.Time `json:"plan_period_end"`
+	PlanTrialEnds *time.Time `json:"plan_trial_ends"`
+	// PlanEndedAt and PlanEndedSource describe a lapse: on a free account that once had Pro, when the most recent grant stopped and which
+	// source it was (stripe, apple, trial, founding, grant), for "Your Pro ended on ...". Null on an account that never had Pro.
+	PlanEndedAt     *time.Time `json:"plan_ended_at"`
+	PlanEndedSource *string    `json:"plan_ended_source"`
+	BillingEnabled  bool       `json:"billing_enabled"`
 }
 
 // planFor builds the plan fields for an account; nil when the lookup failed.
@@ -268,7 +272,11 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	if err != nil {
 		return nil
 	}
-	pf := &PlanFields{Plan: "free", BillingEnabled: e.Billing(), PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds}
+	pf := &PlanFields{Plan: "free", BillingEnabled: e.Billing(), PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanEndedAt: st.EndedAt}
+	if st.EndedSource != "" {
+		src := st.EndedSource
+		pf.PlanEndedSource = &src
+	}
 	if st.Pro {
 		pf.Plan = "pro"
 		src := st.Source

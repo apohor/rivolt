@@ -26,26 +26,26 @@ func TestComputeThePlanFromTheRows(t *testing.T) {
 		trialEnds *time.Time
 	}{
 		{"no rows is free", nil, false, "", nil, nil},
-		{"an active subscription until its end", []Row{{SourceStripe, StatusActive, at(10 * day)}}, true, SourceStripe, at(10 * day), nil},
-		{"a cancelled subscription is active until its end, then free", []Row{{SourceApple, StatusActive, at(-time.Second)}}, false, "", nil, nil},
-		{"active with no end (a grant) never lapses", []Row{{SourceGrant, StatusActive, nil}}, true, SourceGrant, nil, nil},
-		{"past due keeps Pro through the 7-day grace", []Row{{SourceStripe, StatusPastDue, at(-6 * day)}}, true, SourceStripe, at(day), nil},
-		{"past due after the grace is free", []Row{{SourceStripe, StatusPastDue, at(-8 * day)}}, false, "", nil, nil},
-		{"past due with no end is malformed: nothing", []Row{{SourceStripe, StatusPastDue, nil}}, false, "", nil, nil},
-		{"an ended row never grants, whatever its date", []Row{{SourceStripe, StatusEnded, at(30 * day)}}, false, "", nil, nil},
-		{"a running trial reports its end", []Row{{SourceTrial, StatusActive, at(5 * day)}}, true, SourceTrial, at(5 * day), at(5 * day)},
-		{"an over trial is free", []Row{{SourceTrial, StatusActive, at(-day)}}, false, "", nil, nil},
-		{"founding year", []Row{{SourceFounding, StatusActive, at(300 * day)}}, true, SourceFounding, at(300 * day), nil},
+		{"an active subscription until its end", []Row{{Source: SourceStripe, Status: StatusActive, PeriodEnd: at(10 * day)}}, true, SourceStripe, at(10 * day), nil},
+		{"a cancelled subscription is active until its end, then free", []Row{{Source: SourceApple, Status: StatusActive, PeriodEnd: at(-time.Second)}}, false, "", nil, nil},
+		{"active with no end (a grant) never lapses", []Row{{Source: SourceGrant, Status: StatusActive, PeriodEnd: nil}}, true, SourceGrant, nil, nil},
+		{"past due keeps Pro through the 7-day grace", []Row{{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: at(-6 * day)}}, true, SourceStripe, at(day), nil},
+		{"past due after the grace is free", []Row{{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: at(-8 * day)}}, false, "", nil, nil},
+		{"past due with no end is malformed: nothing", []Row{{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: nil}}, false, "", nil, nil},
+		{"an ended row never grants, whatever its date", []Row{{Source: SourceStripe, Status: StatusEnded, PeriodEnd: at(30 * day)}}, false, "", nil, nil},
+		{"a running trial reports its end", []Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}}, true, SourceTrial, at(5 * day), at(5 * day)},
+		{"an over trial is free", []Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(-day)}}, false, "", nil, nil},
+		{"founding year", []Row{{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(300 * day)}}, true, SourceFounding, at(300 * day), nil},
 		{"a subscription outranks a running trial and hides its countdown", []Row{
-			{SourceTrial, StatusActive, at(5 * day)}, {SourceStripe, StatusActive, at(20 * day)}}, true, SourceStripe, at(20 * day), nil},
+			{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}, {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(20 * day)}}, true, SourceStripe, at(20 * day), nil},
 		{"founding outranks a trial, a grant outranks a trial", []Row{
-			{SourceTrial, StatusActive, at(5 * day)}, {SourceFounding, StatusActive, at(300 * day)}, {SourceGrant, StatusActive, at(50 * day)}}, true, SourceFounding, at(300 * day), nil},
+			{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}, {Source: SourceFounding, Status: StatusActive, PeriodEnd: at(300 * day)}, {Source: SourceGrant, Status: StatusActive, PeriodEnd: at(50 * day)}}, true, SourceFounding, at(300 * day), nil},
 		{"an ended subscription falls back to the running trial", []Row{
-			{SourceStripe, StatusEnded, at(20 * day)}, {SourceTrial, StatusActive, at(5 * day)}}, true, SourceTrial, at(5 * day), at(5 * day)},
+			{Source: SourceStripe, Status: StatusEnded, PeriodEnd: at(20 * day)}, {Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}}, true, SourceTrial, at(5 * day), at(5 * day)},
 		{"apple and stripe tie: the later end is reported", []Row{
-			{SourceApple, StatusActive, at(10 * day)}, {SourceStripe, StatusActive, at(40 * day)}}, true, SourceStripe, at(40 * day), nil},
+			{Source: SourceApple, Status: StatusActive, PeriodEnd: at(10 * day)}, {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(40 * day)}}, true, SourceStripe, at(40 * day), nil},
 		{"no end beats an end among equals", []Row{
-			{SourceGrant, StatusActive, at(10 * day)}, {SourceGrant, StatusActive, nil}}, true, SourceGrant, nil, nil},
+			{Source: SourceGrant, Status: StatusActive, PeriodEnd: at(10 * day)}, {Source: SourceGrant, Status: StatusActive, PeriodEnd: nil}}, true, SourceGrant, nil, nil},
 	} {
 		got := Compute(c.rows, t0)
 		if got.Pro != c.pro || got.Source != c.source || !sameTime(got.PeriodEnd, c.end) || !sameTime(got.TrialEnds, c.trialEnds) {
@@ -107,5 +107,59 @@ func TestDemoIsAlwaysProAndALookupFailureFailsOpen(t *testing.T) {
 	}
 	if !s.Billing() {
 		t.Error("Billing() = false with billing on")
+	}
+}
+
+func TestLapseIsReportedOnAFreeAccountThatOnceHadPro(t *testing.T) {
+	day := 24 * time.Hour
+	upd := func(d time.Duration) time.Time { return t0.Add(d) }
+	cases := []struct {
+		name   string
+		rows   []Row
+		ended  *time.Time
+		source string
+	}{
+		{"never had Pro", nil, nil, ""},
+		{"a subscription that ran out", []Row{{Source: SourceStripe, Status: StatusActive, PeriodEnd: at(-3 * day)}}, at(-3 * day), SourceStripe},
+		{"a trial that ran out", []Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(-day)}}, at(-day), SourceTrial},
+		{"past due after the grace: the end is the grace's end", []Row{{Source: SourceApple, Status: StatusPastDue, PeriodEnd: at(-10 * day)}}, at(-3 * day), SourceApple},
+		{"refunded with a future period end: dated by the update", []Row{{Source: SourceStripe, Status: StatusEnded, PeriodEnd: at(20 * day), UpdatedAt: upd(-2 * day)}}, at(-2 * day), SourceStripe},
+		{"ended after its period end: the period end", []Row{{Source: SourceStripe, Status: StatusEnded, PeriodEnd: at(-5 * day), UpdatedAt: upd(-day)}}, at(-5 * day), SourceStripe},
+		{"the most recent of several", []Row{
+			{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(-30 * day)}, {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(-2 * day)}}, at(-2 * day), SourceStripe},
+	}
+	for _, c := range cases {
+		got := Compute(c.rows, t0)
+		if got.Pro || !sameTime(got.EndedAt, c.ended) || got.EndedSource != c.source {
+			t.Errorf("%s: %+v, want free, ended %v from %q", c.name, got, c.ended, c.source)
+		}
+	}
+	// A Pro account reports no lapse, even if an older grant ran out.
+	got := Compute([]Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(-day)}, {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(day)}}, t0)
+	if !got.Pro || got.EndedAt != nil || got.EndedSource != "" {
+		t.Errorf("a Pro account carries a lapse: %+v", got)
+	}
+}
+
+// A Stripe subscription bought during the trial must start billing when the trial ends: the checkout asks for the running trial's end,
+// whatever else the account has.
+func TestActiveTrialEnd(t *testing.T) {
+	day := 24 * time.Hour
+	if end, ok := ActiveTrialEnd([]Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}}, t0); !ok || !end.Equal(*at(5 * day)) {
+		t.Errorf("running trial: %v %v", end, ok)
+	}
+	for name, rows := range map[string][]Row{
+		"none":          nil,
+		"trial over":    {{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(-day)}},
+		"trial ended":   {{Source: SourceTrial, Status: StatusEnded, PeriodEnd: at(5 * day)}},
+		"only founding": {{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(300 * day)}},
+	} {
+		if _, ok := ActiveTrialEnd(rows, t0); ok {
+			t.Errorf("%s: reported a running trial", name)
+		}
+	}
+	// With a subscription already running the trial end is still the trial's own (the caller decides what to do with it).
+	if _, ok := ActiveTrialEnd([]Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)}, {Source: SourceStripe, Status: StatusActive, PeriodEnd: at(20 * day)}}, t0); !ok {
+		t.Error("trial hidden by a subscription")
 	}
 }

@@ -75,8 +75,8 @@ func TestEntitlementsAgainstPostgres(t *testing.T) {
 		t.Error("the change was seen through the cache before its TTL")
 	}
 	s.Invalidate(uid)
-	if st, _ := s.State(ctx, uid); st.Pro {
-		t.Errorf("all rows ended, after Invalidate: %+v, want free", st)
+	if st, _ := s.State(ctx, uid); st.Pro || st.EndedAt == nil || st.EndedSource == "" {
+		t.Errorf("all rows ended, after Invalidate: %+v, want free with the lapse reported", st)
 	}
 	if _, err := pool.ExecContext(ctx, `UPDATE entitlements SET status = 'active', current_period_end = $2 WHERE user_id = $1`, uid, now.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
@@ -94,6 +94,18 @@ func TestEntitlementsAgainstPostgres(t *testing.T) {
 	now = now.Add(3 * time.Hour) // inside the TTL (a hit), past the 2 h end
 	if st, _ := s.State(ctx, uid); st.Pro {
 		t.Errorf("a cache hit past every end: %+v, want free", st)
+	}
+
+	// The running trial's end, for a Stripe checkout started during the trial (billing starts when it ends).
+	trialEnd := now.Add(5 * 24 * time.Hour)
+	if err := ins(other, "trial", "active", trialEnd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if end, ok, err := s.TrialEnd(ctx, other); err != nil || !ok || !end.Equal(trialEnd.Truncate(time.Microsecond)) {
+		t.Errorf("TrialEnd = %v %v %v, want %v", end, ok, err, trialEnd)
+	}
+	if _, ok, _ := s.TrialEnd(ctx, uid); ok {
+		t.Error("TrialEnd reported a trial for an account without one")
 	}
 
 	// Gone with the account.

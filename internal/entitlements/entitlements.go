@@ -43,6 +43,8 @@ type Row struct {
 	Source    string
 	Status    string
 	PeriodEnd *time.Time // nil: no end
+	// UpdatedAt is when the row last changed; it dates an ended row that has no period end (a refund, a revoke).
+	UpdatedAt time.Time
 }
 
 // State is the plan of one account at one moment.
@@ -55,6 +57,10 @@ type State struct {
 	PeriodEnd *time.Time
 	// TrialEnds is the trial's end, only while the trial is what grants Pro; nil otherwise.
 	TrialEnds *time.Time
+	// EndedAt and EndedSource describe a LAPSE: for a free account that once had Pro, when the most recent grant stopped and which source
+	// it was ("Your Pro ended on ..."). Nil/empty for an account that never had Pro, and always for a Pro account.
+	EndedAt     *time.Time
+	EndedSource string
 }
 
 // rank orders the sources a client is told about when several grant Pro.
@@ -107,13 +113,71 @@ func Compute(rows []Row, now time.Time) State {
 		}
 	}
 	if best == nil {
-		return State{}
+		return State{EndedAt: lastEnded(rows, now), EndedSource: lastEndedSource(rows, now)}
 	}
 	st := State{Pro: true, Source: best.Source, PeriodEnd: bestEnd}
 	if best.Source == SourceTrial {
 		st.TrialEnds = bestEnd
 	}
 	return st
+}
+
+// stoppedAt is when a row stopped granting Pro, if it has: a row past its end (grace included), or an ended row at its period end if that
+// has passed, else when it was last updated. Nil for a row that still grants or never could.
+func stoppedAt(r Row, now time.Time) *time.Time {
+	switch r.Status {
+	case StatusActive:
+		if r.PeriodEnd != nil && !now.Before(*r.PeriodEnd) {
+			return r.PeriodEnd
+		}
+	case StatusPastDue:
+		if r.PeriodEnd != nil {
+			if e := r.PeriodEnd.Add(Grace); !now.Before(e) {
+				return &e
+			}
+		}
+	case StatusEnded:
+		if r.PeriodEnd != nil && !now.Before(*r.PeriodEnd) {
+			return r.PeriodEnd
+		}
+		if !r.UpdatedAt.IsZero() {
+			u := r.UpdatedAt
+			return &u
+		}
+	}
+	return nil
+}
+
+// lastEndedRow is the row that stopped most recently.
+func lastEndedRow(rows []Row, now time.Time) (*Row, *time.Time) {
+	var best *Row
+	var bestAt *time.Time
+	for i := range rows {
+		if at := stoppedAt(rows[i], now); at != nil && (bestAt == nil || at.After(*bestAt)) {
+			best, bestAt = &rows[i], at
+		}
+	}
+	return best, bestAt
+}
+
+func lastEnded(rows []Row, now time.Time) *time.Time { _, at := lastEndedRow(rows, now); return at }
+
+func lastEndedSource(rows []Row, now time.Time) string {
+	if r, _ := lastEndedRow(rows, now); r != nil {
+		return r.Source
+	}
+	return ""
+}
+
+// ActiveTrialEnd is the end of a running trial, whatever else the account has: a Stripe subscription bought during the trial starts
+// billing at that moment (Stripe's trial_end), so the checkout asks for it here rather than from the display fields.
+func ActiveTrialEnd(rows []Row, now time.Time) (time.Time, bool) {
+	for _, r := range rows {
+		if r.Source == SourceTrial && r.Status == StatusActive && r.PeriodEnd != nil && now.Before(*r.PeriodEnd) {
+			return *r.PeriodEnd, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // later reports whether a ends after b, where nil means never.
@@ -205,6 +269,19 @@ func (s *Service) Pro(ctx context.Context, uid uuid.UUID) bool {
 	return st.Pro
 }
 
+// TrialEnd is the end of the account's running trial (false: none). Billing off, the demo account and a failed lookup have none.
+func (s *Service) TrialEnd(ctx context.Context, uid uuid.UUID) (time.Time, bool, error) {
+	if s == nil || !s.billing || (s.demo != uuid.Nil && uid == s.demo) {
+		return time.Time{}, false, nil
+	}
+	rows, err := s.rows(ctx, uid)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	end, ok := ActiveTrialEnd(rows, s.now())
+	return end, ok, nil
+}
+
 // Invalidate drops the cached rows of one account on this replica (call it after writing one).
 func (s *Service) Invalidate(uid uuid.UUID) {
 	if s == nil {
@@ -223,7 +300,7 @@ func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
 		return c.st, nil
 	}
 	s.mu.Unlock()
-	rs, err := s.db.QueryContext(ctx, `SELECT source, status, current_period_end FROM entitlements WHERE user_id = $1`, uid)
+	rs, err := s.db.QueryContext(ctx, `SELECT source, status, current_period_end, updated_at FROM entitlements WHERE user_id = $1`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +309,7 @@ func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
 	for rs.Next() {
 		var r Row
 		var end sql.NullTime
-		if err := rs.Scan(&r.Source, &r.Status, &end); err != nil {
+		if err := rs.Scan(&r.Source, &r.Status, &end, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if end.Valid {
