@@ -32,7 +32,12 @@ import (
 // HistoryWindowComplete is true only when every route that returns history is windowed or Pro-only (the todo map below is empty) AND the
 // privacy deletes work outside the window. main.go refuses to start with RIVOLT_BILLING on while it is false: selling Pro before the free
 // plan's limits exist would sell nothing, and before the delete-by-range exists would trap data outside the window.
-const HistoryWindowComplete = false
+const HistoryWindowComplete = true
+
+// ProGatingComplete is true only when the server enforces every Pro FEATURE limit the paywall copy promises (plan-vs-actual, the saved-trip
+// cap, the planner, vehicles, widgets), as HistoryWindowComplete does for history. main.go refuses to start with RIVOLT_BILLING on while it
+// is false: copy that promises a gate the server does not enforce is a false promise. Flip it in the PR that completes the last gate.
+const ProGatingComplete = false
 
 // historyWindowMiddleware stamps the free window on the request when the signed-in account is free. e nil: no window.
 func historyWindowMiddleware(e *entitlements.Service) func(http.Handler) http.Handler {

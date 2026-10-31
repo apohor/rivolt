@@ -137,6 +137,16 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// DeleteBefore deletes this user's raw samples older than cutoff. Returns the number deleted.
+func (s *Store) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM vehicle_state WHERE user_id = $1 AND at < $2`, s.userID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // InsertBatch inserts many samples in a single transaction.
 // Duplicate (vehicle_id, at) tuples are ignored so re-imports are
 // idempotent. All samples must belong to the same user.
