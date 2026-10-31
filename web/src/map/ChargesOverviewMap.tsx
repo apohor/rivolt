@@ -9,6 +9,7 @@ import { chipLegend } from "./controls";
 import { loadMapLibre } from "./loader";
 import { mountBaseMap } from "./mount";
 import { watchDrawn } from "./drawn";
+import { reserveLabelRoom } from "./pills";
 import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
 
@@ -98,9 +99,11 @@ export function ChargesOverviewMap({
             id: LAYER,
             type: "circle",
             source: SOURCE,
-            paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 },
+            paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": flavor === "light" ? "#FFFFFF" : "#080B10", "circle-stroke-width": 1.5 },
           });
         }
+        // The basemap's place labels give way to the dots instead of lying under them.
+        reserveLabelRoom(map, SOURCE, "rivolt-charges-room", 16);
         drawn.markDrawn();
       });
 
@@ -122,8 +125,10 @@ export function ChargesOverviewMap({
       const lons = valid.map((c) => c.Lon), lats = valid.map((c) => c.Lat);
       // Leave room under the dots for the legend (its height, and the 10 px it sits above the edge), so no dot lies behind it.
       const card = el.querySelector<HTMLElement>(".rivolt-charge-legend");
-      const bottom = Math.max(24, (card?.offsetHeight ?? 0) + 28);
-      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 24, left: 24, right: 24, bottom }, maxZoom: 14, animate: false });
+      // 48 px on every side so an edge dot and its place name are not clipped, 64 where the credits and the legend sit; maxZoom 11 so a set in
+      // one city is not zoomed to street level.
+      const bottom = Math.max(64, (card?.offsetHeight ?? 0) + 28);
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 48, left: 48, right: 48, bottom }, maxZoom: 11, animate: false });
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
     return () => { for (const c of cleanups.reverse()) c(); };
     // The map is rebuilt only when the visible set changes (sig), not on every parent render.

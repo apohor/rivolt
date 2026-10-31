@@ -43,6 +43,9 @@ class FakeMap {
   }
   fire(ev: string, e?: unknown) { for (const h of this.handlers[ev] ?? []) h(e); }
   fireLayer(ev: string, layer: string, e: unknown) { for (const h of this.layerHandlers[`${ev}:${layer}`] ?? []) h(e); }
+  images = new Set<string>();
+  hasImage(id: string) { return this.images.has(id); }
+  addImage(id: string) { this.images.add(id); }
   off() { return this; }
   triggerRepaint = vi.fn();
   queryRenderedFeatures() { return []; }
@@ -119,6 +122,9 @@ describe("overview and charge maps", () => {
     expect(data.features.map((f) => f.properties.id)).toEqual(["c1", "c2"]);
     expect(data.features[0].properties.color).toBe("#f43f5e"); // 150 kW: fast
     expect(data.features[1].properties.color).toBe("#06b6d4"); // 7 kW: level 2
+    // A clear symbol at every dot, so the basemap's place labels yield to them; the fit leaves 48 px around (64 below) and stops at zoom 11.
+    expect(FakeMap.last!.layers.has("rivolt-charges-room")).toBe(true);
+    expect(FakeMap.last!.fitBounds).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ maxZoom: 11, padding: expect.objectContaining({ top: 48, left: 48, right: 48 }) }));
     FakeMap.last!.fireLayer("click", "rivolt-charges-dots", { features: [{ properties: { id: "c2" } }] });
     expect(onSelect).toHaveBeenCalledWith("c2");
   });
@@ -132,6 +138,8 @@ describe("overview and charge maps", () => {
     expect(lines.features[0].geometry.coordinates[0]).toEqual([10, 10]); // [lon, lat]
     const ends = FakeMap.last!.sources.get("rivolt-drive-ends")!.data as { features: unknown[] };
     expect(ends.features).toHaveLength(4);
+    expect(FakeMap.last!.layers.has("rivolt-drive-ends-room")).toBe(true);
+    expect(FakeMap.last!.fitBounds).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ maxZoom: 11 }));
     FakeMap.last!.fireLayer("click", "rivolt-drives-hit", { features: [{ properties: { id: "d1" } }] });
     expect(onSelect).toHaveBeenCalledWith("d1");
   });
