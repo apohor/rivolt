@@ -67,7 +67,13 @@ func ThumbPolyline(encoded string) string {
 	if len(pts) < 2 {
 		return ""
 	}
-	return encodePolyline5(simplify(pts, ThumbMaxPoints))
+	out := simplify(pts, ThumbMaxPoints)
+	// A 64-px picture needs no metre precision, and the answer sits in browser caches: snap every point to 1e-4 degrees (about 11 m).
+	snapped := make([][2]float64, len(out))
+	for i, p := range out {
+		snapped[i] = [2]float64{math.Round(p[0]*1e4) / 1e4, math.Round(p[1]*1e4) / 1e4}
+	}
+	return encodePolyline5(snapped)
 }
 
 // simplify keeps at most max points of pts, always the first and last, by Douglas-Peucker with the smallest tolerance that gets under max (found

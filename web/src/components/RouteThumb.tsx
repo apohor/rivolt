@@ -53,8 +53,8 @@ export function RouteThumb({ driveId }: { driveId: string }) {
         <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
           <path d={shape.d} className="route-thumb-casing" />
           <path d={shape.d} className="route-thumb-line" />
-          <circle cx={shape.a[0]} cy={shape.a[1]} r="2.6" className="route-thumb-start" />
-          <circle cx={shape.b[0]} cy={shape.b[1]} r="2.6" className="route-thumb-end" />
+          <circle cx={shape.a[0]} cy={shape.a[1]} r="3" className="route-thumb-start" />
+          <circle cx={shape.b[0]} cy={shape.b[1]} r="3" className="route-thumb-end" />
         </svg>
       )}
     </span>

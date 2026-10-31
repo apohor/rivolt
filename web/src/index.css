@@ -787,14 +787,28 @@ html[data-theme='light'] {
   background: var(--color-neutral-950);
   --thumb-line: #5ee9b5;
   --thumb-casing: #06080c;
-  --thumb-start: #74d4ff;
-  --thumb-end: #ffb900;
+  /* The ends are the drive map's pins: green start, rose end, ringed in the box's own colour. */
+  --thumb-start: #10b981;
+  --thumb-end: #f43f5e;
+  --thumb-ring: var(--color-neutral-950);
+  align-items: center;
+  justify-content: center;
 }
 :root[data-theme="light"] .route-thumb {
   --thumb-line: #0fa37f;
   --thumb-casing: #ffffff;
-  --thumb-start: #2b7de9;
-  --thumb-end: #f0a000;
+}
+/* No route (or not yet): the slot stays, so rows line up, but quiet: no box, a faint dash. */
+.route-thumb[data-route-thumb="empty"] {
+  border-color: transparent;
+  background: transparent;
+}
+.route-thumb[data-route-thumb="empty"]::after {
+  content: "";
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-neutral-800);
 }
 .route-thumb-casing,
 .route-thumb-line {
@@ -810,6 +824,11 @@ html[data-theme='light'] {
 .route-thumb-line {
   stroke: var(--thumb-line);
   stroke-width: 2.2;
+}
+.route-thumb-start,
+.route-thumb-end {
+  stroke: var(--thumb-ring);
+  stroke-width: 1;
 }
 .route-thumb-start {
   fill: var(--thumb-start);

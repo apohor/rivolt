@@ -22,7 +22,7 @@ func TestThumbKeepsTheShapeInFewPoints(t *testing.T) {
 		t.Fatalf("%d points, want 2..%d", len(got), ThumbMaxPoints)
 	}
 	first, last := src[0], src[len(src)-1]
-	if math.Abs(got[0][0]-first[0]) > 2e-5 || math.Abs(got[0][1]-first[1]) > 2e-5 || math.Abs(got[len(got)-1][0]-last[0]) > 2e-5 || math.Abs(got[len(got)-1][1]-last[1]) > 2e-5 {
+	if math.Abs(got[0][0]-first[0]) > 6e-5 || math.Abs(got[0][1]-first[1]) > 6e-5 || math.Abs(got[len(got)-1][0]-last[0]) > 6e-5 || math.Abs(got[len(got)-1][1]-last[1]) > 6e-5 {
 		t.Errorf("endpoints moved: %v ... %v, want %v ... %v", got[0], got[len(got)-1], first, last)
 	}
 	// Every original point lies close to the simplified line: within 5% of the route's extent.
@@ -77,5 +77,16 @@ func TestPolylineRoundTrip(t *testing.T) {
 	// The reference example from Google's documentation.
 	if enc := encodePolyline5(src); enc != "_p~iF~ps|U_ulLnnqC_mqNvxq`@" {
 		t.Errorf("encoded %q", enc)
+	}
+}
+
+// The answer carries no more precision than a thumbnail needs: every point is a multiple of 1e-4 degrees (about 11 m).
+func TestThumbPointsAreSnappedToElevenMetres(t *testing.T) {
+	for _, p := range decodePolyline5(ThumbPolyline(encodePolyline5(wiggle(900)))) {
+		for _, v := range p {
+			if r := math.Abs(v*1e4 - math.Round(v*1e4)); r > 1e-6 {
+				t.Fatalf("%v is not a multiple of 1e-4 (off by %v)", v, r)
+			}
+		}
 	}
 }
