@@ -1118,7 +1118,35 @@ export type LeaseStatus = {
   odometer_at?: string | null;
 };
 
+// GET /api/year-in-rivolt: the signed-in user's own calendar year (UTC), computed on the server. An ineligible answer carries only
+// eligible, year and reason. Months are "2026-07"; nothing names a place, a day, a time, a VIN or the truck.
+export type YearInRivolt = {
+  eligible: boolean;
+  year: number;
+  reason?: string;
+  since_month?: string;
+  drive_count?: number;
+  miles?: number;
+  // The energy the drives used, not energy charged.
+  kwh?: number;
+  charge_count?: number;
+  // Fractions 0-1 of the energy charged; they sum to 1.
+  energy_shares?: { home: number; away: number; fast: number };
+  efficiency_mi_per_kwh?: number;
+  efficiency_estimated?: boolean;
+  best_efficiency_mi_per_kwh?: number;
+  longest_trip?: { miles: number; month: string };
+  most_efficient_long_drive?: { miles: number; mi_per_kwh: number; month: string };
+  coldest_drive?: { temp_f: number; month: string };
+  planned_trips?: number;
+  planned_stops?: number;
+  model?: string;
+  cost?: { amount: number; currency: string; estimated: boolean };
+  cost_per_mile?: number;
+};
+
 export const backend = {
+  yearInRivolt: (year?: number) => api.get<YearInRivolt>(`/api/year-in-rivolt${year ? `?year=${year}` : ""}`),
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
   // disabled / no session. We squash the 401 here so callers can

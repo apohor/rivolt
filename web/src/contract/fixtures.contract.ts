@@ -37,11 +37,13 @@ import nowMinimal from "../../../ios/RivoltTests/Fixtures/now_v1_minimal.json";
 import packHealth from "../../../ios/RivoltTests/Fixtures/pack_health.json";
 import sleepActivity from "../../../ios/RivoltTests/Fixtures/sleep_activity.json";
 import trendsSpread from "../../../ios/RivoltTests/Fixtures/trends_capacity_spread.json";
+import yearInRivolt from "../../../ios/RivoltTests/Fixtures/year_in_rivolt.json";
+import yearNotYet from "../../../ios/RivoltTests/Fixtures/year_in_rivolt_not_yet.json";
 import type {
   DayActivity, EfficiencyInsights, LiveDrive, PackHealthResponse,
   AccountUnits, AuthUser, Charge, ChargeCluster, ChargingSettings, ColdRange, DrainSnapshot, Drive, HomeLocation,
   LeaseStatus, LeaseTerms, LiveSession, MilestoneItem, NowSnapshot, SleepHealth, StatementEmailSettings, TruckTrends, Vehicle,
-  VehicleState,
+  VehicleState, YearInRivolt,
 } from "../lib/api";
 import type { LedgerMonth, LedgerSummary } from "../lib/ledger";
 import type { SavingsResponse } from "../lib/savings";
@@ -95,6 +97,8 @@ export const _nowMinimal: Wide<NowSnapshot> = nowMinimal;
 export const _packHealth: Wide<PackHealthResponse> = packHealth;
 export const _sleepActivity: Wide<DayActivity[]> = sleepActivity;
 export const _trendsSpread: Wide<TruckTrends> = trendsSpread;
+export const _yearInRivolt: Wide<YearInRivolt> = yearInRivolt;
+export const _yearNotYet: Wide<YearInRivolt> = yearNotYet;
 
 // Fixtures with no web type to check, each with why. The guard in fixtures.contract.test.ts fails for a fixture that is neither
 // imported above nor listed here, so a new fixture cannot skip this check.
@@ -103,8 +107,6 @@ export const iosOnlyFixtures: Record<string, string> = {
   "demo_trip_plan_single.json": "a demo sample trip's stored plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "demo_trip_plan_two_days.json": "a demo sample trip's stored two-day plan, the embedded bytes verbatim (demo_trip_fixtures_test.go)",
   "activity.json": "the activity feed is an iPhone screen; the web has no consumer",
-  "year_in_rivolt.json": "the Your-year card (year_in_rivolt.go): no client reads it yet; ux assigns it to a web type here (and removes this line) when the card is built",
-  "year_in_rivolt_not_yet.json": "the Your-year card (year_in_rivolt.go): no client reads it yet; ux assigns it to a web type here (and removes this line) when the card is built",
   "settings_offpeak.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",
   "settings_offpeak_empty.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",
   "error_offpeak_field.json": "the iPhone's Settings → Charging cards (generated from the server types, settings_fixtures_test.go); the web reads these through its own types in lib/api.ts and lib/offpeak.ts",
