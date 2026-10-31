@@ -35,7 +35,7 @@ func TestAccessLogCarriesTheAuthMethod(t *testing.T) {
 		return line
 	}
 
-	for _, method := range []string{AuthCookie, AuthKratos, AuthHeader, AuthImpersonation, AuthBypass} {
+	for _, method := range []string{AuthCookie, AuthKratos, AuthImpersonation, AuthBypass} {
 		line := run(func(r *http.Request) *http.Request {
 			ctx := WithAuthMethod(WithUserID(r.Context(), uuid.New()), method)
 			return r.WithContext(ctx)

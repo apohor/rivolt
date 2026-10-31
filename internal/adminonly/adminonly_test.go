@@ -48,7 +48,7 @@ func TestRefusesMissingAccessSettings(t *testing.T) {
 
 func TestRefusesWorkerAndPublicEnv(t *testing.T) {
 	for _, k := range []string{
-		"RIVOLT_TRUSTED_PROXY_CIDR", "RIVOLT_AUTH_BYPASS_USER", "RIVOLT_DEMO", "RIVOLT_DEMO_ONLY",
+		"RIVOLT_AUTH_BYPASS_USER", "RIVOLT_DEMO", "RIVOLT_DEMO_ONLY",
 		"RIVOLT_REPLAY_SOURCE", "RIVOLT_POD_ID", "RIVOLT_DRAIN_METRICS_INTERVAL",
 		"RIVOLT_ENGAGEMENT_EMAILS", "RIVOLT_READONLY_ROLE",
 	} {

@@ -136,8 +136,8 @@ type Deps struct {
 	// repopulates it from app_settings and gates the handlers
 	// behind requireAdmin.
 	SettingsMgr *settings.Manager
-	// Auth, when non-nil, gates /api/* behind a session cookie
-	// or trusted-proxy header. Whether unauthenticated requests
+	// Auth, when non-nil, gates /api/* behind a session cookie.
+	// Whether unauthenticated requests
 	// are 401'd is governed by AuthEnforced below; with Auth
 	// non-nil but AuthEnforced false, sessions still resolve into
 	// request context but the API stays open (legacy single-tenant
@@ -147,8 +147,8 @@ type Deps struct {
 	// /api/auth/sessions (list, revoke one, sign out everywhere else).
 	Sessions *SessionsAPI
 	// AuthEnforced flips on the requireUser middleware for /api/*.
-	// True when at least one real issuer is configured (OIDC,
-	// trusted-proxy, or the debug bypass).
+	// True when at least one real issuer is configured (OIDC
+	// or the debug bypass).
 	AuthEnforced bool
 	// TermsLookup replaces the database read of a user's accepted Terms in the server-side Terms gate (tests).
 	TermsLookup func(ctx context.Context, uid uuid.UUID) (db.Terms, error)
@@ -178,9 +178,8 @@ type Deps struct {
 	// gql/type, gql/enum, gql/raw), which send arbitrary queries to Rivian
 	// as the admin. Off by default; an operator turns it on for a session.
 	AdminDebugProbes bool
-	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
-	// auth issuer alongside static creds and trusted-proxy
-	// header. nil disables the social-login button row in the
+	// OIDC, when non-nil, mounts /api/auth/oidc/* — the second
+	// auth issuer alongside static creds. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
 	// AppleNotifications, when non-nil, is POST /api/auth/apple/notifications: Apple's

@@ -2,10 +2,7 @@ package auth
 
 import (
 	"context"
-	"errors"
-	"github.com/apohor/rivolt/internal/clientip"
 	"github.com/apohor/rivolt/internal/logging"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,16 +19,11 @@ func fakeUserIDFor(u string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceDNS, []byte(strings.ToLower(strings.TrimSpace(u))))
 }
 
-func newTestService(t *testing.T, cidrs []string) *Service {
+func newTestService(t *testing.T) *Service {
 	t.Helper()
-	nets, err := ParseTrustedCIDRs(strings.Join(cidrs, ","))
-	if err != nil {
-		t.Fatalf("ParseTrustedCIDRs: %v", err)
-	}
 	s, err := New(Config{
-		CookieSecret:      []byte("0123456789abcdef0123456789abcdef"),
-		TrustedProxyCIDRs: nets,
-		UserIDFor:         fakeUserIDFor,
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -39,86 +31,23 @@ func newTestService(t *testing.T, cidrs []string) *Service {
 	return s
 }
 
-// TestHeader_IgnoredWhenCIDRListEmpty covers the empty-list default.
-// No trusted CIDRs means a client pretending to be oauth2-proxy
-// must be ignored completely — otherwise anyone can send a header
-// and become anyone.
-func TestHeader_IgnoredWhenCIDRListEmpty(t *testing.T) {
-	s := newTestService(t, nil)
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "10.0.0.5:54321"
-	r.Header.Set("X-Forwarded-Preferred-Username", "mallory")
-
-	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := UserFromContext(r.Context()); ok {
-			t.Errorf("expected no user resolved, got one")
+// Header sign-in was removed (N48): a user header is never believed, from any peer, whatever the old
+// X-Forwarded-* names, so a forged one cannot sign anyone in.
+func TestHeader_NeverSignsIn(t *testing.T) {
+	s := newTestService(t)
+	for _, peer := range []string{"10.0.0.5:54321", "127.0.0.1:9", "192.0.2.7:9"} {
+		for _, h := range []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email"} {
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = peer
+			r.Header.Set(h, "mallory")
+			signedIn := false
+			s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, signedIn = UserFromContext(r.Context())
+			})).ServeHTTP(httptest.NewRecorder(), r)
+			if signedIn {
+				t.Errorf("%s from %s signed a request in", h, peer)
+			}
 		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	handler.ServeHTTP(httptest.NewRecorder(), r)
-}
-
-// TestHeader_IgnoredFromUntrustedIP covers the k8s case where the
-// CIDR is set but the request bypassed the proxy — e.g. a
-// port-forward or a misconfigured NetworkPolicy letting a pod
-// outside the allowed range reach Rivolt directly. The header
-// must be ignored; the fallback-to-cookie path takes over.
-func TestHeader_IgnoredFromUntrustedIP(t *testing.T) {
-	s := newTestService(t, []string{"10.42.0.0/16"})
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.168.1.5:443" // outside 10.42.0.0/16
-	r.Header.Set("X-Forwarded-Preferred-Username", "mallory")
-
-	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := UserFromContext(r.Context()); ok {
-			t.Errorf("expected no user for forged header from untrusted IP")
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	handler.ServeHTTP(httptest.NewRecorder(), r)
-}
-
-// TestHeader_HonouredFromTrustedIP is the happy path for the k8s
-// deployment. The proxy sits in the configured CIDR and sets the
-// header — Middleware resolves it into the same UUID the cookie
-// path would.
-func TestHeader_HonouredFromTrustedIP(t *testing.T) {
-	s := newTestService(t, []string{"10.42.0.0/16"})
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "10.42.1.7:443"
-	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
-
-	want := fakeUserIDFor("alice")
-	var got uuid.UUID
-	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, _ = UserFromContext(r.Context())
-		w.WriteHeader(http.StatusOK)
-	}))
-	handler.ServeHTTP(httptest.NewRecorder(), r)
-
-	if got != want {
-		t.Fatalf("resolved user = %s, want %s", got, want)
-	}
-}
-
-// TestHeader_FallbackToEmail covers proxies that only emit the
-// email header. Middleware should still produce a consistent
-// UUID; the /api/auth/me contract is identical.
-func TestHeader_FallbackToEmail(t *testing.T) {
-	s := newTestService(t, []string{"10.42.0.0/16"})
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "10.42.1.7:443"
-	r.Header.Set("X-Forwarded-Email", "alice@example.com")
-
-	want := fakeUserIDFor("alice@example.com")
-	var got uuid.UUID
-	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, _ = UserFromContext(r.Context())
-	}))
-	handler.ServeHTTP(httptest.NewRecorder(), r)
-
-	if got != want {
-		t.Fatalf("resolved user = %s, want %s", got, want)
 	}
 }
 
@@ -127,7 +56,7 @@ func TestHeader_FallbackToEmail(t *testing.T) {
 // resolves to the same user. Stand-in for what an OIDC callback
 // flow does after EnsureUserFull.
 func TestCookie_RoundTrip(t *testing.T) {
-	s := newTestService(t, nil)
+	s := newTestService(t)
 
 	uid := fakeUserIDFor("alice")
 	issueRec := httptest.NewRecorder()
@@ -275,36 +204,6 @@ func TestKratos_ResolverFallsBackToCookieOnNoSession(t *testing.T) {
 
 	if got != uid {
 		t.Errorf("expected fallback to cookie issuer, got %s", got)
-	}
-}
-
-// TestParseTrustedCIDRs_Errors makes sure operator typos surface
-// at startup instead of silently disabling header auth.
-func TestParseTrustedCIDRs_Errors(t *testing.T) {
-	if _, err := ParseTrustedCIDRs("not-a-cidr"); err == nil {
-		t.Fatalf("expected error on malformed CIDR")
-	}
-	nets, err := ParseTrustedCIDRs("")
-	if err != nil || nets != nil {
-		t.Fatalf("empty input: err=%v nets=%v, want nil/nil", err, nets)
-	}
-	nets, err = ParseTrustedCIDRs("10.0.0.0/8, 127.0.0.1/32")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(nets) != 2 {
-		t.Fatalf("expected 2 nets, got %d", len(nets))
-	}
-	// Sanity: each parsed net contains an obvious member.
-	want := map[string]net.IP{
-		"10.0.0.0/8":   net.ParseIP("10.1.2.3"),
-		"127.0.0.1/32": net.ParseIP("127.0.0.1"),
-	}
-	for _, n := range nets {
-		ip := want[n.String()]
-		if ip == nil || !n.Contains(ip) {
-			t.Errorf("net %s: sanity containment failed", n)
-		}
 	}
 }
 
@@ -499,79 +398,12 @@ func TestNormalizeHost(t *testing.T) {
 	}
 }
 
-// Trust in the proxy that sets the user header is judged on the connection's
-// own address, not on the visitor address the client-address middleware
-// puts in RemoteAddr: a visitor behind the trusted proxy still gets in, and a
-// stranger who forges X-Forwarded-For / CF-Connecting-IP with a trusted
-// address does not become "trusted" (chi's RealIP used to allow exactly that).
-func TestHeader_TrustUsesTheConnectionPeerNotTheClientAddress(t *testing.T) {
-	s := newTestService(t, []string{"10.42.0.0/16"})
-	resolved := func(remote string, hdr map[string]string) bool {
-		r := httptest.NewRequest("GET", "/", nil)
-		r.RemoteAddr = remote
-		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
-		for k, v := range hdr {
-			r.Header.Set(k, v)
-		}
-		got := false
-		clientip.Middleware(s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, got = UserFromContext(r.Context())
-		}))).ServeHTTP(httptest.NewRecorder(), r)
-		return got
-	}
-	if !resolved("10.42.0.172:5000", map[string]string{"CF-Connecting-IP": "203.0.113.9"}) {
-		t.Error("a visitor behind the trusted proxy lost their identity (RemoteAddr was rewritten and then used for trust)")
-	}
-	if resolved("203.0.113.9:5000", map[string]string{"X-Forwarded-For": "10.42.0.5", "CF-Connecting-IP": "10.42.0.5", "X-Real-IP": "10.42.0.5"}) {
-		t.Error("a stranger forged a trusted address and was believed")
-	}
-}
-
-// A trusted-proxy list that spans the pod network is flagged for the boot
-// warning; the exact address of one proxy is not.
-func TestBroadTrustedCIDRs(t *testing.T) {
-	parse := func(list string) []*net.IPNet {
-		t.Helper()
-		nets, err := ParseTrustedCIDRs(list)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return nets
-	}
-	for _, broad := range []string{"10.42.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "2001:db8::/32"} {
-		if got := BroadTrustedCIDRs(parse(broad)); len(got) != 1 {
-			t.Errorf("%s not flagged as broad: %v", broad, got)
-		}
-	}
-	for _, exact := range []string{"192.0.2.7/32", "198.51.100.0/24", "2001:db8:1:2::/64"} {
-		if got := BroadTrustedCIDRs(parse(exact)); len(got) != 0 {
-			t.Errorf("%s flagged: %v", exact, got)
-		}
-	}
-	if got := BroadTrustedCIDRs(nil); len(got) != 0 {
-		t.Errorf("empty list flagged: %v", got)
-	}
-	// An entry that contains one of this host's own addresses is broad however
-	// short its prefix is not: even a /32 of the pod's own IP trusts the pod.
-	addrs, _ := net.InterfaceAddrs()
-	for _, a := range addrs {
-		if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
-			own := ipn.IP.String() + "/32"
-			if got := BroadTrustedCIDRs(parse(own)); len(got) != 1 {
-				t.Errorf("%s (this host) not flagged", own)
-			}
-			return
-		}
-	}
-}
-
 // Every way in is tagged for the access log and counted for the metric:
-// header, kratos, cookie and bypass; an unauthenticated request is neither.
+// kratos, cookie and bypass; an unauthenticated request is neither.
 func TestAuthMethodIsRecordedForEveryPath(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	var counted []string
 	count := func(m string) { counted = append(counted, m) }
-	nets, _ := ParseTrustedCIDRs("192.0.2.7/32")
 
 	method := func(s *Service, r *http.Request) (string, bool) {
 		var m string
@@ -583,19 +415,10 @@ func TestAuthMethodIsRecordedForEveryPath(t *testing.T) {
 		return m, ok
 	}
 
-	// header SSO, from the trusted peer
-	hs, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, TrustedProxyCIDRs: nets, OnAuth: count})
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.0.2.7:9"
-	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
-	if m, ok := method(hs, r); !ok || m != "header" {
-		t.Errorf("header: %q %v", m, ok)
-	}
-
 	// kratos
 	ks, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, OnAuth: count,
 		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) { return fakeUserIDFor("k"), true, nil }})
-	r = httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", nil)
 	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "abc"})
 	if m, ok := method(ks, r); !ok || m != "kratos" {
 		t.Errorf("kratos: %q %v", m, ok)
@@ -629,33 +452,7 @@ func TestAuthMethodIsRecordedForEveryPath(t *testing.T) {
 	if len(counted) != before {
 		t.Error("an anonymous request was counted as authenticated")
 	}
-	if got := strings.Join(counted, ","); got != "header,kratos,cookie,bypass" {
+	if got := strings.Join(counted, ","); got != "kratos,cookie,bypass" {
 		t.Errorf("metric hook saw %q", got)
-	}
-}
-
-// The server refuses to start when a network-wide trusted-proxy range meets
-// OIDC sign-in; without OIDC it only reports the broad entry; an exact proxy
-// address is always fine.
-func TestCheckTrustedProxies(t *testing.T) {
-	parse := func(s string) []*net.IPNet {
-		n, err := ParseTrustedCIDRs(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	broad, err := CheckTrustedProxies(parse("10.42.0.0/16"), true)
-	if !errors.Is(err, ErrTrustedProxyTooBroad) || len(broad) != 1 || !strings.Contains(err.Error(), "10.42.0.0/16") {
-		t.Errorf("broad + OIDC: %v %v, want a refusal naming the range", broad, err)
-	}
-	if broad, err := CheckTrustedProxies(parse("10.42.0.0/16"), false); err != nil || len(broad) != 1 {
-		t.Errorf("broad, no OIDC: %v %v, want the entry reported but no error", broad, err)
-	}
-	if broad, err := CheckTrustedProxies(parse("192.0.2.7/32"), true); err != nil || len(broad) != 0 {
-		t.Errorf("exact proxy + OIDC: %v %v, want fine", broad, err)
-	}
-	if _, err := CheckTrustedProxies(nil, true); err != nil {
-		t.Errorf("no list: %v", err)
 	}
 }

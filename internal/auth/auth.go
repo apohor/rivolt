@@ -4,26 +4,19 @@
 //
 // # Issuers, one identity seam
 //
-// Middleware accepts three wire formats and collapses them onto the
+// Middleware accepts two wire formats and collapses them onto the
 // same user_id contract:
 //
-//  1. A trusted upstream proxy (oauth2-proxy, Keycloak gatekeeper,
-//     ingress with built-in auth, …) writes X-Forwarded-User /
-//     -Email. Rivolt believes the header only if the request's
-//     RemoteAddr falls
-//     inside a CIDR in Config.TrustedProxyCIDRs; an empty list
-//     disables header-based auth entirely.
-//
-//  2. An OIDC sign-in (mounted under /api/auth/oidc/*, see
+//  1. An OIDC sign-in (mounted under /api/auth/oidc/*, see
 //     internal/oidc) terminates by calling Service.IssueSession,
 //     which mints the same opaque session cookie used by every
 //     other path.
 //
-//  3. A debug bypass: when Config.BypassUserID is set, Middleware
+//  2. A debug bypass: when Config.BypassUserID is set, Middleware
 //     injects that user when no other issuer resolves. Intended
 //     for local-dev only — main logs a loud warning at boot.
 //
-// All three routes hand off to the same Middleware identity
+// Both routes hand off to the same Middleware identity
 // contract (UserFromContext(ctx) returns the user UUID); handlers
 // don't know which issuer authenticated the request.
 package auth
@@ -47,7 +40,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/apohor/rivolt/internal/clientip"
 	"github.com/apohor/rivolt/internal/logging"
 )
 
@@ -76,33 +68,9 @@ type Config struct {
 	// development.
 	SecureCookie bool
 
-	// TrustedProxyCIDRs is the list of subnets whose
-	// X-Forwarded-User / X-Forwarded-Email / X-Forwarded-Preferred-
-	// Username headers are believed. Empty (the default) disables
-	// header-based auth entirely, which is what self-hosted /
-	// docker-compose deployments want: the in-app cookie login is
-	// the only issuer.
-	//
-	// In a k8s deployment behind oauth2-proxy or Keycloak gatekeeper,
-	// set this to the pod-network CIDR (e.g.
-	// "10.0.0.0/8,127.0.0.1/32") — requests not coming from an
-	// allowed source are treated as if the header weren't there,
-	// so a direct client curl with a forged header falls back to
-	// the cookie path and fails open to "unauthenticated". The
-	// ingress is still expected to strip inbound X-Forwarded-*
-	// from the client as a belt-and-braces measure.
-	TrustedProxyCIDRs []*net.IPNet
-
 	// OnAuth, when set, is told the method of every authenticated request
-	// (cookie, kratos, header, bypass): a metrics hook. No user data.
+	// (cookie, kratos, bypass): a metrics hook. No user data.
 	OnAuth func(method string)
-
-	// HeaderUser / HeaderEmail are the header names the
-	// upstream proxy writes the authenticated identity into.
-	// Defaults follow oauth2-proxy conventions. Most proxies can
-	// be configured to emit these exact names.
-	HeaderUser  string
-	HeaderEmail string
 
 	// KratosCookieName is the name of the Ory Kratos session cookie
 	// (default "ory_kratos_session"). When KratosResolver is set, a
@@ -128,7 +96,7 @@ type Config struct {
 	// no active session), and an error for transient failures.
 	// Wired by main to a closure that calls kratos.Whoami and
 	// runs the resulting identity through UserIDFor to produce
-	// the same UUID the cookie / header issuers would.
+	// the same UUID the cookie issuer would.
 	//
 	// The resolver is called with the request context so it
 	// inherits the request's deadline.
@@ -164,7 +132,7 @@ type Config struct {
 
 	// BypassUserID, when non-zero, makes Middleware inject this
 	// user on every request that doesn't already have an identity
-	// resolved by header or cookie. Debug / local-dev only —
+	// resolved by cookie. Debug / local-dev only —
 	// effectively disables auth. main logs a loud warning at boot
 	// and refuses to set this when SecureCookie is true.
 	BypassUserID uuid.UUID
@@ -179,10 +147,7 @@ type Service struct {
 	ttl          time.Duration
 	secret       []byte
 	secureCooke  bool
-	trustedNets  []*net.IPNet
 	onAuth       func(method string)
-	hdrUser      string
-	hdrEmail     string
 	userIDFor    func(string) uuid.UUID
 	usernameFor  func(ctx context.Context, uid uuid.UUID) (string, error)
 	roleFor      func(ctx context.Context, uid uuid.UUID) (string, error)
@@ -238,7 +203,7 @@ type SessionInfo struct {
 
 // SessionRef names the sessions row behind a request: set for the opaque
 // cookie (Kind "web") and the iPhone app's bearer token (Kind "app"); absent
-// for header, Kratos, bypass and legacy signed-cookie auth, which have no row.
+// for Kratos, bypass and legacy signed-cookie auth, which have no row.
 // The sessions list uses it to mark "current" and to keep the caller's own
 // session on "sign out other devices".
 type SessionRef struct {
@@ -306,12 +271,6 @@ func New(cfg Config) (*Service, error) {
 	if cfg.CookieTTL == 0 {
 		cfg.CookieTTL = 30 * 24 * time.Hour
 	}
-	if cfg.HeaderUser == "" {
-		cfg.HeaderUser = "X-Forwarded-Preferred-Username"
-	}
-	if cfg.HeaderEmail == "" {
-		cfg.HeaderEmail = "X-Forwarded-Email"
-	}
 	if cfg.KratosCookieName == "" {
 		cfg.KratosCookieName = "ory_kratos_session"
 	}
@@ -333,10 +292,7 @@ func New(cfg Config) (*Service, error) {
 		ttl:          cfg.CookieTTL,
 		secret:       secret,
 		secureCooke:  cfg.SecureCookie,
-		trustedNets:  cfg.TrustedProxyCIDRs,
 		onAuth:       cfg.OnAuth,
-		hdrUser:      cfg.HeaderUser,
-		hdrEmail:     cfg.HeaderEmail,
 		userIDFor:    cfg.UserIDFor,
 		usernameFor:  cfg.UsernameFor,
 		roleFor:      cfg.RoleFor,
@@ -347,82 +303,6 @@ func New(cfg Config) (*Service, error) {
 		kratosHost:       normalizeHost(cfg.KratosHost),
 		kratosResolver:   cfg.KratosResolver,
 	}, nil
-}
-
-// ParseTrustedCIDRs is a convenience for main: turn the comma-
-// separated RIVOLT_TRUSTED_PROXY_CIDR env var into a slice of
-// *net.IPNet suitable for Config.TrustedProxyCIDRs. Empty input
-// returns a nil slice, which disables header-based auth.
-func ParseTrustedCIDRs(list string) ([]*net.IPNet, error) {
-	list = strings.TrimSpace(list)
-	if list == "" {
-		return nil, nil
-	}
-	var out []*net.IPNet
-	for _, part := range strings.Split(list, ",") {
-		p := strings.TrimSpace(part)
-		if p == "" {
-			continue
-		}
-		_, n, err := net.ParseCIDR(p)
-		if err != nil {
-			return nil, fmt.Errorf("bad CIDR %q: %w", p, err)
-		}
-		out = append(out, n)
-	}
-	return out, nil
-}
-
-// BroadTrustedCIDRs returns the entries of nets that are too wide to be "the
-// proxy": a network of 65,536 or more IPv4 addresses (a prefix of /16 or
-// shorter; /48 or shorter for IPv6), or one that contains an address of this
-// host (so it contains the pod's own network, load balancer and every
-// neighbour). Header SSO believes a user header from any peer inside the list,
-// so such an entry lets anything that can reach the app through that network
-// sign in as anyone. The list should hold the exact proxy address.
-func BroadTrustedCIDRs(nets []*net.IPNet) []string {
-	var local []net.IP
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() {
-				local = append(local, ipn.IP)
-			}
-		}
-	}
-	var out []string
-	for _, n := range nets {
-		ones, bits := n.Mask.Size()
-		broad := (bits == 32 && ones <= 16) || (bits == 128 && ones <= 48)
-		for _, ip := range local {
-			if n.Contains(ip) {
-				broad = true
-			}
-		}
-		if broad {
-			out = append(out, n.String())
-		}
-	}
-	return out
-}
-
-// ErrTrustedProxyTooBroad is returned by CheckTrustedProxies.
-var ErrTrustedProxyTooBroad = errors.New("RIVOLT_TRUSTED_PROXY_CIDR is network-wide")
-
-// CheckTrustedProxies decides whether the server may start with this trusted
-// proxy list. Header SSO believes the user header from every peer in the list,
-// so on an install that also has OIDC sign-in (a public site, reached through
-// an ingress) a network-wide entry means anyone can sign in as any user. Then
-// it refuses: the error names the entries. Without OIDC a broad entry is only
-// worth a warning (the caller logs it); self-hosters who really use header SSO
-// list the exact proxy address.
-func CheckTrustedProxies(nets []*net.IPNet, oidcConfigured bool) (broad []string, err error) {
-	broad = BroadTrustedCIDRs(nets)
-	if len(broad) > 0 && oidcConfigured {
-		return broad, fmt.Errorf("%w (%s) and OIDC sign-in is configured: any peer in that range could sign in as any user by sending the SSO user header. "+
-			"Trust only the exact address of the authenticating proxy (a /32), or unset RIVOLT_TRUSTED_PROXY_CIDR",
-			ErrTrustedProxyTooBroad, strings.Join(broad, ", "))
-	}
-	return broad, nil
 }
 
 // token is the payload we sign into the cookie. Kept tiny — just
@@ -570,12 +450,7 @@ func IsImpersonating(ctx context.Context) bool {
 // signed out; one with a credential that did not resolve carries an
 // expired or invalid session.
 //
-// It looks at the two session cookies only. In trusted-proxy mode a
-// request authenticated by a proxy header that does not resolve to a
-// user carries no cookie, so it reads as "no credential" and /api/auth/me
-// answers 200 {"authenticated": false} instead of 401. The SPA treats
-// both as signed out, so this is harmless; it is noted here so nobody
-// relies on 401-vs-200 to distinguish the two.
+// It looks at the two session cookies only.
 func (s *Service) HasCredentials(r *http.Request) bool {
 	if s == nil {
 		return false
@@ -628,28 +503,13 @@ var ErrSignupClosed = errors.New("auth: sign-ups are closed for this identity")
 // 401 for an IdP-authenticated but not-provisioned identity.
 const AuthErrorHeader = "X-Rivolt-Auth-Error"
 
-// Middleware resolves the active user from (in order) a trusted
-// proxy header, a signed session cookie, or the debug bypass, and
-// injects the user_id into request context. Requests with none of
-// those fall through with no user set — the individual handler
+// Middleware resolves the active user from (in order) an app bearer
+// token, a Kratos session, a signed session cookie, or the debug bypass,
+// and injects the user_id into request context. Requests with none of
+// those fall through with no user set: the individual handler
 // (or RequireUser) decides what to do, so /api/auth/oidc/* (the
 // only sign-in surface in OIDC-only mode) stays reachable to the
 // unauthenticated.
-//
-// Resolution order is fixed: header wins if and only if the
-// request's RemoteAddr is inside a TrustedProxyCIDR *and* the
-// header is present. This is deliberate:
-//
-//   - Single-tenant install has an empty CIDR list → header check
-//     is a no-op, cookie-only, zero footgun.
-//   - K8s install behind oauth2-proxy sets the pod-network CIDR →
-//     header wins, and a forged header from outside the allowed
-//     network falls back to the cookie path (which fails open to
-//     "unauthenticated" for a client without a session).
-//
-// A header-authenticated request that also carries a cookie
-// honours the header. A mismatched cookie in that case is harmless
-// — we just don't read it.
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s == nil {
@@ -657,7 +517,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		// iPhone app token. A request carrying one is decided here and
-		// nowhere else: never a cookie, Kratos, header or bypass fallback,
+		// nowhere else: never a cookie, Kratos or bypass fallback,
 		// so a bad or revoked token is a 401 rather than some other identity.
 		if tok, ok := bearerToken(r); ok {
 			if !s.acceptBearer || s.sessionStore == nil || tok == "" {
@@ -671,10 +531,6 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			}
 			r = r.WithContext(WithSession(r.Context(), SessionRef{ID: info.ID, Kind: "app"}))
 			s.serveAsUser(next, w, r, info.UserID, false, logging.AuthBearer)
-			return
-		}
-		if uid, ok := s.identityFromHeader(r); ok {
-			s.serveAsUser(next, w, r, uid, false, logging.AuthHeader)
 			return
 		}
 		// Kratos session issuer. Cheap pre-check: only call out
@@ -742,8 +598,8 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 // uid into a request-scoped identity. It enforces the disabled
 // flag — if the user has been admin-disabled, drop the cookie
 // and continue unauthenticated (or as the bypass user). clearCookie
-// is gated on cookieAuth because header-authenticated requests
-// don't have one to clear.
+// is gated on cookieAuth because other issuers (bearer, Kratos)
+// have no cookie of ours to clear.
 func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.Request, uid uuid.UUID, cookieAuth bool, method string) {
 	if s.disabledFor != nil && uid != uuid.Nil {
 		disabled, err := s.disabledFor(r.Context(), uid)
@@ -783,54 +639,6 @@ func (s *Service) maybeBypass(next http.Handler, w http.ResponseWriter, r *http.
 		return
 	}
 	next.ServeHTTP(w, r)
-}
-
-// identityFromHeader returns the user id claimed by a trusted
-// upstream proxy, or (zero, false) if the request isn't on the
-// trusted interface or no identity header is present.
-//
-// We prefer HeaderUser (username / preferred-username) because it
-// matches the cookie path's identity key — the same login
-// resolves to the same UUIDv5 whether it arrived by cookie or by
-// header. HeaderEmail is used as a fallback for proxies that only
-// emit email.
-func (s *Service) identityFromHeader(r *http.Request) (uuid.UUID, bool) {
-	if len(s.trustedNets) == 0 {
-		return uuid.Nil, false
-	}
-	if !s.remoteAddrTrusted(clientip.Peer(r)) {
-		return uuid.Nil, false
-	}
-	user := strings.TrimSpace(r.Header.Get(s.hdrUser))
-	if user == "" {
-		user = strings.TrimSpace(r.Header.Get(s.hdrEmail))
-	}
-	if user == "" {
-		return uuid.Nil, false
-	}
-	return s.userIDFor(user), true
-}
-
-// remoteAddrTrusted reports whether addr (as produced by
-// net/http, which is "ip:port" — or wrapped by chi's RealIP
-// middleware into the same shape) falls inside any configured
-// TrustedProxyCIDR.
-func (s *Service) remoteAddrTrusted(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		// Some test harnesses leave RemoteAddr as a bare IP.
-		host = addr
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	for _, n := range s.trustedNets {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }
 
 // RequireUser wraps a handler so only authenticated requests reach

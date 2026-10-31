@@ -40,7 +40,7 @@ func requireVehicleOwnershipMW(dbPool *sql.DB, logger *slog.Logger) func(http.Ha
 //     without it is a caller bug, not an auth decision.
 //   - No authenticated user in context: pass through. This mirrors
 //     the existing requireUserMW gating — when no auth issuer is
-//     configured (no OIDC, no trusted-proxy CIDR, no bypass), the
+//     configured (no OIDC, no bypass), the
 //     server runs in legacy single-tenant mode where every request
 //     is "the operator". Multi-tenant deployments MUST pair this middleware
 //     with requireUserMW (which runs earlier in the chain) so the

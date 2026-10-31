@@ -4,7 +4,7 @@
 // Access puts a signed JWT in the Cf-Access-Jwt-Assertion header of every
 // request it lets through. The plain Cf-Access-Authenticated-User-Email header
 // is NOT used anywhere: it is an ordinary header, so anything that can reach
-// the origin can set it (the same class of hole as header SSO). Only a JWT that
+// the origin can set it (the class of hole that removed header sign-in). Only a JWT that
 // verifies against the team's published keys counts: signature, issuer,
 // audience (the Access app's AUD tag), expiry, and an email on the allowlist.
 // Every failure is a 403 before any route runs.

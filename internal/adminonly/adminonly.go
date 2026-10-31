@@ -36,7 +36,6 @@ var required = []string{"RIVOLT_ACCESS_TEAM_DOMAIN", "RIVOLT_ACCESS_AUD", "RIVOL
 // Each switches on something the admin deployment must not do; setting one
 // means the wrong values file reached this release.
 var forbidden = []struct{ name, why string }{
-	{"RIVOLT_TRUSTED_PROXY_CIDR", "header SSO must stay off (it trusts the ingress IP)"},
 	{"RIVOLT_AUTH_BYPASS_USER", "auth bypass"},
 	{"RIVOLT_DEMO", "the demo"},
 	{"RIVOLT_DEMO_ONLY", "the demo"},

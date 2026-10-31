@@ -1,6 +1,5 @@
 // Package oidc adds an OIDC sign-in path alongside the static
-// operator credential and the trusted-proxy header in
-// internal/auth.
+// operator credential in internal/auth.
 //
 // # Why a separate package
 //

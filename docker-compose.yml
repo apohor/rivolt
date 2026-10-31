@@ -34,7 +34,6 @@ services:
       # without any credential check; refused unless SECURE_COOKIE=false.
       RIVOLT_COOKIE_SECRET: "${RIVOLT_COOKIE_SECRET:-}"
       RIVOLT_SECURE_COOKIE: "${RIVOLT_SECURE_COOKIE:-false}"
-      RIVOLT_TRUSTED_PROXY_CIDR: "${RIVOLT_TRUSTED_PROXY_CIDR:-}"
       RIVOLT_AUTH_BYPASS_USER: "${RIVOLT_AUTH_BYPASS_USER:-}"
       # Postgres backend (v0.4.0+). Leave unset to keep 100%
       # SQLite; set to point Rivolt at the postgres service below.

@@ -14,7 +14,7 @@ import (
 var demoOnlyEnvPrefixes = []string{
 	"KRATOS_", "HYDRA_", "RIVOLT_OIDC_", "RIVOLT_RESEND_", "RIVOLT_EMAIL_",
 	"VAPID_", "OPENAI_", "ANTHROPIC_", "GEMINI_", "GOOGLE_API_KEY",
-	"RIVOLT_TRUSTED_PROXY", "RIVOLT_AUTH_BYPASS",
+	"RIVOLT_AUTH_BYPASS",
 }
 
 // demoOnlyScrubEnv unsets every variable under demoOnlyEnvPrefixes and
