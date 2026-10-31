@@ -66,6 +66,9 @@ func iosFixtureTargets() map[string]any {
 		"app_config.json":             &appConfigResponse{},
 		// Slice B (the Home charts): the idle-awake bars, as the web's tile reads them.
 		"sleep_activity.json": &[]samples.DayActivity{},
+		// Your year in Rivolt (year_in_rivolt.go): the card, and the no-card answer.
+		"year_in_rivolt.json":         &yearResponse{},
+		"year_in_rivolt_not_yet.json": &yearResponse{},
 		// The miles-per-day and charge-level charts. The handler's response is an
 		// anonymous struct; its two keys and row types are pinned here.
 		// Activity → Efficiency: the breakdowns by temperature, speed and drive mode (aggregates only).
