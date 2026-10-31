@@ -37,6 +37,9 @@ const (
 	StatusEnded   = "ended"
 )
 
+// TrialLength is the Pro trial every new account gets: 14 days, no card.
+const TrialLength = 14 * 24 * time.Hour
+
 // Grace is how long a paid subscription whose renewal failed stays Pro after its period end.
 const Grace = 7 * 24 * time.Hour
 
