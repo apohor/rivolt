@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/histwin"
 )
 
 // Load reads the user's charges and drives whose time range intersects
@@ -226,10 +228,16 @@ func CountToConfirm(ctx context.Context, d *sql.DB, userID uuid.UUID) (open, att
 	if err := d.QueryRowContext(ctx, networkStateColumnsSQL).Scan(&have); err != nil || !have {
 		return 0, 0, err
 	}
+	// A free account's request carries a history window; the count then matches the (windowed) to-confirm list. No window: all time.
+	var since *time.Time
+	if t, ok := histwin.Since(ctx); ok {
+		since = &t
+	}
 	err = d.QueryRowContext(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE network_state = 'needs_confirmation')
 		FROM charges
-		WHERE user_id = $1 AND network_state IN ('estimated', 'needs_confirmation')`,
-		userID).Scan(&open, &attention)
+		WHERE user_id = $1 AND network_state IN ('estimated', 'needs_confirmation')
+		  AND ($2::timestamptz IS NULL OR started_at >= $2::timestamptz)`,
+		userID, since).Scan(&open, &attention)
 	return open, attention, err
 }

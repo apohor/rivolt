@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/statement"
 )
 
 // The free plan's history window against real rows. A free and a Pro account hold the same data: a drive and a charge 400 days old and
@@ -247,3 +248,181 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 }
 
 func url_(t time.Time) string { return strings.ReplaceAll(t.UTC().Format(time.RFC3339), "+", "%2B") }
+
+// Money under the free window: a free account's statements are the current month and the two before; an older month is 402
+// outside_free_window; the statement CSV is the current month only (any other month is a Pro convenience: 402 pro_required); the summary
+// list and the savings months stop at the window; the open-items count matches the windowed to-confirm list. A Pro account sees it all.
+func TestMoneyWindowAgainstPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	free, _ := db.EnsureUser(ctx, pool, "money-free")
+	pro, _ := db.EnsureUser(ctx, pool, "money-pro")
+	if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'grant', 'active', NULL)`, pro); err != nil {
+		t.Fatal(err)
+	}
+	resolvers := db.NewVehicleResolverFactory(pool)
+	cf, sf := charges.NewFactory(pool, resolvers), settings.NewFactory(pool)
+	now := time.Now().UTC()
+	month := func(offset int) time.Time {
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, offset, 0)
+	}
+	// One priced charge in the current month, the previous month and four months ago; the current and the old one are open for verification.
+	for _, u := range []uuid.UUID{free, pro} {
+		for i, off := range []int{0, -1, -4} {
+			c := charges.Charge{ID: "money-charge-" + month(off).Format("2006-01"), VehicleID: "rv-money", StartedAt: month(off).Add(time.Minute), EndedAt: month(off).Add(41 * time.Minute),
+				EnergyAddedKWh: 20, Cost: 5, Currency: "USD", PricePerKWh: 0.25, MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}
+			if i != 1 {
+				c.NetworkState = "estimated"
+			}
+			if err := cf.For(u).Upsert(ctx, c); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	ent := entitlements.New(pool, entitlements.Config{Billing: true})
+	win := historyWindowMiddleware(ent)
+	la := newLedgerAPI(pool, sf)
+	rt := chi.NewRouter()
+	rt.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u, _ := uuid.Parse(r.Header.Get("X-Test-User"))
+			next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), u)))
+		})
+	})
+	withUser := func(f func(uuid.UUID, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			u, _ := auth.UserFromContext(r.Context())
+			f(u, w, r)
+		}
+	}
+	rt.With(win).Get("/ledger/monthly", withUser(la.monthly))
+	rt.With(win).Get("/ledger/monthly.csv", withUser(la.statementCSV))
+	rt.With(win).Get("/ledger/summary", withUser(la.summary))
+	rt.With(win).Get("/ledger/trips", withUser(la.trips))
+	rt.With(win).Get("/ledger/savings", withUser(la.savings))
+	stm := newStatementAPI(pool, Deps{Settings: sf}, statement.NewSigner([]byte("0123456789abcdef0123456789abcdef")))
+	stm.flag = func(string) bool { return true }
+	rt.With(win).Get("/statement-email/preview", withUser(stm.preview))
+	get := func(u uuid.UUID, path string) (int, []byte) {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Test-User", u.String())
+		rec := httptest.NewRecorder()
+		rt.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.Bytes()
+	}
+	errCode := func(body []byte) string {
+		var pb paywallBody
+		_ = json.Unmarshal(body, &pb)
+		return pb.Error
+	}
+	cur, prev, old := month(0).Format("2006-01"), month(-1).Format("2006-01"), month(-4).Format("2006-01")
+
+	// Statements.
+	for _, m := range []string{cur, prev} {
+		if code, body := get(free, "/ledger/monthly?month="+m); code != 200 {
+			t.Errorf("free %s: %d %s, want 200", m, code, body)
+		}
+	}
+	if code, body := get(free, "/ledger/monthly?month="+old); code != http.StatusPaymentRequired || errCode(body) != "outside_free_window" {
+		t.Errorf("free %s: %d %s, want 402 outside_free_window", old, code, body)
+	}
+	for _, m := range []string{cur, prev, old} {
+		if code, body := get(pro, "/ledger/monthly?month="+m); code != 200 {
+			t.Errorf("pro %s: %d %s", m, code, body)
+		}
+	}
+	// The month's total is the same number for a free and a Pro account.
+	spendOf := func(u uuid.UUID) string {
+		_, body := get(u, "/ledger/monthly?month="+prev)
+		var m struct {
+			Spend  json.RawMessage `json:"spend"`
+			Energy json.RawMessage `json:"energy"`
+		}
+		_ = json.Unmarshal(body, &m)
+		return string(m.Spend) + string(m.Energy)
+	}
+	if f, p := spendOf(free), spendOf(pro); f == "" || f != p {
+		t.Errorf("a month inside the window differs between free and Pro:\nfree %s\npro  %s", f, p)
+	}
+
+	// The statement CSV: the current month for everyone, any other month is Pro.
+	if code, _ := get(free, "/ledger/monthly.csv?month="+cur); code != 200 {
+		t.Errorf("free current-month CSV: %d", code)
+	}
+	for _, m := range []string{prev, old} {
+		if code, body := get(free, "/ledger/monthly.csv?month="+m); code != http.StatusPaymentRequired || errCode(body) != "pro_required" {
+			t.Errorf("free CSV for %s: %d %s, want 402 pro_required", m, code, body)
+		}
+		if code, _ := get(pro, "/ledger/monthly.csv?month="+m); code != 200 {
+			t.Errorf("pro CSV for %s: %d", m, code)
+		}
+	}
+
+	// Summary: the list stops at the window; the open-items count matches the windowed list (the old open charge is not counted).
+	summary := func(u uuid.UUID) (months int, open int) {
+		code, body := get(u, "/ledger/summary?months=12")
+		var s struct {
+			Months         []json.RawMessage `json:"months"`
+			ToConfirmCount int               `json:"to_confirm_count"`
+		}
+		if code != 200 || json.Unmarshal(body, &s) != nil {
+			t.Fatalf("summary: %d %s", code, body)
+		}
+		return len(s.Months), s.ToConfirmCount
+	}
+	if m, open := summary(free); m != 3 || open != 1 {
+		t.Errorf("free summary: %d months and %d open, want 3 and 1", m, open)
+	}
+	if m, open := summary(pro); m != 12 || open != 2 {
+		t.Errorf("pro summary: %d months and %d open, want 12 and 2", m, open)
+	}
+
+	// Savings: the months stop at the window; asking only for an old month is 402. Trips: a wide range is accepted and clamped.
+	savingsMonths := func(u uuid.UUID, q string) (int, []byte, int) {
+		code, body := get(u, "/ledger/savings?"+q)
+		var s struct {
+			Months []string `json:"months"`
+		}
+		_ = json.Unmarshal(body, &s)
+		return code, body, len(s.Months)
+	}
+	if code, body, n := savingsMonths(free, "month="+cur+"&months=12"); code != 200 || n != 3 {
+		t.Errorf("free savings over 12 months: %d, %d months (%s), want 200 and 3", code, n, body)
+	}
+	if code, _, n := savingsMonths(pro, "month="+cur+"&months=12"); code != 200 || n != 12 {
+		t.Errorf("pro savings over 12 months: %d, %d months, want 200 and 12", code, n)
+	}
+	if code, body, _ := savingsMonths(free, "month="+old+"&months=1"); code != http.StatusPaymentRequired || errCode(body) != "outside_free_window" {
+		t.Errorf("free savings for %s: %d %s, want 402 outside_free_window", old, code, body)
+	}
+	wide := "/ledger/trips?from=" + now.AddDate(0, 0, -300).Format("2006-01-02") + "&to=" + now.Format("2006-01-02")
+	for _, u := range []uuid.UUID{free, pro} {
+		if code, body := get(u, wide); code != 200 {
+			t.Errorf("trips over 300 days: %d %s", code, body)
+		}
+	}
+	// The statement preview follows the same months; the email job itself is not windowed.
+	for _, m := range []string{cur, prev} {
+		if code, body := get(free, "/statement-email/preview?month="+m); code != 200 {
+			t.Errorf("free preview %s: %d %s", m, code, body)
+		}
+	}
+	if code, body := get(free, "/statement-email/preview?month="+old); code != http.StatusPaymentRequired || errCode(body) != "outside_free_window" {
+		t.Errorf("free preview %s: %d %s, want 402 outside_free_window", old, code, body)
+	}
+	if code, body := get(pro, "/statement-email/preview?month="+old); code != 200 {
+		t.Errorf("pro preview %s: %d %s", old, code, body)
+	}
+
+	// A range wholly before a free account's window is empty, not an error.
+	before := "/ledger/trips?from=" + now.AddDate(0, 0, -300).Format("2006-01-02") + "&to=" + now.AddDate(0, 0, -200).Format("2006-01-02")
+	if code, body := get(free, before); code != 200 {
+		t.Errorf("trips wholly before the window: %d %s", code, body)
+	}
+}

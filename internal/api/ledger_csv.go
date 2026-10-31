@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -47,6 +48,15 @@ func (a ledgerAPI) statementCSV(uid uuid.UUID, w http.ResponseWriter, r *http.Re
 	if err != nil {
 		http.Error(w, "month must be YYYY-MM", http.StatusBadRequest)
 		return
+	}
+	// The plan: a free account gets the current month's CSV; any other month is a Pro convenience (the full export, which has everything, is
+	// always free).
+	if _, on := moneyWindowStart(r.Context(), a.now(), p.loc); on {
+		cur := a.now().In(p.loc)
+		if period.Start.Before(time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, p.loc)) {
+			writeProRequired(w)
+			return
+		}
 	}
 	in, err := a.input(r.Context(), uid, p, period)
 	if err != nil {
