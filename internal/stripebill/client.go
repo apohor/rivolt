@@ -239,3 +239,86 @@ func (c *Client) CancelCustomerSubscriptions(ctx context.Context, customer strin
 	}
 	return cancelled, errors.New("stripe: more than 2000 subscriptions on one customer")
 }
+
+// ErrOpenItems means a customer still has an open (unpaid) invoice or an unresolved dispute, so it is not deleted yet: Stripe needs the
+// customer to settle those, and deleting it would orphan them. The caller retries later; it never gives up on the deletion.
+var ErrOpenItems = errors.New("stripe: the customer has an open invoice or an unresolved dispute")
+
+// openDisputeStatuses are the dispute states that are still being decided.
+var openDisputeStatuses = map[string]bool{"needs_response": true, "under_review": true, "warning_needs_response": true, "warning_under_review": true}
+
+// DeleteCustomerIfClear deletes the Stripe customer object (its name, email and address with it) once nothing is open on it: no unpaid
+// invoice and no unresolved dispute (ErrOpenItems otherwise, nothing deleted). Stripe keeps the invoices and charges for its own compliance
+// after a customer is deleted. An unknown customer (404) is already gone. Idempotent.
+func (c *Client) DeleteCustomerIfClear(ctx context.Context, customer string) error {
+	q := url.QueryEscape(customer)
+	var inv struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/invoices?limit=1&status=open&customer="+q, nil, "", &inv); err != nil {
+		return treatMissing(err)
+	}
+	if len(inv.Data) > 0 {
+		return ErrOpenItems
+	}
+	after := ""
+	for page := 0; page < 20; page++ {
+		path := "/v1/charges?limit=100&customer=" + q
+		if after != "" {
+			path += "&starting_after=" + url.QueryEscape(after)
+		}
+		var ch struct {
+			Data []struct {
+				ID       string `json:"id"`
+				Disputed bool   `json:"disputed"`
+			} `json:"data"`
+			HasMore bool `json:"has_more"`
+		}
+		if err := c.do(ctx, http.MethodGet, path, nil, "", &ch); err != nil {
+			return treatMissing(err)
+		}
+		for _, charge := range ch.Data {
+			after = charge.ID
+			if !charge.Disputed {
+				continue
+			}
+			var dl struct {
+				Data []struct {
+					Status string `json:"status"`
+				} `json:"data"`
+			}
+			if err := c.do(ctx, http.MethodGet, "/v1/disputes?limit=100&charge="+url.QueryEscape(charge.ID), nil, "", &dl); err != nil {
+				return err
+			}
+			for _, d := range dl.Data {
+				if openDisputeStatuses[d.Status] {
+					return ErrOpenItems
+				}
+			}
+		}
+		if !ch.HasMore {
+			break
+		}
+	}
+	return treatMissing(c.do(ctx, http.MethodDelete, "/v1/customers/"+url.PathEscape(customer), nil, "", nil))
+}
+
+// treatMissing turns Stripe's 404 (the customer is already gone) into success.
+func treatMissing(err error) error {
+	var se *Error
+	if errors.As(err, &se) && se.Status == http.StatusNotFound {
+		return nil
+	}
+	return err
+}
+
+// CloseCustomer is everything the deletion of an account asks of Stripe: cancel the subscriptions, then delete the customer record once
+// nothing is open. Idempotent, so a retry repeats it safely.
+func (c *Client) CloseCustomer(ctx context.Context, customer string) error {
+	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
+		return err
+	}
+	return c.DeleteCustomerIfClear(ctx, customer)
+}

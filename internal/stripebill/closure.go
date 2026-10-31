@@ -14,7 +14,8 @@ import (
 )
 
 // AccountClosure is the Stripe step of every account deletion (self-service, admin and the inactive purge): before the account's rows go,
-// its Stripe subscriptions are cancelled at Stripe, so a deleted account is never charged again. When Stripe cannot be reached (or this
+// its Stripe subscriptions are cancelled at Stripe, so a deleted account is never charged again, and the Stripe customer record (name,
+// email, address) is deleted once nothing is open on it (no unpaid invoice, no unresolved dispute; Stripe keeps the invoices tax law needs). When Stripe cannot be reached (or this
 // server has no Stripe key) the cancel is queued, keyed by the Stripe customer id, and RunRetrier repeats it until it works; it never
 // expires, and a backlog is an alert, never a silent skip. Only when the cancel AND the queueing fail does the deletion stop.
 //
@@ -66,7 +67,7 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 	cause := ErrNotConfigured
 	if c.Client != nil {
 		cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-		_, cause = c.Client.CancelCustomerSubscriptions(cctx, customer)
+		cause = c.Client.CloseCustomer(cctx, customer)
 		cancel()
 		if cause == nil {
 			return nil
@@ -92,6 +93,8 @@ func queueText(err error) string {
 		return se.Error() // "stripe: 500 internal"
 	case errors.Is(err, ErrNotConfigured):
 		return ErrNotConfigured.Error()
+	case errors.Is(err, ErrOpenItems):
+		return ErrOpenItems.Error()
 	case errors.Is(err, context.DeadlineExceeded):
 		return "stripe: timed out"
 	}
@@ -125,7 +128,7 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 		}
 		for _, it := range due {
 			cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-			_, cerr := c.Client.CancelCustomerSubscriptions(cctx, it.Customer)
+			cerr := c.Client.CloseCustomer(cctx, it.Customer)
 			cancel()
 			if cerr != nil {
 				if err := db.StripeCancelFailedAgain(ctx, c.DB, it.ID, queueText(cerr)); err != nil {
