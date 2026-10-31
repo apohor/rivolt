@@ -202,8 +202,6 @@ export function TripRouteMap({
         const element = document.createElement("div");
         element.style.cssText = "display:flex;align-items:center;justify-content:center;width:28px;height:28px;";
         element.appendChild(dotElement(color, size, false));
-        element.setAttribute("role", "button");
-        element.setAttribute("aria-label", i === 0 ? "Origin" : i === ws.length - 1 ? "Destination" : w.Name || "Charging stop");
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
         element.addEventListener("click", (ev) => { ev.stopPropagation(); onSelectStopRef.current?.(origIdx); });
