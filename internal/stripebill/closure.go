@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,21 +72,30 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 			return nil
 		}
 	}
-	id, qerr := db.RecordStripeCancelFailure(context.WithoutCancel(ctx), c.DB, customer, truncate(cause.Error()))
+	id, qerr := db.RecordStripeCancelFailure(context.WithoutCancel(ctx), c.DB, customer, queueText(cause))
 	if qerr != nil {
-		c.logger().Error("stripe cancel failed and could not be queued; account not deleted", "err", cause.Error(), "queue_err", qerr.Error())
-		return errors.Join(ErrCancelNotQueued, cause, qerr)
+		c.logger().Error("stripe cancel failed and could not be queued; account not deleted", "err", queueText(cause), "queue_err", qerr.Error())
+		return errors.Join(ErrCancelNotQueued, errors.New(queueText(cause)), qerr)
 	}
-	c.logger().Warn("stripe cancel failed; queued for retry", "failure_id", id.String(), "err", cause.Error())
+	c.logger().Warn("stripe cancel failed; queued for retry", "failure_id", id.String(), "err", queueText(cause))
 	return nil
 }
 
-func truncate(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > 300 {
-		return s[:300]
+// queueText is what a failed attempt leaves in the retry queue and the logs: Stripe's status and error code, or a fixed phrase. Never the
+// raw error: a transport error or a Stripe message can carry what was sent.
+func queueText(err error) string {
+	var se *Error
+	switch {
+	case err == nil:
+		return ""
+	case errors.As(err, &se):
+		return se.Error() // "stripe: 500 internal"
+	case errors.Is(err, ErrNotConfigured):
+		return ErrNotConfigured.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return "stripe: timed out"
 	}
-	return s
+	return "stripe: request failed"
 }
 
 // RunRetrier retries queued cancellations every interval until ctx ends. Safe on every replica (rows are claimed with SKIP LOCKED). No-op
@@ -120,7 +128,7 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 			_, cerr := c.Client.CancelCustomerSubscriptions(cctx, it.Customer)
 			cancel()
 			if cerr != nil {
-				if err := db.StripeCancelFailedAgain(ctx, c.DB, it.ID, truncate(cerr.Error())); err != nil {
+				if err := db.StripeCancelFailedAgain(ctx, c.DB, it.ID, queueText(cerr)); err != nil {
 					c.logger().Warn("stripe cancel retry: record attempt failed", "failure_id", it.ID.String(), "err", err.Error())
 				}
 				if it.Attempts+1 >= alertAfterAttempts {

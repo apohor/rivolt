@@ -406,3 +406,30 @@ func TestCancelCustomerSubscriptions(t *testing.T) {
 		t.Error("a failing Stripe was reported as success")
 	}
 }
+
+// A Stripe refusal reads as its status and error code, never its free-text message (which can echo an email, a name or a key).
+func TestStripeErrorTextCarriesNoMessage(t *testing.T) {
+	e := &Error{Status: 500, Code: "internal", Message: "stripe says: sk_test_unit_key and someone@example.com"}
+	if got := e.Error(); got != "stripe: 500 internal" {
+		t.Errorf("Error() = %q", got)
+	}
+	for _, code := range []string{"", "has space", "Has-Caps", strings.Repeat("a", 100), "x\ny"} {
+		if got := (&Error{Status: 400, Code: code, Message: "m"}).Error(); got != "stripe: 400 error" {
+			t.Errorf("code %q -> %q, want the generic one", code, got)
+		}
+	}
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{e, "stripe: 500 internal"},
+		{ErrNotConfigured, ErrNotConfigured.Error()},
+		{context.DeadlineExceeded, "stripe: timed out"},
+		{errors.New("Post https://x: dial tcp someone@example.com"), "stripe: request failed"},
+		{nil, ""},
+	} {
+		if got := queueText(c.err); got != c.want {
+			t.Errorf("queueText(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
+}

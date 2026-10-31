@@ -451,8 +451,11 @@ func TestAccountClosureAgainstPostgres(t *testing.T) {
 	}
 	var detail string
 	_ = r.pool.QueryRow(`SELECT username || ' ' || error FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&detail)
-	if strings.Contains(detail, r.uid.String()) || strings.Contains(detail, testKey) {
-		t.Errorf("the queued row holds the user id or the key: %q", detail)
+	if strings.Contains(detail, r.uid.String()) || strings.Contains(detail, testKey) || strings.Contains(detail, "leaked") {
+		t.Errorf("the queued row holds the user id, the key or Stripe's free text: %q", detail)
+	}
+	if want := "stripe:" + cust + " stripe: 500 internal"; detail != want {
+		t.Errorf("the queued row = %q, want only the status and Stripe's error code: %q", detail, want)
 	}
 
 	// Retry while Stripe is still down: stays queued, attempts counted, reported as a backlog. Make the row due first.

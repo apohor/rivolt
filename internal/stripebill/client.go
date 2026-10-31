@@ -36,14 +36,29 @@ type Price struct {
 	Interval   string // month or year
 }
 
-// Error is a refusal from Stripe. Message is Stripe's own text for the operator's log; it is not shown to the user.
+// Error is a refusal from Stripe. Message is Stripe's own text; it is kept off every log line and queue row (see Error) and never shown to the user.
 type Error struct {
 	Status  int
 	Code    string
 	Message string
 }
 
-func (e *Error) Error() string { return fmt.Sprintf("stripe: %d %s: %s", e.Status, e.Code, e.Message) }
+// Error is the status and Stripe's error code only. Stripe's free-text message can echo what was sent (an email, a name, a key), so it is not
+// part of the text that goes to logs or into the retry queue; it stays in the Message field for a debugger.
+func (e *Error) Error() string { return fmt.Sprintf("stripe: %d %s", e.Status, safeCode(e.Code)) }
+
+// safeCode keeps a Stripe error code to the characters Stripe uses (lower-case letters, digits, underscore), so nothing else can ride in it.
+func safeCode(c string) string {
+	if c == "" || len(c) > 64 {
+		return "error"
+	}
+	for _, r := range c {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+			return "error"
+		}
+	}
+	return c
+}
 
 // ErrNotConfigured is a client with no secret key.
 var ErrNotConfigured = errors.New("stripe: no secret key configured")
