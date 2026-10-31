@@ -12,12 +12,14 @@ import { escapeHTML } from "../lib/escapeHtml";
 import { findNearestCharger, type POI } from "../lib/poi";
 import { chargerSpecListHTML, osmLinkURL } from "./chargerPopup";
 import { loadMapLibre } from "./loader";
+import { reserveLabelRoom } from "./pills";
 import { mountBaseMap } from "./mount";
 import { pinElement } from "./controls";
 import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
 
 const CONNECTOR = "rivolt-charge-link";
+const PINS = "rivolt-charge-pins";
 const BOLT_PIN =
   '<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:#f59e0b;' +
   'border:2px solid #0a0a0a;box-shadow:0 0 0 2px #f59e0b33;color:#0a0a0a;font:700 13px/1 ui-sans-serif,system-ui;">⚡</span>';
@@ -76,7 +78,19 @@ export function ChargeMap({
         type: "FeatureCollection" as const,
         features: link ? [{ type: "Feature" as const, geometry: { type: "LineString" as const, coordinates: link }, properties: {} }] : [],
       });
+      // The pins' own room: a clear symbol at the recorded position and at the snapped charger, so the basemap's place labels yield to them.
+      let pinPoints: [number, number][] = [[lon, lat]];
+      const pinsData = () => ({
+        type: "FeatureCollection" as const,
+        features: pinPoints.map((c) => ({ type: "Feature" as const, geometry: { type: "Point" as const, coordinates: c }, properties: {} })),
+      });
+      const setPinPoints = (pts: [number, number][]) => {
+        pinPoints = pts;
+        (map.getSource(PINS) as GeoJSONSource | undefined)?.setData(pinsData() as never);
+      };
       m.onStyle(() => {
+        if (!map.getSource(PINS)) map.addSource(PINS, { type: "geojson", data: pinsData() as never });
+        reserveLabelRoom(map, PINS, "rivolt-charge-pins-room", 30);
         if (!map.getSource(CONNECTOR)) map.addSource(CONNECTOR, { type: "geojson", data: linkData() as never });
         if (!map.getLayer(CONNECTOR)) {
           map.addLayer({ id: CONNECTOR, type: "line", source: CONNECTOR, paint: { "line-color": "#f59e0b", "line-width": 1.5, "line-opacity": 0.6, "line-dasharray": [4, 4] } });
@@ -119,6 +133,7 @@ export function ChargeMap({
         ownLabelPopup?.remove();
         ownLabelPopup = null;
         setLink(null);
+        setPinPoints([[lon, lat]]);
         setRecordedLook("pin");
         recordedEl.style.zIndex = "1000";
         recordedTip = "Charge location";
@@ -139,6 +154,7 @@ export function ChargeMap({
         recordedEl.style.zIndex = "500";
         recordedTip = `Recorded GPS · ${Math.round(poi.distanceM)} m from charger`;
         setLink([[lon, lat], [poi.lon, poi.lat]]);
+        setPinPoints([[lon, lat], [poi.lon, poi.lat]]);
         const labelText = text ?? poi.name ?? "Charging station";
         const pinEl = document.createElement("div");
         pinEl.innerHTML = BOLT_PIN;

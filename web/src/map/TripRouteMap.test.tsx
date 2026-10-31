@@ -39,6 +39,12 @@ class FakeMap {
   addControl(c: unknown) { this.controlsAdded.push(c); return this; }
   removeControl(c: unknown) { this.controlsAdded = this.controlsAdded.filter((x) => x !== c); return this; }
   getStyle() { return { layers: [] }; }
+  images = new Set<string>();
+  hasImage(id: string) { return this.images.has(id); }
+  addImage(id: string) { this.images.add(id); }
+  removeImage(id: string) { this.images.delete(id); }
+  project() { return { x: 10, y: 10 }; }
+  getContainer() { return { clientWidth: 400, clientHeight: 300 }; }
   setPaintProperty() {}
   addSource(id: string, spec?: { data?: unknown }) { this.sources.set(id, { setData: (d: unknown) => { if (id === "rivolt-track") this.lastData = d; } }); if (id === "rivolt-track") this.lastData = spec?.data; }
   lastData: unknown;
@@ -79,7 +85,7 @@ class FakeResizeObserver {
   disconnect() {}
 }
 
-const wp = (lat: number, lon: number, name: string) => ({ Latitude: lat, Longitude: lon, Name: name, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 80, DepartureSoC: 80, AdapterRequired: false });
+const wp = (lat: number, lon: number, name: string) => ({ WaypointType: name === "Stop" ? "charger" : "other", Latitude: lat, Longitude: lon, Name: name, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 80, DepartureSoC: 80, AdapterRequired: false });
 // A made-up straight trip near (10, 10).
 const route = { Waypoints: [wp(10, 10, "A"), wp(10.5, 10.5, "Stop"), wp(11, 11, "B")] } as unknown as TripRoute;
 
@@ -147,6 +153,14 @@ describe("TripRouteMap", () => {
     await waitFor(() => expect(FakeMap.last!.controlsAdded.some((c) => typeof (c as { update?: unknown }).update === "function")).toBe(true));
     // The card's DOM is made when it is added to a real map; check its text through the pure builder the component uses.
     expect(tripCardText({ day: "Day 2", meters: 367_000, stops: 1, seconds: 14_700, unit: "mi" })).toBe("Day 2 · 228 mi · 1 charging stop · 4h 5m");
+  });
+
+  it("a charging stop is an amber disc with a bolt; the ends are plain dots", async () => {
+    render(<TripRouteMap route={route} />);
+    await waitFor(() => expect(FakeMarker.all).toHaveLength(3));
+    expect(FakeMarker.all[0].element.textContent).toBe("");
+    expect(FakeMarker.all[1].element.textContent).toBe("⚡");
+    expect(FakeMarker.all[2].element.textContent).toBe("");
   });
 
   it("removes the map when it unmounts", async () => {

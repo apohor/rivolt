@@ -18,6 +18,8 @@ import { webglAvailable } from "./webgl";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
+import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
+import { pillSide, setPills, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits } from "../lib/preferences";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
@@ -37,8 +39,18 @@ const CHARGERS_LAYER = "rivolt-chargers-dots";
 const VARIANTS: Variant[] = ["dcfc", "l2", "hotel", "camp"];
 
 // The waypoint dot, plain or selected (the stops-table row is highlighted): the selected one is larger and ringed, its glow a touch target.
-function dotElement(color: string, size: number, selected: boolean): HTMLElement {
+function dotElement(color: string, size: number, selected: boolean, bolt = false): HTMLElement {
   const el = document.createElement("span");
+  if (bolt) {
+    // A charging stop: an amber disc with a bolt, as in the mockup; the selected one is ringed and larger.
+    const px = selected ? 26 : 22;
+    el.className = selected ? "trip-route-dot-selected" : "trip-route-dot";
+    el.textContent = "⚡";
+    el.style.cssText =
+      `display:inline-flex;align-items:center;justify-content:center;width:${px}px;height:${px}px;border-radius:9999px;background:${color};color:#0a0a0a;` +
+      `font:700 ${selected ? 15 : 13}px/1 ui-sans-serif,system-ui;border:${selected ? 3 : 2}px solid ${selected ? "#fafafa" : "#0a0a0a"};box-shadow:0 0 0 ${selected ? 4 : 2}px ${color}55;`;
+    return el;
+  }
   el.className = selected ? "trip-route-dot-selected" : "trip-route-dot";
   const px = selected ? size + 6 : size;
   el.style.cssText = selected
@@ -76,6 +88,8 @@ export function TripRouteMap({
   onSelectStop,
   departureAt,
   dayLabel,
+  originLabel,
+  destLabel,
 }: {
   route: TripRoute;
   height?: number;
@@ -93,13 +107,16 @@ export function TripRouteMap({
   onSelectStop?: (idx: number | null) => void;
   // "Day 2" on a multi-day plan's map: the card says which day it is.
   dayLabel?: string;
+  // The names on the origin and destination pills; without them the waypoints' own names.
+  originLabel?: string;
+  destLabel?: string;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const [mapReady, setMapReady] = useState<MLMap | null>(null);
   // Waypoint markers by their index in route.Waypoints, so a table-row selection can restyle the right one.
-  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement }>>(new Map());
+  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean }>>(new Map());
   const chargersRef = useRef<GeoJSON.FeatureCollection>({ type: "FeatureCollection", features: [] });
   const popupRef = useRef<Popup | null>(null);
   // True between a style's "style.load" and the next setStyle. Not map.isStyleLoaded(): that is false while any source is still loading a
@@ -197,6 +214,7 @@ export function TripRouteMap({
         if (!(el.clientWidth > 0 && el.clientHeight > 0)) { fitted = false; return; }
         map.fitBounds(boundsOfPath(fitPath), { padding: padding(), maxZoom, animate: false });
         fitted = true;
+        updatePills();
       };
       let fitZoom = 12;
 
@@ -208,7 +226,7 @@ export function TripRouteMap({
       let card: ReturnType<typeof tripCard> | undefined;
       let cardOn = false;
       const cardText = () =>
-        tripCardText({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: Math.max(0, ws.length - 2), seconds: route.TotalTripDurationSec, unit: km });
+        tripCardText({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: chargingStopCount(route), seconds: route.TotalTripDurationSec, unit: km });
       const draw = () => {
         const c = RAMPS[flavor].speed[1];
         setDriveRoute(map, { track, stops: [0, c, 1, c] }, flavor, firstLabelLayer(map));
@@ -221,7 +239,36 @@ export function TripRouteMap({
             cardOn = true;
           }
         }
+        updatePills();
         drawn.markDrawn();
+      };
+      // ---- place-name pills: the origin and destination by name (a dot in the colour of that end of the route) and each charging stop's time and
+      // battery, as map symbols so the basemap's labels yield to them; on the side of each pin with more room, and a pill that would lie over
+      // another is dropped (the origin and destination first).
+      const shortName = (n: string) => {
+        const part = n.split(",")[0].trim();
+        const max = narrow ? 18 : 30;
+        return part.length > max ? part.slice(0, max - 1) + "…" : part;
+      };
+      const pillKeyRef = { key: "" };
+      const updatePills = (force = false) => {
+        if (!styleReadyRef.current) return;
+        const last = ws.length - 1;
+        const specs: PillSpec[] = ws.map((w, i) => {
+          const ll: [number, number] = [w.Longitude, w.Latitude];
+          const side = pillSide(map, ll);
+          if (i === 0 || i === last) {
+            const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
+            return { id: `wp${i}`, text: shortName(name), lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 };
+          }
+          const min = Math.round(w.ChargeDurationSec / 60);
+          const text = w.ChargeDurationSec > 0 ? `${min} min · ${Math.round(w.ArrivalSoC)}→${Math.round(w.DepartureSoC)}%` : shortName(w.Name || "Stop");
+          return { id: `wp${i}`, text, lngLat: ll, ...side, priority: 2 };
+        });
+        const key = JSON.stringify(specs.map((p) => [p.id, p.text, p.anchor, p.dot])) + flavor;
+        if (!force && key === pillKeyRef.key) return;
+        pillKeyRef.key = key;
+        setPills(map, specs, flavor, true);
       };
       map.on("style.load", () => {
         styleReadyRef.current = true;
@@ -243,13 +290,13 @@ export function TripRouteMap({
         // The marker's own element keeps the library's classes and a fixed box (a steady anchor and a touch target); the dot inside swaps on selection.
         const element = document.createElement("div");
         element.style.cssText = "display:flex;align-items:center;justify-content:center;width:28px;height:28px;";
-        element.appendChild(dotElement(color, size, false));
+        element.appendChild(dotElement(color, size, false, !isEnd && isChargingWaypoint(w)));
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
         element.addEventListener("click", (ev) => { ev.stopPropagation(); onSelectStopRef.current?.(origIdx); });
         element.addEventListener("mouseenter", () => tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map));
         element.addEventListener("mouseleave", () => tip.remove());
-        wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element });
+        wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
       }
       cleanups.push(() => { tip.remove(); wpMarkersRef.current.forEach((m) => m.marker.remove()); wpMarkersRef.current.clear(); });
 
@@ -321,7 +368,7 @@ export function TripRouteMap({
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
 
     return () => { for (const c of cleanups.reverse()) c(); };
-  }, [supported, route, fill, dayLabel]);
+  }, [supported, route, fill, dayLabel, originLabel, destLabel]);
 
   // The charger overlay is one GeoJSON source drawn as circles on the map's canvas: hundreds of chargers cost no DOM nodes.
   function addChargerLayer(map: MLMap) {
@@ -415,7 +462,7 @@ export function TripRouteMap({
     if (markers.size === 0) return;
     for (const [idx, m] of markers.entries()) {
       const selected = selectedIdx === idx;
-      m.wrap.replaceChildren(dotElement(m.color, m.size, selected));
+      m.wrap.replaceChildren(dotElement(m.color, m.size, selected, m.bolt));
       m.wrap.style.zIndex = selected ? "1000" : "";
     }
     const map = mapRef.current;

@@ -31,6 +31,9 @@ for (const [name, vp] of [
       const n = sheetDistance.match(/\d+/)?.[0];
       expect(n, `the sheet's distance: ${sheetDistance}`).toBeTruthy();
       await expect(card).toContainText(new RegExp(`\\b${n} (mi|km)\\b`));
+      // The one charging stop is an amber disc with a bolt; the origin and destination are plain dots.
+      await expect(map.locator(".maplibregl-marker", { hasText: "⚡" })).toHaveCount(1);
+      await expect(map.locator(".maplibregl-marker")).toHaveCount(3);
       // The card ends left of the credits' (i).
       const lb = (await card.boundingBox())!;
       const ib = (await map.locator(".maplibregl-ctrl-attrib-button").boundingBox())!;

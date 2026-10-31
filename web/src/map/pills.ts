@@ -18,7 +18,7 @@ const RESERVE_IMAGE = "rivolt-pin-reserve";
 export type PillImage = { width: number; height: number; data: Uint8ClampedArray; pixelRatio: number };
 
 // pillImage draws a rounded pill with `text` on a canvas; null when there is no canvas to draw on.
-export function pillImage(text: string, flavor: MapFlavor, ratio = 2): PillImage | null {
+export function pillImage(text: string, flavor: MapFlavor, ratio = 2, dot?: string): PillImage | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext?.("2d");
@@ -27,7 +27,9 @@ export function pillImage(text: string, flavor: MapFlavor, ratio = 2): PillImage
   const font = `600 ${MAP_CAPTION_PX + 1}px ui-sans-serif, system-ui, sans-serif`;
   ctx.font = font;
   const textW = Math.ceil(ctx.measureText(text).width);
-  const w = textW + 18;
+  // A coloured dot at the left (a place's pill: the colour of its end of the route) takes 11 px.
+  const lead = dot ? 11 : 0;
+  const w = textW + 18 + lead;
   const h = MAP_CAPTION_PX + 12;
   canvas.width = w * ratio;
   canvas.height = h * ratio;
@@ -51,26 +53,35 @@ export function pillImage(text: string, flavor: MapFlavor, ratio = 2): PillImage
   ctx.strokeStyle = c.border;
   ctx.lineWidth = 1;
   ctx.stroke();
+  if (dot) {
+    ctx.beginPath();
+    ctx.arc(14, h / 2, 4, 0, Math.PI * 2);
+    ctx.fillStyle = dot;
+    ctx.fill();
+  }
   ctx.fillStyle = c.text;
-  ctx.fillText(text, 9, h / 2 + 0.5);
+  ctx.fillText(text, 9 + lead, h / 2 + 0.5);
   const img = ctx.getImageData(0, 0, w * ratio, h * ratio);
   return { width: img.width, height: img.height, data: img.data, pixelRatio: ratio };
 }
 
-export type PillSpec = { id: string; text: string; lngLat: [number, number]; anchor: string; offset: [number, number] };
+// priority: lower is placed first when pills may not overlap (collide); dot: the colour of a leading dot.
+export type PillSpec = { id: string; text: string; lngLat: [number, number]; anchor: string; offset: [number, number]; dot?: string; priority?: number };
 
 // setPills (re)creates the pill images and layers; safe to call after every style load. Specs with no image (no canvas) are skipped.
-export function setPills(map: MLMap, specs: PillSpec[], flavor: MapFlavor): void {
+// With `collide`, pills that would overlap another pill or each other's room are dropped in priority order (the plan map, where stops can
+// crowd); without it they always show (the drive map's two).
+export function setPills(map: MLMap, specs: PillSpec[], flavor: MapFlavor, collide = false): void {
   for (const id of [...specs.map((s) => `pill-${s.id}`), RESERVE_IMAGE]) if (map.hasImage(id)) map.removeImage(id);
   const features = [];
   for (const s of specs) {
-    const img = pillImage(s.text, flavor, Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 2))));
+    const img = pillImage(s.text, flavor, Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 2))), s.dot);
     if (!img) continue;
     map.addImage(`pill-${s.id}`, { width: img.width, height: img.height, data: img.data }, { pixelRatio: img.pixelRatio });
     features.push({
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: s.lngLat },
-      properties: { image: `pill-${s.id}`, anchor: s.anchor, offset: s.offset },
+      properties: { image: `pill-${s.id}`, anchor: s.anchor, offset: s.offset, p: s.priority ?? 0 },
     });
   }
   if (features.length === 0) return;
@@ -81,13 +92,14 @@ export function setPills(map: MLMap, specs: PillSpec[], flavor: MapFlavor): void
   if (src) src.setData(data as never);
   else map.addSource(PILLS_SOURCE, { type: "geojson", data: data as never });
   const common = { "icon-allow-overlap": true, "icon-ignore-placement": false } as const;
+  const pillCommon = { "icon-allow-overlap": !collide, "icon-ignore-placement": false, "symbol-sort-key": ["get", "p"] } as const;
   if (!map.getLayer(RESERVE_LAYER)) {
     map.addLayer({ id: RESERVE_LAYER, type: "symbol", source: PILLS_SOURCE, layout: { ...common, "icon-image": RESERVE_IMAGE } });
     map.addLayer({
       id: PILLS_LAYER,
       type: "symbol",
       source: PILLS_SOURCE,
-      layout: { ...common, "icon-image": ["get", "image"], "icon-anchor": ["get", "anchor"], "icon-offset": ["get", "offset"] } as never,
+      layout: { ...pillCommon, "icon-image": ["get", "image"], "icon-anchor": ["get", "anchor"], "icon-offset": ["get", "offset"] } as never,
     });
   }
 }
@@ -113,6 +125,13 @@ export function placePills(map: MLMap, start: [number, number] | null, end: [num
     }
   }
   return out;
+}
+
+// pillSide is the side of a pin with more room in the view, as an anchor and offset: a pill on the left half of the map extends right, and the
+// other way round, so it does not lie across the route toward the middle.
+export function pillSide(map: MLMap, ll: [number, number]): { anchor: string; offset: [number, number] } {
+  const right = map.project(ll).x > (map.getContainer().clientWidth || 1) / 2;
+  return right ? { anchor: "right", offset: [-16, 0] } : { anchor: "left", offset: [16, 0] };
 }
 
 // reserveLabelRoom puts a clear symbol of `size` px on every point of `source`, on top, so the basemap's place labels yield to the markers
