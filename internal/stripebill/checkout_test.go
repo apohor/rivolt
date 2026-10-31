@@ -242,7 +242,7 @@ func TestBuildCheckoutForANewAccount(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, form.Get(k), want)
 		}
 	}
-	for _, absent := range []string{"subscription_data[trial_end]", "customer", "automatic_tax[enabled]", "customer_email", "customer_update[address]"} {
+	for _, absent := range []string{"subscription_data[trial_end]", "customer", "automatic_tax[enabled]", "customer_email", "customer_update[address]", "custom_text[after_submit][message]"} {
 		if _, ok := form[absent]; ok {
 			t.Errorf("%s is set for a new account with tax off", absent)
 		}
@@ -536,5 +536,41 @@ func TestDeleteCustomerIfClear(t *testing.T) {
 	f.subs = map[string][][2]string{"cus_both": {{"sub_x", "active"}}}
 	if err := c(f).CloseCustomer(ctx, "cus_both"); err != nil || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
 		t.Errorf("CloseCustomer: %v, cancelled %v, deleted %v", err, f.deleted, f.customersDeleted)
+	}
+}
+
+// The free-period explainer sits beside the pay button only when trial_end is set, names the same date as the consent line, and says
+// "founding year" only for a founding account.
+func TestCheckoutFreePeriodExplainer(t *testing.T) {
+	end := launchDay.Add(10 * 24 * time.Hour)
+	for source, what := range map[string]string{entitlements.SourceFounding: "(your founding year)", entitlements.SourceGrant: "(your free period)"} {
+		f := newFakeStripe(t)
+		svc := newService(f, fakePlans{billing: true, trial: end, state: entitlements.State{Pro: true, Source: source}}, launchDay)
+		if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); err != nil {
+			t.Fatal(err)
+		}
+		form := f.posts[0]
+		got := form.Get("custom_text[after_submit][message]")
+		want := "Your Rivolt Pro is already free until December 11, 2026 " + what + ". Stripe calls this free period a trial: nothing is charged before December 11, 2026, then $34.99 renews every year until you cancel."
+		if got != want {
+			t.Errorf("%s: explainer = %q, want %q", source, got, want)
+		}
+		if len(got) > 1200 {
+			t.Errorf("%s: explainer is %d characters, Stripe's limit is 1200", source, len(got))
+		}
+		if !strings.Contains(form.Get("custom_text[submit][message]"), "December 11, 2026") {
+			t.Errorf("%s: the consent line names another date: %q", source, form.Get("custom_text[submit][message]"))
+		}
+	}
+	// A free account has no trial_end and no explainer (TestBuildCheckoutForANewAccount pins the absence too).
+	f := newFakeStripe(t)
+	svc := newService(f, fakePlans{billing: true}, launchDay)
+	if _, err := svc.Checkout(context.Background(), uuid.New(), "month"); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"subscription_data[trial_end]", "custom_text[after_submit][message]"} {
+		if _, ok := f.posts[0][k]; ok {
+			t.Errorf("a free account's checkout sets %s", k)
+		}
 	}
 }

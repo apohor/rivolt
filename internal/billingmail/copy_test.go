@@ -85,6 +85,13 @@ func TestPaymentFailedEmailStatesWhenGraceEndsAndHowToFixIt(t *testing.T) {
 	if FailureSubject(FailureParams{}) == "" || PurchaseSubject(PurchaseParams{}) == "" {
 		t.Error("an email has no subject")
 	}
+	// The free-period confirmation names the first charge so it can be told from a paid purchase's in an inbox.
+	if got := PurchaseSubject(PurchaseParams{Trialing: true, Date: "2027-11-20"}); got != "Your Rivolt Pro subscription: first charge on November 20, 2027" {
+		t.Errorf("free-period subject = %q", got)
+	}
+	if got := PurchaseSubject(PurchaseParams{Date: "2027-11-20"}); got != "Your Rivolt Pro subscription" {
+		t.Errorf("paid subject = %q", got)
+	}
 }
 
 func TestRenderRefusesBadParams(t *testing.T) {

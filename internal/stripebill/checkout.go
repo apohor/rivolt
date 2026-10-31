@@ -67,6 +67,22 @@ func ConsentLine(p Price, firstCharge, now time.Time) string {
 	return fmt.Sprintf("First charge %s: %s, then %s every %s until you cancel. Cancel any time in Settings.", when, amount, amount, every)
 }
 
+// FreePeriodLine explains, on a Checkout that carries trial_end, what Stripe's own page calls a trial ("Try ... free", "Start trial"): the
+// account's Pro is already free until firstCharge (its founding year, or another free period), nothing is charged before then, and the
+// price renews. Shown beside the pay button (custom_text after_submit; Stripe allows 1,200 characters), with the same date as ConsentLine.
+// source is the entitlement that grants the free time.
+func FreePeriodLine(p Price, source string, firstCharge time.Time) string {
+	amount := fmt.Sprintf("%s%d.%02d", currencySymbol(p.Currency), p.UnitAmount/100, p.UnitAmount%100)
+	every := map[string]string{"month": "month", "year": "year"}[p.Interval]
+	date := firstCharge.UTC().Format("January 2, 2006")
+	what := "your free period"
+	if source == entitlements.SourceFounding {
+		what = "your founding year"
+	}
+	return fmt.Sprintf("Your Rivolt Pro is already free until %s (%s). Stripe calls this free period a trial: nothing is charged before %s, then %s renews every %s until you cancel.",
+		date, what, date, amount, every)
+}
+
 func currencySymbol(c string) string {
 	if sym, ok := map[string]string{"usd": "$", "eur": "€", "gbp": "£"}[c]; ok {
 		return sym
@@ -131,6 +147,7 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 	}
 	if !trialEnd.IsZero() {
 		form.Set("subscription_data[trial_end]", strconv.FormatInt(trialEnd.Unix(), 10))
+		form.Set("custom_text[after_submit][message]", FreePeriodLine(price, st.Source, first))
 	}
 	if s.AutomaticTax {
 		form.Set("automatic_tax[enabled]", "true")
