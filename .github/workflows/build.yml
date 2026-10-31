@@ -1232,6 +1232,9 @@ jobs:
           repository: apohor/rivolt-infra
           # The default GITHUB_TOKEN only has access to this repo.
           token: ${{ steps.infra-token.outputs.token || secrets.RIVOLT_INFRA_TOKEN }}
+          # Full history: the bump step reads the commit that set preview's current tag (its Source-SHA line and its age). In
+          # a depth-1 clone every file's last commit is the grafted HEAD, whatever it changed.
+          fetch-depth: 0
 
       - name: Bump preview image.tag (newest wins)
         env:
@@ -1247,11 +1250,11 @@ jobs:
           git config user.email "ci@rivolt.dev"
           # The full SHA of the commit preview runs, from its short tag. The commits API refuses some 7-character abbreviations
           # (422 "No commit found for SHA", seen for ceda00f) and still prints its error body on stdout, so every answer is
-          # checked to be 40 hex digits. In order: the Source-SHA line this job writes in each bump commit; the API with the
-          # short sha; a scan of main's latest 100 commits.
+          # checked to be 40 hex digits. In order: the Source-SHA line in the commit that set the tag ($2, this job writes it
+          # in each bump commit); the API with the short sha; a scan of main's latest 100 commits.
           resolve_full() {
-            local short=$1 full
-            full=$(git log -1 --format=%B -- "$file" | sed -n -E 's/^Source-SHA: ([0-9a-f]{40})$/\1/p' | head -1)
+            local short=$1 setter=$2 full
+            [ -n "$setter" ] && full=$(git show -s --format=%B "$setter" | sed -n -E 's/^Source-SHA: ([0-9a-f]{40})$/\1/p' | head -1)
             case "$full" in "$short"*) echo "$full"; return ;; esac
             full=$(gh api "repos/$REPO/commits/$short" --jq .sha 2>/dev/null || true)
             if printf '%s' "$full" | grep -qE '^[0-9a-f]{40}$'; then echo "$full"; return; fi
@@ -1264,7 +1267,9 @@ jobs:
             # after a newer one's: only move preview forward.
             prev=$(grep -E '^[[:space:]]+tag:[[:space:]]+sha-[0-9a-f]+' "$file" | head -1 | sed -E 's/.*sha-([0-9a-f]+).*/\1/')
             if [ -n "$prev" ]; then
-              prev_full=$(resolve_full "$prev")
+              # The commit that set the current tag, not the last one to touch the file: other edits to the values do not count.
+              setter=$(git log -1 --format=%H -G "tag:[[:space:]]+sha-${prev}" -- "$file")
+              prev_full=$(resolve_full "$prev" "$setter")
               rel=unknown
               [ -n "$prev_full" ] && rel=$(gh api "repos/$REPO/compare/$prev_full...$SHA" --jq .status 2>/dev/null || echo unknown)
               case "$rel" in ahead|behind|identical|diverged) ;; *) rel=unknown ;; esac
@@ -1281,7 +1286,9 @@ jobs:
                 # Skipping must not go on silently: when preview has sat on the same tag for 6 hours the comparison keeps failing,
                 # and the job fails so someone looks (a bump skipped for every build since 01:59Z went unseen for hours).
                 unknown)
-                  age=$(( $(date +%s) - $(git log -1 --format=%ct -- "$file") ))
+                  # No setter commit found counts as old: fail loudly rather than do arithmetic on nothing.
+                  age=99999999
+                  [ -n "$setter" ] && age=$(( $(date +%s) - $(git show -s --format=%ct "$setter") ))
                   if [ "$age" -gt 21600 ]; then
                     echo "::error::couldn't compare ${prev} with ${SHA:0:7}, and preview has been on ${prev} for $((age / 3600)) h: not bumping, needs a look."; exit 1
                   fi
