@@ -76,6 +76,8 @@ enum PlanLogic {
 /// Pro screen wording, from growth's docs/PRO_LAUNCH_COPY.md section 10 (PR #1366; DA's copy check is part of that PR, so re-verify
 /// this against the merged text before billing is on: LAUNCH-BLOCKING). The prices are the plan's. The web's twin is `lib/proCopy.ts`.
 enum ProCopy {
+    static let primaryVehicleIntro = "The free plan shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
+    static func primaryVehicleSaved(_ name: String) -> String { "Done. The free plan now shows \(name)." }
     static let title = "Rivolt Pro"
     static let subtitle = "Full history, multi-day trips and widgets, from $3.99 a month."
     static let included = [
@@ -102,6 +104,15 @@ enum ProCopy {
     static let unofficial = "Unofficial, not affiliated with Rivian."
     static let unavailable = "Purchases aren't available yet. Nothing was charged."
     static let deletionNote = "If you subscribed through the App Store, cancel in Settings → your name → Subscriptions first: deleting your Rivolt account doesn't cancel it."
+
+    // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
+    static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
+    static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
+    static func savedTripsLimit(_ n: Int = 3) -> String {
+        "The free plan keeps \(n) saved trips. Your other trips stay saved: you can open them, and Pro lets you edit and add more."
+    }
+    static let vehicleLimit = "This vehicle's history is part of Rivolt Pro. It keeps recording and alerting, and everything stays in your export. The free plan shows your primary vehicle."
+    static let primaryVehicleHelp = "The free plan shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
 
     static func choiceLabel(_ yearly: Bool) -> String { yearly ? "Subscribe: $34.99 a year, renews yearly" : "Subscribe: $3.99 a month, renews monthly" }
 
@@ -175,12 +186,14 @@ struct ProLimitNote: View {
     @Environment(AppState.self) private var state
     let limit: ProLimit
     var freeDays: Int = 90
+    /// A sentence for the feature that was hit, in place of the generic one.
+    var message: String?
     @State private var plan: PlanState = .off
     @State private var showing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(limit.text(freeDays: freeDays)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            Text(message ?? limit.text(freeDays: freeDays)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
             if plan != .off {
                 Button("See Pro") { showing = true }.buttonStyle(ThemeSecondaryButtonStyle())
             }

@@ -104,6 +104,7 @@ enum SavedTripLogic {
     static func failure(_ error: Error) -> String {
         if case APIError.server(let status, _) = error {
             switch status {
+            case 402: return ProCopy.savedTripsLimit()
             case 409: return "You already have a saved trip with that name. Choose another name, or update that one."
             case 413: return "This trip is too big to save."
             case 422: return "You have 100 saved trips. Delete one on the web to save another."

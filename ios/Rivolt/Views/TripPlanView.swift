@@ -369,7 +369,10 @@ struct SaveTripSection: View {
             if let active = saved.active {
                 Button("Update “\(active.name)”") { Task { await save(overwrite: true) } }
                     .buttonStyle(ThemeSecondaryButtonStyle())
-                    .disabled(saved.saveState == .saving)
+                    .disabled(saved.saveState == .saving || active.readOnly == true)
+                if active.readOnly == true {
+                    Text("This trip is past the free plan's saved trips, so it is read-only: open it, or save it under a new name.").themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             switch saved.saveState {
             case .saved(let n): Text("Saved as “\(n)”.").themeText(.subline, color: Theme.textSecondary)
@@ -412,9 +415,13 @@ struct SavedTripsList: View {
                     ForEach(Array(saved.trips.enumerated()), id: \.element.id) { i, trip in
                         if i > 0 { Divider().overlay(Theme.border) }
                         Button { open(trip) } label: {
-                            Text(trip.name).themeText(.value, color: saved.active?.id == trip.id ? Theme.accent : Theme.textPrimary)
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            HStack(spacing: 8) {
+                                Text(trip.name).themeText(.value, color: saved.active?.id == trip.id ? Theme.accent : Theme.textPrimary)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if trip.readOnly == true { Text("Pro to edit").themeText(.caption, color: Theme.textTertiary) }
+                            }
+                            .frame(minHeight: 44)
                         }
                         .buttonStyle(.plain)
                     }
@@ -457,7 +464,10 @@ struct PlanVsActualSection: View {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Looking…").themeText(.value, color: Theme.textSecondary) }
             case .failed(let words):
                 Text(words).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
-                Button("Try again") { Task { await model.load(source: state.client, savedID: saved.id) } }.buttonStyle(ThemeSecondaryButtonStyle())
+                // A free account's plan vs actual is Pro (HTTP 402): the sentence says so, and trying again would not change it.
+                if words != ProCopy.planVsActualLimit {
+                    Button("Try again") { Task { await model.load(source: state.client, savedID: saved.id) } }.buttonStyle(ThemeSecondaryButtonStyle())
+                }
             case .loaded(let parts):
                 ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                     if i > 0 { Divider().overlay(Theme.border) }

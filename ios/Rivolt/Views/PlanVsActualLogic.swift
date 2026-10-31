@@ -152,6 +152,7 @@ enum PlanVsActualLogic {
 
     /// What to tell the person when a call failed. Never the server's own text.
     static func failure(_ error: Error) -> String {
+        if case APIError.server(let status, _) = error, status == 402 { return ProCopy.planVsActualLimit }
         if case APIError.server(let status, _) = error, status == 404 { return "That saved trip is gone, so there is nothing to compare." }
         return "Couldn't reach the comparison right now. Try again in a minute."
     }
