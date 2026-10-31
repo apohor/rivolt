@@ -90,6 +90,12 @@ func currencySymbol(c string) string {
 	return strings.ToUpper(c) + " "
 }
 
+// PinnedPaymentMethods are the payment method types our Checkout sessions carry, whatever the Dashboard's default payment method
+// configuration offers: cards (Apple Pay and Google Pay ride on card in Checkout) and Link. Other methods (bank debits, buy-now-pay-later,
+// delayed or redirect methods) have refund and dispute flows that do not match the 14-day refund copy, so no Dashboard toggle may put them
+// into our sessions. The launch pre-flight reads this same list.
+func PinnedPaymentMethods() []string { return []string{"card", "link"} }
+
 // CheckoutParams are the inputs of one session, exposed so a test can see exactly what is sent to Stripe.
 type CheckoutParams struct {
 	Form        url.Values
@@ -144,6 +150,9 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 		"cancel_url":                           {s.BaseURL + "/settings?checkout=cancelled#plan"},
 		"consent_collection[terms_of_service]": {"required"},
 		"custom_text[submit][message]":         {ConsentLine(price, first, now)},
+	}
+	for i, m := range PinnedPaymentMethods() {
+		form.Set(fmt.Sprintf("payment_method_types[%d]", i), m)
 	}
 	if !trialEnd.IsZero() {
 		form.Set("subscription_data[trial_end]", strconv.FormatInt(trialEnd.Unix(), 10))

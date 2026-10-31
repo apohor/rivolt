@@ -406,3 +406,15 @@ func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, 
 	}
 	return nil, false, nil
 }
+
+// TaxActive reads Stripe Tax's settings status (read-only): "active" means the head office address and default tax behaviour are set up and
+// automatic tax can be used in this mode. Anything else (pending, or no settings) is false.
+func (c *Client) TaxActive(ctx context.Context) (bool, error) {
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/tax/settings", nil, "", &out); err != nil {
+		return false, err
+	}
+	return out.Status == "active", nil
+}
