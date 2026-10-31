@@ -68,6 +68,9 @@ for (const v of [
     await expect(buttons.first()).toContainText("Los Angeles ↔ Sample Inn, Las Vegas · 2 days · 540 mi");
     await buttons.first().click();
     await expect(page.locator("[data-day-card]")).toHaveCount(2);
+    // Each day's map says its day on its card.
+    await expect(page.locator("[data-day-card]").nth(0).locator(".rivolt-trip-card")).toContainText(/^Day 1 · /);
+    await expect(page.locator("[data-day-card]").nth(1).locator(".rivolt-trip-card")).toContainText(/^Day 2 · /);
     // The result is in sight without scrolling hunting: on a wide screen it sits beside the list, on a phone it is brought up.
     const heading = page.getByText(/^2-day round trip from/);
     await expect(heading).toBeVisible();

@@ -26,6 +26,11 @@ for (const [name, vp] of [
       const card = map.locator(".rivolt-trip-card");
       await expect(card).toBeVisible();
       await expect(card).toContainText(/\d+ mi · 1 charging stop · \d+h/);
+      // The card and the sheet say the same distance: both are the plan's own total, never the drawn line's length.
+      const sheetDistance = (await page.locator("dt", { hasText: /^Distance$/ }).first().locator("xpath=following-sibling::dd").textContent())!.trim();
+      const n = sheetDistance.match(/\d+/)?.[0];
+      expect(n, `the sheet's distance: ${sheetDistance}`).toBeTruthy();
+      await expect(card).toContainText(new RegExp(`\\b${n} (mi|km)\\b`));
       // The card ends left of the credits' (i).
       const lb = (await card.boundingBox())!;
       const ib = (await map.locator(".maplibregl-ctrl-attrib-button").boundingBox())!;
