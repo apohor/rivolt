@@ -47,6 +47,7 @@ $34.99 a year, the same on the web and in the app.
 your account on TERMS_EFFECTIVE_EXISTING, 30 days from this email:
 https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro"
 section that applies only to accounts that subscribe: https://rivolt.dev/privacy.
+Until TERMS_EFFECTIVE_EXISTING the previous Terms apply: https://rivolt.dev/terms/2026-10-23.
 If you do not agree, you can export and delete your account from Settings before
 then.
 
@@ -69,9 +70,10 @@ Buttons: "What changes" (→ /support#free-and-pro) · "Read the Terms" (→ /te
 
 ## 3. New sign-up and trial screens (web)
 
-Sign-up page line (replaces "Free during the beta"): "Free to start. Every new
-account gets 14 days of Rivolt Pro; no card, it ends on its own and nothing is
-charged."
+Sign-up page line, web (replaces "Free during the beta"): "Free to start. Every
+new account gets 14 days of Rivolt Pro; no card, it ends on its own and nothing is
+charged." (The iPhone sign-up does not promise "no card": its trial is Apple's
+introductory offer, described on the paywall.)
 
 Trial card on Now, day 1: "You have Pro for 14 days: widgets, multi-day plans,
 full history. No card, nothing charges. Afterwards the free tier keeps every

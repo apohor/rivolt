@@ -128,7 +128,7 @@ export default function LandingPage() {
             />
             <Claim
               title="Rivolt Pro: $3.99 a month or $34.99 a year"
-              body="Unlimited history and trends, range near a temperature, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle, and widgets and the charging Live Activity on iPhone. Every new account gets 14 days of Pro, no card. Stop paying and nothing is deleted."
+              body="Unlimited history and trends, range near a temperature, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle, and widgets and the charging Live Activity on iPhone. Every new account gets 14 days of Pro free: no card on the web; in the iPhone app it is Apple's free trial, which renews unless cancelled. Stop paying and nothing is deleted."
             >
               <Link to="/support" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
                 What is free, what Pro costs, what happens if you stop
