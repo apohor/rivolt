@@ -95,6 +95,8 @@ var routeClasses = map[string]windowClass{
 	"GET /api/year-in-rivolt":                     {"exempt", "the year card stays free; an aggregate of the user's own year, computed server-side"},
 	"GET /api/ledger/enabled":                     {"exempt", "a feature flag, no history"},
 	"POST /api/milestones/dismiss":                {"exempt", "a write on the user's own milestone"},
+	"GET /api/notices":                            {"exempt", "the account's own service notices (the Pro launch notice), no history; free for every plan"},
+	"POST /api/notices/dismiss":                   {"exempt", "a write on the user's own notice"},
 	"POST /api/statement-email/unsubscribe":       {"exempt", "an email control; works signed out"},
 	"GET /api/statement-email/unsubscribe":        {"exempt", "an email control; works signed out"},
 	"GET /api/vehicles":                           {"exempt", "the vehicle list: a free account's other vehicles are listed with pro_locked (handler-level), never hidden"},

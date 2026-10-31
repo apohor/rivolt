@@ -49,6 +49,11 @@ var notYetGuarded = map[string]string{}
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
+	"launchnotice.Store.Ensure":            "operator command (rivolt launch-notice): a one-shot run by an operator, not by a group's owner",
+	"launchnotice.Store.ClaimEmail":        "operator command (rivolt launch-notice): the email claim of that one-shot run",
+	"launchnotice.Store.MarkSent":          "operator command (rivolt launch-notice): records the notice email as sent",
+	"launchnotice.Store.ReleaseClaim":      "operator command (rivolt launch-notice): gives a failed email's claim back",
+	"launchnotice.Store.Dismiss":           "user action (api/notices.go: the account hides its own banner)",
 	"engage.pgStore.Mark":                  "bookkeeping of a claim that was already guarded (status sending -> sent/failed); a refusal here would leave the row stuck in 'sending'",
 	"push.Store.CreateNotification":        "the notification text of a send; reached only from hooks the recorder gates on the fence (StateMonitor.hookFence) and from user actions, never on its own",
 	"push.Store.RegisterActivity":          "user action (api/push_apns.go: the app starts a Live Activity)",
@@ -98,7 +103,7 @@ var notOwnerSide = map[string]string{
 	"receipts.Store.purge":                 "user action and retention job (DeleteForUser / opt-out purge)",
 	"secrets.Store.Delete":                 "user action (logout, delete, disconnect)",
 	"secrets.Store.Put":                    "user and admin actions: Rivian sign-in and MFA (api/rivian.go), the admin session refresh, the Apple sign-in token, the demo seed; no owner path persists a session (TestOwnerPackagesDoNotPersistSessions)",
-	"secrets.Store.PutTx":                  "as Put: SaveRivianSession's transaction for a sign-in or sign-out",
+	"secrets.Store.PutTxVersioned":         "as Put: SaveRivianSession's transaction for a sign-in or sign-out",
 	"secrets.setSignedIn":                  "as Put: the sign-in time, in the same sign-in transaction",
 	"secrets.Store.DeleteTx":               "user action (logout, delete, disconnect)",
 	"secrets.RivianSessionLister.backfill": "one-time sign-in time backfill",

@@ -66,19 +66,27 @@ func LoadRivianSession(ctx context.Context, s *Store, userID uuid.UUID) (rivian.
 // missing row is cheaper to read and removes the only place
 // where the user has stale token material on disk.
 func SaveRivianSession(ctx context.Context, s *Store, userID uuid.UUID, sess rivian.Session) error {
+	_, err := SaveRivianSessionVersioned(ctx, s, userID, sess)
+	return err
+}
+
+// SaveRivianSessionVersioned is SaveRivianSession that also returns the stored session's version, the database's own (zero for a sign-out
+// or a nil store). The pod that signed the user in hands it to its client (SetSessionVersion), so the client knows which stored session
+// it holds without comparing its clock with the database's.
+func SaveRivianSessionVersioned(ctx context.Context, s *Store, userID uuid.UUID, sess rivian.Session) (time.Time, error) {
 	if s == nil {
-		return nil
+		return time.Time{}, nil
 	}
 	if sess.UserSessionToken == "" {
-		return s.DeleteTx(ctx, userID, rivianSessionName, func(ctx context.Context, tx *sql.Tx) error {
+		return time.Time{}, s.DeleteTx(ctx, userID, rivianSessionName, func(ctx context.Context, tx *sql.Tx) error {
 			return setSignedIn(ctx, tx, userID, time.Time{})
 		})
 	}
 	buf, err := json.Marshal(sess)
 	if err != nil {
-		return fmt.Errorf("marshal rivian session: %w", err)
+		return time.Time{}, fmt.Errorf("marshal rivian session: %w", err)
 	}
-	return s.PutTx(ctx, userID, rivianSessionName, buf, func(ctx context.Context, tx *sql.Tx) error {
+	return s.PutTxVersioned(ctx, userID, rivianSessionName, buf, func(ctx context.Context, tx *sql.Tx) error {
 		return setSignedIn(ctx, tx, userID, sess.AuthenticatedAt)
 	})
 }

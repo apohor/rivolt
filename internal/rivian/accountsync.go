@@ -402,8 +402,12 @@ func (s *AccountSyncer) apply(ctx context.Context, uid uuid.UUID, states map[uui
 			sessionVersioner
 			SessionVersion() time.Time
 		}); ok && vs.SessionVersion().IsZero() {
-			if local := a.Snapshot(); local.UserSessionToken != "" && !local.AuthenticatedAt.After(st.SessionVersion) {
-				vs.SetSessionVersion(st.SessionVersion)
+			// The stored session is the one this client holds when the tokens are the same: no clock is compared (the stored version is
+			// the database's, a pod's AuthenticatedAt is the pod's, and they may disagree by the skew between them).
+			if local := a.Snapshot(); local.UserSessionToken != "" {
+				if sess, err := s.src.Session(ctx, uid); err == nil && sess.UserSessionToken == local.UserSessionToken {
+					vs.SetSessionVersion(st.SessionVersion)
+				}
 			}
 		}
 	}

@@ -378,3 +378,148 @@ func TestStalePodRejectionAfterSignOutOrWithoutAVersionRaisesNothing(t *testing.
 		t.Fatalf("after the sync a rejection of the stored session must flag once (needs=%v, emails=%d)", needs, c.emails.Load())
 	}
 }
+
+// The stored session's version is the database's clock and never goes backwards. A pod whose clock runs fast must not leave a version
+// that a later, honest sign-in sorts below: a stale pod holding that earlier version would then pass the "stored <= loaded" check and
+// flag (and email) a user who has just signed in again. Here the stored version is pushed 5 s into the future, as a fast pod would have
+// written it; the next sign-in, from a pod with the correct clock, must still be newer, and the stale pod's rejection must raise nothing.
+func TestSessionVersionNeverGoesBackwardsUnderClockSkew(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, "skewed-clocks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer rejecting.Close()
+	version := func() time.Time {
+		t.Helper()
+		var v time.Time
+		if err := pool.QueryRowContext(ctx, `SELECT updated_at FROM user_secrets WHERE user_id = $1 AND name = 'rivian.session'`, uid).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	// Rapid writes are strictly increasing, even within one microsecond.
+	var last time.Time
+	for i := 0; i < 40; i++ {
+		if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "t", AuthenticatedAt: time.Now().Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		if v := version(); !v.After(last) {
+			t.Fatalf("write %d: version %v is not after the previous %v", i, v, last)
+		}
+		last = version()
+	}
+
+	// A fast-clock pod's write (5 s ahead) is what the stale pod loads...
+	if _, err := pool.ExecContext(ctx, `UPDATE user_secrets SET updated_at = clock_timestamp() + interval '5 seconds' WHERE user_id = $1 AND name = 'rivian.session'`, uid); err != nil {
+		t.Fatal(err)
+	}
+	ahead := version()
+	stale := newRivianPod(ctx, pool, store)
+	stale.get(ctx, t, uid)
+	if held := stale.raw(uid).(*rivian.LiveClient).SessionVersion(); !held.Equal(ahead) {
+		t.Fatalf("the stale pod holds %v, want the stored %v", held, ahead)
+	}
+	// ...and the user then signs in again: the new version must be newer than that, whatever any pod's clock says.
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if v := version(); !v.After(ahead) {
+		t.Fatalf("a fresh sign-in got version %v, not after the earlier %v", v, ahead)
+	}
+	lc := stale.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway")
+	if _, err := lc.Vehicles(ctx); err == nil {
+		t.Fatal("expected Rivian's 401")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs || stale.emails.Load() != 0 {
+		t.Fatalf("a stale pod's rejection flagged a user who had just signed in again (needs=%v, emails=%d)%s", needs, stale.emails.Load(), stale.diagnose(ctx, pool, uid))
+	}
+}
+
+// A pod whose clock runs 5 s AHEAD of the database signs the user in. Its session carries the pod's clock (AuthenticatedAt, 5 s in the
+// future as the database sees it) while the stored version is the database's. The pod must still learn the stored version, from the
+// version the save returned and, for a client that lost it, from the sync (same tokens, no clock comparison); and a stale pod that holds
+// the earlier session must then be unable to flag the user.
+func TestFastPodLearnsTheStoredVersionAndStalePodCannotFlag(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, "fast-pod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer rejecting.Close()
+	stored := func() time.Time {
+		t.Helper()
+		var v time.Time
+		if err := pool.QueryRowContext(ctx, `SELECT updated_at FROM user_secrets WHERE user_id = $1 AND name = 'rivian.session'`, uid).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	fast, stale := newRivianPod(ctx, pool, store), newRivianPod(ctx, pool, store)
+	fast.get(ctx, t, uid)
+	stale.get(ctx, t, uid) // the stale pod holds the old session and its version
+
+	// The user signs in on the fast pod: its client's session is stamped by the pod's clock, 5 s ahead of the database.
+	signIn := rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(5 * time.Second)}
+	fast.raw(uid).Restore(signIn)
+	ver, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, signIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ver.Equal(stored()) {
+		t.Fatalf("the save returned %v, the stored version is %v", ver, stored())
+	}
+	learnStoredVersion(fast.raw(uid), ver)
+	fast.get(ctx, t, uid) // the account syncer runs
+	if held := fast.raw(uid).(*rivian.LiveClient).SessionVersion(); !held.Equal(stored()) {
+		t.Fatalf("the fast pod holds %v, want the stored %v%s", held, stored(), fast.diagnose(ctx, pool, uid))
+	}
+
+	// A client that lost its version (a restored, never-synced one) learns it from the sync, with no clock comparison.
+	fast.raw(uid).(*rivian.LiveClient).SetSessionVersion(time.Time{})
+	fast.get(ctx, t, uid)
+	if held := fast.raw(uid).(*rivian.LiveClient).SessionVersion(); !held.Equal(stored()) {
+		t.Fatalf("a client that lost its version did not relearn it: holds %v, stored %v%s", held, stored(), fast.diagnose(ctx, pool, uid))
+	}
+
+	// A client with NO known version raises nothing, ever.
+	fast.raw(uid).(*rivian.LiveClient).SetSessionVersion(time.Time{})
+	if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "expired", time.Time{}); err != nil || tr {
+		t.Fatalf("a zero held version raised the flag: %v %v", tr, err)
+	}
+
+	// The stale pod's 401 of the old session is recognised as stale and flags nobody.
+	lc := stale.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway")
+	if _, err := lc.Vehicles(ctx); err == nil {
+		t.Fatal("expected Rivian's 401")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs || stale.emails.Load() != 0 {
+		t.Fatalf("a stale pod's rejection flagged a user who had just signed in on a fast pod (needs=%v, emails=%d)%s", needs, stale.emails.Load(), stale.diagnose(ctx, pool, uid))
+	}
+}
