@@ -81,16 +81,20 @@ function UserLayout() {
             to="/settings"
             aria-label="Settings"
             data-settings-button
-            className={({ isActive }) =>
-              `-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
-                isActive ? "bg-neutral-800 text-emerald-300" : "text-neutral-300 hover:bg-neutral-900 hover:text-neutral-100"
-              }`
-            }
+            className="-my-3 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center"
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 20c0-3.6 3.6-6 8-6s8 2.4 8 6" />
-            </svg>
+            {({ isActive }) => (
+              <span
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+                  isActive ? "bg-neutral-800 text-emerald-300" : "text-neutral-300 hover:bg-neutral-900 hover:text-neutral-100"
+                }`}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-3.6 3.6-6 8-6s8 2.4 8 6" />
+                </svg>
+              </span>
+            )}
           </NavLink>
         </div>
       </header>
