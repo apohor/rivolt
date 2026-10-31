@@ -159,9 +159,12 @@ export function modeLegend(
   modes: Mode[],
   onMode: (m: Mode) => void,
   initial: LegendState,
+  // On a phone the D/L basemap picker lives in the card (a small segmented control), so no separate control covers a label.
+  dl?: (f: MapFlavor) => void,
 ): IControl & { update: (s: LegendState) => void } {
   let root: HTMLElement | undefined;
   const buttons = new Map<Mode, HTMLButtonElement>();
+  const dlButtons = new Map<MapFlavor, HTMLButtonElement>();
   let title: HTMLElement, lo: HTMLElement, hi: HTMLElement, bar: HTMLElement;
   const update = (s: LegendState) => {
     if (!root) return;
@@ -182,6 +185,11 @@ export function modeLegend(
       b.style.background = on ? "#262626" : "transparent";
       b.style.color = on ? "#fafafa" : c.muted;
     }
+    for (const [f, b] of dlButtons) {
+      const on = f === s.flavor;
+      b.style.background = on ? "#262626" : "transparent";
+      b.style.color = on ? "#fafafa" : c.muted;
+    }
   };
   const c = control(() => {
     const div = document.createElement("div");
@@ -189,11 +197,13 @@ export function modeLegend(
     div.style.cssText =
       "border:1px solid;border-radius:8px;padding:4px 6px;display:flex;flex-direction:column;gap:3px;max-width:min(300px,72vw);" +
       `font:${MAP_CAPTION_PX}px/1.2 ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
+    const top = document.createElement("div");
+    top.style.cssText = "display:flex;gap:6px;align-items:center";
     if (modes.length > 1) {
       const row = document.createElement("div");
       row.setAttribute("role", "group");
       row.setAttribute("aria-label", "Route colour");
-      row.style.cssText = "display:flex;gap:2px";
+      row.style.cssText = "display:flex;gap:2px;flex:1";
       for (const m of modes) {
         const b = document.createElement("button");
         b.type = "button";
@@ -206,7 +216,7 @@ export function modeLegend(
         row.appendChild(b);
         buttons.set(m, b);
       }
-      div.appendChild(row);
+      top.appendChild(row);
     }
     title = document.createElement("div");
     title.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
@@ -217,6 +227,27 @@ export function modeLegend(
     bar = document.createElement("span");
     bar.style.cssText = "flex:1;min-width:56px;height:6px;border-radius:3px";
     scale.append(lo, bar, hi);
+    if (dl) {
+      // Same class, titles and active look as the standalone picker, so it is found the same way.
+      const grp = document.createElement("div");
+      grp.className = "rivolt-flavor-control";
+      grp.style.cssText = "display:inline-flex;gap:2px;margin-left:auto";
+      for (const f of ["dark", "light"] as MapFlavor[]) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = f[0].toUpperCase();
+        b.title = `${f[0].toUpperCase()}${f.slice(1)} basemap`;
+        b.style.cssText = "width:20px;height:20px;border:1px solid transparent;border-radius:4px;background:transparent;cursor:pointer;padding:0;font:inherit;font-weight:600;";
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          dl(f);
+        });
+        grp.appendChild(b);
+        dlButtons.set(f, b);
+      }
+      top.appendChild(grp);
+    }
+    if (top.childElementCount > 0) div.appendChild(top);
     div.append(title, scale);
     root = div;
     update(initial);

@@ -135,7 +135,7 @@ describe("DriveMap", () => {
     webgl.mockReturnValue(true);
     render(<DriveMap points={full} packKWh={135} />);
     await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rivolt-legend button")];
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>(".rivolt-legend [aria-label='Route colour'] button")];
     expect(buttons.map((b) => b.textContent)).toEqual(["Speed", "Efficiency", "Elevation"]);
     expect(document.querySelector(".rivolt-legend")?.textContent).toMatch(/Speed/);
     buttons[1].click();
@@ -144,11 +144,23 @@ describe("DriveMap", () => {
     expect(document.querySelector(".rivolt-legend")?.textContent).toMatch(/Efficiency \(from battery change\)/);
   });
 
+  it("on a phone the D/L picker is inside the legend card, not a separate control", async () => {
+    webgl.mockReturnValue(true);
+    render(<DriveMap points={full} packKWh={135} />);
+    await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
+    // jsdom's container is 0 px wide: a phone.
+    expect(FakeMap.last!.controls.some((c) => c.endsWith(":flavorControl") || c.startsWith("top-right"))).toBe(false);
+    const dl = [...document.querySelectorAll<HTMLButtonElement>(".rivolt-legend .rivolt-flavor-control button")];
+    expect(dl.map((b) => b.title)).toEqual(["Dark basemap", "Light basemap"]);
+    dl[1].click();
+    await waitFor(() => expect(FakeMap.last!.styleCalls).toHaveLength(2));
+  });
+
   it("hides the switch when only one mode qualifies", async () => {
     webgl.mockReturnValue(true);
     render(<DriveMap points={line} />);
     await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
-    expect(document.querySelector(".rivolt-legend button")).toBeNull();
+    expect(document.querySelector(".rivolt-legend [aria-label='Route colour'] button")).toBeNull();
     expect(document.querySelector(".rivolt-legend")?.getAttribute("data-mode")).toBe("speed");
   });
 
@@ -156,7 +168,7 @@ describe("DriveMap", () => {
     webgl.mockReturnValue(true);
     render(<DriveMap points={full.map((p) => ({ ...p, alt: undefined }))} />);
     await waitFor(() => expect(FakeMap.last!.layers.has("rivolt-track-main")).toBe(true));
-    expect(document.querySelector(".rivolt-legend button")).toBeNull();
+    expect(document.querySelector(".rivolt-legend [aria-label='Route colour'] button")).toBeNull();
   });
 
   it("shows a drive with one frozen fix as a point, not a route", async () => {

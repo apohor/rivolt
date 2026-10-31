@@ -51,7 +51,7 @@ for (const [vpName, vp] of [
       const legend = page.locator(".rivolt-legend");
       await expect(legend).toBeVisible();
       // Speed, Efficiency and Elevation all qualify for this drive.
-      await expect(legend.getByRole("button")).toHaveText(["Speed", "Efficiency", "Elevation"]);
+      await expect(legend.getByRole("group", { name: "Route colour" }).getByRole("button")).toHaveText(["Speed", "Efficiency", "Elevation"]);
       await legend.scrollIntoViewIfNeeded();
       // Hover the chart to a fixed fraction: the dot and its readout show on the route.
       const over = page.locator(".u-over").first();
@@ -117,6 +117,6 @@ test("iphone: a drive without altitude or battery values shows no switch, only S
   await page.goto("/drives/drive-1");
   await expect(drawn(page)).toBeAttached();
   await expect(page.locator(".rivolt-legend")).toHaveAttribute("data-mode", "speed");
-  await expect(page.locator(".rivolt-legend").getByRole("button")).toHaveCount(0);
+  await expect(page.locator(".rivolt-legend").getByRole("group", { name: "Route colour" })).toHaveCount(0);
   await ctx.close();
 });

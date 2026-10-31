@@ -158,8 +158,10 @@ export function DriveMap({
         const ramp = RAMPS[flavor][mode];
         return { stops: gradientStops(trackCum, trackIdx.map((i) => vals[i]), lo, hi, ramp), lo, hi, ramp };
       };
+      // On a phone the D/L picker is part of the legend card (ux), so no separate control covers a label; with no card it stays a control.
+      const phone = el.clientWidth < 520;
       const legend = modes.length > 0
-        ? modeLegend(modes, (m) => { mode = m; applyMode(); }, { mode, flavor, ramp: RAMPS[flavor][mode], lo: "", hi: "" })
+        ? modeLegend(modes, (m) => { mode = m; applyMode(); }, { mode, flavor, ramp: RAMPS[flavor][mode], lo: "", hi: "" }, phone ? (f) => setFlavor(f) : undefined)
         : undefined;
       const refreshLegend = () => {
         const g = gradient();
@@ -169,7 +171,7 @@ export function DriveMap({
         refreshLegend();
         if (styleReady) setDriveGradient(map, gradient().stops);
       };
-      map.addControl(picker, "top-right");
+      if (!(phone && legend)) map.addControl(picker, "top-right");
       cleanups.push(onAppMapFlavor((f) => { setFlavor(f); }));
       if (legend) map.addControl(legend, "bottom-left");
       if (typeof fixAgeSeconds === "number" && Number.isFinite(fixAgeSeconds) && fixAgeSeconds >= 5 * 60) map.addControl(stalenessBadge(fixAgeSeconds), "top-right");
