@@ -8,10 +8,7 @@ import type { Vehicle } from "./api";
 const HEADER = "X-Rivolt-Vehicle-Scope";
 // The routes behind the limit (the header is on these and only these).
 const SCOPED = [
-  "/api/ledger/monthly",
-  "/api/summary",
-  "/api/trips",
-  "/api/savings",
+  "/api/ledger", // monthly, monthly.csv, summary, trips, savings
   "/api/activity",
   "/api/charge-split",
   "/api/charges",
