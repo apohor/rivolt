@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -487,4 +488,136 @@ func TestScheduleCounterReachesMonitorsStartedBeforeItWasSet(t *testing.T) {
 	m2, _ := schedMonitor(schedHomeLat, schedHomeLon)
 	m2.SetScheduleObserver(NewMonitorRegistry(nil, nil, nil, nil, nil, nil, nil).scheduleObserver())
 	m2.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+}
+
+// shrinkScheduleTimings makes every schedule wait milliseconds and restores them after the test.
+func shrinkScheduleTimings(t *testing.T) {
+	t.Helper()
+	oc, ob, oj, od, oc2, op := scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter, scheduleCatchUpDelays, scheduleConnectJitter, scheduleConnectPerVehicle
+	scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = 2*time.Millisecond, time.Millisecond, time.Millisecond
+	scheduleCatchUpDelays = []time.Duration{20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond}
+	scheduleConnectJitter, scheduleConnectPerVehicle = 0, 0
+	t.Cleanup(func() {
+		scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter, scheduleCatchUpDelays, scheduleConnectJitter, scheduleConnectPerVehicle = oc, ob, oj, od, oc2, op
+	})
+}
+
+// THE roll-time defect: a read the shared budget refused on every try (all vehicles of a handover read at once) was left for the next
+// plug-in nudge or the daily tick, so a plugged-in truck showed no schedule for up to a day. Now the loop catches it up. Here the connect
+// read is refused on all four tries, the first catch-up works: the schedules are cached, the outcomes are dropped then retried_ok, and
+// nothing is read after that.
+func TestDroppedScheduleReadIsCaughtUp(t *testing.T) {
+	shrinkScheduleTimings(t)
+	m, calls := schedMonitor(schedHomeLat, schedHomeLon)
+	inner := m.fetchSchedules
+	var fetches atomic.Int32
+	m.fetchSchedules = func(ctx context.Context, v string) ([]ChargingSchedule, error) {
+		if fetches.Add(1) <= int32(scheduleRetryTries) { // the connect read: every try refused
+			return nil, &ErrRateLimited{RetryAfter: time.Millisecond}
+		}
+		return inner(ctx, v)
+	}
+	var mu sync.Mutex
+	var outcomes []string
+	m.SetScheduleObserver(func(o string) { mu.Lock(); outcomes = append(outcomes, o); mu.Unlock() })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.chargingScheduleLoop(ctx, "v"); close(done) }()
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		m.mu.RLock()
+		got := len(m.cache["v"].ChargingSchedules)
+		m.mu.RUnlock()
+		if got == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the schedules never arrived after a dropped connect read (fetches = %d)", fetches.Load())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(150 * time.Millisecond) // longer than every remaining catch-up delay: nothing more is read
+	cancel()
+	<-done
+	if n := fetches.Load(); n != int32(scheduleRetryTries)+1 {
+		t.Errorf("fetches = %d, want %d (the refused connect read, then exactly one catch-up)", n, scheduleRetryTries+1)
+	}
+	_ = calls
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(outcomes, ",") != "dropped,retried_ok" && strings.Join(outcomes, ",") != "dropped,ok" {
+		t.Errorf("outcomes = %v, want dropped then a successful read", outcomes)
+	}
+}
+
+// A read that stays refused is caught up a bounded number of times, never in a hot loop: connect read + one read per catch-up delay, each
+// with its own tries, then it is left for the next nudge or the daily tick.
+func TestScheduleCatchUpIsBounded(t *testing.T) {
+	shrinkScheduleTimings(t)
+	m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	var fetches atomic.Int32
+	m.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		fetches.Add(1)
+		return nil, &ErrRateLimited{RetryAfter: time.Millisecond}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.chargingScheduleLoop(ctx, "v"); close(done) }()
+	want := int32((1 + len(scheduleCatchUpDelays)) * scheduleRetryTries) // the connect read and each catch-up, scheduleRetryTries fetches apiece
+	for deadline := time.Now().Add(5 * time.Second); fetches.Load() < want; {
+		if time.Now().After(deadline) {
+			t.Fatalf("fetches = %d, want %d", fetches.Load(), want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // well past the last delay
+	cancel()
+	<-done
+	if n := fetches.Load(); n != want {
+		t.Errorf("fetches = %d after the catch-ups ran out, want exactly %d (no hot loop)", n, want)
+	}
+}
+
+// Another error is not caught up (only a refusal by the shared budget is), and a nudge that succeeds cancels a pending catch-up.
+func TestOnlyBudgetRefusalsAreCaughtUp(t *testing.T) {
+	shrinkScheduleTimings(t)
+	m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	var fetches atomic.Int32
+	m.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		fetches.Add(1)
+		return nil, errors.New("boom")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.chargingScheduleLoop(ctx, "v"); close(done) }()
+	for deadline := time.Now().Add(5 * time.Second); fetches.Load() < 1; {
+		if time.Now().After(deadline) {
+			t.Fatal("the connect read never ran")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // longer than every catch-up delay: none is made
+	cancel()
+	<-done
+	if n := fetches.Load(); n != 1 {
+		t.Errorf("a non-rate-limit error was fetched %d times, want once (not caught up)", n)
+	}
+}
+
+// A pod that took many vehicles spreads their first reads over a longer window than one that took one.
+func TestConnectJitterGrowsWithTheBatch(t *testing.T) {
+	if got := connectJitter(1); got != scheduleConnectJitter {
+		t.Errorf("one vehicle: %v, want the base %v", got, scheduleConnectJitter)
+	}
+	if got := connectJitter(25); got <= scheduleConnectJitter || got > scheduleConnectJitterMax {
+		t.Errorf("25 vehicles: %v, want more than %v and at most %v", got, scheduleConnectJitter, scheduleConnectJitterMax)
+	}
+	if got := connectJitter(1000); got != scheduleConnectJitterMax {
+		t.Errorf("a huge batch: %v, want the cap %v", got, scheduleConnectJitterMax)
+	}
+	m := NewStateMonitor(nil, nil)
+	for i := 1; i <= 5; i++ {
+		if n := m.noteScheduleLoopStart(); n != i {
+			t.Errorf("start %d counted as %d recent", i, n)
+		}
+	}
 }

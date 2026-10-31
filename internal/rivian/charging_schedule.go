@@ -170,7 +170,52 @@ var (
 	scheduleRetryBase     = 2 * time.Second
 	scheduleRetryJitter   = time.Second
 	scheduleRetryTries    = 4
+
+	// scheduleCatchUpDelays are the waits before the catch-up reads of a read the shared budget refused on every try: a first one soon
+	// (the budget refills within a minute or two of a handover), then slower. Each wait gets up to 50 % jitter. After the last, the read is
+	// left for the next nudge or the daily tick, as any failure.
+	scheduleCatchUpDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
+
+	// scheduleConnectPerVehicle widens the connect jitter by what the pod took over: the vehicles that started their schedule loop in the last
+	// scheduleStartWindow each add this much, up to scheduleConnectJitterMax, so a pod that took 25 vehicles spreads their first reads over
+	// tens of seconds instead of eight.
+	scheduleConnectPerVehicle = 1500 * time.Millisecond
+	scheduleConnectJitterMax  = 45 * time.Second
+	scheduleStartWindow       = 30 * time.Second
 )
+
+// scheduleResult is how a read ended, for the loop: only a read the shared budget refused on every try asks for a catch-up.
+type scheduleResult int
+
+const (
+	scheduleNotRead scheduleResult = iota // skipped (too fresh, unavailable account), cancelled, or failed for another reason
+	scheduleDone                          // the schedules were read
+	scheduleDropped                       // refused by the shared budget on every try
+)
+
+// noteScheduleLoopStart returns how many schedule loops started within scheduleStartWindow, this one included.
+func (m *StateMonitor) noteScheduleLoopStart() int {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.scheduleStarts[:0]
+	for _, t := range m.scheduleStarts {
+		if now.Sub(t) < scheduleStartWindow {
+			kept = append(kept, t)
+		}
+	}
+	m.scheduleStarts = append(kept, now)
+	return len(m.scheduleStarts)
+}
+
+// connectJitter is the window the first read of a loop is spread over: scheduleConnectJitter, or more when the pod took many vehicles at once.
+func connectJitter(startedRecently int) time.Duration {
+	w := time.Duration(startedRecently) * scheduleConnectPerVehicle
+	if w > scheduleConnectJitterMax {
+		w = scheduleConnectJitterMax
+	}
+	return max(scheduleConnectJitter, w)
+}
 
 // jitterUpTo is a random duration in [0, max).
 func jitterUpTo(max time.Duration) time.Duration {
@@ -186,22 +231,54 @@ func jitterUpTo(max time.Duration) time.Duration {
 // last good list.
 func (m *StateMonitor) chargingScheduleLoop(ctx context.Context, vehicleID string) {
 	nudge := m.scheduleNudgeChan(vehicleID)
-	// A lease handover starts every vehicle of the pod at once: spread the first reads over a couple of
-	// seconds instead of sending them as one burst into the shared Rivian budget.
-	if !sleepCtx(ctx, jitterUpTo(scheduleConnectJitter)) {
+	// A lease handover starts every vehicle of the pod at once: spread the first reads over the time the pod's whole batch needs
+	// instead of sending them as one burst into the shared Rivian budget.
+	if !sleepCtx(ctx, jitterUpTo(connectJitter(m.noteScheduleLoopStart()))) {
 		return
 	}
-	m.readChargingSchedules(ctx, vehicleID, scheduleConnectMinAge)
+	// A read the shared budget refused on every try is not left for the next nudge or the daily tick (a day, for a truck already
+	// plugged in): it is tried again soon, then slower (scheduleCatchUpDelays), until it works or the delays run out.
+	var catchUp <-chan time.Time
+	var catchUpTimer *time.Timer
+	attempt := 0
+	settle := func(r scheduleResult) {
+		if catchUpTimer != nil {
+			catchUpTimer.Stop()
+			catchUpTimer, catchUp = nil, nil
+		}
+		if r != scheduleDropped {
+			attempt = 0
+			return
+		}
+		if attempt >= len(scheduleCatchUpDelays) {
+			m.logger.Warn("charging schedules still refused after every catch-up; left for the next plug-in or the daily read", "vehicle", vehicleID)
+			attempt = 0
+			return
+		}
+		d := scheduleCatchUpDelays[attempt]
+		attempt++
+		catchUpTimer = time.NewTimer(d + jitterUpTo(d/2))
+		catchUp = catchUpTimer.C
+	}
+	settle(m.readChargingSchedules(ctx, vehicleID, scheduleConnectMinAge))
 	t := time.NewTicker(scheduleDaily)
 	defer t.Stop()
+	defer func() {
+		if catchUpTimer != nil {
+			catchUpTimer.Stop()
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			m.readChargingSchedules(ctx, vehicleID, 0)
+			settle(m.readChargingSchedules(ctx, vehicleID, 0))
 		case <-nudge:
-			m.readChargingSchedules(ctx, vehicleID, scheduleNudgeMinAge)
+			settle(m.readChargingSchedules(ctx, vehicleID, scheduleNudgeMinAge))
+		case <-catchUp:
+			catchUp, catchUpTimer = nil, nil
+			settle(m.readChargingSchedules(ctx, vehicleID, 0))
 		}
 	}
 }
@@ -240,12 +317,12 @@ func (m *StateMonitor) noteScheduleNudge(vehicleID string, prev, curr *State) {
 
 // readChargingSchedules reads and caches the schedules, unless the last
 // read is younger than minAge and the truck hasn't moved since.
-func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID string, minAge time.Duration) {
+func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID string, minAge time.Duration) scheduleResult {
 	ctx = WithBackground(ctx) // timer-driven: it may not spend the last of the shared budget's main bucket
 	fetch := m.fetchSchedules
 	if fetch == nil {
 		if m.client == nil {
-			return
+			return scheduleNotRead
 		}
 		fetch = m.client.ChargingSchedules
 	}
@@ -258,18 +335,18 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 	}
 	m.mu.RUnlock()
 	if time.Now().Before(until) {
-		return
+		return scheduleNotRead
 	}
 	if minAge > 0 && !last.at.IsZero() && time.Since(last.at) < minAge &&
 		haversineM(lat, lon, last.lat, last.lon) <= scheduleRadiusM {
-		return
+		return scheduleNotRead
 	}
 	list, err := fetch(ctx, vehicleID)
 	tries := 1
 	// The shared budget is empty for a few seconds after a handover (every vehicle seeds and subscribes
 	// at once, on both pods). Each refusal waits at least what it names, growing with every try so the
 	// reads stop arriving together, and tries again, up to scheduleRetryTries times in all. A read that
-	// is still refused then is logged and left for the next nudge or the daily tick, as any failure.
+	// is still refused then is logged and returned as scheduleDropped: the loop catches it up later (scheduleCatchUpDelays).
 	for try := 1; try < scheduleRetryTries && ctx.Err() == nil; try++ {
 		var rl *ErrRateLimited
 		if !errors.As(err, &rl) {
@@ -280,7 +357,7 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		m.logger.Info("charging schedules read refused by the shared budget; trying again",
 			"vehicle", vehicleID, "try", try, "wait", wait.Round(time.Millisecond).String())
 		if !sleepCtx(ctx, wait) {
-			return
+			return scheduleNotRead
 		}
 		list, err = fetch(ctx, vehicleID)
 		tries = try + 1
@@ -290,7 +367,7 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 	}
 	if err != nil {
 		if ctx.Err() != nil {
-			return
+			return scheduleNotRead
 		}
 		if IsNotAvailable(err) {
 			// Expected for shared and authorized-driver accounts: mark the
@@ -308,16 +385,20 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 			}
 			m.mu.Unlock()
 			m.logger.Info("charging schedules not available for this account", "vehicle", vehicleID, "code", ErrCode(err))
-			return
+			return scheduleNotRead
 		}
 		var rl *ErrRateLimited
-		if errors.As(err, &rl) {
+		dropped := errors.As(err, &rl)
+		if dropped {
 			m.noteScheduleRead("dropped") // refused by the shared budget on every try
 		} else {
 			m.noteScheduleRead("error")
 		}
 		m.logger.Warn("charging schedules read failed", "vehicle", vehicleID, "err", Describe(err))
-		return
+		if dropped {
+			return scheduleDropped
+		}
+		return scheduleNotRead
 	}
 	if tries > 1 {
 		m.noteScheduleRead("retried_ok")
@@ -345,4 +426,5 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 	}
 	m.mu.Unlock()
 	m.logger.Info("charging schedules read", "vehicle", vehicleID, "schedules", len(list), "enabled", enabled)
+	return scheduleDone
 }

@@ -300,6 +300,8 @@ type StateMonitor struct {
 	// vehicle, the last read's time and position, and the fetch (nil =
 	// client.ChargingSchedules; tests set it). Guarded by mu.
 	scheduleNudge  map[string]chan struct{}
+	// scheduleStarts are when the schedule loops of this pod started, within scheduleStartWindow: the batch size a handover just brought.
+	scheduleStarts []time.Time
 	scheduleReads  map[string]scheduleRead
 	// scheduleUnavailableUntil backs a vehicle's schedule reads off for a
 	// week after Rivian said the account can't read them. Guarded by mu.
