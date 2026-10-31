@@ -163,8 +163,8 @@ struct TruckContent: View {
             if let d = model.drain?.value { drainCard(d).id("drain") } else if model.drain == nil { TruckLoading(title: "Parked drain") }
             if let terms = model.leaseTerms, let st = model.lease?.value { leaseCard(st, terms: terms) }
             packCard.id("pack")
-            if let t = model.trends?.value { trendsCard(t) } else if model.trends == .failed { failedCard("Trends for your truck", "Couldn't load trends.") }
-            if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") }
+            if let t = model.trends?.value { trendsCard(t) } else if model.trends == .failed { failedCard("Trends for your truck", "Couldn't load trends.") } else if model.trends == .limited { limitedCard("Trends for your truck") }
+            if let c = model.cold?.value { coldCard(c) } else if model.cold == .failed { failedCard("Range at different temperatures", "Couldn't load this.") } else if model.cold == .limited { limitedCard("Range at different temperatures") }
             placesCard
             sleepCard.id("sleep")
             tiresCard
@@ -206,6 +206,11 @@ struct TruckContent: View {
         .buttonStyle(.plain)
         .accessibilityLabel(SpokenText.words(p.text))
         .accessibilityHint(p.id == "pack" ? "Shows Battery capacity" : "Shows Parked drain")
+    }
+
+    /// A card the free plan does not include (the server answered 402 pro_required): why, and the way to Pro, not an error.
+    private func limitedCard(_ title: String) -> some View {
+        ThemeSection(title: title) { ProLimitNote(limit: .proRequired) }
     }
 
     private func failedCard(_ title: String, _ text: String) -> some View {
@@ -443,6 +448,8 @@ struct TruckContent: View {
         ThemeSection(title: "Battery capacity") {
             if model.pack == nil && model.trends == nil {
                 ProgressView().frame(maxWidth: .infinity)
+            } else if model.pack?.value == nil && model.trends?.value == nil && (model.pack == .limited || model.trends == .limited) {
+                ProLimitNote(limit: .proRequired)
             } else if model.pack?.value == nil && model.trends?.value == nil {
                 Text("Couldn't load battery capacity.").themeText(.subline, color: Theme.textTertiary)
             } else {
@@ -593,7 +600,7 @@ struct TruckContent: View {
             switch model.sleep {
             case nil:
                 ProgressView().frame(maxWidth: .infinity)
-            case .failed?, .missing?:
+            case .failed?, .missing?, .limited?:
                 Text("Couldn't load sleep data. Try again in a moment.").themeText(.subline, color: Theme.textTertiary)
             case .value(let days)?:
                 let s = TruckLogic.sleepSummary(days, now: now, calendar: calendar)

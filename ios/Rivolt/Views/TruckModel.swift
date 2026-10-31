@@ -32,6 +32,8 @@ final class TruckModel {
         case value(T)
         case missing
         case failed
+        /// A free account's limit (HTTP 402 pro_required): the card says so instead of failing.
+        case limited
 
         var value: T? { if case .value(let v) = self { return v } else { return nil } }
     }
@@ -84,6 +86,11 @@ final class TruckModel {
             cache[key] = Entry(value: c, at: now)
             return c
         } catch {
+            // A free account's limit is an answer, kept like any other (it changes only when the plan does).
+            if ProLimit.of(error) == .proRequired {
+                cache[key] = Entry(value: Card<T>.limited, at: now)
+                return .limited
+            }
             return (cache[key]?.value as? Card<T>) ?? .failed
         }
     }
