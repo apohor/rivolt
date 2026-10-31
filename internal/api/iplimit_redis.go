@@ -5,6 +5,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"log/slog"
+	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +41,9 @@ type sharedBuckets struct {
 	// onName is told every limiter name as it is built, so its fallback series can exist at 0 from the start (an increase() alert
 	// misses the first fallback of a series that did not exist before it).
 	onName func(limiter string)
+	// logger, when set, hears one WARN per backoff window when Redis could not serve a limiter: the limiter's name and the error's class,
+	// never the key, so a limiter that silently runs per pod (a denied command, a dead Redis) is visible.
+	logger *slog.Logger
 	// downUntil (unix nanos): Redis is left alone until then after a failure.
 	downUntil atomic.Int64
 }
@@ -102,9 +109,41 @@ func (s *sharedBuckets) named(limiter string) {
 	}
 }
 
-func (s *sharedBuckets) failed(limiter string) {
+func (s *sharedBuckets) failed(limiter string, err error) {
 	s.downUntil.Store(s.now().Add(sharedBucketBackoff).UnixNano())
 	s.fellBack(limiter)
+	if s.logger != nil {
+		// Reached once per backoff window: while Redis is left alone, calls return before they get here.
+		s.logger.Warn("rate limiter fell back to its per-pod bucket: Redis could not serve it", "limiter", limiter, "error_class", redisErrClass(err), "backoff", sharedBucketBackoff.String())
+	}
+}
+
+// redisErrClass names what went wrong without the error text (which can carry a key): "noperm" (the ACL denied a command, e.g. TIME or
+// EVALSHA), "timeout", "conn" (refused, reset, closed), "script" (a Lua error) or "other".
+func redisErrClass(err error) string {
+	if err == nil {
+		return "other"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "NOPERM"):
+		return "noperm"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case strings.HasPrefix(msg, "ERR Error running script") || strings.Contains(msg, "script:"):
+		return "script"
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		if ne.Timeout() {
+			return "timeout"
+		}
+		return "conn"
+	}
+	if strings.Contains(msg, "connection") || strings.Contains(msg, "EOF") || strings.Contains(msg, "refused") {
+		return "conn"
+	}
+	return "other"
 }
 
 func (s *sharedBuckets) fellBack(limiter string) {
@@ -138,7 +177,10 @@ func (s *sharedBuckets) allow(limiter, key string, perSecond float64, burst, n i
 	ttl := time.Duration(float64(burst)/perSecond*float64(time.Second)) + time.Minute
 	res, err := tokenBucketScript.Run(ctx, s.rdb, []string{s.redisKey(limiter, key)}, perMs, burst, n, ttl.Milliseconds()).Int64Slice()
 	if err != nil || len(res) != 2 {
-		s.failed(limiter)
+		if err == nil {
+			err = errors.New("unexpected script reply")
+		}
+		s.failed(limiter, err)
 		return false, 0, false
 	}
 	return res[0] == 1, time.Duration(res[1]) * time.Millisecond, true
@@ -155,7 +197,7 @@ func (d Deps) limiterSet() *limiterSet {
 	if d.Redis == nil || len(d.FailLimiterKey) == 0 {
 		return nil
 	}
-	sb := &sharedBuckets{rdb: d.Redis, prefix: d.RedisPrefix, key: RateLimiterKey(d.FailLimiterKey), now: time.Now}
+	sb := &sharedBuckets{rdb: d.Redis, prefix: d.RedisPrefix, key: RateLimiterKey(d.FailLimiterKey), now: time.Now, logger: d.Logger}
 	if d.Metrics != nil {
 		sb.onFallback = func(name string) { d.Metrics.RateLimiterFallbackTotal.WithLabelValues(name).Inc() }
 		sb.onName = func(name string) { d.Metrics.RateLimiterFallbackTotal.WithLabelValues(name).Add(0) }
