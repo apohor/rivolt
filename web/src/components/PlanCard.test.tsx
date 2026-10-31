@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { PlanCard } from "./PlanCard";
@@ -113,5 +113,42 @@ describe("a cancelled subscription and a failed payment", () => {
     renderWith(stripe, <PlanNotice />);
     await new Promise((r) => setTimeout(r, 30));
     expect(document.querySelector("[data-plan-notice]")).toBeNull();
+  });
+});
+
+describe("PlanCard on the way back from Stripe", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("says no charge was made when the buyer backed out, and drops ?checkout=", async () => {
+    window.history.replaceState(null, "", "/settings?checkout=cancelled#plan");
+    renderWith(free, <PlanCard now={now} />);
+    expect(await screen.findByText("No charge was made.")).toBeTruthy();
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#plan");
+  });
+
+  it("thanks the buyer once the plan reads Pro", async () => {
+    window.history.replaceState(null, "", "/settings?checkout=success#plan");
+    renderWith(stripe, <PlanCard now={now} />);
+    expect(await screen.findByText("Thanks, Pro is on.")).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
+
+  it("says Pro turns on in a moment while the plan is still free", async () => {
+    window.history.replaceState(null, "", "/settings?checkout=success#plan");
+    renderWith(free, <PlanCard now={now} />);
+    expect(await screen.findByText("Thanks. Pro turns on in a moment.")).toBeTruthy();
+  });
+
+  it("shows nothing extra with no ?checkout=", async () => {
+    window.history.replaceState(null, "", "/settings#plan");
+    const { container } = renderWith(free, <PlanCard now={now} />);
+    await waitFor(() => expect(container.querySelector("[data-plan-card]")).not.toBeNull());
+    expect(container.querySelector("[data-checkout-return]")).toBeNull();
   });
 });
