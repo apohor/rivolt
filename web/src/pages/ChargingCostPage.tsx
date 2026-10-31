@@ -4,7 +4,7 @@ import Logo from "../components/Logo";
 import { getConfig } from "../lib/config";
 import { EXAMPLE, costCalc, readFastPrice, workedExample, type CostField, type CostInput } from "../lib/chargingCost";
 import { formatMoney } from "../lib/ledger";
-import { priceMonth } from "../lib/sampleTrip";
+import { priceMonth } from "../lib/priceMonth";
 import { useSystemTheme } from "../lib/theme";
 
 // /charging-cost: a public, signed-out page. A worked example for the sample R1S (every figure an example, none a measurement of any

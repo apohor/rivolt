@@ -37,24 +37,11 @@ func spaHandler(fsys fs.FS) http.Handler {
 	// route, and every other host, is marked noindex.
 	shell := func(w http.ResponseWriter, r *http.Request) {
 		host := requestHost(r)
-		// Sample-trip pages (sampletrips.go): pre-rendered, with their own
-		// caching; an unknown slug is a real 404, not the app's 200.
-		if path := strings.TrimSuffix(r.URL.Path, "/"); host == hostApp && (path == pathSampleTrips || isSampleTripPath(path)) &&
-			(r.Method == http.MethodGet || r.Method == http.MethodHead) {
-			if b, err := fs.ReadFile(fsys, "index.html"); err == nil {
-				if p, ok := sampleTripPage(b, path); ok {
-					serveSampleTrip(w, r, p, path)
-					return
-				}
-				noCacheIndex(w)
-				w.Header().Set("X-Robots-Tag", "noindex")
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.WriteHeader(http.StatusNotFound)
-				if r.Method == http.MethodGet {
-					_, _ = w.Write(b)
-				}
-				return
-			}
+		// The public sample-trip pages are gone (the demo's Plan tab shows the same sample trips): every old address, the hub and each
+		// slug, is a permanent redirect there, so links already shared and crawlers land on the demo rather than a 404.
+		if isOldSampleTripPath(r.URL.Path) && host == hostApp && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			http.Redirect(w, r, demoPlanURL, http.StatusMovedPermanently)
+			return
 		}
 		noCacheIndex(w)
 		page, canon, ok := seoLookup(host, r.URL.Path)
@@ -188,4 +175,13 @@ var hashedAsset = regexp.MustCompile(`^assets/[^/]+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9
 // i.e. the request names a file rather than a client-side route.
 func hasFileExtension(p string) bool {
 	return strings.Contains(p[strings.LastIndex(p, "/")+1:], ".")
+}
+
+// demoPlanURL is where the removed public sample-trip pages now lead: the demo truck's Plan tab, which shows the sample trips.
+const demoPlanURL = "https://" + hostDemo + "/demo/trips/plan"
+
+// isOldSampleTripPath is true for the removed /sample-trips hub and every address under it.
+func isOldSampleTripPath(p string) bool {
+	p = strings.TrimSuffix(p, "/")
+	return p == "/sample-trips" || strings.HasPrefix(p, "/sample-trips/")
 }

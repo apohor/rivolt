@@ -407,9 +407,7 @@ func TestArchivedTermsAreServedButNotIndexed(t *testing.T) {
 	if _, _, ok := seoLookup(hostApp, "/terms"); !ok {
 		t.Error("/terms must stay an indexed page")
 	}
-	for _, p := range append([]string{"/"}, sampleTripPaths()...) {
-		if p == "/terms/2026-10-23" {
-			t.Error("the archived Terms must not be in the sitemap")
-		}
+	if sm, ok := sitemapXML(hostApp); ok && strings.Contains(sm, "/terms/2026-10-23") {
+		t.Error("the archived Terms must not be in the sitemap")
 	}
 }

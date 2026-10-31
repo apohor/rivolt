@@ -57,11 +57,6 @@ export function Footer() {
             <Link to="/changelog" className="hover:text-neutral-200">
               What's new
             </Link>
-            <span className="text-neutral-700">·</span>
-            {/* A full page load: the server puts the trip's data in the page. */}
-            <a href="/sample-trips" className="hover:text-neutral-200">
-              Sample trips
-            </a>
           </>
         )}
         <span className="text-neutral-700">·</span>
