@@ -5,6 +5,8 @@ import { backend } from "../lib/api";
 import { planState } from "../lib/plan";
 import { proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
 import { ProSheet } from "./ProSheet";
+import { DemoLinks } from "./DemoLinks";
+import { demoLinksFor } from "../lib/demoLinks";
 
 // What a screen shows instead of an error when the server answers a free account's limit (HTTP 402): why, that nothing is lost, and
 // the way to Pro. Without a billing server (no plan screens) it only says why.
@@ -25,6 +27,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature }: { lim
           {extra}
         </div>
       )}
+      {state.kind !== "off" && <DemoLinks links={demoLinksFor({ feature, code: limit.code })} className="mt-2" />}
       {state.kind !== "off" && (
         <button type="button" className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-sm hover:border-sky-500" onClick={() => setOpen(true)}>
           See Pro

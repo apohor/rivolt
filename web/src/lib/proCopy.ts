@@ -37,12 +37,12 @@ export function checkoutLabel(i: Interval): string {
   return `Subscribe: ${o.price} ${o.unit}, renews ${o.renews}`;
 }
 
-// Where the first charge happens, for the consent line: when a trial is running, billing starts when it ends, so no trial day is lost
-// (the lead's decision); otherwise today. TODO(Pro 7): take this from the actual Stripe Checkout session ("on {trial_end}" when the
-// session carries a trial end, "today" when none is left) instead of the account's trial end.
+// Where the first charge happens, for the consent line: "today", except for a founding-year account subscribing early, whose billing
+// starts when its free year ends (the lead's decision, so no free day is lost). TODO(Pro 7): take this from the actual Stripe Checkout
+// session ("on {period_end}" when the session carries a billing start, "today" otherwise) instead of the account's founding end.
 export function firstCharge(state: PlanState): string {
-  if (state.kind === "trial") {
-    const d = planDate(state.ends);
+  if (state.kind === "pro" && state.source === "founding") {
+    const d = planDate(state.periodEnd);
     if (d) return `on ${d}`;
   }
   return "today";
@@ -54,29 +54,13 @@ export function consentText(i: Interval, state: PlanState): string {
   return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions.`;
 }
 
-// The trial line for the web (the trial is granted at sign-up, with no card).
-export function trialLine(state: PlanState): string | null {
-  if (state.kind === "trial") {
-    const d = planDate(state.ends);
-    return `You have 14 days of Pro free, with no card. It ends${d ? ` on ${d}` : ""} on its own; nothing is charged unless you subscribe.`;
-  }
-  if (state.kind === "lapsed" && state.endedSource === "trial") return "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time.";
-  return null;
-}
-
 // The Settings plan card, one state at a time: [title, line, action | null].
-export function planCardCopy(state: PlanState, daysLeftText?: string): { title: string; line: string; action: string | null } | null {
+export function planCardCopy(state: PlanState): { title: string; line: string; action: string | null } | null {
   switch (state.kind) {
     case "off":
       return null;
     case "free":
       return { title: "Free", line: "Recording, alerts, the last 90 days and the full export, always.", action: "See Pro" };
-    case "trial":
-      return {
-        title: `Pro trial, ends ${planDate(state.ends) || "soon"}`,
-        line: `${daysLeftText ? `${daysLeftText[0].toUpperCase()}${daysLeftText.slice(1)}. ` : ""}No card, nothing is charged. Afterwards the free tier keeps every recording and the full export.`,
-        action: "Keep Pro",
-      };
     case "pro":
       // A failed payment comes first: it is the one that needs the person to do something (web only: Apple handles its own).
       if (state.graceEnds && state.source === "stripe")

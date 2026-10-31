@@ -12,7 +12,6 @@ export type PlanFields = Pick<
 export type PlanState =
   | { kind: "off" } // billing is off: everything is on, nothing mentions a plan
   | { kind: "free" } // never had Pro
-  | { kind: "trial"; ends: string }
   // cancelsAt: set to not renew, Pro stays on until then. graceEnds: a renewal payment failed, Pro stays on until then (7 days).
   | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null; cancelsAt?: string | null; graceEnds?: string | null }
   | { kind: "lapsed"; endedOn: string | null; endedSource: string | null }; // had Pro or a trial, now on the free window
@@ -23,7 +22,7 @@ export function planState(me: PlanFields | null | undefined): PlanState {
   if (!me || me.plan === undefined || me.billing_enabled !== true) return { kind: "off" };
   if (me.plan_source === "demo" || me.plan_source === "billing_off") return { kind: "off" };
   if (me.plan === "pro") {
-    if (me.plan_source === "trial") return { kind: "trial", ends: me.plan_trial_ends ?? me.plan_period_end ?? "" };
+    // No new account gets a trial (owner decision). An old trial row, if one is still stored, reads as Pro granted to the account.
     const s = me.plan_source;
     const source = s === "apple" || s === "stripe" || s === "founding" || s === "grant" ? s : "grant";
     return { kind: "pro", source, periodEnd: me.plan_period_end ?? null, cancelsAt: me.plan_cancels_at ?? null, graceEnds: me.plan_grace_ends ?? null };
