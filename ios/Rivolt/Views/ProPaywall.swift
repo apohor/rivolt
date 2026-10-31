@@ -127,7 +127,7 @@ enum ProCopy {
         case .cancelled(_, let until):
             return ("Rivolt Pro until \(PlanLogic.date(until) ?? "the end of the period")", "Cancelled; Pro stays on until then. Nothing is deleted after.")
         case .paymentFailed(_, let until):
-            return ("Rivolt Pro, payment failed", "Update your card by \(PlanLogic.date(until) ?? "the end of the week") to keep Pro. Nothing is deleted either way.")
+            return ("Rivolt Pro, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
         case .lapsed(let on, _):
             return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
         }

@@ -14,6 +14,8 @@ struct DriveRouteMap: View {
     @State private var drawing: RouteSnap.Drawing?
     @State private var failed = false
     @State private var empty = false
+    /// The nothing-to-draw drive was one whose truck sent no usable live location (the server says so).
+    @State private var noLocation = false
     /// How the basemap is doing once the drive's route arrived.
     @State private var health = MapHealth.ok
     /// The route's layers are on the map (the speed legend shows only over a drawn speed route).
@@ -22,7 +24,7 @@ struct DriveRouteMap: View {
     var body: some View {
         ZStack {
             if empty {
-                MapMessage(text: "No route was recorded for this drive.")
+                MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
                 RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true })
@@ -78,9 +80,13 @@ struct DriveRouteMap: View {
             drawing = RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: stored, speed: nil)], routedGaps: [], gaps: [],
                                         start: stored.first, end: stored.last, hasSpeed: false)
         } else {
+            noLocation = drive.locationUnavailable == true
             empty = true
         }
     }
+
+    /// What the server observed, with no cause and no fault.
+    static let noLocationText = "The vehicle didn't report its location during this drive."
 }
 
 /// The speed legend as a small corner chip: "mph" and a bar of the bands this drive uses, each named by its lower bound. It used to

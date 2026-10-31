@@ -139,3 +139,16 @@ final class MapLoadStateTests: XCTestCase {
         XCTAssertEqual(s.health, .failed)
     }
 }
+
+final class DriveNoLocationTests: XCTestCase {
+    func testTheServersFlagIsReadAndTheNoteSaysOnlyWhatWasObserved() throws {
+        let json = #"{"VehicleID":"v","StartLat":0,"StartLon":0,"EndLat":0,"EndLon":0,"RoutePolyline":"","LocationUnavailable":true}"#
+        let d = try JSON.decoder().decode(DriveRoute.self, from: Data(json.utf8))
+        XCTAssertEqual(d.locationUnavailable, true)
+        XCTAssertTrue(d.points.isEmpty, "no stored trace and no fix: nothing to draw")
+        XCTAssertEqual(DriveRouteMap.noLocationText, "The vehicle didn't report its location during this drive.")
+        // An older server omits the key.
+        let old = try JSON.decoder().decode(DriveRoute.self, from: Data(#"{"StartLat":1,"StartLon":2,"EndLat":3,"EndLon":4}"#.utf8))
+        XCTAssertNil(old.locationUnavailable)
+    }
+}
