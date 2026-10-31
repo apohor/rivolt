@@ -68,6 +68,9 @@ struct MoneyShareCard: Equatable {
 /// sizes as `paintShareCard` (pixels of the exported image, not the app's type scale).
 struct MoneyShareCardCanvas: View {
     let card: MoneyShareCard
+    /// Six longer rows (the year card): painted a little smaller and closer so a value never meets its label. It is how the card
+    /// is painted, not part of what the card says, so it is not on the model.
+    var compact = false
 
     static let side: CGFloat = 1080
     private static let column: CGFloat = side - 160
@@ -85,10 +88,11 @@ struct MoneyShareCardCanvas: View {
             Self.text(ctx, card.title, size: size, weight: .bold, color: Theme.shareCardTitle, x: 80, baseline: y)
             y = Self.wrap(ctx, card.subtitle, size: 44, color: Theme.shareCardMuted, x: 80, baseline: y + 80, lineHeight: 56, maxLines: 3)
             y += 30
+            let rowSize: CGFloat = compact ? 40 : 44
             for s in card.stats.prefix(6) {
-                Self.text(ctx, s.label, size: 44, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: y)
-                Self.text(ctx, s.value, size: 44, weight: .medium, color: Theme.shareCardValue, x: w - 80, baseline: y, trailing: true)
-                y += 78
+                Self.text(ctx, s.label, size: rowSize, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: y)
+                Self.text(ctx, s.value, size: rowSize, weight: .medium, color: Theme.shareCardValue, x: w - 80, baseline: y, trailing: true)
+                y += compact ? 66 : 78
             }
             for note in card.notes {
                 Self.text(ctx, note, size: 32, weight: .regular, color: Theme.shareCardNote, x: 80, baseline: y)
@@ -149,8 +153,8 @@ struct MoneyShareCardCanvas: View {
 
     /// The card as a PNG, made on the phone.
     @MainActor
-    static func png(_ card: MoneyShareCard) -> Data? {
-        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card))
+    static func png(_ card: MoneyShareCard, compact: Bool = false) -> Data? {
+        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card, compact: compact))
         r.scale = 1
         return r.uiImage?.pngData()
     }

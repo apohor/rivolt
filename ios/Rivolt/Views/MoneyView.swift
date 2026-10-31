@@ -32,6 +32,7 @@ struct MoneyView: View {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
                     } else {
                         VStack(spacing: 16) {
+                            YearCardView()
                             OffpeakPromptView()
                             MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
                                          noticeHidden: $noticeHidden, serverURL: state.serverURL,
