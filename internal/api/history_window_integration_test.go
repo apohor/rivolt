@@ -3,8 +3,10 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -225,10 +227,22 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 	if !strings.Contains(files["drives.csv"], "win-old-drive") || !strings.Contains(files["charges.csv"], "win-old-charge") {
 		t.Errorf("the free account's export is missing rows older than 90 days:\ndrives.csv: %s\ncharges.csv: %s", files["drives.csv"], files["charges.csv"])
 	}
+	// The backup is gzip by default (application/gzip, not a content encoding): read it as the download is read.
 	brec := httptest.NewRecorder()
 	handleDataBackup(backupTestDepsFor(t, pool))(brec, httptest.NewRequest(http.MethodGet, "/api/data/backup", nil).WithContext(auth.WithUser(ctx, free)))
-	if brec.Code != 200 || !strings.Contains(brec.Body.String(), "win-old-drive") || !strings.Contains(brec.Body.String(), "win-old-charge") {
-		t.Errorf("the free account's backup is missing rows older than 90 days (status %d)", brec.Code)
+	if brec.Code != 200 || brec.Header().Get("Content-Type") != "application/gzip" {
+		t.Fatalf("backup: %d %s", brec.Code, brec.Header().Get("Content-Type"))
+	}
+	zr, err := gzip.NewReader(brec.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "win-old-drive") || !strings.Contains(string(raw), "win-old-charge") {
+		t.Errorf("the free account's backup is missing rows older than 90 days (%d bytes)", len(raw))
 	}
 }
 

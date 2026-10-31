@@ -76,10 +76,8 @@ func writeOutsideFreeWindow(w http.ResponseWriter) {
 	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "outside_free_window", FreeDays: histwin.FreeDays})
 }
 
-// writeProRequired is the answer for a Pro-only read on a free account.
-func writeProRequired(w http.ResponseWriter) {
-	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "pro_required"})
-}
+// The Pro-only reads (trends, range near a temperature, capacity) answer paywallBody{Error: "pro_required"} with 402; their writer arrives
+// with them in part 3.
 
 // driveInWindow reports whether the drive with this external id is inside the request's window. A drive that does not exist counts as
 // inside, so the handler's own 404 still answers; with no window it is always inside and nothing is read.
@@ -102,7 +100,7 @@ func driveInWindow(ctx context.Context, pool *sql.DB, uid uuid.UUID, driveID str
 func requireDriveInWindow(w http.ResponseWriter, r *http.Request, pool *sql.DB, uid uuid.UUID, driveID string) bool {
 	ok, err := driveInWindow(r.Context(), pool, uid, driveID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		serverError(w, r, "history window: drive lookup", err) // the error text stays in the log, not in the response
 		return false
 	}
 	if !ok {
