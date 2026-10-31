@@ -234,7 +234,7 @@ type Service struct {
 	mu       sync.Mutex
 	cache    map[uuid.UUID]cached
 	maxCache int
-	// stripeManage is set when Stripe is configured (EnableStripeManage): only then does a billing-off server look at the rows to tell
+	// stripeManage is set when Stripe is configured (Config.StripeManage): only then does a billing-off server look at the rows to tell
 	// which accounts still hold a Stripe subscription.
 	stripeManage atomic.Bool
 }
