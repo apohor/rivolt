@@ -132,11 +132,10 @@ export function DriveMap({
 
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-left");
       map.addControl(new ml.AttributionControl({ compact: true, customAttribution: tiles ? undefined : OSM_ATTRIBUTION }), "bottom-right");
-      // The credits (terrain's is long) open by default; on a phone they would fill the map's corner over the route, so start them folded.
+      // The credits (terrain's is long) open by default and the control reopens them as sources load; on a phone they would fill the
+      // map's corner over the route, so fold them once the first load has settled.
       if (el.clientWidth < 640) {
-        const attrib = el.querySelector(".maplibregl-ctrl-attrib");
-        attrib?.classList.remove("maplibregl-compact-show");
-        attrib?.removeAttribute("open");
+        map.once("idle", () => el.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
       }
       if (!tiles) map.addControl(tilesNotice(TILES_UNAVAILABLE_TEXT), "bottom-left");
 
