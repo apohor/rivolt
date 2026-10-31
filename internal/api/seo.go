@@ -59,7 +59,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		"/terms": {
 			title:   "Terms of service | Rivolt",
-			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by ZeroDowntime LLC. " + notAffiliated,
+			desc:    "Terms for using Rivolt, an open-source companion for Rivian owners run by ZeroDowntime LLC, free during the beta. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
 		},
 		pathLeaseCalc: {
@@ -127,7 +127,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		"/terms": {
 			title:   "Terms of service | Rivolt",
-			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by ZeroDowntime LLC. " + notAffiliated,
+			desc:    "Terms for using Rivolt, an open-source companion for Rivian owners run by ZeroDowntime LLC, free during the beta. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
 		},
 	},
