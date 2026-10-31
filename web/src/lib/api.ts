@@ -2315,6 +2315,8 @@ export type AuthUser = {
   plan_ended_source?: string | null;
   // False on a self-hosted or billing-off server (and its plan is "pro", source "billing_off"): no paywall, price or Manage control.
   billing_enabled?: boolean;
+  // true only with billing off while the account holds a Stripe subscription that is not over: show Manage subscription (the portal).
+  manage_subscription?: boolean;
   // How many days of history this account sees: 90 on free, null (unlimited) otherwise.
   history_days?: number | null;
 };

@@ -270,6 +270,10 @@ type PlanFields struct {
 	PlanEndedAt     *time.Time `json:"plan_ended_at"`
 	PlanEndedSource *string    `json:"plan_ended_source"`
 	BillingEnabled  bool       `json:"billing_enabled"`
+	// ManageSubscription is true only when billing is off but the account holds a Stripe subscription that is not over: it keeps renewing,
+	// so the client shows "Manage subscription" (POST /api/billing/portal, which works with billing off) and nothing else about plans.
+	// Absent otherwise.
+	ManageSubscription bool `json:"manage_subscription,omitempty"`
 	// HistoryDays is the free window in days (90) on a free account, null on a Pro one and where billing is off: history older than that
 	// is not shown (402 outside_free_window for a single drive or charge), and is never deleted.
 	HistoryDays *int `json:"history_days"`
@@ -281,7 +285,9 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	if err != nil {
 		return nil
 	}
-	return planFromState(st, e.Billing())
+	pf := planFromState(st, e.Billing())
+	pf.ManageSubscription = e.ManageSubscription(ctx, uid)
+	return pf
 }
 
 // planFromState is the plan fields for a computed state.
