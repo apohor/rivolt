@@ -34,7 +34,7 @@ test("route map ignores a second truck's samples", async ({ page }) => {
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/drives/two-1");
-  const map = page.locator(".leaflet-container").first();
+  const map = page.locator(".maplibregl-map").first();
   await expect(map).toBeVisible();
   await page.waitForTimeout(800);
   expect(requested.length).toBeGreaterThan(0);

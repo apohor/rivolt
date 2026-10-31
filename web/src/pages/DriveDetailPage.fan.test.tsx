@@ -9,7 +9,7 @@ import { stubFetchRoutes } from "../test/fetchRoutes";
 // (a fan of chords between them). The drive page must hand DriveMap only
 // its own vehicle's samples.
 const seen: { lat: number; lon: number }[][] = [];
-vi.mock("../components/DriveMap", () => ({
+vi.mock("../map/DriveMap", () => ({
   DriveMap: ({ points }: { points: { lat: number; lon: number }[] }) => {
     seen.push(points);
     return null;

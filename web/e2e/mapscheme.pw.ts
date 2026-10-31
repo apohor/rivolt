@@ -57,7 +57,7 @@ for (const [vpName, vp] of [
       await expect(ctl).toBeVisible();
       expect(await active(page)).toBe(theme === "dark" ? "D" : "L");
       await ctl.scrollIntoViewIfNeeded();
-      await page.locator(".leaflet-container").first().screenshot({ path: path.join(SHOTS, `mapscheme-${vpName}-${theme}.png`) });
+      await page.locator(".maplibregl-map").first().screenshot({ path: path.join(SHOTS, `mapscheme-${vpName}-${theme}.png`) });
 
       // Override: temporary, not persisted.
       await ctl.locator(`button[title="${theme === "dark" ? "Light" : "Dark"} basemap"]`).click();

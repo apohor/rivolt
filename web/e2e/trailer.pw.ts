@@ -71,7 +71,7 @@ for (const v of [
     });
     await select.selectOption("no");
     await expect.poll(() => body).toEqual({ trailer: false });
-    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
     expect(res.violations.map((x) => x.id)).toEqual([]);
     await ctx.close();
   });

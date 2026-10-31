@@ -38,7 +38,7 @@ for (const [vpName, vp] of [
         await page.goto(st.url);
         await st.ready(page);
         await page.waitForTimeout(800);
-        const res = await new AxeBuilder({ page }).withTags(TAGS).exclude(".leaflet-container").analyze();
+        const res = await new AxeBuilder({ page }).withTags(TAGS).exclude(".leaflet-container, .maplibregl-map").analyze();
         const summary = res.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.length} × ${v.help} :: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
         expect(summary, summary.join("\n")).toEqual([]);
         await ctx.close();

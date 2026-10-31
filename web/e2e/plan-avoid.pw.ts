@@ -40,7 +40,7 @@ test("avoid prefs restore from a saved trip, show in the badge, and are sent", a
   await expect(page.locator("[data-plan-more-count]")).toHaveAttribute("aria-label", "2 changed");
   const body = await planBody(page);
   expect(body.route_preferences).toEqual({ avoid_tolls: true, avoid_ferries: false, avoid_highways: true });
-  const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude(".leaflet-container").analyze();
+  const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
   expect(res.violations.map((v) => v.id)).toEqual([]);
 });
 

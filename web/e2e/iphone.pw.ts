@@ -123,15 +123,15 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   await page.goto("/drives/drive-1");
   await expect(page.locator(".rivolt-speed-legend")).toBeVisible();
   // The map fits the route and the tiles settle after the legend is there: measure once nothing is still moving, not after a guessed wait.
-  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
-  await settled(page, [".rivolt-speed-legend", ".leaflet-control-attribution", ".leaflet-container"]);
+  await expect(page.locator(".maplibregl-marker").first()).toBeVisible();
+  await settled(page, [".rivolt-speed-legend", ".maplibregl-ctrl-attrib", ".maplibregl-map"]);
   const boxes = await page.evaluate(() => {
     const r = (el: Element) => {
       const b = el.getBoundingClientRect();
       return { l: b.left, t: b.top, r: b.right, b: b.bottom };
     };
-    const covers = [...document.querySelectorAll(".rivolt-speed-legend, .leaflet-control-attribution")].map(r);
-    const markers = [...document.querySelectorAll(".leaflet-marker-icon")].map(r);
+    const covers = [...document.querySelectorAll(".rivolt-speed-legend, .maplibregl-ctrl-attrib")].map(r);
+    const markers = [...document.querySelectorAll(".maplibregl-marker")].map(r);
     return { covers, markers };
   });
   expect(boxes.markers.length).toBeGreaterThan(0);
@@ -143,7 +143,7 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   for (const m of boxes.markers) {
     for (const c of boxes.covers) expect(hit(m, c), JSON.stringify({ m, c })).toBe(false);
   }
-  await page.locator(".leaflet-container").first().scrollIntoViewIfNeeded();
+  await page.locator(".maplibregl-map").first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(SHOTS, "iphone-drive-map.png"), fullPage: true });
   await ctx.close();
 });
@@ -153,12 +153,12 @@ test("drive map: basemap toggle doesn't cover the end pin at 390 px", async ({ b
   const page = await ctx.newPage();
   await stubApi(page);
   await page.goto("/drives/drive-1");
-  await page.locator(".leaflet-container").first().scrollIntoViewIfNeeded();
-  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible();
-  await settled(page, [".rivolt-flavor-control", ".leaflet-container"]);
+  await page.locator(".maplibregl-map").first().scrollIntoViewIfNeeded();
+  await expect(page.locator(".maplibregl-marker").first()).toBeVisible();
+  await settled(page, [".rivolt-flavor-control", ".maplibregl-map"]);
   const overlap = await page.evaluate(() => {
     const c = document.querySelector(".rivolt-flavor-control")!.getBoundingClientRect();
-    const pins = [...document.querySelectorAll(".leaflet-marker-icon")].map((e) => e.getBoundingClientRect());
+    const pins = [...document.querySelectorAll(".maplibregl-marker")].map((e) => e.getBoundingClientRect());
     return pins.some((p) => p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top);
   });
   expect(overlap).toBe(false);

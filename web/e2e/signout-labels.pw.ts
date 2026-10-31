@@ -40,7 +40,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(confirm).toContainText("deletes the stored Rivian session");
       expect(posts).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
-      const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+      const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await page.screenshot({ path: path.join(SHOTS, `signout-labels-${w}-${theme}.png`), fullPage: true });
