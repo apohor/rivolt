@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/insights"
 	"github.com/apohor/rivolt/internal/samples"
 )
@@ -52,6 +53,11 @@ func handleEfficiencyInsights(store driveConditionLister, logger *slog.Logger) h
 		}
 		if !since.Before(until) {
 			http.Error(w, "since must be before until", http.StatusBadRequest)
+			return
+		}
+		// A free account's period is clamped to its window; a period wholly before it is empty.
+		if since = histwin.Clamp(r.Context(), since); !since.Before(until) {
+			writeJSON(w, http.StatusOK, insights.BuildEfficiency(nil, units))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)

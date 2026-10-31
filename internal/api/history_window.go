@@ -81,6 +81,23 @@ type paywallBody struct {
 	FreeDays int    `json:"free_days,omitempty"`
 }
 
+// proOnlyMiddleware answers 402 pro_required to a free account on a Pro-only read (trends, range near a temperature, capacity estimate).
+// Like the window it fails open: a lookup that fails counts the account as Pro. e nil: no gate.
+func proOnlyMiddleware(e *entitlements.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if e == nil {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if uid, ok := auth.UserFromContext(r.Context()); ok && !e.Pro(r.Context(), uid) {
+				writeProRequired(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // writeOutsideFreeWindow is the answer for a single row older than the free window.
 func writeOutsideFreeWindow(w http.ResponseWriter) {
 	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "outside_free_window", FreeDays: histwin.FreeDays})

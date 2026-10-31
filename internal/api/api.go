@@ -1034,12 +1034,12 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepHealth(uid, d.Samples.For(uid), time.Now)(w, r)
 			}))
-			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements)).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
 			// One truck's own efficiency and battery trend by month (the Truck page chart).
-			r.With(vehicleScoped, defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
-			r.With(vehicleScoped, defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
+			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
+			r.With(vehicleScoped, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
@@ -1534,18 +1534,18 @@ func New(d Deps) http.Handler {
 				r.With(win).Get("/trips", withUser(la.trips))
 				r.With(win).Get("/savings", withUser(la.savings))
 			})
-			r.With(gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).
-			r.Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
 			// Efficiency breakdowns (Insights): mi/kWh by outside
 			// temperature, average speed and drive mode over a period,
 			// from the user's own drives and samples.
-			r.With(defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, defaultUnits).Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				var store driveConditionLister
 				if st := d.Samples.For(uid); st != nil {
 					store = st

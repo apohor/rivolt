@@ -20,7 +20,7 @@ import (
 )
 
 type windowClass struct {
-	kind string // "windowed", "exempt" or "todo"
+	kind string // "windowed", "proOnly", "exempt" or "todo"
 	why  string
 }
 
@@ -53,17 +53,21 @@ var routeClasses = map[string]windowClass{
 	"GET /api/ledger/trips":                      {"windowed", ""},
 	"GET /api/ledger/savings":                    {"windowed", ""},
 	"GET /api/statement-email/preview":           {"windowed", ""},
-	"GET /api/samples":                           {"todo", "raw samples"},
-	"GET /api/sleep-activity":                    {"todo", "per-day sleep history"},
-	"GET /api/insights/efficiency":               {"todo", "efficiency insights over a period"},
-	"GET /api/milestones":                        {"todo", "milestones derived from history"},
-	"GET /api/vehicles/{vehicleID}/drain":        {"todo", "phantom drain over history"},
-	"GET /api/vehicles/{vehicleID}/pack-health":  {"todo", "capacity estimate: Pro-only"},
-	"GET /api/vehicles/{vehicleID}/sleep-health": {"todo", "sleep health over history"},
-	"GET /api/vehicles/{vehicleID}/trends":       {"todo", "trends: Pro-only"},
-	"GET /api/vehicles/{vehicleID}/cold-range":   {"todo", "range near a temperature: Pro-only"},
-	"GET /api/trips/saved/{id}/actual":           {"todo", "plan-vs-actual is a Pro feature (feature gating, a separate item)"},
-	"GET /api/trips/saved/{id}/active":           {"todo", "saved-trip state (feature gating, a separate item)"},
+	"GET /api/samples":                           {"windowed", ""},
+	"GET /api/sleep-activity":                    {"windowed", ""},
+	"GET /api/insights/efficiency":               {"windowed", ""},
+	"GET /api/milestones":                        {"exempt", "milestones are free (the milestone share card is a free feature): cumulative achievements the user earned, not browsable history"},
+	"GET /api/vehicles/{vehicleID}/drain":        {"exempt", "a fixed 30-day range, inside the free 90-day window; computed per request, cached for a few minutes under a key that is the same for every plan"},
+	"GET /api/vehicles/{vehicleID}/pack-health":  {"proOnly", ""},
+	"GET /api/vehicles/{vehicleID}/sleep-health": {"exempt", "a fixed 37-day range (this week and the 30 days before), inside the free 90-day window"},
+	"GET /api/vehicles/{vehicleID}/trends":       {"proOnly", ""},
+	"GET /api/vehicles/{vehicleID}/cold-range":   {"proOnly", ""},
+	"GET /api/trips/saved/{id}/actual":           {"exempt", "plan-vs-actual is a Pro FEATURE, gated by the feature-gating item, not by the history window"},
+	"GET /api/trips/saved/{id}/active":           {"exempt", "saved-trip state is gated by the feature-gating item (saved-trip cap), not by the history window"},
+
+	// Pending: the free account's delete-by-range (a privacy control for rows outside its window). It is a gate item: billing may not be turned
+	// on without it. The route does not exist yet (optionalRoutes); its PR moves this entry to exempt and flips HistoryWindowComplete.
+	"POST /api/data/delete-range": {"todo", "delete-by-range for rows outside the free window: " + always},
 
 	// Exempt, with reasons.
 	"GET /api/export":                             {"exempt", always + ": the complete account export"},
@@ -149,7 +153,7 @@ var prefixClasses = []struct{ prefix, why string }{
 
 // optionalRoutes are mounted only where a feature is configured; the test router may not have them, and they are classified here for the
 // installs that do.
-var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true}
+var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/data/delete-range": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {
@@ -168,9 +172,9 @@ func classify(method, route string) (windowClass, bool) {
 	return windowClass{}, false
 }
 
-func hasWindowMiddleware(mws []func(http.Handler) http.Handler) bool {
+func hasMiddlewareNamed(mws []func(http.Handler) http.Handler, name string) bool {
 	for _, m := range mws {
-		if f := runtime.FuncForPC(reflect.ValueOf(m).Pointer()); f != nil && strings.Contains(f.Name(), "historyWindowMiddleware") {
+		if f := runtime.FuncForPC(reflect.ValueOf(m).Pointer()); f != nil && strings.Contains(f.Name(), name) {
 			return true
 		}
 	}
@@ -179,7 +183,8 @@ func hasWindowMiddleware(mws []func(http.Handler) http.Handler) bool {
 
 type routeInfo struct {
 	method, route string
-	windowed      bool
+	windowed      bool // behind historyWindowMiddleware
+	proOnly       bool // behind proOnlyMiddleware
 }
 
 func apiRoutes(t *testing.T) []routeInfo {
@@ -187,7 +192,7 @@ func apiRoutes(t *testing.T) []routeInfo {
 	var out []routeInfo
 	err := chi.Walk(contractRouter(t), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
 		if route == "/api" || strings.HasPrefix(route, "/api/") || strings.HasPrefix(route, "/.well-known/") {
-			out = append(out, routeInfo{method, strings.TrimSuffix(route, "/"), hasWindowMiddleware(mws)})
+			out = append(out, routeInfo{method, strings.TrimSuffix(route, "/"), hasMiddlewareNamed(mws, "historyWindowMiddleware"), hasMiddlewareNamed(mws, "proOnlyMiddleware")})
 		}
 		return nil
 	})
@@ -219,12 +224,16 @@ func TestEveryRouteIsClassified(t *testing.T) {
 			if !r.windowed {
 				t.Errorf("%s is classified windowed but is not registered behind historyWindowMiddleware", key)
 			}
+		case "proOnly":
+			if !r.proOnly {
+				t.Errorf("%s is classified proOnly but is not registered behind proOnlyMiddleware", key)
+			}
 		case "exempt":
 			if c.why == "" {
 				t.Errorf("%s is exempt without a reason", key)
 			}
-			if r.windowed {
-				t.Errorf("%s is exempt but carries the window middleware", key)
+			if r.windowed || r.proOnly {
+				t.Errorf("%s is exempt but carries the window or Pro-only middleware", key)
 			}
 		case "todo":
 			if r.windowed {

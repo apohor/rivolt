@@ -259,6 +259,8 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 				until = t
 			}
 		}
+		// A free account's range is clamped to its window, whatever the client asked for.
+		since = histwin.Clamp(r.Context(), since)
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		// A window over the cap is bucketed across its whole span (peaks
 		// kept) rather than truncated to the oldest rows. The body stays
@@ -332,6 +334,9 @@ func handleSleepActivity(uid uuid.UUID, store *samples.Store) http.HandlerFunc {
 			}
 		}
 		vehicle := r.URL.Query().Get("vehicle")
+		// Clamped to a free account's window BEFORE the key is made: the cache holds a series for exactly the range in its key, so a
+		// windowed request and a Pro one can never be served each other's series.
+		since = histwin.Clamp(r.Context(), since)
 		key := sleepActivityKey(uid, vehicle, since, until)
 		out, err := sleepActivityCache.get(key, func() ([]samples.DayActivity, error) {
 			// Shared with concurrent callers, so it must not die with
