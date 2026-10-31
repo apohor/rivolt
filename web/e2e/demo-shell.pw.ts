@@ -14,7 +14,7 @@ const ALLOW: RegExp[] = [
   /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|sleep-health|trends|cold-range)$`),
   new RegExp(`^/api/state/${VEHICLE_ID}$`),
   /^\/api\/ledger\/(enabled|monthly|summary|trips|savings)$/,
-  /^\/api\/charges(\/clusters)?$/, /^\/api\/drives$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
+  /^\/api\/charges(\/clusters)?$/, /^\/api\/drives(\/route-thumbs)?$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
   /^\/api\/settings\/(charging|charging\/networks|home-location)\/?$/,
   /^\/api\/trips\/saved$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
   /^\/api\/demo\/trips$/, /^\/api\/demo\/trips\/[a-z0-9-]+\/plan$/,

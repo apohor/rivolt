@@ -119,7 +119,7 @@ func TestRouteThumbsAreUserScopedCappedAndSmall(t *testing.T) {
 	if w := serve(true, "ids="+strings.Join(many[:60], ",")); w.Code != http.StatusOK {
 		t.Errorf("60 ids: status %d, want 200", w.Code)
 	}
-	for _, bad := range []string{"ids=a%27%3B--", "ids=" + strings.Repeat("x", 129), "ids=a b"} {
+	for _, bad := range []string{"ids=a%27%3B--", "ids=" + strings.Repeat("x", 129), "ids=a%20b"} {
 		if w := serve(true, bad); w.Code != http.StatusBadRequest {
 			t.Errorf("%q: status %d, want 400", bad, w.Code)
 		}
