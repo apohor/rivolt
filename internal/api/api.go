@@ -761,6 +761,10 @@ func New(d Deps) http.Handler {
 			re := &rivianExpiryEmailAPI{db: d.SystemDB, signer: d.StatementSigner, now: time.Now} // system pool: a signed link, no session
 			r.With(unsubLimiter.Middleware).Get("/rivian-expiry-email/unsubscribe", re.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/rivian-expiry-email/unsubscribe", re.unsubscribePost)
+			// The R2 arrival-month email: the same, deleting the reminder month.
+			r2a := &r2ArrivalEmailAPI{db: d.SystemDB, signer: d.StatementSigner, now: time.Now} // system pool: a signed link, no session
+			r.With(unsubLimiter.Middleware).Get("/r2-arrival/unsubscribe", r2a.unsubscribeGet)
+			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/r2-arrival/unsubscribe", r2a.unsubscribePost)
 		}
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {

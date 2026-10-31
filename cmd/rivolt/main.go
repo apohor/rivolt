@@ -76,6 +76,7 @@ import (
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/r2arrival"
 	"github.com/apohor/rivolt/internal/rivianexpiry"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -1703,6 +1704,43 @@ func runServer() {
 		})
 	}
 
+	// The R2 arrival-month email (internal/r2arrival): a user who told us the month they expect an R2 gets one email on its
+	// first weekday with the connect steps. Every replica may run it: each send is claimed in engagement_sends under the
+	// month. Needs a mailer; RIVOLT_ENGAGEMENT_EMAILS=false (preview) keeps it off.
+	if pgPool != nil && mailer != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+		r2job := &r2arrival.Job{
+			Source: r2ArrivalSource{pgPool},
+			Engage: &engage.Engage{Store: engage.NewStore(pgPool), Observe: func(kind, outcome string) {
+				appMetrics.EngagementSendsTotal.WithLabelValues(kind, outcome).Inc()
+			}},
+			Mail:      mailer,
+			BaseURL:   os.Getenv("RIVOLT_BASE_URL"),
+			Signer:    onboardSigner.Load,
+			Skip:      func(uid uuid.UUID) bool { return demo.Enabled() && uid == demo.UserID() },
+			Log:       logger,
+			OnOutcome: func(o string) { appMetrics.EngagementSendsTotal.WithLabelValues(r2arrival.Kind, o).Inc() },
+		}
+		bg.Go(func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(4 * time.Minute):
+			}
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				r2job.Sweep(sctx)
+				cancel()
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			}
+		})
+	}
+
 	// Subscription leases gate which vehicles THIS pod owns.
 	// Multi-replica steady state requires exactly one pod per
 	// vehicle; the leases.Coordinator polls Postgres every 30s,
@@ -3315,4 +3353,23 @@ func replicaDivisorFromEnv(getenv func(string) string) float64 {
 		return float64(n)
 	}
 	return 3
+}
+
+// r2ArrivalSource is the R2 arrival-month job's database side.
+type r2ArrivalSource struct{ db *sql.DB }
+
+func (s r2ArrivalSource) Due(ctx context.Context, from, to time.Time) ([]db.R2ArrivalDue, error) {
+	return db.ListR2ArrivalDue(ctx, s.db, from, to)
+}
+
+func (s r2ArrivalSource) Clear(ctx context.Context, uid uuid.UUID, month time.Time) error {
+	return db.ClearR2ArrivalMonthFor(ctx, s.db, uid, month)
+}
+
+func (s r2ArrivalSource) ClearEnded(ctx context.Context, now time.Time) (int64, error) {
+	return db.ClearEndedR2ArrivalMonths(ctx, s.db, now)
+}
+
+func (s r2ArrivalSource) StillWanted(ctx context.Context, uid uuid.UUID, month time.Time) (bool, error) {
+	return db.R2ArrivalStillWanted(ctx, s.db, uid, month)
 }
