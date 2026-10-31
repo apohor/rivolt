@@ -12,6 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/apohor/rivolt/internal/metrics"
 )
 
 // Home and a spot ~2 km away.
@@ -451,4 +455,36 @@ func TestScheduleReadIsBackground(t *testing.T) {
 	if !bg {
 		t.Error("the schedule read did not carry the background class")
 	}
+}
+
+// The counter moves for monitors the registry started before main installed it. Prod's boot hydrate sweep starts every monitor
+// before the observer is set, and each monitor used to keep the registry's value at that moment (none), so
+// rivolt_rivian_schedule_read_total read 0 beside real reads. Monitors now call through the registry, and one read moves exactly
+// one series of the real counter.
+func TestScheduleCounterReachesMonitorsStartedBeforeItWasSet(t *testing.T) {
+	oldCap, oldBase, oldJitter := scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter
+	scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = 2*time.Millisecond, time.Millisecond, time.Millisecond
+	defer func() { scheduleRetryCap, scheduleRetryBase, scheduleRetryJitter = oldCap, oldBase, oldJitter }()
+	reg := NewMonitorRegistry(nil, nil, nil, nil, nil, nil, nil)
+	m, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	m.SetScheduleObserver(reg.scheduleObserver()) // what Start does, with no observer installed yet
+
+	appMetrics := metrics.New()
+	reg.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() }) // main, later
+
+	m.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
+
+	moved := map[string]float64{}
+	for _, o := range []string{"ok", "retried_ok", "dropped", "error"} {
+		if v := testutil.ToFloat64(appMetrics.RivianScheduleReadTotal.WithLabelValues(o)); v != 0 {
+			moved[o] = v
+		}
+	}
+	if len(moved) != 1 || moved["ok"] != 1 {
+		t.Fatalf("one successful read moved %v, want exactly ok=1", moved)
+	}
+	// With no observer at all a read is simply not counted (a source-fed or test registry).
+	m2, _ := schedMonitor(schedHomeLat, schedHomeLon)
+	m2.SetScheduleObserver(NewMonitorRegistry(nil, nil, nil, nil, nil, nil, nil).scheduleObserver())
+	m2.readChargingSchedules(context.Background(), "v", scheduleConnectMinAge)
 }
