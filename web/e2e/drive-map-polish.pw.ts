@@ -134,7 +134,8 @@ for (const [name, vp, theme] of [
     await setup(page);
     await page.goto("/drives/drive-1");
     await expect(drawn(page)).toBeAttached();
-    const over = page.locator(".u-over").first();
+    // The timeline charts are SVG with a transparent pointer overlay (crosshair cursor); hovering it moves the map's scrub dot.
+    const over = page.locator("rect[style*='crosshair']").first();
     await expect(over).toBeVisible();
     const box = (await over.boundingBox())!;
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2);
