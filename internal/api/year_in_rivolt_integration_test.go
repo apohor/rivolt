@@ -19,6 +19,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/trips"
 )
 
 // /api/year-in-rivolt over last year: the year's totals come from a date range (not the newest N rows), the coldest drive comes from
@@ -63,6 +64,25 @@ func TestYearInRivolt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Two saved trips made last year (one with two charging stops, one with none) and one made this year; one truck, an R1S.
+	plan := json.RawMessage(`{"Routes":[{"Waypoints":[{"WaypointType":"ORIGIN"},{"WaypointType":"DC_CHARGE_STATION"},{"WaypointType":"DC_CHARGE_STATION"},{"WaypointType":"DESTINATION"}]}]}`)
+	tr := trips.NewFactory(pool).For(old)
+	for i, created := range []time.Time{at(time.May, 3, 10), at(time.June, 3, 10), time.Now().UTC()} {
+		p := plan
+		if i == 1 {
+			p = json.RawMessage(`{"Routes":[{"Waypoints":[{"WaypointType":"ORIGIN"},{"WaypointType":"DESTINATION"}]}]}`)
+		}
+		saved, err := tr.Create(ctx, "t"+strconv.Itoa(i), json.RawMessage(`{}`), p, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.ExecContext(ctx, `UPDATE saved_trips SET created_at = $2 WHERE id = $1`, saved.ID, created); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE vehicles SET model = 'R1S' WHERE user_id = $1`, old); err != nil {
+		t.Fatal(err)
+	}
 	weather := func(driveID string, c float64) {
 		t.Helper()
 		if _, err := pool.ExecContext(ctx, `INSERT INTO drive_weather (user_id, drive_id, coarse_lat, coarse_lon, sampled_at, provider, temp_c)
@@ -79,7 +99,7 @@ func TestYearInRivolt(t *testing.T) {
 	get := func(q string, u uuid.UUID) (int, yearResponse) {
 		req := httptest.NewRequest(http.MethodGet, "/api/year-in-rivolt"+q, nil).WithContext(auth.WithUser(ctx, u))
 		w := httptest.NewRecorder()
-		handleYearInRivolt(pool, u, df.For(u), cf.For(u), sf.For(u), nil)(w, req)
+		handleYearInRivolt(pool, u, df.For(u), cf.For(u), sf.For(u), trips.NewFactory(pool).For(u), nil)(w, req)
 		var out yearResponse
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out
@@ -97,6 +117,15 @@ func TestYearInRivolt(t *testing.T) {
 	// d2 is the March drive (i=2): the month is the drive's, not the weather row's sampled_at (January).
 	if out.ColdestDrive == nil || math.Abs(out.ColdestDrive.TempF-17.6) > 1e-6 || out.ColdestDrive.Month != strconv.Itoa(y)+"-03" {
 		t.Errorf("coldest drive %+v: want -8 C (17.6 F) in the drive's month, not the orphan, the re-parking or the other year's", out.ColdestDrive)
+	}
+	if out.DriveCount != 10 || out.PlannedTrips == nil || *out.PlannedTrips != 2 || *out.PlannedStops != 2 || out.Model != "R1S" || out.SinceMonth != "" {
+		t.Errorf("drive count %d, planned %v/%v, model %q, since %q", out.DriveCount, out.PlannedTrips, out.PlannedStops, out.Model, out.SinceMonth)
+	}
+	if out.MostEfficientLong == nil || out.MostEfficientLong.Miles != 100 || out.MostEfficientLong.Month != strconv.Itoa(y)+"-07" {
+		t.Errorf("most efficient long drive %+v", out.MostEfficientLong)
+	}
+	if sh := out.EnergyShares; sh != nil && math.Abs(sh.Home+sh.Away+sh.Fast-1) > 1e-9 {
+		t.Errorf("shares do not sum to 1: %+v", sh)
 	}
 	if out.Cost == nil || out.Cost.Amount != 15 || out.Cost.Currency != "USD" || out.Cost.Estimated {
 		t.Errorf("cost %+v", out.Cost)

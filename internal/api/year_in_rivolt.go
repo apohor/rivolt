@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/trips"
 )
 
 // "Your year in Rivolt": a read-only card of the signed-in user's own calendar year (UTC), computed here so the web and the
@@ -29,6 +32,8 @@ const (
 	yearMinAccountAge = 30 * 24 * time.Hour
 	// A drive shorter than this says nothing about efficiency (a parking-lot shuffle can read 9 mi/kWh).
 	yearMinEfficiencyMi = 5.0
+	// A "long" drive for the most-efficient-long-drive figure (ux's list).
+	yearLongDriveMi = 50.0
 )
 
 type yearMonthMiles struct {
@@ -47,19 +52,45 @@ type yearCost struct {
 	Estimated bool    `json:"estimated"` // some of the amount is an estimate (no billed or entered price)
 }
 
-// yearResponse is GET /api/year-in-rivolt[?year=YYYY]. Ineligible answers set only Eligible, Year and Reason.
+type yearLongDrive struct {
+	Miles    float64 `json:"miles"`
+	MiPerKWh float64 `json:"mi_per_kwh"`
+	Month    string  `json:"month"`
+}
+
+// yearShares are fractions 0-1 of the energy charged, by where it was charged; they sum to 1. No money.
+type yearShares struct {
+	Home float64 `json:"home"`
+	Away float64 `json:"away"`
+	Fast float64 `json:"fast"`
+}
+
+// yearResponse is GET /api/year-in-rivolt[?year=YYYY]. Ineligible answers set only Eligible, Year and Reason. Nothing in it names a
+// place, a day, a time, a VIN or the truck's name.
 type yearResponse struct {
 	Eligible bool   `json:"eligible"`
 	Year     int    `json:"year"`
 	Reason   string `json:"reason,omitempty"` // "account_too_new" | "not_enough_activity"
 
-	Miles        float64         `json:"miles,omitempty"`
-	KWh          float64         `json:"kwh,omitempty"` // energy the drives used
-	ChargeCount  int             `json:"charge_count,omitempty"`
-	BestMiPerKWh float64         `json:"best_efficiency_mi_per_kwh,omitempty"`
-	LongestTrip  *yearMonthMiles `json:"longest_trip,omitempty"`
-	ColdestDrive *yearColdest    `json:"coldest_drive,omitempty"`
-	Cost         *yearCost       `json:"cost,omitempty"`
+	SinceMonth   string      `json:"since_month,omitempty"` // "2026-03": the year began for this account partway through
+	DriveCount   int         `json:"drive_count,omitempty"`
+	Miles        float64     `json:"miles,omitempty"`
+	KWh          float64     `json:"kwh,omitempty"` // energy the drives used
+	ChargeCount  int         `json:"charge_count,omitempty"`
+	EnergyShares *yearShares `json:"energy_shares,omitempty"` // omitted when no charge could be placed
+	// The year's miles over its kWh. Every drive's energy is the battery-percent change times the pack's capacity, so it is
+	// an estimate by construction and the flag is true whenever the figure is there.
+	EfficiencyMiPerKWh  float64         `json:"efficiency_mi_per_kwh,omitempty"`
+	EfficiencyEstimated bool            `json:"efficiency_estimated,omitempty"`
+	BestMiPerKWh        float64         `json:"best_efficiency_mi_per_kwh,omitempty"`
+	LongestTrip         *yearMonthMiles `json:"longest_trip,omitempty"`
+	MostEfficientLong   *yearLongDrive  `json:"most_efficient_long_drive,omitempty"`
+	ColdestDrive        *yearColdest    `json:"coldest_drive,omitempty"`
+	PlannedTrips        *int            `json:"planned_trips,omitempty"`
+	PlannedStops        *int            `json:"planned_stops,omitempty"`
+	Model               string          `json:"model,omitempty"` // only when every truck on the account is the same model
+	Cost                *yearCost       `json:"cost,omitempty"`
+	CostPerMile         float64         `json:"cost_per_mile,omitempty"` // in Cost.Currency; omitted with Cost
 }
 
 // yearCharge is the part of a charge the card needs.
@@ -68,6 +99,17 @@ type yearCharge struct {
 	estimated float64
 	currency  string
 	energyEst bool
+	kwh       float64
+	where     string // "home" | "away" | "fast" | "" (could not be placed)
+}
+
+// yearExtras are the figures that do not come from the drives or the charges.
+type yearExtras struct {
+	coldest      *yearColdest
+	sinceMonth   string
+	plannedTrips int
+	plannedStops int
+	model        string
 }
 
 // yearGate is "" when the card may be drawn, else why not.
@@ -82,12 +124,25 @@ func yearGate(now, createdAt time.Time, nDrives, nCharges int) string {
 }
 
 // computeYear is the pure part: rows already limited to the year. coldest is nil when no weather was recorded.
-func computeYear(year int, ds []drives.Drive, cs []yearCharge, coldest *yearColdest) yearResponse {
-	out := yearResponse{Eligible: true, Year: year, ChargeCount: len(cs), ColdestDrive: coldest}
+func computeYear(year int, ds []drives.Drive, cs []yearCharge, x yearExtras) yearResponse {
+	trips, stops := x.plannedTrips, x.plannedStops
+	out := yearResponse{Eligible: true, Year: year, ChargeCount: len(cs), DriveCount: len(ds), ColdestDrive: x.coldest,
+		SinceMonth: x.sinceMonth, PlannedTrips: &trips, PlannedStops: &stops, Model: x.model}
+	var effMi, effKWh, bestLong float64
 	var longest drives.Drive
 	for _, d := range ds {
 		out.Miles += d.DistanceMi
 		out.KWh += d.EnergyUsedKWh
+		if d.EnergyUsedKWh > 0 {
+			effMi += d.DistanceMi
+			effKWh += d.EnergyUsedKWh
+		}
+		if d.DistanceMi >= yearLongDriveMi && d.EnergyUsedKWh > 0 {
+			if e := d.DistanceMi / d.EnergyUsedKWh; e > bestLong {
+				bestLong = e
+				out.MostEfficientLong = &yearLongDrive{Miles: d.DistanceMi, MiPerKWh: e, Month: d.StartedAt.UTC().Format("2006-01")}
+			}
+		}
 		if d.DistanceMi >= yearMinEfficiencyMi && d.EnergyUsedKWh > 0 {
 			if e := d.DistanceMi / d.EnergyUsedKWh; e > out.BestMiPerKWh {
 				out.BestMiPerKWh = e
@@ -96,6 +151,28 @@ func computeYear(year int, ds []drives.Drive, cs []yearCharge, coldest *yearCold
 		if d.DistanceMi > longest.DistanceMi {
 			longest = d
 		}
+	}
+	if effKWh > 0 {
+		out.EfficiencyMiPerKWh, out.EfficiencyEstimated = effMi/effKWh, true
+	}
+	var sh yearShares
+	var placed float64
+	for _, c := range cs {
+		switch c.where {
+		case "home":
+			sh.Home += c.kwh
+		case "away":
+			sh.Away += c.kwh
+		case "fast":
+			sh.Fast += c.kwh
+		default:
+			continue
+		}
+		placed += c.kwh
+	}
+	if placed > 0 {
+		sh.Home, sh.Away, sh.Fast = sh.Home/placed, sh.Away/placed, sh.Fast/placed
+		out.EnergyShares = &sh
 	}
 	if longest.DistanceMi > 0 {
 		out.LongestTrip = &yearMonthMiles{Miles: longest.DistanceMi, Month: longest.StartedAt.UTC().Format("2006-01")}
@@ -130,11 +207,14 @@ func computeYear(year int, ds []drives.Drive, cs []yearCharge, coldest *yearCold
 			}
 		}
 		out.Cost = cost
+		if out.Miles > 0 {
+			out.CostPerMile = cost.Amount / out.Miles
+		}
 	}
 	return out
 }
 
-func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charges.Store, settingsStore *settings.Store, billed func(context.Context) bool) http.HandlerFunc {
+func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charges.Store, settingsStore *settings.Store, ts *trips.Store, billed func(context.Context) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		now := time.Now().UTC()
@@ -181,12 +261,27 @@ func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charg
 				http.Error(w, "could not read charges", http.StatusInternalServerError)
 				return
 			}
+			// Placed as the Activity feed places them: the ledger's kind and place, the cluster of the year's own charges filling in
+			// what it cannot say.
+			clusters := clusterLabels(rows)
 			for _, c := range decorateCharges(ctx, rows, settingsStore, billed != nil && billed(ctx)) {
+				var kind, place string
+				if c.Classification != nil {
+					kind, place = c.Classification.Kind, c.Classification.Place
+				}
+				kind, place = resolvedKindPlace(kind, place, clusters[c.ID])
+				where := place
+				if kind == "dcfc" {
+					where = "fast"
+				}
+				if where != "home" && where != "away" && where != "fast" {
+					where = ""
+				}
 				cur := c.Currency
 				if c.Cost <= 0 {
 					cur = c.EstimatedCurrency
 				}
-				yc = append(yc, yearCharge{cost: c.Cost, estimated: c.EstimatedCost, currency: cur, energyEst: c.EnergyEstimated})
+				yc = append(yc, yearCharge{cost: c.Cost, estimated: c.EstimatedCost, currency: cur, energyEst: c.EnergyEstimated, kwh: c.EnergyAddedKWh, where: where})
 			}
 		}
 		if reason := yearGate(now, createdAt, len(yd), len(yc)); reason != "" {
@@ -213,6 +308,86 @@ SELECT w.temp_c, d.started_at
 			http.Error(w, "could not read weather", http.StatusInternalServerError)
 			return
 		}
-		resp(computeYear(year, yd, yc, coldest))
+		x := yearExtras{coldest: coldest}
+		// "Since March": the year began for this account partway through. The earlier of the account's start and its first drive
+		// of the year counts, since history can be imported from before the account.
+		first := createdAt.UTC()
+		for _, d := range yd {
+			if d.StartedAt.Before(first) {
+				first = d.StartedAt
+			}
+		}
+		if first.Year() == year && first.Month() > time.January {
+			x.sinceMonth = first.Format("2006-01")
+		}
+		if ts != nil {
+			saved, err := ts.List(ctx)
+			if err != nil {
+				http.Error(w, "could not read trips", http.StatusInternalServerError)
+				return
+			}
+			for _, t := range saved {
+				if t.CreatedAt.Before(from) || !t.CreatedAt.Before(to) {
+					continue
+				}
+				x.plannedTrips++
+				x.plannedStops += plannedStops(t.Plan)
+			}
+		}
+		models, err := pool.QueryContext(ctx, `SELECT DISTINCT COALESCE(model, '') FROM vehicles WHERE user_id = $1`, uid)
+		if err != nil {
+			http.Error(w, "could not read vehicles", http.StatusInternalServerError)
+			return
+		}
+		defer models.Close()
+		var ms []string
+		for models.Next() {
+			var m string
+			if err := models.Scan(&m); err != nil {
+				http.Error(w, "could not read vehicles", http.StatusInternalServerError)
+				return
+			}
+			ms = append(ms, m)
+		}
+		x.model = commonModel(ms)
+		resp(computeYear(year, yd, yc, x))
 	}
+}
+
+// plannedStops counts the charging stops in a saved trip's plan: the first route's waypoints that are neither its origin nor its
+// destination. A plan that does not parse counts none.
+func plannedStops(plan json.RawMessage) int {
+	var p struct {
+		Routes []struct {
+			Waypoints []struct{ WaypointType string }
+		}
+	}
+	if len(plan) == 0 || json.Unmarshal(plan, &p) != nil || len(p.Routes) == 0 {
+		return 0
+	}
+	n := 0
+	for _, w := range p.Routes[0].Waypoints {
+		switch strings.ToUpper(w.WaypointType) {
+		case "ORIGIN", "DESTINATION", "":
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+var yearModelRE = regexp.MustCompile(`^R[0-9][A-Z0-9]{0,3}$`)
+
+// commonModel is the model name when every truck on the account has the same one ("R1S", "R2"), else "": the card then has no
+// model in its title. An empty or odd value counts as unknown, so a card never carries free text from the vehicle record.
+func commonModel(models []string) string {
+	common := ""
+	for _, m := range models {
+		m = strings.ToUpper(strings.TrimSpace(m))
+		if !yearModelRE.MatchString(m) || (common != "" && m != common) {
+			return ""
+		}
+		common = m
+	}
+	return common
 }
