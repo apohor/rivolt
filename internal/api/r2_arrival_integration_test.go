@@ -173,7 +173,6 @@ func TestR2ArrivalFinishedRowsDoNotCrowdOutLaterUsers(t *testing.T) {
 		}
 		ids = append(ids, u)
 	}
-	last := ids[len(ids)-1]
 	// Order is by month then id: find the user the cap would hide, whichever it is.
 	due, err := db.ListR2ArrivalDue(ctx, pool, month, month)
 	if err != nil || len(due) != 500 {
@@ -202,12 +201,14 @@ func TestR2ArrivalFinishedRowsDoNotCrowdOutLaterUsers(t *testing.T) {
 	if err != nil || len(due) != 2 {
 		t.Fatalf("after the first 500 are done the rest are listed: %d %v", len(due), err)
 	}
-	// A changed month is not deleted by a stale clear.
-	if err := db.ClearR2ArrivalMonthFor(ctx, pool, last, month.AddDate(0, 3, 0)); err != nil {
+	// A changed month is not deleted by a stale clear: one of the two still listed (their months are set), cleared as if for another
+	// month.
+	still := hidden[0]
+	if err := db.ClearR2ArrivalMonthFor(ctx, pool, still, month.AddDate(0, 3, 0)); err != nil {
 		t.Fatal(err)
 	}
 	var n int
-	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_prefs WHERE user_id = $1 AND r2_arrival_month IS NOT NULL`, last).Scan(&n)
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM engagement_prefs WHERE user_id = $1 AND r2_arrival_month IS NOT NULL`, still).Scan(&n)
 	if n != 1 {
 		t.Errorf("a clear for another month deleted this one")
 	}
