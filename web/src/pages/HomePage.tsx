@@ -16,6 +16,7 @@ import FirstChargeCard from "../components/FirstChargeCard";
 import { LockedVehicleNotice } from "../components/LockedVehicle";
 import ThreeThingsCard from "../components/ThreeThingsCard";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
+import { ServiceNoticeBanner } from "../components/ServiceNotices";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type Charge, type ChargeCluster } from "../lib/api";
 import { chargePlaceLabels, type ChargePlaceLabel } from "../lib/chargePlace";
@@ -262,6 +263,7 @@ export default function HomePage() {
         inline
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
+      {!inDemo() && <ServiceNoticeBanner />}
       {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       <PageHeader

@@ -45,6 +45,7 @@ import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { R2ArrivalControl } from "../components/R2Arrival";
 import { PlanCard } from "../components/PlanCard";
+import { ServiceNoticesCard } from "../components/ServiceNotices";
 import { PrimaryVehicleCard } from "../components/PrimaryVehicleCard";
 import { DeleteHistoryCard } from "../components/DeleteHistoryCard";
 import { SignOutButton } from "../components/SignOutButton";
@@ -219,6 +220,7 @@ function SettingsPageInner() {
       {tab === "account" && (
         <>
           <PlanCard />
+          <ServiceNoticesCard />
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
