@@ -202,14 +202,22 @@ func TestRenewalKindIsPerPeriod(t *testing.T) {
 }
 
 func TestRenewalReminderCopy(t *testing.T) {
-	p := RenewalParams{RenewsOn: "2027-12-01", PriceLabel: "$34.99 a year", CancelURL: "https://billing.example.test/portal"}
+	p := RenewalParams{RenewsOn: "2027-12-01", PriceLabel: "$34.99 a year"}
 	body := RenderRenewalEmail(p)
-	for _, want := range []string{"December 1, 2027", "$34.99 a year", "https://billing.example.test/portal", "nothing is deleted"} {
+	for _, want := range []string{"December 1, 2027", "$34.99 a year", PlanURL, "nothing is deleted"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
 	if !strings.Contains(RenewalSubject(p), "December 1, 2027") {
 		t.Error(RenewalSubject(p))
+	}
+}
+
+// The reminder links to the Plan card in Settings, never to a billing-portal session: those expire and are a bearer link if the email is forwarded.
+func TestRenewalReminderLinksToThePlanCard(t *testing.T) {
+	body := RenderRenewalEmail(RenewalParams{RenewsOn: "2027-12-01", PriceLabel: "$34.99 a year"})
+	if !strings.Contains(body, "https://rivolt.dev/settings#plan") || strings.Contains(body, "stripe.com") {
+		t.Errorf("cancel link:\n%s", body)
 	}
 }

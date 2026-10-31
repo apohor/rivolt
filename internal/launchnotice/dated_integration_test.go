@@ -170,7 +170,7 @@ func TestDatedNoticesAgainstPostgres(t *testing.T) {
 
 	// The renewal reminder: one per renewal period, even if the sweep runs again.
 	renews := day(40)
-	src := fakeRenewals{rs: []Renewal{{UserID: normal, Email: "normal@example.test", Verified: true, RenewsOn: renews, PriceLabel: "$34.99 a year", CancelURL: "https://billing.example.test/portal"}}}
+	src := fakeRenewals{rs: []Renewal{{UserID: normal, Email: "normal@example.test", Verified: true, RenewsOn: renews, PriceLabel: "$34.99 a year"}}}
 	rm := &recMail{}
 	rj := &RenewalJob{Source: src, Store: Store{DB: pool}, Mailer: rm, Now: func() time.Time { return now }}
 	for i := 0; i < 2; i++ {
@@ -178,7 +178,7 @@ func TestDatedNoticesAgainstPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(rm.msgs) != 1 || !strings.Contains(rm.msgs[0].Text, "https://billing.example.test/portal") {
+	if len(rm.msgs) != 1 || !strings.Contains(rm.msgs[0].Text, PlanURL) {
 		t.Errorf("renewal reminders sent: %d", len(rm.msgs))
 	}
 }

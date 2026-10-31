@@ -13,7 +13,7 @@ import (
 )
 
 // The yearly-renewal reminder: one email, at least 30 days before an annual Stripe subscription renews, stating the price, the renewal
-// date and a direct link to cancel. It is a service email (it goes out with engagement emails off) and there is one per renewal period:
+// date and a link to cancel that opens the billing portal after sign-in. It is a service email (it goes out with engagement emails off) and there is one per renewal period:
 // the notice kind carries the renewal date, so next year's reminder is a new row. Apple subscriptions are not in the source: Apple sends
 // its own reminders.
 //
@@ -30,8 +30,12 @@ type Renewal struct {
 	Verified   bool
 	RenewsOn   time.Time
 	PriceLabel string // "$34.99 a year"
-	CancelURL  string // the Stripe billing portal link
 }
+
+// PlanURL is where the reminder sends the account to cancel: the Plan card in Settings, which opens the billing portal after sign-in. A
+// fixed link on purpose: a pre-made billing-portal session URL expires and works as a bearer link to the customer's billing page if the
+// email is forwarded, so the source cannot supply one.
+const PlanURL = "https://rivolt.dev/settings#plan"
 
 // RenewalSource lists the annual subscriptions renewing in [from, to].
 type RenewalSource interface {
@@ -42,7 +46,6 @@ type RenewalSource interface {
 type RenewalParams struct {
 	RenewsOn   string `json:"renews_on"`
 	PriceLabel string `json:"price"`
-	CancelURL  string `json:"cancel_url"`
 }
 
 // RenewalSubject is the subject of the reminder.
@@ -53,7 +56,7 @@ func RenewalSubject(p RenewalParams) string {
 // RenderRenewalEmail is the draft reminder text.
 func RenderRenewalEmail(p RenewalParams) string {
 	return "Hi,\n\nYour Rivolt Pro subscription renews automatically on " + long(p.RenewsOn) + " at " + p.PriceLabel + ".\n\n" +
-		"To cancel, in one step: " + p.CancelURL + "\nCancelling keeps Pro until the end of the period you have paid for; nothing is deleted when a plan ends, and the full export is always free.\n\n" +
+		"To cancel, in one step (sign in first): " + PlanURL + "\nCancelling keeps Pro until the end of the period you have paid for; nothing is deleted when a plan ends, and the full export is always free.\n\n" +
 		"Nothing to do if you want to keep Pro.\n\nTerms: https://rivolt.dev/terms\n\nThe Rivolt team\nsupport@rivolt.dev\nRivolt is unofficial and not affiliated with Rivian.\n"
 }
 
@@ -91,7 +94,7 @@ func (j *RenewalJob) RunOnce(ctx context.Context) (DatedStats, error) {
 			continue
 		}
 		st.Considered++
-		p := RenewalParams{RenewsOn: r.RenewsOn.UTC().Format("2006-01-02"), PriceLabel: r.PriceLabel, CancelURL: r.CancelURL}
+		p := RenewalParams{RenewsOn: r.RenewsOn.UTC().Format("2006-01-02"), PriceLabel: r.PriceLabel}
 		kind := RenewalKind(r.RenewsOn)
 		if _, err := j.Store.EnsureAny(ctx, r.UserID, kind, p, r.RenewsOn.Add(24*time.Hour)); err != nil {
 			st.Failed++
