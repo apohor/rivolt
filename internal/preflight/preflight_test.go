@@ -40,7 +40,7 @@ func okInput() Input {
 		Webhook:   func(context.Context, string) (int, error) { return http.StatusBadRequest, nil },
 		RedisTime: func(context.Context) (bool, error) { return false, nil },
 		Stripe: func(context.Context) StripeFacts {
-			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true}
+			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutCardOn: true}
 		},
 	}
 }
@@ -65,7 +65,7 @@ func TestPreflightReady(t *testing.T) {
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
 		"https://rivolt.dev/terms: 200", "https://rivolt.dev/privacy: 200", "https://rivolt.dev/settings: 200",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"unsigned POST: 400", "TIME as the app user: allowed", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"unsigned POST: 400", "TIME as the app user: allowed", "Checkout payment methods: card on", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -140,6 +140,11 @@ func TestPreflightProblems(t *testing.T) {
 		"no payment method update": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts {
 				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true}
+			}
+		},
+		"cards off in checkout": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true}
 			}
 		},
 		"no portal configuration": func(in *Input) {
@@ -227,5 +232,29 @@ func TestURLsAreTheOnesTheCopyLinksTo(t *testing.T) {
 		if strings.Contains(u, "#") {
 			t.Errorf("%s keeps a fragment", u)
 		}
+	}
+}
+
+// The report is honest about what it cannot see: the manual steps are printed as unchecked boxes, the site check says the SPA answers 200
+// for any path, and the closing line tells the reader the figures are production's.
+func TestPreflightManualStepsAndLabels(t *testing.T) {
+	in := okInput()
+	in.Fetch = func(context.Context, string) (int, error) { return http.StatusOK, nil } // a made-up path answers 200 too
+	out := render(Run(context.Background(), in))
+	for _, want := range []string{
+		"== Site reachable (the SPA answers 200 for any path", "a made-up path also answers 200",
+		"== Manual steps", "[ ] Stripe Dashboard, public business details: the Terms of service URL", "[ ] Cloudflare: a skip (allow) rule",
+		"checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
+		"ACL DRYRUN", "[ ] before the flip: the Stripe key is in live mode on prod",
+		"share the report privately with DA and the lead; never in a GitHub PR, issue, commit or release note",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+	// A 302 or 403 from the webhook names Cloudflare.
+	in.Webhook = func(context.Context, string) (int, error) { return http.StatusForbidden, nil }
+	if out := render(Run(context.Background(), in)); !strings.Contains(out, "Cloudflare is redirecting or blocking Stripe") {
+		t.Errorf("the webhook problem does not name Cloudflare:\n%s", out)
 	}
 }

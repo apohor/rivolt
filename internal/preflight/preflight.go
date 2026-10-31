@@ -35,6 +35,8 @@ type StripeFacts struct {
 	TermsSet            bool // the Customer Portal's Terms of service URL
 	PrivacySet          bool // and its Privacy policy URL
 	PaymentMethodUpdate bool // customers can update their payment method in the portal
+	CheckoutCardOn      bool // the default payment method configuration offers cards in Checkout
+	CheckoutRead        bool // that configuration could be read at all
 }
 
 // Input is everything the report reads, so a test drives it without a database, a network or the process environment.
@@ -83,21 +85,30 @@ func (r *Report) Print(w io.Writer) {
 		fmt.Fprintln(w, l)
 	}
 	if r.Ready() {
-		fmt.Fprintf(w, "\nREADY: nothing stops the flip (%d warning(s)). Nothing was switched on or written.\n", len(r.Warnings))
-		return
+		fmt.Fprintf(w, "\nREADY: nothing this report can see stops the flip (%d warning(s)); the manual steps above are still yours. Nothing was switched on or written.\n", len(r.Warnings))
+	} else {
+		fmt.Fprintf(w, "\nNOT READY: %d problem(s). Nothing was switched on or written.\n", len(r.Problems))
 	}
-	fmt.Fprintf(w, "\nNOT READY: %d problem(s). Nothing was switched on or written.\n", len(r.Problems))
+	fmt.Fprintln(w, "These are production figures: share the report privately with DA and the lead; never in a GitHub PR, issue, commit or release note.")
 }
 
 // URLs are the pages the launch notice and the billing emails link to, checked as the emails state them.
 func URLs() []string {
-	return []string{
+	var out []string
+	seen := map[string]bool{}
+	for _, u := range []string{
 		"https://rivolt.dev/terms",
 		"https://rivolt.dev/terms/2026-10-23", // the previous Terms, which the launch notice says apply until the new ones take effect
 		"https://rivolt.dev/privacy",
 		stripFragment(launchnotice.PlanURL),
 		stripFragment(launchnotice.ExportURL),
+	} {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
 	}
+	return out
 }
 
 func stripFragment(u string) string {
@@ -146,7 +157,10 @@ func Run(ctx context.Context, in Input) *Report {
 		}
 	}
 
-	r.line("== Terms and notice URLs")
+	// The SPA answers 200 for ANY path, so a 200 here proves the site answers through Cloudflare, not that the page exists: the routes
+	// themselves are covered by tests (the frozen Terms hash and the terms-served launch item). A bot challenge from Cloudflare (403)
+	// shows as NOT READY, which fails closed.
+	r.line("== Site reachable (the SPA answers 200 for any path; the Terms and notice routes are covered by tests)")
 	if in.Fetch == nil {
 		r.warn("not checked (offline)")
 	} else {
@@ -156,10 +170,13 @@ func Run(ctx context.Context, in Input) *Report {
 			case err != nil:
 				r.problem("%s: %v", u, err)
 			case code != http.StatusOK:
-				r.problem("%s: HTTP %d, want 200", u, code)
+				r.problem("%s: HTTP %d, want 200 (a 403 is usually Cloudflare challenging this client)", u, code)
 			default:
 				r.line("  %s: 200", u)
 			}
+		}
+		if code, err := in.Fetch(ctx, "https://rivolt.dev/preflight-no-such-page"); err == nil && code == http.StatusOK {
+			r.line("  a made-up path also answers 200: as expected for the SPA, so the lines above prove reachability only")
 		}
 	}
 
@@ -217,7 +234,7 @@ func Run(ctx context.Context, in Input) *Report {
 		case err != nil:
 			r.problem("the webhook endpoint is unreachable: %v", err)
 		case code != http.StatusBadRequest:
-			r.problem("an unsigned POST to the webhook endpoint got HTTP %d, want 400 (a redirect or a block would drop Stripe's events)", code)
+			r.problem("an unsigned POST to the webhook endpoint got HTTP %d, want 400 (a 302 or 403 means Cloudflare is redirecting or blocking Stripe: Stripe's events would never arrive)", code)
 		default:
 			r.line("  unsigned POST: 400 (the handler refuses it for its signature)")
 		}
@@ -273,11 +290,35 @@ func Run(ctx context.Context, in Input) *Report {
 				r.line("  portal: Terms URL set, Privacy URL set, payment-method update on")
 			}
 		}
+		switch {
+		case !f.CheckoutRead:
+			r.warn("could not read the Checkout payment-method configuration: confirm cards are on in the Dashboard")
+		case !f.CheckoutCardOn:
+			r.problem("the default payment method configuration does not offer cards in Checkout")
+		default:
+			r.line("  Checkout payment methods: card on")
+		}
 		if cfg != nil && ((f.Live && cfg.Environment == applebill.EnvSandbox) || (!f.Live && cfg.Environment == applebill.EnvProduction)) {
 			r.warn("the Stripe mode and the Apple environment disagree (one live, one not)")
 		}
 	}
+	r.line("== Manual steps (this report cannot see these; none of them is counted as a pass)")
+	for _, m := range ManualSteps() {
+		r.line("  [ ] %s", m)
+	}
 	return r
+}
+
+// ManualSteps are the launch prerequisites that live in the Stripe Dashboard, Cloudflare and the Valkey pod, where this command has no view.
+func ManualSteps() []string {
+	return []string{
+		"Stripe Dashboard, public business details: the Terms of service URL is set (Checkout answers 400 without it); open a test-mode Checkout to see it",
+		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
+		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
+		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
+		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
+		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
+	}
 }
 
 func firstNonEmpty(ss ...string) string {

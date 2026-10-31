@@ -200,13 +200,19 @@ Usage:
                   user id in --sent-log so a re-run resumes; --test-to
                   sends to one user. Never migrates; never prints emails.
   rivolt entitlements-founding --launch T [--apply --expect-count N --expect-sha SHA]
-  rivolt launch-preflight [--launch T] [--offline] [--no-db]    read-only report before the Rivolt Pro flip
                   Rivolt Pro: Pro free for one year from launch to every
                   account that exists at launch (the demo excluded). Dry
                   run lists user id prefixes and an ids hash; --apply
                   needs that count and hash, grants in one transaction,
                   checks founding rows = accounts - demo, and is
                   idempotent. Never migrates; never prints emails.
+  rivolt launch-preflight [--launch T] [--offline] [--no-db]
+                  Read-only report before the Rivolt Pro flip: the launch
+                  list, the founding dry-run counts, the Terms and notice
+                  pages, billing settings (names, never values), the Stripe
+                  webhook, the app's Redis TIME permission and the Stripe
+                  account. Writes nothing; exit 1 when something stops the
+                  flip. The report holds prod figures: share it privately.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
   rivolt repair-charge-blips [--ids-out FILE]                              (dry run: counts and the id-list sha256)

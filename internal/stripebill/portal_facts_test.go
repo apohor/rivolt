@@ -17,6 +17,8 @@ func factsServer(t *testing.T, portal, price string) *Client {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/v1/billing_portal/configurations"):
 			_, _ = w.Write([]byte(portal))
+		case strings.HasPrefix(r.URL.Path, "/v1/payment_method_configurations"):
+			_, _ = w.Write([]byte(price))
 		case strings.HasPrefix(r.URL.Path, "/v1/prices/"):
 			_, _ = w.Write([]byte(price))
 		default:
@@ -45,5 +47,19 @@ func TestPriceMode(t *testing.T) {
 	live, active, err := c.PriceMode(context.Background(), "price_x")
 	if err != nil || !live || active {
 		t.Errorf("PriceMode = %v %v %v, want live and inactive", live, active, err)
+	}
+}
+
+func TestCardInCheckout(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"data":[{"is_default":false,"card":{"available":false}},{"is_default":true,"card":{"available":true,"display_preference":{"value":"on"}}}]}`: true,
+		`{"data":[{"is_default":true,"card":{"available":true,"display_preference":{"value":"off"}}}]}`:                                                false,
+		`{"data":[{"is_default":true,"card":{"available":false,"display_preference":{"value":"on"}}}]}`:                                                false,
+		`{"data":[{"is_default":false,"card":{"available":true}}]}`:                                                                                    false,
+	} {
+		c := factsServer(t, `{}`, body)
+		if got, err := c.CardInCheckout(context.Background()); err != nil || got != want {
+			t.Errorf("CardInCheckout(%s) = %v %v, want %v", body, got, err, want)
+		}
 	}
 }

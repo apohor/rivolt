@@ -114,6 +114,10 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 			return f
 		}
 		f.PortalFound, f.TermsSet, f.PrivacySet, f.PaymentMethodUpdate = pf.Found, pf.TermsSet, pf.PrivacySet, pf.PaymentMethodUpdate
+		// The Checkout card setting is a separate permission: a key that cannot read it is a warning in the report, not an error here.
+		if on, err := c.CardInCheckout(ctx); err == nil {
+			f.CheckoutRead, f.CheckoutCardOn = true, on
+		}
 		return f
 	}
 }

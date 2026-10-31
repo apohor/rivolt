@@ -367,3 +367,27 @@ func (c *Client) PriceMode(ctx context.Context, id string) (live, active bool, e
 	}
 	return out.Live, out.Active, nil
 }
+
+// CardInCheckout reads the default payment method configuration (read-only) and reports whether cards are offered in Checkout.
+func (c *Client) CardInCheckout(ctx context.Context) (bool, error) {
+	var out struct {
+		Data []struct {
+			IsDefault bool `json:"is_default"`
+			Card      struct {
+				Available         bool `json:"available"`
+				DisplayPreference struct {
+					Value string `json:"value"`
+				} `json:"display_preference"`
+			} `json:"card"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations?limit=20", nil, "", &out); err != nil {
+		return false, err
+	}
+	for _, d := range out.Data {
+		if d.IsDefault {
+			return d.Card.Available && d.Card.DisplayPreference.Value != "off", nil
+		}
+	}
+	return false, nil
+}
