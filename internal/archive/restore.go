@@ -13,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/archive/s3"
 	"github.com/apohor/rivolt/internal/crypto"
+	"github.com/apohor/rivolt/internal/histfloor"
 )
 
 // RethinAfter is how long a restored month keeps its full detail before
@@ -109,6 +110,12 @@ func (r *Restorer) Restore(ctx context.Context, uid, vid uuid.UUID, month time.T
 	}
 	if err != nil {
 		return res, err
+	}
+	// A month wholly before the user's history floor is deleted history: its object is gone or about to be, and must not be put back.
+	if floor, err := histfloor.Get(ctx, conn, uid); err != nil {
+		return res, err
+	} else if !floor.IsZero() && !month.AddDate(0, 1, 0).After(floor) {
+		return res, ErrNoObject
 	}
 	key, err := openKey(ctx, r.db, r.sealer, uid)
 	if err != nil {

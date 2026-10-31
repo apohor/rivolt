@@ -26,6 +26,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
+	"github.com/apohor/rivolt/internal/histfloor"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/vehiclelease"
@@ -47,6 +48,8 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
+		// The user's own import puts their data back on purpose: the history floor does not apply (histfloor.Bypass).
+		r = r.WithContext(histfloor.Bypass(r.Context()))
 		ds := d.Drives.For(uid)
 		cs := d.Charges.For(uid)
 		ss := d.Samples.For(uid)
@@ -633,6 +636,8 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
+		// The user's own import puts their data back on purpose: the history floor does not apply (histfloor.Bypass).
+		r = r.WithContext(histfloor.Bypass(r.Context()))
 		ds := d.Drives.For(uid)
 		cs := d.Charges.For(uid)
 		ss := d.Samples.For(uid)
@@ -1169,6 +1174,12 @@ func handleDataReset(d Deps) http.HandlerFunc {
 		}
 		ctx, cancel := accountWriteContext(r)
 		defer cancel()
+		// The floor first, so nothing that writes after this point (the receipts sync, a catch-up, a late close) brings back what the
+		// deletes below remove. It only ever rises.
+		if err := histfloor.Raise(ctx, d.DB, uid, time.Now()); err != nil {
+			serverError(w, r, "reset floor", err)
+			return
+		}
 		// Samples first, then the telemetry archive. The other way round, an
 		// archive run between the two could archive the samples about to go,
 		// under the user's new key and after the deletion request, and they
@@ -1251,6 +1262,10 @@ func handleDataDeleteRange(d Deps) http.HandlerFunc {
 		}
 		ctx, cancel := accountWriteContext(r)
 		defer cancel()
+		if err := histfloor.Raise(ctx, d.DB, uid, cutoff); err != nil { // before the deletes, as in the reset
+			serverError(w, r, "delete floor", err)
+			return
+		}
 		samplesN, err := ss.DeleteBefore(ctx, cutoff)
 		if err != nil {
 			serverError(w, r, "delete samples", err)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/histfloor"
 )
 
 // openLiveFinalStates is the canonical whitelist of charges.final_state
@@ -363,6 +364,12 @@ var guardedChargeUpsert = `
 // statement and returns fence.ErrFenced when the lease is gone; without one it is the plain
 // statement, as for imports, restores and repairs.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {
+	// A charge that starts before the user's history floor is deleted history coming back: dropped whole (see drives.Store.Upsert).
+	if below, err := histfloor.Below(ctx, s.db, s.userID, c.StartedAt); err != nil {
+		return err
+	} else if below {
+		return nil
+	}
 	vid, err := s.vehicles.Resolve(ctx, c.VehicleID)
 	if err != nil {
 		return err

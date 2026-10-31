@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/histfloor"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -77,6 +78,20 @@ func (s *Store) MarkResult(ctx context.Context, uid uuid.UUID, runErr error) err
 // already have (a receipt can finalize later) and keeping detail and
 // match state.
 func (s *Store) UpsertReceipts(ctx context.Context, uid uuid.UUID, in []rivian.SessionSummary) error {
+	// Rivian still has the receipts of history the user deleted; the sync must not bring them back (histfloor).
+	floor, err := histfloor.Get(ctx, s.db, uid)
+	if err != nil {
+		return err
+	}
+	if !floor.IsZero() {
+		kept := make([]rivian.SessionSummary, 0, len(in))
+		for _, r := range in {
+			if !r.StartedAt.Before(floor) {
+				kept = append(kept, r)
+			}
+		}
+		in = kept
+	}
 	const q = `
 		INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, energy_kwh, range_added_km, vendor, city)
 		SELECT $1::uuid, $2::text, $3::timestamptz, $4::timestamptz, $5::numeric, NULLIF($6::text,''),

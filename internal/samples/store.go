@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/histfloor"
 )
 
 // Sample is a single polling snapshot. VehicleID is the Rivian gateway
@@ -276,6 +277,23 @@ const bulkInsertRows = 500
 func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 	if len(batch) == 0 {
 		return nil
+	}
+	// Samples from before the user's history floor are deleted history (a replay catch-up re-fetches it): cut at the floor, per row.
+	// The live recorder's InsertBatch is not checked: its samples are taken now, always after any floor.
+	floor, err := histfloor.Get(ctx, s.db, s.userID)
+	if err != nil {
+		return err
+	}
+	if !floor.IsZero() {
+		kept := make([]Sample, 0, len(batch))
+		for _, v := range batch {
+			if !v.At.Before(floor) {
+				kept = append(kept, v)
+			}
+		}
+		if batch = kept; len(batch) == 0 {
+			return nil
+		}
 	}
 	uuids, err := s.prepareBatch(ctx, batch)
 	if err != nil {
