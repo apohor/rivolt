@@ -123,3 +123,16 @@ func TestAuditUserHash(t *testing.T) {
 		t.Error("the keyless fallback is empty or unstable within a process")
 	}
 }
+
+// The phone never wipes history: "delete older history" and a single charge's or drive's delete are web only (the iPhone opens the web
+// page instead), so a leaked app token cannot destroy data.
+func TestHistoryDeletesAreNotOnTheAppWriteList(t *testing.T) {
+	for _, k := range []string{"POST /api/data/delete-range", "DELETE /api/charges/x", "DELETE /api/drives/x", "DELETE /api/data/sessions"} {
+		if appWrites[k] {
+			t.Errorf("%s is on the app write allowlist", k)
+		}
+	}
+	if appWriteAllowed(http.MethodPost, "/api/data/delete-range") {
+		t.Error("the app token may POST /api/data/delete-range")
+	}
+}

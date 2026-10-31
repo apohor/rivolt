@@ -4,7 +4,7 @@ import SwiftUI
 enum SettingsLogic {
     enum Row: String, Equatable {
         case plan, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
-        case export, deleteAccount, privacy, terms, support, acknowledgements
+        case export, deleteHistory, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
             switch self {
@@ -24,6 +24,7 @@ enum SettingsLogic {
             case .notifications: return "Notifications"
             case .appearance: return "Appearance"
             case .export: return "Export your data"
+            case .deleteHistory: return "Delete older history"
             case .deleteAccount: return "Delete account"
             case .privacy: return "Privacy policy"
             case .terms: return "Terms"
@@ -50,6 +51,7 @@ enum SettingsLogic {
             case .notifications: return "bell"
             case .appearance: return "circle.lefthalf.filled"
             case .export: return "square.and.arrow.up"
+            case .deleteHistory: return "calendar.badge.minus"
             case .deleteAccount: return "trash"
             case .privacy: return "hand.raised"
             case .terms: return "doc.text"
@@ -77,7 +79,7 @@ enum SettingsLogic {
         if notificationsOffered { out.append(Group(title: "Notifications", rows: [.notifications])) }
         out += [
             Group(title: "App", rows: [.appearance]),
-            Group(title: "Data", rows: [.export, .deleteAccount]),
+            Group(title: "Data", rows: [.export, .deleteHistory, .deleteAccount]),
             Group(title: "About", rows: [.privacy, .terms, .support, .acknowledgements]),
         ]
         return out
@@ -191,6 +193,12 @@ struct SettingsView: View {
             .tint(Theme.textSecondary)
         case .export:
             NavigationLink { ExportDataView() } label: { label(row) }
+        case .deleteHistory:
+            // Irreversible, so web only: it opens the web page, where the confirmation lives (the app token cannot do it).
+            VStack(alignment: .leading, spacing: 4) {
+                Link(destination: DeleteHistoryLink.url(state.serverURL)) { label(row) }
+                Text(DeleteHistoryLink.caption).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+            }
         case .deleteAccount:
             Button(role: .destructive) { showDelete = true } label: { label(row, color: Theme.critical) }
         case .privacy:
