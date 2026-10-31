@@ -90,10 +90,10 @@ func TestFoundingNoticeSendsOncePerAccount(t *testing.T) {
 	if err != nil || st.Sent != 2 || st.InApp != 3 || st.Late != 0 {
 		t.Fatalf("%+v %v", st, err)
 	}
-	if len(m.msgs) != 2 || m.msgs[0].Subject != "Your free year of Rivolt Pro ends on November 15, 2027" {
+	if len(m.msgs) != 2 || m.msgs[0].Subject != "Your free year of Rivolt Pro ends on November 15, 2027" || m.msgs[1].Subject != "Your free year of Rivolt Pro ends on November 15, 2027; your subscription continues" {
 		t.Fatalf("emails: %+v", m.msgs)
 	}
-	if strings.Contains(m.msgs[0].Text, "subscription continues") || !strings.Contains(m.msgs[1].Text, "Your Rivolt Pro subscription continues; nothing changes for you on November 15, 2027.") {
+	if strings.Contains(m.msgs[0].Text, "subscription continues") || !strings.Contains(m.msgs[1].Text, "Your Rivolt Pro subscription continues from that day, so nothing changes for you") {
 		t.Errorf("the subscriber variant is wrong:\n%s\n---\n%s", m.msgs[0].Text, m.msgs[1].Text)
 	}
 	if !strings.HasPrefix(m.msgs[0].IdempotencyKey, "founding-end-") || strings.Contains(m.msgs[0].Text, "FOUNDING_END_DATE") {
@@ -183,6 +183,112 @@ func TestFoundingCopy(t *testing.T) {
 	in := RenderFoundingInApp(FoundingParams{End: "2027-11-15", Subscribed: true, ExtendedFrom: "2027-11-01"})
 	if !strings.Contains(in.Body, "subscription continues") || !strings.Contains(in.Body, "moved the date from November 1, 2027") || !strings.Contains(in.Title, "November 15, 2027") {
 		t.Errorf("%+v", in)
+	}
+}
+
+// Both variants carry the Plan card and export links and the billing emails' footer.
+func TestFoundingEmailsCarryTheLinksAndTheFooter(t *testing.T) {
+	for name, p := range map[string]FoundingParams{
+		"free":       {End: "2027-11-15"},
+		"free ext":   {End: "2027-11-15", ExtendedFrom: "2027-11-01"},
+		"subscribed": {End: "2027-11-15", Subscribed: true, NextCharge: "2027-12-03"},
+		"sub no end": {End: "2027-11-15", Subscribed: true},
+	} {
+		body := RenderFoundingEmail(p)
+		for _, want := range []string{
+			"https://rivolt.dev/settings#plan", "https://rivolt.dev/settings#export",
+			"Terms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy", "support@rivolt.dev", "not affiliated with Rivian",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: missing %q", name, want)
+			}
+		}
+		if tok := Unfilled(body + FoundingSubject(p)); tok != "" {
+			t.Errorf("%s: leftover %q", name, tok)
+		}
+	}
+}
+
+// Plain-text mail is one line per paragraph; the client wraps it. No hard wraps inside the long paragraphs.
+func TestFoundingEmailHasNoHardWrapsInsideParagraphs(t *testing.T) {
+	body := RenderFoundingEmail(FoundingParams{End: "2027-11-15"})
+	for _, start := range []string{"What changes on that date", "What does not change", "To keep Pro"} {
+		i := strings.Index(body, start)
+		if i < 0 {
+			t.Fatalf("no paragraph starting %q", start)
+		}
+		para := body[i:]
+		if j := strings.Index(para, "\n\n"); j >= 0 {
+			para = para[:j]
+		}
+		// "To keep Pro" is followed by the "Or do nothing" line on purpose (offer, then the alternative); the others are one line.
+		if start != "To keep Pro" && strings.Contains(strings.TrimRight(para, "\n"), "\n") {
+			t.Errorf("%q paragraph is wrapped: %q", start, para)
+		}
+	}
+	if strings.Contains(body, "Settings -> ") {
+		t.Error("the email still points at Settings -> ... in prose instead of links")
+	}
+}
+
+// A subscriber whose subscription outlasts the founding year gets the short note: no list of losses, no prices, no offer.
+func TestSubscribedFoundingEmailIsShortAndMakesNoOffer(t *testing.T) {
+	p := FoundingParams{End: "2027-11-15", Subscribed: true, NextCharge: "2027-12-03"}
+	body := RenderFoundingEmail(p)
+	for _, want := range []string{"Your free founding year of Rivolt Pro ends on November 15, 2027", "nothing changes for you", "your next charge is on December 3, 2027"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, banned := range []string{"What changes", "What does not change", "at no charge", "$3.99", "$34.99", "Or do nothing", "Activity, Money and Truck"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("the subscribed email says %q", banned)
+		}
+	}
+	if !strings.Contains(FoundingSubject(p), "your subscription continues") {
+		t.Errorf("subject %q", FoundingSubject(p))
+	}
+	// Without a charge date it still reads whole.
+	if b := RenderFoundingEmail(FoundingParams{End: "2027-11-15", Subscribed: true}); strings.Contains(b, "next charge") || !strings.Contains(b, "Pro stays on.") {
+		t.Errorf("no-date variant: %q", b)
+	}
+	// An extended year still says so.
+	if b := RenderFoundingEmail(FoundingParams{End: "2027-11-15", ExtendedFrom: "2027-11-01", Subscribed: true}); !strings.Contains(b, "We moved this date from November 1, 2027 to November 15, 2027") {
+		t.Errorf("extended: %q", b)
+	}
+}
+
+// The free variant keeps the opening and the three paragraphs of what changes, what does not, and how to keep Pro.
+func TestFreeFoundingEmailKeepsItsBody(t *testing.T) {
+	body := RenderFoundingEmail(FoundingParams{End: "2027-11-15"})
+	for _, want := range []string{"Your account has had Rivolt Pro at no charge", "What changes on that date", "What does not change", "$3.99 a month or $34.99 a year", "Or do nothing: nothing is deleted either way."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if FoundingSubject(FoundingParams{End: "2027-11-15"}) != "Your free year of Rivolt Pro ends on November 15, 2027" {
+		t.Error("the free subject changed")
+	}
+}
+
+func TestFoundingInAppLinksFollowTheVariant(t *testing.T) {
+	free := RenderFoundingInApp(FoundingParams{End: "2027-11-15"})
+	sub := RenderFoundingInApp(FoundingParams{End: "2027-11-15", Subscribed: true, NextCharge: "2027-12-03"})
+	hrefs := func(in InApp) string {
+		var out []string
+		for _, l := range in.Links {
+			out = append(out, l.Href)
+		}
+		return strings.Join(out, " ")
+	}
+	if !strings.Contains(hrefs(free), "/support#free-and-pro") || !strings.Contains(hrefs(free), "/settings#plan") || !strings.Contains(hrefs(free), "/settings#export") {
+		t.Errorf("free links: %s", hrefs(free))
+	}
+	if strings.Contains(hrefs(sub), "free-and-pro") || !strings.Contains(hrefs(sub), "/settings#plan") {
+		t.Errorf("subscribed links: %s", hrefs(sub))
+	}
+	if !strings.Contains(sub.Body, "next charge on December 3, 2027") {
+		t.Errorf("subscribed body: %q", sub.Body)
 	}
 }
 
