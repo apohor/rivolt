@@ -76,6 +76,26 @@ function UserLayout() {
             <Logo size={22} className="text-emerald-400" />
             <span>Rivolt</span>
           </NavLink>
+          {/* Settings, one tap from every screen (the person icon, as on the iPhone). The Settings sub-link under Truck stays. */}
+          <NavLink
+            to="/settings"
+            aria-label="Settings"
+            data-settings-button
+            className="-my-3 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center"
+          >
+            {({ isActive }) => (
+              <span
+                className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+                  isActive ? "bg-neutral-800 text-emerald-300" : "text-neutral-300 hover:bg-neutral-900 hover:text-neutral-100"
+                }`}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-3.6 3.6-6 8-6s8 2.4 8 6" />
+                </svg>
+              </span>
+            )}
+          </NavLink>
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
