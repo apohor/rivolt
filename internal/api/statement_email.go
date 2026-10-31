@@ -204,6 +204,12 @@ func (a *statementAPI) preview(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 		http.Error(w, "month must be YYYY-MM", http.StatusBadRequest)
 		return
 	}
+	// A free account previews the months its Money tab shows. The email job itself is not windowed (it covers last month, which is inside).
+	from, windowed := moneyWindowStart(r.Context(), a.now(), loc)
+	if t, perr := time.ParseInLocation("2006-01", period, loc); windowed && perr == nil && t.Before(from) {
+		writeOutsideFreeWindow(w)
+		return
+	}
 	cur, err := a.monthly(r.Context(), uid, period, loc)
 	if err != nil {
 		serverError(w, r, "statement preview", err)
@@ -211,8 +217,11 @@ func (a *statementAPI) preview(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	}
 	var prev *ledger.Monthly
 	if t, perr := time.ParseInLocation("2006-01", period, loc); perr == nil {
-		if p, perr := a.monthly(r.Context(), uid, t.AddDate(0, -1, 0).Format("2006-01"), loc); perr == nil {
-			prev = &p
+		// The month before is the comparison; for a free account it is left out when it falls outside the window.
+		if pt := t.AddDate(0, -1, 0); !windowed || !pt.Before(from) {
+			if p, perr := a.monthly(r.Context(), uid, pt.Format("2006-01"), loc); perr == nil {
+				prev = &p
+			}
 		}
 	}
 	addr, err := a.store.Email(r.Context(), uid)

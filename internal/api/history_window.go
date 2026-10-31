@@ -51,6 +51,16 @@ func historyWindowMiddleware(e *entitlements.Service) func(http.Handler) http.Ha
 	}
 }
 
+// moneyWindowStart is the first instant of the oldest month a free account's Money statements show: the current month and the two before,
+// cut in the zone the request asked for. on is false when the request has no window (Pro, billing off, or a background context).
+func moneyWindowStart(ctx context.Context, now time.Time, loc *time.Location) (from time.Time, on bool) {
+	if _, ok := histwin.From(ctx); !ok {
+		return time.Time{}, false
+	}
+	cur := now.In(loc)
+	return time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, -2, 0), true
+}
+
 // windowRows narrows rows (newest first or any order) to the request's window; with no window it returns rows unchanged.
 func windowRows[T any](ctx context.Context, rows []T, started func(T) time.Time) []T {
 	if _, ok := histwin.Since(ctx); !ok {
@@ -76,8 +86,11 @@ func writeOutsideFreeWindow(w http.ResponseWriter) {
 	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "outside_free_window", FreeDays: histwin.FreeDays})
 }
 
-// The Pro-only reads (trends, range near a temperature, capacity) answer paywallBody{Error: "pro_required"} with 402; their writer arrives
-// with them in part 3.
+// writeProRequired is the answer for a read that is Pro-only on a free account (a CSV of a past month, trends, range near a temperature,
+// capacity): the data is not "too old", the feature is Pro.
+func writeProRequired(w http.ResponseWriter) {
+	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "pro_required"})
+}
 
 // driveInWindow reports whether the drive with this external id is inside the request's window. A drive that does not exist counts as
 // inside, so the handler's own 404 still answers; with no window it is always inside and nothing is read.

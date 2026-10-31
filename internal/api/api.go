@@ -1172,7 +1172,7 @@ func New(d Deps) http.Handler {
 				stm := newStatementAPI(d.DB, d, d.StatementSigner)
 				r.Get("/settings/statement-email", withUser(stm.getSettings))
 				r.Put("/settings/statement-email", withUser(stm.putSettings))
-				r.Get("/statement-email/preview", withUser(stm.preview))
+				r.With(historyWindowMiddleware(d.Entitlements)).Get("/statement-email/preview", withUser(stm.preview))
 			}
 			homeWriteLimiter, homeSearchLimiter := mapsUserLimiter(10), mapsUserLimiter(20)
 			var homeNotice *homeChangeNotice
@@ -1528,11 +1528,11 @@ func New(d Deps) http.Handler {
 			r.Route("/ledger", func(r chi.Router) {
 				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
 				r.Get("/enabled", withUser(handleLedgerEnabled))
-				r.Get("/monthly", withUser(la.monthly))
-				r.Get("/monthly.csv", withUser(la.statementCSV))
-				r.Get("/summary", withUser(la.summary))
-				r.Get("/trips", withUser(la.trips))
-				r.Get("/savings", withUser(la.savings))
+				r.With(win).Get("/monthly", withUser(la.monthly))
+				r.With(win).Get("/monthly.csv", withUser(la.statementCSV))
+				r.With(win).Get("/summary", withUser(la.summary))
+				r.With(win).Get("/trips", withUser(la.trips))
+				r.With(win).Get("/savings", withUser(la.savings))
 			})
 			r.With(gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)

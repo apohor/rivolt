@@ -201,6 +201,11 @@ func (a ledgerAPI) monthly(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		http.Error(w, "month must be YYYY-MM", http.StatusBadRequest)
 		return
 	}
+	// A free account's statements are the current month and the two before; an older month is 402 (the rows are kept, not shown).
+	if from, on := moneyWindowStart(r.Context(), a.now(), p.loc); on && period.Start.Before(from) {
+		writeOutsideFreeWindow(w)
+		return
+	}
 	in, err := a.input(r.Context(), uid, p, period)
 	if err != nil {
 		http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
@@ -239,6 +244,10 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 			return
 		}
 		n = parsed
+	}
+	// A free account's list stops at the window: the current month and the two before, however many were asked for.
+	if _, on := moneyWindowStart(r.Context(), a.now(), p.loc); on && n > 3 {
+		n = 3
 	}
 	periods := ledger.LastMonths(a.now(), n, p.loc)
 	in, err := a.input(r.Context(), uid, p, periods...)

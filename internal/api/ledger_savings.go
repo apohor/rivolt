@@ -100,6 +100,21 @@ func (a ledgerAPI) savings(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		periods = append(periods, pp)
 		names = append(names, pp.Month)
 	}
+	// A free account's savings cover the months inside its window; those before are left out, and asking only for older ones is 402.
+	if from, on := moneyWindowStart(r.Context(), a.now(), p.loc); on {
+		var keep []ledger.Period
+		var keepNames []string
+		for i, pp := range periods {
+			if !pp.Start.Before(from) {
+				keep, keepNames = append(keep, pp), append(keepNames, names[i])
+			}
+		}
+		if len(keep) == 0 {
+			writeOutsideFreeWindow(w)
+			return
+		}
+		periods, names = keep, keepNames
+	}
 	in, err := a.input(r.Context(), uid, p, periods...)
 	if err != nil {
 		http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)

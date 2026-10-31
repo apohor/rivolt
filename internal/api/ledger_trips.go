@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/ledger"
 )
 
@@ -52,6 +53,11 @@ func (a ledgerAPI) trips(uid uuid.UUID, w http.ResponseWriter, r *http.Request) 
 	if !from.Before(to) || to.Sub(from) > tripsMaxRange {
 		http.Error(w, "from must be before to, at most 366 days apart", http.StatusBadRequest)
 		return
+	}
+	// A free account's range is clamped to its window (never trusted); a range wholly before it is empty.
+	from = histwin.Clamp(r.Context(), from)
+	if !from.Before(to) {
+		from = to
 	}
 	cfg, err := a.config(r.Context(), uid)
 	if err != nil {

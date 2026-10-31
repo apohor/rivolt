@@ -47,12 +47,12 @@ var routeClasses = map[string]windowClass{
 	"GET /api/chart-points":               {"windowed", ""},
 
 	// Not yet windowed: each moves to "windowed" (or to a Pro-only class) in the PR that does it; billing cannot be turned on until this is empty.
-	"GET /api/ledger/monthly":                    {"todo", "Money statements: current and previous two months"},
-	"GET /api/ledger/monthly.csv":                {"todo", "Money statements CSV: current and previous two months"},
-	"GET /api/ledger/summary":                    {"todo", "Money"},
-	"GET /api/ledger/trips":                      {"todo", "Money"},
-	"GET /api/ledger/savings":                    {"todo", "Money: savings over any period"},
-	"GET /api/statement-email/preview":           {"todo", "the statement preview"},
+	"GET /api/ledger/monthly":                    {"windowed", ""},
+	"GET /api/ledger/monthly.csv":                {"windowed", ""},
+	"GET /api/ledger/summary":                    {"windowed", ""},
+	"GET /api/ledger/trips":                      {"windowed", ""},
+	"GET /api/ledger/savings":                    {"windowed", ""},
+	"GET /api/statement-email/preview":           {"windowed", ""},
 	"GET /api/samples":                           {"todo", "raw samples"},
 	"GET /api/sleep-activity":                    {"todo", "per-day sleep history"},
 	"GET /api/insights/efficiency":               {"todo", "efficiency insights over a period"},
@@ -323,5 +323,30 @@ func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 	}
 	if got := ask(context.Background(), "?since="+old); got.After(now.Add(-299 * 24 * time.Hour)) {
 		t.Errorf("with no window the range was clamped: %v", got)
+	}
+}
+
+func TestMoneyWindowStart(t *testing.T) {
+	now := time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC)
+	chi, _ := time.LoadLocation("America/Chicago")
+	win := histwin.With(context.Background(), histwin.Free(now))
+	if _, on := moneyWindowStart(context.Background(), now, time.UTC); on {
+		t.Error("no window in the context, but the Money window is on")
+	}
+	from, on := moneyWindowStart(win, now, time.UTC)
+	if !on || !from.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC: %v %v, want 2026-09-01 (November, October, September)", from, on)
+	}
+	// The month is cut in the zone the request asked for: just after midnight UTC on 1 December it is still 30 November in Chicago.
+	edge := time.Date(2026, 12, 1, 0, 30, 0, 0, time.UTC)
+	if from, _ := moneyWindowStart(win, edge, chi); !from.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, chi)) {
+		t.Errorf("Chicago at the month edge: %v, want 2026-09-01 local (it is still November there)", from)
+	}
+	if from, _ := moneyWindowStart(win, edge, time.UTC); !from.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC at the month edge: %v, want 2026-10-01 (December, November, October)", from)
+	}
+	// January reaches back across the year.
+	if from, _ := moneyWindowStart(win, time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC), time.UTC); !from.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("January: %v, want 2026-11-01", from)
 	}
 }
