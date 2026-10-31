@@ -68,6 +68,14 @@ type RenewalJob struct {
 	Now    func() time.Time
 	Logger *slog.Logger
 	Skip   map[uuid.UUID]bool
+	// Observe counts an outcome (one of Outcomes) under the kind KindAnnualRenewal.
+	Observe func(kind, outcome string)
+}
+
+func (j *RenewalJob) observe(outcome string) {
+	if j.Observe != nil {
+		j.Observe(KindAnnualRenewal, outcome)
+	}
 }
 
 // RunOnce reminds every account whose annual subscription renews within 45 days (and has not been reminded for that renewal). A renewal
@@ -98,25 +106,30 @@ func (j *RenewalJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		kind := RenewalKind(r.RenewsOn)
 		if _, err := j.Store.EnsureAny(ctx, r.UserID, kind, p, r.RenewsOn.Add(24*time.Hour)); err != nil {
 			st.Failed++
+			j.observe(OutcomeFailed)
 			continue
 		}
 		raw, claimed, err := j.Store.ClaimEmailAny(ctx, r.UserID, kind)
 		if err != nil {
 			st.Failed++
+			j.observe(OutcomeFailed)
 			continue
 		}
 		if !claimed {
 			st.Skipped++
+			j.observe(OutcomeSkipped)
 			continue
 		}
 		var sp RenewalParams
 		if err := json.Unmarshal(raw, &sp); err != nil {
 			_ = j.Store.ReleaseClaim(ctx, r.UserID, kind)
 			st.Failed++
+			j.observe(OutcomeFailed)
 			continue
 		}
 		if r.RenewsOn.Sub(now) < MinNotice {
 			st.Late++
+			j.observe(OutcomeLate)
 			log.Warn("renewal reminder: late", "late", true, "user_id", r.UserID.String(), "shortfall_days", int((MinNotice-r.RenewsOn.Sub(now)).Hours()/24))
 		}
 		err = j.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(r.Email), Subject: RenewalSubject(sp), Text: RenderRenewalEmail(sp),
@@ -124,12 +137,14 @@ func (j *RenewalJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		if err != nil {
 			_ = j.Store.ReleaseClaim(ctx, r.UserID, kind)
 			st.Failed++
+			j.observe(OutcomeFailed)
 			continue
 		}
 		if err := j.Store.MarkSent(ctx, r.UserID, kind); err != nil {
 			return st, err
 		}
 		st.Sent++
+		j.observe(OutcomeSent)
 	}
 	return st, nil
 }
