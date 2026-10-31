@@ -1454,7 +1454,11 @@ func New(d Deps) http.Handler {
 			}))
 			// "Your year in Rivolt": the signed-in user's own year, computed here (year_in_rivolt.go). Same ceiling as the other aggregates.
 			r.With(aggLimiter.Middleware).Get("/year-in-rivolt", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleYearInRivolt(d.DB, uid, d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
+				var ts *trips.Store
+				if d.Trips != nil {
+					ts = d.Trips.For(uid)
+				}
+				handleYearInRivolt(d.DB, uid, d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), ts, billedFor(d, uid))(w, r)
 			}))
 			r.Delete("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDeleteCharge(d.Charges.For(uid))(w, r)

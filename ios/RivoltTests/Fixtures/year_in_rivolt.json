@@ -1,11 +1,21 @@
 {
   "eligible": true,
   "year": 2026,
+  "since_month": "2026-03",
+  "drive_count": 612,
   "miles": 8421.6,
   "kwh": 3012.4,
   "charge_count": 96,
+  "energy_shares": {"home": 0.62, "away": 0.11, "fast": 0.27},
+  "efficiency_mi_per_kwh": 2.8,
+  "efficiency_estimated": true,
   "best_efficiency_mi_per_kwh": 3.4,
   "longest_trip": {"miles": 412.8, "month": "2026-07"},
+  "most_efficient_long_drive": {"miles": 188.2, "mi_per_kwh": 3.1, "month": "2026-05"},
   "coldest_drive": {"temp_f": 4.3, "month": "2026-01"},
-  "cost": {"amount": 611.25, "currency": "USD", "estimated": true}
+  "planned_trips": 7,
+  "planned_stops": 19,
+  "model": "R1S",
+  "cost": {"amount": 611.25, "currency": "USD", "estimated": true},
+  "cost_per_mile": 0.07
 }
