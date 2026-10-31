@@ -98,7 +98,7 @@ var notOwnerSide = map[string]string{
 	"receipts.Store.purge":                 "user action and retention job (DeleteForUser / opt-out purge)",
 	"secrets.Store.Delete":                 "user action (logout, delete, disconnect)",
 	"secrets.Store.Put":                    "user and admin actions: Rivian sign-in and MFA (api/rivian.go), the admin session refresh, the Apple sign-in token, the demo seed; no owner path persists a session (TestOwnerPackagesDoNotPersistSessions)",
-	"secrets.Store.PutTx":                  "as Put: SaveRivianSession's transaction for a sign-in or sign-out",
+	"secrets.Store.PutTxVersioned":         "as Put: SaveRivianSession's transaction for a sign-in or sign-out",
 	"secrets.setSignedIn":                  "as Put: the sign-in time, in the same sign-in transaction",
 	"secrets.Store.DeleteTx":               "user action (logout, delete, disconnect)",
 	"secrets.RivianSessionLister.backfill": "one-time sign-in time backfill",
