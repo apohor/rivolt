@@ -54,8 +54,15 @@ func iosFixtureTargets() map[string]any {
 		"trip_plan_actual_multi.json":     &planActualMultiResponse{},
 		"app_token.json":                  &appTokenResponse{},
 		// Sprint 11: who you are (with the Terms state and the account's units), and the answers the clients read as states.
-		"me.json":                     &meResponse{},
-		"me_unaccepted.json":          &meResponse{},
+		"me.json":            &meResponse{},
+		"me_unaccepted.json": &meResponse{},
+		// The Pro plan fields of /api/auth/me (Sprint 14): free, a running trial, the founding year, a subscriber.
+		"me_plan_free.json":           &meResponse{},
+		"me_plan_trial.json":          &meResponse{},
+		"me_plan_founding.json":       &meResponse{},
+		"me_plan_subscriber.json":     &meResponse{},
+		"me_plan_apple.json":          &meResponse{},
+		"me_plan_lapsed.json":         &meResponse{},
 		"me_signed_out.json":          &meSignedOut{},
 		"error_terms_required.json":   &termsRequiredBody{},
 		"error_not_connected.json":    &notConnectedBody{},

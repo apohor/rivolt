@@ -51,6 +51,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
@@ -2823,6 +2824,9 @@ func runServer() {
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,
 		RivianExpiryEmails:    rivianExpiryEmails,
+		// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
+		// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro.
+		Entitlements: entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger}),
 		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
 		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{

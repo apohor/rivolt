@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/settings"
@@ -243,6 +245,44 @@ type meResponse struct {
 	// Passkeys is true when this server offers passkeys to the signed-in user (the routes under /api/auth/passkeys exist), so
 	// Settings shows the card only where it can work. Absent (false) where passkeys are off, such as prod today.
 	Passkeys bool `json:"passkeys,omitempty"`
+	// The plan (Rivolt Pro): see PlanFields. Absent when the entitlement lookup failed, which a client treats as "unchanged behaviour,
+	// no paywall".
+	*PlanFields
+}
+
+// PlanFields are the Pro plan fields of GET /api/auth/me, flat in the response. plan is "free" or "pro". plan_source says what makes it
+// Pro (stripe, apple, founding, grant, trial; billing_off on a server with billing off; demo for the demo account), null on free.
+// plan_period_end is when that grant ends (grace included), null on free or when it has no end. plan_trial_ends is the trial's end, only
+// while the trial is what grants Pro. billing_enabled false means this server sells nothing: clients hide every paywall control.
+type PlanFields struct {
+	Plan          string     `json:"plan"`
+	PlanSource    *string    `json:"plan_source"`
+	PlanPeriodEnd *time.Time `json:"plan_period_end"`
+	PlanTrialEnds *time.Time `json:"plan_trial_ends"`
+	// PlanEndedAt and PlanEndedSource describe a lapse: on a free account that once had Pro, when the most recent grant stopped and which
+	// source it was (stripe, apple, trial, founding, grant), for "Your Pro ended on ...". Null on an account that never had Pro.
+	PlanEndedAt     *time.Time `json:"plan_ended_at"`
+	PlanEndedSource *string    `json:"plan_ended_source"`
+	BillingEnabled  bool       `json:"billing_enabled"`
+}
+
+// planFor builds the plan fields for an account; nil when the lookup failed.
+func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanFields {
+	st, err := e.State(ctx, uid)
+	if err != nil {
+		return nil
+	}
+	pf := &PlanFields{Plan: "free", BillingEnabled: e.Billing(), PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanEndedAt: st.EndedAt}
+	if st.EndedSource != "" {
+		src := st.EndedSource
+		pf.PlanEndedSource = &src
+	}
+	if st.Pro {
+		pf.Plan = "pro"
+		src := st.Source
+		pf.PlanSource = &src
+	}
+	return pf
 }
 
 // meSignedOut is the answer for a visitor with no session credential at all.
@@ -252,6 +292,11 @@ type meSignedOut struct {
 
 // handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set, and `passkeys`.
 func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool) http.HandlerFunc {
+	return handleMeEnrichedPlan(svc, d, hideAdmin, unitsFor, passkeys, nil)
+}
+
+// handleMeEnrichedPlan is handleMeEnrichedWith plus the plan fields, from e (nil: none).
+func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool, e *entitlements.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -298,6 +343,9 @@ func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 		}
 		if unitsFor != nil {
 			me.Units = unitsFor(r.Context(), uid)
+		}
+		if e != nil {
+			me.PlanFields = planFor(r.Context(), e, uid)
 		}
 		_ = json.NewEncoder(w).Encode(me)
 	}
