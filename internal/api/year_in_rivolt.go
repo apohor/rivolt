@@ -196,10 +196,17 @@ func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charg
 		var coldest *yearColdest
 		var tc float64
 		var at time.Time
+		// From the drives that exist and count: weather rows outlive their drive (no foreign key), so the join is on the drive, which
+		// must be in the year, listed (a minute or more) and not a re-parking row (drives.IsReparking), and the month is the drive's.
 		err := pool.QueryRowContext(ctx, `
-SELECT temp_c, sampled_at FROM drive_weather
-WHERE user_id = $1 AND temp_c IS NOT NULL AND sampled_at >= $2 AND sampled_at < $3
-ORDER BY temp_c ASC LIMIT 1`, uid, from, to).Scan(&tc, &at)
+SELECT w.temp_c, d.started_at
+  FROM drives d
+  JOIN drive_weather w ON w.user_id = d.user_id AND w.drive_id = d.external_id
+ WHERE d.user_id = $1 AND w.temp_c IS NOT NULL
+   AND d.started_at >= $2 AND d.started_at < $3
+   AND d.ended_at - d.started_at >= interval '1 minute'
+   AND NOT (COALESCE(d.distance_mi,0) < 0.05 AND COALESCE(d.start_soc_pct,0) = COALESCE(d.end_soc_pct,0))
+ ORDER BY w.temp_c ASC, d.started_at ASC LIMIT 1`, uid, from, to).Scan(&tc, &at)
 		if err == nil {
 			coldest = &yearColdest{TempF: tc*1.8 + 32, Month: at.UTC().Format("2006-01")}
 		} else if err != sql.ErrNoRows {
