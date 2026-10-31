@@ -308,3 +308,35 @@ export function chipLegend(items: { color: string; label: string }[], active: Ma
   });
   return Object.assign(c, { refresh });
 }
+
+// tripCard is the plan map's one-line stats card at the bottom left (the text is built by tripPure.tripCardText), in the basemap's card colours.
+export function tripCard(initial: { text: string; flavor: MapFlavor }): IControl & { update: (s: { text: string; flavor: MapFlavor }) => void } {
+  let root: HTMLElement | undefined;
+  const update = (s: { text: string; flavor: MapFlavor }) => {
+    if (!root) return;
+    const c = CHIP[s.flavor];
+    root.style.background = c.bg;
+    root.style.borderColor = c.border;
+    root.style.color = c.text;
+    root.style.boxShadow = c.shadow;
+    root.textContent = s.text;
+  };
+  const c = control(
+    () => {
+      const div = document.createElement("div");
+      div.className = "maplibregl-ctrl rivolt-trip-card";
+      div.style.cssText =
+        "border:1px solid;border-radius:8px;padding:4px 8px;max-width:min(360px,72vw);font-weight:600;white-space:normal;" +
+        `font-size:${MAP_CAPTION_PX}px;line-height:1.3;font-family:ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
+      root = div;
+      update(initial);
+      return div;
+    },
+    // On a phone the one-line attribution (bottom-right) would run under the card's right end: lift the card above it.
+    (el, map) => {
+      el.style.maxWidth = `${Math.max(120, map.getContainer().clientWidth - 64)}px`;
+      if (map.getContainer().clientWidth < 520) el.style.marginBottom = "22px";
+    },
+  );
+  return Object.assign(c, { update });
+}

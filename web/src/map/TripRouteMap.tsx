@@ -16,12 +16,15 @@ import { styleFor } from "./base";
 import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
-import { ROUTE_UNIFORM, routeData, setRoute, type LatLng, type RouteFeature } from "./route";
-import { foldCredits, tilesNotice } from "./controls";
+import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
+import { RAMPS } from "./metrics";
+import { watchDrawn } from "./drawn";
+import { localUnits } from "../lib/preferences";
+import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
-  decodePolyline6, type PreviewResult,
+  decodePolyline6, tripCardText, type PreviewResult,
 } from "./tripPure";
 
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
@@ -51,11 +54,6 @@ function chargerVariant(poi: POI): { variant: Variant; isHotel: boolean; camp: R
   return { variant, isHotel, camp };
 }
 
-function lineData(path: LatLng[]): ReturnType<typeof routeData> {
-  const f: RouteFeature = { type: "Feature", geometry: { type: "LineString", coordinates: path.map(([la, lo]) => [lo, la] as [number, number]) }, properties: { kind: "speed", color: ROUTE_UNIFORM } };
-  return routeData({ runs: path.length >= 2 ? [f] : [] });
-}
-
 function boundsOfPath(path: LatLng[]): [[number, number], [number, number]] {
   let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
   for (const [la, lo] of path) {
@@ -77,6 +75,7 @@ export function TripRouteMap({
   selectedIdx,
   onSelectStop,
   departureAt,
+  dayLabel,
 }: {
   route: TripRoute;
   height?: number;
@@ -92,6 +91,8 @@ export function TripRouteMap({
   // Bidirectional selection between the stops table and the map: the index into route.Waypoints of the highlighted waypoint, or null.
   selectedIdx?: number | null;
   onSelectStop?: (idx: number | null) => void;
+  // "Day 2" on a multi-day plan's map: the card says which day it is.
+  dayLabel?: string;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -159,34 +160,9 @@ export function TripRouteMap({
       mapRef.current = map;
       styleReadyRef.current = false;
       el.setAttribute("data-flavor", flavor);
-      // data-map-drawn: the route has been drawn (a render after it went on the map); a spec waits for it before it looks. Not the
-      // library's "idle", which waits for every tile and never comes while a source keeps retrying a tile the server lacks.
-      el.removeAttribute("data-map-drawn");
-      let watching: (() => void) | undefined;
-      const markDrawn = () => {
-        if (watching) map.off("render", watching);
-        el.setAttribute("data-map-drawn", "0");
-        // The value is how many route features the map renders in view: a spec can tell a drawn line from markers alone. The route's
-        // GeoJSON tiles are cut by the worker after the first frame, so it is read on each frame until the line is there.
-        const count = () => {
-          try {
-            return map.getLayer("rivolt-route-main") ? map.queryRenderedFeatures({ layers: ["rivolt-route-main"] }).length : 0;
-          } catch {
-            return 0;
-          }
-        };
-        const h = () => {
-          const n = count();
-          if (n > 0) {
-            el.setAttribute("data-map-drawn", String(n));
-            map.off("render", h);
-            if (watching === h) watching = undefined;
-          }
-        };
-        watching = h;
-        map.on("render", h);
-        map.triggerRepaint();
-      };
+      // data-map-drawn: the route's features rendered in view (0 until the line is there); a spec waits for it before it looks (drawn.ts).
+      const drawn = watchDrawn(map, el, "rivolt-track-main");
+      cleanups.push(drawn.stop);
       map.touchZoomRotate.disableRotation();
       map.scrollZoom.disable();
       map.on("click", () => map.scrollZoom.enable());
@@ -202,8 +178,19 @@ export function TripRouteMap({
 
       // In the fill layout the charger chips float over the top of the map: pad the fit so the route clears them.
       const narrow = window.innerWidth < 640;
-      const padding = () =>
-        fill ? { top: narrow ? 96 : 64, bottom: narrow ? 40 : 24, left: 24, right: 24 } : { top: 24, bottom: 24, left: 24, right: 24 };
+      const padding = () => {
+        // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
+        // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
+        const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
+        // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
+        const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
+        const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom) : 24;
+        const base = fill ? (narrow ? 40 : 24) : 24;
+        const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
+        return { top, bottom, left: 24, right: 24 };
+      };
       let fitPath: LatLng[] = wpLatLngs;
       let fitted = false;
       const fit = (maxZoom: number) => {
@@ -213,14 +200,35 @@ export function TripRouteMap({
       };
       let fitZoom = 12;
 
-      // The line (straight legs first), re-added after every style change.
-      let data = lineData(wpLatLngs);
+      // The route in one colour (the accent teal of the drive ramp), with the drive map's glow and casing, straight legs first and the real geometry
+      // when it arrives; re-added after every style change. A plan has no per-sample metric to colour by, so the markers carry the meaning, and a
+      // one-line card says what the plan is: its day, distance, charging stops and time.
+      const km = localUnits().distanceUnit;
+      let track: LatLng[] = wpLatLngs;
+      let card: ReturnType<typeof tripCard> | undefined;
+      let cardOn = false;
+      const cardText = () =>
+        tripCardText({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: Math.max(0, ws.length - 2), seconds: route.TotalTripDurationSec, unit: km });
+      const draw = () => {
+        const c = RAMPS[flavor].speed[1];
+        setDriveRoute(map, { track, stops: [0, c, 1, c] }, flavor, firstLabelLayer(map));
+        const text = cardText();
+        if (text) {
+          if (!card) card = tripCard({ text, flavor });
+          else card.update({ text, flavor });
+          if (!cardOn) {
+            map.addControl(card, "bottom-left");
+            cardOn = true;
+          }
+        }
+        drawn.markDrawn();
+      };
       map.on("style.load", () => {
         styleReadyRef.current = true;
-        setRoute(map, data, flavor);
+        cardOn = false; // setStyle keeps controls only on the same map; the card goes back
+        draw();
         // The charger overlay goes back too.
         addChargerLayer(map);
-        markDrawn();
       });
 
       // Waypoint markers: click selects the stops-table row; hovering shows the tooltip.
@@ -266,10 +274,22 @@ export function TripRouteMap({
         });
       });
       ro.observe(el);
-      cleanups.push(() => { ro.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
+      // The chips grow when their "no chargers here" note appears (after the fit): reframe so the route still clears them, until the user moves
+      // the map themselves.
+      let touched = false;
+      map.on("dragstart", () => { touched = true; });
+      map.on("zoomstart", (e) => { if ((e as { originalEvent?: unknown }).originalEvent) touched = true; });
+      const chipsEl = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
+      let chipsH = chipsEl?.offsetHeight ?? 0;
+      const roChips = new ResizeObserver(() => {
+        if (!alive || mapRef.current !== map || touched || !chipsEl || chipsEl.offsetHeight === chipsH) return;
+        chipsH = chipsEl.offsetHeight;
+        fit(fitZoom);
+      });
+      if (chipsEl) roChips.observe(chipsEl);
+      cleanups.push(() => { ro.disconnect(); roChips.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       map.once("load", () => fit(fitZoom));
       cleanups.push(() => {
-        el.removeAttribute("data-map-drawn");
         popupRef.current?.remove();
         popupRef.current = null;
         map.remove();
@@ -291,9 +311,8 @@ export function TripRouteMap({
       }
       if (!alive || mapRef.current !== map) return;
       if (path !== wpLatLngs) {
-        data = lineData(path);
-        if (styleReadyRef.current) setRoute(map, data, flavor); // else the pending style.load draws `data`
-        markDrawn();
+        track = path;
+        if (styleReadyRef.current) draw(); // else the pending style.load draws it
         fitPath = path;
         fitZoom = 13;
         fit(fitZoom);
@@ -302,7 +321,7 @@ export function TripRouteMap({
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
 
     return () => { for (const c of cleanups.reverse()) c(); };
-  }, [supported, route, fill]);
+  }, [supported, route, fill, dayLabel]);
 
   // The charger overlay is one GeoJSON source drawn as circles on the map's canvas: hundreds of chargers cost no DOM nodes.
   function addChargerLayer(map: MLMap) {

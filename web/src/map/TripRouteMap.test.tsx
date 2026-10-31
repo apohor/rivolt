@@ -16,6 +16,7 @@ vi.mock("../lib/config", () => ({
 vi.mock("../lib/poi", () => ({ findChargersAlongPath: () => Promise.resolve([]), HOTEL_FACILITY_TYPES: new Set<string>() }));
 
 import { TripRouteMap } from "./TripRouteMap";
+import { tripCardText } from "./tripPure";
 import type { TripRoute } from "../lib/api";
 
 class FakeMap {
@@ -34,8 +35,12 @@ class FakeMap {
   once(ev: string, fn: () => void) { return this.on(ev, fn); }
   off() { return this; }
   fire(ev: string) { for (const h of this.handlers[ev] ?? []) h(); }
-  addControl() { return this; }
-  addSource(id: string, spec?: { data?: unknown }) { this.sources.set(id, { setData: (d: unknown) => { if (id === "rivolt-route") this.lastData = d; } }); if (id === "rivolt-route") this.lastData = spec?.data; }
+  controlsAdded: unknown[] = [];
+  addControl(c: unknown) { this.controlsAdded.push(c); return this; }
+  removeControl(c: unknown) { this.controlsAdded = this.controlsAdded.filter((x) => x !== c); return this; }
+  getStyle() { return { layers: [] }; }
+  setPaintProperty() {}
+  addSource(id: string, spec?: { data?: unknown }) { this.sources.set(id, { setData: (d: unknown) => { if (id === "rivolt-track") this.lastData = d; } }); if (id === "rivolt-track") this.lastData = spec?.data; }
   lastData: unknown;
   getSource(id: string) { return this.sources.get(id); }
   addLayer(l: { id: string }) { this.layers.add(l.id); }
@@ -101,7 +106,7 @@ describe("TripRouteMap", () => {
     const onSelect = vi.fn();
     render(<TripRouteMap route={route} onSelectStop={onSelect} />);
     await waitFor(() => expect(FakeMarker.all).toHaveLength(3));
-    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-route-main")).toBe(true));
+    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
     fireEvent.click(FakeMarker.all[1].element);
     expect(onSelect).toHaveBeenCalledWith(1);
   });
@@ -125,7 +130,7 @@ describe("TripRouteMap", () => {
     vi.stubGlobal("fetch", () => new Promise((res) => setTimeout(() => res({ ok: true, json: async () => ({ trip: { legs: [{ shape }] } }) }), 30)));
     try {
       render(<TripRouteMap route={route} />);
-      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-route-main")).toBe(true));
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
       await waitFor(() => {
         const d = FakeMap.last?.lastData as { features: { geometry: { coordinates: number[][] } }[] } | undefined;
         expect(d?.features[0].geometry.coordinates).toHaveLength(4);
@@ -133,6 +138,15 @@ describe("TripRouteMap", () => {
     } finally {
       delete (globalThis as { __valhalla?: string }).__valhalla;
     }
+  });
+
+  it("draws the route in one colour with a one-line card: day, distance, stops, time", async () => {
+    const r = { ...route, TotalDriveDistanceMeters: 367_000, TotalTripDurationSec: 14_700 } as unknown as TripRoute;
+    render(<TripRouteMap route={r} dayLabel="Day 2" />);
+    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+    await waitFor(() => expect(FakeMap.last!.controlsAdded.some((c) => typeof (c as { update?: unknown }).update === "function")).toBe(true));
+    // The card's DOM is made when it is added to a real map; check its text through the pure builder the component uses.
+    expect(tripCardText({ day: "Day 2", meters: 367_000, stops: 1, seconds: 14_700, unit: "mi" })).toBe("Day 2 · 228 mi · 1 charging stop · 4h 5m");
   });
 
   it("removes the map when it unmounts", async () => {

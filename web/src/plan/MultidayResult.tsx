@@ -214,6 +214,7 @@ export function MultidayResult({
                       allRoutes={d.plan.Routes ?? [r]}
                       originLabel={dayOrigin}
                       destLabel={dayDest}
+                      dayLabel={`Day ${d.index}`}
                       departureAt={d.depart_at || departureAt}
                       cost={d.costs?.[0]}
                       primaryCost={d.costs?.[0]}
