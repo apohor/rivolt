@@ -277,7 +277,7 @@ func Render(in Input) Rendered {
 	}
 
 	const foot = "You're getting this because you turned on monthly statements in Rivolt."
-	const indep = "Rivolt is an independent, open-source app and is not affiliated with Rivian."
+	const indep = "Rivolt is an independent, open-source app with a free tier and Rivolt Pro, and is not affiliated with Rivian."
 
 	// ---- text
 	var t strings.Builder

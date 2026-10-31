@@ -2,8 +2,8 @@
 
 [![build](https://github.com/apohor/rivolt/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/apohor/rivolt/actions/workflows/build.yml) [![release](https://img.shields.io/github/v/release/apohor/rivolt)](https://github.com/apohor/rivolt/releases/latest) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> Open-source tracker for Rivian owners, free during the beta: what your Rivian actually
-> costs. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
+> Open-source tracker for Rivian owners: what your Rivian actually
+> costs. Free tier and Rivolt Pro; self-hosting is complete and free. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
  · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
@@ -31,21 +31,54 @@ affiliated with, endorsed by or sponsored by Rivian.
   trips) or download a full JSON backup, delete your data
   from Settings, or run your own copy.
 
+## Free, Pro and self-hosting
+
+Rivolt was free during its public beta. The hosted service at rivolt.dev now has
+a **free tier** and a paid plan, **Rivolt Pro**, at the same price on the web and
+in the iPhone app: $3.99 a month or $34.99 a year. Nothing is tracked to sell
+it; counts come from the billing table only.
+
+- **Free:** every drive and charge on every connected vehicle recorded and
+  kept until you delete it; Now, Activity, Money and Truck for the last 90
+  days; the monthly statement and its email, with a CSV for each of the three
+  months it shows; a single-day trip planner with
+  charging stops; three saved trips; share cards; imports from ElectraFi,
+  TezLab and ABRP; every alert; and the **full export of everything, always**,
+  including history older than 90 days. One vehicle shown at a time.
+- **Pro:** unlimited history and trends, range near a temperature, multi-day
+  plans with hotel and campground overnights, re-plan from where the truck is,
+  plan-vs-actual, unlimited saved trips, every vehicle shown, and the Lock
+  Screen widgets and charging Live Activity on iPhone.
+- **Trial:** 14 days of Pro for every new account; on the web no card is
+  taken and it ends on its own; in the iPhone app it is Apple's free trial,
+  which renews unless cancelled. Accounts that existed at launch have Pro free
+  for a year.
+- **Lapse deletes nothing:** cancel and the account goes back to the free
+  tier; older history stays stored, stays in the export, and reappears if you
+  subscribe again. Cancelling is one step, with no retention flow.
+- **No Pro feature asks Rivian for more:** polling and the Rivian request
+  budget are the same for every account.
+- **Self-hosting is complete and free:** with billing off (the default) every
+  account on your server has Pro, with no licence key and nothing phoning home.
+
+Web payments go through Stripe and iPhone purchases through Apple; Rivolt never
+sees your card. Details: [Terms](https://rivolt.dev/terms) section 5 and the
+[support page](https://rivolt.dev/support). Unofficial, not affiliated with Rivian.
+
 ## Try the demo
 
 **[demo.rivolt.dev](https://demo.rivolt.dev)** is a stable, read-only demo
 on a *generated* sample truck: no sign-in, no Rivian account, and no
 real vehicle data. Browse every tab below the way you would on your
 own truck, and open the planner's sample trips to see a route with
-charging stops. Or see a planned trip first: [Los Angeles to Las Vegas in two
-days](https://rivolt.dev/sample-trips/la-las-vegas-two-days).
+charging stops. Or see a planned trip first: the demo's [Plan
+tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los Angeles to Las Vegas in two days.
 
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
-- Eight public, simulated trip plans need no sign-in at all:
-  [rivolt.dev/sample-trips](https://rivolt.dev/sample-trips). Each lists every
-  charging stop, the battery on arrival and departure, charge time and the
-  estimated cost for a sample R1S, and opens in the demo planner.
+- The demo's Plan tab holds simulated trip plans for a sample R1S, no sign-in
+  needed: every charging stop, the battery on arrival and departure, charge
+  time and the estimated cost.
 - A public worked example and a calculator for what it costs to charge a
   Rivian at home, with no sign-in and nothing leaving your browser:
   [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
@@ -314,7 +347,7 @@ What it does today:
 
 - **Now** — charge level, range, what the truck is doing and how fresh that
   is, with a switcher when you have more than one truck.
-- **Widgets** — charge and range on the Home Screen and the Lock Screen. A
+- **Widgets** (Pro) — charge and range on the Home Screen and the Lock Screen. A
   widget that can't refresh says how old its numbers are instead of looking
   current.
 - **Notifications** — charging complete, software updates and anomalies, plus the
