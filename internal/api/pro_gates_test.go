@@ -302,3 +302,14 @@ func TestAppleBillingRoutesAreOptional(t *testing.T) {
 		t.Errorf("a configured router lacks them: %v", got)
 	}
 }
+
+// A response narrowed to the free account's vehicle says so in a header; one that is not narrowed does not.
+func TestVehicleScopeHeader(t *testing.T) {
+	// freeVehicleMiddleware needs a plan lookup; with no database it limits nothing, so no header.
+	rec := httptest.NewRecorder()
+	freeVehicleMiddleware(&proVehicles{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/api/drives", nil).WithContext(auth.WithUser(context.Background(), uuid.New())))
+	if got := rec.Header().Get(VehicleScopeHeader); got != "" {
+		t.Errorf("an unlimited response carries the header: %q", got)
+	}
+}
