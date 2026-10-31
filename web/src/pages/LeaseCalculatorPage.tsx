@@ -139,7 +139,7 @@ export default function LeaseCalculatorPage() {
           <h2 className="text-base font-semibold text-neutral-100">Track this automatically</h2>
           <p className="mt-1 text-sm text-neutral-400">
             Rivolt records your drives and charges, projects your lease miles from your actual odometer, and shows what
-            each charge cost. Free and open source.
+            each charge cost. Open source, and free during the beta.
           </p>
           <div className="mt-3 flex flex-wrap gap-3">
             {demoEnabled && (

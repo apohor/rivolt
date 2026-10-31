@@ -7,7 +7,7 @@ Bug reports and feature requests are also welcome on [GitHub](https://github.com
 ## Common questions
 
 **What is Rivolt?**
-A free, open-source companion for Rivian owners. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from. It works on the web at rivolt.dev and as an iPhone app.
+An open-source companion for Rivian owners, free during the beta. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from. It works on the web at rivolt.dev and as an iPhone app.
 
 **Is it official?**
 No. Rivolt is independent and is not affiliated with, endorsed by or sponsored by Rivian. It reads data through Rivian's unofficial API, which Rivian can change or block at any time, so Rivolt can break.
