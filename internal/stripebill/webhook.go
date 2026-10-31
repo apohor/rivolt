@@ -18,6 +18,26 @@ import (
 // MaxBodyBytes caps a webhook body: Stripe events are a few KB.
 const MaxBodyBytes = 1 << 20
 
+// MetadataUserID is the key Rivolt puts the account's id under in a subscription's metadata (Checkout's subscription_data.metadata, part
+// b), so a subscription event resolves its account on its own, whatever order Stripe delivers the events in.
+const MetadataUserID = "rivolt_user_id"
+
+// EventRetention is how long event ids are kept: Stripe retries a failed delivery for about three days, so a month is ample.
+const EventRetention = 30 * 24 * time.Hour
+
+// PurgeEvents deletes event ids older than the retention (the existing retention job calls it daily).
+func PurgeEvents(ctx context.Context, d *sql.DB) (int64, error) {
+	res, err := d.ExecContext(ctx, `DELETE FROM stripe_events WHERE received_at < now() - make_interval(secs => $1)`, EventRetention.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// ErrUnmapped is an event for an account Rivolt cannot find (yet). It is answered 500 so Stripe retries for days: Stripe does not order
+// its events, and a subscription event can arrive before the checkout.session.completed that links its customer.
+var ErrUnmapped = errors.New("stripe: no account for the event yet")
+
 // Handler is POST /api/billing/stripe/webhook. It verifies the signature, then applies the event in ONE transaction that also records the
 // event id, so a retried or replayed delivery changes nothing, and a delivery that fails halfway is rolled back whole (claim included) and
 // answered 500 so Stripe retries it. Entitlements are written only here (and by the founding grant, the trial and admin grants).
@@ -159,7 +179,7 @@ func linkCustomer(ctx context.Context, tx *sql.Tx, uid uuid.UUID, customer strin
 
 // accountFor finds the account of a Stripe object: the user id Rivolt put in the subscription's metadata, else the customer on record.
 func accountFor(ctx context.Context, tx *sql.Tx, metadata map[string]string, customer string) (uuid.UUID, error) {
-	if raw := metadata["user_id"]; raw != "" {
+	if raw := metadata[MetadataUserID]; raw != "" {
 		if uid, err := uuid.Parse(raw); err == nil {
 			var ok bool
 			if err := tx.QueryRowContext(ctx, `SELECT true FROM users WHERE id = $1`, uid).Scan(&ok); err == nil && ok {
@@ -199,10 +219,13 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		return "", uuid.Nil, err
 	}
 	if uid == uuid.Nil {
+		// Not acknowledged: the whole delivery (claim included) rolls back and Stripe retries, by which time the checkout event that
+		// links the customer has usually been applied. A subscription that is not Rivolt's keeps retrying until Stripe gives up.
 		if h.Log != nil {
-			h.Log.Warn("stripe webhook: subscription event for no known account", "event", ev.ID, "subscription", sub.ID)
+			h.Log.Warn("stripe webhook: subscription event for no known account yet; Stripe will retry", "event", ev.ID, "subscription", sub.ID)
 		}
-		return OutcomeUnmapped, uuid.Nil, nil
+		h.observe(ev.Type, OutcomeUnmapped)
+		return "", uuid.Nil, ErrUnmapped
 	}
 	if sub.Customer != "" {
 		if _, err := linkCustomer(ctx, tx, uid, sub.Customer); err != nil {
@@ -240,7 +263,8 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 }
 
 // chargeRefunded ends the account's Stripe Pro after a full refund (a refund of the whole charge: Pro is not kept on a returned payment).
-// A partial refund changes nothing.
+// A partial refund changes nothing. The Stripe subscription itself stays active unless the operator also cancels it, and its next renewal
+// event then grants Pro again (correctly: they would be paying again), so the operator's refund procedure must cancel the subscription too.
 func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (string, uuid.UUID, error) {
 	var ch Charge
 	if err := json.Unmarshal(ev.Data.Object, &ch); err != nil {
@@ -254,7 +278,8 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 		return "", uuid.Nil, err
 	}
 	if uid == uuid.Nil {
-		return OutcomeUnmapped, uuid.Nil, nil
+		h.observe(ev.Type, OutcomeUnmapped)
+		return "", uuid.Nil, ErrUnmapped
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE billing_customers SET revoked_at = GREATEST(COALESCE(revoked_at, 0), $2), updated_at = now() WHERE user_id = $1`, uid, ev.Created); err != nil {
 		return "", uuid.Nil, err

@@ -264,25 +264,82 @@ func TestStripeWebhookRefusesAndRollsBack(t *testing.T) {
 	}
 }
 
-// An event for a customer or subscription no account owns, or for a deleted account, is acknowledged and changes nothing.
-func TestStripeWebhookUnmappedAndIgnored(t *testing.T) {
-	r := newRig(t, "stripe-unmapped")
+// Stripe does not order its events. A subscription event whose account cannot be found yet (no metadata, customer not linked) is NOT
+// acknowledged: it rolls back whole and Stripe retries, by when the checkout event has linked the customer. With the account's id in the
+// subscription's metadata it resolves on its own, whatever the order.
+func TestStripeWebhookEventOrder(t *testing.T) {
+	r := newRig(t, "stripe-order")
 	noMeta := func(s string) string {
-		s = strings.ReplaceAll(s, `"user_id": "`+r.uid.String()+`"`, `"x": "y"`)
-		return s
+		return strings.ReplaceAll(s, `"rivolt_user_id": "`+r.uid.String()+`"`, `"x": "y"`)
 	}
-	if code := r.deliver("subscription_created_active.json", noMeta); code != 200 {
-		t.Fatal(code)
+
+	// subscription.created (no metadata) BEFORE checkout.session.completed: 500, nothing recorded, no entitlement.
+	if code := r.deliver("subscription_created_active.json", noMeta); code != http.StatusInternalServerError {
+		t.Fatalf("an event for an account not linked yet answered %d, want 500 so Stripe retries", code)
+	}
+	var n int
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_sub_created_1'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("the event stayed claimed (%d): its retry would be ignored and the user would never get Pro", n)
 	}
 	if _, _, _, _, ok := r.row(); ok {
-		t.Error("a subscription for an unknown customer created an entitlement")
+		t.Fatal("an unmapped event created an entitlement")
 	}
-	for _, f := range []string{"invoice_payment_failed.json", "subscription_incomplete.json", "charge_refunded_full.json"} {
+	// The checkout event arrives and links the customer...
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatalf("checkout.session.completed: %d", code)
+	}
+	// ...and Stripe's retry of the subscription event now applies: the account ends up Pro.
+	if code := r.deliver("subscription_created_active.json", noMeta); code != 200 {
+		t.Fatalf("the retry after the customer was linked: %d", code)
+	}
+	if st := r.state(time.Unix(1790500000, 0)); !st.Pro || st.Source != entitlements.SourceStripe {
+		t.Errorf("after the retry the account reads %+v, want Pro by stripe", st)
+	}
+
+	// With the id in the metadata the subscription event resolves on its own, even before the checkout event.
+	r2 := newRig(t, "stripe-order-meta")
+	if code := r2.deliver("subscription_created_active.json", nil); code != 200 {
+		t.Fatalf("a subscription event carrying the account's id: %d", code)
+	}
+	if st := r2.state(time.Unix(1790500000, 0)); !st.Pro {
+		t.Errorf("a subscription event with metadata did not grant before the checkout event: %+v", st)
+	}
+	if code := r2.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+}
+
+// An event with nothing to apply is acknowledged: types we do not act on, a status that changes nothing, a partial refund.
+func TestStripeWebhookIgnored(t *testing.T) {
+	r := newRig(t, "stripe-ignored")
+	for _, f := range []string{"invoice_payment_failed.json", "subscription_incomplete.json", "charge_refunded_partial.json"} {
 		if code := r.deliver(f, nil); code != 200 {
 			t.Errorf("%s: %d, want 200", f, code)
 		}
 	}
 	if _, _, _, _, ok := r.row(); ok {
-		t.Error("an ignored or unmapped event created an entitlement")
+		t.Error("an ignored event created an entitlement")
+	}
+	// A full refund for a customer we do not know is retried too (the checkout event may not have arrived).
+	if code := r.deliver("charge_refunded_full.json", nil); code != http.StatusInternalServerError {
+		t.Errorf("a refund for an unknown customer: %d, want 500", code)
+	}
+}
+
+// Event ids older than the retention are purged; recent ones stay.
+func TestStripeEventsArePurged(t *testing.T) {
+	r := newRig(t, "stripe-purge")
+	ctx := context.Background()
+	if _, err := r.pool.ExecContext(ctx, `INSERT INTO stripe_events (event_id, type, received_at) VALUES ('evt_old_purge', 'x', now() - interval '31 days'), ('evt_new_purge', 'x', now() - interval '29 days')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PurgeEvents(ctx, r.pool); err != nil {
+		t.Fatal(err)
+	}
+	var old, recent int
+	_ = r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_old_purge'`).Scan(&old)
+	_ = r.pool.QueryRow(`SELECT count(*) FROM stripe_events WHERE event_id = 'evt_new_purge'`).Scan(&recent)
+	if old != 0 || recent != 1 {
+		t.Errorf("after the purge: old=%d recent=%d, want 0 and 1", old, recent)
 	}
 }

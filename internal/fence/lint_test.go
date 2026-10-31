@@ -165,6 +165,7 @@ var notOwnerSide = map[string]string{
 	"stripebill.Handler.chargeRefunded":       "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
 	"stripebill.Handler.subscriptionChanged":  "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
 	"stripebill.linkCustomer":                 "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
+	"stripebill.PurgeEvents":                  "retention job (stripe webhook event ids older than 30 days), not an owner-side write",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
 	"db.deleteUserTx":                         "user action / inactive purge (account deletion)",

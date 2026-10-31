@@ -20,7 +20,7 @@
    "cancel_at": null,
    "currency": "usd",
    "metadata": {
-    "user_id": "USER_ID"
+    "rivolt_user_id": "USER_ID"
    },
    "items": {
     "object": "list",

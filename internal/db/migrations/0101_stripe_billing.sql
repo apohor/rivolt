@@ -1,4 +1,4 @@
--- 0100_stripe_billing.sql: what the Stripe webhook needs to be idempotent and to map Stripe's objects to accounts. Card data never touches
+-- 0101_stripe_billing.sql: what the Stripe webhook needs to be idempotent and to map Stripe's objects to accounts. Card data never touches
 -- Rivolt (hosted Checkout); these tables hold ids only.
 --
 --   stripe_events          every webhook event id seen: a retried or replayed delivery is acknowledged without being applied twice. No

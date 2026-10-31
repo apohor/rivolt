@@ -2576,6 +2576,8 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Stripe webhook event ids (the replay guard): Stripe retries for about three days, so a month is kept.
+		jobs = append(jobs, retention.Job{Name: "stripe_events", Run: func(ctx context.Context) (int64, error) { return stripebill.PurgeEvents(ctx, pgPool) }})
 		// Passkey ceremonies that were begun and never finished (a challenge lives five minutes).
 		if passkeySvc != nil {
 			jobs = append(jobs, retention.Job{Name: "webauthn_ceremonies", Run: func(ctx context.Context) (int64, error) {
