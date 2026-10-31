@@ -14,6 +14,8 @@ import (
 const (
 	mapsValhallaPerMin = 60
 	mapsTilesPerMin    = 1200
+	// A style loads a handful of small label ranges per view; they are cached for a week.
+	mapsGlyphsPerMin = 600
 	// A hillshade view loads a few dozen terrain tiles and a pan more; the tiles are small and static.
 	mapsDEMPerMin = 1200
 	// Each call walks a tile box on the server (bounded by the corridor caps),
@@ -56,4 +58,10 @@ func tilesMount(proxy http.Handler) http.Handler {
 func demMount(proxy http.Handler) http.Handler {
 	return mapsUserLimiter(mapsDEMPerMin).Middleware(
 		http.StripPrefix("/api/maps/dem", maps.AllowDEM(proxy)))
+}
+
+// glyphsMount is what api.go mounts at /api/maps/glyphs: the label glyph ranges embedded in the binary (no upstream, no configuration).
+func glyphsMount() http.Handler {
+	return mapsUserLimiter(mapsGlyphsPerMin).Middleware(
+		http.StripPrefix("/api/maps/glyphs", maps.GlyphHandler()))
 }

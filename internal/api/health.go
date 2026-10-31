@@ -144,7 +144,10 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		ChargersURL string `json:"chargers_url,omitempty"`
 		// DEMURL is the same-origin Terrarium terrain tile template ({z}/{x}/{y}) for the hillshade; empty when the route is not
 		// mounted. The client asks only for zooms DEMMinZoom..DEMMaxZoom; a tile the mirror lacks is a 404 and draws no terrain.
-		DEMURL     string `json:"dem_url,omitempty"`
+		DEMURL string `json:"dem_url,omitempty"`
+		// GlyphsURL is the same-origin label glyph template for a MapLibre style's `glyphs`; present with the vector basemap. The fonts are
+		// Noto Sans Regular, Medium and Italic, ranges 0-255 and 256-511. There is no sprite: a style must use no icons.
+		GlyphsURL  string `json:"glyphs_url,omitempty"`
 		DEMMinZoom int    `json:"dem_minzoom,omitempty"`
 		DEMMaxZoom int    `json:"dem_maxzoom,omitempty"`
 	}
@@ -260,6 +263,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// yet, the URL still resolves; the SPA's PMTiles client
 		// will see a 404 on the file root and gracefully fall back.
 		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
+		base.Tiles.GlyphsURL = "/api/maps/glyphs/{fontstack}/{range}.pbf"
 	}
 	if ex.DEM {
 		base.Tiles.DEMURL = "/api/maps/dem/{z}/{x}/{y}.png"
