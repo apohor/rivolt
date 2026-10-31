@@ -13,6 +13,7 @@ import FirstDayCard from "../components/FirstDayCard";
 import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
+import { LockedVehicleNotice } from "../components/LockedVehicle";
 import ThreeThingsCard from "../components/ThreeThingsCard";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
@@ -243,6 +244,17 @@ export default function HomePage() {
     all.length === 0 &&
     charges.isSuccess &&
     (charges.data?.length ?? 0) === 0;
+
+  // A free account's non-primary vehicle: the page says so (it keeps recording) instead of a screen of refused reads.
+  const lockedVehicle = vehicles.data?.find((v) => v.id === activeVehicleID)?.pro_locked ? vehicles.data.find((v) => v.id === activeVehicleID) : undefined;
+  if (lockedVehicle) {
+    return (
+      <div className="space-y-4" data-ui-grid="now">
+        <PageHeader title="Now" actions={<ScopeBar win={win} onWinChange={setWin} period={period} onPeriodChange={setPeriod} vehicles={vehicles.data ?? []} selectedVehicleID={activeVehicleID} onSelectVehicle={selectVehicle} />} />
+        <LockedVehicleNotice name={lockedVehicle.name || undefined} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-ui-grid="now">

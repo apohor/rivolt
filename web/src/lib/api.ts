@@ -200,6 +200,9 @@ export type Vehicle = {
   trim_id?: string;
   trim_name?: string;
   pack_kwh?: number;
+  // On a free account with several vehicles, every vehicle but its primary: listed, recording and alerting, but its history and
+  // detail are Pro (HTTP 402). Absent otherwise.
+  pro_locked?: boolean;
   image_url?: string;
   images?: VehicleImage[];
   // Release details for the installed and the pending update (omitted until fetched).
@@ -1777,6 +1780,9 @@ export const backend = {
   charge: (id: string) => api.get<Charge>(`/api/charges/${encodeURIComponent(id)}`),
   // Deletes the signed-in user's drives, charges and telemetry from before the first of `before` ("2026-07", UTC). Free on every plan.
   deleteHistoryBefore: (before: string) => api.post<{ drives: number; charges: number; samples: number }>("/api/data/delete-range", { before, confirm: true }),
+  // The vehicle a free account shows (the others are Pro). Free on every plan: it is a setting.
+  primaryVehicle: () => api.get<{ vehicle_id: string }>("/api/settings/primary-vehicle"),
+  setPrimaryVehicle: (vehicleID: string) => api.put<{ vehicle_id: string }>("/api/settings/primary-vehicle", { vehicle_id: vehicleID }),
   deleteCharge: (id: string) =>
     api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
   // Overrides the persisted cost / currency / price-per-kWh on a
@@ -3102,6 +3108,8 @@ export type SavedTrip = {
   advice?: TripAdvice;
   created_at: string;
   updated_at: string;
+  // On a free account, a trip past the free cap: it can be opened and deleted, not edited. Absent otherwise.
+  read_only?: boolean;
 };
 
 export type SavedTripBody = {

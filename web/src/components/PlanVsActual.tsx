@@ -1,3 +1,5 @@
+import { ProLimitNotice } from "./ProLimitNotice";
+import { proLimitOf } from "../lib/proLimit";
 import { useState } from "react";
 import { inDemo } from "../lib/demo";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +40,15 @@ function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?:
       staleTime: 60_000,
     })),
   });
+  // A free account's plan vs actual is Pro (HTTP 402): one note for the card, not a blank card per trip.
+  const pvaLimit = qs.map((q) => proLimitOf(q.error)).find((l) => l);
+  if (pvaLimit) {
+    return (
+      <Card title="Plan vs actual" area="p-pva">
+        <ProLimitNotice limit={pvaLimit} feature="plan-vs-actual" />
+      </Card>
+    );
+  }
   // Trips with a drive waiting for a Confirm / Not this trip always show (a suggestion nobody sees is never answered); the latest
   // confirmed comparison shows after them, older ones behind a toggle; trips not driven yet or still in progress are one-line rows.
   const needs: SavedTrip[] = [];
@@ -150,7 +161,7 @@ function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boo
           ))}
         </div>
         <p className="mt-3 text-xs text-neutral-500">Actuals come from the drives and charges Rivolt recorded on that day.</p>
-        {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
+        {err != null && (proLimitOf(err) ? <ProLimitNotice limit={proLimitOf(err)!} feature="plan-vs-actual" /> : <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>)}
       </div>
     );
   }
@@ -158,7 +169,7 @@ function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boo
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
       <Body d={d} busy={busy} readOnly={inDemo()} onConfirm={(id) => link.mutate({ tripID: id })} onUnlink={(id) => unlink.mutate({ tripID: id })} />
-      {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
+      {err != null && (proLimitOf(err) ? <ProLimitNotice limit={proLimitOf(err)!} feature="plan-vs-actual" /> : <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>)}
     </div>
   );
 }

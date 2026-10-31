@@ -1,3 +1,4 @@
+import { defaultVehicleID } from "./proVehicles";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Vehicle } from "./api";
 
@@ -85,12 +86,14 @@ export function useSelectedVehicle(
     typeof window !== "undefined" ? readStoredID() : null,
   );
 
+  // A locked vehicle (a free account's non-primary) is opened only when picked in this visit; it is never the default.
+  const [pickedLocked, setPickedLocked] = useState<string | null>(null);
   const list = useMemo(() => vehicles ?? [], [vehicles]);
   const selectedID = useMemo(() => {
     if (list.length === 0) return undefined;
-    if (stored && list.some((v) => v.id === stored)) return stored;
-    return list[0].id;
-  }, [list, stored]);
+    if (pickedLocked && list.some((v) => v.id === pickedLocked)) return pickedLocked;
+    return defaultVehicleID(list, stored);
+  }, [list, stored, pickedLocked]);
 
   // Self-heal: if our resolved id differs from what's on
   // disk (stale id, or first-ever boot), write it back so a
@@ -115,6 +118,7 @@ export function useSelectedVehicle(
       if (!list.some((v) => v.id === id)) return;
       writeStoredID(id);
       setStored(id);
+      setPickedLocked(list.find((v) => v.id === id)?.pro_locked ? id : null);
     },
     [list],
   );
