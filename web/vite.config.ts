@@ -46,6 +46,6 @@ export default defineConfig({
     // #797). Never put unhashed files there; use web/public instead.
     outDir: "../internal/web/dist",
     emptyOutDir: true,
-    sourcemap: false,
+    sourcemap: true,
   },
 });
