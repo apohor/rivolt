@@ -77,7 +77,8 @@ var Items = []Item{
 		Cleared: true, ClearedBy: "#1398", Proof: "TestConsentLine,TestCheckoutDuringATrial,TestBuildCheckoutForANewAccount"},
 	{ID: "clients-gated", What: "web and iPhone show Pro UI only when billing_enabled is true (client tests are the proof)",
 		Cleared: true, ClearedBy: "#1365,#1368,#1395", Proof: "web/src/lib/plan.test.ts,web/e2e/pro-plan.pw.ts,ios/RivoltTests/ProPaywallTests.swift"},
-	{ID: "vehicle-scope-label", What: "web and iPhone show \"Showing <vehicle>. Pro includes all vehicles.\" on every response narrowed to the primary vehicle, read from the X-Rivolt-Vehicle-Scope header, so a narrowed total never reads as the whole fleet's (client tests are the proof)"},
+	{ID: "vehicle-scope-label", What: "web and iPhone show \"Showing <vehicle>. Pro includes all vehicles.\" on every response narrowed to the primary vehicle, read from the X-Rivolt-Vehicle-Scope header, so a narrowed total never reads as the whole fleet's (client tests are the proof)",
+		Cleared: true, ClearedBy: "#1406,#1407", Proof: "web/src/components/VehicleScopeNote.test.tsx,ios/RivoltTests/Pro19LimitsTests.swift"},
 	{ID: "delete-range-ui", What: "web and iPhone offer \"Delete history before a month\" (POST /api/data/delete-range), and the old drive and charge 402 screens keep per-row Delete reachable, so a free user has a path to the privacy exit"},
 }
 
