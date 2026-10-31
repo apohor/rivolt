@@ -38,6 +38,8 @@ type StripeFacts struct {
 	PaymentMethodUpdate bool     // customers can update their payment method in the portal
 	CheckoutMethods     []string // the payment method types the default configuration offers in Checkout (sorted)
 	CheckoutRead        bool     // that configuration could be read at all
+	TaxRead             bool     // Stripe Tax's settings were read (only asked when automatic tax is on)
+	TaxActive           bool     // and Stripe Tax is active in this mode
 }
 
 // Input is everything the report reads, so a test drives it without a database, a network or the process environment.
@@ -54,6 +56,9 @@ type Input struct {
 	RedisTime func(ctx context.Context) (denied bool, err error)
 	// Stripe reads the Stripe API with the configured key; nil skips it.
 	Stripe func(ctx context.Context) StripeFacts
+	// Pinned are the payment method types our Checkout sessions carry (stripebill.PinnedPaymentMethods): with them the default configuration
+	// cannot put another method into our sessions. Empty means the sessions do not pin, and then the default configuration decides.
+	Pinned []string
 	Launch time.Time
 }
 
@@ -107,6 +112,9 @@ func URLs(base string) []string {
 	}
 	return out
 }
+
+// EmailURLs are the pages the emails and the launch notice link to, exactly as they state them (rivolt.dev), fragments dropped.
+func EmailURLs() []string { return URLs("https://rivolt.dev") }
 
 // pathOf is the path of an absolute URL, without its fragment.
 func pathOf(u string) string {
@@ -167,7 +175,7 @@ func Run(ctx context.Context, in Input) *Report {
 	// The SPA answers 200 for ANY path, so a 200 here proves the site answers through Cloudflare, not that the page exists: the routes
 	// themselves are covered by tests (the frozen Terms hash and the terms-served launch item). A bot challenge from Cloudflare (403)
 	// shows as NOT READY, which fails closed.
-	r.line("== Site reachable (the SPA answers 200 for any path; the Terms and notice routes are covered by tests)")
+	r.line("== Deployment reachable (RIVOLT_PUBLIC_BASE_URL; the SPA answers 200 for any path, so this proves reachability only; the routes are covered by tests)")
 	if in.Fetch == nil {
 		r.warn("not checked (offline)")
 	} else if baseURL == "" {
@@ -187,6 +195,24 @@ func Run(ctx context.Context, in Input) *Report {
 		}
 		if code, err := in.Fetch(ctx, baseURL+"/preflight-no-such-page"); err == nil && code == http.StatusOK {
 			r.line("  a made-up path also answers 200: as expected for the SPA, so the lines above prove reachability only")
+		}
+	}
+
+	// The emails and the launch notice link to rivolt.dev whatever the deployment's own base URL is, so those links are checked as stated.
+	r.line("== Email links (as the emails state them: %s)", hostOf(EmailURLs()[0]))
+	if in.Fetch == nil {
+		r.warn("not checked (offline)")
+	} else {
+		for _, u := range EmailURLs() {
+			code, err := in.Fetch(ctx, u)
+			switch {
+			case err != nil:
+				r.problem("%s: %v", u, err)
+			case code != http.StatusOK:
+				r.problem("%s: HTTP %d, want 200", u, code)
+			default:
+				r.line("  %s: reachable (HTTP 200)", u)
+			}
 		}
 	}
 
@@ -300,7 +326,17 @@ func Run(ctx context.Context, in Input) *Report {
 				r.line("  portal: Terms URL set, Privacy URL set, payment-method update on")
 			}
 		}
-		r.checkoutMethods(f)
+		r.checkoutMethods(f, in.Pinned)
+		if parseBool(get("RIVOLT_STRIPE_AUTOMATIC_TAX")) {
+			switch {
+			case !f.TaxRead:
+				r.problem("automatic tax is on but Stripe Tax's settings could not be read, so they are unverified (a restricted key needs read access on Tax settings)")
+			case !f.TaxActive:
+				r.problem("automatic tax is on (RIVOLT_STRIPE_AUTOMATIC_TAX) but Stripe Tax is not active in this mode: live Checkout would fail")
+			default:
+				r.line("  Stripe Tax: active")
+			}
+		}
 		if cfg != nil && ((f.Live && cfg.Environment == applebill.EnvSandbox) || (!f.Live && cfg.Environment == applebill.EnvProduction)) {
 			r.warn("the Stripe mode and the Apple environment disagree (one live, one not)")
 		}
@@ -316,12 +352,23 @@ func Run(ctx context.Context, in Input) *Report {
 // redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
 var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true, "link": true}
 
-func (r *Report) checkoutMethods(f StripeFacts) {
+func (r *Report) checkoutMethods(f StripeFacts, pinned []string) {
+	pinOK := len(pinned) > 0
+	for _, m := range pinned {
+		if !allowedCheckoutMethods[m] {
+			pinOK = false
+		}
+	}
+	if !pinOK {
+		r.problem("our Checkout sessions do not pin payment_method_types to cards and wallets (card, link): the Dashboard's default configuration would decide what Checkout offers")
+	} else {
+		r.line("  Checkout sessions pin payment methods: %s", strings.Join(pinned, ", "))
+	}
 	if !f.CheckoutRead {
-		r.problem("could not read the Checkout payment method configuration, so the offered methods are unverified (a restricted key needs read access on Payment method configurations)")
+		r.warn("could not read the default payment method configuration (a restricted key needs read access on Payment method configurations); it does not decide our sessions while they pin")
 		return
 	}
-	r.line("  Checkout offers: %s", strings.Join(f.CheckoutMethods, ", "))
+	r.line("  default configuration offers: %s", strings.Join(f.CheckoutMethods, ", "))
 	card := false
 	var extra []string
 	for _, m := range f.CheckoutMethods {
@@ -333,10 +380,15 @@ func (r *Report) checkoutMethods(f StripeFacts) {
 		}
 	}
 	if len(extra) > 0 {
-		r.problem("Checkout also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay, google_pay and link; other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
+		msg := fmt.Sprintf("the default configuration offers %d method(s) beyond cards and wallets: %s; our Checkout sessions pin %s", len(extra), strings.Join(extra, ", "), strings.Join(pinned, ", "))
+		if pinOK {
+			r.warn("%s", msg)
+		} else {
+			r.problem("%s", msg)
+		}
 	}
 	if !card {
-		r.problem("Checkout does not offer cards")
+		r.problem("the default configuration does not offer cards, which our Checkout sessions pin")
 	}
 }
 
@@ -347,6 +399,7 @@ func ManualSteps() []string {
 		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
 		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
 		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
+		"Stripe Tax is set up in live mode: origin address, and registrations where required (Texas first), since RIVOLT_STRIPE_AUTOMATIC_TAX is on; with no live tax setup, live Checkout fails",
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
 		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
 	}
