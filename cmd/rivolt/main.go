@@ -132,6 +132,8 @@ func main() {
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "entitlements-founding":
 			os.Exit(runEntitlementsFounding(os.Args[2:]))
+		case "launch-notice":
+			os.Exit(runLaunchNotice(os.Args[2:]))
 		case "archive":
 			os.Exit(runArchive(os.Args[2:]))
 		default:
@@ -178,6 +180,13 @@ Usage:
                   from its samples (R2s recorded before park/sleep came
                   from Parallax). Dry run unless --apply; CSV backup
                   first; one transaction; never migrates.
+  rivolt launch-notice --launch-date YYYY-MM-DD [--apply] [--test-to USER_ID]
+                  [--exclude-user ID|NAME ...] [--rate 2]
+                  The Rivolt Pro launch notice: an in-app notice for every
+                  account and a service email to every verified address,
+                  once each. Dry run prints counts only; --apply refuses
+                  after the launch date and states the same dates on a
+                  retry; --test-to emails one account and writes nothing.
   rivolt announce --subject S --body-file FILE [--apply] [--sent-log FILE]
                   [--test-to USER_ID] [--exclude-user ID|NAME ...] [--rate 2]
                   One-time service email to active users through the

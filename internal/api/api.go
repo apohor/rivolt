@@ -887,6 +887,13 @@ func New(d Deps) http.Handler {
 				r.Post("/milestones/dismiss", withUser(ms.dismiss))
 			}
 
+			// Service notices (notices.go): the Pro launch notice, shown in the app until its date.
+			if d.DB != nil {
+				na := newNoticesAPI(d.DB)
+				r.Get("/notices", withUser(na.list))
+				r.Post("/notices/dismiss", withUser(na.dismiss))
+			}
+
 			r.Route("/push", func(r chi.Router) {
 				// A nil push store (no factory wired, or the store would not open) is a clean 503, never a nil dereference in a handler.
 				r.Use(pushStoreMiddleware(d.Push))
