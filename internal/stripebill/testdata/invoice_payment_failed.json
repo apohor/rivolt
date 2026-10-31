@@ -1,0 +1,22 @@
+{
+ "id": "evt_invoice_failed_1",
+ "object": "event",
+ "api_version": "2024-06-20",
+ "created": 1821600000,
+ "livemode": false,
+ "pending_webhooks": 1,
+ "request": {
+  "id": null,
+  "idempotency_key": null
+ },
+ "type": "invoice.payment_failed",
+ "data": {
+  "object": {
+   "id": "in_TEST001",
+   "object": "invoice",
+   "customer": "cus_TEST001",
+   "subscription": "sub_TEST001",
+   "attempt_count": 1
+  }
+ }
+}

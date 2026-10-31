@@ -1,0 +1,46 @@
+{
+ "id": "evt_sub_deleted_1",
+ "object": "event",
+ "api_version": "2024-06-20",
+ "created": 1790300000,
+ "livemode": false,
+ "pending_webhooks": 1,
+ "request": {
+  "id": null,
+  "idempotency_key": null
+ },
+ "type": "customer.subscription.deleted",
+ "data": {
+  "object": {
+   "id": "sub_TEST001",
+   "object": "subscription",
+   "customer": "cus_TEST001",
+   "status": "canceled",
+   "cancel_at_period_end": false,
+   "cancel_at": null,
+   "currency": "usd",
+   "metadata": {
+    "rivolt_user_id": "USER_ID"
+   },
+   "items": {
+    "object": "list",
+    "data": [
+     {
+      "id": "si_TEST001",
+      "object": "subscription_item",
+      "price": {
+       "id": "price_TEST_YEAR",
+       "object": "price",
+       "unit_amount": 3499,
+       "currency": "usd",
+       "recurring": {
+        "interval": "year"
+       }
+      }
+     }
+    ]
+   },
+   "current_period_end": 1821536000
+  }
+ }
+}

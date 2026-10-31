@@ -1,0 +1,24 @@
+{
+ "id": "evt_refund_1",
+ "object": "event",
+ "api_version": "2024-06-20",
+ "created": 1790400000,
+ "livemode": false,
+ "pending_webhooks": 1,
+ "request": {
+  "id": null,
+  "idempotency_key": null
+ },
+ "type": "charge.refunded",
+ "data": {
+  "object": {
+   "id": "ch_TEST001",
+   "object": "charge",
+   "customer": "cus_TEST001",
+   "amount": 3499,
+   "amount_refunded": 3499,
+   "refunded": true,
+   "currency": "usd"
+  }
+ }
+}

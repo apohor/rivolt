@@ -87,6 +87,7 @@ import (
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/statement"
+	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/syntheticplan"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
@@ -485,6 +486,12 @@ func runServer() {
 	// (Live Activities are Pro) and the API share one.
 	entitlementsSvc := entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger,
 		OnLookupError: func() { appMetrics.EntitlementsLookupErrors.Inc() }})
+	// Stripe's webhook (Pro 7): only when the signing secret is configured; without it the route does not exist. A subscription change
+	// drops the account's cached plan on this pod (the others see it within the cache's TTL).
+	var stripeWebhook http.Handler
+	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
+		stripeWebhook = &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
 	// pgPool stays the system pool: the monitor and recorder, background jobs, admin and pre-auth paths.
@@ -2578,6 +2585,8 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Stripe webhook event ids (the replay guard): Stripe retries for about three days, so a month is kept.
+		jobs = append(jobs, retention.Job{Name: "stripe_events", Run: func(ctx context.Context) (int64, error) { return stripebill.PurgeEvents(ctx, pgPool) }})
 		// Passkey ceremonies that were begun and never finished (a challenge lives five minutes).
 		if passkeySvc != nil {
 			jobs = append(jobs, retention.Job{Name: "webauthn_ceremonies", Run: func(ctx context.Context) (int64, error) {
@@ -2852,6 +2861,7 @@ func runServer() {
 		AdminDebugProbes:   adminDebugProbes,
 		OIDC:               oidcSvc,
 		AppleNotifications: appleNotifier,
+		StripeWebhook:      stripeWebhook,
 		AppAuth:            appAuth,
 		IOSAppIDs:          iosAppIDs,
 		WebFS:              webFS,
