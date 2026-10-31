@@ -117,7 +117,7 @@ export function R2ArrivalControl({ where, now }: { where: "guide" | "settings"; 
       <div data-r2-arrival="unset">
         <h2 className="text-base font-semibold text-neutral-100">Expecting an R2?</h2>
         <p className="mt-1 text-sm text-neutral-400">
-          Tell us the month you expect delivery and we&apos;ll send one email that month with the connect steps. Nothing else, ever; change or delete the month in Settings, and we delete it after the email goes.
+          Tell us the month you expect delivery and we&apos;ll send one email that month with the connect steps, and only one. Change or delete the month in Settings; we delete it after the email goes.
         </p>
         {picker}
         {status}
