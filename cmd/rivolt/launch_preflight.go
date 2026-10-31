@@ -58,6 +58,7 @@ func runLaunchPreflight(args []string) int {
 		in.Webhook = preflight.HTTPPostUnsigned
 		in.Stripe = preflightStripe(os.Getenv)
 		in.Pinned = stripebill.PinnedPaymentMethods()
+		in.BillingAddress = stripebill.BillingAddressCollection
 	}
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
 		rdb := redis.NewClient(redisOptions(addr, os.Getenv))

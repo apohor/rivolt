@@ -589,6 +589,9 @@ func TestCheckoutPinsPaymentMethodsToCardAndLink(t *testing.T) {
 			t.Fatal(name, err)
 		}
 		form := f.posts[0]
+		if got := form.Get("billing_address_collection"); got != "required" {
+			t.Errorf("%s: billing_address_collection = %q, want required (the webhook's US-only check needs the country)", name, got)
+		}
 		var keys []string
 		for k := range form {
 			if strings.HasPrefix(k, "payment_method") {

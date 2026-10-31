@@ -59,7 +59,10 @@ type Input struct {
 	// Pinned are the payment method types our Checkout sessions carry (stripebill.PinnedPaymentMethods): with them the default configuration
 	// cannot put another method into our sessions. Empty means the sessions do not pin, and then the default configuration decides.
 	Pinned []string
-	Launch time.Time
+	// BillingAddress is what our Checkout sessions ask for as the billing address (stripebill.BillingAddressCollection): "required" lets the
+	// webhook check the country (Rivolt Pro is sold in the US only).
+	BillingAddress string
+	Launch         time.Time
 }
 
 // Report is the result: lines to print and whether the deployment is ready for the flip.
@@ -320,6 +323,11 @@ func Run(ctx context.Context, in Input) *Report {
 			}
 		}
 		r.checkoutMethods(f, in.Pinned)
+		if in.BillingAddress != "required" {
+			r.problem("our Checkout sessions do not require the billing address (billing_address_collection): the US-only check would have no country")
+		} else {
+			r.line("  Checkout collects the billing address: required (the webhook reports a country other than the US)")
+		}
 		if parseBool(get("RIVOLT_STRIPE_AUTOMATIC_TAX")) {
 			switch {
 			case !f.TaxRead:

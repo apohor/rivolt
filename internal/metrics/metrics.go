@@ -248,6 +248,9 @@ type Metrics struct {
 	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
 	// a bundle, environment or product that is not this deployment's. Pre-created at 0.
 	AppleNotificationsTotal *prometheus.CounterVec
+	// BillingNonUSTotal counts Stripe customers whose billing address is outside the US (Rivolt Pro is sold in the US only), once per customer
+	// and country per process. The account keeps Pro; the operator refunds and cancels, so any increase is worth an alert. Starts at 0.
+	BillingNonUSTotal prometheus.Counter
 	// Claims left in 'sending' past 15 minutes: a crash between claim and
 	// delivery. Never resent, so a nonzero value is how a lost message shows.
 	EngagementStuckSending prometheus.Gauge
@@ -524,6 +527,10 @@ func New() *Metrics {
 			},
 			[]string{"kind", "outcome"},
 		),
+		BillingNonUSTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_billing_non_us_total",
+			Help: "Stripe customers with a billing address outside the US, once per customer and country per process.",
+		}),
 		AppleNotificationsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_apple_notifications_total",
@@ -707,6 +714,7 @@ func New() *Metrics {
 		m.SingletonRunsTotal,
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,
+		m.BillingNonUSTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
 		m.EngagementStuckSending,

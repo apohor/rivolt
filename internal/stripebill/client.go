@@ -418,3 +418,16 @@ func (c *Client) TaxActive(ctx context.Context) (bool, error) {
 	}
 	return out.Status == "active", nil
 }
+
+// CustomerCountry reads the country (two letters) of a customer's address (read-only); "" when it has none.
+func (c *Client) CustomerCountry(ctx context.Context, customer string) (string, error) {
+	var out struct {
+		Address struct {
+			Country string `json:"country"`
+		} `json:"address"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/customers/"+url.PathEscape(customer), nil, "", &out); err != nil {
+		return "", err
+	}
+	return strings.ToUpper(strings.TrimSpace(out.Address.Country)), nil
+}

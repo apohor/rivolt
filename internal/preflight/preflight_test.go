@@ -31,9 +31,10 @@ func env(extra map[string]string) func(string) string {
 
 func okInput() Input {
 	return Input{
-		Getenv: env(nil),
-		Launch: launchAt,
-		Pinned: []string{"card", "link"},
+		Getenv:         env(nil),
+		Launch:         launchAt,
+		Pinned:         []string{"card", "link"},
+		BillingAddress: "required",
 		Founding: func(context.Context, time.Time) (Founding, error) {
 			return Founding{Accounts: 11, Demo: 1, Eligible: 10, Already: 0, ToGrant: 10}, nil
 		},
@@ -358,5 +359,19 @@ func TestPreflightStripeTax(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Stripe Tax is set up in live mode") {
 		t.Error("the manual steps lack the Stripe Tax line")
+	}
+}
+
+// The billing address must be required on Checkout, or the US-only check has no country to look at.
+func TestPreflightBillingAddressMustBeRequired(t *testing.T) {
+	in := okInput()
+	if out := render(Run(context.Background(), in)); !strings.Contains(out, "Checkout collects the billing address: required") {
+		t.Errorf("no line for the billing address:\n%s", out)
+	}
+	for _, v := range []string{"", "auto"} {
+		in.BillingAddress = v
+		if Run(context.Background(), in).Ready() {
+			t.Errorf("billing_address_collection %q: ready", v)
+		}
 	}
 }
