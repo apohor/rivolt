@@ -22,7 +22,8 @@ struct MoneyView: View {
     @State private var plan: PlanState = .off
     @State private var showPro = false
 
-    private var selected: Vehicle? { vehicles.first { $0.id == selectedID } ?? vehicles.first }
+    @State private var pickedLocked = false
+    private var selected: Vehicle? { VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked) }
     /// Only an account with more than one truck sends it; otherwise the ledger covers the account.
     private var scope: String? { vehicles.count > 1 ? selected?.id : nil }
 
@@ -32,8 +33,11 @@ struct MoneyView: View {
                 Group {
                     if let vehiclesError, model.month == nil {
                         MoneyMessage(icon: "exclamationmark.triangle", text: vehiclesError)
+                    } else if selected?.proLocked == true {
+                        ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit)
                     } else {
                         VStack(spacing: 16) {
+                            VehicleScopeNote(vehicles: vehicles)
                             YearCardView()
                             OffpeakPromptView()
                             MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
@@ -52,7 +56,7 @@ struct MoneyView: View {
             .refreshable { await reload() }
             .task { await loadVehicles() }
             .task(id: "\(vehiclesLoaded)|\(scope ?? "")|\(period.start.timeIntervalSince1970)") {
-                guard vehiclesLoaded else { return }
+                guard vehiclesLoaded, selected?.proLocked != true else { return }
                 await model.load(source: state.client, vehicleID: scope, period: period)
             }
             .task { if !state.isDemo { plan = PlanLogic.state(try? await state.client.me()) } }
@@ -86,8 +90,11 @@ struct MoneyView: View {
         ThemeTitleRow(title: "Money") {
             if vehicles.count > 1 {
                 Menu {
-                    Picker("Vehicle", selection: $selectedID) {
-                        ForEach(vehicles) { v in Text(v.name).tag(v.id) }
+                    Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
+                        selectedID = id
+                        pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
+                    })) {
+                        ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
                     }
                 } label: {
                     Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
@@ -104,9 +111,7 @@ struct MoneyView: View {
     private func loadVehicles() async {
         do {
             vehicles = try await state.client.vehicles()
-            if selected == nil || !vehicles.contains(where: { $0.id == selectedID }) {
-                selectedID = vehicles.first?.id ?? ""
-            }
+            selectedID = VehicleChoice.id(vehicles, chosen: selectedID, pickedLocked: pickedLocked) ?? ""
             vehiclesError = nil
         } catch {
             if vehicles.isEmpty { vehiclesError = UserFacingError.words(error) }

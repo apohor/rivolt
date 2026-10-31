@@ -344,6 +344,7 @@ enum TripPlanLogic {
             return "You've used this hour's planning allowance. Try again in a while."
         case APIError.server(let status, _):
             switch status {
+            case 402: return ProCopy.plannerLimit
             case 400: return "That trip couldn't be planned. Check the places and the time."
             case 403: return "This server doesn't allow trip planning from the app."
             case 404: return "Trip planning isn't turned on for this server."

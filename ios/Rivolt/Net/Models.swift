@@ -52,6 +52,9 @@ struct Vehicle: Decodable, Identifiable, Equatable {
     /// The software versions, and whether a release-notes link exists for each (the link itself is fetched fresh when
     /// "Release notes" is tapped: Rivian's own expires after an hour).
     let ota: OTA?
+    /// On a free account with several vehicles, every vehicle but its primary: listed, recording and alerting, but its history and
+    /// detail are Pro (HTTP 402). Absent otherwise.
+    var proLocked: Bool? = nil
 
     struct OTA: Decodable, Equatable {
         struct Version: Decodable, Equatable {

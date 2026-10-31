@@ -38,6 +38,7 @@ var appWrites = map[string]bool{
 	"POST /api/billing/apple/transaction": true, // the app reports its StoreKit purchase (internal/applebill); the transaction is verified and must carry the account's token
 	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
 	"PATCH /api/settings/units":           true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
+	"PUT /api/settings/primary-vehicle":   true, // which vehicle a free account shows (Pro 19): a free setting, 404 if not the account's own; nothing is deleted or hidden
 	// The rest of Settings → Charging and the planner defaults on the iPhone (owner go, Oct 26). Each replaces one setting of the
 	// account's own and nothing else: no stored charge, price or statement is rewritten (a price book only prices future sessions
 	// and the planner's estimates), a leaked token can at worst set wrong numbers that the next write undoes, and each write is

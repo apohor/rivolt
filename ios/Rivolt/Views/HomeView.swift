@@ -40,15 +40,21 @@ struct HomeView: View {
     /// The Rivian connection, read once for the "expires" notice (nothing in the demo).
     @State private var rivian: RivianStatus?
 
+    /// A locked vehicle (a free account's non-primary) is opened only when picked in this visit.
+    @State private var pickedLocked = false
+
     private var selected: Vehicle? {
-        vehicles.first { $0.id == selectedID } ?? vehicles.first
+        VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 Group {
-                    if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
+                    if let vehicle = selected, vehicle.proLocked == true {
+                        // The history of a free account's other vehicle is Pro; it keeps recording. One note, not a screen of refused reads.
+                        ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit)
+                    } else if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
                         let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                         let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
@@ -57,6 +63,7 @@ struct HomeView: View {
                             let fresh = summary.freshness != .stale
                             if let line = RivianExpiryLogic.notice(rivian) { RivianExpiryBanner(text: line, serverURL: state.serverURL) }
                             PlanNoticeView()
+                            VehicleScopeNote(vehicles: vehicles)
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil)
@@ -167,8 +174,11 @@ struct HomeView: View {
         ThemeTitleRow(title: "Now") {
             if vehicles.count > 1 {
                 Menu {
-                    Picker("Vehicle", selection: $selectedID) {
-                        ForEach(vehicles) { v in Text(v.name).tag(v.id) }
+                    Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
+                        selectedID = id
+                        pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
+                    })) {
+                        ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
                     }
                 } label: {
                     Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
@@ -193,7 +203,7 @@ struct HomeView: View {
     }
 
     private func loadCharts(force: Bool) async {
-        guard let id = selected?.id else { return }
+        guard let id = selected?.id, selected?.proLocked != true else { return }
         async let c: Void = charts.load(source: state.client, vehicleID: id, month: month, force: force)
         async let p: Void = places.load(source: state.client, vehicleID: id, month: month, force: force)
         async let k: Void = kpi.load(source: state.client, vehicleID: id, month: month, scopeLedger: vehicles.count > 1,
@@ -216,9 +226,7 @@ struct HomeView: View {
         loadError = nil
         do {
             vehicles = try await state.client.vehicles()
-            if selected == nil || !vehicles.contains(where: { $0.id == selectedID }) {
-                selectedID = vehicles.first?.id ?? ""
-            }
+            selectedID = VehicleChoice.id(vehicles, chosen: selectedID, pickedLocked: pickedLocked) ?? ""
             await loadSelected()
             if force { await loadCharts(force: true) }
         } catch {
@@ -227,7 +235,7 @@ struct HomeView: View {
     }
 
     private func loadSelected() async {
-        guard let id = selected?.id else {
+        guard let id = selected?.id, selected?.proLocked != true else {
             vehicleState = nil
             now = nil
             session = nil
