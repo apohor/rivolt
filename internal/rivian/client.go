@@ -24,7 +24,10 @@ type Credentials struct {
 // Vehicle is a minimum-useful projection of a Rivian vehicle. More
 // fields will be added as we flesh out the client.
 type Vehicle struct {
-	ID        string `json:"id"`
+	ID string `json:"id"`
+	// ProLocked marks, on a free account with several vehicles, every vehicle but its primary: listed, recorded and alerting, but its history
+	// and detail are Pro. Set by the API, never by Rivian.
+	ProLocked bool   `json:"pro_locked,omitempty"`
 	VIN       string `json:"vin"`
 	Name      string `json:"name"`
 	Model     string `json:"model"` // "R1T" | "R1S"

@@ -23,5 +23,15 @@ func vehicleFilter(w http.ResponseWriter, r *http.Request) (string, bool) {
 			return "", false
 		}
 	}
+	// A free account with several vehicles sees one (pro_vehicles.go): the unfiltered list is that vehicle's, another vehicle is Pro.
+	if only, _ := r.Context().Value(freeVehicleKey{}).(string); only != "" {
+		if id == "" {
+			return only, true
+		}
+		if id != only {
+			writeProRequired(w)
+			return "", false
+		}
+	}
 	return id, true
 }
