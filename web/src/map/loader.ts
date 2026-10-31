@@ -9,13 +9,13 @@ let loaded: Promise<MapLibreModule> | undefined;
 
 export function loadMapLibre(): Promise<MapLibreModule> {
   loaded ??= (async () => {
-    const [ml, pm, css, worker] = await Promise.all([
+    const [ml, pm, , , worker] = await Promise.all([
       import("maplibre-gl"),
       import("pmtiles"),
       import("maplibre-gl/dist/maplibre-gl.css"),
+      import("./map.css"),
       import("maplibre-gl/dist/maplibre-gl-worker.mjs?url"),
     ]);
-    void css;
     const maplibre = ml as MapLibreModule;
     maplibre.setWorkerUrl((worker as { default: string }).default);
     // pmtiles:// URLs read the archive by byte range through the same-origin tiles route.
