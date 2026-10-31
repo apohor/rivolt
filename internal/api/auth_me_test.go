@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/entitlements"
 )
 
 func newMeAuth(t *testing.T) *auth.Service {
@@ -127,5 +131,69 @@ func TestAuthMe_PasskeysFlag(t *testing.T) {
 	}
 	if get(true)["passkeys"] != true {
 		t.Error("passkeys on: want passkeys:true")
+	}
+}
+
+type meNoDB struct{}
+
+func (meNoDB) Connect(context.Context) (driver.Conn, error) { return nil, errors.New("no database") }
+func (meNoDB) Driver() driver.Driver                        { return nil }
+
+// meAs is GET /api/auth/me as uid, through the plan-aware handler.
+func meAs(t *testing.T, uid uuid.UUID, e *entitlements.Service) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(auth.WithUser(context.Background(), uid))
+	rec := httptest.NewRecorder()
+	handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, e)(rec, req)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("%v: %s", err, rec.Body.String())
+	}
+	return body
+}
+
+// The plan fields of /api/auth/me (Rivolt Pro): billing off is Pro for everyone with billing_enabled false, so clients hide every paywall;
+// the demo account is always Pro; a lookup failure leaves the fields out entirely rather than guessing; no service, no fields.
+func TestAuthMePlanFields(t *testing.T) {
+	uid := uuid.New()
+	off := meAs(t, uid, entitlements.New(nil, entitlements.Config{}))
+	if off["plan"] != "pro" || off["plan_source"] != "billing_off" || off["billing_enabled"] != false || off["plan_period_end"] != nil || off["plan_trial_ends"] != nil {
+		t.Errorf("billing off: %v", off)
+	}
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "billing_enabled"} {
+		if _, has := off[k]; !has {
+			t.Errorf("billing off: %q missing (null is fine, absent is not)", k)
+		}
+	}
+
+	db := sql.OpenDB(meNoDB{})
+	defer db.Close()
+	demo := uuid.New()
+	on := entitlements.New(db, entitlements.Config{Billing: true, Demo: demo})
+	if b := meAs(t, demo, on); b["plan"] != "pro" || b["plan_source"] != "demo" || b["billing_enabled"] != true {
+		t.Errorf("demo: %v", b)
+	}
+	b := meAs(t, uid, on) // the lookup fails
+	for _, k := range []string{"plan", "plan_source", "plan_period_end", "plan_trial_ends", "billing_enabled"} {
+		if _, has := b[k]; has {
+			t.Errorf("a failed lookup still sent %q: %v", k, b)
+		}
+	}
+	if b["authenticated"] != true {
+		t.Errorf("the rest of the answer must survive: %v", b)
+	}
+	if n := meAs(t, uid, nil); n["plan"] != nil {
+		t.Errorf("no service, plan fields present: %v", n)
+	}
+}
+
+// A free account: plan free, no source, no end, billing on.
+func TestPlanFieldsForAFreeAccount(t *testing.T) {
+	pf := &PlanFields{Plan: "free", BillingEnabled: true}
+	b, _ := json.Marshal(pf)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	if m["plan"] != "free" || m["plan_source"] != nil || m["plan_period_end"] != nil || m["plan_trial_ends"] != nil || m["billing_enabled"] != true {
+		t.Errorf("%s", b)
 	}
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
@@ -121,6 +122,8 @@ type Deps struct {
 	Settings *settings.Factory
 	Push     *push.Factory
 	Trips    *trips.Factory
+	// Entitlements answers the Pro plan (internal/entitlements): the plan fields of GET /api/auth/me. Nil: no plan fields.
+	Entitlements *entitlements.Service
 	// PackHealth is the per-vehicle derived-pack-capacity store.
 	// Not a factory because samples are scoped by vehicle_id, not
 	// user_id; the handler authorizes via the vehicleScoped
@@ -655,7 +658,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.logoutHandler())
-				r.Get("/me", handleMeEnrichedWith(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly))
+				r.Get("/me", handleMeEnrichedPlan(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly, d.Entitlements))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
