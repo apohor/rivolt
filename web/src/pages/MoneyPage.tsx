@@ -1,6 +1,7 @@
 import { chargesAllQuery } from "../lib/activityLists";
 import { ENERGY_ESTIMATED_TOTAL_NOTE } from "../lib/energyEstimated";
 import { appPath, inDemo } from "../lib/demo";
+import { YearCard } from "../components/YearCard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -126,6 +127,8 @@ export default function MoneyPage() {
           </div>
         }
       />
+
+      {!isSample && <YearCard />}
 
       {isSample && (
         <div

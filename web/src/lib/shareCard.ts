@@ -8,7 +8,7 @@ import { shareFooterLine } from "./appLink";
 import { getConfig } from "./config";
 import type { Drive, MilestoneItem } from "./api";
 
-export type ShareKind = "month" | "trip" | "milestone";
+export type ShareKind = "month" | "trip" | "milestone" | "year";
 export type ShareStat = { label: string; value: string };
 export type ShareCardModel = {
   kind: ShareKind;
@@ -151,7 +151,8 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
   g.font = `400 44px ${FONT}`;
   y = wrap(g, c.subtitle, 80, y + 80, 56, 3);
   y += 30;
-  g.font = `500 44px ${FONT}`;
+  // A year card has six longer rows: a little smaller so the value never meets its label.
+  g.font = `500 ${c.kind === "year" ? 40 : 44}px ${FONT}`;
   for (const s of c.stats.slice(0, 6)) {
     g.fillStyle = "#a3a3a3";
     g.textAlign = "left";
@@ -159,7 +160,7 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
     g.fillStyle = "#e5e5e5";
     g.textAlign = "right";
     g.fillText(s.value, W - 80, y);
-    y += 78;
+    y += c.kind === "year" ? 66 : 78;
   }
   g.textAlign = "left";
   g.font = `400 32px ${FONT}`;
