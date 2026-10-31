@@ -42,7 +42,8 @@ var Items = []Item{
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
 	{ID: "lapse-stops-pushes", What: "on lapse or trial end Live Activity pushes stop, that account's Live Activity tokens are deleted and widgets fall back to the free state"},
-	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account"},
+	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account",
+		Cleared: true, ClearedBy: "#1384", Proof: "TestFoundingGrantAgainstPostgres,TestNewAccountTrialAgainstPostgres"},
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states",
 		Cleared: true, ClearedBy: "#1382", Proof: "TestCancelAndGraceStates"},
 
