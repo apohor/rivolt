@@ -1826,6 +1826,11 @@ func runServer() {
 			monitorRegistry.Unsubscribe,
 			logger,
 		)
+		// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
+		if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
+			logger.Error("lease coordinator", "err", err.Error())
+			os.Exit(1)
+		}
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
 		})

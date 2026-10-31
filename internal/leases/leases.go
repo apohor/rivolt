@@ -391,6 +391,9 @@ type Coordinator struct {
 	// fencedThisPass makes one self-fence event count once, whichever path finds it first (reconcile's own deadline check or the
 	// group pass). Reset at the start of each reconcile.
 	fencedThisPass bool
+	// leadRequested is set from RIVOLT_GROUP_LEAD (CheckLeadMode): the operator asked for lead mode, so a coordinator that would
+	// quietly run the old per-vehicle mode instead is an error, not a fallback.
+	leadRequested bool
 
 	// acquiredAt is when each vehicle was acquired and has not yet shown a frame; frameAt says when the
 	// newest frame for a vehicle arrived; onFrame is told the seconds from acquire to that frame (the
@@ -611,6 +614,9 @@ func (c *Coordinator) SetAuthoritative(fn func(ctx context.Context) ([]string, e
 // Reconciles once immediately so a freshly-started pod doesn't wait
 // reconcileInterval before claiming any vehicles.
 func (c *Coordinator) Run(ctx context.Context) error {
+	if err := c.leadModeProblem(); err != nil {
+		return err
+	}
 	c.reconcile(ctx)
 
 	t := time.NewTimer(c.nextTick())
@@ -632,6 +638,27 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			c.reconcile(ctx)
 		}
 	}
+}
+
+// ErrLeadModeInactive: lead mode was requested but this coordinator would not lead.
+var ErrLeadModeInactive = errors.New("leases: lead mode was requested (RIVOLT_GROUP_LEAD=1) but the lease store is not leading; refusing to run the old per-vehicle mode in its place")
+
+func (c *Coordinator) leadModeProblem() error {
+	if !c.leadRequested {
+		return nil
+	}
+	if gl, ok := c.store.(groupLeader); !ok || !gl.GroupLeading() {
+		return ErrLeadModeInactive
+	}
+	return nil
+}
+
+// CheckLeadMode records whether the operator asked for lead mode and returns ErrLeadModeInactive if so but the store would not lead:
+// the lead pass skips a store that is not a lead-mode store without a word, and a pod that believes it is in lead mode while it runs
+// the old mode is the worst state to be in. main refuses to start on the error; Run returns it too.
+func (c *Coordinator) CheckLeadMode(requested bool) error {
+	c.leadRequested = requested
+	return c.leadModeProblem()
 }
 
 // nextTick is the reconcile interval, plus or minus the jitter in lead mode.
