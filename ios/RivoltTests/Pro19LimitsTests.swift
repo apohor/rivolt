@@ -86,3 +86,24 @@ final class VehicleScopeTests: XCTestCase {
         XCTAssertNil(s.id)
     }
 }
+
+final class DeleteHistoryLinkTests: XCTestCase {
+    func testOpensTheWebSettingsAnchor() {
+        let u = DeleteHistoryLink.url(URL(string: "https://rivolt.dev")!)
+        XCTAssertEqual(u.absoluteString, "https://rivolt.dev/settings#delete-history")
+        XCTAssertEqual(DeleteHistoryLink.caption(URL(string: "https://rivolt.dev")!), "Opens rivolt.dev, where you confirm. You may need to sign in.")
+        XCTAssertEqual(DeleteHistoryLink.caption(URL(string: "https://ev.example.org:8443")!), "Opens ev.example.org, where you confirm. You may need to sign in.")
+    }
+
+    func testSettingsDataGroupListsIt() {
+        let data = SettingsLogic.groups(notificationsOffered: false).first { $0.title == "Data" }!.rows
+        XCTAssertEqual(data, [.export, .deleteHistory, .deleteAccount])
+    }
+
+    func testOnlyDataNotesOfferTheDelete() {
+        XCTAssertTrue(ProLimitNote(limit: .outsideFreeWindow).offersDelete)
+        XCTAssertTrue(ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit).offersDelete)
+        XCTAssertFalse(ProLimitNote(limit: .proRequired, message: ProCopy.plannerLimit).offersDelete)
+        XCTAssertFalse(ProLimitNote(limit: .proRequired).offersDelete)
+    }
+}

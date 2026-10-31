@@ -157,6 +157,20 @@ enum ProCopy {
     }
 }
 
+/// "Delete older history" is web only (an irreversible bulk delete is not something an app token may do): the app opens the web page in the
+/// browser, where the confirmation and the web sign-in are. Free on every plan.
+enum DeleteHistoryLink {
+    /// Names the server the app is signed in to, so a self-hosted install does not say rivolt.dev.
+    static func caption(_ server: URL) -> String { "Opens \(server.host() ?? "the web page"), where you confirm. You may need to sign in." }
+    static let title = "Delete older history"
+
+    static func url(_ server: URL) -> URL {
+        var c = URLComponents(url: server.appending(path: "settings"), resolvingAgainstBaseURL: false)
+        c?.fragment = "delete-history"
+        return c?.url ?? server
+    }
+}
+
 /// A free account's limits answer HTTP 402 with a code (never 403, which the app reads as signed-out or terms-required): act on the code.
 /// Bodies: Fixtures/err_outside_free_window.json and err_pro_required.json. The client surfaces them as `.server(status: 402, message: code)`.
 enum ProLimit: Equatable {
@@ -191,9 +205,19 @@ struct ProLimitNote: View {
     @State private var plan: PlanState = .off
     @State private var showing = false
 
+    /// The notes about data the free plan hides (older than the window, or another vehicle's) point to deleting it; the planner's do not.
+    var offersDelete: Bool { limit == .outsideFreeWindow || message == ProCopy.vehicleLimit }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(message ?? limit.text(freeDays: freeDays)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            if offersDelete {
+                VStack(alignment: .leading, spacing: 2) {
+                    Link(DeleteHistoryLink.title, destination: DeleteHistoryLink.url(state.serverURL))
+                        .accessibilityIdentifier("delete-history-link")
+                    Text(DeleteHistoryLink.caption(state.serverURL)).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if plan != .off {
                 Button("See Pro") { showing = true }.buttonStyle(ThemeSecondaryButtonStyle())
             }
