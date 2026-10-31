@@ -36,14 +36,29 @@ type Price struct {
 	Interval   string // month or year
 }
 
-// Error is a refusal from Stripe. Message is Stripe's own text for the operator's log; it is not shown to the user.
+// Error is a refusal from Stripe. Message is Stripe's own text; it is kept off every log line and queue row (see Error) and never shown to the user.
 type Error struct {
 	Status  int
 	Code    string
 	Message string
 }
 
-func (e *Error) Error() string { return fmt.Sprintf("stripe: %d %s: %s", e.Status, e.Code, e.Message) }
+// Error is the status and Stripe's error code only. Stripe's free-text message can echo what was sent (an email, a name, a key), so it is not
+// part of the text that goes to logs or into the retry queue; it stays in the Message field for a debugger.
+func (e *Error) Error() string { return fmt.Sprintf("stripe: %d %s", e.Status, safeCode(e.Code)) }
+
+// safeCode keeps a Stripe error code to the characters Stripe uses (lower-case letters, digits, underscore), so nothing else can ride in it.
+func safeCode(c string) string {
+	if c == "" || len(c) > 64 {
+		return "error"
+	}
+	for _, r := range c {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+			return "error"
+		}
+	}
+	return c
+}
 
 // ErrNotConfigured is a client with no secret key.
 var ErrNotConfigured = errors.New("stripe: no secret key configured")
@@ -176,4 +191,51 @@ func (c *Client) Price(ctx context.Context, id string) (Price, error) {
 	c.prices[id] = p
 	c.mu.Unlock()
 	return p, nil
+}
+
+// CancelCustomerSubscriptions cancels, at once and without proration or an invoice, every subscription of a customer that is not already
+// over, and returns how many it cancelled. A customer Stripe does not know (404) has nothing to cancel. Idempotent: a subscription
+// cancelled by an earlier attempt is no longer listed as live. Used when an account is deleted: a deleted account is never charged again.
+func (c *Client) CancelCustomerSubscriptions(ctx context.Context, customer string) (int, error) {
+	cancelled := 0
+	after := ""
+	for page := 0; page < 20; page++ {
+		path := "/v1/subscriptions?limit=100&status=all&customer=" + url.QueryEscape(customer)
+		if after != "" {
+			path += "&starting_after=" + url.QueryEscape(after)
+		}
+		var list struct {
+			Data []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"data"`
+			HasMore bool `json:"has_more"`
+		}
+		if err := c.do(ctx, http.MethodGet, path, nil, "", &list); err != nil {
+			var se *Error
+			if errors.As(err, &se) && se.Status == http.StatusNotFound {
+				return cancelled, nil
+			}
+			return cancelled, err
+		}
+		for _, s := range list.Data {
+			after = s.ID
+			if s.Status == "canceled" || s.Status == "incomplete_expired" {
+				continue
+			}
+			form := url.Values{"invoice_now": {"false"}, "prorate": {"false"}}
+			if err := c.do(ctx, http.MethodDelete, "/v1/subscriptions/"+url.PathEscape(s.ID)+"?"+form.Encode(), nil, "", nil); err != nil {
+				var se *Error
+				if errors.As(err, &se) && se.Status == http.StatusNotFound {
+					continue // gone between the list and the cancel
+				}
+				return cancelled, err
+			}
+			cancelled++
+		}
+		if !list.HasMore {
+			return cancelled, nil
+		}
+	}
+	return cancelled, errors.New("stripe: more than 2000 subscriptions on one customer")
 }

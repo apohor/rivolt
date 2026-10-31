@@ -491,6 +491,20 @@ func runServer() {
 	// drops the account's cached plan on this pod (the others see it within the cache's TTL).
 	var stripeWebhook http.Handler
 	var stripeBilling *stripebill.Service
+	// Account deletion cancels the account's Stripe subscriptions first, or queues the cancel for this retrier (Pro 8). Built whenever there
+	// is a database, with or without a Stripe key: a server with no key queues every cancel until one is configured, never skips one.
+	var stripeClosure *stripebill.AccountClosure
+	if pgPool != nil {
+		var sc *stripebill.Client
+		if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" {
+			sc = &stripebill.Client{SecretKey: key}
+		}
+		stripeClosure = &stripebill.AccountClosure{DB: pgPool, Client: sc, Log: logger, Report: func(pending int, oldest time.Duration) {
+			appMetrics.StripeCancelPending.Set(float64(pending))
+			appMetrics.StripeCancelOldestSeconds.Set(oldest.Seconds())
+		}}
+		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
+	}
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
 		stripeWebhook = &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger}
 	}
@@ -2595,7 +2609,7 @@ func runServer() {
 	// preview that shares a copy of real users from mailing or deleting them.
 	if pgPool != nil && flagsStore != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger).
-			WithAppleRevocation(appleRevocation)
+			WithAppleRevocation(appleRevocation).WithStripeClosure(stripeClosure)
 		go purge.Run(ctx)
 	}
 
@@ -2915,6 +2929,7 @@ func runServer() {
 		AppleNotifications:    appleNotifier,
 		StripeWebhook:         stripeWebhook,
 		StripeBilling:         stripeBilling,
+		StripeClosure:         stripeClosure,
 		AppleIAPNotifications: appleNotifications,
 		AppleIAPTransaction:   appleTransaction,
 		AppAuth:               appAuth,

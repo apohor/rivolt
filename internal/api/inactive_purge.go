@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/stripebill"
 )
 
 // Inactive-account purge: an account that never connected a vehicle is warned
@@ -96,6 +97,7 @@ type InactivePurge struct {
 	logger  *slog.Logger
 	sleep   func(ctx context.Context, d time.Duration)
 	apple   *AppleRevocation
+	stripe  *stripebill.AccountClosure
 }
 
 // WithAppleRevocation makes each deletion revoke (or queue the revoke of) the
@@ -105,10 +107,23 @@ func (j *InactivePurge) WithAppleRevocation(a *AppleRevocation) *InactivePurge {
 	return j
 }
 
-// appleBefore runs the Apple step for uid; false means skip this account for now.
+// WithStripeClosure makes each deletion cancel (or queue the cancel of) the account's Stripe subscriptions first.
+func (j *InactivePurge) WithStripeClosure(s *stripebill.AccountClosure) *InactivePurge {
+	j.stripe = s
+	return j
+}
+
+// appleBefore runs the pre-deletion steps (Apple token, Stripe subscriptions) for uid; false means skip this account for now.
 func (j *InactivePurge) appleBefore(ctx context.Context, uid uuid.UUID) bool {
-	if err := j.apple.BeforeDelete(ctx, uid); err != nil {
-		j.logger.Warn("inactive purge: apple revoke not done or queued; not deleted this run", "user_id", uid.String())
+	steps := preDeleters{}
+	if j.apple != nil {
+		steps = append(steps, j.apple)
+	}
+	if j.stripe != nil {
+		steps = append(steps, j.stripe)
+	}
+	if err := steps.BeforeDelete(ctx, uid); err != nil {
+		j.logger.Warn("inactive purge: a pre-deletion step (apple revoke, stripe cancel) was not done or queued; not deleted this run", "user_id", uid.String())
 		return false
 	}
 	return true

@@ -302,7 +302,7 @@ func handleAdminUserSetRole(d *sql.DB) http.HandlerFunc {
 // can't sign in past the
 // EnsureUser bootstrap gate). The error is logged so the admin
 // can clean up via the script.
-func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, apple *AppleRevocation, purge func(context.Context, uuid.UUID), log *slog.Logger) http.HandlerFunc {
+func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, apple preDeleter, purge func(context.Context, uuid.UUID), log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
@@ -353,9 +353,13 @@ func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, apple *AppleRevocatio
 		// Runs to the end even if the client goes away (see accountWriteContext).
 		delCtx, cancel := accountWriteContext(r)
 		defer cancel()
-		// Before the cascade: it removes the kept Apple token.
-		if err := apple.BeforeDelete(delCtx, target); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "could not revoke or queue the Sign in with Apple token; nothing was deleted"})
+		// Before the cascade: it removes the kept Apple token and the Stripe customer record.
+		pre := apple
+		if pre == nil {
+			pre = preDeleters{}
+		}
+		if err := pre.BeforeDelete(delCtx, target); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": preDeleteFailedMessage})
 			return
 		}
 		if err := db.DeleteUserAccount(delCtx, d, target); err != nil {

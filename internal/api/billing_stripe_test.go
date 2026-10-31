@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,5 +150,40 @@ func TestAppSessionsCannotUseWebBilling(t *testing.T) {
 		if appWriteAllowed(http.MethodPost, p) {
 			t.Errorf("an app session may POST %s", p)
 		}
+	}
+}
+
+type stepStub struct {
+	err   error
+	calls *[]string
+	name  string
+}
+
+func (s stepStub) BeforeDelete(context.Context, uuid.UUID) error {
+	*s.calls = append(*s.calls, s.name)
+	return s.err
+}
+
+// The pre-deletion steps (Apple token, Stripe subscriptions) run in order, a nil one is skipped, and the first failure stops the rest and
+// is returned: the caller then does not delete the account.
+func TestPreDeletersRunInOrderAndStopAtTheFirstError(t *testing.T) {
+	var calls []string
+	boom := errors.New("stripe down and the queue too")
+	steps := preDeleters{nil, stepStub{nil, &calls, "apple"}, stepStub{boom, &calls, "stripe"}, stepStub{nil, &calls, "after"}}
+	if err := steps.BeforeDelete(context.Background(), uuid.New()); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the stripe step's error", err)
+	}
+	if strings.Join(calls, ",") != "apple,stripe" {
+		t.Errorf("ran %v, want apple then stripe and nothing after the failure", calls)
+	}
+	if err := (preDeleters{}).BeforeDelete(context.Background(), uuid.New()); err != nil {
+		t.Errorf("no steps: %v", err)
+	}
+	// A server with neither configured has no steps.
+	if got := (Deps{}).preDeletes(); len(got) != 0 {
+		t.Errorf("an empty Deps has %d pre-deletion steps", len(got))
+	}
+	if got := (Deps{StripeClosure: &stripebill.AccountClosure{}}).preDeletes(); len(got) != 1 {
+		t.Errorf("Deps with a Stripe closure has %d steps, want 1", len(got))
 	}
 }

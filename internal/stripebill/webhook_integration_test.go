@@ -392,3 +392,149 @@ func TestPortalAndReturningCustomerAgainstPostgres(t *testing.T) {
 		t.Errorf("another account's portal: %v, want ErrNoCustomer", err)
 	}
 }
+
+// A deleted account is never charged again: the deletion cancels the Stripe subscriptions first; when Stripe cannot be reached (or this
+// server has no key) the cancel is queued, retried until it works, reported as a backlog, and the deletion still goes ahead; the customer's
+// leftover events are acknowledged afterwards, not retried for days.
+func TestAccountClosureAgainstPostgres(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "stripe-closure")
+	f := newFakeStripe(t)
+	cust := "cus_" + r.uid.String()[:8]
+	f.subs = map[string][][2]string{cust: {{"sub_a", "active"}}}
+	var pending int
+	var oldest time.Duration
+	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey},
+		Report: func(p int, o time.Duration) { pending, oldest = p, o }}
+	queued := func() int {
+		var n int
+		if err := r.pool.QueryRow(`SELECT count(*) FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// No customer: nothing to cancel, nothing queued.
+	if err := c.BeforeDelete(ctx, r.uid); err != nil || len(f.deleted) != 0 || queued() != 0 {
+		t.Fatalf("an account that never bought: err=%v cancelled=%v queued=%d", err, f.deleted, queued())
+	}
+
+	// With a customer and Stripe up: cancelled at Stripe, nothing queued, the customer remembered.
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	if err := c.BeforeDelete(ctx, r.uid); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.deleted, ",") != "sub_a" || queued() != 0 {
+		t.Fatalf("cancelled %v, queued %d; want sub_a cancelled and nothing queued", f.deleted, queued())
+	}
+	var closed int
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_closed_customers WHERE customer_id = $1`, cust).Scan(&closed); err != nil || closed != 1 {
+		t.Fatalf("the deleted account's customer was not remembered (%d, %v)", closed, err)
+	}
+
+	// Stripe down: the cancel is queued (BeforeDelete succeeds, the deletion may go ahead), and the row survives the account's deletion.
+	f.fail = true
+	f.deleted = nil
+	if err := c.BeforeDelete(ctx, r.uid); err != nil {
+		t.Fatalf("Stripe down must queue, not block the deletion: %v", err)
+	}
+	if queued() != 1 {
+		t.Fatalf("queued = %d, want 1", queued())
+	}
+	if err := db.DeleteUserAccount(ctx, r.pool, r.uid); err != nil {
+		t.Fatal(err)
+	}
+	if queued() != 1 {
+		t.Fatal("the queued cancel did not survive the account's deletion")
+	}
+	var detail string
+	_ = r.pool.QueryRow(`SELECT username || ' ' || error FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&detail)
+	if strings.Contains(detail, r.uid.String()) || strings.Contains(detail, testKey) || strings.Contains(detail, "leaked") {
+		t.Errorf("the queued row holds the user id, the key or Stripe's free text: %q", detail)
+	}
+	if want := "stripe:" + cust + " stripe: 500 internal"; detail != want {
+		t.Errorf("the queued row = %q, want only the status and Stripe's error code: %q", detail, want)
+	}
+
+	// Retry while Stripe is still down: stays queued, attempts counted, reported as a backlog. Make the row due first.
+	if _, err := r.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust); err != nil {
+		t.Fatal(err)
+	}
+	c.RetryOnce(ctx)
+	if queued() != 1 || pending < 1 {
+		t.Fatalf("after a failed retry: queued=%d pending=%d, want still queued and reported", queued(), pending)
+	}
+	var attempts int
+	_ = r.pool.QueryRow(`SELECT attempts FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&attempts)
+	if attempts < 2 {
+		t.Errorf("attempts = %d after a failed retry", attempts)
+	}
+	if oldest <= 0 {
+		t.Errorf("the backlog reports no age: %v", oldest)
+	}
+
+	// Stripe back: the retry cancels and resolves; the backlog is empty.
+	f.fail = false
+	if _, err := r.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust); err != nil {
+		t.Fatal(err)
+	}
+	c.RetryOnce(ctx)
+	if queued() != 0 || pending != 0 || strings.Join(f.deleted, ",") != "sub_a" {
+		t.Errorf("after Stripe came back: queued=%d pending=%d cancelled=%v", queued(), pending, f.deleted)
+	}
+
+	// The customer's leftover events are acknowledged now (the account is gone), not answered 500 for days.
+	body := strings.ReplaceAll(`{"id":"evt_after_delete","object":"event","created":1790900000,"type":"customer.subscription.deleted","data":{"object":{"id":"sub_a","customer":"`+cust+`","status":"canceled","current_period_end":1821536000,"metadata":{}}}}`, "\n", "")
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Stripe-Signature", Sign([]byte(body), testSecret, t0))
+	rec := httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("an event for a deleted account's customer answered %d, want 200 (acknowledged)", rec.Code)
+	}
+	// ...while the same event for a customer nobody ever closed is still retried.
+	other := strings.ReplaceAll(body, cust, "cus_never_closed")
+	other = strings.ReplaceAll(other, "evt_after_delete", "evt_after_delete_2")
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(other))
+	req.Header.Set("Stripe-Signature", Sign([]byte(other), testSecret, t0))
+	rec = httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("an event for an unknown, never-closed customer answered %d, want 500 (retry)", rec.Code)
+	}
+}
+
+// No Stripe key on this server: the cancel is queued (never skipped), kept until a key exists, and reported.
+func TestAccountClosureWithoutAKeyQueues(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "stripe-nokey")
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	cust := "cus_" + r.uid.String()[:8]
+	var pending int
+	c := &AccountClosure{DB: r.pool, Client: nil, Report: func(p int, _ time.Duration) { pending = p }}
+	if err := c.BeforeDelete(ctx, r.uid); err != nil {
+		t.Fatalf("no key must queue, not block: %v", err)
+	}
+	c.RetryOnce(ctx)
+	var n int
+	if err := r.pool.QueryRow(`SELECT count(*) FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&n); err != nil || n != 1 || pending < 1 {
+		t.Errorf("queued=%d pending=%d (%v), want the cancel kept and reported", n, pending, err)
+	}
+}
+
+// A database that cannot even be read stops the deletion: the cancel is neither done nor queued.
+func TestAccountClosureRefusesWhenItCannotQueue(t *testing.T) {
+	r := newRig(t, "stripe-refuse-delete")
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	_ = r.pool.Close()
+	c := &AccountClosure{DB: r.pool}
+	if err := c.BeforeDelete(context.Background(), r.uid); err == nil {
+		t.Error("BeforeDelete succeeded with a closed database: the account would be deleted with its Stripe subscription running")
+	}
+}
