@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, isSavedMultiday, type FromPosition, type PlannerFavorite, type SavedMultidayPlan, type SavedTrip, type TripAdvice, type TripPlan, type TripPlanMultidayRequest, type TripPlanMultidayResponse } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
 import { track } from "../lib/track";
+import { inDemo } from "../lib/demo";
 import { chargingStopCount, stopsBucket } from "./waypoints";
 import { DriveMode, Selection, collectInputs, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
 
@@ -294,7 +295,7 @@ export function usePlanner() {
     },
     onSuccess: (plan) => {
       // One count per plan run, with the number of charging stops in the first route in three buckets: no places, no amounts.
-      track("plan_run", { stops_bucket: stopsBucket(plan.Routes?.[0] ? chargingStopCount(plan.Routes[0]) : 0) });
+      if (!inDemo()) track("plan_run", { stops_bucket: stopsBucket(plan.Routes?.[0] ? chargingStopCount(plan.Routes[0]) : 0) });
       adviceMutation.reset();
       setLoadedSnapshot(null);
       // Persist the inputs that produced this plan so reopening the
