@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, decodePolyline6 } from "./TripRouteMap";
+import { campPopupHTML, decodePolyline6 } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 

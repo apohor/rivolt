@@ -35,7 +35,7 @@ for (const theme of ["dark", "light"] as const) {
         for (let n = w.nextNode(); n; n = w.nextNode()) {
           if (!(n.textContent ?? "").trim()) continue;
           const el = n.parentElement!;
-          if (seen.has(el) || el.closest(".leaflet-container, svg, script, style")) continue;
+          if (seen.has(el) || el.closest(".leaflet-container, .maplibregl-map, svg, script, style")) continue;
           seen.add(el);
           const cs = getComputedStyle(el);
           const size = Math.round(parseFloat(cs.fontSize) * 10) / 10;

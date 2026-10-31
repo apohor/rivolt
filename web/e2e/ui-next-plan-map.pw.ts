@@ -23,7 +23,7 @@ for (const who of ["signed-in", "demo"] as const) {
           await stubApi(page, { demo: true, signedIn: false });
           await page.goto("/demo/trips/plan");
           await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
-          await expect(page.locator("[data-plan-area='map'] .leaflet-marker-icon").first()).toBeVisible();
+          await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
           await expect(page.locator("[data-map-chips]")).toHaveCount(0);
           await expect(page.getByText(/No chargers in this area/)).toHaveCount(0);
         } else {
@@ -51,8 +51,8 @@ for (const who of ["signed-in", "demo"] as const) {
         const res = await page.evaluate(() => {
           // The demo has no chips: nothing for a marker to hit.
           const chips = document.querySelector("[data-plan-chips]")?.getBoundingClientRect() ?? { left: 0, right: 0, top: 0, bottom: 0 };
-          const map = document.querySelector("[data-plan-area='map'] .leaflet-container")!.getBoundingClientRect();
-          const markers = [...document.querySelectorAll("[data-plan-area='map'] .leaflet-marker-icon")].map((m) => m.getBoundingClientRect());
+          const map = document.querySelector("[data-plan-area='map'] .maplibregl-map")!.getBoundingClientRect();
+          const markers = [...document.querySelectorAll("[data-plan-area='map'] .maplibregl-marker")].map((m) => m.getBoundingClientRect());
           const hits = markers.filter((m) => m.left < chips.right && m.right > chips.left && m.top < chips.bottom && m.bottom > chips.top).length;
           const outside = markers.filter((m) => m.top < map.top || m.bottom > map.bottom || m.left < map.left || m.right > map.right).length;
           const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect();

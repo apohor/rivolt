@@ -9,3 +9,59 @@
 .maplibregl-ctrl-attrib[data-fold][data-open] .maplibregl-ctrl-attrib-inner {
   display: block;
 }
+
+/* Popups (the trip map's charger popups and waypoint tooltips) are light text on a dark card on either basemap, as the Leaflet ones were. */
+.maplibregl-popup-content {
+  background: #171717;
+  color: #fafafa;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
+}
+.rivolt-tip .maplibregl-popup-content {
+  padding: 6px 8px;
+  pointer-events: none;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: #171717;
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: #171717;
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #171717;
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #171717;
+}
+.maplibregl-popup-close-button {
+  color: #a3a3a3;
+}
+.maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: #fafafa;
+}
+
+/* On the dark basemap the zoom buttons and the credits' (i) take the dark card (tokens.json card / border) instead of library white. */
+[data-flavor="dark"] .maplibregl-ctrl-group,
+[data-flavor="dark"] .maplibregl-ctrl-attrib {
+  background: rgba(14, 17, 21, 0.85);
+  border: 1px solid #1d2127;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+[data-flavor="dark"] .maplibregl-ctrl-group button + button {
+  border-top-color: #1d2127;
+}
+[data-flavor="dark"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon,
+[data-flavor="dark"] .maplibregl-ctrl-attrib-button {
+  filter: invert(1) opacity(0.75);
+}
+[data-flavor="dark"] .maplibregl-ctrl-attrib,
+[data-flavor="dark"] .maplibregl-ctrl-attrib a {
+  color: #a1a1a1;
+}

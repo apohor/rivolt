@@ -6,7 +6,7 @@ import type { OvernightCandidatesResponse, TripRoute } from "../lib/api";
 const { overnightCandidates } = vi.hoisted(() => ({ overnightCandidates: vi.fn() }));
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<typeof import("../lib/api")>()), backend: { overnightCandidates } }));
 vi.mock("../lib/demo", () => ({ inDemo: () => false }));
-vi.mock("../components/TripRouteMap", () => ({ decodePolyline6: () => [] }));
+vi.mock("../map/tripPure", () => ({ decodePolyline6: () => [] }));
 import { OvernightSuggestions } from "./OvernightSuggestions";
 
 const route = {
