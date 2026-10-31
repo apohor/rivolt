@@ -137,6 +137,8 @@ func main() {
 			os.Exit(runEntitlementsFounding(os.Args[2:]))
 		case "launch-notice":
 			os.Exit(runLaunchNotice(os.Args[2:]))
+		case "launch-preflight":
+			os.Exit(runLaunchPreflight(os.Args[2:]))
 		case "archive":
 			os.Exit(runArchive(os.Args[2:]))
 		default:
@@ -204,6 +206,13 @@ Usage:
                   needs that count and hash, grants in one transaction,
                   checks founding rows = accounts - demo, and is
                   idempotent. Never migrates; never prints emails.
+  rivolt launch-preflight [--launch T] [--offline] [--no-db]
+                  Read-only report before the Rivolt Pro flip: the launch
+                  list, the founding dry-run counts, the Terms and notice
+                  pages, billing settings (names, never values), the Stripe
+                  webhook, the app's Redis TIME permission and the Stripe
+                  account. Writes nothing; exit 1 when something stops the
+                  flip. The report holds prod figures: share it privately.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
   rivolt repair-charge-blips [--ids-out FILE]                              (dry run: counts and the id-list sha256)

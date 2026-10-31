@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -321,4 +322,87 @@ func (c *Client) CloseCustomer(ctx context.Context, customer string) error {
 		return err
 	}
 	return c.DeleteCustomerIfClear(ctx, customer)
+}
+
+// PortalFacts is what the default Customer Portal configuration says about the things the launch pre-flight checks. Booleans only.
+type PortalFacts struct {
+	Found               bool // a default configuration exists
+	TermsSet            bool // business_profile.terms_of_service_url
+	PrivacySet          bool // business_profile.privacy_policy_url
+	PaymentMethodUpdate bool // features.payment_method_update.enabled
+}
+
+// PortalFacts reads the default Customer Portal configuration (read-only). A key without the permission gets a *Error.
+func (c *Client) PortalFacts(ctx context.Context) (PortalFacts, error) {
+	var out struct {
+		Data []struct {
+			BusinessProfile struct {
+				Terms   string `json:"terms_of_service_url"`
+				Privacy string `json:"privacy_policy_url"`
+			} `json:"business_profile"`
+			Features struct {
+				PaymentMethodUpdate struct {
+					Enabled bool `json:"enabled"`
+				} `json:"payment_method_update"`
+			} `json:"features"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/billing_portal/configurations?is_default=true&limit=1", nil, "", &out); err != nil {
+		return PortalFacts{}, err
+	}
+	if len(out.Data) == 0 {
+		return PortalFacts{}, nil
+	}
+	d := out.Data[0]
+	return PortalFacts{Found: true, TermsSet: d.BusinessProfile.Terms != "", PrivacySet: d.BusinessProfile.Privacy != "", PaymentMethodUpdate: d.Features.PaymentMethodUpdate.Enabled}, nil
+}
+
+// PriceMode reads a Price's live-mode and active flags (read-only): which Stripe mode the key and the price are in.
+func (c *Client) PriceMode(ctx context.Context, id string) (live, active bool, err error) {
+	var out struct {
+		Live   bool `json:"livemode"`
+		Active bool `json:"active"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/prices/"+url.PathEscape(id), nil, "", &out); err != nil {
+		return false, false, err
+	}
+	return out.Live, out.Active, nil
+}
+
+// EnabledCheckoutMethods reads the default payment method configuration (read-only) and returns the payment method TYPES Checkout offers
+// (display preference on and available), sorted: "card", "apple_pay", "klarna" and so on. found is false when there is no default.
+func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, found bool, err error) {
+	var out struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations?limit=20", nil, "", &out); err != nil {
+		return nil, false, err
+	}
+	for _, cfg := range out.Data {
+		var def bool
+		if raw, ok := cfg["is_default"]; ok {
+			_ = json.Unmarshal(raw, &def)
+		}
+		if !def {
+			continue
+		}
+		for name, raw := range cfg {
+			var m struct {
+				Available         bool `json:"available"`
+				DisplayPreference struct {
+					Value string `json:"value"`
+				} `json:"display_preference"`
+			}
+			// Scalars (id, object, name, ...) do not unmarshal into an object and are skipped; a method is an object with a display preference.
+			if json.Unmarshal(raw, &m) != nil || m.DisplayPreference.Value == "" {
+				continue
+			}
+			if m.Available && m.DisplayPreference.Value == "on" {
+				methods = append(methods, name)
+			}
+		}
+		sort.Strings(methods)
+		return methods, true, nil
+	}
+	return nil, false, nil
 }
