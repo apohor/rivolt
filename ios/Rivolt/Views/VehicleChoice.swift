@@ -28,7 +28,7 @@ final class VehicleScope {
     private(set) var id: String?
 
     /// The routes behind the limit; the header is on these and only these.
-    nonisolated static let routes = ["/api/ledger/monthly", "/api/summary", "/api/trips", "/api/savings", "/api/activity", "/api/charge-split",
+    nonisolated static let routes = ["/api/ledger", "/api/activity", "/api/charge-split",
                                      "/api/charges", "/api/drives", "/api/chart-points", "/api/samples", "/api/sleep-activity", "/api/insights/efficiency"]
 
     nonisolated static func isScoped(_ path: String) -> Bool {
