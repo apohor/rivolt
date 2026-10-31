@@ -63,6 +63,7 @@ struct HomeView: View {
                             let fresh = summary.freshness != .stale
                             if let line = RivianExpiryLogic.notice(rivian) { RivianExpiryBanner(text: line, serverURL: state.serverURL) }
                             PlanNoticeView()
+                            ServiceNoticeBanner()
                             VehicleScopeNote(vehicles: vehicles)
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),

@@ -208,6 +208,18 @@ actor APIClient {
         return r.milestones
     }
 
+    // MARK: Service notices (the Pro launch notice)
+
+    private struct NoticeDismissBody: Encodable { let kind: String }
+
+    func notices() async throws -> [ServiceNotice] {
+        try await request("GET", "/api/notices")
+    }
+
+    func dismissNotice(kind: String) async throws {
+        let _: Empty = try await request("POST", "/api/notices/dismiss", body: NoticeDismissBody(kind: kind))
+    }
+
     func dismissMilestone(vehicleID: String, key: String) async throws {
         let _: Empty = try await request("POST", "/api/milestones/dismiss", body: MilestoneDismissBody(vehicleId: vehicleID, key: key))
     }

@@ -35,6 +35,7 @@ var appWrites = map[string]bool{
 	"POST /api/push/apns/activity/end":    true,
 	"POST /api/push/apns/activity/test":   true,
 	"POST /api/milestones/dismiss":        true, // hide a milestone card
+	"POST /api/notices/dismiss":           true, // hide the Pro launch notice banner (idempotent; the notice stays in Settings)
 	"POST /api/billing/apple/transaction": true, // the app reports its StoreKit purchase (internal/applebill); the transaction is verified and must carry the account's token
 	"PATCH /api/settings/charging":        true, // the home rate, merged field by field (settings_charging.go)
 	"PATCH /api/settings/units":           true, // mi/km and °C/°F, one setting for web and app (settings_units.go)
