@@ -98,7 +98,9 @@ func newRivianPod(ctx context.Context, pool *sql.DB, store *secrets.Store) *rivi
 	})
 	syn := rivian.NewAccountSyncer(secrets.NewRivianAccountSource(pool, store), att.Raw, nil)
 	att.AttachSyncer(syn)
-	pod.reg, pod.raw, pod.syncer, pod.status = reg, att.Raw, syn, handleRivianStatus(reg, store, pool, nil, nil, nil)
+	// The status handler gets no database handle on purpose: with one, it starts a background "lazy prime" that calls Rivian for an account
+	// with no vehicles, and these tests use made-up tokens; the call would reach the real Rivian (and flag the user) at a time of its own.
+	pod.reg, pod.raw, pod.syncer, pod.status = reg, att.Raw, syn, handleRivianStatus(reg, store, nil, nil, nil, nil)
 	return pod
 }
 
@@ -134,11 +136,11 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 	store := secrets.New(pool, crypto.NoopSealer{})
 
-	u1, err := db.EnsureUser(ctx, pool, "pods-one")
+	u1, err := db.EnsureUser(ctx, pool, freshName("pods-one"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	u2, err := db.EnsureUser(ctx, pool, "pods-two")
+	u2, err := db.EnsureUser(ctx, pool, freshName("pods-two"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +254,7 @@ func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	store := secrets.New(pool, crypto.NoopSealer{})
-	uid, err := db.EnsureUser(ctx, pool, "stale-pod")
+	uid, err := db.EnsureUser(ctx, pool, freshName("stale-pod"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +335,7 @@ func TestStalePodRejectionAfterSignOutOrWithoutAVersionRaisesNothing(t *testing.
 	}
 
 	// Signed out elsewhere: B holds a session with a known version, the stored row is deleted.
-	uid, err := db.EnsureUser(ctx, pool, "stale-signout")
+	uid, err := db.EnsureUser(ctx, pool, freshName("stale-signout"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +359,7 @@ func TestStalePodRejectionAfterSignOutOrWithoutAVersionRaisesNothing(t *testing.
 	}
 
 	// A client with no recorded version (restored, never synced): nothing is raised.
-	uid2, err := db.EnsureUser(ctx, pool, "no-version")
+	uid2, err := db.EnsureUser(ctx, pool, freshName("no-version"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +394,7 @@ func TestSessionVersionNeverGoesBackwardsUnderClockSkew(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	store := secrets.New(pool, crypto.NoopSealer{})
-	uid, err := db.EnsureUser(ctx, pool, "skewed-clocks")
+	uid, err := db.EnsureUser(ctx, pool, freshName("skewed-clocks"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +463,7 @@ func TestFastPodLearnsTheStoredVersionAndStalePodCannotFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	store := secrets.New(pool, crypto.NoopSealer{})
-	uid, err := db.EnsureUser(ctx, pool, "fast-pod")
+	uid, err := db.EnsureUser(ctx, pool, freshName("fast-pod"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,3 +525,99 @@ func TestFastPodLearnsTheStoredVersionAndStalePodCannotFlag(t *testing.T) {
 		t.Fatalf("a stale pod's rejection flagged a user who had just signed in on a fast pod (needs=%v, emails=%d)%s", needs, stale.emails.Load(), stale.diagnose(ctx, pool, uid))
 	}
 }
+
+// THE interleaving behind the stale-pod false re-auth (a flake of the test above, and a real defect): pod B has a call in flight that
+// used the OLD session. While it is in flight the user signs in again on pod A and B follows (new token, new version learnt). Then the old
+// call's 401 arrives. It must not flag the user: the rejected call used the replaced session. Before the fix B attributed the rejection to
+// whatever version it held when the error came back (the fresh one), so the raise passed its "is the stored session still the one I used"
+// check and flagged a user whose fresh session was never rejected. Barriers, not timing: the server holds the old call until B has converged.
+func TestInFlightCallOfAReplacedSessionCannotFlagTheFreshOne(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, freshName("in-flight-replaced"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(started) })
+		<-release // held until the test lets the old call's answer through; closed, later calls answer at once
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer rejecting.Close()
+
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-179 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	a, b := newRivianPod(ctx, pool, store), newRivianPod(ctx, pool, store)
+	a.get(ctx, t, uid)
+	b.get(ctx, t, uid) // B holds the old session and the old version
+	bc := b.raw(uid).(*rivian.LiveClient)
+	if bc.SessionVersionFor("old").IsZero() {
+		t.Fatal("setup: B did not learn the old version for the old token")
+	}
+
+	// B's call with the OLD session goes out and is held at the server.
+	bc.WithEndpoint(rejecting.URL + "/gateway")
+	done := make(chan error, 1)
+	go func() { _, err := bc.Vehicles(ctx); done <- err }()
+	select {
+	case <-started:
+	case <-time.After(30 * time.Second):
+		t.Fatal("B's call never reached the server")
+	}
+
+	// While it is in flight the user signs in again on A, and B follows.
+	fresh := rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)}
+	a.raw(uid).Restore(fresh)
+	if err := secrets.SaveRivianSession(ctx, store, uid, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if s := b.get(ctx, t, uid); s.NeedsReauth || b.token(uid) != "fresh" {
+		t.Fatalf("B did not converge: %+v token=%q%s", s, b.token(uid), b.diagnose(ctx, pool, uid))
+	}
+	if bc.SessionVersionFor("fresh").IsZero() {
+		t.Fatal("B converged without learning the fresh version")
+	}
+	if !bc.SessionVersionFor("old").IsZero() {
+		t.Fatal("B still attributes the old token to a version after converging")
+	}
+
+	// Now the old call's 401 arrives.
+	close(release)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected Rivian's 401 for the old call")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the held call never finished")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs || b.emails.Load() != 0 {
+		t.Fatalf("a call made with the replaced session flagged a user whose fresh session was never rejected (needs=%v, emails=%d)%s", needs, b.emails.Load(), b.diagnose(ctx, pool, uid))
+	}
+
+	// B's local copy of the flag is put right by its next sync (the database is the truth), then B, holding the fresh session, is rejected
+	// for real: that flags once.
+	if s := b.get(ctx, t, uid); s.NeedsReauth {
+		t.Fatalf("B's sync did not clear its local flag: %+v%s", s, b.diagnose(ctx, pool, uid))
+	}
+	if _, err := bc.Vehicles(ctx); err == nil {
+		t.Fatal("expected Rivian's 401 for the fresh session")
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs || b.emails.Load() != 1 {
+		t.Fatalf("a rejection of the fresh stored session must flag once (needs=%v, emails=%d)%s", needs, b.emails.Load(), b.diagnose(ctx, pool, uid))
+	}
+}
+
+// freshName makes a username no earlier run (the CI repeats these tests 20 times on one database) has used, so each starts from an account with no flag
+// and no stored session.
+func freshName(base string) string { return base + "-" + uuid.NewString()[:8] }

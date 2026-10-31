@@ -72,11 +72,12 @@ func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason s
 }
 
 // RaiseNeedsReauthIfCurrent is RaiseNeedsReauth for a rejection seen by a client that
-// loaded the user's stored Rivian session at loaded (the session row's updated_at). If the
-// stored session has been replaced since (a newer updated_at: the user signed in again on
-// another pod and this client has not caught up), the rejection says nothing about the
-// real session: the flag is not raised and no email follows (transitioned is false). The
-// check and the update are one statement, so a sign-in landing between them cannot lose.
+// held at loaded (the session row's updated_at, the version the rejected CALL used: see
+// rivian.LiveClient.SessionVersionFor). The flag is raised only if the stored session's
+// version is exactly loaded, in the same statement as the update: if it was replaced since
+// (the user signed in again on another pod and this client has not caught up) the
+// rejection says nothing about the real session, and the flag is not raised and no email
+// follows (transitioned is false). There is no read-then-write gap for a sign-in to land in.
 // The stored session must also still exist: a user who disconnected or signed out on
 // another pod (the row is deleted) is not flagged, nor told to reconnect, by a stale
 // client's rejection. A zero loaded means the client does not know which stored session it
@@ -94,7 +95,7 @@ func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID,
 		WHERE id = $1 AND needs_reauth = FALSE
 		  AND EXISTS (
 		    SELECT 1 FROM user_secrets us
-		    WHERE us.user_id = $1 AND us.name = 'rivian.session' AND us.updated_at <= $4)`
+		    WHERE us.user_id = $1 AND us.name = 'rivian.session' AND us.updated_at = $4)`
 	res, err := d.ExecContext(ctx, q, userID, reason, time.Now().UTC(), loaded.UTC())
 	if err != nil {
 		return false, err

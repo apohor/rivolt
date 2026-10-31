@@ -100,7 +100,7 @@ type LiveClient struct {
 	reauthGuard func(ctx context.Context, usedSess string) bool
 	// sessionVersion is the stored session's updated_at (unix nanos) this client last
 	// knew it by, 0 when unknown. See SessionVersion.
-	sessionVersion atomic.Int64
+	sessionVersion atomic.Pointer[versionedSession]
 
 	mu               sync.Mutex
 	csrfToken        string
@@ -440,21 +440,42 @@ func withUsedSession(ctx context.Context, uSess string) context.Context {
 
 // SetSessionVersion records the stored session version (user_secrets updated_at) this
 // client's session corresponds to; the zero time means unknown.
+//
+// The version belongs to the session (the user token) the client holds when this is called, and is remembered together with that token: a
+// rejection is attributed to the version only if the call that was rejected used that same token (see SessionVersionFor). Call it right
+// after the Restore or the sign-in that put the session in the client.
 func (c *LiveClient) SetSessionVersion(v time.Time) {
 	if v.IsZero() {
-		c.sessionVersion.Store(0)
+		c.sessionVersion.Store(nil)
 		return
 	}
-	c.sessionVersion.Store(v.UnixNano())
+	c.sessionVersion.Store(&versionedSession{ns: v.UnixNano(), token: c.Snapshot().UserSessionToken})
+}
+
+// versionedSession is the stored version and the user token it was learnt for, set and read as one.
+type versionedSession struct {
+	ns    int64
+	token string
 }
 
 // SessionVersion is what SetSessionVersion last set (zero when unknown).
 func (c *LiveClient) SessionVersion() time.Time {
-	n := c.sessionVersion.Load()
-	if n == 0 {
+	r := c.sessionVersion.Load()
+	if r == nil || r.ns == 0 {
 		return time.Time{}
 	}
-	return time.Unix(0, n).UTC()
+	return time.Unix(0, r.ns).UTC()
+}
+
+// SessionVersionFor is the stored version for a call that was made with this user token: the version if the client learnt it for that very
+// token, zero (unknown) otherwise. A call still in flight with a replaced session, answered after this client followed a sign-in made elsewhere
+// and relearnt the new version, must not carry the new version: its rejection says nothing about the new session. Zero makes the raise defer.
+func (c *LiveClient) SessionVersionFor(usedToken string) time.Time {
+	r := c.sessionVersion.Load()
+	if r == nil || r.ns == 0 || r.token != usedToken {
+		return time.Time{}
+	}
+	return time.Unix(0, r.ns).UTC()
 }
 
 type sessionVersionKey struct{}
@@ -488,7 +509,13 @@ func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 		return
 	}
 	if c.reauthSink != nil {
-		c.reauthSink(context.WithValue(ctx, sessionVersionKey{}, c.SessionVersion()), reason)
+		// The version of the session the rejected call used, not whatever the client holds by now (see SessionVersionFor). A call with no
+		// session token (a login) has none to attribute: the current version, as before.
+		ver := c.SessionVersion()
+		if used, _ := ctx.Value(usedSessKey{}).(string); used != "" {
+			ver = c.SessionVersionFor(used)
+		}
+		c.reauthSink(context.WithValue(ctx, sessionVersionKey{}, ver), reason)
 	}
 }
 
