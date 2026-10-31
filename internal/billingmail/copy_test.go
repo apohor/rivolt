@@ -53,7 +53,7 @@ func TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel(t *testing.T) {
 	paid := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2027-12-01"})
 	trial := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2026-12-11", Trialing: true})
 	for name, body := range map[string]string{"paid": paid, "trial": trial} {
-		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Cancelling keeps Pro until the end of the period you have paid for", "the full export is always free", "https://rivolt.dev/terms", "https://rivolt.dev/privacy", "within 14 days of it for a full refund", "support@rivolt.dev"} {
+		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Nothing is deleted when a plan ends", "the full export is always free", "https://rivolt.dev/terms", "https://rivolt.dev/privacy", "within 14 days of it for a full refund", "support@rivolt.dev"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s email lacks %q:\n%s", name, want, body)
 			}
@@ -66,6 +66,15 @@ func TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel(t *testing.T) {
 	}
 	if !strings.Contains(paid, "charged $34.99 today. The next charge is on December 1, 2027") {
 		t.Errorf("paid email's charge line:\n%s", paid)
+	}
+	// What cancelling does: the paid purchase keeps Pro to the end of the paid period; in the free period nothing has been paid, so
+	// cancelling before the first charge costs nothing, and the line says so with the date.
+	if !strings.Contains(paid, "Cancelling keeps Pro until the end of the period you have paid for.") {
+		t.Errorf("paid email's cancel line:\n%s", paid)
+	}
+	if !strings.Contains(trial, "If you cancel before December 11, 2026, you are never charged; cancel after it and Pro stays on until the end of the period you have paid for.") ||
+		strings.Contains(trial, "Cancelling keeps Pro until the end of the period you have paid for") {
+		t.Errorf("free-period email's cancel line:\n%s", trial)
 	}
 	if !strings.Contains(trial, "free period is running. Your first charge of $34.99 is on December 11, 2026; nothing is charged before then") {
 		t.Errorf("trial email's charge line:\n%s", trial)

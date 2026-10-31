@@ -38,10 +38,15 @@ func RenderPurchase(p PurchaseParams) string {
 	} else {
 		first = "You were charged " + p.Amount + " today. The next charge is on " + longDate(p.Date) + "."
 	}
+	// What cancelling does depends on whether anything has been paid yet. In the free period it costs nothing before the first charge.
+	cancel := "Cancelling keeps Pro until the end of the period you have paid for. "
+	if p.Trialing {
+		cancel = "If you cancel before " + longDate(p.Date) + ", you are never charged; cancel after it and Pro stays on until the end of the period you have paid for. "
+	}
 	return "Hi,\n\nThanks for subscribing to Rivolt Pro.\n\n" + first + "\n\n" +
 		"The plan is " + p.Price + " and renews automatically every " + p.Interval + " until you cancel.\n\n" +
 		"To cancel, open your Plan card (sign in first): " + launchnotice.PlanURL + "\n" +
-		"Cancelling keeps Pro until the end of the period you have paid for. Nothing is deleted when a plan ends, and the full export is always free.\n" +
+		cancel + "Nothing is deleted when a plan ends, and the full export is always free.\n" +
 		"First charge not what you wanted? Email support@rivolt.dev within 14 days of it for a full refund, no questions.\n" +
 		footer
 }
