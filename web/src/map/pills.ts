@@ -114,3 +114,13 @@ export function placePills(map: MLMap, start: [number, number] | null, end: [num
   }
   return out;
 }
+
+// reserveLabelRoom puts a clear symbol of `size` px on every point of `source`, on top, so the basemap's place labels yield to the markers
+// drawn there (a circle layer takes no part in label collision). Safe to call after every style load. Its own image id per layer.
+export function reserveLabelRoom(map: MLMap, source: string, layerId: string, size: number): void {
+  const image = `${layerId}-image`;
+  if (!map.hasImage(image)) map.addImage(image, { width: size, height: size, data: new Uint8ClampedArray(size * size * 4) });
+  if (!map.getLayer(layerId)) {
+    map.addLayer({ id: layerId, type: "symbol", source, layout: { "icon-image": image, "icon-allow-overlap": true, "icon-ignore-placement": false } });
+  }
+}

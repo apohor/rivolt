@@ -9,6 +9,7 @@ import { decodePolyline } from "../lib/polyline";
 import { loadMapLibre } from "./loader";
 import { mountBaseMap } from "./mount";
 import { watchDrawn } from "./drawn";
+import { reserveLabelRoom } from "./pills";
 import { valhallaRoutePair } from "./snap";
 import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
@@ -113,6 +114,7 @@ export function DrivesOverviewMap({
           map.addLayer({ id: "rivolt-drives-line", type: "line", source: LINES, layout: round, paint: { "line-color": "#34d399", "line-width": ROUTE_WIDTH, "line-opacity": flavor === "light" ? 1 : ROUTE_OPACITY } });
           map.addLayer({ id: "rivolt-drives-ends", type: "circle", source: ENDS, paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 } });
         }
+        reserveLabelRoom(map, ENDS, "rivolt-drive-ends-room", 16);
         drawn.markDrawn();
       });
 
@@ -134,7 +136,7 @@ export function DrivesOverviewMap({
       cleanups.push(() => tip.remove());
 
       const lons = all.map((p) => p[1]), lats = all.map((p) => p[0]);
-      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 24, maxZoom: 14, animate: false });
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 48, left: 48, right: 48, bottom: 64 }, maxZoom: 11, animate: false });
 
       // Replace the straight placeholders with road-snapped routes, ROUTE_CONCURRENCY at a time; one redraw per frame however many arrive.
       if (needsRoute.length > 0) {
