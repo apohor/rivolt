@@ -44,6 +44,7 @@ class FakeMap {
   fitBounds = vi.fn();
   easeTo = vi.fn();
   resize = vi.fn();
+  triggerRepaint = vi.fn();
   getCanvas() { return document.createElement("canvas"); }
   remove() { this.removed = true; }
 }

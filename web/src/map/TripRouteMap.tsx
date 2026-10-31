@@ -155,9 +155,14 @@ export function TripRouteMap({
       });
       mapRef.current = map;
       el.setAttribute("data-flavor", flavor);
-      // data-map-idle: the map has drawn what it was asked to (style, tiles, the route); a spec waits for it before it looks.
-      el.removeAttribute("data-map-idle");
-      map.on("idle", () => el.setAttribute("data-map-idle", ""));
+      // data-map-drawn: the route has been drawn (a render after it went on the map); a spec waits for it before it looks. Not the
+      // library's "idle", which waits for every tile and never comes while a source keeps retrying a tile the server lacks.
+      el.removeAttribute("data-map-drawn");
+      const markDrawn = () => {
+        el.removeAttribute("data-map-drawn");
+        map.once("render", () => requestAnimationFrame(() => el.setAttribute("data-map-drawn", "")));
+        map.triggerRepaint();
+      };
       map.touchZoomRotate.disableRotation();
       map.scrollZoom.disable();
       map.on("click", () => map.scrollZoom.enable());
@@ -190,6 +195,7 @@ export function TripRouteMap({
         setRoute(map, data, flavor);
         // The charger overlay goes back too.
         addChargerLayer(map);
+        markDrawn();
       });
 
       // Waypoint markers: click selects the stops-table row; hovering shows the tooltip.
@@ -237,7 +243,7 @@ export function TripRouteMap({
       cleanups.push(() => { ro.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       map.once("load", () => fit(fitZoom));
       cleanups.push(() => {
-        el.removeAttribute("data-map-idle");
+        el.removeAttribute("data-map-drawn");
         popupRef.current?.remove();
         popupRef.current = null;
         map.remove();
@@ -260,8 +266,8 @@ export function TripRouteMap({
       if (!alive || mapRef.current !== map) return;
       if (path !== wpLatLngs) {
         data = lineData(path);
-        el.removeAttribute("data-map-idle");
         if (map.isStyleLoaded()) setRoute(map, data, flavor);
+        markDrawn();
         fitPath = path;
         fitZoom = 13;
         fit(fitZoom);

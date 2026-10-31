@@ -36,7 +36,7 @@ test("iphone: the trip map makes no third-party request and trips no CSP rule", 
   });
   await openPlan(page);
   await expect(page.locator("[data-plan-area='map'] .maplibregl-canvas").first()).toBeVisible();
-  await expect(page.locator("[data-plan-area='map'] [data-map-idle]").first()).toBeAttached();
+  await expect(page.locator("[data-plan-area='map'] [data-map-drawn]").first()).toBeAttached();
   expect(foreign).toEqual([]);
   expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
 });
