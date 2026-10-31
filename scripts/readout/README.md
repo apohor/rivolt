@@ -44,7 +44,10 @@ deliberate ones.
 Adding `events` (or a counts-only view over it) to the read-only allowlist would let the whole readout run with grafana_ro. That is a privacy
 decision for DA, not part of this change.
 
-## Status of the queries
+## How it is tested
 
-Part 1 was run against production through the read-only datasource for the week of 2026-10-19 (see the PR). Part 2 has not been run against a
-database by its author (no access to those tables); its first run is its test, and a syntax slip shows as an error naming the section.
+`internal/integration/readout_test.go` (CI integration job) seeds fixtures (a demo account that must count nowhere, sign-ups this week and last
+week, an imported vehicle, drives, charges, events, push and engagement switches) and runs the real statements from these files: part 1 as a
+read-only role with the production allowlist and its expected counts; part 2 shown to be denied to that role (which is why it is marked
+owner-side) and then run as the owner with its expected counts. It also fails if a statement selects an identifying column. The runner's date
+logic (default week, explicit week, year rollover, a non-Monday refused) was checked with a stub `psql`; the first run on production is the lead's.
