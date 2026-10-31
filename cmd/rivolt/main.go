@@ -516,10 +516,29 @@ func runServer() {
 		}}
 		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
 	}
+	// The launch dashboard's counts (entitlement rows by source and status, accounts), no user labels, refreshed every five minutes.
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) {
+		appMetrics.BillingEnabled.Set(1)
+	}
+	if pgPool != nil {
+		go entitlements.RunStats(ctx, pgPool, demo.UserID(), 5*time.Minute, func(st entitlements.Stats) {
+			appMetrics.Entitlements.Reset()
+			for k, n := range st.ByKind {
+				appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
+			}
+			appMetrics.Accounts.Set(float64(st.Accounts))
+		})
+	}
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
 		wh := &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger,
 			// The US-only guard: a billing address outside the US is counted and logged (country code only); the account keeps Pro.
-			OnNonUS: func(string) { appMetrics.BillingNonUSTotal.Inc() }}
+			OnNonUS: func(string) { appMetrics.BillingNonUSTotal.Inc() },
+			// The launch dashboard's counts: deliveries by type and outcome, the lag, and payment failures.
+			Observe: func(typ, outcome string) {
+				appMetrics.StripeWebhookEvents.WithLabelValues(stripebill.MetricType(typ), outcome).Inc()
+			},
+			ObserveLag: func(d time.Duration) { appMetrics.StripeWebhookLag.Observe(d.Seconds()) },
+			OnBilling:  func(kind string) { appMetrics.BillingEvents.WithLabelValues(kind).Inc() }}
 		if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" {
 			wh.Countries = &stripebill.Client{SecretKey: key}
 		}

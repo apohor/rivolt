@@ -619,3 +619,31 @@ func TestPortalWithBillingOffAgainstPostgres(t *testing.T) {
 		t.Errorf("billing off: Checkout = %v, want ErrBillingOff", err)
 	}
 }
+
+// The launch dashboard's hooks: the lag between Stripe creating an event and Rivolt receiving it is observed once per verified delivery, and a
+// subscription going past due is reported once as payment_failed (and not for a plain cancel or an active renewal).
+func TestWebhookLagAndPaymentFailedHooks(t *testing.T) {
+	r := newRig(t, "stripe-hooks")
+	var mu sync.Mutex
+	var lags []time.Duration
+	var kinds []string
+	r.h.ObserveLag = func(d time.Duration) { mu.Lock(); lags = append(lags, d); mu.Unlock() }
+	r.h.OnBilling = func(k string) { mu.Lock(); kinds = append(kinds, k); mu.Unlock() }
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatalf("checkout.session.completed: %d", code)
+	}
+	if code := r.deliver("subscription_created_active.json", nil); code != 200 {
+		t.Fatalf("subscription.created: %d", code)
+	}
+	if code := r.deliver("subscription_updated_past_due.json", nil); code != 200 {
+		t.Fatalf("subscription.updated past_due: %d", code)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lags) != 3 {
+		t.Errorf("%d lags observed for 3 deliveries, want 3", len(lags))
+	}
+	if len(kinds) != 1 || kinds[0] != "payment_failed" {
+		t.Errorf("billing events %v, want exactly [payment_failed]", kinds)
+	}
+}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/launchnotice"
+	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -82,6 +83,18 @@ type Metrics struct {
 	// the alert.
 	StripeCancelPending       prometheus.Gauge
 	StripeCancelOldestSeconds prometheus.Gauge
+	// Stripe's webhook endpoint, counts only: StripeWebhookEvents by event type (a fixed set, "other" for any type Rivolt does not handle) and
+	// outcome (applied, duplicate, ignored, unmapped, stale, rejected); StripeWebhookLag is how long after Stripe created an event Rivolt
+	// received it (a delivery that Stripe had to retry shows as a long lag). BillingEvents counts billing moments an operator may need to see
+	// (kind payment_failed: a subscription went past due), pre-created at 0.
+	StripeWebhookEvents *prometheus.CounterVec
+	StripeWebhookLag    prometheus.Histogram
+	BillingEvents       *prometheus.CounterVec
+	// Entitlements is the count of entitlement rows by source and status and Accounts the number of accounts, both without the demo account and
+	// without any user label, refreshed every few minutes; BillingEnabled is 1 when RIVOLT_BILLING is on.
+	Entitlements   *prometheus.GaugeVec
+	Accounts       prometheus.Gauge
+	BillingEnabled prometheus.Gauge
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -358,6 +371,31 @@ func New() *Metrics {
 				Help: "Seconds the oldest queued Stripe cancellation of a deleted account has waited (0 when none).",
 			},
 		),
+		StripeWebhookEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_stripe_webhook_events_total",
+			Help: "Stripe webhook deliveries by event type and outcome (applied, duplicate, ignored, unmapped, stale, rejected).",
+		}, []string{"type", "outcome"}),
+		StripeWebhookLag: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_stripe_webhook_lag_seconds",
+			Help:    "Seconds between Stripe creating an event and Rivolt receiving it (retried deliveries show as a long lag).",
+			Buckets: []float64{1, 5, 15, 60, 300, 900, 3600, 21600, 86400},
+		}),
+		BillingEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_billing_events_total",
+			Help: "Billing moments an operator may need to see, by kind (payment_failed: a subscription went past due).",
+		}, []string{"kind"}),
+		Entitlements: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_entitlements",
+			Help: "Entitlement rows by source and status, without the demo account; no user labels.",
+		}, []string{"source", "status"}),
+		Accounts: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_accounts",
+			Help: "Accounts, without the demo account.",
+		}),
+		BillingEnabled: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_billing_enabled",
+			Help: "1 when RIVOLT_BILLING is on, else 0.",
+		}),
 		LeaseRenew: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_renew_total",
@@ -686,6 +724,12 @@ func New() *Metrics {
 		m.EntitlementsLookupErrors,
 		m.StripeCancelPending,
 		m.StripeCancelOldestSeconds,
+		m.StripeWebhookEvents,
+		m.StripeWebhookLag,
+		m.BillingEvents,
+		m.Entitlements,
+		m.Accounts,
+		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
@@ -753,6 +797,13 @@ func New() *Metrics {
 			m.DatedNoticesTotal.WithLabelValues(kind, outcome).Add(0)
 		}
 	}
+	// The Stripe webhook: every (type, outcome) and the billing moments, so the first rejected or unmapped delivery is an increase.
+	for _, typ := range stripebill.MetricTypes {
+		for _, outcome := range stripebill.MetricOutcomes {
+			m.StripeWebhookEvents.WithLabelValues(typ, outcome).Add(0)
+		}
+	}
+	m.BillingEvents.WithLabelValues("payment_failed").Add(0)
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
