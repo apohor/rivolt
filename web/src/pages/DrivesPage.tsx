@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { type Drive } from "../lib/api";
+import { VehicleScopeNote } from "../components/VehicleScopeNote";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { DriveTable } from "../components/ActivityTables";
 import { WindowPicker } from "../components/WindowPicker";
@@ -61,6 +62,7 @@ export default function DrivesPage() {
           </div>
         }
       />
+      <VehicleScopeNote />
       <Card>
         {q.isLoading ? (
           <Spinner />
