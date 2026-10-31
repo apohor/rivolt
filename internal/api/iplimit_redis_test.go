@@ -1,6 +1,8 @@
 package api
 
 import (
+	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -268,5 +270,31 @@ func TestLimiterNamesAreUnique(t *testing.T) {
 	}
 	if len(seen) < 30 {
 		t.Fatalf("found %d named limiters, want at least 30 (the scan is stale)", len(seen))
+	}
+}
+
+// A limiter's fallback series exists at 0 as soon as the limiter does, so an increase() alert sees the first fallback after a restart.
+func TestFallbackSeriesAreCreatedAtZero(t *testing.T) {
+	m := metrics.New()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ls := Deps{Redis: rdb, RedisPrefix: "rivolt", FailLimiterKey: testFailKey, Metrics: m}.limiterSet()
+	if ls == nil {
+		t.Fatal("no limiter set with Redis, a key and metrics")
+	}
+	ls.ip("route-a", 5, time.Minute, time.Hour)
+	ls.user("route-b", 5)
+	if n := testutil.CollectAndCount(m.RateLimiterFallbackTotal); n != 2 {
+		t.Fatalf("%d series after two limiters, want 2", n)
+	}
+	for _, name := range []string{"route-a", "route-b"} {
+		if v := testutil.ToFloat64(m.RateLimiterFallbackTotal.WithLabelValues(name)); v != 0 {
+			t.Fatalf("%s starts at %v, want 0", name, v)
+		}
 	}
 }
