@@ -292,8 +292,8 @@ export const SCALAR: Record<string, { value: number | string; file: string; css:
   "tabBar.iconStroke": { value: 1.8, file: "src/layout/TabShell.tsx", css: "strokeWidth: 1.8", use: "icon stroke, round caps and joins" },
   "map.routeWidth": { value: 2.5, file: "src/map/DrivesOverviewMap.tsx", css: "ROUTE_WIDTH = 2.5", use: "activity map: every drive's route width (pt)" },
   "map.routeOpacity": { value: 0.85, file: "src/map/DrivesOverviewMap.tsx", css: "ROUTE_OPACITY = 0.85", use: "activity map: every drive's route opacity" },
-  "map.dot": { value: 10, file: "src/map/ChargesOverviewMap.tsx", css: '"circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5', use: "activity map: a charge's or a drive end's dot diameter (pt)" },
-  "map.dotRing": { value: 1.5, file: "src/map/ChargesOverviewMap.tsx", css: '"circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5', use: "activity map: the dark ring around a dot (pt)" },
+  "map.dot": { value: 10, file: "src/map/ChargesOverviewMap.tsx", css: '"circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": flavor === "light" ? "#FFFFFF" : "#080B10", "circle-stroke-width": 1.5', use: "activity map: a charge's or a drive end's dot diameter (pt)" },
+  "map.dotRing": { value: 1.5, file: "src/map/ChargesOverviewMap.tsx", css: '"circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": flavor === "light" ? "#FFFFFF" : "#080B10", "circle-stroke-width": 1.5', use: "activity map: the dark ring around a dot (pt)" },
 };
 
 // The tab bar's own icons (24×24 viewBox, stroked, no fill): SVG path data for SwiftUI Paths.

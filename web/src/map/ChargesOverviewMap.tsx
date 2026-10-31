@@ -98,7 +98,7 @@ export function ChargesOverviewMap({
             id: LAYER,
             type: "circle",
             source: SOURCE,
-            paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 },
+            paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": flavor === "light" ? "#FFFFFF" : "#080B10", "circle-stroke-width": 1.5 },
           });
         }
         drawn.markDrawn();
