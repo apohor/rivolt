@@ -226,7 +226,7 @@ export default function ChargingCostPage() {
 
         <section aria-label="Track it from your truck" className="rounded-xl border border-neutral-800 p-4 sm:p-5">
           <h2 className="text-base font-semibold text-neutral-100">Want this from your truck&apos;s real charges instead of a formula?</h2>
-          <p className="mt-1 text-sm text-neutral-400">Rivolt records them and prices each one at your rate. Sign up (free while in beta) or look at the demo truck first.</p>
+          <p className="mt-1 text-sm text-neutral-400">Rivolt records them and prices each one from what Rivian billed where it billed, otherwise your rate or a labelled estimate. Sign up (free during the beta) or look at the demo truck first.</p>
           <div className="mt-3 flex flex-wrap gap-3">
             {demoEnabled && (
               <Link to="/demo" className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-900">Try the demo</Link>
