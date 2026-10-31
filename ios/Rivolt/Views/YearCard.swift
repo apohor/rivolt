@@ -63,8 +63,7 @@ enum YearCardLogic {
             title: (y.model.flatMap { $0.isEmpty ? nil : $0 }).map { "\(y.year) in your \($0)" } ?? "\(y.year) in Rivolt",
             subtitle: parts.joined(separator: " · "),
             stats: Array(rows.prefix(6)),
-            notes: [],
-            compact: true)
+            notes: [])
     }
 }
 
@@ -156,7 +155,7 @@ struct YearShareSheet: View {
             .navigationTitle("Share a card")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            .task(id: card) { if let card { png = MoneyShareCardCanvas.png(card) } }
+            .task(id: card) { if let card { png = MoneyShareCardCanvas.png(card, compact: true) } }
         }
     }
 }

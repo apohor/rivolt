@@ -48,7 +48,6 @@ final class YearCardTests: XCTestCase {
         let text = ([c.eyebrow, c.title, c.subtitle] + c.stats.map { $0.label + $0.value } + c.notes).joined()
         XCTAssertFalse(text.contains("$"))
         XCTAssertFalse(text.lowercased().contains("cost"))
-        XCTAssertTrue(c.compact)
     }
 
     func testCostIsAnEstimateAndOnlyWhenAsked() throws {
