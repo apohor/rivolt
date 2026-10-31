@@ -436,3 +436,91 @@ func TestLead_FenceStatesAndTheWarmUp(t *testing.T) {
 		t.Errorf("lead off: %v, want Off", st)
 	}
 }
+
+// qa's preview finding, end to end: the pod that holds the groups must be Held for the vehicles in them, with nothing but the real
+// Coordinator feeding the real Store (SetVehicleGroups is never called by hand here, which is what hid the bug). A live vehicle and a
+// demo-style one, under the ids the monitors use; a vehicle added later is Held after the pass that acquires it; Deadline and FenceUser
+// read the same state.
+func TestLead_CoordinatorFeedsTheStoreSoTheOwnerIsHeld(t *testing.T) {
+	pool := setup(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	seedSessionGroups(ctx, t, pool, 1) // user sp-00, vehicle veh-sp-00
+	seedUserVehicles(ctx, t, pool, "demo-owner", "demo-vehicle-1")
+	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id)
+		SELECT id, 'rivian.session', '\x00'::bytea, 'k' FROM users WHERE username = 'demo-owner'`); err != nil {
+		t.Fatal(err)
+	}
+	s := leadStore(t, pool, "pod-a")
+	vehicles := func(ctx context.Context) ([]string, error) {
+		rows, err := pool.QueryContext(ctx, `SELECT rivian_vehicle_id FROM vehicles ORDER BY 1`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var v string
+			if err := rows.Scan(&v); err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
+		return out, rows.Err()
+	}
+	var mu sync.Mutex
+	acquiredNotHeld := []string{}
+	c := leases.NewCoordinator(s, vehicles, func(v string) {
+		if _, st := s.Fence(v); st != fence.Held {
+			mu.Lock()
+			acquiredNotHeld = append(acquiredNotHeld, v)
+			mu.Unlock()
+		}
+	}, func(string) {}, nil)
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = c.Run(runCtx) }()
+	defer func() { stop(); <-done }()
+
+	waitHeld := func(v string) {
+		t.Helper()
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, st := s.Fence(v); st == fence.Held {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		_, st := s.Fence(v)
+		t.Fatalf("%s is %v after the coordinator has run, want Held", v, st)
+	}
+	for _, v := range []string{"veh-sp-00", "demo-vehicle-1"} {
+		waitHeld(v)
+		tok, _ := s.Fence(v)
+		if tok.Pod != "pod-a" || tok.Epoch == 0 {
+			t.Errorf("%s token %+v", v, tok)
+		}
+		if at, ok := s.Deadline(v); !ok || !at.After(time.Now()) {
+			t.Errorf("Deadline(%s) = %v %v, want one in the future", v, at, ok)
+		}
+	}
+	var uid string
+	if err := pool.QueryRowContext(ctx, `SELECT id::text FROM users WHERE username = 'sp-00'`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, st, err := s.FenceUser(ctx, uid); err != nil || st != fence.Held {
+		t.Errorf("FenceUser = %v %v, want Held", st, err)
+	}
+
+	// A vehicle added between passes.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) SELECT id, 'veh-sp-00-b' FROM users WHERE username = 'sp-00'`); err != nil {
+		t.Fatal(err)
+	}
+	c.TriggerReconcile()
+	waitHeld("veh-sp-00-b")
+	mu.Lock()
+	defer mu.Unlock()
+	if len(acquiredNotHeld) != 0 {
+		t.Errorf("subscriptions started for vehicles that were not yet Held: %v", acquiredNotHeld)
+	}
+}

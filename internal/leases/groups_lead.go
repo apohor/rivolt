@@ -439,10 +439,16 @@ func (s *Store) LocalDeadline() time.Duration { return s.localDeadline() }
 // after the expiry (2 s statement timeout + 1 s idle-in-transaction), so 5 s clears it.
 const warmUp = 5 * time.Second
 
-// SetVehicleGroups records which group each vehicle belongs to, as of the last lead pass.
+// SetVehicleGroups records which group each vehicle belongs to, as of the last lead pass (the coordinator calls it on every pass
+// that read the map, before it acquires or subscribes anything). Fence and Deadline look vehicles up here: a vehicle with no entry
+// reads Lost, so without this call a pod that holds every group still refuses all of its own writes. The map is copied.
 func (s *Store) SetVehicleGroups(vg map[string]string) {
+	cp := make(map[string]string, len(vg))
+	for v, g := range vg {
+		cp[v] = g
+	}
 	s.groupMu.Lock()
-	s.vehicleGroup = vg
+	s.vehicleGroup = cp
 	s.groupMu.Unlock()
 }
 

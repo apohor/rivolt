@@ -1006,6 +1006,12 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		c.log.Warn("group vehicles failed", "err", err.Error())
 		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
 	}
+	// Install the vehicle -> group map before anything below acquires or subscribes a vehicle: the fence (Fence, Deadline) looks
+	// vehicles up in it, and a vehicle missing from it reads Lost however the group stands. A pass that failed to read the map
+	// (above) leaves the last one: tokenLocked still needs the group held and renewed within the local deadline.
+	if sv, ok := c.store.(interface{ SetVehicleGroups(map[string]string) }); ok {
+		sv.SetVehicleGroups(vg)
+	}
 	c.followOpenSessions(ctx, gl, vg, res.Held)
 	res.Shed = c.chooseShed(res, vg)
 	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is
