@@ -12,6 +12,7 @@ export function ShareSheet({
   fileName,
   withCostToggle,
   withOffpeakToggle = false,
+  onShared,
   onClose,
 }: {
   build: (includeCost: boolean, includeOffpeak: boolean) => ShareCardModel;
@@ -19,6 +20,8 @@ export function ShareSheet({
   withCostToggle: boolean;
   // The off-peak share line has its own toggle, shown only when there is a share to show.
   withOffpeakToggle?: boolean;
+  // Called once an image was shared, saved or copied (not when the sheet is only opened or closed).
+  onShared?: () => void;
   onClose: () => void;
 }) {
   const [includeCost, setIncludeCost] = useState(false);
@@ -80,7 +83,10 @@ export function ShareSheet({
     setMsg(null);
     try {
       const done = await fn();
-      if (done) setMsg({ tone: "ok", text: done });
+      if (done) {
+        setMsg({ tone: "ok", text: done });
+        onShared?.();
+      }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) setMsg({ tone: "err", text: e instanceof Error ? e.message : "Couldn't create the image." });
     } finally {
