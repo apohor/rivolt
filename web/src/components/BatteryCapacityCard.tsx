@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ProLimitNotice } from "./ProLimitNotice";
+import { proLimitOf, retryUnlessLimit } from "../lib/proLimit";
 import { backend } from "../lib/api";
 import { capacityView, estimateLine } from "../lib/batteryCapacity";
 import { dotOpacity, dotRadius, dots, specInRange, trendRuns, yDomain, type CapacitySample } from "../lib/capacityChart";
@@ -20,6 +22,7 @@ export function BatteryCapacityCard({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.packHealth(vehicleID),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
+    retry: retryUnlessLimit(3),
   });
   // The same query as the Trends card: one request for both.
   const trends = useQuery({
@@ -27,9 +30,17 @@ export function BatteryCapacityCard({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.trends(vehicleID, units),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: retryUnlessLimit(1),
   });
   const loading = pack.isPending || trends.isPending;
+  const limit = proLimitOf(pack.error) ?? proLimitOf(trends.error);
+  if (limit && !loading) {
+    return (
+      <Card title="Battery capacity" id="truck-pack">
+        <ProLimitNotice limit={limit} />
+      </Card>
+    );
+  }
   const v = capacityView(pack.data, trends.data);
   const other = estimateLine(v);
   return (

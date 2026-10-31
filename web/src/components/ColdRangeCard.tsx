@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ProLimitNotice } from "./ProLimitNotice";
+import { proLimitOf, retryUnlessLimit } from "../lib/proLimit";
 import { backend, type ColdRange } from "../lib/api";
 import { formatTemperature, usePreferences, type TemperatureUnit } from "../lib/preferences";
 import { Card } from "./ui";
@@ -32,9 +34,17 @@ export function ColdRangeCard({ vehicleID }: { vehicleID: string }) {
     },
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: retryUnlessLimit(1),
   });
   if (q.data === null) return null;
+  const limit = proLimitOf(q.error);
+  if (limit) {
+    return (
+      <Card title="Range at different temperatures" span="full">
+        <ProLimitNotice limit={limit} />
+      </Card>
+    );
+  }
   const d = q.data;
   return (
     <Card title="Range at different temperatures" span="full">

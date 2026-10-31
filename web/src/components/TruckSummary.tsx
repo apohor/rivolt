@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { retryUnlessLimit } from "../lib/proLimit";
 import { backend } from "../lib/api";
 import { usePreferences } from "../lib/preferences";
 import { summaryParts } from "../lib/truckSummary";
@@ -15,13 +16,14 @@ export function TruckSummary({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.trends(vehicleID, units),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: retryUnlessLimit(1),
   });
   const pack = useQuery({
     queryKey: ["packHealth", vehicleID],
     queryFn: () => backend.packHealth(vehicleID),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
+    retry: retryUnlessLimit(3),
   });
   const drain = useQuery({
     queryKey: ["vehicle", "drain", vehicleID],

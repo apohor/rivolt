@@ -1771,6 +1771,8 @@ export const backend = {
   // Removes a single charge row by its external ID. Used by the
   // detail page's danger-zone affordance to clear obviously-broken
   // sessions (e.g. pre-v0.10.7 phantom rows).
+  // One charge by id; HTTP 402 outside_free_window when it is older than a free account's history.
+  charge: (id: string) => api.get<Charge>(`/api/charges/${encodeURIComponent(id)}`),
   deleteCharge: (id: string) =>
     api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
   // Overrides the persisted cost / currency / price-per-kWh on a

@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { ProLimitNotice } from "./ProLimitNotice";
+import { proLimitOf, retryUnlessLimit } from "../lib/proLimit";
 import { backend, type PackHealthSample } from "../lib/api";
 
 // Inline copy of HomePage's local Stat tile shape. Kept here so
@@ -40,9 +42,11 @@ export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.packHealth(vehicleID),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
+    retry: retryUnlessLimit(3),
   });
   if (q.isLoading || q.isError || !q.data) {
-    return <StatTile label="Pack" value="—" />;
+    // A free account: the tile says so rather than looking broken.
+    return <StatTile label="Pack" value="—" hint={proLimitOf(q.error) ? "part of Pro" : undefined} />;
   }
   const samples = q.data.samples ?? [];
   const { headline } = q.data;
@@ -78,11 +82,14 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.packHealth(vehicleID),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
+    retry: retryUnlessLimit(3),
   });
 
   if (q.isLoading) {
     return <div className="h-24 animate-pulse rounded-sm bg-neutral-900/50" />;
   }
+  const limit = proLimitOf(q.error);
+  if (limit) return <ProLimitNotice limit={limit} />;
   if (q.isError || !q.data) {
     return (
       <p className="text-xs text-neutral-500">

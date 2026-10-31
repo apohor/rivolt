@@ -17,6 +17,10 @@ export function proLimitOf(e: unknown): ProLimit | null {
   return null;
 }
 
+// A query's retry rule that never retries a free account's limit (HTTP 402 is an answer, not a failure) and otherwise retries up to `max`
+// times, as react-query's default does for 3.
+export const retryUnlessLimit = (max = 3) => (failureCount: number, error: unknown): boolean => !proLimitOf(error) && failureCount < max;
+
 export function proLimitText(l: ProLimit): string {
   return l.code === "outside_free_window"
     ? `This is older than the last ${l.freeDays} days that the free plan shows. It is kept, and it is in your export; Pro shows all of it.`

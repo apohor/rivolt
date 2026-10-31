@@ -1,3 +1,4 @@
+import { retryUnlessLimit } from "./lib/proLimit";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,7 +23,8 @@ const queryClient: QueryClient = new QueryClient({
   queryCache: new QueryCache({ onError: termsRequired }),
   mutationCache: new MutationCache({ onError: termsRequired }),
   defaultOptions: {
-    queries: { staleTime: 30_000, refetchOnWindowFocus: false },
+    // A free account's 402 is an answer, never retried; everything else keeps react-query's three tries.
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: retryUnlessLimit(3) },
   },
 });
 
