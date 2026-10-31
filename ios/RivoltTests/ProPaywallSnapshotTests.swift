@@ -7,7 +7,7 @@ import XCTest
 final class ProPaywallSnapshotTests: XCTestCase {
     func testRenderTheFreeAccountsSheet() throws {
         Theme.registerFonts()
-        let page = ProPaywallView(plan: .free).content
+        let page = ProPaywallView(plan: .free, snapshotOnly: true)
             .environment(AppState())
             .frame(width: 390)
             .fixedSize(horizontal: false, vertical: true)

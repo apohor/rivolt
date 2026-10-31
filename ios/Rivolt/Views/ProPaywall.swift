@@ -269,6 +269,8 @@ struct ProPaywallView: View {
     @Environment(\.openURL) private var openURL
     let plan: PlanState
     var purchasing: ProPurchasing = UnavailablePurchasing()
+    /// Only the content, without the scroll view and navigation around it: a snapshot test renders this (`ImageRenderer` cannot draw those).
+    var snapshotOnly = false
 
     @State private var yearly: Bool?
     @State private var busy = false
@@ -282,19 +284,22 @@ struct ProPaywallView: View {
     }
 
     var body: some View {
-        SettingsStack {
-            ScrollView { content }
-            .themePage()
-            .navigationTitle(ProCopy.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Theme.bar, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
+        if snapshotOnly {
+            content
+        } else {
+            SettingsStack {
+                ScrollView { content }
+                .themePage()
+                .navigationTitle(ProCopy.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(Theme.bar, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
+            }
         }
     }
 
-    /// The sheet's content without the scroll view and navigation around it (a snapshot test renders this: `ImageRenderer` cannot draw those).
-    var content: some View {
+    private var content: some View {
                 VStack(alignment: .leading, spacing: 4 * Theme.unit) {
                     Text(ProCopy.title).font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                         .accessibilityAddTraits(.isHeader)
