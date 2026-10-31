@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import { PlanCard } from "./PlanCard";
+import { MANAGE_FAILED, PlanCard } from "./PlanCard";
 import { PlanNotice } from "./PlanNotice";
 import { ProLimitNotice } from "./ProLimitNotice";
 import { stubFetchRoutes } from "../test/fetchRoutes";
@@ -175,6 +175,25 @@ describe("PlanCard with billing off and a live Stripe subscription (a rollback)"
     expect(container.textContent).not.toMatch(/See Pro|Subscribe|\$\d|trial|Keep Pro/i);
     fireEvent.click(button);
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://billing.example/portal"));
+  });
+
+  it("says how to cancel if the portal can't be opened, never that nothing was charged", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign, search: "" });
+    stubFetchRoutes({ "/api/auth/me": { body: manageOnly }, "/api/billing/portal": { status: 502, body: { error: "upstream" } } });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <PlanCard />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Manage subscription" }));
+    expect(await screen.findByText(MANAGE_FAILED)).toBeInTheDocument();
+    expect(container.textContent).toContain("support@rivolt.dev");
+    expect(container.textContent).not.toMatch(/Nothing was charged/);
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it("stays hidden with billing off and no subscription", async () => {

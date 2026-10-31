@@ -55,6 +55,10 @@ export function PlanCard() {
   );
 }
 
+// Not PRO.billingUnavailable ("Nothing was charged"): this person has a live subscription that IS charging, and this card is their way to
+// cancel it while billing is switched off.
+export const MANAGE_FAILED = "We couldn't open subscription management. Try again, or email support@rivolt.dev and we'll cancel it for you.";
+
 function ManageOnlyCard() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -73,7 +77,7 @@ function ManageOnlyCard() {
             backend
               .billingPortal()
               .then(({ url }) => window.location.assign(url))
-              .catch(() => setProblem(PRO.billingUnavailable))
+              .catch(() => setProblem(MANAGE_FAILED))
               .finally(() => setBusy(false));
           }}
         >
