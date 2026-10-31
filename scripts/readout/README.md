@@ -38,6 +38,7 @@ owner-side connection (`READOUT_OWNER_DSN`). Without it `run.sh` prints SKIPPED 
 | `landing_view` by referrer host and utm_source (top 25, plus totals and distinct browsers) | `events` |
 | `plan_run` and `statement_share` counts (and statement_share by kind) | `events` |
 | Accounts with any alert on: any notification switch on, opted into an extra alert (plug-in reminder, milestones, left-open, live charging), on web, on iPhone; weekly recap, trip recap, statement email, R2 arrival reminder | `push_subscriptions`, `push_apns_devices`, `engagement_prefs`, `statement_email_prefs` |
+| Rivolt Pro: plans by source and status (and how many are running at week end); trials started this week / last week, trials that ended this week and how many of those converted, trials ever converted; Stripe and Apple subscriptions started and ended this week, set to cancel, in grace; the founding year (rows, ending within 60 days) | `entitlements` |
 
 `events` holds a random per-browser id and allowlisted props only (referrer host and utm_source are tokens, never URLs). "Any switch on" includes
 switches that are on by default the moment a device subscribes (charging done, anomaly, software update), so read `opted_in_extra` as the
@@ -55,3 +56,10 @@ week, an imported vehicle, drives, charges, events, push and engagement switches
 read-only role with the production allowlist and its expected counts; part 2 shown to be denied to that role (which is why it is marked
 owner-side) and then run as the owner with its expected counts. It also fails if a statement selects an identifying column. The runner's date
 logic (default week, explicit week, year rollover, a non-Monday refused) was checked with a stub `psql`; the first run on production is the lead's.
+
+## Rivolt Pro numbers (part 2)
+
+Counts of entitlement rows, never accounts' identities; the demo is left out. A trial or founding row keeps `status = active` after its end (nothing
+flips it), so read `running_at_week_end`, not the status, for who is Pro. "Converted" means the account has a Stripe or Apple row created from the
+trial's start to one day after its end. `entitlements` is not on the read-only allowlist; putting it there (or a counts-only view over it) is a privacy
+decision for DA, like `events` above.
