@@ -313,3 +313,59 @@ func TestBackgroundFloorInTheLocalFallback(t *testing.T) {
 		t.Error("local main allowed a call with no tokens left")
 	}
 }
+
+type whoKey struct{}
+
+// Pro never means more Rivian calls: the budget answers the same for a free and a Pro account. The same sequence of calls (all three classes,
+// more than the buckets hold) is made for two accounts, one carrying a free plan and one a Pro plan in its context, against two identical
+// limiters on a fixed clock; every answer, and every retry hint, must be identical. (The limiter takes a class and nothing else, and the
+// static checks in internal/launch keep it from importing anything that knows the plan; this is the behavioural half.)
+func TestBudgetDecisionsDoNotDependOnWhoIsAsking(t *testing.T) {
+	t.Parallel()
+	type answer struct {
+		ok    bool
+		retry time.Duration
+	}
+	run := func(plan string) []answer {
+		mr, err := miniredis.Run()
+		if err != nil {
+			t.Fatalf("miniredis: %v", err)
+		}
+		defer mr.Close()
+		now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+		l, err := New(context.Background(), redis.NewClient(&redis.Options{Addr: mr.Addr()}), Config{
+			MainCapacity: 10, MainRefillPerSec: 0.5, PriorityCapacity: 4, PriorityRefillPerSec: 0.2, BackgroundFloor: 3,
+			Now: func() time.Time { return now },
+		}, nil)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		ctx := context.WithValue(context.WithValue(context.Background(), whoKey{}, plan+"-account"), struct{ plan string }{"plan"}, plan)
+		var out []answer
+		classes := []Class{ClassMain, ClassBackground, ClassPriority, ClassMain, ClassBackground, ClassMain, ClassPriority}
+		for round := 0; round < 6; round++ {
+			for _, c := range classes {
+				ok, retry := l.Allow(ctx, c)
+				out = append(out, answer{ok, retry})
+			}
+			now = now.Add(2 * time.Second) // the clock moves the same way for both
+		}
+		return out
+	}
+	free, pro := run("free"), run("pro")
+	if len(free) != len(pro) || len(free) == 0 {
+		t.Fatalf("answers: %d vs %d", len(free), len(pro))
+	}
+	refused := 0
+	for i := range free {
+		if free[i] != pro[i] {
+			t.Fatalf("call %d: free account got %+v, Pro account got %+v: the budget depends on who is asking", i, free[i], pro[i])
+		}
+		if !free[i].ok {
+			refused++
+		}
+	}
+	if refused == 0 || refused == len(free) {
+		t.Fatalf("the script refused %d of %d calls: it must exhaust the buckets and still allow some, or it proves nothing", refused, len(free))
+	}
+}
