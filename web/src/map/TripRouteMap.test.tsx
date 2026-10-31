@@ -10,7 +10,7 @@ vi.mock("../lib/config", () => ({
   tilesPMTilesURL: () => "/api/maps/tiles/us.pmtiles",
   tilesGlyphsURL: () => "",
   tilesDEM: () => ({ url: "", minZoom: 3, maxZoom: 10 }),
-  valhallaBase: () => "",
+  valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
 }));
 vi.mock("../lib/poi", () => ({ findChargersAlongPath: () => Promise.resolve([]), HOTEL_FACILITY_TYPES: new Set<string>() }));
@@ -35,16 +35,19 @@ class FakeMap {
   off() { return this; }
   fire(ev: string) { for (const h of this.handlers[ev] ?? []) h(); }
   addControl() { return this; }
-  addSource(id: string) { this.sources.set(id, { setData: vi.fn() }); }
+  addSource(id: string, spec?: { data?: unknown }) { this.sources.set(id, { setData: (d: unknown) => { if (id === "rivolt-route") this.lastData = d; } }); if (id === "rivolt-route") this.lastData = spec?.data; }
+  lastData: unknown;
   getSource(id: string) { return this.sources.get(id); }
   addLayer(l: { id: string }) { this.layers.add(l.id); }
   getLayer(id: string) { return this.layers.has(id) ? {} : undefined; }
-  isStyleLoaded() { return true; }
+  // The library's isStyleLoaded() is false while any source is loading a tile; the component must not depend on it.
+  isStyleLoaded() { return false; }
   setStyle() { return this; }
   fitBounds = vi.fn();
   easeTo = vi.fn();
   resize = vi.fn();
   triggerRepaint = vi.fn();
+  queryRenderedFeatures() { return [{}]; }
   getCanvas() { return document.createElement("canvas"); }
   remove() { this.removed = true; }
 }
@@ -101,6 +104,35 @@ describe("TripRouteMap", () => {
     await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-route-main")).toBe(true));
     fireEvent.click(FakeMarker.all[1].element);
     expect(onSelect).toHaveBeenCalledWith(1);
+  });
+
+  it("draws a route that arrives after the style loaded, even while tiles are still loading (isStyleLoaded false)", async () => {
+    // Valhalla answers after the map and its style exist: four points against the three waypoints, so the snapped path is told from the straight legs.
+    const snapped: [number, number][] = [[10, 10], [10.2, 10.3], [10.7, 10.6], [11, 11]];
+    const enc = (v: number) => {
+      let n = v < 0 ? ~(v << 1) : v << 1;
+      let out = "";
+      while (n >= 0x20) { out += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+      return out + String.fromCharCode(n + 63);
+    };
+    let pl = 0, po = 0, shape = "";
+    for (const [la, lo] of snapped) {
+      const a = Math.round(la * 1e6), b = Math.round(lo * 1e6);
+      shape += enc(a - pl) + enc(b - po);
+      pl = a; po = b;
+    }
+    (globalThis as { __valhalla?: string }).__valhalla = "/valhalla";
+    vi.stubGlobal("fetch", () => new Promise((res) => setTimeout(() => res({ ok: true, json: async () => ({ trip: { legs: [{ shape }] } }) }), 30)));
+    try {
+      render(<TripRouteMap route={route} />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-route-main")).toBe(true));
+      await waitFor(() => {
+        const d = FakeMap.last?.lastData as { features: { geometry: { coordinates: number[][] } }[] } | undefined;
+        expect(d?.features[0].geometry.coordinates).toHaveLength(4);
+      });
+    } finally {
+      delete (globalThis as { __valhalla?: string }).__valhalla;
+    }
   });
 
   it("removes the map when it unmounts", async () => {

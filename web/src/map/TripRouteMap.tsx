@@ -101,6 +101,9 @@ export function TripRouteMap({
   const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement }>>(new Map());
   const chargersRef = useRef<GeoJSON.FeatureCollection>({ type: "FeatureCollection", features: [] });
   const popupRef = useRef<Popup | null>(null);
+  // True between a style's "style.load" and the next setStyle. Not map.isStyleLoaded(): that is false while any source is still loading a
+  // tile, so a route update that waited for it was dropped whenever tiles were in flight (the line missing after switching plans).
+  const styleReadyRef = useRef(false);
   const pois = useRef<POI[]>([]);
   const departureAtRef = useRef(departureAt);
   departureAtRef.current = departureAt;
@@ -154,13 +157,24 @@ export function TripRouteMap({
         fadeDuration: 150,
       });
       mapRef.current = map;
+      styleReadyRef.current = false;
       el.setAttribute("data-flavor", flavor);
       // data-map-drawn: the route has been drawn (a render after it went on the map); a spec waits for it before it looks. Not the
       // library's "idle", which waits for every tile and never comes while a source keeps retrying a tile the server lacks.
       el.removeAttribute("data-map-drawn");
       const markDrawn = () => {
         el.removeAttribute("data-map-drawn");
-        map.once("render", () => requestAnimationFrame(() => el.setAttribute("data-map-drawn", "")));
+        map.once("render", () => requestAnimationFrame(() => {
+          // The value is how many route features the map is rendering in view: a spec can tell a drawn line from markers alone.
+          const n = (() => {
+            try {
+              return map.getLayer("rivolt-route-main") ? map.queryRenderedFeatures({ layers: ["rivolt-route-main"] }).length : 0;
+            } catch {
+              return 0;
+            }
+          })();
+          el.setAttribute("data-map-drawn", String(n));
+        }));
         map.triggerRepaint();
       };
       map.touchZoomRotate.disableRotation();
@@ -192,6 +206,7 @@ export function TripRouteMap({
       // The line (straight legs first), re-added after every style change.
       let data = lineData(wpLatLngs);
       map.on("style.load", () => {
+        styleReadyRef.current = true;
         setRoute(map, data, flavor);
         // The charger overlay goes back too.
         addChargerLayer(map);
@@ -224,6 +239,7 @@ export function TripRouteMap({
       cleanups.push(onAppMapFlavor((f) => {
         if (f === flavor) return;
         flavor = f;
+        styleReadyRef.current = false;
         el.setAttribute("data-flavor", f);
         map.setStyle(styleFor(f));
       }));
@@ -266,7 +282,7 @@ export function TripRouteMap({
       if (!alive || mapRef.current !== map) return;
       if (path !== wpLatLngs) {
         data = lineData(path);
-        if (map.isStyleLoaded()) setRoute(map, data, flavor);
+        if (styleReadyRef.current) setRoute(map, data, flavor); // else the pending style.load draws `data`
         markDrawn();
         fitPath = path;
         fitZoom = 13;
@@ -407,8 +423,8 @@ export function TripRouteMap({
         if (src) src.setData(chargersRef.current as never);
         else addChargerLayer(map);
       };
-      if (map.isStyleLoaded()) apply();
-      else map.once("styledata", apply);
+      // Until the style is ready, its style.load puts the layer back with chargersRef as it stands.
+      if (styleReadyRef.current) apply();
     })();
     return () => {
       ac.abort();

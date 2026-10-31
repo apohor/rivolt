@@ -43,13 +43,14 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.getByText(/Barstow/).first()).toBeVisible();
       await expect(page.getByText(/Primm/)).toHaveCount(0);
       // The shot is of the drawn map: wait for it to be idle, with its route and markers.
-      await expect(page.locator("[data-plan-area='map'][data-map-drawn], [data-plan-area='map'] [data-map-drawn]").first()).toBeAttached();
+      await expect(page.locator("[data-plan-area='map'] [data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
       await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
       await page.screenshot({ path: path.join(SHOTS, `plan-routes-${v.name}-${theme}-a.png`) });
       await group.getByRole("radio", { name: /Alternative 1/ }).click();
       await expect(page.getByText(/Primm/).first()).toBeVisible();
       await expect(page.getByText(/Barstow/)).toHaveCount(0);
-      await expect(page.locator("[data-plan-area='map'] [data-map-drawn]").first()).toBeAttached();
+      // The line itself, not just the markers: the map renders route features in view for the alternative too.
+      await expect(page.locator("[data-plan-area='map'] [data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
       await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
       await page.screenshot({ path: path.join(SHOTS, `plan-routes-${v.name}-${theme}-b.png`) });
       const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();

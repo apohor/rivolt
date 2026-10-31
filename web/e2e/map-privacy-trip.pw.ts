@@ -67,3 +67,12 @@ test("iphone: without WebGL the planner says the map is unavailable and the itin
   await expect(page.locator(".maplibregl-canvas")).toHaveCount(0);
   await expect(page.getByText(/Barstow/).first()).toBeVisible();
 });
+
+test("iphone: switching the sample trip redraws the route line", async ({ page }) => {
+  await openPlan(page);
+  const drawn = page.locator("[data-plan-area='map'] [data-map-drawn]:not([data-map-drawn='0'])").first();
+  await expect(drawn).toBeAttached();
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to San Diego/ }).click();
+  await expect(drawn).toBeAttached();
+  await expect(page.locator("[data-plan-area='map'] .maplibregl-marker").first()).toBeVisible();
+});

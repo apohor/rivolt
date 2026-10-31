@@ -114,10 +114,12 @@ export function DriveMap({
       if (!tiles) map.addControl(tilesNotice(TILES_UNAVAILABLE_TEXT), "bottom-left");
 
       // The D/L picker: a temporary override of the basemap that the app theme resets.
+      let styleReady = false;
       const setFlavor = (f: MapFlavor) => {
         if (f === flavor) return;
         flavor = f;
         el.setAttribute("data-flavor", f);
+        styleReady = false;
         map.setStyle(styleFor(f));
       };
       let legend: ReturnType<typeof speedLegend> | undefined;
@@ -142,7 +144,8 @@ export function DriveMap({
 
       let data = routeData({ runs: hasSpread ? speedRuns(latlngs, speeds) : [] });
       // The style (re)loads on creation and on every flavour change; the route layers go back on top each time.
-      map.on("style.load", () => { setRoute(map, data, flavor); });
+      // Not map.isStyleLoaded(): that is false while any source is loading a tile, which dropped route updates made in that time.
+      map.on("style.load", () => { styleReady = true; setRoute(map, data, flavor); });
 
       if (!hasSpread && latlngs.length > 0) map.jumpTo({ center: [latlngs[0][1], latlngs[0][0]], zoom: 16 });
 
@@ -194,7 +197,7 @@ export function DriveMap({
           }
           for (const r of plan.routedGaps) all.push(...r);
           data = routeData({ runs, routedGaps: plan.routedGaps, gaps: plan.gaps });
-          if (map.isStyleLoaded()) setRoute(map, data, flavor);
+          if (styleReady) setRoute(map, data, flavor);
           const b = boundsOf(all);
           if (b) { fitBox = b; fit(); }
         });
