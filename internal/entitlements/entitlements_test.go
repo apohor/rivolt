@@ -163,3 +163,40 @@ func TestActiveTrialEnd(t *testing.T) {
 		t.Error("trial hidden by a subscription")
 	}
 }
+
+// "Cancelled, paid until ..." and "payment failed, grace until ...": the two states a paid account shows besides plain Pro. Only a paid
+// row that is the one granting reports them; the grant itself is unchanged (Pro until the period end, or end + grace).
+func TestCancelAndGraceStates(t *testing.T) {
+	day := 24 * time.Hour
+	end := at(10 * day)
+	for _, c := range []struct {
+		name          string
+		rows          []Row
+		pro           bool
+		cancels, graz *time.Time
+	}{
+		{"a stripe subscription set to not renew", []Row{{Source: SourceStripe, Status: StatusActive, PeriodEnd: end, CancelAtPeriodEnd: true}}, true, end, nil},
+		{"an apple subscription set to not renew", []Row{{Source: SourceApple, Status: StatusActive, PeriodEnd: end, CancelAtPeriodEnd: true}}, true, end, nil},
+		{"a renewing subscription reports neither", []Row{{Source: SourceStripe, Status: StatusActive, PeriodEnd: end}}, true, nil, nil},
+		{"a failed renewal reports its grace end", []Row{{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: at(3 * day)}}, true, nil, at(3*day + Grace)},
+		{"a failed renewal past its grace is free and reports neither", []Row{{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: at(-8 * day)}}, false, nil, nil},
+		{"a cancelled subscription past its end is free", []Row{{Source: SourceStripe, Status: StatusActive, PeriodEnd: at(-time.Second), CancelAtPeriodEnd: true}}, false, nil, nil},
+		{"an ended row reports neither", []Row{{Source: SourceStripe, Status: StatusEnded, PeriodEnd: end, CancelAtPeriodEnd: true}}, false, nil, nil},
+		{"a trial cannot be cancelled", []Row{{Source: SourceTrial, Status: StatusActive, PeriodEnd: end, CancelAtPeriodEnd: true}}, true, nil, nil},
+		{"only a paid row reports grace, whatever its status", []Row{{Source: SourceFounding, Status: StatusPastDue, PeriodEnd: at(3 * day)}}, true, nil, nil},
+		{"the subscription wins over a trial, and so does its state", []Row{
+			{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)},
+			{Source: SourceStripe, Status: StatusActive, PeriodEnd: end, CancelAtPeriodEnd: true}}, true, end, nil},
+		{"a lapsed subscription does not hide the trial that still grants", []Row{
+			{Source: SourceTrial, Status: StatusActive, PeriodEnd: at(5 * day)},
+			{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: at(-8 * day)}}, true, nil, nil},
+		{"billing's grace beats nothing else: a grace row and a founding grant report the paid state", []Row{
+			{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(100 * day)},
+			{Source: SourceApple, Status: StatusPastDue, PeriodEnd: at(3 * day)}}, true, nil, at(3*day + Grace)},
+	} {
+		got := Compute(c.rows, t0)
+		if got.Pro != c.pro || !sameTime(got.CancelsAt, c.cancels) || !sameTime(got.GraceEnds, c.graz) {
+			t.Errorf("%s: pro=%v cancels=%v grace=%v, want pro=%v cancels=%v grace=%v", c.name, got.Pro, got.CancelsAt, got.GraceEnds, c.pro, c.cancels, c.graz)
+		}
+	}
+}
