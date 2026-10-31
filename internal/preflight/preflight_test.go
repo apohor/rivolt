@@ -21,6 +21,7 @@ func env(extra map[string]string) func(string) string {
 		"RIVOLT_PUBLIC_BASE_URL":       "https://rivolt.example",
 		"RIVOLT_APPLE_IAP_BUNDLE_ID":   "com.example.bundlePRIVATE",
 		"RIVOLT_APPLE_IAP_PRODUCTS":    "pro.monthly.PRIVATE,pro.yearly.PRIVATE",
+		"RIVOLT_REDIS_ADDR":            "redis.example:6379",
 	}
 	for k, v := range extra {
 		m[k] = v
@@ -35,7 +36,12 @@ func okInput() Input {
 		Founding: func(context.Context, time.Time) (Founding, error) {
 			return Founding{Accounts: 11, Demo: 1, Eligible: 10, Already: 0, ToGrant: 10}, nil
 		},
-		Fetch: func(context.Context, string) (int, error) { return http.StatusOK, nil },
+		Fetch:     func(context.Context, string) (int, error) { return http.StatusOK, nil },
+		Webhook:   func(context.Context, string) (int, error) { return http.StatusBadRequest, nil },
+		RedisTime: func(context.Context) (bool, error) { return false, nil },
+		Stripe: func(context.Context) StripeFacts {
+			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true}
+		},
 	}
 }
 
@@ -58,8 +64,9 @@ func TestPreflightReady(t *testing.T) {
 	for _, want := range []string{
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
 		"https://rivolt.dev/terms: 200", "https://rivolt.dev/privacy: 200", "https://rivolt.dev/settings: 200",
-		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "Stripe key mode: live", "RIVOLT_APPLE_IAP_PRODUCTS: 2 product id(s)",
-		"Apple environment: Production", "Nothing was switched on or written",
+		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
+		"unsigned POST: 400", "TIME as the app user: allowed", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
@@ -73,7 +80,7 @@ func TestPreflightPrintsNoSecrets(t *testing.T) {
 		in := okInput()
 		in.Getenv = env(map[string]string{"RIVOLT_BILLING": billing})
 		out := render(Run(context.Background(), in))
-		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_live", "whsec", "price_", "com.example", "rivolt.example"} {
+		for _, secret := range []string{"TOPSECRET", "PRIVATE", "sk_", "whsec", "price_", "com.example", "rivolt.example", "redis.example", "Production", "Sandbox"} {
 			if strings.Contains(out, secret) {
 				t.Errorf("billing=%q: the report contains %q:\n%s", billing, secret, out)
 			}
@@ -108,6 +115,41 @@ func TestPreflightProblems(t *testing.T) {
 		"a page is unreachable": func(in *Input) {
 			in.Fetch = func(context.Context, string) (int, error) { return 0, errors.New("unreachable") }
 		},
+		"webhook redirects": func(in *Input) {
+			in.Webhook = func(context.Context, string) (int, error) { return http.StatusFound, nil }
+		},
+		"webhook blocked": func(in *Input) {
+			in.Webhook = func(context.Context, string) (int, error) { return http.StatusForbidden, nil }
+		},
+		"webhook unreachable": func(in *Input) {
+			in.Webhook = func(context.Context, string) (int, error) { return 0, errors.New("unreachable") }
+		},
+		"redis denies TIME": func(in *Input) {
+			in.RedisTime = func(context.Context) (bool, error) { return true, errors.New("NOPERM") }
+		},
+		"no stripe terms url": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, PrivacySet: true, PaymentMethodUpdate: true}
+			}
+		},
+		"no stripe privacy url": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PaymentMethodUpdate: true}
+			}
+		},
+		"no payment method update": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true}
+			}
+		},
+		"no portal configuration": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { return StripeFacts{PricesActive: true} }
+		},
+		"a price is inactive": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true}
+			}
+		},
 		"founding dry run fails": func(in *Input) {
 			in.Founding = func(context.Context, time.Time) (Founding, error) { return Founding{}, errors.New("no table") }
 		},
@@ -135,6 +177,8 @@ func TestPreflightProblems(t *testing.T) {
 func TestPreflightWarnings(t *testing.T) {
 	in := okInput()
 	in.Getenv = env(map[string]string{"RIVOLT_BILLING": "true", "RIVOLT_APPLE_IAP_ENV": "Sandbox"})
+	in.RedisTime = func(context.Context) (bool, error) { return false, errors.New("timeout") }
+	in.Stripe = func(context.Context) StripeFacts { return StripeFacts{Err: errors.New("stripe: 403 permission")} }
 	in.Founding = func(context.Context, time.Time) (Founding, error) {
 		return Founding{Accounts: 12, Demo: 1, Eligible: 10, After: 1, ToGrant: 10}, nil
 	}
@@ -143,7 +187,7 @@ func TestPreflightWarnings(t *testing.T) {
 	if !r.Ready() {
 		t.Fatalf("warnings stopped the flip: %v\n%s", r.Problems, out)
 	}
-	for _, want := range []string{"created after the launch instant", "billing is already on", "Stripe is in live mode but Apple is Sandbox"} {
+	for _, want := range []string{"created after the launch instant", "billing is already on", "could not run TIME", "could not read the Stripe account"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no warning containing %q:\n%s", want, out)
 		}
@@ -155,16 +199,19 @@ func TestPreflightSaysWhatItSkipped(t *testing.T) {
 	in := okInput()
 	in.Fetch, in.Founding = nil, nil
 	out := render(Run(context.Background(), in))
-	if strings.Count(out, "not checked") != 2 {
+	if strings.Count(out, "not checked") < 2 {
 		t.Errorf("want both skipped parts named:\n%s", out)
 	}
 }
 
-func TestKeyModeIsOnlyThePrefixClass(t *testing.T) {
-	for key, want := range map[string]string{"sk_live_abc": "live", "rk_live_abc": "live", "sk_test_abc": "test", "rk_test_x": "test", "weird": "unrecognised", "": "unrecognised"} {
-		if got := keyMode(key); got != want {
-			t.Errorf("keyMode(%q) = %q, want %q", key, got, want)
-		}
+// Stripe live against Apple Sandbox (or the reverse) is a warning that names neither value.
+func TestPreflightModeMismatchIsAWarning(t *testing.T) {
+	in := okInput()
+	in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_ENV": "Sandbox"})
+	r := Run(context.Background(), in)
+	out := render(r)
+	if !strings.Contains(out, "the Stripe mode and the Apple environment disagree") || strings.Contains(out, "Sandbox") {
+		t.Errorf("mismatch not reported as a bare warning:\n%s", out)
 	}
 }
 

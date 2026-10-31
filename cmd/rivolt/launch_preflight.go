@@ -5,11 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/preflight"
+	"github.com/apohor/rivolt/internal/stripebill"
 )
 
 // runLaunchPreflight prints the read-only report an operator reads before the Rivolt Pro flip (docs/LAUNCH_FLIP.md): the launch-readiness
@@ -50,6 +54,25 @@ func runLaunchPreflight(args []string) int {
 	}
 	if !*offline {
 		in.Fetch = preflight.HTTPFetch
+		in.Webhook = preflight.HTTPPostUnsigned
+		in.Stripe = preflightStripe(os.Getenv)
+	}
+	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
+		rdb := redis.NewClient(redisOptions(addr, os.Getenv))
+		defer rdb.Close()
+		in.RedisTime = func(ctx context.Context) (bool, error) {
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			// The rate-limit script reads the server's clock; if the app user's ACL denies it, every limiter falls back to its pod.
+			err := rdb.Do(ctx, "TIME").Err()
+			if err != nil && strings.Contains(err.Error(), "NOPERM") {
+				return true, err
+			}
+			if err != nil {
+				return false, fmt.Errorf("redis unreachable or refused")
+			}
+			return false, nil
+		}
 	}
 	rep := preflight.Run(ctx, in)
 	rep.Print(os.Stdout)
@@ -57,4 +80,40 @@ func runLaunchPreflight(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// preflightStripe reads the Stripe API with the configured key (read-only GETs): the mode and activity of both prices and the default
+// Customer Portal configuration's Terms and Privacy URLs and payment-method setting. A key that cannot read it yields an error with no
+// key in it.
+func preflightStripe(getenv func(string) string) func(context.Context) preflight.StripeFacts {
+	key := strings.TrimSpace(getenv("RIVOLT_STRIPE_SECRET_KEY"))
+	return func(ctx context.Context) preflight.StripeFacts {
+		var f preflight.StripeFacts
+		if key == "" {
+			return f
+		}
+		c := &stripebill.Client{SecretKey: key}
+		f.Live, f.PricesActive = true, true
+		for _, name := range []string{"RIVOLT_STRIPE_PRICE_MONTHLY", "RIVOLT_STRIPE_PRICE_YEARLY"} {
+			id := strings.TrimSpace(getenv(name))
+			if id == "" {
+				f.PricesActive = false
+				continue
+			}
+			live, active, err := c.PriceMode(ctx, id)
+			if err != nil {
+				f.Err = err
+				return f
+			}
+			f.Live = f.Live && live
+			f.PricesActive = f.PricesActive && active
+		}
+		pf, err := c.PortalFacts(ctx)
+		if err != nil {
+			f.Err = err
+			return f
+		}
+		f.PortalFound, f.TermsSet, f.PrivacySet, f.PaymentMethodUpdate = pf.Found, pf.TermsSet, pf.PrivacySet, pf.PaymentMethodUpdate
+		return f
+	}
 }

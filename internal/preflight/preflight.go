@@ -26,13 +26,31 @@ type Founding struct {
 	After    int // accounts created after the launch instant (not granted)
 }
 
+// StripeFacts is what the Stripe API says, booleans and a mode only. Err is set when the key could not read it (sanitised, no key).
+type StripeFacts struct {
+	Err                 error
+	Live                bool // the key and the prices are in live mode
+	PricesActive        bool // both prices exist and are active
+	PortalFound         bool
+	TermsSet            bool // the Customer Portal's Terms of service URL
+	PrivacySet          bool // and its Privacy policy URL
+	PaymentMethodUpdate bool // customers can update their payment method in the portal
+}
+
 // Input is everything the report reads, so a test drives it without a database, a network or the process environment.
 type Input struct {
 	Getenv func(string) string
 	// Founding reads the counts; nil: the database part is skipped and the report says so.
 	Founding func(ctx context.Context, launch time.Time) (Founding, error)
 	// Fetch returns the status of a GET of url; nil skips the URL checks.
-	Fetch  func(ctx context.Context, url string) (int, error)
+	Fetch func(ctx context.Context, url string) (int, error)
+	// Webhook returns the status of an UNSIGNED, empty POST to url (Stripe's webhook endpoint); nil skips it.
+	Webhook func(ctx context.Context, url string) (int, error)
+	// RedisTime runs TIME as the app's Redis user, which is what the shared rate-limit script needs; nil skips it. It reports a denial
+	// (the ACL) apart from the other failures.
+	RedisTime func(ctx context.Context) (denied bool, err error)
+	// Stripe reads the Stripe API with the configured key; nil skips it.
+	Stripe func(ctx context.Context) StripeFacts
 	Launch time.Time
 }
 
@@ -145,7 +163,7 @@ func Run(ctx context.Context, in Input) *Report {
 		}
 	}
 
-	r.line("== Billing settings (names and state only, never values)")
+	r.line("== Billing settings (names and present or absent only, never values)")
 	r.line("  RIVOLT_BILLING: %s", map[bool]string{true: "on", false: "off"}[billingOn])
 	if billingOn {
 		r.warn("billing is already on")
@@ -166,17 +184,13 @@ func Run(ctx context.Context, in Input) *Report {
 	present("RIVOLT_STRIPE_WEBHOOK_SECRET", true)
 	present("RIVOLT_STRIPE_PRICE_MONTHLY", true)
 	present("RIVOLT_STRIPE_PRICE_YEARLY", true)
-	if strings.TrimSpace(get("RIVOLT_PUBLIC_BASE_URL")) == "" && strings.TrimSpace(get("RIVOLT_BASE_URL")) == "" {
+	baseURL := strings.TrimRight(strings.TrimSpace(firstNonEmpty(get("RIVOLT_PUBLIC_BASE_URL"), get("RIVOLT_BASE_URL"))), "/")
+	if baseURL == "" {
 		r.problem("RIVOLT_PUBLIC_BASE_URL (or RIVOLT_BASE_URL) is not set; Stripe Checkout stays off without it")
 	} else {
 		r.line("  RIVOLT_PUBLIC_BASE_URL: set")
 	}
 	r.line("  RIVOLT_STRIPE_AUTOMATIC_TAX: %s", map[bool]string{true: "on", false: "off"}[parseBool(get("RIVOLT_STRIPE_AUTOMATIC_TAX"))])
-	stripeMode := ""
-	if hasKey {
-		stripeMode = keyMode(get("RIVOLT_STRIPE_SECRET_KEY"))
-		r.line("  Stripe key mode: %s", stripeMode)
-	}
 	cfg, err := applebill.ConfigFromEnv(get, true)
 	switch {
 	case err != nil:
@@ -185,13 +199,94 @@ func Run(ctx context.Context, in Input) *Report {
 		r.problem("RIVOLT_APPLE_IAP_BUNDLE_ID is not set; the iPhone app cannot subscribe")
 	default:
 		r.line("  RIVOLT_APPLE_IAP_BUNDLE_ID: set")
-		r.line("  RIVOLT_APPLE_IAP_PRODUCTS: %d product id(s)", len(cfg.Products))
-		r.line("  Apple environment: %s", cfg.Environment)
-		if (stripeMode == "live" && cfg.Environment == applebill.EnvSandbox) || (stripeMode == "test" && cfg.Environment == applebill.EnvProduction) {
-			r.warn("Stripe is in %s mode but Apple is %s", stripeMode, cfg.Environment)
+		r.line("  RIVOLT_APPLE_IAP_PRODUCTS: set")
+		r.line("  RIVOLT_APPLE_IAP_ENV: set")
+	}
+
+	r.line("== Stripe webhook endpoint")
+	switch {
+	case in.Webhook == nil:
+		r.warn("not checked (offline)")
+	case baseURL == "":
+		r.warn("not checked (no public base URL)")
+	default:
+		// An unsigned POST must reach the handler and be refused for its signature: 400. A redirect (302) or a block (403) means Stripe's
+		// events would never arrive.
+		code, err := in.Webhook(ctx, baseURL+"/api/billing/stripe/webhook")
+		switch {
+		case err != nil:
+			r.problem("the webhook endpoint is unreachable: %v", err)
+		case code != http.StatusBadRequest:
+			r.problem("an unsigned POST to the webhook endpoint got HTTP %d, want 400 (a redirect or a block would drop Stripe's events)", code)
+		default:
+			r.line("  unsigned POST: 400 (the handler refuses it for its signature)")
+		}
+	}
+
+	r.line("== Redis ACL for the app user")
+	switch {
+	case strings.TrimSpace(get("RIVOLT_REDIS_ADDR")) == "":
+		r.warn("RIVOLT_REDIS_ADDR is not set: the limiters count per pod")
+	case in.RedisTime == nil:
+		r.warn("not checked (no Redis client)")
+	default:
+		denied, err := in.RedisTime(ctx)
+		switch {
+		case denied:
+			r.problem("the app user's ACL denies TIME (the rate-limit script needs +time): every limiter would fall back to per-pod buckets")
+		case err != nil:
+			r.warn("could not run TIME: %v", err)
+		default:
+			r.line("  TIME as the app user: allowed")
+		}
+	}
+
+	r.line("== Stripe account (read through the API with the configured key)")
+	switch {
+	case !hasKey:
+		r.line("  skipped: no secret key")
+	case in.Stripe == nil:
+		r.warn("not checked (offline)")
+	default:
+		f := in.Stripe(ctx)
+		if f.Err != nil {
+			r.warn("could not read the Stripe account: %v", f.Err)
+			break
+		}
+		r.line("  mode: %s", map[bool]string{true: "live", false: "test"}[f.Live])
+		if !f.PricesActive {
+			r.problem("a configured price is missing or not active")
+		}
+		if !f.PortalFound {
+			r.problem("no default Customer Portal configuration (Plan card -> Update card / Cancel would fail)")
+		} else {
+			if !f.TermsSet {
+				r.problem("the Customer Portal has no Terms of service URL")
+			}
+			if !f.PrivacySet {
+				r.problem("the Customer Portal has no Privacy policy URL")
+			}
+			if !f.PaymentMethodUpdate {
+				r.problem("the Customer Portal does not let customers update their payment method")
+			}
+			if f.TermsSet && f.PrivacySet && f.PaymentMethodUpdate {
+				r.line("  portal: Terms URL set, Privacy URL set, payment-method update on")
+			}
+		}
+		if cfg != nil && ((f.Live && cfg.Environment == applebill.EnvSandbox) || (!f.Live && cfg.Environment == applebill.EnvProduction)) {
+			r.warn("the Stripe mode and the Apple environment disagree (one live, one not)")
 		}
 	}
 	return r
+}
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func parseBool(s string) bool {
@@ -200,22 +295,6 @@ func parseBool(s string) bool {
 		return true
 	}
 	return false
-}
-
-// keyMode is "live" or "test" from a Stripe key's public prefix; never any other part of it.
-func keyMode(key string) string {
-	k := strings.TrimSpace(key)
-	for _, p := range []string{"sk_live_", "rk_live_"} {
-		if strings.HasPrefix(k, p) {
-			return "live"
-		}
-	}
-	for _, p := range []string{"sk_test_", "rk_test_"} {
-		if strings.HasPrefix(k, p) {
-			return "test"
-		}
-	}
-	return "unrecognised"
 }
 
 // HTTPFetch GETs url with a short timeout and reports the status after redirects; the body is not read.
@@ -227,6 +306,25 @@ func HTTPFetch(ctx context.Context, url string) (int, error) {
 		return 0, err
 	}
 	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("unreachable")
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode, nil
+}
+
+// HTTPPostUnsigned POSTs an empty body to url without following redirects and reports the status: what Stripe would get for an event with
+// no signature.
+func HTTPPostUnsigned(ctx context.Context, url string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := c.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("unreachable")
 	}
