@@ -338,9 +338,10 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 }
 
 // checkCountry is the US-only guard: Rivolt Pro is sold in the United States only. After an event has been applied it looks at the billing
-// country: on checkout.session.completed the one the customer entered at Checkout, on customer.subscription.updated (which is where an
-// address change shows up) the customer's address, read from Stripe. A country other than the US is reported (a WARN with the country code
-// only, no address and no id, and OnNonUS for the counter) and NOTHING else: the account keeps the Pro it paid for, because refusing
+// country: on checkout.session.completed the one the customer entered at Checkout, on customer.subscription.updated the customer's address,
+// read from Stripe. An address changed later in the Portal emits customer.updated, which is not subscribed to, so that change is caught at
+// the next subscription change (a plan change, or the renewal at the latest). A country other than the US is reported (a WARN with the
+// country code and the opaque Stripe customer id, never the address or any name or email, and OnNonUS for the counter) and NOTHING else: the account keeps the Pro it paid for, because refusing
 // silently is worse; the operator refunds in full, cancels and writes to the customer (docs/launch-flip.md in rivolt-infra). Best effort: a
 // failure to read the country is not the event's failure.
 func (h *Handler) checkCountry(ctx context.Context, ev Event, outcome string) {
@@ -381,6 +382,8 @@ func (h *Handler) checkCountry(ctx context.Context, ev Event, outcome string) {
 		h.OnNonUS(country)
 	}
 	if h.Log != nil {
-		h.Log.Warn("stripe webhook: a billing address outside the US; the account keeps Pro, the operator refunds and cancels", "country", country, "event_type", ev.Type)
+		// The customer id is an opaque Stripe id (no name, email or address): the operator finds the customer by it, since Stripe's search
+		// does not filter by address country.
+		h.Log.Warn("stripe webhook: a billing address outside the US; the account keeps Pro, the operator refunds and cancels", "country", country, "customer", customer, "event_type", ev.Type)
 	}
 }

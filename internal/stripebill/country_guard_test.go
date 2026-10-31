@@ -50,7 +50,8 @@ func TestCountryGuard(t *testing.T) {
 		t.Fatalf("after checkout events: counted %v, want [DE]", counted)
 	}
 
-	// An address change shows up on customer.subscription.updated: the customer is read from Stripe.
+	// An address change is caught at the next customer.subscription.updated (customer.updated is not subscribed to): the customer is read
+	// from Stripe then.
 	fc.country = "CA"
 	h.checkCountry(ctx, evt("customer.subscription.updated", `{"id":"sub_1","customer":"cus_e"}`), OutcomeApplied)
 	fc.country = "US"
@@ -69,12 +70,14 @@ func TestCountryGuard(t *testing.T) {
 	if n := strings.Count(out, "billing address outside the US"); n != 2 {
 		t.Errorf("%d warn lines, want 2:\n%s", n, out)
 	}
-	for _, leak := range []string{"Private Street", "cus_", "sub_", "evt_"} {
+	for _, leak := range []string{"Private Street", "sub_", "evt_"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("the log carries %q:\n%s", leak, out)
 		}
 	}
-	for _, want := range []string{"country=DE", "country=CA"} {
+	// The operator finds the customer by the opaque Stripe id (Stripe's search does not filter by country): the id is in the line, the address
+	// and the subscription and event ids are not.
+	for _, want := range []string{"country=DE", "customer=cus_a", "country=CA", "customer=cus_e"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log lacks %q:\n%s", want, out)
 		}
