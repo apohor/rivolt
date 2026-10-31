@@ -732,6 +732,9 @@ func New(d Deps) http.Handler {
 				}
 			})
 		}
+		if d.SystemDB != nil && d.Email != nil && !d.AdminOnly {
+			startDatedNoticeJob(d)
+		}
 		runStatement, runWeekly := emailSweepsAllowed(d)
 		if runStatement {
 			startStatementJob(d, d.StatementSigner)

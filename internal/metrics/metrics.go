@@ -225,6 +225,9 @@ type Metrics struct {
 	// Non-transactional messages (internal/engage), by kind and outcome (sent,
 	// failed, already_sent, skipped_*). No user ids in labels.
 	EngagementSendsTotal *prometheus.CounterVec
+	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
+	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
+	DatedNoticesTotal *prometheus.CounterVec
 	// Claims left in 'sending' past 15 minutes: a crash between claim and
 	// delivery. Never resent, so a nonzero value is how a lost message shows.
 	EngagementStuckSending prometheus.Gauge
@@ -478,6 +481,13 @@ func New() *Metrics {
 			},
 			[]string{"kind", "outcome"},
 		),
+		DatedNoticesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_dated_notices_total",
+				Help: "Dated Pro notices (founding year end, annual renewal) by kind and outcome.",
+			},
+			[]string{"kind", "outcome"},
+		),
 		EngagementStuckSending: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "rivolt_engagement_stuck_sending",
 			Help: "Engagement claims left in sending for over 15 minutes.",
@@ -637,6 +647,7 @@ func New() *Metrics {
 		m.LoginLockoutsTotal,
 		m.FailLimiterFallbackTotal,
 		m.EngagementSendsTotal,
+		m.DatedNoticesTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
 		m.EngagementStuckSending,
