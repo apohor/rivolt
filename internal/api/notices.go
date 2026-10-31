@@ -42,10 +42,19 @@ func (a *noticesAPI) list(uid uuid.UUID, w http.ResponseWriter, r *http.Request)
 	}
 	out := []noticeJSON{}
 	for _, n := range ns {
-		if n.Kind != launchnotice.Kind {
+		var t launchnotice.InApp
+		switch n.Kind {
+		case launchnotice.Kind:
+			t = launchnotice.RenderInApp(n.Params)
+		case launchnotice.KindFoundingEnd:
+			var fp launchnotice.FoundingParams
+			if json.Unmarshal(n.Raw, &fp) != nil {
+				continue
+			}
+			t = launchnotice.RenderFoundingInApp(fp)
+		default:
 			continue
 		}
-		t := launchnotice.RenderInApp(n.Params)
 		out = append(out, noticeJSON{Kind: n.Kind, Title: t.Title, Body: t.Body, Links: t.Links, ShowsUntil: n.ShowsUntil, Dismissed: n.Dismissed != nil})
 	}
 	w.Header().Set("Cache-Control", "no-store")
