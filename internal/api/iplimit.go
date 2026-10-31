@@ -1,11 +1,9 @@
 package api
 
-// Per-IP in-memory token bucket for hot public endpoints. Used for
-// /api/signup/request as a last-line defense in case the Cloudflare
-// edge rule ever fails open. State lives in-process so it resets on
-// pod restart and is not shared across replicas — fine for the
-// beta-scale signup form where ~5 req/IP/hour is plenty and edge
-// shedding is the real defense.
+// Per-IP token bucket for hot public endpoints (and per-user for the map and write routes). A limiter
+// that is named and built from a limiterSet with Redis (iplimit_redis.go) is counted across replicas;
+// every limiter also keeps its own per-pod bucket, which decides alone when Redis cannot answer.
+// Used for /api/signup/request as a last-line defense in case the Cloudflare edge rule ever fails open.
 //
 // A LRU-style janitor reaps idle limiter entries every hour so a
 // long-running pod under address rotation doesn't grow the map
@@ -34,6 +32,10 @@ type ipLimiter struct {
 	// onDeny, when set, is called once for every request the limiter
 	// rejects (the demo counts 429s by class; no addresses).
 	onDeny func()
+	// name and shared put the bucket in Redis as well (iplimit_redis.go): counted across replicas, per pod
+	// when Redis cannot answer. Unnamed or without shared, the limiter is per pod only.
+	name   string
+	shared *sharedBuckets
 
 	mu      sync.Mutex
 	buckets map[string]*ipBucket
@@ -95,6 +97,12 @@ func (l *ipLimiter) allowN(ip string, n int) (bool, time.Duration) {
 	if n <= 0 {
 		return true, 0
 	}
+	if l.name != "" && l.shared != nil {
+		ok, wait, answered := l.shared.allow(l.name, ip, float64(l.rps), l.burst, n)
+		if answered && !ok {
+			return false, wait
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -146,9 +154,9 @@ const (
 // newSignupRequestLimiters builds the per-visitor limiter and the global
 // backstop for POST /api/signup/request. Chain them in that order, so a
 // request the visitor's own limit refuses never spends a global token.
-func newSignupRequestLimiters(perIP, global int) (*ipLimiter, *ipLimiter) {
-	one := newIPLimiter(perIP, time.Hour, time.Hour)
-	all := newIPLimiter(global, time.Hour, time.Hour)
+func newSignupRequestLimiters(ls *limiterSet, perIP, global int) (*ipLimiter, *ipLimiter) {
+	one := ls.ip("signup-request", perIP, time.Hour, time.Hour)
+	all := ls.ip("signup-request-global", global, time.Hour, time.Hour)
 	all.key = func(*http.Request) string { return "global-signup-request" }
 	return one, all
 }

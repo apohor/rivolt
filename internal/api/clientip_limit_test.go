@@ -12,7 +12,7 @@ import (
 // limited returns a handler that applies the signup limiters behind the
 // client-address middleware, as the router does.
 func limited(perIP, global int) http.Handler {
-	one, all := newSignupRequestLimiters(perIP, global)
+	one, all := newSignupRequestLimiters(nil, perIP, global)
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
 	return clientip.Middleware(one.Middleware(all.Middleware(ok)))
 }

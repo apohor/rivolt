@@ -170,7 +170,7 @@ func demoChain(limiter *ipLimiter, real *uuid.UUID) (http.Handler, uuid.UUID) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	h := demoAccessMW(demoUID, demoVeh, limiter, newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	h := demoAccessMW(nil, demoUID, demoVeh, limiter, newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	if real != nil {
 		// Simulate a session resolved by the auth middleware upstream.
 		h = func(next http.Handler) http.Handler {
@@ -194,7 +194,7 @@ func demoReq(h http.Handler, method, path string) *httptest.ResponseRecorder {
 }
 
 func TestDemoAccessMW_AnonymousAllowlistedBecomesDemoUser(t *testing.T) {
-	h, uid := demoChain(newDemoLimiter(), nil)
+	h, uid := demoChain(newDemoLimiter(nil, "t"), nil)
 	rec := demoReq(h, "GET", "/api/charges")
 	if rec.Header().Get("X-Test-User") != uid.String() || rec.Header().Get(demoHeader) != "1" {
 		t.Fatalf("anonymous allowlisted GET not served as demo: %v", rec.Header())
@@ -216,7 +216,7 @@ func TestDemoAccessMW_AnonymousAllowlistedBecomesDemoUser(t *testing.T) {
 
 func TestDemoAccessMW_SignedInUserIsNeverSwitched(t *testing.T) {
 	real := uuid.New()
-	h, _ := demoChain(newDemoLimiter(), &real)
+	h, _ := demoChain(newDemoLimiter(nil, "t"), &real)
 	rec := demoReq(h, "GET", "/api/charges")
 	if rec.Header().Get("X-Test-User") != real.String() || rec.Header().Get(demoHeader) != "" {
 		t.Fatalf("signed-in user was switched: %v", rec.Header())
@@ -265,7 +265,7 @@ func contains(s, sub string) bool {
 }
 
 func TestDemoRateLimitKeyedOnCFConnectingIP(t *testing.T) {
-	l := newDemoLimiter()
+	l := newDemoLimiter(nil, "t")
 	l.rps, l.burst = 0, 2 // two requests per key, no refill
 	h, _ := demoChain(l, nil)
 	do := func(cf, spoof string) int {
@@ -289,10 +289,10 @@ func TestDemoRateLimitKeyedOnCFConnectingIP(t *testing.T) {
 }
 
 func TestDemoGlobalLimiter(t *testing.T) {
-	g := newDemoGlobalLimiter()
+	g := newDemoGlobalLimiter(nil, "tg")
 	g.rps, g.burst = 0, 2
 	demoUID := uuid.New()
-	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), g)(
+	h := demoAccessMW(nil, demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), g)(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	codes := []int{}
 	for i := 0; i < 4; i++ {
@@ -311,7 +311,7 @@ func TestDemoGlobalLimiter(t *testing.T) {
 func TestDemoSamplesLimitIsClamped(t *testing.T) {
 	var seen string
 	demoUID := uuid.New()
-	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(
+	h := demoAccessMW(nil, demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.URL.Query().Get("limit") }))
 	for _, c := range []struct{ q, want string }{
 		{"", "2000"},
@@ -336,7 +336,7 @@ func TestDemoSamplesLimitIsClamped(t *testing.T) {
 // demo limits and from other demo endpoints.
 func TestDemoSamplesHasItsOwnTighterLimits(t *testing.T) {
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	do := func(path, ip string) int {
 		rec := httptest.NewRecorder()
@@ -383,7 +383,7 @@ func TestDemoNoisyClientDoesNotExhaustGlobalBudget(t *testing.T) {
 	perClient.key = demoClientKey
 	global := newIPLimiter(10, time.Minute, time.Hour)
 	global.key = func(*http.Request) string { return "global" }
-	h := demoAccessMW(uuid.New(), demoVeh, perClient, global)(
+	h := demoAccessMW(nil, uuid.New(), demoVeh, perClient, global)(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	do := func(path, ip string) int {
 		rec := httptest.NewRecorder()
@@ -414,7 +414,7 @@ func TestDemoNoisyClientDoesNotExhaustGlobalBudget(t *testing.T) {
 
 func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	do := func(ip string) int {
 		rec := httptest.NewRecorder()
@@ -443,7 +443,7 @@ func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
 }
 
 func TestDemoTiles_OnlyPublicArchivesAnonymousAndOwnBudget(t *testing.T) {
-	h, uid := demoChain(newDemoLimiter(), nil)
+	h, uid := demoChain(newDemoLimiter(nil, "t"), nil)
 	for _, c := range []struct {
 		method, path string
 		ok           bool
@@ -482,7 +482,7 @@ func TestDemoTiles_DoNotDrawOnGeneralBudget(t *testing.T) {
 }
 
 func TestDemoTiles_PerClientLimit(t *testing.T) {
-	h, _ := demoChain(newDemoLimiter(), nil)
+	h, _ := demoChain(newDemoLimiter(nil, "t"), nil)
 	limited := false
 	for i := 0; i < demoTilesPerClientPerMin+50; i++ {
 		if demoReq(h, "GET", "/api/maps/tiles/us.pmtiles").Code == http.StatusTooManyRequests {
@@ -523,7 +523,7 @@ func TestDemoDrainLimitAndCache(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	h := demoAccessMW(nil, demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	path := "/api/vehicles/" + demoVeh + "/drain"
 	// Identical reads inside the TTL are cache hits: they reached the handler once and spent none of the client's heavy budget, so
 	// well over the budget's worth of them all succeed (a phone re-asking for what it already has is not throttled).
@@ -547,7 +547,7 @@ func TestDemoHeavyMissesSpendTheClientBudget(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(inner)
 	window := func(i int) string { // distinct windows 10 minutes apart (the edges snap to 5 minutes)
 		since := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i) * 10 * time.Minute)
 		return "/api/activity?since=" + since.Format(time.RFC3339) + "&until=" + since.Add(24*time.Hour).Format(time.RFC3339)
@@ -671,7 +671,7 @@ func TestDemoClientKeyTrustsCFHeaderOnlyFromCloudflare(t *testing.T) {
 }
 
 func TestDemoTileRangeGuard(t *testing.T) {
-	h, _ := demoChain(newDemoLimiter(), nil)
+	h, _ := demoChain(newDemoLimiter(nil, "t"), nil)
 	do := func(method, rng string) int {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(method, "/api/maps/tiles/us.pmtiles", nil)
@@ -707,7 +707,7 @@ func TestDemoTileRangeGuard(t *testing.T) {
 }
 
 func TestDemoResponsesAreNotCacheableByShares(t *testing.T) {
-	h, _ := demoChain(newDemoLimiter(), nil)
+	h, _ := demoChain(newDemoLimiter(nil, "t"), nil)
 	rec := demoReq(h, "GET", "/api/charges")
 	if rec.Header().Get("Cache-Control") != "private, no-store" {
 		t.Errorf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
@@ -729,7 +729,7 @@ func TestDemoHeavyReadsIgnoreQueryNoise(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	})
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(inner)
 	drain := "/api/vehicles/" + demoVeh + "/drain"
 	// Random tz values and extra params all collapse to one cache entry.
 	for _, q := range []string{"", "?tz=Mars/Base", "?tz=random1&x=1", "?foo=bar", "?tz="} {
@@ -755,7 +755,7 @@ func TestDemoPlanActualSharesHeavyBudgetAndCache(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	})
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(inner)
 	path := "/api/trips/saved/" + demoTripID + "/actual"
 	// Cache-busting params are dropped, so every one is the same key: one read of the database, and the rest are free hits.
 	for i := 0; i < demoHeavyPerClientPerMin+2; i++ {
@@ -814,7 +814,7 @@ func TestDemoHeavyCacheHitsDoNotSpendTheSharedBudget(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	})
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(inner)
 	path := "/api/vehicles/" + demoVeh + "/drain"
 	// 3 x the shared per-minute budget of requests, each from its own
 	// client (so no per-client limit binds): one miss, the rest cache hits.
@@ -878,7 +878,7 @@ func TestDemoTileBudgetsFromEnv(t *testing.T) {
 
 	tilesUntil429 := func(t *testing.T) int {
 		t.Helper()
-		h, _ := demoChain(newDemoLimiter(), nil)
+		h, _ := demoChain(newDemoLimiter(nil, "t"), nil)
 		for i := 1; i <= 200; i++ {
 			if demoReq(h, "GET", "/api/maps/tiles/us.pmtiles").Code == http.StatusTooManyRequests {
 				return i
@@ -905,7 +905,7 @@ func TestDemoRateLimitedObserverCountsByClassAndScope(t *testing.T) {
 	t.Cleanup(func() { demoRateLimitedObserver = nil })
 
 	// general client limit of 1
-	l := newDemoLimiter()
+	l := newDemoLimiter(nil, "t")
 	l.rps, l.burst = 0, 1
 	h, _ := demoChain(l, nil)
 	demoReq(h, "GET", "/api/charges")
@@ -988,7 +988,7 @@ func TestDemoSavingsIgnoresQueryNoise(t *testing.T) {
 		_, _ = w.Write([]byte("{}"))
 	})
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(inner)
 	for _, q := range []string{"", "?months=12", "?month=2020-01&months=12", "?vehicle_id=other", "?tz=Mars/Base"} {
 		if rec := demoReq(h, "GET", "/api/ledger/savings"+q); rec.Code != 200 {
 			t.Fatalf("%q = %d", q, rec.Code)
@@ -1084,7 +1084,7 @@ func TestDemoHeavyCacheNeverSeesASignedInRequest(t *testing.T) {
 		u, _ := auth.UserFromContext(r.Context())
 		_, _ = w.Write([]byte("for " + u.String()))
 	})
-	mw := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	mw := demoAccessMW(nil, demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	as := func(u uuid.UUID) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mw.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), u)))
@@ -1133,7 +1133,7 @@ func TestDemoHeavyCacheServesEachClientItsOwnEncoding(t *testing.T) {
 		_, _ = w.Write([]byte(payload))
 	}))
 	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
-	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(route)
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(route)
 	get := func(acceptEncoding string) (*httptest.ResponseRecorder, string) {
 		req := httptest.NewRequest("GET", "/api/activity?since=2026-10-01T00:00:00Z&until=2026-11-01T00:00:00Z", nil)
 		req.RemoteAddr = "203.0.113.9:4000"

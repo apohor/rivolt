@@ -44,24 +44,24 @@ func mapsUserLimiter(perMin int) *ipLimiter {
 // valhallaMount and tilesMount are what api.go mounts at /api/maps/valhalla and
 // /api/maps/tiles. The prefix is stripped first, so the allowlist sees the path
 // the upstream will see ("/route", "/us.pmtiles"), not the public one.
-func valhallaMount(proxy http.Handler) http.Handler {
-	return mapsUserLimiter(mapsValhallaPerMin).Middleware(
+func valhallaMount(ls *limiterSet, proxy http.Handler) http.Handler {
+	return ls.user("maps-valhalla", mapsValhallaPerMin).Middleware(
 		http.StripPrefix("/api/maps/valhalla", maps.AllowValhalla(maps.LimitValhalla(proxy))))
 }
 
-func tilesMount(proxy http.Handler) http.Handler {
-	return mapsUserLimiter(mapsTilesPerMin).Middleware(
+func tilesMount(ls *limiterSet, proxy http.Handler) http.Handler {
+	return ls.user("maps-tiles", mapsTilesPerMin).Middleware(
 		http.StripPrefix("/api/maps/tiles", maps.AllowTiles(proxy)))
 }
 
 // demMount is what api.go mounts at /api/maps/dem: Terrarium terrain tiles from the in-cluster elevation mirror, one tile per GET.
-func demMount(proxy http.Handler) http.Handler {
-	return mapsUserLimiter(mapsDEMPerMin).Middleware(
+func demMount(ls *limiterSet, proxy http.Handler) http.Handler {
+	return ls.user("maps-dem", mapsDEMPerMin).Middleware(
 		http.StripPrefix("/api/maps/dem", maps.AllowDEM(proxy)))
 }
 
 // glyphsMount is what api.go mounts at /api/maps/glyphs: the label glyph ranges embedded in the binary (no upstream, no configuration).
-func glyphsMount() http.Handler {
-	return mapsUserLimiter(mapsGlyphsPerMin).Middleware(
+func glyphsMount(ls *limiterSet) http.Handler {
+	return ls.user("maps-glyphs", mapsGlyphsPerMin).Middleware(
 		http.StripPrefix("/api/maps/glyphs", maps.GlyphHandler()))
 }

@@ -517,34 +517,34 @@ func demoNegotiateEncoding(next http.Handler) http.Handler {
 // It runs after authentication resolves the real identity and before
 // impersonation, so a real session always wins and impersonation sees
 // only the (non-admin) demo user.
-func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
-	samples := newIPLimiter(demoSamplesPerClientPerMin, time.Minute, time.Hour)
+func demoAccessMW(ls *limiterSet, uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
+	samples := ls.ip("demo-samples", demoSamplesPerClientPerMin, time.Minute, time.Hour)
 	samples.key = demoClientKey
 	samples.onDeny = demoDenied("samples", "client")
-	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
+	samplesGlobal := ls.ip("demo-samples-global", demoSamplesGlobalPerMin, time.Minute, time.Hour)
 	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
 	samplesGlobal.onDeny = demoDenied("samples", "global")
 	tilesPerClient, tilesPerInstall := demoTileBudgets()
-	tiles := newIPLimiter(tilesPerClient, time.Minute, time.Hour)
+	tiles := ls.ip("demo-tiles", tilesPerClient, time.Minute, time.Hour)
 	tiles.key = demoClientKey
 	tiles.onDeny = demoDenied("tiles", "client")
-	tilesGlobal := newIPLimiter(tilesPerInstall, time.Minute, time.Hour)
+	tilesGlobal := ls.ip("demo-tiles-global", tilesPerInstall, time.Minute, time.Hour)
 	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
 	tilesGlobal.onDeny = demoDenied("tiles", "global")
 	bytesPerClient, bytesPerInstall := demoTileByteBudgets()
-	tileBytes := newIPLimiter(bytesPerClient, time.Hour, time.Hour)
+	tileBytes := ls.ip("demo-tile-bytes", bytesPerClient, time.Hour, time.Hour)
 	tileBytes.key = demoClientKey
 	tileBytes.onDeny = demoDenied("tile_bytes", "client")
-	tileBytesGlobal := newIPLimiter(bytesPerInstall, time.Hour, time.Hour)
+	tileBytesGlobal := ls.ip("demo-tile-bytes-global", bytesPerInstall, time.Hour, time.Hour)
 	tileBytesGlobal.key = func(*http.Request) string { return "global-tile-bytes" }
 	tileBytesGlobal.onDeny = demoDenied("tile_bytes", "global")
 	tileCost := func(r *http.Request) int { return demoRangeLen(r.Header.Get("Range")) }
 	// The heavy reads (parked drain, plan-vs-actual) share one small
 	// budget and one response cache.
-	heavy := newIPLimiter(demoHeavyPerClientPerMin, time.Minute, time.Hour)
+	heavy := ls.ip("demo-heavy", demoHeavyPerClientPerMin, time.Minute, time.Hour)
 	heavy.key = demoClientKey
 	heavy.onDeny = demoDenied("heavy", "client")
-	heavyGlobal := newIPLimiter(demoHeavyGlobalPerMin, time.Minute, time.Hour)
+	heavyGlobal := ls.ip("demo-heavy-global", demoHeavyGlobalPerMin, time.Minute, time.Hour)
 	heavyGlobal.key = func(*http.Request) string { return "global-heavy" }
 	heavyGlobal.onDeny = demoDenied("heavy", "global")
 	heavyCache := newDemoResponseCache(demoHeavyCacheTTL, 32)
@@ -661,15 +661,15 @@ const demoRateGlobalPerMin = 1200
 
 // newDemoLimiter is the per-client limiter; newDemoGlobalLimiter the
 // install-wide one. demoAccessMW applies both.
-func newDemoLimiter() *ipLimiter {
-	l := newIPLimiter(demoRatePerMin, time.Minute, time.Hour)
+func newDemoLimiter(ls *limiterSet, name string) *ipLimiter {
+	l := ls.ip(name, demoRatePerMin, time.Minute, time.Hour)
 	l.key = demoClientKey
 	l.onDeny = demoDenied("general", "client")
 	return l
 }
 
-func newDemoGlobalLimiter() *ipLimiter {
-	l := newIPLimiter(demoRateGlobalPerMin, time.Minute, time.Hour)
+func newDemoGlobalLimiter(ls *limiterSet, name string) *ipLimiter {
+	l := ls.ip(name, demoRateGlobalPerMin, time.Minute, time.Hour)
 	l.key = func(*http.Request) string { return "global" }
 	l.onDeny = demoDenied("general", "global")
 	return l

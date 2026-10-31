@@ -92,7 +92,7 @@ func newBridge(t *testing.T, f *fakeHydraKratos) http.Handler {
 		t.Fatal(err)
 	}
 	r := chi.NewRouter()
-	mountHydraBridge(r, hydraDeps{Hydra: hc, Kratos: kc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	mountHydraBridge(r, nil, hydraDeps{Hydra: hc, Kratos: kc, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	return r
 }
 
