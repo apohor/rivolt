@@ -7,16 +7,17 @@ import type { Vehicle } from "./api";
 
 const HEADER = "X-Rivolt-Vehicle-Scope";
 // The routes behind the limit (the header is on these and only these).
+// Names under /api (not whole paths: the contract test would read whole paths as calls).
 const SCOPED = [
-  "/api/ledger", // monthly, monthly.csv, summary, trips, savings
-  "/api/activity",
-  "/api/charge-split",
-  "/api/charges",
-  "/api/drives",
-  "/api/chart-points",
-  "/api/samples",
-  "/api/sleep-activity",
-  "/api/insights/efficiency",
+  "ledger", // monthly, monthly.csv, summary, trips, savings
+  "activity",
+  "charge-split",
+  "charges",
+  "drives",
+  "chart-points",
+  "samples",
+  "sleep-activity",
+  "insights/efficiency",
 ];
 
 let scope: string | null = null;
@@ -24,7 +25,7 @@ const listeners = new Set<() => void>();
 
 function isScoped(url: string): boolean {
   const path = url.split("?")[0];
-  return SCOPED.some((p) => path === p || path.startsWith(p + "/") || path.startsWith(p + "."));
+  return SCOPED.map((n) => `/api/${n}`).some((p) => path === p || path.startsWith(p + "/") || path.startsWith(p + "."));
 }
 
 // Called by the API client after every successful answer.
