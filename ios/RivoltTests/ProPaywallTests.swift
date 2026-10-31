@@ -47,7 +47,7 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertFalse((cancelled.title + cancelled.line).contains("renews"))
         let failed = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_grace"))))
         XCTAssertEqual(failed.title, "Rivolt Pro, payment failed")
-        XCTAssertTrue(failed.line.hasPrefix("Update your card by"))
+        XCTAssertTrue(failed.line.hasPrefix("Update your card from the payment email we sent, by"))
         XCTAssertTrue(failed.line.hasSuffix("Nothing is deleted either way."))
     }
 

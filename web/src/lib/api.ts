@@ -370,6 +370,8 @@ export type Drive = {
   // 0018 leave it empty, in which case the overview map falls back
   // to a straight start → end line.
   RoutePolyline?: string;
+  // The drive moved but its truck sent no usable live location, so it has no route (a truck that never sends one). Absent on older servers.
+  LocationUnavailable?: boolean;
   // Locally-computed cost. The backend bills each drive at the
   // rate of the most recent charge that ended before it started
   // (RAN, home, or manual override), falling back to a blended

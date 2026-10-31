@@ -588,6 +588,8 @@ export default function DriveDetailPage() {
             <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
               <DriveMap points={storedRoutePoints} />
             </Suspense>
+          ) : drive.LocationUnavailable ? (
+            <NoLocation />
           ) : (
             <NoSamples route={hasStoredRoute} />
           )
@@ -683,6 +685,16 @@ function Stat({
 }
 
 // A drive with no samples is a gap or an import, not necessarily an old drive: say what is missing and what is there.
+// What the server observed: the truck moved and sent no usable live location. Only that, with no cause or fault.
+export const NO_LOCATION_TEXT = "The vehicle didn't report its location during this drive.";
+function NoLocation() {
+  return (
+    <p className="text-sm text-neutral-500" data-no-location>
+      {NO_LOCATION_TEXT}
+    </p>
+  );
+}
+
 function NoSamples({ route }: { route: boolean }) {
   return (
     <p className="text-sm text-neutral-500" data-no-samples={route ? "route" : "figures"}>

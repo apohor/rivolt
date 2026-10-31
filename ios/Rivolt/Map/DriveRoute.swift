@@ -19,10 +19,12 @@ struct DriveRoute: Decodable, Equatable {
     let endLon: Double
     /// Google-encoded polyline (precision 5); empty when the drive has no stored trace.
     let routePolyline: String?
+    /// The drive moved but its truck sent no usable live location, so it has no route. Absent on an older server.
+    var locationUnavailable: Bool? = nil
 
     private enum CodingKeys: String, CodingKey {
         case vehicleID = "VehicleID", startedAt = "StartedAt", endedAt = "EndedAt"
-        case startLat = "StartLat", startLon = "StartLon", endLat = "EndLat", endLon = "EndLon", routePolyline = "RoutePolyline"
+        case startLat = "StartLat", startLon = "StartLon", endLat = "EndLat", endLon = "EndLon", routePolyline = "RoutePolyline", locationUnavailable = "LocationUnavailable"
     }
 
     /// The trace, or a straight line between the ends when there is none (as the web). Points at 0,0 (no fix) are

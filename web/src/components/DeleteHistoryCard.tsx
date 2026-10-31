@@ -26,7 +26,7 @@ export function DeleteHistoryCard({ now }: { now?: Date }) {
     <Card title="Delete older history" id="delete-history">
       <div data-delete-history className="space-y-3 text-sm">
         <p className="text-neutral-300">
-          Deletes your drives, charges and recorded telemetry from before the first of a month (UTC). It works the same on every plan and cannot be undone.{" "}
+          Deletes your drives, charges, recorded telemetry and their related receipts and notifications from before the first of a month (UTC). It works the same on every plan and cannot be undone.{" "}
           <Link to="/settings#export" className="underline underline-offset-2">Export everything first</Link> if you want a copy.
         </p>
         <div className="flex flex-wrap items-center gap-2">
