@@ -72,6 +72,8 @@ var routeClasses = map[string]windowClass{
 	"POST /api/push/apns/activity/test":          {"proOnly", ""},
 
 	// The free account's delete-by-range (a privacy control for rows outside its window): a gate item for billing.
+	"POST /api/billing/checkout":       {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},
+	"POST /api/billing/portal":         {"exempt", "creates a Stripe Customer Portal session for the signed-in account; returns no history"},
 	"POST /api/billing/stripe/webhook": {"exempt", "Stripe calls it with a signed event: it writes the entitlement table, returns no history"},
 	"POST /api/data/delete-range":      {"exempt", "delete everything before a month, for rows outside the free window: " + always},
 
@@ -160,7 +162,7 @@ var prefixClasses = []struct{ prefix, why string }{
 
 // optionalRoutes are mounted only where a feature is configured; the test router may not have them, and they are classified here for the
 // installs that do.
-var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true}
+var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true, "POST /api/billing/checkout": true, "POST /api/billing/portal": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {

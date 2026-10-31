@@ -201,6 +201,18 @@ func ActiveTrialEnd(rows []Row, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// ActiveFreeEnd is the end of the account's free Pro: the latest end among its running trial and founding rows (false: neither is running).
+// A subscription bought while one of them runs must start billing when it ends, not at once (that would bill twice for the same months).
+func ActiveFreeEnd(rows []Row, now time.Time) (time.Time, bool) {
+	var best time.Time
+	for _, r := range rows {
+		if (r.Source == SourceTrial || r.Source == SourceFounding) && r.Status == StatusActive && r.PeriodEnd != nil && now.Before(*r.PeriodEnd) && r.PeriodEnd.After(best) {
+			best = *r.PeriodEnd
+		}
+	}
+	return best, !best.IsZero()
+}
+
 // later reports whether a ends after b, where nil means never.
 func later(a, b *time.Time) bool {
 	switch {
@@ -320,6 +332,20 @@ func (s *Service) TrialEnd(ctx context.Context, uid uuid.UUID) (time.Time, bool,
 		return time.Time{}, false, err
 	}
 	end, ok := ActiveTrialEnd(rows, s.now())
+	return end, ok, nil
+}
+
+// FreeUntil is the end of the account's running free Pro, a trial or the founding year (false: none). Billing off, the demo account and a
+// failed lookup have none.
+func (s *Service) FreeUntil(ctx context.Context, uid uuid.UUID) (time.Time, bool, error) {
+	if s == nil || !s.billing || (s.demo != uuid.Nil && uid == s.demo) {
+		return time.Time{}, false, nil
+	}
+	rows, err := s.rows(ctx, uid)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	end, ok := ActiveFreeEnd(rows, s.now())
 	return end, ok, nil
 }
 

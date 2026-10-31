@@ -199,6 +199,10 @@ type Deps struct {
 	// (internal/stripebill). Public (Stripe calls it, no cookie; the signature is the credential), behind a body cap and a per-IP limit.
 	// nil (no RIVOLT_STRIPE_WEBHOOK_SECRET): the route does not exist.
 	StripeWebhook http.Handler
+	// StripeBilling, when non-nil, is POST /api/billing/checkout and /api/billing/portal: the hosted Stripe Checkout and Customer Portal
+	// for the signed-in account. nil (no RIVOLT_STRIPE_SECRET_KEY and prices): the routes do not exist. Web only: the iPhone app sells
+	// through StoreKit and is not on the write allowlist for these.
+	StripeBilling *stripebill.Service
 	// Passkeys, when non-nil, adds WebAuthn sign-in to Rivolt's email accounts: the management routes under /api/auth/passkeys
 	// and, with Hydra and Kratos wired, the passkey sign-in on the Hydra login page. nil: no passkey route exists.
 	Passkeys *passkeys.Service
@@ -1732,6 +1736,11 @@ func New(d Deps) http.Handler {
 			r.Delete("/data/sessions", handleDataReset(d))
 			r.Post("/data/delete-range", handleDataDeleteRange(d))
 			r.Delete("/data/account", handleDataAccountDelete(d))
+			if d.StripeBilling != nil && !d.AdminOnly {
+				billingLimiter := mapsUserLimiter(10)
+				r.With(billingLimiter.Middleware).Post("/billing/checkout", withUser(handleBillingCheckout(d.StripeBilling)))
+				r.With(billingLimiter.Middleware).Post("/billing/portal", withUser(handleBillingPortal(d.StripeBilling)))
+			}
 		}) // end of bulk-data authenticated /api group
 	})
 
