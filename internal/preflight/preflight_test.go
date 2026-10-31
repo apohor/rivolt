@@ -40,7 +40,7 @@ func okInput() Input {
 		Webhook:   func(context.Context, string) (int, error) { return http.StatusBadRequest, nil },
 		RedisTime: func(context.Context) (bool, error) { return false, nil },
 		Stripe: func(context.Context) StripeFacts {
-			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutCardOn: true}
+			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"apple_pay", "card", "google_pay", "link"}}
 		},
 	}
 }
@@ -63,9 +63,9 @@ func TestPreflightReady(t *testing.T) {
 	}
 	for _, want := range []string{
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
-		"https://rivolt.dev/terms: 200", "https://rivolt.dev/privacy: 200", "https://rivolt.dev/settings: 200",
+		"https://rivolt.dev/terms: reachable (HTTP 200)", "https://rivolt.dev/privacy: reachable (HTTP 200)", "https://rivolt.dev/settings: reachable (HTTP 200)",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"unsigned POST: 400", "TIME as the app user: allowed", "Checkout payment methods: card on", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"unsigned POST: 400", "TIME as the app user: allowed", "Checkout offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -142,10 +142,28 @@ func TestPreflightProblems(t *testing.T) {
 				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true}
 			}
 		},
-		"cards off in checkout": func(in *Input) {
+		"checkout offers no card": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts {
-				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true}
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"apple_pay"}}
 			}
+		},
+		"checkout offers klarna": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"card", "klarna"}}
+			}
+		},
+		"checkout offers a bank method": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"card", "us_bank_account"}}
+			}
+		},
+		"checkout methods unreadable": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true}
+			}
+		},
+		"stripe unreadable is not ready": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { return StripeFacts{Err: errors.New("stripe: 403 permission")} }
 		},
 		"no portal configuration": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts { return StripeFacts{PricesActive: true} }
@@ -183,7 +201,6 @@ func TestPreflightWarnings(t *testing.T) {
 	in := okInput()
 	in.Getenv = env(map[string]string{"RIVOLT_BILLING": "true", "RIVOLT_APPLE_IAP_ENV": "Sandbox"})
 	in.RedisTime = func(context.Context) (bool, error) { return false, errors.New("timeout") }
-	in.Stripe = func(context.Context) StripeFacts { return StripeFacts{Err: errors.New("stripe: 403 permission")} }
 	in.Founding = func(context.Context, time.Time) (Founding, error) {
 		return Founding{Accounts: 12, Demo: 1, Eligible: 10, After: 1, ToGrant: 10}, nil
 	}
@@ -192,7 +209,7 @@ func TestPreflightWarnings(t *testing.T) {
 	if !r.Ready() {
 		t.Fatalf("warnings stopped the flip: %v\n%s", r.Problems, out)
 	}
-	for _, want := range []string{"created after the launch instant", "billing is already on", "could not run TIME", "could not read the Stripe account"} {
+	for _, want := range []string{"created after the launch instant", "billing is already on", "could not run TIME"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no warning containing %q:\n%s", want, out)
 		}

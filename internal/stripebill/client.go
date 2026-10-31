@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -368,26 +369,40 @@ func (c *Client) PriceMode(ctx context.Context, id string) (live, active bool, e
 	return out.Live, out.Active, nil
 }
 
-// CardInCheckout reads the default payment method configuration (read-only) and reports whether cards are offered in Checkout.
-func (c *Client) CardInCheckout(ctx context.Context) (bool, error) {
+// EnabledCheckoutMethods reads the default payment method configuration (read-only) and returns the payment method TYPES Checkout offers
+// (display preference on and available), sorted: "card", "apple_pay", "klarna" and so on. found is false when there is no default.
+func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, found bool, err error) {
 	var out struct {
-		Data []struct {
-			IsDefault bool `json:"is_default"`
-			Card      struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations?limit=20", nil, "", &out); err != nil {
+		return nil, false, err
+	}
+	for _, cfg := range out.Data {
+		var def bool
+		if raw, ok := cfg["is_default"]; ok {
+			_ = json.Unmarshal(raw, &def)
+		}
+		if !def {
+			continue
+		}
+		for name, raw := range cfg {
+			var m struct {
 				Available         bool `json:"available"`
 				DisplayPreference struct {
 					Value string `json:"value"`
 				} `json:"display_preference"`
-			} `json:"card"`
-		} `json:"data"`
-	}
-	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations?limit=20", nil, "", &out); err != nil {
-		return false, err
-	}
-	for _, d := range out.Data {
-		if d.IsDefault {
-			return d.Card.Available && d.Card.DisplayPreference.Value != "off", nil
+			}
+			// Scalars (id, object, name, ...) do not unmarshal into an object and are skipped; a method is an object with a display preference.
+			if json.Unmarshal(raw, &m) != nil || m.DisplayPreference.Value == "" {
+				continue
+			}
+			if m.Available && m.DisplayPreference.Value == "on" {
+				methods = append(methods, name)
+			}
 		}
+		sort.Strings(methods)
+		return methods, true, nil
 	}
-	return false, nil
+	return nil, false, nil
 }

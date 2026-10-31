@@ -50,16 +50,21 @@ func TestPriceMode(t *testing.T) {
 	}
 }
 
-func TestCardInCheckout(t *testing.T) {
-	for body, want := range map[string]bool{
-		`{"data":[{"is_default":false,"card":{"available":false}},{"is_default":true,"card":{"available":true,"display_preference":{"value":"on"}}}]}`: true,
-		`{"data":[{"is_default":true,"card":{"available":true,"display_preference":{"value":"off"}}}]}`:                                                false,
-		`{"data":[{"is_default":true,"card":{"available":false,"display_preference":{"value":"on"}}}]}`:                                                false,
-		`{"data":[{"is_default":false,"card":{"available":true}}]}`:                                                                                    false,
-	} {
-		c := factsServer(t, `{}`, body)
-		if got, err := c.CardInCheckout(context.Background()); err != nil || got != want {
-			t.Errorf("CardInCheckout(%s) = %v %v, want %v", body, got, err, want)
-		}
+func TestEnabledCheckoutMethods(t *testing.T) {
+	c := factsServer(t, `{}`, `{"data":[
+	  {"id":"pmc_other","is_default":false,"card":{"available":true,"display_preference":{"value":"on"}},"klarna":{"available":true,"display_preference":{"value":"on"}}},
+	  {"id":"pmc_default","object":"payment_method_configuration","is_default":true,"name":"Default","livemode":false,
+	   "card":{"available":true,"display_preference":{"value":"on"}},
+	   "apple_pay":{"available":true,"display_preference":{"value":"on"}},
+	   "klarna":{"available":true,"display_preference":{"value":"off"}},
+	   "cashapp":{"available":false,"display_preference":{"value":"on"}},
+	   "us_bank_account":{"available":true,"display_preference":{"value":"on"}}}]}`)
+	got, found, err := c.EnabledCheckoutMethods(context.Background())
+	if err != nil || !found || strings.Join(got, ",") != "apple_pay,card,us_bank_account" {
+		t.Errorf("EnabledCheckoutMethods = %v %v %v, want the default configuration's enabled types: apple_pay,card,us_bank_account", got, found, err)
+	}
+	none := factsServer(t, `{}`, `{"data":[{"id":"x","is_default":false,"card":{"available":true,"display_preference":{"value":"on"}}}]}`)
+	if got, found, err := none.EnabledCheckoutMethods(context.Background()); err != nil || found || len(got) != 0 {
+		t.Errorf("no default configuration: %v %v %v", got, found, err)
 	}
 }

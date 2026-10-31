@@ -1,5 +1,5 @@
 // Package preflight is the read-only launch check behind `rivolt launch-preflight`: one report an operator reads before the Rivolt Pro
-// flip (docs/LAUNCH_FLIP.md). It prints counts, names and status codes only, never a value of a setting, an id or an address, and it
+// flip (the launch runbook: rivolt-infra docs/launch-flip.md). It prints counts, names and status codes only, never a value of a setting, an id or an address, and it
 // switches nothing on: the database part runs in a read-only transaction and the URL part is a GET of public pages.
 package preflight
 
@@ -32,11 +32,11 @@ type StripeFacts struct {
 	Live                bool // the key and the prices are in live mode
 	PricesActive        bool // both prices exist and are active
 	PortalFound         bool
-	TermsSet            bool // the Customer Portal's Terms of service URL
-	PrivacySet          bool // and its Privacy policy URL
-	PaymentMethodUpdate bool // customers can update their payment method in the portal
-	CheckoutCardOn      bool // the default payment method configuration offers cards in Checkout
-	CheckoutRead        bool // that configuration could be read at all
+	TermsSet            bool     // the Customer Portal's Terms of service URL
+	PrivacySet          bool     // and its Privacy policy URL
+	PaymentMethodUpdate bool     // customers can update their payment method in the portal
+	CheckoutMethods     []string // the payment method types the default configuration offers in Checkout (sorted)
+	CheckoutRead        bool     // that configuration could be read at all
 }
 
 // Input is everything the report reads, so a test drives it without a database, a network or the process environment.
@@ -172,7 +172,7 @@ func Run(ctx context.Context, in Input) *Report {
 			case code != http.StatusOK:
 				r.problem("%s: HTTP %d, want 200 (a 403 is usually Cloudflare challenging this client)", u, code)
 			default:
-				r.line("  %s: 200", u)
+				r.line("  %s: reachable (HTTP 200)", u)
 			}
 		}
 		if code, err := in.Fetch(ctx, "https://rivolt.dev/preflight-no-such-page"); err == nil && code == http.StatusOK {
@@ -267,7 +267,8 @@ func Run(ctx context.Context, in Input) *Report {
 	default:
 		f := in.Stripe(ctx)
 		if f.Err != nil {
-			r.warn("could not read the Stripe account: %v", f.Err)
+			// Not verified is not ready: a restricted key needs read access on Prices, Customer Portal configurations and Payment method configurations.
+			r.problem("could not read the Stripe account, so it is unverified: %v (a restricted key needs read access on Prices, Customer Portal configurations and Payment method configurations)", f.Err)
 			break
 		}
 		r.line("  mode: %s", map[bool]string{true: "live", false: "test"}[f.Live])
@@ -290,14 +291,7 @@ func Run(ctx context.Context, in Input) *Report {
 				r.line("  portal: Terms URL set, Privacy URL set, payment-method update on")
 			}
 		}
-		switch {
-		case !f.CheckoutRead:
-			r.warn("could not read the Checkout payment-method configuration: confirm cards are on in the Dashboard")
-		case !f.CheckoutCardOn:
-			r.problem("the default payment method configuration does not offer cards in Checkout")
-		default:
-			r.line("  Checkout payment methods: card on")
-		}
+		r.checkoutMethods(f)
 		if cfg != nil && ((f.Live && cfg.Environment == applebill.EnvSandbox) || (!f.Live && cfg.Environment == applebill.EnvProduction)) {
 			r.warn("the Stripe mode and the Apple environment disagree (one live, one not)")
 		}
@@ -307,6 +301,30 @@ func Run(ctx context.Context, in Input) *Report {
 		r.line("  [ ] %s", m)
 	}
 	return r
+}
+
+// allowedCheckoutMethods are the payment method types Checkout may offer: cards and wallets. ACH, buy-now-pay-later and the delayed or
+// redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
+var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true, "link": true}
+
+func (r *Report) checkoutMethods(f StripeFacts) {
+	if !f.CheckoutRead {
+		r.problem("could not read the Checkout payment method configuration, so the offered methods are unverified (a restricted key needs read access on Payment method configurations)")
+		return
+	}
+	r.line("  Checkout offers: %s", strings.Join(f.CheckoutMethods, ", "))
+	card := false
+	for _, m := range f.CheckoutMethods {
+		if m == "card" {
+			card = true
+		}
+		if !allowedCheckoutMethods[m] {
+			r.problem("Checkout also offers %s: cards and wallets only (apple_pay, google_pay, link), because other methods' refund and dispute flows do not match the 14-day refund copy", m)
+		}
+	}
+	if !card {
+		r.problem("Checkout does not offer cards")
+	}
 }
 
 // ManualSteps are the launch prerequisites that live in the Stripe Dashboard, Cloudflare and the Valkey pod, where this command has no view.
