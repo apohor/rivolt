@@ -33,6 +33,11 @@ for (const v of [
     await page.goto("/charges/old-charge");
     const note = page.locator("[data-pro-limit=outside_free_window]");
     await expect(note).toContainText("kept, and it is in your export");
+    // The privacy controls stay in reach on a record the window hides.
+    await expect(page.locator("[data-pro-limit-privacy]").getByRole("link", { name: "Export everything" })).toBeVisible();
+    await expect(page.locator("[data-pro-limit-privacy]").getByRole("link", { name: "Delete history before a month" })).toBeVisible();
+    await expect(page.locator("[data-delete-old-charge]")).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `pro-limit-detail-controls-${v.n}-dark.png`) });
     await note.getByRole("button", { name: "See Pro" }).click();
     await expect(page.locator("[data-pro-sheet]")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

@@ -270,7 +270,27 @@ export default function ChargeDetailPage() {
       return (
         <div>
           <PageHeader title="Older than the free history" />
-          <ProLimitNotice limit={limit} />
+          <ProLimitNotice
+            limit={limit}
+            privacy
+            extra={
+              <button
+                type="button"
+                data-delete-old-charge
+                className="text-rose-300 underline underline-offset-2"
+                onClick={() => {
+                  // A privacy control: deleting one row works for every plan, even one the free window hides.
+                  if (!id || !window.confirm("Delete this charge? It can't be undone.")) return;
+                  void backend.deleteCharge(id).then(() => {
+                    qc.invalidateQueries();
+                    navigate(listPath("charges"));
+                  });
+                }}
+              >
+                Delete this charge
+              </button>
+            }
+          />
         </div>
       );
     }

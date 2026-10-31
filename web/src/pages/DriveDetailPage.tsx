@@ -370,7 +370,7 @@ export default function DriveDetailPage() {
       return (
         <div>
           <PageHeader title="Older than the free history" />
-          <ProLimitNotice limit={limit} />
+          <ProLimitNotice limit={limit} privacy />
         </div>
       );
     }

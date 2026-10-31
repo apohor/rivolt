@@ -45,6 +45,7 @@ import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { R2ArrivalControl } from "../components/R2Arrival";
 import { PlanCard } from "../components/PlanCard";
+import { DeleteHistoryCard } from "../components/DeleteHistoryCard";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
@@ -94,6 +95,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   export: "data",
   import: "data",
   danger: "data",
+  "delete-history": "data",
 };
 
 // How far down the sticky bars reach once stuck: the top nav and, in the new look, the page's own title row
@@ -292,6 +294,7 @@ function SettingsPageInner() {
           <Card title="Import ElectraFi CSV" id="import">
             <ImportPanel />
           </Card>
+          <DeleteHistoryCard />
           <Card title="Danger zone" id="danger">
             <DangerZonePanel />
           </Card>
