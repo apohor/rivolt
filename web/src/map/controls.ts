@@ -22,7 +22,6 @@ function control(make: (map: MLMap) => HTMLElement, after?: (el: HTMLElement, ma
   return c;
 }
 
-const MI_PER_KM = 0.6213711922;
 const FLAVORS: MapFlavor[] = ["dark", "light"];
 
 // The chips follow the basemap: the card, border and text pairs from ios/design/tokens.json (roles card, border, textBody, textSecondary).
@@ -310,56 +309,32 @@ export function chipLegend(items: { color: string; label: string }[], active: Ma
   return Object.assign(c, { refresh });
 }
 
-// legLegend is the bottom-left card of a plan's map: its title and a bar split into the legs between charging stops (each its own colour and
-// as long as the leg is), with the trip's start and total length at the ends. Hover a segment for that leg's length.
-export type LegLegendState = { title: string; legs: { color: string; miles: number }[]; flavor: MapFlavor; km: boolean };
-export function legLegend(initial: LegLegendState): IControl & { update: (s: LegLegendState) => void } {
+// tripCard is the plan map's one-line stats card at the bottom left (the text is built by tripPure.tripCardText), in the basemap's card colours.
+export function tripCard(initial: { text: string; flavor: MapFlavor }): IControl & { update: (s: { text: string; flavor: MapFlavor }) => void } {
   let root: HTMLElement | undefined;
-  let title: HTMLElement, bar: HTMLElement, end: HTMLElement, start: HTMLElement;
-  const dist = (mi: number, km: boolean) => (km ? `${Math.round(mi / MI_PER_KM)} km` : `${Math.round(mi)} mi`);
-  const update = (s: LegLegendState) => {
+  const update = (s: { text: string; flavor: MapFlavor }) => {
     if (!root) return;
     const c = CHIP[s.flavor];
     root.style.background = c.bg;
     root.style.borderColor = c.border;
     root.style.color = c.text;
     root.style.boxShadow = c.shadow;
-    title.textContent = s.title;
-    title.style.color = c.muted;
-    bar.replaceChildren(
-      ...s.legs.map((l, i) => {
-        const seg = document.createElement("span");
-        seg.style.cssText = `flex:${Math.max(l.miles, 0.01)} 1 0;background:${l.color};min-width:3px`;
-        seg.title = `Leg ${i + 1} · ${dist(l.miles, s.km)}`;
-        return seg;
-      }),
-    );
-    start.textContent = "0";
-    end.textContent = dist(s.legs.reduce((a, l) => a + l.miles, 0), s.km);
+    root.textContent = s.text;
   };
   const c = control(
     () => {
       const div = document.createElement("div");
-      div.className = "maplibregl-ctrl rivolt-leg-legend";
+      div.className = "maplibregl-ctrl rivolt-trip-card";
       div.style.cssText =
-        "border:1px solid;border-radius:8px;padding:4px 6px;display:flex;flex-direction:column;gap:3px;max-width:min(300px,72vw);" +
-        `font:${MAP_CAPTION_PX}px/1.2 ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
-      title = document.createElement("div");
-      title.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-      const scale = document.createElement("div");
-      scale.style.cssText = "display:flex;align-items:center;gap:6px";
-      start = document.createElement("span");
-      end = document.createElement("span");
-      start.style.cssText = end.style.cssText = "font-weight:600;white-space:nowrap";
-      bar = document.createElement("span");
-      bar.style.cssText = "flex:1;min-width:72px;height:6px;border-radius:3px;overflow:hidden;display:flex;gap:2px";
-      scale.append(start, bar, end);
-      div.append(title, scale);
+        "border:1px solid;border-radius:8px;padding:4px 8px;max-width:min(360px,72vw);font-weight:600;white-space:normal;" +
+        `font-size:${MAP_CAPTION_PX}px;line-height:1.3;font-family:ui-sans-serif,system-ui;backdrop-filter:blur(2px);`;
       root = div;
       update(initial);
       return div;
     },
+    // On a phone the one-line attribution (bottom-right) would run under the card's right end: lift the card above it.
     (el, map) => {
+      el.style.maxWidth = `${Math.max(120, map.getContainer().clientWidth - 64)}px`;
       if (map.getContainer().clientWidth < 520) el.style.marginBottom = "22px";
     },
   );

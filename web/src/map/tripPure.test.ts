@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, decodePolyline6 } from "./tripPure";
+import { campPopupHTML, decodePolyline6, tripCardText } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 
@@ -65,5 +65,16 @@ describe("campground popup", () => {
     expect(campPopupHTML(poi({ ridbID: "ridb/x\"y" }), campgroundOfPoi(poi({ ridbID: "ridb/x\"y" }))!, false)).not.toContain("on Recreation.gov");
     expect(campgroundOfPoi(poi({ hookupAmps: 20 }))).toBeNull();
     expect(campgroundOfPoi(poi({ facilityType: "HOTEL" }))).toBeNull();
+  });
+});
+
+describe("tripCardText", () => {
+  it("joins the parts the plan has, in the account's units", () => {
+    expect(tripCardText({ meters: 367_000, stops: 2, seconds: 14_700, unit: "mi" })).toBe("228 mi · 2 charging stops · 4h 5m");
+    expect(tripCardText({ day: "Day 3", meters: 367_000, stops: 0, seconds: 3_600, unit: "km" })).toBe("Day 3 · 367 km · 1h 0m");
+  });
+  it("leaves out what the plan lacks", () => {
+    expect(tripCardText({ meters: 0, stops: 1, seconds: 0, unit: "mi" })).toBe("1 charging stop");
+    expect(tripCardText({ meters: 0, stops: 0, seconds: 0, unit: "mi" })).toBe("");
   });
 });

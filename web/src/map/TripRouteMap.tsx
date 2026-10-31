@@ -17,14 +17,14 @@ import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
-import { legsOf } from "./legs";
+import { RAMPS } from "./metrics";
 import { watchDrawn } from "./drawn";
 import { localUnits } from "../lib/preferences";
-import { foldCredits, legLegend, tilesNotice } from "./controls";
+import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
-  decodePolyline6, type PreviewResult,
+  decodePolyline6, tripCardText, type PreviewResult,
 } from "./tripPure";
 
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
@@ -91,7 +91,7 @@ export function TripRouteMap({
   // Bidirectional selection between the stops table and the map: the index into route.Waypoints of the highlighted waypoint, or null.
   selectedIdx?: number | null;
   onSelectStop?: (idx: number | null) => void;
-  // "Day 2" on a multi-day plan's map: the legend card says which day the legs belong to.
+  // "Day 2" on a multi-day plan's map: the card says which day it is.
   dayLabel?: string;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
@@ -181,7 +181,7 @@ export function TripRouteMap({
       const padding = () => {
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
-        const card = el.querySelector<HTMLElement>(".rivolt-leg-legend");
+        const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
@@ -200,34 +200,32 @@ export function TripRouteMap({
       };
       let fitZoom = 12;
 
-      // The route, coloured by leg (the stretch between two charging stops), straight legs first and the real geometry when it arrives. Re-added
-      // after every style change. A plan has no per-sample metric, so the colour says where the stops split the trip; with no stop between
-      // the ends it is one colour and there is no legend card.
-      const interior: LatLng[] = wpLatLngs.slice(1, -1);
-      const km = localUnits().distanceUnit === "km";
+      // The route in one colour (the accent teal of the drive ramp), with the drive map's glow and casing, straight legs first and the real geometry
+      // when it arrives; re-added after every style change. A plan has no per-sample metric to colour by, so the markers carry the meaning, and a
+      // one-line card says what the plan is: its day, distance, charging stops and time.
+      const km = localUnits().distanceUnit;
       let track: LatLng[] = wpLatLngs;
-      let legend: ReturnType<typeof legLegend> | undefined;
-      let legendOn = false;
+      let card: ReturnType<typeof tripCard> | undefined;
+      let cardOn = false;
+      const cardText = () =>
+        tripCardText({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: Math.max(0, ws.length - 2), seconds: route.TotalTripDurationSec, unit: km });
       const draw = () => {
-        const { legs, stops } = legsOf(track, interior, flavor);
-        setDriveRoute(map, { track, stops }, flavor, firstLabelLayer(map));
-        const state = { title: `${dayLabel ? dayLabel + " · " : ""}Route by stop`, legs, flavor, km };
-        if (legs.length > 1) {
-          if (!legend) legend = legLegend(state);
-          else legend.update(state);
-          if (!legendOn) {
-            map.addControl(legend, "bottom-left");
-            legendOn = true;
+        const c = RAMPS[flavor].speed[1];
+        setDriveRoute(map, { track, stops: [0, c, 1, c] }, flavor, firstLabelLayer(map));
+        const text = cardText();
+        if (text) {
+          if (!card) card = tripCard({ text, flavor });
+          else card.update({ text, flavor });
+          if (!cardOn) {
+            map.addControl(card, "bottom-left");
+            cardOn = true;
           }
-        } else if (legend && legendOn) {
-          map.removeControl(legend);
-          legendOn = false;
         }
         drawn.markDrawn();
       };
       map.on("style.load", () => {
         styleReadyRef.current = true;
-        legendOn = false; // setStyle keeps controls, but the card is re-added or dropped from the new legs
+        cardOn = false; // setStyle keeps controls only on the same map; the card goes back
         draw();
         // The charger overlay goes back too.
         addChargerLayer(map);

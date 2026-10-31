@@ -6,6 +6,9 @@ import type { POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { CAMP_WARNING, RIDB_CREDIT, outletLabel, sitesLine, campPowerLine } from "../plan/stays";
 import type { PlannedWaypoint } from "../lib/api";
+import { formatDuration } from "../lib/format";
+import { wholeDistance } from "../plan/units";
+import type { DistanceUnit } from "../lib/preferences";
 import { MAP_CAPTION_PX } from "../lib/mapCaption";
 
 // PreviewResult mirrors the shape returned by the trip planner page's onPreviewStop callback (the popup shows "+18 min · +$4 · arrives 7% higher").
@@ -399,4 +402,15 @@ export function decodePolyline6(s: string | undefined | null): [number, number][
     out.push([lat * factor, lon * factor]);
   }
   return out;
+}
+
+// tripCardText is the plan map's one-line stats card: "Day 2 · 228 mi · 1 charging stop · 4h 05m". The Day part only on a multi-day plan, the stop
+// part only when there are stops; the plan's own distance, stop count and total time, in the account's units. Parts the plan lacks are left out.
+export function tripCardText(p: { day?: string; meters: number; stops: number; seconds: number; unit: DistanceUnit }): string {
+  const parts: string[] = [];
+  if (p.day) parts.push(p.day);
+  if (p.meters > 0) parts.push(wholeDistance(p.meters, p.unit));
+  if (p.stops > 0) parts.push(`${p.stops} charging stop${p.stops === 1 ? "" : "s"}`);
+  if (p.seconds > 0) parts.push(formatDuration(p.seconds));
+  return parts.join(" · ");
 }

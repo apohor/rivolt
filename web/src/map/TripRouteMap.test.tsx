@@ -16,6 +16,7 @@ vi.mock("../lib/config", () => ({
 vi.mock("../lib/poi", () => ({ findChargersAlongPath: () => Promise.resolve([]), HOTEL_FACILITY_TYPES: new Set<string>() }));
 
 import { TripRouteMap } from "./TripRouteMap";
+import { tripCardText } from "./tripPure";
 import type { TripRoute } from "../lib/api";
 
 class FakeMap {
@@ -139,18 +140,13 @@ describe("TripRouteMap", () => {
     }
   });
 
-  it("colours the route by leg and shows a legend card only when a stop splits it", async () => {
-    render(<TripRouteMap route={route} dayLabel="Day 2" />);
+  it("draws the route in one colour with a one-line card: day, distance, stops, time", async () => {
+    const r = { ...route, TotalDriveDistanceMeters: 367_000, TotalTripDurationSec: 14_700 } as unknown as TripRoute;
+    render(<TripRouteMap route={r} dayLabel="Day 2" />);
     await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
-    // Origin, one stop, destination: two legs, so the card is added (its element is a control with an onAdd).
     await waitFor(() => expect(FakeMap.last!.controlsAdded.some((c) => typeof (c as { update?: unknown }).update === "function")).toBe(true));
-  });
-
-  it("no legend card for a route with no stop between its ends", async () => {
-    const direct = { Waypoints: [route.Waypoints[0], route.Waypoints[2]] } as unknown as TripRoute;
-    render(<TripRouteMap route={direct} />);
-    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
-    expect(FakeMap.last!.controlsAdded.some((c) => typeof (c as { update?: unknown }).update === "function")).toBe(false);
+    // The card's DOM is made when it is added to a real map; check its text through the pure builder the component uses.
+    expect(tripCardText({ day: "Day 2", meters: 367_000, stops: 1, seconds: 14_700, unit: "mi" })).toBe("Day 2 · 228 mi · 1 charging stop · 4h 5m");
   });
 
   it("removes the map when it unmounts", async () => {
