@@ -386,6 +386,11 @@ type Coordinator struct {
 	// the local deadline.
 	jitter      time.Duration
 	onSelfFence func()
+	// onRenew is told the outcome of every renew attempt (scope "vehicle" or "group"; outcome ok, lost, timeout, error).
+	onRenew func(scope, outcome string)
+	// fencedThisPass makes one self-fence event count once, whichever path finds it first (reconcile's own deadline check or the
+	// group pass). Reset at the start of each reconcile.
+	fencedThisPass bool
 
 	// acquiredAt is when each vehicle was acquired and has not yet shown a frame; frameAt says when the
 	// newest frame for a vehicle arrived; onFrame is told the seconds from acquire to that frame (the
@@ -657,9 +662,40 @@ func (c *Coordinator) pastFence() bool {
 	return c.now().Sub(c.lastRenew) >= after
 }
 
+// renewOutcome names how a renew ended.
+func renewOutcome(err error, lost bool) string {
+	switch {
+	case err == nil && lost:
+		return "lost"
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	}
+	return "error"
+}
+
+func (c *Coordinator) noteRenew(scope string, err error, lost bool) {
+	if c.onRenew != nil {
+		c.onRenew(scope, renewOutcome(err, lost))
+	}
+}
+
+// noteSelfFence counts a self-fence event (the pod stopped everything because its renews failed past the deadline) once per
+// reconcile pass: the vehicle path and the group path can both find the same event.
+func (c *Coordinator) noteSelfFence() {
+	c.mu.Lock()
+	again := c.fencedThisPass
+	c.fencedThisPass = true
+	c.mu.Unlock()
+	if !again && c.onSelfFence != nil {
+		c.onSelfFence()
+	}
+}
+
 // fenceAll gives up every lease the coordinator thinks it holds: it can no longer
-// show they are still its own.
-func (c *Coordinator) fenceAll() {
+// show they are still its own. It reports how many it gave up.
+func (c *Coordinator) fenceAll() int {
 	c.mu.Lock()
 	lost := make([]string, 0, len(c.owned))
 	for vid := range c.owned {
@@ -671,6 +707,7 @@ func (c *Coordinator) fenceAll() {
 		c.log.Warn("lease fenced: renewals have failed for a whole TTL", "vehicle", vid)
 		c.onRelease(vid)
 	}
+	return len(lost)
 }
 
 // reconcile is one tick of the loop. It (1) renews everything we
@@ -690,6 +727,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	}
 	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	c.mu.Lock()
+	c.fencedThisPass = false
+	c.mu.Unlock()
 
 	// Renew first. Any vehicle missing from the renew result is one
 	// we lost (someone stole it because we let the TTL lapse, or it
@@ -700,10 +740,13 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		// The subscriptions stopped here are restarted by the normal acquire path (the vehicle loop
 		// below, then healUnstreamed) once the renews work again: a row still valid keeps its epoch.
 		c.log.Warn("lease renewals stopped working for the local deadline: stopping every subscription")
-		c.fenceAll()
+		if c.fenceAll() > 0 {
+			c.noteSelfFence()
+		}
 	}
 	stillOwned, err := c.store.Renew(rctx)
 	if err != nil {
+		c.noteRenew("vehicle", err, false)
 		// A renew that failed says nothing about who owns what: the database blipped
 		// or the call timed out. Dropping every subscription here would stop all the
 		// recording for one bad second. Keep what we hold; only once the leases could
@@ -711,7 +754,9 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		// they no longer ours to act on, and then self-fence.
 		c.log.Warn("lease renew failed", "err", err.Error())
 		if c.pastFence() {
-			c.fenceAll()
+			if c.fenceAll() > 0 {
+				c.noteSelfFence()
+			}
 		}
 		c.fireCount()
 		return
@@ -735,6 +780,7 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	}
 	c.owned = stillOwnedSet
 	c.mu.Unlock()
+	c.noteRenew("vehicle", nil, len(lost) > 0)
 	for _, vid := range lost {
 		c.log.Info("lease lost", "vehicle", vid)
 		c.onRelease(vid)
@@ -937,6 +983,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	dbctx, dbcancel := context.WithTimeout(ctx, groupRenewTimeout)
 	defer dbcancel()
 	res, err := gl.LeadGroups(dbctx)
+	c.noteRenew("group", err, err == nil && len(res.Lost) > 0)
 	if err != nil {
 		c.log.Warn("group lead pass failed", "err", err.Error())
 		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && lp.PastLocalDeadline() {
@@ -950,9 +997,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 			if dg, ok := c.store.(interface{ DropGroups() }); ok {
 				dg.DropGroups()
 			}
-			if c.onSelfFence != nil {
-				c.onSelfFence()
-			}
+			c.noteSelfFence()
 		}
 		return &leadView{vehicleGroup: map[string]string{}, held: map[string]int64{}}
 	}
@@ -1120,6 +1165,10 @@ func (c *Coordinator) followOpenSessions(ctx context.Context, gl groupLeader, vg
 // SetSelfFenceObserver wires the callback fired when the pod stops everything because its group
 // lease renewals failed past the local deadline. Optional.
 func (c *Coordinator) SetSelfFenceObserver(fn func()) { c.onSelfFence = fn }
+
+// SetRenewObserver wires the callback told every renew attempt's outcome (scope "vehicle" or "group"; ok, lost, timeout, error).
+// Call before Run.
+func (c *Coordinator) SetRenewObserver(fn func(scope, outcome string)) { c.onRenew = fn }
 
 // SetGroupObserver wires the metrics for the group leases: held is told the number
 // of groups this pod holds after every pass, dryRun the number of tokens that

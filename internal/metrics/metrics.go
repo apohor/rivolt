@@ -71,6 +71,10 @@ type Metrics struct {
 	// LeaseSelfFence counts times this pod stopped every subscription because its group lease
 	// renewals failed past the local deadline (a slow or unreachable database).
 	LeaseSelfFence prometheus.Counter
+	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
+	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
+	// here before it self-fences.
+	LeaseRenew *prometheus.CounterVec
 	// LeaseAcquireToFrame is the seconds from a vehicle lease being acquired to the first frame
 	// recorded after it, by state (active: open drive or charge; idle). The flag-on bar is active p95 <= 12 s.
 	LeaseAcquireToFrame *prometheus.HistogramVec
@@ -306,6 +310,13 @@ func New() *Metrics {
 				Name: "rivolt_lease_self_fence_total",
 				Help: "Times this pod stopped every subscription because its group lease renewals failed past the local deadline.",
 			},
+		),
+		LeaseRenew: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_lease_renew_total",
+				Help: "Lease renew attempts by scope (vehicle or group) and outcome (ok, lost, timeout, error).",
+			},
+			[]string{"scope", "outcome"},
 		),
 		LeaseGroupsOwned: prometheus.NewGauge(
 			prometheus.GaugeOpts{
@@ -591,6 +602,7 @@ func New() *Metrics {
 		m.SubscriptionLeases,
 		m.LeaseGroupsOwned,
 		m.LeaseSelfFence,
+		m.LeaseRenew,
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
@@ -651,6 +663,11 @@ func New() *Metrics {
 	}
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, scope := range []string{"vehicle", "group"} {
+		for _, outcome := range []string{"ok", "lost", "timeout", "error"} {
+			m.LeaseRenew.WithLabelValues(scope, outcome).Add(0)
+		}
 	}
 	for _, state := range []string{"active", "idle"} {
 		m.LeaseAcquireToFrame.WithLabelValues(state) // exported at count 0 from boot

@@ -658,10 +658,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			// The frame has already gone through the accumulators above (drive and charge totals, live
 			// state), so a steal costs a charge no energy; only the raw vehicle_state row is not written.
 		} else if err := m.samplesStore.InsertBatch(sctx, []samples.Sample{s}); errors.Is(err, fence.ErrFenced) {
-			if m.onFenced != nil {
-				m.onFenced("samples")
-			}
-			m.logger.Warn("live sample refused: the group lease is gone", "vehicle", vehicleID)
+			m.refuse(vehicleID, "samples")
 		} else if err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
