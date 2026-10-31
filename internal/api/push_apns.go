@@ -45,6 +45,10 @@ func decodeAPNsBody(w http.ResponseWriter, r *http.Request, v any) bool {
 // onRefused is told the fixed reason of each register refused as belonging to another account (a count, nothing else).
 func handleAPNsRegister(svc *push.Service, store *push.Store, onRefused func(reason string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		sid, ok := apnsGuard(svc, w, r)
 		if !ok {
 			return
@@ -95,6 +99,10 @@ func handleAPNsRegister(svc *push.Service, store *push.Store, onRefused func(rea
 
 func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if _, ok := apnsGuard(svc, w, r); !ok {
 			return
 		}
@@ -148,6 +156,10 @@ func handleAPNsPreferences(svc *push.Service, store *push.Store) http.HandlerFun
 
 func handleAPNsUnregister(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if _, ok := apnsGuard(svc, w, r); !ok {
 			return
 		}
@@ -175,6 +187,10 @@ func handleAPNsUnregister(svc *push.Service, store *push.Store) http.HandlerFunc
 // the signed-in user's own and kept for 24 hours.
 func handlePushNotification(store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
@@ -201,6 +217,10 @@ func handlePushNotification(store *push.Store) http.HandlerFunc {
 // request reaches Apple or the phone.
 func handleAPNsTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		if !svc.APNsEnabled() {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not available"})
@@ -232,6 +252,10 @@ type apnsPrefsJSON struct {
 // caller's. The app starts the activity itself; the server never starts one.
 func handleAPNsActivity(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if _, ok := apnsGuard(svc, w, r); !ok {
 			return
 		}
@@ -266,6 +290,10 @@ func handleAPNsActivity(svc *push.Service, store *push.Store) http.HandlerFunc {
 // an activity token. 200 whether or not it was known.
 func handleAPNsActivityEnd(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if _, ok := apnsGuard(svc, w, r); !ok {
 			return
 		}
@@ -294,6 +322,10 @@ func handleAPNsActivityEnd(svc *push.Service, store *push.Store) http.HandlerFun
 // registered. Nothing in the request reaches Apple or the phone.
 func handleAPNsActivityTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		if !svc.LiveEnabled() {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not available"})

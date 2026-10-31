@@ -885,6 +885,8 @@ func New(d Deps) http.Handler {
 			}
 
 			r.Route("/push", func(r chi.Router) {
+				// A nil push store (no factory wired, or the store would not open) is a clean 503, never a nil dereference in a handler.
+				r.Use(pushStoreMiddleware(d.Push))
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
 				r.Get("/status", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushStatus(d.PushService, d.Push.For(uid))(w, r)
