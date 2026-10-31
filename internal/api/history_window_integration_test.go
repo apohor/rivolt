@@ -649,7 +649,7 @@ func TestDeleteRangeAgainstPostgres(t *testing.T) {
 		for _, m := range []time.Time{old, recent} {
 			month := time.Date(m.Year(), m.Month(), 1, 0, 0, 0, 0, time.UTC)
 			if _, err := pool.ExecContext(ctx, `INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes)
-				VALUES ($1, $2, $3, 1, $3, $3, 'x', 1) ON CONFLICT DO NOTHING`, u, vid, month); err != nil {
+				VALUES ($1, $2, $3::date, 1, $3::timestamptz, $3::timestamptz, 'x', 1) ON CONFLICT DO NOTHING`, u, vid, month); err != nil {
 				t.Fatal(err)
 			}
 		}
