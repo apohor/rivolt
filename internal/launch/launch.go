@@ -46,7 +46,7 @@ var Items = []Item{
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
 	{ID: "portal-with-billing-off", What: "a Stripe subscriber can open the Customer Portal and cancel with RIVOLT_BILLING off (a rollback), Checkout stays refused, and /api/auth/me tells the client to show Manage subscription",
-		Cleared: true, ClearedBy: "#1445", Proof: "TestPortalIsNotGatedByBilling,TestPortalWithBillingOffAgainstPostgres,TestManageSubscription"},
+		Cleared: true, ClearedBy: "#1446", Proof: "TestPortalIsNotGatedByBilling,TestPortalWithBillingOffAgainstPostgres,TestManageSubscription"},
 	{ID: "lapse-stops-pushes", What: "on lapse or trial end each running Live Activity gets one end with its final state and its token is deleted, and no further Live Activity pushes are sent (widgets do not exist yet: the Pro-surface guard test covers them)",
 		Cleared: true, ClearedBy: "#1381", Proof: "TestLiveActivityEndsOnLapse"},
 	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; a new account starts on the free plan (no trial row is written)",
