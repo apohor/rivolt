@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/sessions"
 )
 
@@ -29,14 +30,20 @@ type homeChangeNotice struct {
 	mail interface {
 		Send(ctx context.Context, m email.Message) error
 	}
-	db   *sql.DB
-	now  func() time.Time
-	last sync.Map // uuid.UUID -> time.Time
+	db *sql.DB
+	// claims makes the notice once per account per hour across every replica (engagement_sends); nil: this pod's own limit only (tests).
+	claims engage.Store
+	now    func() time.Time
+	last   sync.Map // uuid.UUID -> time.Time
 	// lookup replaces the database read of the account's verified address (tests).
 	lookup func(ctx context.Context, uid uuid.UUID) (string, error)
 }
 
 const homeNoticeEvery = time.Hour
+
+// homeNoticeKind is the engagement kind of the notice. It is a security notice, so it is claimed as a utility (outside the budget and
+// quiet hours) and only deduplicated: the key is the hour, so a change on one pod and another a minute later on a second pod is one email.
+const homeNoticeKind = "home_changed"
 
 func (n *homeChangeNotice) address(ctx context.Context, uid uuid.UUID) (string, error) {
 	if n.lookup != nil {
@@ -73,12 +80,28 @@ func (n *homeChangeNotice) afterHomeChange(r *http.Request) {
 	if err != nil || to == "" {
 		return
 	}
-	_ = n.mail.Send(ctx, email.Message{
+	status := "sent"
+	if n.claims != nil {
+		msg := engage.Msg{User: uid, Kind: homeNoticeKind, Key: now().UTC().Format("2006010215"), Channel: engage.Email, Utility: true}
+		claimed, _, err := n.claims.Claim(ctx, msg, now(), now().Add(-engage.BudgetWindow), engage.MonthlyBudget)
+		if err == nil && !claimed {
+			return // another replica (or an earlier change this hour) sent it
+		}
+		// A claim that fails is sent anyway: the notice is the point, and the mail's idempotency key still dedupes within the hour.
+		if err == nil {
+			defer func() {
+				_ = n.claims.Mark(ctx, uid, homeNoticeKind, msg.Key, status, now())
+			}()
+		}
+	}
+	if err := n.mail.Send(ctx, email.Message{
 		To:             to,
 		Subject:        "Your home location was changed from the iPhone app",
 		IdempotencyKey: "home-changed-" + uid.String() + "-" + now().UTC().Format("2006010215"),
 		Text: "Your home location on Rivolt was changed from the iPhone app.\n\n" +
 			"If this was you, there is nothing to do. If it wasn't, sign in on the web, restore your previous home in Settings,\n" +
 			"sign out your other devices, and write to support@rivolt.dev.\n",
-	})
+	}); err != nil {
+		status = "failed"
+	}
 }

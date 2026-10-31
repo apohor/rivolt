@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
@@ -1236,6 +1237,9 @@ func New(d Deps) http.Handler {
 			var homeNotice *homeChangeNotice
 			if d.Email != nil {
 				homeNotice = &homeChangeNotice{mail: d.Email, db: d.DB}
+				if d.sysDB() != nil {
+					homeNotice.claims = engage.NewStore(d.sysDB())
+				}
 			}
 			r.Route("/settings/home-location", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

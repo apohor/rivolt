@@ -36,6 +36,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/singleton"
 )
 
 // MinSoCDeltaPct is the smallest SoC delta we trust to produce a
@@ -217,19 +219,11 @@ func (s *Store) BackfillAll(ctx context.Context) (int, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
 	}
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
+	release, ok, err := singleton.Acquire(ctx, s.db, "pack_health_backfill", singleton.Key{ID: backfillLockID})
+	if err != nil || !ok {
 		return 0, err
 	}
-	defer conn.Close()
-	var locked bool
-	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, backfillLockID).Scan(&locked); err != nil {
-		return 0, err
-	}
-	if !locked {
-		return 0, nil
-	}
-	defer conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, backfillLockID) //nolint:errcheck
+	defer release()
 	// Prune previously-stored samples that no longer pass the
 	// current sanity cap or qualification filter. Without this,
 	// tightening either side (raising the kWh floor, restricting

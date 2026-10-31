@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/push"
 )
 
@@ -37,4 +42,27 @@ func networkConfirmFor(c charges.Charge) (push.NetworkConfirm, bool) {
 		e.Other = push.CandidateOther(c.Network, names)
 	}
 	return e, true
+}
+
+// networkConfirmKind is the engagement kind that makes the confirm-or-change push once per charge across every replica: a charge's close
+// hook can run on two pods around a handover, and a push is not taken back. It is the transactional push that replaces "charging
+// complete", so it is claimed as a utility (outside the budget and quiet hours) and only deduplicated.
+const networkConfirmKind = "network_confirm"
+
+// claimNetworkConfirm reports whether this pod may send charge chargeID's confirm push, and returns the function that records how
+// the send went. A claim that cannot be made (a database fault) still allows the send, as before: a duplicate is better than none.
+func claimNetworkConfirm(ctx context.Context, claims engage.Store, uid uuid.UUID, chargeID string, now time.Time) (bool, func(status string)) {
+	noop := func(string) {}
+	if claims == nil || chargeID == "" {
+		return true, noop
+	}
+	msg := engage.Msg{User: uid, Kind: networkConfirmKind, Key: chargeID, Channel: engage.Push, Utility: true}
+	claimed, _, err := claims.Claim(ctx, msg, now, now.Add(-engage.BudgetWindow), engage.MonthlyBudget)
+	if err != nil {
+		return true, noop
+	}
+	if !claimed {
+		return false, noop
+	}
+	return true, func(status string) { _ = claims.Mark(ctx, uid, networkConfirmKind, chargeID, status, time.Now()) }
 }
