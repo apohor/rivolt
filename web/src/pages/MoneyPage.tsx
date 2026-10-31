@@ -603,14 +603,14 @@ function ShareStatementButton({
         </span>
       )}
       {shareNudgeShows({ sample, disabled, prompt, dismissed: nudgeGone }) && <ShareNudge onShare={openSheet} onLater={dismissNudge} />}
-      {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle withOffpeakToggle={offpeakShare != null} onClose={() => setOpen(false)} />}
+      {open && <ShareSheet build={build} fileName={shareFileName("month", m.range.start)} withCostToggle withOffpeakToggle={offpeakShare != null} onShared={() => { if (!sample && !inDemo()) track("statement_share", { kind: "png" }); }} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
 // A link that downloads the month as a CSV: totals by cost type, home versus away, and one line per session. Own data only; nothing is
-// requested until it is clicked, and no event is sent.
-function CsvDownloadLink({ month, vehicleID, disabled }: { month: string; vehicleID?: string; disabled: boolean }) {
+// requested until it is clicked; a click counts one statement_share{csv} (no month, no amounts).
+export function CsvDownloadLink({ month, vehicleID, disabled }: { month: string; vehicleID?: string; disabled: boolean }) {
   const cls = "rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300";
   if (disabled) {
     return (
@@ -620,7 +620,7 @@ function CsvDownloadLink({ month, vehicleID, disabled }: { month: string; vehicl
     );
   }
   return (
-    <a href={statementCsvUrl(month, { vehicleID })} download={`rivolt-statement-${month}.csv`} data-csv-download className={`${cls} hover:bg-neutral-800`} title="This month's totals and sessions as a spreadsheet file">
+    <a href={statementCsvUrl(month, { vehicleID })} download={`rivolt-statement-${month}.csv`} data-csv-download onClick={() => track("statement_share", { kind: "csv" })} className={`${cls} hover:bg-neutral-800`} title="This month's totals and sessions as a spreadsheet file">
       Download CSV
     </a>
   );
