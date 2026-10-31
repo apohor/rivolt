@@ -34,6 +34,9 @@ type sharedBuckets struct {
 	now    func() time.Time
 	// onFallback counts every call that fell back to the per-pod bucket, by limiter name.
 	onFallback func(limiter string)
+	// onName is told every limiter name as it is built, so its fallback series can exist at 0 from the start (an increase() alert
+	// misses the first fallback of a series that did not exist before it).
+	onName func(limiter string)
 	// downUntil (unix nanos): Redis is left alone until then after a failure.
 	downUntil atomic.Int64
 }
@@ -93,6 +96,12 @@ func (s *sharedBuckets) usable() bool {
 	return s != nil && s.rdb != nil && len(s.key) > 0 && s.now().UnixNano() >= s.downUntil.Load()
 }
 
+func (s *sharedBuckets) named(limiter string) {
+	if s != nil && s.onName != nil {
+		s.onName(limiter)
+	}
+}
+
 func (s *sharedBuckets) failed(limiter string) {
 	s.downUntil.Store(s.now().Add(sharedBucketBackoff).UnixNano())
 	s.fellBack(limiter)
@@ -149,6 +158,7 @@ func (d Deps) limiterSet() *limiterSet {
 	sb := &sharedBuckets{rdb: d.Redis, prefix: d.RedisPrefix, key: RateLimiterKey(d.FailLimiterKey), now: time.Now}
 	if d.Metrics != nil {
 		sb.onFallback = func(name string) { d.Metrics.RateLimiterFallbackTotal.WithLabelValues(name).Inc() }
+		sb.onName = func(name string) { d.Metrics.RateLimiterFallbackTotal.WithLabelValues(name).Add(0) }
 	}
 	return &limiterSet{shared: sb}
 }
@@ -160,6 +170,7 @@ func (s *limiterSet) ip(name string, perWindow int, window, idleTTL time.Duratio
 	l.name = name
 	if s != nil {
 		l.shared = s.shared
+		s.shared.named(name)
 	}
 	return l
 }
@@ -170,6 +181,7 @@ func (s *limiterSet) user(name string, perMin int) *ipLimiter {
 	l.name = name
 	if s != nil {
 		l.shared = s.shared
+		s.shared.named(name)
 	}
 	return l
 }
