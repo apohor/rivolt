@@ -152,7 +152,10 @@ export function DriveMap({
       let fitBox = hasSpread ? boundsOf(latlngs) : null;
       const fit = () => {
         if (!fitBox || !(el.clientWidth > 0 && el.clientHeight > 0)) return;
-        const bottom = el.clientWidth < 520 ? 64 : 44;
+        // Keep the route's end clear of the bottom-left legend: its height, its lift above the attribution, and room for the pin.
+        const legend = el.querySelector<HTMLElement>(".rivolt-speed-legend");
+        const lift = legend ? legend.offsetHeight + (parseFloat(getComputedStyle(legend).marginBottom) || 0) + 28 : 0;
+        const bottom = Math.max(el.clientWidth < 520 ? 64 : 44, lift);
         map.fitBounds(fitBox, { padding: { top: 44, left: 20, right: 72, bottom }, animate: false, maxZoom: 17 });
       };
 

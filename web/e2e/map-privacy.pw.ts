@@ -70,12 +70,11 @@ test("iphone: drive map makes no third-party request and trips no CSP rule", asy
   expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
 });
 
-test("iphone: the map's attribution names the basemap and no ad network", async ({ page }) => {
+test("iphone: the terrain credit shows while the hillshade is on", async ({ page }) => {
   await setup(page);
   await page.goto("/drives/drive-1");
   const attr = page.locator(".maplibregl-ctrl-attrib").first();
   await expect(attr).toBeVisible();
-  const text = (await attr.textContent()) ?? "";
-  expect(text).toMatch(/OpenStreetMap/);
-  expect(text).toMatch(/Protomaps/);
+  // The basemap's own credit comes with its tiles (the harness serves none); the style's unit test pins it.
+  await expect(attr).toContainText("USGS 3DEP");
 });
