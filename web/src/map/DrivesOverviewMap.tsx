@@ -8,6 +8,7 @@ import { displayTimeZone } from "../lib/format";
 import { decodePolyline } from "../lib/polyline";
 import { loadMapLibre } from "./loader";
 import { mountBaseMap } from "./mount";
+import { watchDrawn } from "./drawn";
 import { valhallaRoutePair } from "./snap";
 import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
@@ -99,6 +100,8 @@ export function DrivesOverviewMap({
       const lineData = () => ({ type: "FeatureCollection" as const, features: lines });
       const endData = { type: "FeatureCollection" as const, features: ends };
 
+      const drawn = watchDrawn(map, el, "rivolt-drives-line");
+      cleanups.push(drawn.stop);
       m.onStyle((flavor) => {
         if (!map.getSource(LINES)) map.addSource(LINES, { type: "geojson", data: lineData() as never });
         else (map.getSource(LINES) as GeoJSONSource).setData(lineData() as never);
@@ -110,6 +113,7 @@ export function DrivesOverviewMap({
           map.addLayer({ id: "rivolt-drives-line", type: "line", source: LINES, layout: round, paint: { "line-color": "#34d399", "line-width": ROUTE_WIDTH, "line-opacity": flavor === "light" ? 1 : ROUTE_OPACITY } });
           map.addLayer({ id: "rivolt-drives-ends", type: "circle", source: ENDS, paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 } });
         }
+        drawn.markDrawn();
       });
 
       const tip = new ml.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "rivolt-tip", maxWidth: "260px" });

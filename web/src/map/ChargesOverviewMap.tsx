@@ -8,6 +8,7 @@ import { ensureConfig } from "../lib/config";
 import { chipLegend } from "./controls";
 import { loadMapLibre } from "./loader";
 import { mountBaseMap } from "./mount";
+import { watchDrawn } from "./drawn";
 import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
 
@@ -86,6 +87,8 @@ export function ChargesOverviewMap({
 
       const legend = chipLegend((["fast", "l2", "l1"] as const).map((k) => ({ color: CHARGE_BUCKET_COLOR[k], label: BUCKET_LABEL[k] })));
       map.addControl(legend, "bottom-left");
+      const drawn = watchDrawn(map, el, LAYER);
+      cleanups.push(drawn.stop);
       m.onStyle((flavor) => {
         legend.refresh(flavor);
         if (!map.getSource(SOURCE)) map.addSource(SOURCE, { type: "geojson", data: data as never });
@@ -98,6 +101,7 @@ export function ChargesOverviewMap({
             paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 },
           });
         }
+        drawn.markDrawn();
       });
 
       const tip = new ml.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: "rivolt-tip", maxWidth: "260px" });
@@ -116,7 +120,10 @@ export function ChargesOverviewMap({
       cleanups.push(() => tip.remove());
 
       const lons = valid.map((c) => c.Lon), lats = valid.map((c) => c.Lat);
-      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: 24, maxZoom: 14, animate: false });
+      // Leave room under the dots for the legend (its height, and the 10 px it sits above the edge), so no dot lies behind it.
+      const card = el.querySelector<HTMLElement>(".rivolt-charge-legend");
+      const bottom = Math.max(24, (card?.offsetHeight ?? 0) + 28);
+      map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 24, left: 24, right: 24, bottom }, maxZoom: 14, animate: false });
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
     return () => { for (const c of cleanups.reverse()) c(); };
     // The map is rebuilt only when the visible set changes (sig), not on every parent render.

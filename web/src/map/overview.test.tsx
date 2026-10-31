@@ -44,6 +44,8 @@ class FakeMap {
   fire(ev: string, e?: unknown) { for (const h of this.handlers[ev] ?? []) h(e); }
   fireLayer(ev: string, layer: string, e: unknown) { for (const h of this.layerHandlers[`${ev}:${layer}`] ?? []) h(e); }
   off() { return this; }
+  triggerRepaint = vi.fn();
+  queryRenderedFeatures() { return []; }
   addControl() { return this; }
   addSource(id: string, spec: { data: unknown }) {
     const src = { data: spec.data, setData: (d: unknown) => { src.data = d; } };

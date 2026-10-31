@@ -228,6 +228,10 @@ export function chipLegend(items: { color: string; label: string }[], active: Ma
     root = div;
     refresh(active);
     return div;
+  },
+  // Wrap inside the map, clear of the credits' (i) at the bottom right (it is 29 px wide with a 10 px margin), and lift above it on a phone.
+  (el, map) => {
+    el.style.maxWidth = `${Math.max(120, map.getContainer().clientWidth - 64)}px`;
   });
   return Object.assign(c, { refresh });
 }
