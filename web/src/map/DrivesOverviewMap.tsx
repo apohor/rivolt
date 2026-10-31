@@ -13,6 +13,11 @@ import { MapUnavailable } from "./Unavailable";
 import { webglAvailable } from "./webgl";
 
 const ROUTE_CONCURRENCY = 20;
+// A drive line: wide enough to read on a real basemap, with round caps; on the light map a thin casing in the page colour keeps overlapping
+// drives apart.
+const ROUTE_WIDTH = 2.5;
+const ROUTE_OPACITY = 0.85;
+const LIGHT_CASING = "#F6F7FA";
 const LINES = "rivolt-drives";
 const ENDS = "rivolt-drive-ends";
 
@@ -94,13 +99,15 @@ export function DrivesOverviewMap({
       const lineData = () => ({ type: "FeatureCollection" as const, features: lines });
       const endData = { type: "FeatureCollection" as const, features: ends };
 
-      m.onStyle(() => {
+      m.onStyle((flavor) => {
         if (!map.getSource(LINES)) map.addSource(LINES, { type: "geojson", data: lineData() as never });
         else (map.getSource(LINES) as GeoJSONSource).setData(lineData() as never);
         if (!map.getSource(ENDS)) map.addSource(ENDS, { type: "geojson", data: endData as never });
         if (!map.getLayer("rivolt-drives-hit")) {
+          const round = { "line-cap": "round", "line-join": "round" } as const;
           map.addLayer({ id: "rivolt-drives-hit", type: "line", source: LINES, paint: { "line-width": 12, "line-opacity": 0 } });
-          map.addLayer({ id: "rivolt-drives-line", type: "line", source: LINES, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#34d399", "line-width": 1.5, "line-opacity": 0.5 } });
+          map.addLayer({ id: "rivolt-drives-casing", type: "line", source: LINES, layout: round, paint: { "line-color": LIGHT_CASING, "line-width": ROUTE_WIDTH + 2, "line-opacity": flavor === "light" ? 0.9 : 0 } });
+          map.addLayer({ id: "rivolt-drives-line", type: "line", source: LINES, layout: round, paint: { "line-color": "#34d399", "line-width": ROUTE_WIDTH, "line-opacity": flavor === "light" ? 1 : ROUTE_OPACITY } });
           map.addLayer({ id: "rivolt-drives-ends", type: "circle", source: ENDS, paint: { "circle-radius": 5, "circle-color": ["get", "color"], "circle-stroke-color": "#0a0a0a", "circle-stroke-width": 1.5 } });
         }
       });

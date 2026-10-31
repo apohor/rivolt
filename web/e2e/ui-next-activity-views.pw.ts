@@ -53,6 +53,9 @@ for (const vp of [
     await page.getByRole("group", { name: "Map layer" }).getByRole("button", { name: /Charges/ }).click();
     await expect(page.locator("[data-activity-view='map'] section[aria-label='Charges'] .maplibregl-map")).toBeVisible();
     await expect(page.locator("[data-activity-view='map'] section[aria-label='Drives']")).toHaveCount(0);
+    // The Charges layer carries the power-class legend.
+    await expect(page.locator("[data-activity-view='map'] .rivolt-charge-legend")).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `activity-map-charges-${vp.name}.png`) });
 
     await views.getByRole("button", { name: "Feed" }).click();
     await expect(page).not.toHaveURL(/view=/);

@@ -133,8 +133,8 @@ enum ThemeTokens {
     static let tabBarMinHeight: Double = 56
     static let tabBarIcon: Double = 22
     static let tabBarIconStroke: Double = 1.8
-    static let mapRouteWidth: Double = 1.5
-    static let mapRouteOpacity: Double = 0.5
+    static let mapRouteWidth: Double = 2.5
+    static let mapRouteOpacity: Double = 0.85
     static let mapDot: Double = 10
     static let mapDotRing: Double = 1.5
 
