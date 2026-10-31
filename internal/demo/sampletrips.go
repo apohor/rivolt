@@ -8,11 +8,10 @@ import (
 	"time"
 )
 
-// Public sample-trip pages (rivolt.dev/sample-trips, Sprint 4): three preset
-// plans shown as indexable pages that end in "plan your own". Everything
-// comes from the embedded presets (no database, planner or network), built
-// once into SampleTrip, which the server renders as HTML for crawlers and
-// embeds as JSON for the page component.
+// Sample trips for the demo Plan tab: plans built from the embedded presets (no
+// database, planner or network), once, into SampleTrip. They used to back
+// public rivolt.dev/sample-trips pages; those pages were removed and their
+// addresses redirect to the demo Plan tab, which shows the same presets.
 
 // SampleTripPage is one page: its slug, the preset it shows, and its copy.
 type SampleTripPage struct {
@@ -26,7 +25,7 @@ type SampleTripPage struct {
 	Zone string
 }
 
-// SampleTripHub is the /sample-trips page's copy (growth, DA-approved).
+// SampleTripHub is the copy the removed /sample-trips hub page used (growth, DA-approved); kept with the presets.
 var SampleTripHub = SampleTripPage{
 	Title: "Sample Rivian road trips, planned with Rivolt",
 	Desc:  "Eight sample trips for a Rivian R1S planned by Rivolt: charging stops, arrival charge, time and estimated cost. Simulated sample data, no sign-in needed.",

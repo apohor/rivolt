@@ -164,3 +164,27 @@ func TestRemovedSampleTripPagesRedirectToTheDemoPlanTab(t *testing.T) {
 		t.Error("llms.txt still lists sample trips")
 	}
 }
+
+// Through the real router (the one main builds), with full URLs: no earlier route or host middleware may intercept the old sample-trip
+// addresses, and the demo host must not redirect them (standing rule since #569: path behaviour is tested through the router).
+func TestRemovedSampleTripPagesRedirectThroughTheRealRouter(t *testing.T) {
+	r := New(Deps{WebFS: fstest.MapFS{"index.html": {Data: []byte("<html>shell</html>")}}})
+	get := func(url string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+		return w
+	}
+	for _, u := range []string{
+		"https://rivolt.dev/sample-trips/la-las-vegas-two-days",
+		"https://rivolt.dev/sample-trips",
+		"https://rivolt.dev/sample-trips/?utm_source=forum",
+	} {
+		w := get(u)
+		if w.Code != http.StatusMovedPermanently || w.Header().Get("Location") != "https://demo.rivolt.dev/demo/trips/plan" {
+			t.Errorf("%s: %d Location=%q, want a 301 to the demo Plan tab (no query forwarded)", u, w.Code, w.Header().Get("Location"))
+		}
+	}
+	if w := get("https://demo.rivolt.dev/sample-trips"); w.Code == http.StatusMovedPermanently {
+		t.Errorf("the demo host redirected /sample-trips: %q", w.Header().Get("Location"))
+	}
+}
