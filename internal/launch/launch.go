@@ -45,7 +45,8 @@ var Items = []Item{
 	// classification carries a permanent guard test that a new Pro surface cannot ship ungated.
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
-	{ID: "lapse-stops-pushes", What: "on lapse or trial end Live Activity pushes stop, that account's Live Activity tokens are deleted and widgets fall back to the free state"},
+	{ID: "lapse-stops-pushes", What: "on lapse or trial end each running Live Activity gets one end with its final state and its token is deleted, and no further Live Activity pushes are sent (widgets do not exist yet: the Pro-surface guard test covers them)",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestLiveActivityEndsOnLapse"},
 	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account"},
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states"},
 

@@ -53,7 +53,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/ledger/summary":                    {"windowed", ""},
 	"GET /api/ledger/trips":                      {"windowed", ""},
 	"GET /api/ledger/savings":                    {"windowed", ""},
-	"GET /api/statement-email/preview":           {"windowed", ""},
+	"GET /api/statement-email/preview":           {"windowed", "the preview is windowed but covers the whole account, like the statement email itself (a background job with no request, last month for every vehicle); the email says so. Only the in-app Money views follow the free primary-vehicle rule."},
 	"GET /api/samples":                           {"windowed", ""},
 	"GET /api/sleep-activity":                    {"windowed", ""},
 	"GET /api/insights/efficiency":               {"windowed", ""},
