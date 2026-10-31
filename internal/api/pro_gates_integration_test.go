@@ -362,7 +362,7 @@ func TestStatementEmailFollowsThePrimaryVehicle(t *testing.T) {
 	}
 
 	// The preview's text is the email's: both render the same figures and the same line.
-	job := &statement.Job{Store: statement.NewStore(pool), BaseURL: "https://example.test", Now: time.Now}
+	job := &statement.Job{Store: statement.NewStore(pool), Signer: statement.NewSigner([]byte("0123456789abcdef0123456789abcdef")), BaseURL: "https://example.test", Now: time.Now}
 	for _, c := range []struct {
 		u       uuid.UUID
 		wantNot bool
