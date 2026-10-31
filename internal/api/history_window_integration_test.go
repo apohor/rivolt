@@ -273,10 +273,10 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 	}
 	// One priced charge in the current month, the previous month and four months ago; the current and the old one are open for verification.
 	for _, u := range []uuid.UUID{free, pro} {
-		for i, off := range []int{0, -1, -4} {
+		for i, off := range []int{0, -1, -2, -3, -4} {
 			c := charges.Charge{ID: "money-charge-" + month(off).Format("2006-01"), VehicleID: "rv-money", StartedAt: month(off).Add(time.Minute), EndedAt: month(off).Add(41 * time.Minute),
 				EnergyAddedKWh: 20, Cost: 5, Currency: "USD", PricePerKWh: 0.25, MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}
-			if i != 1 {
+			if i == 0 || i == 4 {
 				c.NetworkState = "estimated"
 			}
 			if err := cf.For(u).Upsert(ctx, c); err != nil {
@@ -321,7 +321,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		_ = json.Unmarshal(body, &pb)
 		return pb.Error
 	}
-	cur, prev, old := month(0).Format("2006-01"), month(-1).Format("2006-01"), month(-4).Format("2006-01")
+	cur, prev, prev2, prev3, old := month(0).Format("2006-01"), month(-1).Format("2006-01"), month(-2).Format("2006-01"), month(-3).Format("2006-01"), month(-4).Format("2006-01")
 
 	// Statements.
 	for _, m := range []string{cur, prev} {
@@ -351,11 +351,13 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		t.Errorf("a month inside the window differs between free and Pro:\nfree %s\npro  %s", f, p)
 	}
 
-	// The statement CSV: the current month for everyone, any other month is Pro.
-	if code, _ := get(free, "/ledger/monthly.csv?month="+cur); code != 200 {
-		t.Errorf("free current-month CSV: %d", code)
+	// The statement CSV: any month the free statement shows (the current month and the two before) is downloadable; older months are Pro.
+	for _, m := range []string{cur, prev, prev2} {
+		if code, body := get(free, "/ledger/monthly.csv?month="+m); code != 200 {
+			t.Errorf("free CSV for %s: %d %s, want 200 (the statement shows it)", m, code, body)
+		}
 	}
-	for _, m := range []string{prev, old} {
+	for _, m := range []string{prev3, old} {
 		if code, body := get(free, "/ledger/monthly.csv?month="+m); code != http.StatusPaymentRequired || errCode(body) != "pro_required" {
 			t.Errorf("free CSV for %s: %d %s, want 402 pro_required", m, code, body)
 		}
@@ -418,6 +420,25 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 	}
 	if code, body := get(pro, "/statement-email/preview?month="+old); code != 200 {
 		t.Errorf("pro preview %s: %d %s", old, code, body)
+	}
+	// The comparison with the month before: for the OLDEST month a free account may preview (two months back) the month before it is outside
+	// the window, so the "than <month>" line is left out; a Pro account sees it. (Positive control: the Pro text names that month.)
+	previewText := func(u uuid.UUID) string {
+		code, body := get(u, "/statement-email/preview?month="+prev2)
+		var pv struct {
+			Text string `json:"text"`
+		}
+		if code != 200 || json.Unmarshal(body, &pv) != nil {
+			t.Fatalf("preview %s: %d %s", prev2, code, body)
+		}
+		return pv.Text
+	}
+	compared := month(-3).Format("January") // the month before prev2, as the delta line names it
+	if pt := previewText(pro); !strings.Contains(pt, compared) {
+		t.Errorf("the Pro preview of %s does not compare with %s (no positive control): %s", prev2, compared, pt)
+	}
+	if ft := previewText(free); strings.Contains(ft, compared) {
+		t.Errorf("the free preview of %s still compares with %s, which is outside the window: %s", prev2, compared, ft)
 	}
 
 	// A range wholly before a free account's window is empty, not an error.
