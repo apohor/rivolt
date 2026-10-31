@@ -95,6 +95,8 @@ var routeClasses = map[string]windowClass{
 	"GET /api/year-in-rivolt":                     {"exempt", "the year card stays free; an aggregate of the user's own year, computed server-side"},
 	"GET /api/ledger/enabled":                     {"exempt", "a feature flag, no history"},
 	"POST /api/milestones/dismiss":                {"exempt", "a write on the user's own milestone"},
+	"POST /api/billing/apple/notifications":       {"exempt", "Apple calls it with a signed notification: it writes the entitlement table, returns no history"},
+	"POST /api/billing/apple/transaction":         {"exempt", "the account reports its own signed purchase: it writes the entitlement table, returns the plan, no history"},
 	"GET /api/notices":                            {"exempt", "the account's own service notices (the Pro launch notice), no history; free for every plan"},
 	"POST /api/notices/dismiss":                   {"exempt", "a write on the user's own notice"},
 	"POST /api/statement-email/unsubscribe":       {"exempt", "an email control; works signed out"},
@@ -158,7 +160,7 @@ var prefixClasses = []struct{ prefix, why string }{
 
 // optionalRoutes are mounted only where a feature is configured; the test router may not have them, and they are classified here for the
 // installs that do.
-var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true}
+var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {
