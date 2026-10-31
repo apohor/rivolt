@@ -79,7 +79,8 @@ var Items = []Item{
 		Cleared: true, ClearedBy: "#1365,#1368,#1395", Proof: "web/src/lib/plan.test.ts,web/e2e/pro-plan.pw.ts,ios/RivoltTests/ProPaywallTests.swift"},
 	{ID: "vehicle-scope-label", What: "web and iPhone show \"Showing <vehicle>. Pro includes all vehicles.\" on every response narrowed to the primary vehicle, read from the X-Rivolt-Vehicle-Scope header, so a narrowed total never reads as the whole fleet's (client tests are the proof)",
 		Cleared: true, ClearedBy: "#1406,#1407", Proof: "web/src/components/VehicleScopeNote.test.tsx,ios/RivoltTests/Pro19LimitsTests.swift"},
-	{ID: "delete-range-ui", What: "web and iPhone offer \"Delete history before a month\" (POST /api/data/delete-range), and the old drive and charge 402 screens keep per-row Delete reachable, so a free user has a path to the privacy exit"},
+	{ID: "delete-range-ui", What: "web and iPhone offer \"Delete history before a month\" (POST /api/data/delete-range), and the old drive and charge 402 screens keep per-row Delete reachable, so a free user has a path to the privacy exit",
+		Cleared: true, ClearedBy: "#1378,#1413", Proof: "web/src/components/DeleteHistoryCard.test.tsx,web/e2e/pro-limits.pw.ts,ios/RivoltTests/Pro19LimitsTests.swift,TestHistoryDeletesAreNotOnTheAppWriteList"},
 }
 
 // Pending returns the IDs of the items not yet cleared, in list order.
