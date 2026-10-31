@@ -48,8 +48,8 @@ var seoPages = map[string]map[string]seoPage{
 	hostApp: {
 		"/": {
 			title: "Rivolt: Rivian charging cost, trip and efficiency tracker",
-			desc:  "Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. " + notAffiliated,
-			summary: "Rivolt is a free, open-source tracker for Rivian owners. It records drives and charges, prices each charge from what Rivian billed, your rate, or a labelled estimate, " +
+			desc:  "Open-source tracker for Rivian owners, free during the beta: charging cost, trips, efficiency and lease miles. " + notAffiliated,
+			summary: "Rivolt is an open-source tracker for Rivian owners, free during the beta. It records drives and charges, prices each charge from what Rivian billed, your rate, or a labelled estimate, " +
 				"shows efficiency, and projects lease miles. Try the sample truck at https://demo.rivolt.dev. " + notAffiliated,
 		},
 		"/privacy": {
@@ -109,7 +109,7 @@ var seoPages = map[string]map[string]seoPage{
 		},
 		pathElectraFi: {
 			title: "Moving your history from ElectraFi to Rivolt",
-			desc:  "How to import your ElectraFi drives and charges into Rivolt, a free, open-source tracker for Rivian owners. " + notAffiliated,
+			desc:  "How to import your ElectraFi drives and charges into Rivolt, an open-source Rivian tracker, free during the beta. " + notAffiliated,
 			summary: "Export your ElectraFi data (Settings, Account, Advanced, Download ElectraFi Data), then upload the CSVs in Rivolt under Settings, Data, " +
 				"Import ElectraFi CSV. Rivolt skips anything it has already recorded. Rivolt is not affiliated with ElectraFi. " + notAffiliated,
 		},
@@ -182,7 +182,7 @@ func llmsTxt(host string) (string, bool) {
 	var b strings.Builder
 	b.WriteString("# Rivolt\n\n> " + home.desc + "\n\n")
 	b.WriteString("Rivolt records a Rivian's drives and charges, prices charging at the owner's own rate, shows efficiency, and projects lease miles. ")
-	b.WriteString("It is free, open source (MIT) and run by ZeroDowntime LLC.\n\n## Pages\n\n")
+	b.WriteString("It is open source (MIT), free during the beta, and run by ZeroDowntime LLC.\n\n## Pages\n\n")
 	b.WriteString("- [Home](" + base + "/): what Rivolt does\n")
 	if host == hostApp {
 		b.WriteString("- [Demo](https://" + hostDemo + "/): a generated sample truck, no sign-in\n")

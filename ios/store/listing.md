@@ -14,10 +14,10 @@ Rivolt: EV drives and charging
 Drives, charging cost, truck
 
 ## Promotional text
-Free and open source. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health, with Lock Screen widgets. Unofficial.
+Free during the beta, open source. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health, with Lock Screen widgets. Unofficial.
 
 ## Description
-Rivolt is a free, open-source companion for Rivian owners. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from.
+Rivolt is an open-source companion for Rivian owners, free during the beta. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from.
 
 ON YOUR IPHONE
 • Now: charge level, range, what the truck is doing and how fresh that reading is, with a switcher if you have more than one truck.
@@ -49,7 +49,7 @@ https://rivolt.dev/privacy
 First App Store release: Now, widgets, notifications, Activity, Money and Truck, read-only, signed in with your Rivolt account.
 
 ## Review notes
-Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and every feature is browsable. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev. Nothing is purchased in the app; the service is free.
+Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and every feature is browsable. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev. Nothing is purchased in the app; the service is free during the beta.
 
 A plain test account is also supplied in App Store Connect's private field; it has no truck connected, because a Rivian is needed for your own data.
 

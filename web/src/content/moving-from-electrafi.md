@@ -2,7 +2,7 @@
 
 If you've tracked your Rivian with ElectraFi, you don't have to start over. Rivolt can import your ElectraFi drives and charges and keep them alongside what it records going forward.
 
-Rivolt is a free, open-source companion for Rivian owners. It is unofficial and not affiliated with Rivian or ElectraFi. This page isn't about which app is better. It is the steps for moving your data if you decide to try Rivolt.
+Rivolt is an open-source companion for Rivian owners, free during the beta. It is unofficial and not affiliated with Rivian or ElectraFi. This page isn't about which app is better. It is the steps for moving your data if you decide to try Rivolt.
 
 ## Before you start
 

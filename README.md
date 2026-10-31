@@ -2,7 +2,7 @@
 
 [![build](https://github.com/apohor/rivolt/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/apohor/rivolt/actions/workflows/build.yml) [![release](https://img.shields.io/github/v/release/apohor/rivolt)](https://github.com/apohor/rivolt/releases/latest) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> Free, open-source tracker for Rivian owners: what your Rivian actually
+> Open-source tracker for Rivian owners, free during the beta: what your Rivian actually
 > costs. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
