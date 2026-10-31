@@ -32,6 +32,16 @@ type fakeStripe struct {
 	listGets      int
 	deleted       []string
 	deleteQueries []url.Values
+	// customers: open invoices per customer; charges per customer as [charge id, dispute status or ""]; gone = deleted customers.
+	openInvoices     map[string]int
+	charges          map[string][][2]string
+	gone             map[string]bool
+	customersDeleted []string
+}
+
+func (f *fakeStripe) missing(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such customer"}}`))
 }
 
 const (
@@ -79,7 +89,7 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/subscriptions":
 			f.listGets++
 			cust := r.URL.Query().Get("customer")
-			if f.subs == nil || f.subs[cust] == nil {
+			if f.gone[cust] || f.subs == nil || f.subs[cust] == nil {
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such customer"}}`))
 				return
@@ -102,6 +112,51 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 				data = append(data, map[string]any{"id": sub[0], "status": sub[1]})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": end < len(all)})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
+			cust := r.URL.Query().Get("customer")
+			if f.gone[cust] {
+				f.missing(w)
+				return
+			}
+			var data []map[string]any
+			for i := 0; i < f.openInvoices[cust]; i++ {
+				data = append(data, map[string]any{"id": "in_open_" + strconv.Itoa(i), "status": "open"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/charges":
+			cust := r.URL.Query().Get("customer")
+			if f.gone[cust] {
+				f.missing(w)
+				return
+			}
+			var data []map[string]any
+			for _, c := range f.charges[cust] {
+				data = append(data, map[string]any{"id": c[0], "disputed": c[1] != ""})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/disputes":
+			ch := r.URL.Query().Get("charge")
+			var data []map[string]any
+			for _, cs := range f.charges {
+				for _, c := range cs {
+					if c[0] == ch && c[1] != "" {
+						data = append(data, map[string]any{"id": "dp_" + ch, "status": c[1]})
+					}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/customers/"):
+			id := strings.TrimPrefix(r.URL.Path, "/v1/customers/")
+			if f.gone[id] {
+				f.missing(w)
+				return
+			}
+			if f.gone == nil {
+				f.gone = map[string]bool{}
+			}
+			f.gone[id] = true
+			f.customersDeleted = append(f.customersDeleted, id)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "deleted": true})
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/subscriptions/"):
 			id := strings.TrimPrefix(r.URL.Path, "/v1/subscriptions/")
 			f.deleted = append(f.deleted, id)
@@ -431,5 +486,55 @@ func TestStripeErrorTextCarriesNoMessage(t *testing.T) {
 		if got := queueText(c.err); got != c.want {
 			t.Errorf("queueText(%v) = %q, want %q", c.err, got, c.want)
 		}
+	}
+}
+
+// The Stripe customer record (name, email, address) is deleted once nothing is open on it; an unpaid invoice or an unresolved dispute holds
+// it back (ErrOpenItems, nothing deleted); a settled dispute does not; an unknown customer is already done.
+func TestDeleteCustomerIfClear(t *testing.T) {
+	ctx := context.Background()
+	c := func(f *fakeStripe) *Client { return &Client{BaseURL: f.srv.URL, SecretKey: testKey} }
+
+	f := newFakeStripe(t)
+	f.subs = map[string][][2]string{"cus_clear": nil}
+	if err := c(f).DeleteCustomerIfClear(ctx, "cus_clear"); err != nil || strings.Join(f.customersDeleted, ",") != "cus_clear" {
+		t.Errorf("a customer with nothing open: %v, deleted %v", err, f.customersDeleted)
+	}
+	// Again: already gone (404) is success, not a second delete.
+	if err := c(f).DeleteCustomerIfClear(ctx, "cus_clear"); err != nil || len(f.customersDeleted) != 1 {
+		t.Errorf("a customer already deleted: %v, deleted %v", err, f.customersDeleted)
+	}
+
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_unpaid": 1}
+	if err := c(f).DeleteCustomerIfClear(ctx, "cus_unpaid"); !errors.Is(err, ErrOpenItems) || len(f.customersDeleted) != 0 {
+		t.Errorf("an unpaid invoice: %v, deleted %v; want ErrOpenItems and nothing deleted", err, f.customersDeleted)
+	}
+
+	f = newFakeStripe(t)
+	f.charges = map[string][][2]string{"cus_dispute": {{"ch_1", ""}, {"ch_2", "needs_response"}}}
+	if err := c(f).DeleteCustomerIfClear(ctx, "cus_dispute"); !errors.Is(err, ErrOpenItems) || len(f.customersDeleted) != 0 {
+		t.Errorf("an unresolved dispute: %v, deleted %v; want ErrOpenItems", err, f.customersDeleted)
+	}
+	for _, status := range []string{"under_review", "warning_needs_response", "warning_under_review"} {
+		f = newFakeStripe(t)
+		f.charges = map[string][][2]string{"cus_d": {{"ch_9", status}}}
+		if err := c(f).DeleteCustomerIfClear(ctx, "cus_d"); !errors.Is(err, ErrOpenItems) {
+			t.Errorf("a dispute %s: %v, want ErrOpenItems", status, err)
+		}
+	}
+	for _, status := range []string{"won", "lost", "warning_closed", "charge_refunded"} {
+		f = newFakeStripe(t)
+		f.charges = map[string][][2]string{"cus_d": {{"ch_9", status}}}
+		if err := c(f).DeleteCustomerIfClear(ctx, "cus_d"); err != nil || len(f.customersDeleted) != 1 {
+			t.Errorf("a settled dispute (%s): %v, deleted %v; want the customer deleted", status, err, f.customersDeleted)
+		}
+	}
+
+	// CloseCustomer cancels first, then deletes.
+	f = newFakeStripe(t)
+	f.subs = map[string][][2]string{"cus_both": {{"sub_x", "active"}}}
+	if err := c(f).CloseCustomer(ctx, "cus_both"); err != nil || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
+		t.Errorf("CloseCustomer: %v, cancelled %v, deleted %v", err, f.deleted, f.customersDeleted)
 	}
 }
