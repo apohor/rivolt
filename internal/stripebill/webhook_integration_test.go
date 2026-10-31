@@ -638,12 +638,20 @@ func TestWebhookLagAndPaymentFailedHooks(t *testing.T) {
 	if code := r.deliver("subscription_updated_past_due.json", nil); code != 200 {
 		t.Fatalf("subscription.updated past_due: %d", code)
 	}
+	// Stripe sends several updates while it retries the invoice: the same past-due subscription again, later and under a new event id.
+	again := func(b string) string {
+		b = strings.Replace(b, "evt_sub_pastdue_1", "evt_sub_pastdue_2", 1)
+		return strings.Replace(b, `"created": 1821600000`, `"created": 1821600600`, 1)
+	}
+	if code := r.deliver("subscription_updated_past_due.json", again); code != 200 {
+		t.Fatalf("a second subscription.updated past_due: %d", code)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(lags) != 3 {
-		t.Errorf("%d lags observed for 3 deliveries, want 3", len(lags))
+	if len(lags) != 4 {
+		t.Errorf("%d lags observed for 4 deliveries, want 4", len(lags))
 	}
 	if len(kinds) != 1 || kinds[0] != "payment_failed" {
-		t.Errorf("billing events %v, want exactly [payment_failed]", kinds)
+		t.Errorf("billing events %v, want exactly [payment_failed]: the second update of the same past-due subscription is not another failure", kinds)
 	}
 }

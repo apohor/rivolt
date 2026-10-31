@@ -318,6 +318,12 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 	if n, _ := res.RowsAffected(); n == 0 {
 		return OutcomeStale, uuid.Nil, nil
 	}
+	// payment_failed is the TRANSITION into past due, once per failure: Stripe sends several subscription.updated events while it retries the
+	// invoice, and each would otherwise count. The previous status is read here, in the same transaction as the write below.
+	var before sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM entitlements WHERE user_id = $1 AND source = 'stripe'`, uid).Scan(&before); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", uuid.Nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO entitlements (user_id, source, status, current_period_end, external_id, cancel_at_period_end)
 		VALUES ($1, 'stripe', $2, $3, $4, $5)
@@ -326,7 +332,7 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		uid, status, end, sub.ID, sub.WillCancel() && status == entitlements.StatusActive); err != nil {
 		return "", uuid.Nil, err
 	}
-	if status == entitlements.StatusPastDue && ev.Type != "customer.subscription.deleted" && h.OnBilling != nil {
+	if status == entitlements.StatusPastDue && before.String != entitlements.StatusPastDue && ev.Type != "customer.subscription.deleted" && h.OnBilling != nil {
 		h.OnBilling("payment_failed")
 	}
 	return OutcomeApplied, uid, nil
