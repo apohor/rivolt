@@ -221,16 +221,34 @@ func (p *proVehicles) statementScope(ctx context.Context, uid uuid.UUID) (vehicl
 	}
 	label := "your primary vehicle"
 	if vs, err := db.ListUserVehicles(ctx, p.db, uid); err == nil {
-		for _, v := range vs {
-			if v.RivianVehicleID == only {
-				switch {
-				case v.DisplayName != "":
-					label = v.DisplayName
-				case v.Model != "":
-					label = v.Model
-				}
-			}
-		}
+		label = vehicleLabel(vs, only)
 	}
 	return only, "Showing " + label + ". Pro includes all vehicles."
+}
+
+// vehicleLabel names a vehicle in an email: its model ("R1T"), never the user's own text, except when the account has two vehicles of the
+// same model, where the nickname is the only way to tell them apart. Without either, "your primary vehicle".
+func vehicleLabel(vs []db.VehicleSummary, id string) string {
+	for _, v := range vs {
+		if v.RivianVehicleID != id {
+			continue
+		}
+		if v.Model == "" {
+			if v.DisplayName != "" {
+				return v.DisplayName
+			}
+			break
+		}
+		same := 0
+		for _, o := range vs {
+			if o.Model == v.Model {
+				same++
+			}
+		}
+		if same > 1 && v.DisplayName != "" {
+			return v.DisplayName
+		}
+		return v.Model
+	}
+	return "your primary vehicle"
 }
