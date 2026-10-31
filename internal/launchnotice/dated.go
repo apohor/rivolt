@@ -29,6 +29,25 @@ const (
 	SendFrom  = 45 * 24 * time.Hour
 )
 
+// KindAnnualRenewal is the metric kind of the yearly-renewal reminder (its notice rows are per period: see RenewalKind).
+const KindAnnualRenewal = "annual_renewal"
+
+// The outcomes the dated jobs report (rivolt_dated_notices_total{kind,outcome}). Observe is only ever called with one of these; the
+// metric pre-creates every (kind, outcome) pair at 0 so the first late notice is an increase, not a series that appears at 1.
+const (
+	OutcomeSent    = "sent"
+	OutcomeInApp   = "in_app"
+	OutcomeSkipped = "skipped"
+	OutcomeFailed  = "failed"
+	OutcomeLate    = "late"
+)
+
+// Outcomes lists them; MetricKinds lists the kinds. Add a new outcome here and the metric and its test follow.
+var (
+	Outcomes    = []string{OutcomeSent, OutcomeInApp, OutcomeSkipped, OutcomeFailed, OutcomeLate}
+	MetricKinds = []string{KindFoundingEnd, KindAnnualRenewal}
+)
+
 // FoundingParams are the dates a founding-year-end notice states.
 type FoundingParams struct {
 	End string `json:"end"` // the founding year's last day, YYYY-MM-DD
@@ -202,7 +221,7 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		prep, err := j.Store.PrepareFounding(ctx, c, now, wantEmail)
 		if err != nil {
 			st.Failed++
-			j.observe(KindFoundingEnd, "failed")
+			j.observe(KindFoundingEnd, OutcomeFailed)
 			j.log().Warn("founding notice: not prepared", "user_id", c.UserID.String(), "err", errString(err))
 			continue
 		}
@@ -211,7 +230,7 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 			if prep.Shortfall > st.WorstShortfall {
 				st.WorstShortfall = prep.Shortfall
 			}
-			j.observe(KindFoundingEnd, "late")
+			j.observe(KindFoundingEnd, OutcomeLate)
 			j.log().Warn("founding notice: late; the year was extended to keep 30 days' notice", "late", true,
 				"user_id", c.UserID.String(), "shortfall_days", int(prep.Shortfall.Hours()/24), "new_end", prep.Params.End)
 			if j.OnExtend != nil {
@@ -220,12 +239,12 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		}
 		if !wantEmail {
 			st.InApp++
-			j.observe(KindFoundingEnd, "in_app")
+			j.observe(KindFoundingEnd, OutcomeInApp)
 			continue
 		}
 		if !prep.Claimed {
 			st.Skipped++
-			j.observe(KindFoundingEnd, "skipped")
+			j.observe(KindFoundingEnd, OutcomeSkipped)
 			continue
 		}
 		err = j.Mailer.Send(ctx, email.Message{
@@ -235,7 +254,7 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		if err != nil {
 			_ = j.Store.ReleaseClaim(ctx, c.UserID, KindFoundingEnd)
 			st.Failed++
-			j.observe(KindFoundingEnd, "failed")
+			j.observe(KindFoundingEnd, OutcomeFailed)
 			j.log().Warn("founding notice: send failed", "user_id", c.UserID.String(), "err", errString(err))
 			continue
 		}
@@ -246,7 +265,7 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 		}
 		st.Sent++
 		st.InApp++
-		j.observe(KindFoundingEnd, "sent")
+		j.observe(KindFoundingEnd, OutcomeSent)
 	}
 	return st, nil
 }

@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/apohor/rivolt/internal/launchnotice"
 )
 
 // TestHTTPMiddlewareUsesRoutePattern is the load-bearing assertion
@@ -157,6 +159,50 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 	for _, choice := range []string{"idle", "awake", "deferred"} {
 		if !strings.Contains(body, `rivolt_lease_shed_total{choice="`+choice+`"} 0`) {
 			t.Errorf("rivolt_lease_shed_total{choice=%q} is not exported at 0 from boot", choice)
+		}
+	}
+}
+
+// rivolt_dated_notices_total is exported at 0 for every (kind, outcome) the dated jobs can report, before any send: a series that first
+// appears at 1 has increase() == 0, and the alert on a late founding-year notice would miss the very event it is for.
+func TestDatedNoticesSeriesExistAtZero(t *testing.T) {
+	m := New()
+	fams, err := m.reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]float64{}
+	for _, f := range fams {
+		if f.GetName() != "rivolt_dated_notices_total" {
+			continue
+		}
+		for _, mm := range f.GetMetric() {
+			var kind, outcome string
+			for _, l := range mm.GetLabel() {
+				switch l.GetName() {
+				case "kind":
+					kind = l.GetValue()
+				case "outcome":
+					outcome = l.GetValue()
+				}
+			}
+			got[kind+"/"+outcome] = mm.GetCounter().GetValue()
+		}
+	}
+	for _, kind := range launchnotice.MetricKinds {
+		for _, outcome := range launchnotice.Outcomes {
+			v, ok := got[kind+"/"+outcome]
+			if !ok || v != 0 {
+				t.Errorf("rivolt_dated_notices_total{kind=%q,outcome=%q} = %v (present %v), want 0 before any send", kind, outcome, v, ok)
+			}
+		}
+	}
+	if len(got) != len(launchnotice.MetricKinds)*len(launchnotice.Outcomes) {
+		t.Errorf("%d series, want %d", len(got), len(launchnotice.MetricKinds)*len(launchnotice.Outcomes))
+	}
+	for _, want := range []string{"founding_end/late", "annual_renewal/late"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("the alerted series %s is missing", want)
 		}
 	}
 }

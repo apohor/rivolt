@@ -38,7 +38,7 @@ func startDatedNoticeJob(d Deps) {
 		},
 	}
 	// The renewal reminder has no source until the Stripe billing item lands (Pro 7); a nil source sends nothing.
-	renewals := &launchnotice.RenewalJob{Store: launchnotice.Store{DB: d.SystemDB}, Mailer: d.Email, Logger: d.Logger, Skip: skip}
+	renewals := &launchnotice.RenewalJob{Store: launchnotice.Store{DB: d.SystemDB}, Mailer: d.Email, Logger: d.Logger, Skip: skip, Observe: observe}
 	go func() {
 		t := time.NewTimer(2 * time.Minute) // let the pod settle first
 		defer t.Stop()

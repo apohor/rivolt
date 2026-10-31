@@ -25,6 +25,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+
+	"github.com/apohor/rivolt/internal/launchnotice"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -676,6 +678,12 @@ func New() *Metrics {
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
 	// is an increase (a series that first appears at 1 has increase() == 0, and the alert would miss the
 	// very event it is for). Keep the label values in step with the callers.
+	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
+	for _, kind := range launchnotice.MetricKinds {
+		for _, outcome := range launchnotice.Outcomes {
+			m.DatedNoticesTotal.WithLabelValues(kind, outcome).Add(0)
+		}
+	}
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
