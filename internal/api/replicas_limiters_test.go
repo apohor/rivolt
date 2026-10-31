@@ -104,9 +104,18 @@ func TestReplicasLimitersCountAcrossPodsAndFallBackPerPod(t *testing.T) {
 	}
 
 	// Redis back: the pods count together again once their backoff ends.
+	// A fake Redis that cannot come back on the same address fails the test: a skip here would drop the "Redis back" check in CI
+	// without anyone seeing it. The port is retried for a moment first, since the kernel may still hold it.
 	back := miniredis.NewMiniRedis()
-	if err := back.StartAddr(redisAddr); err != nil {
-		t.Skipf("cannot rebind %s: %v", redisAddr, err)
+	var bindErr error
+	for i := 0; i < 50; i++ {
+		if bindErr = back.StartAddr(redisAddr); bindErr == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if bindErr != nil {
+		t.Fatalf("cannot restart the fake Redis on %s: %v", redisAddr, bindErr)
 	}
 	t.Cleanup(back.Close)
 	back.SetTime(time.Unix(1_700_000_000, 0))
