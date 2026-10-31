@@ -47,7 +47,8 @@ var Items = []Item{
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
 	{ID: "lapse-stops-pushes", What: "on lapse or trial end each running Live Activity gets one end with its final state and its token is deleted, and no further Live Activity pushes are sent (widgets do not exist yet: the Pro-surface guard test covers them)",
 		Cleared: true, ClearedBy: "#1381", Proof: "TestLiveActivityEndsOnLapse"},
-	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account"},
+	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; the 14-day trial starts once per account",
+		Cleared: true, ClearedBy: "#1384", Proof: "TestFoundingGrantAgainstPostgres,TestNewAccountTrialAgainstPostgres"},
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states",
 		Cleared: true, ClearedBy: "#1382", Proof: "TestCancelAndGraceStates"},
 
@@ -62,7 +63,8 @@ var Items = []Item{
 	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect"},
 	{ID: "launch-notice", What: "the section 11 launch notice goes out by email AND in-app to every verified existing account, as a service email that ignores the engagement opt-out",
 		Cleared: true, ClearedBy: "#1389", Proof: "TestLaunchNoticeApplyIsIdempotentAndEngagementBlind,TestLaunchNoticeAgainstPostgres,TestLaunchNoticeDryRunPrintsCountsOnly"},
-	{ID: "founding-expiry-notice", What: "a dated job sends an email plus an in-app notice at least 30 days before each founding year ends"},
+	{ID: "founding-expiry-notice", What: "a dated job sends an email plus an in-app notice at least 30 days before each founding year ends",
+		Cleared: true, ClearedBy: "#1391", Proof: "TestLateFoundingNoticeIsExtendedAndCounted,TestFoundingNoticeSendsOncePerAccount,TestDatedNoticesAgainstPostgres"},
 	{ID: "budget-tier-blind", What: "a test asserts the Rivian rate-limit classes and the poller never consult entitlements, so Pro never means more Rivian calls",
 		Cleared: true, ClearedBy: "#1388", Proof: "TestRivianSideNeverConsultsThePlan"},
 	{ID: "checkout-consent", What: "the checkout consent line (\"first charge on <date>\") is generated from the Checkout session, with a test"},

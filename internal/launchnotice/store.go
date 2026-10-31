@@ -15,8 +15,10 @@ const ClaimStale = 15 * time.Minute
 
 // Notice is one account's notice.
 type Notice struct {
-	Kind       string
+	Kind string
+	// Params are the launch notice's dates (empty for other kinds); Raw is the stored JSON of any kind.
 	Params     Params
+	Raw        json.RawMessage
 	ShowsUntil time.Time
 	CreatedAt  time.Time
 	EmailSent  *time.Time
@@ -99,9 +101,8 @@ func (s Store) List(ctx context.Context, uid uuid.UUID, now time.Time) ([]Notice
 		if err := rows.Scan(&n.Kind, &raw, &n.ShowsUntil, &n.CreatedAt, &sent, &dis); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(raw, &n.Params); err != nil {
-			return nil, err
-		}
+		n.Raw = raw
+		_ = json.Unmarshal(raw, &n.Params) // other kinds carry other fields; the launch notice's dates are empty for them
 		if sent.Valid {
 			n.EmailSent = &sent.Time
 		}
@@ -152,4 +153,37 @@ func (s Store) States(ctx context.Context, kind string) (map[uuid.UUID]State, er
 		out[id] = st
 	}
 	return out, rows.Err()
+}
+
+// EnsureAny is Ensure for any kind: params is whatever JSON the kind states, shownUntil when its in-app notice stops showing.
+func (s Store) EnsureAny(ctx context.Context, uid uuid.UUID, kind string, params any, shownUntil time.Time) (created bool, err error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return false, err
+	}
+	res, err := s.DB.ExecContext(ctx,
+		`INSERT INTO account_notices (user_id, kind, params, shows_until) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, kind) DO NOTHING`,
+		uid, kind, raw, shownUntil)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// ClaimEmailAny is ClaimEmail for any kind; it returns the stored params as JSON.
+func (s Store) ClaimEmailAny(ctx context.Context, uid uuid.UUID, kind string) (json.RawMessage, bool, error) {
+	var raw []byte
+	err := s.DB.QueryRowContext(ctx, `
+		UPDATE account_notices SET email_claimed_at = now()
+		 WHERE user_id = $1 AND kind = $2 AND email_sent_at IS NULL
+		   AND (email_claimed_at IS NULL OR email_claimed_at < now() - make_interval(secs => $3))
+		RETURNING params`, uid, kind, ClaimStale.Seconds()).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return raw, true, nil
 }

@@ -49,6 +49,9 @@ var notYetGuarded = map[string]string{}
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
+	"launchnotice.PGDated.PrepareFounding": "singleton maintenance job (the hourly dated-notice sweep, replica-safe by a row claim): extends a founding year that is under 30 days from its end and claims the notice email in one transaction; an account's plan is not a vehicle group's owner state",
+	"launchnotice.Store.EnsureAny":         "singleton maintenance job (the hourly dated-notice sweep): the in-app row of a renewal reminder",
+	"launchnotice.Store.ClaimEmailAny":     "singleton maintenance job (the hourly dated-notice sweep): the email claim of a renewal reminder",
 	"launchnotice.Store.Ensure":            "operator command (rivolt launch-notice): a one-shot run by an operator, not by a group's owner",
 	"launchnotice.Store.ClaimEmail":        "operator command (rivolt launch-notice): the email claim of that one-shot run",
 	"launchnotice.Store.MarkSent":          "operator command (rivolt launch-notice): records the notice email as sent",
@@ -166,6 +169,8 @@ var notOwnerSide = map[string]string{
 	"stripebill.Handler.subscriptionChanged":  "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
 	"stripebill.linkCustomer":                 "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
 	"stripebill.PurgeEvents":                  "retention job (stripe webhook event ids older than 30 days), not an owner-side write",
+	"db.StartTrial":                           "sign-up time account write (a brand-new account's trial row), not owner-side",
+	"entitlements.ApplyFounding":              "operator CLI (rivolt entitlements-founding), not owner-side",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
 	"db.deleteUserTx":                         "user action / inactive purge (account deletion)",

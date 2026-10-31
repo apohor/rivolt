@@ -104,8 +104,7 @@ export default function LandingPage() {
             title="Price the trip before you go"
             body="See fast-charging spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
           >
-            {/* A plain link: the sample-trip pages carry their data in the server-rendered HTML, which only a full page load fetches. */}
-            <a href="/sample-trips/la-las-vegas-two-days" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+            <a href={`${DEMO_URL}/demo/trips/plan`} className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
               See a planned trip first: Los Angeles to Las Vegas in two days
             </a>
           </Claim>

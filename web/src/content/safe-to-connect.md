@@ -4,7 +4,7 @@ Rivolt asks for a Rivian sign-in so it can read your truck's drives and charging
 
 ## Look first, decide later
 
-You don't need an account to see what Rivolt does. The [demo](https://demo.rivolt.dev) shows every tab on a sample truck with generated data: no sign-in, no Rivian account. If you then want to see a planned trip, [Los Angeles to Las Vegas in two days](/sample-trips/la-las-vegas-two-days) is public too.
+You don't need an account to see what Rivolt does. The [demo](https://demo.rivolt.dev) shows every tab on a sample truck with generated data: no sign-in, no Rivian account. If you then want to see a planned trip, the demo's [Plan tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los Angeles to Las Vegas in two days.
 
 ## What Rivolt reads, and what it never does
 
