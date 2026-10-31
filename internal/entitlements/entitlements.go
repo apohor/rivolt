@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -233,6 +234,9 @@ type Service struct {
 	mu       sync.Mutex
 	cache    map[uuid.UUID]cached
 	maxCache int
+	// stripeManage is set when Stripe is configured (EnableStripeManage): only then does a billing-off server look at the rows to tell
+	// which accounts still hold a Stripe subscription.
+	stripeManage atomic.Bool
 }
 
 type cached struct {
@@ -253,6 +257,9 @@ type Config struct {
 	// TTL is how long an account's rows are cached; 0 means DefaultTTL. A grant written on another replica is seen within it.
 	TTL time.Duration
 	Log *slog.Logger
+	// StripeManage is true when Stripe is configured: only then does a billing-off server look at the rows to tell which accounts still
+	// hold a Stripe subscription (ManageSubscription). Every self-hosted install that sells nothing leaves it false and reads no row.
+	StripeManage bool
 	// OnLookupError is told each time the rows could not be read (the metric beside the fail-open warning).
 	OnLookupError func()
 }
@@ -264,6 +271,7 @@ const DefaultTTL = 15 * time.Second
 func New(db *sql.DB, cfg Config) *Service {
 	s := &Service{db: db, billing: cfg.Billing && db != nil, demo: cfg.Demo, ttl: cfg.TTL, now: time.Now, log: cfg.Log, onErr: cfg.OnLookupError,
 		cache: map[uuid.UUID]cached{}, maxCache: 4096}
+	s.stripeManage.Store(cfg.StripeManage)
 	if s.ttl <= 0 {
 		s.ttl = DefaultTTL
 	}
@@ -392,4 +400,23 @@ func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
 	s.cache[uid] = cached{st: out, at: now}
 	s.mu.Unlock()
 	return out, nil
+}
+
+// ManageSubscription is true when billing is off but the account has a Stripe subscription that is not over: it keeps renewing whatever
+// the flag says, so the client keeps showing the way to manage and cancel it (the Customer Portal, which works with billing off). With
+// billing on the plan state says it all, so this is false then, and false for the demo and on a failed lookup.
+func (s *Service) ManageSubscription(ctx context.Context, uid uuid.UUID) bool {
+	if s == nil || s.billing || s.db == nil || !s.stripeManage.Load() {
+		return false
+	}
+	rows, err := s.rows(ctx, uid)
+	if err != nil {
+		return false
+	}
+	for _, r := range rows {
+		if r.Source == SourceStripe && r.Status != StatusEnded {
+			return true
+		}
+	}
+	return false
 }

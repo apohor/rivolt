@@ -590,3 +590,32 @@ func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 		t.Errorf("after the invoice was settled: pending=%d deleted=%v; want the customer deleted and the backlog clear", pending, f.customersDeleted)
 	}
 }
+
+// With billing OFF an account that has a Stripe customer still gets a Customer Portal session (to cancel), one without gets ErrNoCustomer,
+// and Checkout is refused: the rollback to billing off must leave subscribers able to cancel.
+func TestPortalWithBillingOffAgainstPostgres(t *testing.T) {
+	r := newRig(t, "stripe-portal-off")
+	f := newFakeStripe(t)
+	svc := &Service{
+		Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, DB: r.pool, Plans: fakePlans{billing: false},
+		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example",
+		Now: func() time.Time { return launchDay },
+	}
+	ctx := context.Background()
+	if _, err := svc.Portal(ctx, r.uid); !errors.Is(err, ErrNoCustomer) {
+		t.Fatalf("billing off, no customer: %v, want ErrNoCustomer", err)
+	}
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatalf("checkout.session.completed: %d", code)
+	}
+	url, err := svc.Portal(ctx, r.uid)
+	if err != nil || url != portalPage {
+		t.Fatalf("billing off, customer: portal %q %v, want the portal page", url, err)
+	}
+	if got, want := f.posts[len(f.posts)-1].Get("customer"), "cus_"+r.uid.String()[:8]; got != want {
+		t.Errorf("the portal was opened for %q, want the account's own customer %q", got, want)
+	}
+	if _, err := svc.Checkout(ctx, r.uid, "year"); !errors.Is(err, ErrBillingOff) {
+		t.Errorf("billing off: Checkout = %v, want ErrBillingOff", err)
+	}
+}

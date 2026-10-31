@@ -487,7 +487,7 @@ func runServer() {
 	// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
 	// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro. Built here so the push service
 	// (Live Activities are Pro) and the API share one.
-	entitlementsSvc := entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger,
+	entitlementsSvc := entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger, StripeManage: strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")) != "",
 		OnLookupError: func() { appMetrics.EntitlementsLookupErrors.Inc() }})
 	// Stripe's webhook (Pro 7): only when the signing secret is configured; without it the route does not exist. A subscription change
 	// drops the account's cached plan on this pod (the others see it within the cache's TTL).

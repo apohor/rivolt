@@ -175,11 +175,11 @@ func (s *Service) Checkout(ctx context.Context, uid uuid.UUID, interval string) 
 	return s.Client.CheckoutSessionURL(ctx, p.Form, idem)
 }
 
-// Portal creates a Customer Portal session for the account's Stripe customer.
+// Portal creates a Customer Portal session for the account's Stripe customer. It does NOT depend on RIVOLT_BILLING: Checkout is how a
+// subscription starts and stays gated, but a subscription that exists keeps renewing whatever the flag says (the webhooks apply), so
+// its holder must be able to cancel it in the same medium. After a rollback to billing off the Plan card is the only cancel path the
+// purchase emails name.
 func (s *Service) Portal(ctx context.Context, uid uuid.UUID) (string, error) {
-	if s.Plans == nil || !s.Plans.Billing() {
-		return "", ErrBillingOff
-	}
 	cust, err := s.customerOf(ctx, uid)
 	if err != nil {
 		return "", err
