@@ -124,6 +124,8 @@ func main() {
 			os.Exit(runRepairBlips(os.Args[2:]))
 		case "repair-r2-history":
 			os.Exit(runRepairR2History(os.Args[2:]))
+		case "repair-route-gaps":
+			os.Exit(runRepairRouteGaps(os.Args[2:]))
 		case "announce":
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "archive":
@@ -163,6 +165,9 @@ Usage:
   rivolt repair-charge-energy [--since DATE] [--ids-out FILE]            (dry run: counts per model)
   rivolt repair-charge-energy --apply --ids FILE --user NAME --backup FILE
   rivolt repair-charge-energy --restore-json FILE [--apply]
+  rivolt repair-route-gaps [--since T] [--until T] [--min-gap-m N]        (dry run: counts and the id-list sha256)
+  rivolt repair-route-gaps --apply --expect-count N --expect-sha SHA --backup CSV [--valhalla-url URL]
+  rivolt repair-route-gaps --restore-csv FILE [--apply]
   rivolt repair-r2-history --vehicle ID --since T --until T [--apply --backup CSV]
   rivolt repair-r2-history --vehicle ID --restore-csv FILE [--apply]
                   Rebuild a vehicle's drives and charges in a window
