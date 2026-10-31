@@ -211,6 +211,11 @@ actor APIClient {
         }
     }
 
+    /// The signed-in user's own calendar year (UTC), computed on the server; `nil` asks for the year just ended.
+    func yearInRivolt(year: Int? = nil) async throws -> YearInRivolt {
+        try await request("GET", "/api/year-in-rivolt\(year.map { "?year=\($0)" } ?? "")")
+    }
+
     func statementEmail() async throws -> StatementEmailSetting {
         try await request("GET", "/api/settings/statement-email")
     }

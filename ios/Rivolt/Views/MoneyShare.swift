@@ -19,6 +19,8 @@ struct MoneyShareCard: Equatable {
     let subtitle: String
     let stats: [Stat]
     let notes: [String]
+    /// Six longer rows (the year card): painted a little smaller and closer so a value never meets its label.
+    var compact = false
 
     /// "rivolt-month-2026-10.png": the kind and the month, never a truck or a place.
     static func fileName(_ m: LedgerMonth) -> String { "rivolt-month-\(m.period).png" }
@@ -85,10 +87,11 @@ struct MoneyShareCardCanvas: View {
             Self.text(ctx, card.title, size: size, weight: .bold, color: Theme.shareCardTitle, x: 80, baseline: y)
             y = Self.wrap(ctx, card.subtitle, size: 44, color: Theme.shareCardMuted, x: 80, baseline: y + 80, lineHeight: 56, maxLines: 3)
             y += 30
+            let rowSize: CGFloat = card.compact ? 40 : 44
             for s in card.stats.prefix(6) {
-                Self.text(ctx, s.label, size: 44, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: y)
-                Self.text(ctx, s.value, size: 44, weight: .medium, color: Theme.shareCardValue, x: w - 80, baseline: y, trailing: true)
-                y += 78
+                Self.text(ctx, s.label, size: rowSize, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: y)
+                Self.text(ctx, s.value, size: rowSize, weight: .medium, color: Theme.shareCardValue, x: w - 80, baseline: y, trailing: true)
+                y += card.compact ? 66 : 78
             }
             for note in card.notes {
                 Self.text(ctx, note, size: 32, weight: .regular, color: Theme.shareCardNote, x: 80, baseline: y)
