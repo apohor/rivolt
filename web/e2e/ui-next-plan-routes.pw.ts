@@ -48,7 +48,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.getByText(/Barstow/)).toHaveCount(0);
       await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(SHOTS, `plan-routes-${v.name}-${theme}-b.png`) });
-      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
       const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await ctx.close();

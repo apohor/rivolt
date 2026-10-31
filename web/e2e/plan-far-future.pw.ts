@@ -59,7 +59,7 @@ test("single-day plan for a far trip shows the note; a near trip does not", asyn
   await expect(note).toBeVisible();
   await expect(note).toContainText(NOTE);
   await expect(note).toContainText(/within a month of leaving/);
-  const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude(".leaflet-container").analyze();
+  const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
   expect(res.violations.map((v) => v.id)).toEqual([]);
 
   // The same trip planned for a near date: no note.
