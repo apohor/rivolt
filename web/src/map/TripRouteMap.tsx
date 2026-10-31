@@ -158,7 +158,6 @@ export function TripRouteMap({
       // data-map-idle: the map has drawn what it was asked to (style, tiles, the route); a spec waits for it before it looks.
       el.removeAttribute("data-map-idle");
       map.on("idle", () => el.setAttribute("data-map-idle", ""));
-      map.on("dataloading", () => el.removeAttribute("data-map-idle"));
       map.touchZoomRotate.disableRotation();
       map.scrollZoom.disable();
       map.on("click", () => map.scrollZoom.enable());
@@ -261,6 +260,7 @@ export function TripRouteMap({
       if (!alive || mapRef.current !== map) return;
       if (path !== wpLatLngs) {
         data = lineData(path);
+        el.removeAttribute("data-map-idle");
         if (map.isStyleLoaded()) setRoute(map, data, flavor);
         fitPath = path;
         fitZoom = 13;
