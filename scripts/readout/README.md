@@ -4,13 +4,17 @@ One command prints the weekly numbers. Read-only (every session is opened with `
 emails, names, IPs, places or amounts come out, and nothing is written. The demo account (`rivolt-public-demo`) is left out of every number.
 
 ```sh
-READOUT_DSN='postgres://grafana_ro:…@HOST/DB' scripts/readout/run.sh                       # the week that just ended
-READOUT_DSN=… READOUT_OWNER_DSN=… scripts/readout/run.sh --week-start 2026-10-19            # a given Monday, with part 2
+READOUT_SERVICE=readout_ro scripts/readout/run.sh                                  # the week that just ended
+READOUT_SERVICE=readout_ro READOUT_OWNER_SERVICE=readout_owner scripts/readout/run.sh --week-start 2026-10-19
 ```
 
+**Connection.** Name the connections in `~/.pg_service.conf` (host, port, dbname, user) and put the passwords in `~/.pgpass` (mode 0600). `run.sh`
+connects with `PGSERVICE`, so no password and no connection string is ever on a command line, where `ps` shows it to everyone on the machine. A DSN
+(`READOUT_DSN` / `READOUT_OWNER_DSN`) is still accepted if it has no password in it (the password then comes from `~/.pgpass` or `PGPASSWORD`);
+one with a password is refused.
+
 The week is Monday 00:00 UTC to the next Monday 00:00 UTC. With no `--week-start` it is the week that ended this morning, so run it on Monday.
-`psql` must be on the PATH. Reach the database the way the other read-only checks do (a port-forward to the CNPG read service, or the Grafana
-datasource: the statements in `monday_ro.sql` run unchanged there with the two `:'from_ts'` / `:'to_ts'` variables replaced by literals).
+`psql` must be on the PATH. Reach the database the way the other read-only checks do (a port-forward to the CNPG read service; the service entry then points at localhost).
 
 ## Part 1: the read-only role (`monday_ro.sql`)
 
