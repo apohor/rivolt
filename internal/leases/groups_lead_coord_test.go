@@ -16,6 +16,7 @@ type leaderStore struct {
 	log        []string
 	res        GroupLead
 	leadErr    error
+	vgErr      error // GroupVehicles fails
 	vg         map[string]string
 	releaseErr map[string]error
 }
@@ -47,7 +48,14 @@ func (l *leaderStore) ReleaseGroup(_ context.Context, g string) error {
 	l.note("releaseGroup:" + g)
 	return nil
 }
-func (l *leaderStore) GroupVehicles(context.Context) (map[string]string, error) { return l.vg, nil }
+func (l *leaderStore) GroupVehicles(context.Context) (map[string]string, error) {
+	l.lmu.Lock()
+	defer l.lmu.Unlock()
+	if l.vgErr != nil {
+		return nil, l.vgErr
+	}
+	return l.vg, nil
+}
 func (l *leaderStore) Release(ctx context.Context, vid string) error {
 	l.note("release:" + vid)
 	if err := l.releaseErr[vid]; err != nil {
