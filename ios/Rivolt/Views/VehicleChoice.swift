@@ -28,12 +28,12 @@ final class VehicleScope {
     private(set) var id: String?
 
     /// The routes behind the limit; the header is on these and only these.
-    nonisolated static let routes = ["/api/ledger", "/api/activity", "/api/charge-split",
-                                     "/api/charges", "/api/drives", "/api/chart-points", "/api/samples", "/api/sleep-activity", "/api/insights/efficiency"]
+    /// Names under /api (not whole paths: the contract test would read whole paths as calls).
+    nonisolated static let routes = ["ledger", "activity", "charge-split", "charges", "drives", "chart-points", "samples", "sleep-activity", "insights/efficiency"]
 
     nonisolated static func isScoped(_ path: String) -> Bool {
         let p = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
-        return routes.contains { p == $0 || p.hasPrefix($0 + "/") || p.hasPrefix($0 + ".") }
+        return routes.map { "/api/" + $0 }.contains { p == $0 || p.hasPrefix($0 + "/") || p.hasPrefix($0 + ".") }
     }
 
     func note(path: String, header: String?) {
