@@ -56,6 +56,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
+	"github.com/apohor/rivolt/internal/launch"
 	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
@@ -2772,14 +2773,10 @@ func runServer() {
 			Observe:    api.NewForgetObserver(appMetrics),
 		}
 	}
-	// Rivolt Pro's billing may not be switched on before the free plan's limits are complete (every history route windowed or Pro-only, and the
-	// privacy deletes working outside the window): selling Pro before that sells nothing, and would trap data outside the window.
-	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) && !api.HistoryWindowComplete {
-		logger.Error("RIVOLT_BILLING is on but the free plan's history window is not complete; refusing to start (see internal/api/history_window.go)")
-		os.Exit(1)
-	}
-	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) && !api.ProGatingComplete {
-		logger.Error("RIVOLT_BILLING is on but the Pro feature gates (plan-vs-actual, saved-trip cap, ...) are not all enforced; refusing to start (see internal/api/history_window.go)")
+	// Rivolt Pro's billing may not be switched on while any launch-readiness item is pending (internal/launch): selling Pro with half
+	// of it missing sells a promise the server does not keep.
+	if pending := launch.Gate(rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING"))); len(pending) > 0 {
+		logger.Error("RIVOLT_BILLING is on but the Pro launch-readiness list has pending items; refusing to start (see internal/launch)", "pending", strings.Join(pending, ","))
 		os.Exit(1)
 	}
 	handler := api.New(api.Deps{
