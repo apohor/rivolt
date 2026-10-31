@@ -13,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -48,6 +49,9 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 		// Drop ignition-cycle / gear-bounce rows so the SPA list
 		// shows only real travel. The rows still exist in DB.
 		out = drives.FilterReparking(out)
+		// The free window narrows what is returned; the cost rates below are derived from every charge, so a free account's drive costs are
+		// the costs a Pro account sees for the same drives.
+		out = windowRows(r.Context(), out, func(d drives.Drive) time.Time { return d.StartedAt })
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
 		// Pull every charge once and sort ascending by EndedAt so we
 		// can binary-search for the most recent charge that closed
@@ -82,6 +86,10 @@ func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsSt
 		}
 		if d == nil {
 			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if !histwin.Allows(r.Context(), d.StartedAt) {
+			writeOutsideFreeWindow(w)
 			return
 		}
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)

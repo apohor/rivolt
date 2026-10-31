@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/dcfcrates"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
@@ -40,7 +41,9 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store, billed f
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Classified over every row read, then narrowed to the free window: a free account's labels are a Pro account's for the same rows.
 		decorated := decorateCharges(r.Context(), out, settingsStore, billed != nil && billed(r.Context()))
+		decorated = windowRows(r.Context(), decorated, func(c chargeResponse) time.Time { return c.StartedAt })
 		writeJSON(w, http.StatusOK, decorated)
 	}
 }
@@ -420,6 +423,10 @@ func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, bill
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if !histwin.Allows(r.Context(), c.StartedAt) {
+			writeOutsideFreeWindow(w)
+			return
+		}
 		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore, billed != nil && billed(r.Context()))[0])
 	}
 }
@@ -529,10 +536,16 @@ func handleChargeClusters(store *charges.Store) http.HandlerFunc {
 				MaxPowerKW: c.MaxPowerKW,
 			})
 		}
+		// Clustered over every charge (a place is Home because of all its visits), then narrowed to the free window: only the members that
+		// started inside it are returned, with the sessions and energy of those members, and a cluster with none is left out.
 		clusters := analytics.ClusterCharges(pts, analytics.DefaultParams())
+		started := make(map[string]charges.Charge, len(rows))
+		for _, c := range rows {
+			started[c.ID] = c
+		}
 		out := make([]chargeClusterResponse, 0, len(clusters))
 		for _, c := range clusters {
-			out = append(out, chargeClusterResponse{
+			resp := chargeClusterResponse{
 				Label:       string(c.Label),
 				Lat:         c.Centroid.Lat,
 				Lon:         c.Centroid.Lon,
@@ -540,7 +553,21 @@ func handleChargeClusters(store *charges.Store) http.HandlerFunc {
 				EnergyKWh:   c.EnergyKWh,
 				RadiusMeter: c.RadiusMeter,
 				MemberIDs:   c.MemberIDs,
-			})
+			}
+			if _, windowed := histwin.Since(r.Context()); windowed {
+				resp.MemberIDs, resp.Sessions, resp.EnergyKWh = nil, 0, 0
+				for _, id := range c.MemberIDs {
+					if m, ok := started[id]; ok && histwin.Allows(r.Context(), m.StartedAt) {
+						resp.MemberIDs = append(resp.MemberIDs, id)
+						resp.Sessions++
+						resp.EnergyKWh += m.EnergyAddedKWh
+					}
+				}
+				if resp.Sessions == 0 {
+					continue
+				}
+			}
+			out = append(out, resp)
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

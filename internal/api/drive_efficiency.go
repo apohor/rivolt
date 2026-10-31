@@ -15,6 +15,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/weather"
@@ -106,6 +107,10 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		}
 		if drv == nil {
 			http.Error(w, "drive not found", http.StatusNotFound)
+			return
+		}
+		if !histwin.Allows(r.Context(), drv.StartedAt) {
+			writeOutsideFreeWindow(w)
 			return
 		}
 
@@ -269,6 +274,9 @@ func handleDriveEfficiencyGet(d Deps, uid uuid.UUID) http.HandlerFunc {
 		driveID := chi.URLParam(r, "id")
 		if driveID == "" {
 			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		if !requireDriveInWindow(w, r, d.DB, uid, driveID) {
 			return
 		}
 		row, err := loadDriveEfficiency(r.Context(), d.DB, uid, driveID)

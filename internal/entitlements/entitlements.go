@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/histwin"
 )
 
 // Sources a Pro grant can come from, plus the two that need no row.
@@ -199,6 +201,7 @@ type Service struct {
 	ttl      time.Duration
 	now      func() time.Time
 	log      *slog.Logger
+	onErr    func()
 	mu       sync.Mutex
 	cache    map[uuid.UUID]cached
 	maxCache int
@@ -222,6 +225,8 @@ type Config struct {
 	// TTL is how long an account's rows are cached; 0 means DefaultTTL. A grant written on another replica is seen within it.
 	TTL time.Duration
 	Log *slog.Logger
+	// OnLookupError is told each time the rows could not be read (the metric beside the fail-open warning).
+	OnLookupError func()
 }
 
 // DefaultTTL bounds how stale a replica's view of an account's rows can be until cross-replica invalidation exists.
@@ -229,7 +234,7 @@ const DefaultTTL = 15 * time.Second
 
 // New builds a Service over db (the pool the rows are read with).
 func New(db *sql.DB, cfg Config) *Service {
-	s := &Service{db: db, billing: cfg.Billing && db != nil, demo: cfg.Demo, ttl: cfg.TTL, now: time.Now, log: cfg.Log,
+	s := &Service{db: db, billing: cfg.Billing && db != nil, demo: cfg.Demo, ttl: cfg.TTL, now: time.Now, log: cfg.Log, onErr: cfg.OnLookupError,
 		cache: map[uuid.UUID]cached{}, maxCache: 4096}
 	if s.ttl <= 0 {
 		s.ttl = DefaultTTL
@@ -253,6 +258,7 @@ func (s *Service) State(ctx context.Context, uid uuid.UUID) (State, error) {
 	}
 	rows, err := s.rows(ctx, uid)
 	if err != nil {
+		s.lookupFailed(err)
 		return State{}, err
 	}
 	return Compute(rows, s.now()), nil
@@ -263,10 +269,26 @@ func (s *Service) State(ctx context.Context, uid uuid.UUID) (State, error) {
 func (s *Service) Pro(ctx context.Context, uid uuid.UUID) bool {
 	st, err := s.State(ctx, uid)
 	if err != nil {
-		s.log.Warn("entitlements: lookup failed; treating the account as Pro", "err", err.Error())
-		return true
+		return true // State has already logged and counted the failure
 	}
 	return st.Pro
+}
+
+// lookupFailed logs and counts a failed read of the rows (rivolt_entitlements_lookup_errors_total): a sustained failure shows as a rate.
+func (s *Service) lookupFailed(err error) {
+	s.log.Warn("entitlements: lookup failed; an account is treated as Pro where the answer is needed", "err", err.Error())
+	if s.onErr != nil {
+		s.onErr()
+	}
+}
+
+// Window is the history window that applies to the account now: the free plan's, or none for a Pro account, billing off, the demo
+// account, and (failing open, like Pro) an account whose rows could not be read.
+func (s *Service) Window(ctx context.Context, uid uuid.UUID) (histwin.W, bool) {
+	if s.Pro(ctx, uid) {
+		return histwin.W{}, false
+	}
+	return histwin.Free(s.now()), true
 }
 
 // TrialEnd is the end of the account's running trial (false: none). Billing off, the demo account and a failed lookup have none.

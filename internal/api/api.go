@@ -1391,10 +1391,12 @@ func New(d Deps) http.Handler {
 			// ElectraFi importer or the (future) live Rivian ingester.
 			// The big list and series reads are gzipped.
 			gz := middleware.Compress(5, "application/json")
-			r.With(gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// The free plan's history window (history_window.go): routes that return history are registered behind it.
+			win := historyWindowMiddleware(d.Entitlements)
+			r.With(win, gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
-			r.Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
@@ -1409,7 +1411,7 @@ func New(d Deps) http.Handler {
 			// thinking models (Gemini 3.1 Pro Preview), so the chi
 			// 30s middleware here would cut the call and return 502
 			// to the SPA mid-analysis.
-			r.Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyGet(d, uid)(w, r)
 			}))
 			// Standalone weather snapshot for a drive. Independent of
@@ -1418,7 +1420,7 @@ func New(d Deps) http.Handler {
 			// (e.g. operator never configured an LLM, or the drive
 			// is too short to be worth narrating). 404 = no row,
 			// regardless of whether the toggle is currently on.
-			r.Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherGet(d.DB, uid)(w, r)
 			}))
 			// Time-series sibling of the start-hour snapshot. Returns
@@ -1427,7 +1429,7 @@ func New(d Deps) http.Handler {
 			// drives from the archive endpoint). Empty array when
 			// the drive was never enriched. Drives the temperature
 			// + precipitation panel on the drive detail page.
-			r.Get("/drives/{id}/weather/series", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/drives/{id}/weather/series", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherSeriesGet(d.DB, uid)(w, r)
 			}))
 			// Bulk weather backfill for historical drives. Each call
@@ -1438,7 +1440,7 @@ func New(d Deps) http.Handler {
 			r.Post("/drives/weather/backfill", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherBackfill(d, uid)(w, r)
 			}))
-			r.With(gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, gz).Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// What the iPhone's Home charts plot: compact drive and charge points
@@ -1449,14 +1451,14 @@ func New(d Deps) http.Handler {
 			// per-user ceiling: 30 a minute, with a Retry-After on the 429. A Home
 			// refresh is three calls and the app caches for 15 minutes; a loop is not.
 			aggLimiter := mapsUserLimiter(30)
-			r.With(aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, aggLimiter.Middleware, gz).Get("/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleActivity(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// Home / Away / Fast charge split for the iPhone (charge_split.go).
-			r.With(aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, aggLimiter.Middleware).Get("/charge-split", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeSplit(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.With(aggLimiter.Middleware, gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, aggLimiter.Middleware, gz).Get("/chart-points", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChartPoints(d.Drives.For(uid), d.Charges.For(uid))(w, r)
 			}))
 			// "Your year in Rivolt": the signed-in user's own year, computed here (year_in_rivolt.go). Same ceiling as the other aggregates.
@@ -1507,7 +1509,7 @@ func New(d Deps) http.Handler {
 				}
 				handleConfirmChargeNetwork(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				st := d.Charges.For(uid)
 				if st == nil {
 					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
@@ -1516,10 +1518,10 @@ func New(d Deps) http.Handler {
 				handleGetCharge(st, d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
 			// The iPhone Money tab's "To confirm" list, coordinate-free (charges_to_confirm.go).
-			r.With(aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win, aggLimiter.Middleware).Get("/charges/to-confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargesToConfirm(d.Charges.For(uid), d.Settings.For(uid), billedFor(d, uid))(w, r)
 			}))
-			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(win).Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
 			// Money tab ledger: server-side spend/energy statement. Read-only.
@@ -1632,7 +1634,7 @@ func New(d Deps) http.Handler {
 			// The user's own consent comes first, so a refused call is not
 			// charged to the budget.
 			aiGate := requireAIConsentMW(d.Settings)
-			r.With(aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(historyWindowMiddleware(d.Entitlements), aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
 			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

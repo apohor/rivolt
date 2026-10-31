@@ -158,6 +158,9 @@ func handleDriveWeatherGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
 			http.Error(w, "missing drive id", http.StatusBadRequest)
 			return
 		}
+		if !requireDriveInWindow(w, r, pool, uid, driveID) {
+			return
+		}
 		snap, err := loadDriveWeather(r.Context(), pool, uid, driveID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -205,6 +208,9 @@ func handleDriveWeatherSeriesGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
 		driveID := chi.URLParam(r, "id")
 		if driveID == "" {
 			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		if !requireDriveInWindow(w, r, pool, uid, driveID) {
 			return
 		}
 		cache := weather.NewCache(pool)

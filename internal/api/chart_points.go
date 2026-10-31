@@ -6,6 +6,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/histwin"
 )
 
 // maxChartWindow is the widest span one /api/chart-points answer covers.
@@ -46,6 +47,8 @@ func chartWindow(w http.ResponseWriter, r *http.Request) (since, until time.Time
 		http.Error(w, "the window must be between 0 and 400 days", http.StatusBadRequest)
 		return since, until, "", false
 	}
+	// A free account's window: the requested range is clamped to it, whatever the client asked for.
+	since = histwin.Clamp(r.Context(), since)
 	return since, until, vehicleID, true
 }
 
