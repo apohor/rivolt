@@ -71,6 +71,9 @@ type Metrics struct {
 	// LeaseSelfFence counts times this pod stopped every subscription because its group lease
 	// renewals failed past the local deadline (a slow or unreachable database).
 	LeaseSelfFence prometheus.Counter
+	// EntitlementsLookupErrors counts failed reads of an account's Pro entitlement rows. The plan fails open (the account counts as Pro
+	// where an answer is needed), so a sustained failure is invisible to users and shows only here.
+	EntitlementsLookupErrors prometheus.Counter
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -309,6 +312,12 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_self_fence_total",
 				Help: "Times this pod stopped every subscription because its group lease renewals failed past the local deadline.",
+			},
+		),
+		EntitlementsLookupErrors: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "rivolt_entitlements_lookup_errors_total",
+				Help: "Failed reads of an account's Pro entitlement rows (the plan fails open).",
 			},
 		),
 		LeaseRenew: prometheus.NewCounterVec(
@@ -603,6 +612,7 @@ func New() *Metrics {
 		m.LeaseGroupsOwned,
 		m.LeaseSelfFence,
 		m.LeaseRenew,
+		m.EntitlementsLookupErrors,
 		m.LeaseAcquireToFrame,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
@@ -664,6 +674,7 @@ func New() *Metrics {
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
 	}
+	m.EntitlementsLookupErrors.Add(0) // exported at 0 so the first failure is an increase
 	for _, scope := range []string{"vehicle", "group"} {
 		for _, outcome := range []string{"ok", "lost", "timeout", "error"} {
 			m.LeaseRenew.WithLabelValues(scope, outcome).Add(0)

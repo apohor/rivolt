@@ -2794,6 +2794,12 @@ func runServer() {
 			Observe:    api.NewForgetObserver(appMetrics),
 		}
 	}
+	// Rivolt Pro's billing may not be switched on before the free plan's limits are complete (every history route windowed or Pro-only, and the
+	// privacy deletes working outside the window): selling Pro before that sells nothing, and would trap data outside the window.
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) && !api.HistoryWindowComplete {
+		logger.Error("RIVOLT_BILLING is on but the free plan's history window is not complete; refusing to start (see internal/api/history_window.go)")
+		os.Exit(1)
+	}
 	handler := api.New(api.Deps{
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
 		Sessions:              sessionsAPI,
@@ -2826,7 +2832,8 @@ func runServer() {
 		RivianExpiryEmails:    rivianExpiryEmails,
 		// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
 		// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro.
-		Entitlements: entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger}),
+		Entitlements: entitlements.New(pgPool, entitlements.Config{Billing: rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")), Demo: demo.UserID(), Log: logger,
+			OnLookupError: func() { appMetrics.EntitlementsLookupErrors.Inc() }}),
 		FailLimiterKey:        api.FailLimiterKey(cookieSecret),
 		PurgeUserCaches:       func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{

@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/settings"
@@ -264,6 +265,9 @@ type PlanFields struct {
 	PlanEndedAt     *time.Time `json:"plan_ended_at"`
 	PlanEndedSource *string    `json:"plan_ended_source"`
 	BillingEnabled  bool       `json:"billing_enabled"`
+	// HistoryDays is the free window in days (90) on a free account, null on a Pro one and where billing is off: history older than that
+	// is not shown (402 outside_free_window for a single drive or charge), and is never deleted.
+	HistoryDays *int `json:"history_days"`
 }
 
 // planFor builds the plan fields for an account; nil when the lookup failed.
@@ -272,7 +276,16 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	if err != nil {
 		return nil
 	}
-	pf := &PlanFields{Plan: "free", BillingEnabled: e.Billing(), PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanEndedAt: st.EndedAt}
+	return planFromState(st, e.Billing())
+}
+
+// planFromState is the plan fields for a computed state.
+func planFromState(st entitlements.State, billing bool) *PlanFields {
+	pf := &PlanFields{Plan: "free", BillingEnabled: billing, PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanEndedAt: st.EndedAt}
+	if !st.Pro {
+		days := histwin.FreeDays
+		pf.HistoryDays = &days
+	}
 	if st.EndedSource != "" {
 		src := st.EndedSource
 		pf.PlanEndedSource = &src

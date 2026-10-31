@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -66,7 +67,7 @@ func handleChargesToConfirm(store *charges.Store, settingsStore *settings.Store,
 			return
 		}
 		for _, c := range decorateCharges(r.Context(), rows, settingsStore, billed != nil && billed(r.Context())) {
-			if c.NetworkStateOut == nil || !isOpenNetworkState(*c.NetworkStateOut) {
+			if c.NetworkStateOut == nil || !isOpenNetworkState(*c.NetworkStateOut) || !histwin.Allows(r.Context(), c.StartedAt) {
 				continue
 			}
 			if len(out) >= maxToConfirmRows {

@@ -143,6 +143,8 @@ export const iosOnlyFixtures: Record<string, string> = {
   "me_plan_subscriber.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
   "me_plan_apple.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
   "me_plan_lapsed.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
+  "err_outside_free_window.json": "a 402 body of the free plan's limits (Sprint 14, item 2): act on the error code; no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
+  "err_pro_required.json": "a 402 body of the free plan's limits (Sprint 14, item 2): act on the error code; no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
   "me_signed_out.json": "the signed-out /api/auth/me body; the web reads it as AuthUser with authenticated: false (landingGate)",
   "now_prod_shape.json": "a deliberately trimmed capture for the app's tolerance tests; now_v1.json and now_v1_minimal.json carry the contract",
   "state.json": "the app's subset of /api/state; state_full.json carries every key",
