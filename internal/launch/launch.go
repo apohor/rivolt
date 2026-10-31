@@ -62,7 +62,8 @@ var Items = []Item{
 	{ID: "billing-emails", What: "the transactional billing emails are sent: the purchase confirmation (renewal terms and how to cancel), the payment-failed / grace notice, and the yearly renewal reminder at least 30 days before renewal"},
 
 	// Terms, consent and clients.
-	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect"},
+	{ID: "terms-served", What: "the previous Terms (2026-10-23) are served unchanged at /terms/2026-10-23 (the section 11 link) until the new Terms take effect",
+		Cleared: true, ClearedBy: "#1373", Proof: "web/src/content/terms-frozen.test.ts"},
 	{ID: "launch-notice", What: "the section 11 launch notice goes out by email AND in-app to every verified existing account, as a service email that ignores the engagement opt-out",
 		Cleared: true, ClearedBy: "#1389", Proof: "TestLaunchNoticeApplyIsIdempotentAndEngagementBlind,TestLaunchNoticeAgainstPostgres,TestLaunchNoticeDryRunPrintsCountsOnly"},
 	{ID: "founding-expiry-notice", What: "a dated job sends an email plus an in-app notice at least 30 days before each founding year ends",
