@@ -87,7 +87,7 @@ export default function LandingPage() {
             </div>
             <p className="mt-3 text-xs text-neutral-500">
               {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
-              Free during the beta. Sign up with Google or GitHub; no invite needed while there is room.
+              Free to start; Rivolt Pro from $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
             </p>
           </div>
           <StatementIllustration />
@@ -116,6 +116,27 @@ export default function LandingPage() {
               Source and self-host guide
             </a>
           </Claim>
+        </section>
+
+        <section aria-labelledby="pricing-heading" className="space-y-3">
+          <h2 id="pricing-heading" className="text-xl font-semibold">Free and Pro</h2>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Claim
+              title="Free"
+              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 90 days, the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, share cards, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
+            />
+            <Claim
+              title="Rivolt Pro: $3.99 a month or $34.99 a year"
+              body="Unlimited history and trends, range near a temperature, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle, and widgets and the charging Live Activity on iPhone. Every new account gets 14 days of Pro free: no card on the web; in the iPhone app it is Apple's free trial, which renews unless cancelled. Stop paying and nothing is deleted."
+            >
+              <Link to="/support" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+                What is free, what Pro costs, what happens if you stop
+              </Link>
+            </Claim>
+          </div>
+          <p className="text-xs text-neutral-500">
+            Same price on the web and in the iPhone app. Web payments through Stripe, app purchases through Apple; Rivolt never sees your card. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
+          </p>
         </section>
 
         <section aria-label="More of what Rivolt does" className="grid gap-6 md:grid-cols-3">
