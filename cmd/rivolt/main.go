@@ -1033,6 +1033,9 @@ func runServer() {
 	// coordinator exists (single-owner: only the owner of a user's group syncs it, in lead mode).
 	var receiptSyncer *receipts.Syncer
 	var otaSyncer *otadetails.Syncer
+	// Lead mode: until the lease store is installed in liveFence (below, after the boot hydrate sweep), the Live Activity source,
+	// the left-open job and the OTA and receipts syncers read Lost, not Off, so none of them acts for a group this pod may not hold.
+	liveFence.Require(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" && !adminOnlyMode {
 		monitorRegistry = rivian.NewMonitorRegistry(
 			pgPool, accountRegistry,
@@ -1262,6 +1265,7 @@ func runServer() {
 					pushSvc.NotifySoftwareUpdate(pushFactory.For(u.UserID), u.Vehicle, u.Version, u.Installed)
 				})
 			}
+			otaSyncer.SetFence(&liveFence) // before Run and before the first OnConnect; it reads the lease store once installed
 			go otaSyncer.Run(ctx)
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func(context.Context, []rivian.Vehicle) {
 				return func(hctx context.Context, vs []rivian.Vehicle) {
@@ -1303,6 +1307,7 @@ func runServer() {
 			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
 				return func(_ context.Context, _ charges.Charge) { receiptSyncer.OnChargeClose(uid) }
 			})
+			receiptSyncer.SetFence(&liveFence) // before Run and before the first charge close; it reads the lease store once installed
 			go receiptSyncer.Run(ctx)
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
 		}
@@ -1863,12 +1868,6 @@ func runServer() {
 			}
 			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
 		})
-		if receiptSyncer != nil {
-			receiptSyncer.SetFence(leaseStore)
-		}
-		if otaSyncer != nil {
-			otaSyncer.SetFence(leaseStore)
-		}
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and

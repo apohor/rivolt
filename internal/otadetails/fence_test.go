@@ -116,3 +116,22 @@ func TestSyncUserLeadModeOffIsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// Lead mode, a syncer built before the lease store exists (the on-connect fetch can fire at boot): through a required, empty holder
+// it claims nothing and calls no Rivian API; once the store is installed in the holder the same syncer fetches the owner's vehicles.
+func TestSyncUserDoesNothingBeforeTheFenceIsInstalledInLeadMode(t *testing.T) {
+	st := &tokenStore{fakeStore: &fakeStore{ids: []string{"a"}, due: map[string]bool{"a": true}}}
+	acct := &fakeAcct{}
+	s := newSyncer(st, &countingRegistry{registry: registry{acct}}, nil, nil)
+	s.sleep = func(context.Context, time.Duration) {}
+	var h fence.Holder
+	h.Require(true)
+	s.SetFence(&h)
+	if n, err := s.SyncUser(context.Background(), uuid.New()); err != nil || n != 0 || len(acct.calls) != 0 || len(st.tok["a"]) != 0 {
+		t.Fatalf("before the install: fetched %d (%v), Rivian calls %v, claims %d; want nothing", n, err, acct.calls, len(st.tok["a"]))
+	}
+	h.Set(mapFence{"a": fence.Held})
+	if n, err := s.SyncUser(context.Background(), uuid.New()); err != nil || n != 1 || len(acct.calls) != 1 {
+		t.Fatalf("after the install: fetched %d (%v), Rivian calls %v; want the owner's vehicle", n, err, acct.calls)
+	}
+}
