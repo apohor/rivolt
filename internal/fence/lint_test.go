@@ -141,6 +141,7 @@ var notOwnerSide = map[string]string{
 	"db.SetRole":                              "admin action",
 	"db.SetOnboardingCompleted":               "user action (onboarding)",
 	"db.SetEngagementEmailsOff":               "user action (unsubscribe)",
+	"db.ClearR2ArrivalMonth":                  "user action (the reminder email's one-click delete)",
 	"db.SetRivianExpiryEmailsOff":             "user action (unsubscribe)",
 	"db.SetVehicleImageURL":                   "user request (/api/vehicles)",
 	"db.SetVehicleProfile":                    "user action (vehicle profile)",

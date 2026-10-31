@@ -28,6 +28,25 @@ type engagementSettings struct {
 	TripRecap        bool   `json:"trip_recap"`
 	PlugThresholdPct int    `json:"plug_threshold_pct"`
 	PlugRemindAt     string `json:"plug_remind_at"` // HH:MM local, never after 22:00
+	// R2ArrivalMonth ("2026-12", a month and never a day; null when none) is the month the user expects an R2: one email
+	// with the connect steps goes out on its first weekday (internal/r2arrival). Off until chosen; PUT null deletes it.
+	R2ArrivalMonth *string `json:"r2_arrival_month"`
+}
+
+// r2ArrivalWindowMonths is how far ahead a delivery month may be set.
+const r2ArrivalWindowMonths = 24
+
+// parseR2ArrivalMonth reads "YYYY-MM" and accepts the current month (UTC) through r2ArrivalWindowMonths ahead.
+func parseR2ArrivalMonth(s string, now time.Time) (string, bool) {
+	t, err := time.Parse("2006-01", strings.TrimSpace(s))
+	if err != nil {
+		return "", false
+	}
+	cur := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	if t.Before(cur) || t.After(cur.AddDate(0, r2ArrivalWindowMonths, 0)) {
+		return "", false
+	}
+	return t.Format("2006-01"), true
 }
 
 const (
@@ -41,11 +60,11 @@ type engagementAPI struct{ db *sql.DB }
 
 func (a *engagementAPI) load(r *http.Request, uid uuid.UUID) (engagementSettings, error) {
 	out := engagementSettings{PlugThresholdPct: defaultPlugThresholdPct, PlugRemindAt: defaultPlugRemindAt}
-	var tz sql.NullString
+	var tz, r2 sql.NullString
 	var at string
 	err := a.db.QueryRowContext(r.Context(), `
-		SELECT timezone, weekly_recap, trip_recap, plug_threshold_pct, to_char(plug_remind_at, 'HH24:MI')
-		  FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&tz, &out.WeeklyRecap, &out.TripRecap, &out.PlugThresholdPct, &at)
+		SELECT timezone, weekly_recap, trip_recap, plug_threshold_pct, to_char(plug_remind_at, 'HH24:MI'), to_char(r2_arrival_month, 'YYYY-MM')
+		  FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&tz, &out.WeeklyRecap, &out.TripRecap, &out.PlugThresholdPct, &at, &r2)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, nil
 	}
@@ -54,6 +73,9 @@ func (a *engagementAPI) load(r *http.Request, uid uuid.UUID) (engagementSettings
 	}
 	out.Timezone, out.TimezoneStored = tz.String, tz.Valid && tz.String != ""
 	out.PlugRemindAt = at
+	if r2.Valid {
+		out.R2ArrivalMonth = &r2.String
+	}
 	return out, nil
 }
 
@@ -90,6 +112,8 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		TripRecap        *bool   `json:"trip_recap"`
 		PlugThresholdPct *int    `json:"plug_threshold_pct"`
 		PlugRemindAt     *string `json:"plug_remind_at"`
+		// Absent leaves the month alone; null deletes it; "YYYY-MM" sets it.
+		R2ArrivalMonth json.RawMessage `json:"r2_arrival_month"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
@@ -114,6 +138,21 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 	if body.TripRecap != nil {
 		cur.TripRecap = *body.TripRecap
 	}
+	if len(body.R2ArrivalMonth) > 0 {
+		var m *string
+		if err := json.Unmarshal(body.R2ArrivalMonth, &m); err != nil {
+			http.Error(w, "r2_arrival_month must be a month like 2026-12, or null to delete it", http.StatusBadRequest)
+			return
+		}
+		if m == nil {
+			cur.R2ArrivalMonth = nil
+		} else if v, ok := parseR2ArrivalMonth(*m, time.Now()); ok {
+			cur.R2ArrivalMonth = &v
+		} else {
+			http.Error(w, "r2_arrival_month must be a month from this one to 24 months ahead, like 2026-12", http.StatusBadRequest)
+			return
+		}
+	}
 	if body.PlugThresholdPct != nil {
 		if *body.PlugThresholdPct < 5 || *body.PlugThresholdPct > 95 {
 			http.Error(w, "plug_threshold_pct must be between 5 and 95", http.StatusBadRequest)
@@ -136,12 +175,12 @@ func (a *engagementAPI) put(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		tz = cur.Timezone
 	}
 	if _, err := a.db.ExecContext(r.Context(), `
-		INSERT INTO engagement_prefs (user_id, timezone, weekly_recap, trip_recap, plug_threshold_pct, plug_remind_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6::time, NOW())
+		INSERT INTO engagement_prefs (user_id, timezone, weekly_recap, trip_recap, plug_threshold_pct, plug_remind_at, r2_arrival_month, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6::time, ($7 || '-01')::date, NOW())
 		ON CONFLICT (user_id) DO UPDATE SET timezone = EXCLUDED.timezone, weekly_recap = EXCLUDED.weekly_recap,
 			trip_recap = EXCLUDED.trip_recap, plug_threshold_pct = EXCLUDED.plug_threshold_pct,
-			plug_remind_at = EXCLUDED.plug_remind_at, updated_at = NOW()`,
-		uid, tz, cur.WeeklyRecap, cur.TripRecap, cur.PlugThresholdPct, cur.PlugRemindAt); err != nil {
+			plug_remind_at = EXCLUDED.plug_remind_at, r2_arrival_month = EXCLUDED.r2_arrival_month, updated_at = NOW()`,
+		uid, tz, cur.WeeklyRecap, cur.TripRecap, cur.PlugThresholdPct, cur.PlugRemindAt, cur.R2ArrivalMonth); err != nil {
 		serverError(w, r, "engagement settings", err)
 		return
 	}
