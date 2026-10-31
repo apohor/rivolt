@@ -7,6 +7,8 @@ struct DeleteAccountSheet: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    /// True where the server bills: the sheet then also says to cancel an App Store subscription first (deleting doesn't).
+    var billing = false
 
     /// The web page that deletes the account: Settings, Data, the Danger zone. A query (not a #fragment) so it survives the sign-in redirect.
     static func pageURL(server: URL) -> URL? {
@@ -18,6 +20,9 @@ struct DeleteAccountSheet: View {
             Text("Delete your account").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(Self.explanation).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            if billing {
+                Text(ProCopy.deletionNote).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            }
             if let url = Self.pageURL(server: state.serverURL) {
                 Button {
                     state.accountDeletionStarted()

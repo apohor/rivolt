@@ -8,6 +8,13 @@ struct AuthUser: Decodable, Equatable {
     let userId: String?
     /// The account's display units, when the server has the setting.
     var units: AccountUnits? = nil
+    /// The plan, only where the server bills (RIVOLT_BILLING). Absent where billing is off: the account has everything and no screen
+    /// mentions a plan. MOCKED shape until the billing API merges (paid-tier-plan.md section 3), the web's twin of `lib/plan.ts`.
+    var plan: String? = nil
+    /// "apple" | "stripe" | "trial" | "founding" | "grant"
+    var source: String? = nil
+    var periodEnd: Date? = nil
+    var trialEnds: Date? = nil
 }
 
 /// `POST /api/auth/app/token`: the app session token (a bearer token, kept in
