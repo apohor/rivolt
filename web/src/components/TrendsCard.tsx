@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { ProLimitNotice } from "./ProLimitNotice";
+import { proLimitOf, retryUnlessLimit } from "../lib/proLimit";
 import { backend, type TruckTrends } from "../lib/api";
 import { usePreferences } from "../lib/preferences";
 import { BarChart } from "./charts";
@@ -21,9 +23,18 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
     queryFn: () => backend.trends(vehicleID, units),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
-    retry: 1,
+    // A free account's 402 is an answer, not a failure: no retry.
+    retry: retryUnlessLimit(1),
   });
   if (q.data === null) return null; // a server without the endpoint
+  const limit = proLimitOf(q.error);
+  if (limit) {
+    return (
+      <Card title="Trends for your truck" span="full">
+        <ProLimitNotice limit={limit} />
+      </Card>
+    );
+  }
   return (
     <Card title="Trends for your truck" span="full">
       <div data-trends className="space-y-6">

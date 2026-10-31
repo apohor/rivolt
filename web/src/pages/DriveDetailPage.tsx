@@ -5,6 +5,8 @@ import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import { proLimitOf } from "../lib/proLimit";
 import { forVehicle } from "../lib/vehicleSamples";
 import { backend, ApiError, type DriveWeatherSeries, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
@@ -95,6 +97,14 @@ export default function DriveDetailPage() {
     queryKey: ["drives", "one", oneID ?? ""],
     queryFn: () => backend.drive(oneID as string),
     enabled: !!oneID,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
+  // A drive the list does not hold may be one a free account's history window leaves out: ask for it by id, and a 402 says so.
+  const outside = useQuery({
+    queryKey: ["drives", "outside", id ?? ""],
+    queryFn: () => backend.drive(id as string),
+    enabled: !demo && !!id && drives.isSuccess && !driveRow,
     staleTime: 5 * 60_000,
     retry: 0,
   });
@@ -346,7 +356,24 @@ export default function DriveDetailPage() {
       </div>
     );
   }
+  if (!drive && outside.isFetching) {
+    return (
+      <div>
+        <PageHeader title="Drive" />
+        <Spinner />
+      </div>
+    );
+  }
   if (!drive) {
+    const limit = proLimitOf(outside.error);
+    if (limit) {
+      return (
+        <div>
+          <PageHeader title="Older than the free history" />
+          <ProLimitNotice limit={limit} privacy />
+        </div>
+      );
+    }
     return (
       <div>
         <PageHeader title="Drive not found" />

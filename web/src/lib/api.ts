@@ -1771,6 +1771,10 @@ export const backend = {
   // Removes a single charge row by its external ID. Used by the
   // detail page's danger-zone affordance to clear obviously-broken
   // sessions (e.g. pre-v0.10.7 phantom rows).
+  // One charge by id; HTTP 402 outside_free_window when it is older than a free account's history.
+  charge: (id: string) => api.get<Charge>(`/api/charges/${encodeURIComponent(id)}`),
+  // Deletes the signed-in user's drives, charges and telemetry from before the first of `before` ("2026-07", UTC). Free on every plan.
+  deleteHistoryBefore: (before: string) => api.post<{ drives: number; charges: number; samples: number }>("/api/data/delete-range", { before, confirm: true }),
   deleteCharge: (id: string) =>
     api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
   // Overrides the persisted cost / currency / price-per-kWh on a

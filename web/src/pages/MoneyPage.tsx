@@ -2,6 +2,11 @@ import { chargesAllQuery } from "../lib/activityLists";
 import { ENERGY_ESTIMATED_TOTAL_NOTE } from "../lib/energyEstimated";
 import { appPath, inDemo } from "../lib/demo";
 import { YearCard } from "../components/YearCard";
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import { ProSheet } from "../components/ProSheet";
+import { proLimitOf } from "../lib/proLimit";
+import { planState } from "../lib/plan";
+import { csvIsPro } from "../lib/moneyWindow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -145,6 +150,13 @@ export default function MoneyPage() {
 
       {monthQ.isLoading ? (
         <Spinner />
+      ) : proLimitOf(monthQ.error) ? (
+        <div className="space-y-3">
+          <ProLimitNotice limit={proLimitOf(monthQ.error)!} />
+          <button type="button" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500" onClick={() => setMonth(thisMonth)}>
+            Back to this month
+          </button>
+        </div>
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
@@ -207,6 +219,11 @@ function Statement({
   confirmCharges: Charge[];
 }) {
   const cur = m.currency;
+  // Where the server bills, a free account's statement shows this month and the two before; the CSV of an older month is Pro.
+  const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
+  const plan = planState(me.data);
+  const csvPro = csvIsPro(plan, m.period, currentMonth());
+  const [upsell, setUpsell] = useState(false);
   // Server-owned splits only; by_place is absent on pre-§10 builds.
   // One Home/Public/DCFC bar when the server sends by_place_kind (§11);
   // otherwise today's two bars.
@@ -303,7 +320,8 @@ function Statement({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
-          <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} />
+          <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} proOnly={csvPro} onUpsell={() => setUpsell(true)} />
+          {upsell && <ProSheet state={plan} onClose={() => setUpsell(false)} />}
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging ·{" "}
@@ -613,8 +631,16 @@ function ShareStatementButton({
 
 // A link that downloads the month as a CSV: totals by cost type, home versus away, and one line per session. Own data only; nothing is
 // requested until it is clicked; a click counts one statement_share{csv} (no month, no amounts).
-export function CsvDownloadLink({ month, vehicleID, disabled }: { month: string; vehicleID?: string; disabled: boolean }) {
+export function CsvDownloadLink({ month, vehicleID, disabled, proOnly = false, onUpsell }: { month: string; vehicleID?: string; disabled: boolean; proOnly?: boolean; onUpsell?: () => void }) {
   const cls = "rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300";
+  // The CSV of a month a free account's statement no longer shows is part of Pro: the button says so instead of downloading an error.
+  if (!disabled && proOnly && onUpsell) {
+    return (
+      <button type="button" data-csv-pro onClick={onUpsell} className={`${cls} hover:bg-neutral-800`} title="The CSV of this month is part of Rivolt Pro">
+        Download CSV (Pro)
+      </button>
+    );
+  }
   if (disabled) {
     return (
       <span aria-disabled="true" className={`${cls} cursor-not-allowed opacity-40`} title="No sessions to download for this month">

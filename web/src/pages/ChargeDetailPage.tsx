@@ -8,6 +8,8 @@ import { appPath, inDemo, listPath } from "../lib/demo";
 import { useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ProLimitNotice } from "../components/ProLimitNotice";
+import { proLimitOf } from "../lib/proLimit";
 import { forVehicle } from "../lib/vehicleSamples";
 import { backend, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
@@ -128,6 +130,14 @@ export default function ChargeDetailPage() {
     () => charges.data?.find((c) => c.ID === id),
     [charges.data, id],
   );
+  // A charge the list does not hold may be one a free account's history window leaves out: ask for it by id, and a 402 says so.
+  const outside = useQuery({
+    queryKey: ["charges", "outside", id ?? ""],
+    queryFn: () => backend.charge(id as string),
+    enabled: !demo && !!id && charges.isSuccess && !charge,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  });
 
   // The Money tab prices a plug-in as one receipt (a session plus the
   // top-ups folded into it), so its figure can legitimately differ from
@@ -246,7 +256,44 @@ export default function ChargeDetailPage() {
       </div>
     );
   }
+  if (!charge && outside.isFetching) {
+    return (
+      <div>
+        <PageHeader title="Charge" />
+        <Spinner />
+      </div>
+    );
+  }
   if (!charge) {
+    const limit = proLimitOf(outside.error);
+    if (limit) {
+      return (
+        <div>
+          <PageHeader title="Older than the free history" />
+          <ProLimitNotice
+            limit={limit}
+            privacy
+            extra={
+              <button
+                type="button"
+                data-delete-old-charge
+                className="text-rose-300 underline underline-offset-2"
+                onClick={() => {
+                  // A privacy control: deleting one row works for every plan, even one the free window hides.
+                  if (!id || !window.confirm("Delete this charge? It can't be undone.")) return;
+                  void backend.deleteCharge(id).then(() => {
+                    qc.invalidateQueries();
+                    navigate(listPath("charges"));
+                  });
+                }}
+              >
+                Delete this charge
+              </button>
+            }
+          />
+        </div>
+      );
+    }
     return (
       <div>
         <PageHeader title="Charge not found" />

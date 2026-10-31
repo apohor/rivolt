@@ -24,4 +24,13 @@ describe("Money CSV download", () => {
     fireEvent.click(screen.getByText("Download CSV"));
     expect(track).not.toHaveBeenCalled();
   });
+
+  it("offers the Pro upsell, not a download, for a month a free account's statement no longer shows", () => {
+    let upsold = 0;
+    render(<CsvDownloadLink month="2026-01" disabled={false} proOnly onUpsell={() => upsold++} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Download CSV (Pro)" }));
+    expect(upsold).toBe(1);
+    expect(track).not.toHaveBeenCalled();
+  });
 });
