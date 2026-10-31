@@ -31,7 +31,7 @@ Sign in with your Rivolt account through a browser sheet on rivolt.dev. The app 
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings on rivolt.dev. The code is open source (MIT) and you can run your own server.
 
-Rivolt is an independent project. It is not affiliated with, endorsed by or sponsored by Rivian. It uses Rivian's unofficial API, so it can break when Rivian changes things. Free while in beta.
+Rivolt is an independent project. It is not affiliated with, endorsed by or sponsored by Rivian. It uses Rivian's unofficial API, so it can break when Rivian changes things. Free during the beta.
 
 ## Keywords
 EV,electric truck,charging cost,trip,efficiency,lease,R1T,R1S,R2,range,widget,open source

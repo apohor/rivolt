@@ -87,7 +87,7 @@ export default function LandingPage() {
             </div>
             <p className="mt-3 text-xs text-neutral-500">
               {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
-              Free while in beta. Sign up with Google or GitHub; no invite needed while there is room.
+              Free during the beta. Sign up with Google or GitHub; no invite needed while there is room.
             </p>
           </div>
           <StatementIllustration />
