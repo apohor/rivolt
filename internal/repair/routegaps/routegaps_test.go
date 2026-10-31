@@ -141,3 +141,24 @@ func TestPlanCountsOnlyDrivesWithDropouts(t *testing.T) {
 		t.Error("the digest ignores membership")
 	}
 }
+
+func TestValhallaHostMustBeThisDeploymentsOwn(t *testing.T) {
+	for _, ok := range []string{
+		"http://localhost:8002", "http://127.0.0.1:8002", "http://[::1]:8002", "http://valhalla.maps.svc.cluster.local:8002",
+		"http://valhalla.maps.svc:8002", "http://10.43.1.2:8002", "http://192.168.1.20:8002", "http://172.16.4.4", "http://[fd12:3456::1]:8002",
+		"https://VALHALLA.maps.svc.cluster.local",
+	} {
+		if err := CheckValhallaURL(ok); err != nil {
+			t.Errorf("%s refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{
+		"https://valhalla1.openstreetmap.de", "http://valhalla.example.com:8002", "http://8.8.8.8:8002", "http://[2606:4700::1111]:8002",
+		"http://172.32.0.1", "http://localhost.evil.example", "http://valhalla.svc.cluster.local.evil.example", "http://evil.example/localhost",
+		"ftp://localhost", "localhost:8002", "", "http://", "http://user@public.example",
+	} {
+		if err := CheckValhallaURL(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

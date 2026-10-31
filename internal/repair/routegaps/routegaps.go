@@ -10,7 +10,11 @@ package routegaps
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -139,3 +143,24 @@ func Fill(ctx context.Context, points [][2]float64, f Filler, minGapM float64) R
 
 // Month is "2006-01" for a drive's start, for the dry run's counts.
 func Month(t time.Time) string { return t.UTC().Format("2006-01") }
+
+// CheckValhallaURL refuses any Valhalla address that is not this deployment's own: every route coordinate of every user in the window
+// is sent to it, and privacy.md says the routing service is self-hosted. Accepted: localhost, a loopback or private (RFC 1918, ULA)
+// IP literal, and cluster service names (*.svc, *.svc.cluster.local). A public hostname or IP is an error, so one pasted public
+// Valhalla (a community instance) cannot receive anyone's drives.
+func CheckValhallaURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("routegaps: %q is not an http(s) URL", raw)
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".svc.cluster.local") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() {
+			return nil
+		}
+	}
+	return fmt.Errorf("routegaps: refusing Valhalla host %q: it must be this deployment's own (localhost or a port-forward, a cluster service name, or a private IP); route coordinates are never sent to a third party", host)
+}

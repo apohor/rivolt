@@ -49,6 +49,11 @@ func runRepairRouteGaps(args []string) int {
 			fmt.Fprintln(os.Stderr, "repair-route-gaps: --apply requires a Valhalla URL (--valhalla-url or RIVOLT_VALHALLA_BASE_URL)")
 			return 2
 		}
+		// Every route coordinate in the window goes to this service: only this deployment's own may receive it.
+		if err := routegaps.CheckValhallaURL(*valhalla); err != nil {
+			fmt.Fprintln(os.Stderr, "repair-route-gaps:", err)
+			return 2
+		}
 	}
 	now := time.Now().UTC()
 	since, err := parseRepairTime(*sinceS, now.AddDate(0, 0, -30))

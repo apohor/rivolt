@@ -36,6 +36,8 @@ func TestRepairRouteGapsRefusesBeforeTouchingAnything(t *testing.T) {
 		"bad since":       {"--since", "yesterday"},
 		"bad until":       {"--until", "2026-13-40"},
 		"tiny gap":        {"--min-gap-m", "50"},
+		"public valhalla": withValhalla(good, "https://valhalla1.openstreetmap.de"),
+		"public ip":       withValhalla(good, "http://8.8.8.8:8002"),
 		"unknown flag":    {"--nope"},
 	} {
 		t.Setenv("RIVOLT_VALHALLA_BASE_URL", "")
@@ -43,6 +45,17 @@ func TestRepairRouteGapsRefusesBeforeTouchingAnything(t *testing.T) {
 			t.Errorf("%s: exit %d, want 2 (refused before opening the database)", name, code)
 		}
 	}
+}
+
+// withValhalla is args with the --valhalla-url value replaced.
+func withValhalla(args []string, url string) []string {
+	out := append([]string(nil), args...)
+	for i := 0; i+1 < len(out); i++ {
+		if out[i] == "--valhalla-url" {
+			out[i+1] = url
+		}
+	}
+	return out
 }
 
 func TestParseRepairTime(t *testing.T) {
