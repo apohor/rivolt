@@ -503,8 +503,10 @@ func handleAdminUserRefreshRivianSession(reg rivian.AccountRegistry, store *secr
 			log.Warn("refresh-rivian-session: clear needs_reauth", "user_id", target.String(), "err", err.Error())
 		}
 		if store != nil {
-			if err := secrets.SaveRivianSession(r.Context(), store, target, sr.Snapshot()); err != nil {
+			if ver, err := secrets.SaveRivianSessionVersioned(r.Context(), store, target, sr.Snapshot()); err != nil {
 				log.Warn("refresh-rivian-session: persist snapshot", "user_id", target.String(), "err", err.Error())
+			} else {
+				learnStoredVersion(sr, ver)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

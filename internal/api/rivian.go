@@ -400,10 +400,12 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 		if store != nil {
 			_ = secrets.ClearPendingMFA(r.Context(), store, uid)
 		}
-		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
+		ver, perr := secrets.SaveRivianSessionVersioned(r.Context(), store, uid, lc.Snapshot())
+		if perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
+		learnStoredVersion(lc, ver)
 		n := finishRivianConnect(r.Context(), lc, monitors, mailer, d, m, uid, !hadSession, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
@@ -679,10 +681,12 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		// have MFA on, so this is where most first connects land.
 		_ = secrets.ClearPendingMFA(r.Context(), store, uid)
 		hadSession := hasStoredRivianSession(r.Context(), store, uid)
-		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
+		ver, perr := secrets.SaveRivianSessionVersioned(r.Context(), store, uid, lc.Snapshot())
+		if perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
+		learnStoredVersion(lc, ver)
 		n := finishRivianConnect(r.Context(), lc, monitors, mailer, d, m, uid, !hadSession, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
@@ -765,5 +769,13 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 			recordFunnel(r.Context(), m, uid, funnelRivianVehiclesFound, "vehicles", n, "via", "recheck")
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"vehicle_count": n})
+	}
+}
+
+// learnStoredVersion tells a client which stored session it now holds, from the version the database assigned when this pod saved it. The
+// client then recognises a stale 401 of an older session without comparing its pod's clock with the database's.
+func learnStoredVersion(a any, version time.Time) {
+	if vs, ok := a.(interface{ SetSessionVersion(time.Time) }); ok && !version.IsZero() {
+		vs.SetSessionVersion(version)
 	}
 }
