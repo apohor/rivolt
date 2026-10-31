@@ -89,6 +89,12 @@ func (p *proVehicles) warn(msg string, err error) {
 
 type freeVehicleKey struct{}
 
+// VehicleScopeHeader tells a client that this response was narrowed to one vehicle, the free account's primary: its value is that vehicle's
+// Rivian id. Every route behind freeVehicleMiddleware (the drive and charge lists, the activity feed, the Money statement, summary, savings
+// and CSV, charge split, samples and the rest) sets it, so a client can say "Showing <vehicle>. Pro includes all vehicles" without a field
+// in each body. Absent for Pro, one vehicle, billing off or a failed plan lookup (nothing was narrowed).
+const VehicleScopeHeader = "X-Rivolt-Vehicle-Scope"
+
 // freeVehicleMiddleware stamps the free account's only vehicle on the request (nothing for Pro, one vehicle, billing off or a failed
 // lookup). vehicleFilter then limits the drive and charge lists to it and answers 402 for another vehicle.
 func freeVehicleMiddleware(p *proVehicles) func(http.Handler) http.Handler {
@@ -100,6 +106,7 @@ func freeVehicleMiddleware(p *proVehicles) func(http.Handler) http.Handler {
 			if uid, ok := auth.UserFromContext(r.Context()); ok {
 				if id := p.freeVehicle(r.Context(), uid); id != "" {
 					r = r.WithContext(context.WithValue(r.Context(), freeVehicleKey{}, id))
+					w.Header().Set(VehicleScopeHeader, id)
 				}
 			}
 			next.ServeHTTP(w, r)

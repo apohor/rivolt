@@ -237,6 +237,16 @@ func TestProFeatureGatesAgainstPostgres(t *testing.T) {
 	if got := rows(free); len(got) != 1 || got[0] != "gate-drive-rv-test-b" {
 		t.Errorf("free sees %v, want only the primary vehicle's drive", got)
 	}
+	// A narrowed response says which vehicle it is limited to; a Pro account's does not.
+	for u, want := range map[uuid.UUID]string{free: "rv-test-b", pro: ""} {
+		req := httptest.NewRequest(http.MethodGet, "/drives", nil)
+		req.Header.Set("X-Test-User", u.String())
+		rec := httptest.NewRecorder()
+		rt.ServeHTTP(rec, req)
+		if got := rec.Header().Get(VehicleScopeHeader); got != want {
+			t.Errorf("%s = %q, want %q", VehicleScopeHeader, got, want)
+		}
+	}
 	code, b = call(free, http.MethodGet, "/drives/gate-drive-rv-test-a", "")
 	wantPro("a drive of the other vehicle", code, b)
 	code, b = call(free, http.MethodGet, "/drives/gate-drive-rv-test-b", "")
