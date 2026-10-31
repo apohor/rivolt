@@ -213,12 +213,6 @@ func llmsTxt(host string) (string, bool) {
 	if _, ok := pages[pathChangelog]; ok {
 		b.WriteString("- [What's new](" + base + pathChangelog + "): release notes, with an Atom feed at " + base + "/changelog.atom\n")
 	}
-	if _, ok := pages[pathSampleTrips]; ok {
-		b.WriteString("- [Sample road trips](" + base + pathSampleTrips + "): routes planned with charging stops and estimated costs\n")
-		for _, p := range sampleTripPaths()[1:] {
-			b.WriteString("  - [" + pages[p].title + "](" + base + p + ")\n")
-		}
-	}
 	b.WriteString("\n## Source\n\n")
 	b.WriteString("- [GitHub](" + repoURL + "): source code and self-hosting\n")
 	b.WriteString("- [Sign-up and import guide](" + repoURL + "/blob/main/docs/SIGNUP.md)\n\n")
@@ -355,7 +349,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range append([]string{"/", "/privacy", "/terms", pathSupport, pathLeaseCalc, pathChargeCost, pathNetworks, pathR2Guide, pathSafeConnect, pathElectraFi, pathChangelog}, sampleTripPaths()...) {
+	for _, p := range []string{"/", "/privacy", "/terms", pathSupport, pathLeaseCalc, pathChargeCost, pathNetworks, pathR2Guide, pathSafeConnect, pathElectraFi, pathChangelog} {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}

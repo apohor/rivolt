@@ -37,15 +37,14 @@ affiliated with, endorsed by or sponsored by Rivian.
 on a *generated* sample truck: no sign-in, no Rivian account, and no
 real vehicle data. Browse every tab below the way you would on your
 own truck, and open the planner's sample trips to see a route with
-charging stops. Or see a planned trip first: [Los Angeles to Las Vegas in two
-days](https://rivolt.dev/sample-trips/la-las-vegas-two-days).
+charging stops. Or see a planned trip first: the demo's [Plan
+tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los Angeles to Las Vegas in two days.
 
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
-- Eight public, simulated trip plans need no sign-in at all:
-  [rivolt.dev/sample-trips](https://rivolt.dev/sample-trips). Each lists every
-  charging stop, the battery on arrival and departure, charge time and the
-  estimated cost for a sample R1S, and opens in the demo planner.
+- The demo's Plan tab holds simulated trip plans for a sample R1S, no sign-in
+  needed: every charging stop, the battery on arrival and departure, charge
+  time and the estimated cost.
 - A public worked example and a calculator for what it costs to charge a
   Rivian at home, with no sign-in and nothing leaving your browser:
   [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -126,5 +127,40 @@ func TestHashedAssetsImmutable(t *testing.T) {
 		if got := w.Header().Get("Cache-Control"); got != want {
 			t.Errorf("%s: %d Cache-Control=%q, want %q", p, w.Code, got, want)
 		}
+	}
+}
+
+// The public sample-trip pages were removed: the hub and every slug under it answer a permanent redirect to the demo's Plan tab on the
+// app host (so shared links and crawlers land somewhere real), and nothing else changes.
+func TestRemovedSampleTripPagesRedirectToTheDemoPlanTab(t *testing.T) {
+	h := spaHandler(fstest.MapFS{"index.html": {Data: []byte("<html>shell</html>")}})
+	for _, p := range []string{"/sample-trips", "/sample-trips/", "/sample-trips/la-las-vegas-two-days", "/sample-trips/anything-else", "/sample-trips/x/"} {
+		for _, m := range []string{http.MethodGet, http.MethodHead} {
+			r := httptest.NewRequest(m, "http://rivolt.dev"+p, nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != http.StatusMovedPermanently {
+				t.Errorf("%s %s: status %d, want 301", m, p, w.Code)
+			}
+			if got := w.Header().Get("Location"); got != "https://demo.rivolt.dev/demo/trips/plan" {
+				t.Errorf("%s %s: Location %q", m, p, got)
+			}
+		}
+	}
+	// Only that tree, and only reads: a POST is not redirected, and a path that merely starts the same way is not caught.
+	for _, c := range []struct{ m, p string }{{http.MethodPost, "/sample-trips"}, {http.MethodGet, "/sample-tripsx"}, {http.MethodGet, "/sample"}} {
+		r := httptest.NewRequest(c.m, "http://rivolt.dev"+c.p, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code == http.StatusMovedPermanently {
+			t.Errorf("%s %s was redirected", c.m, c.p)
+		}
+	}
+	// Neither the sitemap nor llms.txt names them any more.
+	if sm, ok := sitemapXML(hostApp); !ok || strings.Contains(sm, "sample-trips") {
+		t.Errorf("sitemap still lists sample trips: %q", sm)
+	}
+	if llms, _ := llmsTxt(hostApp); strings.Contains(llms, "sample-trips") || strings.Contains(llms, "Sample road trips") {
+		t.Error("llms.txt still lists sample trips")
 	}
 }

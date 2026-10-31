@@ -29,11 +29,11 @@ describe("LandingPage", () => {
     cfg.features.demoEnabled = false;
   });
 
-  it("links a planned sample trip under the trip claim, not the demo host", () => {
+  it("links a planned trip under the trip claim to the demo's Plan tab", () => {
     renderPage();
     expect(screen.getByRole("link", { name: "See a planned trip first: Los Angeles to Las Vegas in two days" })).toHaveAttribute(
       "href",
-      "/sample-trips/la-las-vegas-two-days",
+      "https://demo.rivolt.dev/demo/trips/plan",
     );
   });
 

@@ -20,13 +20,6 @@ const RELEASES = Array.from({ length: 8 }, (_, i) => ({
 }));
 const stubChangelog = (page: Page) => page.route("**/api/changelog", (r) => r.fulfill({ json: { releases: RELEASES } }));
 
-// The sample-trip pages read the plan the server puts in the page as JSON (e2e/fixtures, as in sample-trips.pw.ts).
-const fixture = (f: string) => fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", f), "utf8");
-const EMBED: Record<string, [string, string]> = {
-  "sample-trips": ["sample-trips", fixture("sample-trips-hub.json")],
-  "sample-trip": ["sample-trip", fixture("sample-trip.json")],
-};
-
 const PAGES: [string, string, { signedIn?: boolean; landing?: boolean }][] = [
   ["landing", "/", { signedIn: false, landing: true }],
   ["login", "/login", { signedIn: false }],
@@ -35,8 +28,6 @@ const PAGES: [string, string, { signedIn?: boolean; landing?: boolean }][] = [
   ["privacy", "/privacy", { signedIn: false }],
   ["terms", "/terms", { signedIn: false }],
   ["changelog", "/changelog", { signedIn: false }],
-  ["sample-trips", "/sample-trips", { signedIn: false }],
-  ["sample-trip", "/sample-trips/la-las-vegas-two-days", { signedIn: false }],
   ["lease-calculator", "/lease-calculator", { signedIn: false }],
   ["charging-cost", "/charging-cost", { signedIn: false }],
   ["moving-from-electrafi", "/moving-from-electrafi", { signedIn: false }],
@@ -53,18 +44,6 @@ for (const [name, url, opts] of PAGES) {
         await page.addInitScript(([t]) => localStorage.setItem("rivolt.theme", t), [theme]);
         await stubApi(page, opts);
         await stubChangelog(page);
-        const embed = EMBED[name];
-        if (embed) {
-          await page.addInitScript(([id, json]) => {
-            document.addEventListener("DOMContentLoaded", () => {
-              const el = document.createElement("script");
-              el.type = "application/json";
-              el.id = id;
-              el.textContent = json;
-              document.body.appendChild(el);
-            });
-          }, embed);
-        }
         await page.goto(url);
         await expect(page.getByRole("heading").first()).toBeVisible();
         await expect(page.getByText(/^loading/i)).toHaveCount(0);
