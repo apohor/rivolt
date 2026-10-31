@@ -77,52 +77,63 @@ func (s *Store) Put(ctx context.Context, userID uuid.UUID, name string, plaintex
 	if err != nil {
 		return fmt.Errorf("secrets: seal: %w", err)
 	}
-	const q = `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id, name) DO UPDATE
-		SET ciphertext = EXCLUDED.ciphertext,
-		    kek_id     = EXCLUDED.kek_id,
-		    updated_at = EXCLUDED.updated_at`
-	_, err = s.db.ExecContext(ctx, q, userID, name, blob, s.sealer.KEKID(), time.Now().UTC())
+	err = s.db.QueryRowContext(ctx, upsertSecret, userID, name, blob, s.sealer.KEKID()).Scan(new(time.Time))
 	if err != nil {
 		return fmt.Errorf("secrets: insert: %w", err)
 	}
 	return nil
 }
 
+// upsertSecret writes a secret and its version. updated_at IS the version other pods compare (a Rivian session's version decides whether a
+// stale pod's rejection may flag the user, db.RaiseNeedsReauthIfCurrent), so it comes from the DATABASE's clock, never a pod's, and never
+// goes backwards: the greater of the database's now and one microsecond past the row's previous version. A pod with a fast clock cannot
+// leave a version in the future that a later, honest sign-in sorts below.
+const upsertSecret = `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
+	VALUES ($1, $2, $3, $4, clock_timestamp())
+	ON CONFLICT (user_id, name) DO UPDATE
+	SET ciphertext = EXCLUDED.ciphertext,
+	    kek_id     = EXCLUDED.kek_id,
+	    updated_at = GREATEST(clock_timestamp(), user_secrets.updated_at + interval '1 microsecond')
+	RETURNING updated_at`
+
 // PutTx is Put plus fn, run in the same transaction after the row is written: if fn fails
 // nothing is written.
 func (s *Store) PutTx(ctx context.Context, userID uuid.UUID, name string, plaintext []byte, fn func(ctx context.Context, tx *sql.Tx) error) error {
+	_, err := s.PutTxVersioned(ctx, userID, name, plaintext, fn)
+	return err
+}
+
+// PutTxVersioned is PutTx that also returns the version the database assigned to the row (its updated_at), so the writer can tell its own
+// client which stored session it now holds without comparing clocks.
+func (s *Store) PutTxVersioned(ctx context.Context, userID uuid.UUID, name string, plaintext []byte, fn func(ctx context.Context, tx *sql.Tx) error) (time.Time, error) {
 	if userID == uuid.Nil {
-		return errors.New("secrets: nil userID")
+		return time.Time{}, errors.New("secrets: nil userID")
 	}
 	if name == "" {
-		return errors.New("secrets: empty name")
+		return time.Time{}, errors.New("secrets: empty name")
 	}
 	blob, err := s.sealer.Seal(ctx, userID, plaintext)
 	if err != nil {
-		return fmt.Errorf("secrets: seal: %w", err)
+		return time.Time{}, fmt.Errorf("secrets: seal: %w", err)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("secrets: begin: %w", err)
+		return time.Time{}, fmt.Errorf("secrets: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id, name) DO UPDATE
-		SET ciphertext = EXCLUDED.ciphertext,
-		    kek_id     = EXCLUDED.kek_id,
-		    updated_at = EXCLUDED.updated_at`,
-		userID, name, blob, s.sealer.KEKID(), time.Now().UTC()); err != nil {
-		return fmt.Errorf("secrets: insert: %w", err)
+	var version time.Time
+	if err := tx.QueryRowContext(ctx, upsertSecret, userID, name, blob, s.sealer.KEKID()).Scan(&version); err != nil {
+		return time.Time{}, fmt.Errorf("secrets: insert: %w", err)
 	}
 	if fn != nil {
 		if err := fn(ctx, tx); err != nil {
-			return err
+			return time.Time{}, err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, err
+	}
+	return version, nil
 }
 
 // DeleteTx is Delete plus fn, run in the same transaction.
