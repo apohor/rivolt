@@ -429,12 +429,16 @@ func TestAccountClosureAgainstPostgres(t *testing.T) {
 	if strings.Join(f.deleted, ",") != "sub_a" || queued() != 0 {
 		t.Fatalf("cancelled %v, queued %d; want sub_a cancelled and nothing queued", f.deleted, queued())
 	}
+	if strings.Join(f.customersDeleted, ",") != cust {
+		t.Fatalf("the Stripe customer record was not deleted after the cancel: %v", f.customersDeleted)
+	}
 	var closed int
 	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_closed_customers WHERE customer_id = $1`, cust).Scan(&closed); err != nil || closed != 1 {
 		t.Fatalf("the deleted account's customer was not remembered (%d, %v)", closed, err)
 	}
 
 	// Stripe down: the cancel is queued (BeforeDelete succeeds, the deletion may go ahead), and the row survives the account's deletion.
+	f.gone, f.customersDeleted = nil, nil // as if the first attempt had never happened: the customer exists again
 	f.fail = true
 	f.deleted = nil
 	if err := c.BeforeDelete(ctx, r.uid); err != nil {
@@ -481,8 +485,8 @@ func TestAccountClosureAgainstPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.RetryOnce(ctx)
-	if queued() != 0 || pending != 0 || strings.Join(f.deleted, ",") != "sub_a" {
-		t.Errorf("after Stripe came back: queued=%d pending=%d cancelled=%v", queued(), pending, f.deleted)
+	if queued() != 0 || pending != 0 || strings.Join(f.deleted, ",") != "sub_a" || strings.Join(f.customersDeleted, ",") != cust {
+		t.Errorf("after Stripe came back: queued=%d pending=%d cancelled=%v customer deleted=%v", queued(), pending, f.deleted, f.customersDeleted)
 	}
 
 	// The customer's leftover events are acknowledged now (the account is gone), not answered 500 for days.
@@ -536,5 +540,53 @@ func TestAccountClosureRefusesWhenItCannotQueue(t *testing.T) {
 	c := &AccountClosure{DB: r.pool}
 	if err := c.BeforeDelete(context.Background(), r.uid); err == nil {
 		t.Error("BeforeDelete succeeded with a closed database: the account would be deleted with its Stripe subscription running")
+	}
+}
+
+// An unpaid invoice holds the customer record back: the subscriptions are cancelled at once (no more charges), the deletion of the customer
+// is queued and retried (never dropped), and when the invoice is settled the retry deletes it and the backlog clears.
+func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "stripe-open-invoice")
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	f := newFakeStripe(t)
+	cust := "cus_" + r.uid.String()[:8]
+	f.subs = map[string][][2]string{cust: {{"sub_o", "past_due"}}}
+	f.openInvoices = map[string]int{cust: 1}
+	var pending int
+	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, Report: func(p int, _ time.Duration) { pending = p }}
+	if err := c.BeforeDelete(ctx, r.uid); err != nil {
+		t.Fatalf("an open invoice must queue, not block the deletion: %v", err)
+	}
+	if strings.Join(f.deleted, ",") != "sub_o" {
+		t.Errorf("the subscription was not cancelled at once: %v", f.deleted)
+	}
+	if len(f.customersDeleted) != 0 {
+		t.Errorf("the customer was deleted with an open invoice: %v", f.customersDeleted)
+	}
+	var errText string
+	if err := r.pool.QueryRow(`SELECT error FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&errText); err != nil {
+		t.Fatalf("the customer deletion was not queued: %v", err)
+	}
+	if errText != ErrOpenItems.Error() {
+		t.Errorf("queued error = %q, want %q", errText, ErrOpenItems.Error())
+	}
+	due := func() {
+		if _, err := r.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust); err != nil {
+			t.Fatal(err)
+		}
+	}
+	due()
+	c.RetryOnce(ctx)
+	if pending != 1 || len(f.customersDeleted) != 0 {
+		t.Errorf("while the invoice is open: pending=%d deleted=%v; want still queued", pending, f.customersDeleted)
+	}
+	f.openInvoices[cust] = 0 // paid
+	due()
+	c.RetryOnce(ctx)
+	if pending != 0 || strings.Join(f.customersDeleted, ",") != cust {
+		t.Errorf("after the invoice was settled: pending=%d deleted=%v; want the customer deleted and the backlog clear", pending, f.customersDeleted)
 	}
 }

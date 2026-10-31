@@ -206,3 +206,16 @@ func TestDatedNoticesSeriesExistAtZero(t *testing.T) {
 		}
 	}
 }
+
+// The two gauges the Stripe cancel-queue alert watches exist at 0 from boot: an alert on a series that appears only after the first
+// failure cannot see "no data" from "no problem".
+func TestStripeCancelGaugesExistAtZeroFromBoot(t *testing.T) {
+	m := New()
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	for _, line := range []string{"rivolt_stripe_cancel_pending 0", "rivolt_stripe_cancel_oldest_seconds 0"} {
+		if !strings.Contains(rec.Body.String(), line) {
+			t.Errorf("%q is not exported from boot", line)
+		}
+	}
+}
