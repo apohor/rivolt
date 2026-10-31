@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/archive"
@@ -491,6 +492,27 @@ func runServer() {
 	var stripeWebhook http.Handler
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
 		stripeWebhook = &stripebill.Handler{DB: pgPool, Secret: secret, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+	}
+
+	// StoreKit (Pro 5): only when RIVOLT_APPLE_IAP_BUNDLE_ID is set; without it the routes do not exist. With billing on, the product list is required.
+	// A half-configured deployment stops here rather than accepting any product under the bundle.
+	appleIAP, appleErr := applebill.ConfigFromEnv(os.Getenv, rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")))
+	if appleErr != nil {
+		logger.Error("StoreKit is misconfigured; refusing to start", "err", appleErr.Error())
+		os.Exit(1)
+	}
+	var appleNotifications http.Handler
+	var appleTransaction *applebill.Transaction
+	if appleIAP != nil && pgPool != nil {
+		verifier, verr := applebill.NewVerifier()
+		if verr != nil {
+			logger.Error("StoreKit: Apple's root certificate could not be loaded; refusing to start", "err", verr.Error())
+			os.Exit(1)
+		}
+		appleNotifications = &applebill.Handler{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
+			Observe: func(outcome string) { appMetrics.AppleNotificationsTotal.WithLabelValues(outcome).Inc() }}
+		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger}
+		logger.Info("StoreKit enabled", "environment", appleIAP.Environment)
 	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
@@ -2587,6 +2609,8 @@ func runServer() {
 		}
 		// Stripe webhook event ids (the replay guard): Stripe retries for about three days, so a month is kept.
 		jobs = append(jobs, retention.Job{Name: "stripe_events", Run: func(ctx context.Context) (int64, error) { return stripebill.PurgeEvents(ctx, pgPool) }})
+		// App Store notification ids (the replay guard): Apple retries for days, so a month is kept.
+		jobs = append(jobs, retention.Job{Name: "apple_events", Run: func(ctx context.Context) (int64, error) { return applebill.PurgeEvents(ctx, pgPool) }})
 		// Passkey ceremonies that were begun and never finished (a challenge lives five minutes).
 		if passkeySvc != nil {
 			jobs = append(jobs, retention.Job{Name: "webauthn_ceremonies", Run: func(ctx context.Context) (int64, error) {
@@ -2862,6 +2886,8 @@ func runServer() {
 		OIDC:               oidcSvc,
 		AppleNotifications: appleNotifier,
 		StripeWebhook:      stripeWebhook,
+		AppleIAPNotifications: appleNotifications,
+		AppleIAPTransaction:   appleTransaction,
 		AppAuth:            appAuth,
 		IOSAppIDs:          iosAppIDs,
 		WebFS:              webFS,

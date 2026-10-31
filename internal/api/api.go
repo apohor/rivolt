@@ -23,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/aibudget"
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
@@ -183,6 +184,13 @@ type Deps struct {
 	// auth issuer alongside static creds. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC *oidc.Service
+	// AppleIAPNotifications, when non-nil, is POST /api/billing/apple/notifications: App Store Server Notifications V2, verified against Apple's pinned
+	// root and applied to the entitlement table (internal/applebill). Public (Apple calls it, no cookie; the signature is the credential), behind a
+	// body cap and a per-IP limit. nil (no RIVOLT_APPLE_IAP_BUNDLE_ID): the route does not exist.
+	AppleIAPNotifications http.Handler
+	// AppleIAPTransaction, when non-nil, is POST /api/billing/apple/transaction: the signed-in account reports the signed transaction of its
+	// purchase. Verified, bound to the account by appAccountToken, then granted. nil: the route does not exist.
+	AppleIAPTransaction *applebill.Transaction
 	// AppleNotifications, when non-nil, is POST /api/auth/apple/notifications: Apple's
 	// server-to-server notifications (consent revoked, Apple account deleted, relay email
 	// off or on). Public (Apple calls it, no cookie), behind a body cap and a per-IP limit.
@@ -667,6 +675,11 @@ func New(d Deps) http.Handler {
 			stripeLimiter := newIPLimiter(120, time.Minute, time.Hour)
 			r.With(stripeLimiter.Middleware, maxBodyBytes(stripebill.MaxBodyBytes)).Post("/billing/stripe/webhook", d.StripeWebhook.ServeHTTP)
 		}
+		if d.AppleIAPNotifications != nil && !d.AdminOnly {
+			// Apple retries with backoff and sends bursts when it catches up: generous per address, small bodies.
+			iapLimiter := newIPLimiter(120, time.Minute, time.Hour)
+			r.With(iapLimiter.Middleware, maxBodyBytes(applebill.MaxBodyBytes)).Post("/billing/apple/notifications", d.AppleIAPNotifications.ServeHTTP)
+		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.logoutHandler())
@@ -900,6 +913,10 @@ func New(d Deps) http.Handler {
 				r.Post("/milestones/dismiss", withUser(ms.dismiss))
 			}
 
+			// The signed-in account reports its StoreKit purchase (internal/applebill): ten a minute per user.
+			if d.AppleIAPTransaction != nil && !d.AdminOnly {
+				r.With(mapsUserLimiter(10).Middleware).Post("/billing/apple/transaction", withUser(d.AppleIAPTransaction.Serve))
+			}
 			// Service notices (notices.go): the Pro launch notice, shown in the app until its date.
 			if d.DB != nil {
 				na := newNoticesAPI(d.DB)
