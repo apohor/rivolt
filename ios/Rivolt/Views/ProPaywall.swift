@@ -5,7 +5,6 @@ import SwiftUI
 enum PlanState: Equatable {
     case off
     case free
-    case trial(ends: Date?)
     case pro(source: String, periodEnd: Date?)
     /// A paid subscription set to not renew: Pro stays on until `until`.
     case cancelled(source: String, until: Date?)
@@ -20,7 +19,7 @@ enum PlanLogic {
         guard let me, let plan = me.plan, me.billingEnabled == true else { return .off }
         if me.planSource == "demo" || me.planSource == "billing_off" { return .off }
         if plan == "pro" {
-            if me.planSource == "trial" { return .trial(ends: me.planTrialEnds ?? me.planPeriodEnd) }
+            // No account gets a trial any more (owner decision); an old trial row still stored reads as Pro granted to the account.
             let known = ["apple", "stripe", "founding", "grant"]
             let source = known.contains(me.planSource ?? "") ? (me.planSource ?? "grant") : "grant"
             // A failed payment first (it needs the person), then a cancellation: a cancelled plan must never say it renews.
@@ -39,11 +38,6 @@ enum PlanLogic {
     /// Whole days until `d`, never negative.
     static func daysLeft(_ d: Date?, now: Date = .now) -> Int? {
         d.map { max(0, Int(ceil($0.timeIntervalSince(now) / 86_400))) }
-    }
-
-    static func trialLeft(_ d: Date?, now: Date = .now) -> String? {
-        guard let n = daysLeft(d, now: now) else { return nil }
-        return n == 0 ? "ends today" : "\(n) \(n == 1 ? "day" : "days") left"
     }
 
     /// What a free account's Money shows (backend #1370): this month and the two before it.
@@ -93,9 +87,9 @@ enum ProCopy {
     static let yearly = (label: "Yearly", price: "$34.99", unit: "a year", extra: "about $2.92 a month")
     static let monthly = (label: "Monthly", price: "$3.99", unit: "a month", extra: "")
 
-    /// The trial and renewal terms shown on the paywall before the button (Apple 3.1.2): the trial's length, what it costs after, that
-    /// it renews automatically, how long before the end to cancel and where, and who is charged.
-    static let terms = "14 days free, then $34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of the trial or any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
+    /// The renewal terms shown on the paywall before the button (Apple 3.1.2): the prices, that it renews automatically, how long before
+    /// the end to cancel and where, and who is charged. No trial (owner decision): there is no introductory offer.
+    static let terms = "$34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
     static let underButton = "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
     static let restore = "Restore purchases"
     static let restoreHelp = "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
@@ -123,9 +117,6 @@ enum ProCopy {
             return nil
         case .free:
             return ("Free", "Recording, alerts, the last 90 days and the full export, always.")
-        case .trial(let ends):
-            let left = PlanLogic.trialLeft(ends, now: now).map { "\($0.prefix(1).uppercased())\($0.dropFirst()). " } ?? ""
-            return ("Pro trial, ends \(PlanLogic.date(ends) ?? "soon")", "\(left)No card, nothing is charged. Afterwards the free tier keeps every recording and the full export.")
         case .pro(let source, let end):
             let renews = PlanLogic.date(end).map { ", renews \($0)" } ?? ""
             switch source {
@@ -143,16 +134,38 @@ enum ProCopy {
             return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
         }
     }
+}
 
-    /// The trial line for someone whose trial was the web's (no card), shown only while one runs or after it ended.
-    static func trialLine(_ state: PlanState) -> String? {
-        switch state {
-        case .trial(let ends):
-            return "You have 14 days of Pro free, with no card. It ends\(PlanLogic.date(ends).map { " on \($0)" } ?? "") on its own; nothing is charged unless you subscribe."
-        case .lapsed(_, let source) where source == "trial":
-            return "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time."
-        default:
-            return nil
+/// "See it in the demo": plain links to the demo pages that show a Pro feature, for someone who has not subscribed. The sample truck is
+/// public and read-only, so a link carries nothing about the person: no parameters. They open in the browser.
+enum DemoLinks {
+    struct Item: Equatable { let label: String; let url: URL }
+
+    static let planner = Item(label: "See the multi-day planner in the demo", url: URL(string: "https://demo.rivolt.dev/demo/trips/plan")!)
+    static let history = Item(label: "See full history in the demo", url: URL(string: "https://demo.rivolt.dev/demo/activity")!)
+    static let trends = Item(label: "See trends in the demo", url: URL(string: "https://demo.rivolt.dev/demo/truck")!)
+
+    /// What the Pro sheet shows.
+    static let all = [planner, history, trends]
+
+    /// What fits a limit note: the planner's for a planner, plan-vs-actual or saved-trips limit; history and trends for data outside the
+    /// free window. None for the others.
+    static func forNote(limit: ProLimit, message: String?) -> [Item] {
+        if message == ProCopy.plannerLimit || message == ProCopy.planVsActualLimit || message == ProCopy.savedTripsLimit() { return [planner] }
+        if message == nil, limit == .outsideFreeWindow { return [history, trends] }
+        return []
+    }
+}
+
+struct DemoLinksView: View {
+    let items: [DemoLinks.Item]
+
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(items, id: \.url) { Link($0.label, destination: $0.url).font(Theme.sans(ThemeTokens.typeSubline, .medium)).tint(Theme.accent) }
+            }
+            .accessibilityIdentifier("demo-links")
         }
     }
 }
@@ -218,6 +231,7 @@ struct ProLimitNote: View {
                     Text(DeleteHistoryLink.caption(state.serverURL)).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if plan != .off && !state.isDemo { DemoLinksView(items: DemoLinks.forNote(limit: limit, message: message)) }
             if plan != .off {
                 Button("See Pro") { showing = true }.buttonStyle(ThemeSecondaryButtonStyle())
             }
@@ -248,7 +262,7 @@ struct UnavailablePurchasing: ProPurchasing {
 }
 
 /// The paywall (A2 to A6): the title, the period and price of each choice (nothing pre-selected) and what is included before the button;
-/// the trial's length, the price after and the renewal terms on the same screen; Terms and Privacy under the button; Restore purchases;
+/// the price and the renewal terms on the same screen; Terms and Privacy under the button; Restore purchases;
 /// Manage subscription.
 struct ProPaywallView: View {
     @Environment(AppState.self) private var state
@@ -279,6 +293,7 @@ struct ProPaywallView: View {
                         Text("What's included").themeText(.label, color: Theme.textTertiary).accessibilityAddTraits(.isHeader)
                         ForEach(ProCopy.included, id: \.self) { Text("• \($0)").themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true) }
                     }
+                    if !subscribed && !state.isDemo { DemoLinksView(items: DemoLinks.all) }
                     if !subscribed {
                         HStack(spacing: 8) {
                             choice(ProCopy.yearly.label, ProCopy.yearly.price, ProCopy.yearly.unit, ProCopy.yearly.extra, selected: yearly == true) { yearly = true }
@@ -330,9 +345,6 @@ struct ProPaywallView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.title).themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
                 Text(card.line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                if let trial = ProCopy.trialLine(plan) {
-                    Text(trial).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
             }
         }
     }

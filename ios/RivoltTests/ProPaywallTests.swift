@@ -25,7 +25,8 @@ final class ProPaywallTests: XCTestCase {
 
     func testTheStatesAreToldApartFromTheFixtures() throws {
         XCTAssertEqual(PlanLogic.state(try me("me_plan_free")), .free)
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_trial")), .trial(ends: d("2026-11-14T12:00:00Z")))
+        // No trial any more: an old trial row reads as Pro granted to the account.
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_trial")), .pro(source: "grant", periodEnd: d("2026-11-14T12:00:00Z")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: d("2026-12-01T00:00:00Z")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_apple")), .pro(source: "apple", periodEnd: d("2026-12-01T00:00:00Z")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_founding")), .pro(source: "founding", periodEnd: d("2027-11-01T00:00:00Z")))
@@ -55,19 +56,13 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertEqual(PlanLogic.state(try me("me_plan_lapsed")), .lapsed(endedOn: d("2026-10-01T00:00:00Z"), source: "stripe"))
     }
 
-    func testTrialDaysLeft() {
-        let now = d("2026-12-10T12:00:00Z")
-        XCTAssertEqual(PlanLogic.trialLeft(d("2026-12-13T12:00:00Z"), now: now), "3 days left")
-        XCTAssertEqual(PlanLogic.trialLeft(d("2026-12-11T12:00:00Z"), now: now), "1 day left")
-        XCTAssertEqual(PlanLogic.trialLeft(d("2026-12-01T00:00:00Z"), now: now), "ends today")
-        XCTAssertNil(PlanLogic.trialLeft(nil, now: now))
-    }
-
-    func testThePaywallStatesTheTrialThePriceAfterAndTheRenewalBeforeTheButton() {
+    func testThePaywallStatesThePriceAndTheRenewalBeforeTheButtonAndPromisesNoTrial() {
         let t = ProCopy.terms
-        XCTAssertTrue(t.contains("14 days free, then $34.99 a year (or $3.99 a month)"))
+        XCTAssertTrue(t.hasPrefix("$34.99 a year (or $3.99 a month)."))
+        XCTAssertFalse(t.lowercased().contains("trial"))
+        XCTAssertFalse(t.contains("14 days"))
         XCTAssertTrue(t.contains("Renews automatically until cancelled"))
-        XCTAssertTrue(t.contains("at least 24 hours before the end of the trial or any period"))
+        XCTAssertTrue(t.contains("at least 24 hours before the end of any period"))
         XCTAssertTrue(t.contains("Settings → Apple ID → Subscriptions"))
         XCTAssertTrue(t.contains("charged to your Apple ID"))
         XCTAssertFalse(ProCopy.included.isEmpty)
@@ -78,9 +73,10 @@ final class ProPaywallTests: XCTestCase {
     func testTheCardCopyPerState() throws {
         let now = d("2026-11-11T12:00:00Z")
         XCTAssertEqual(ProCopy.card(.free)?.title, "Free")
-        let trial = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_trial")), now: now))
-        XCTAssertTrue(trial.title.hasPrefix("Pro trial, ends"))
-        XCTAssertTrue(trial.line.hasPrefix("3 days left. No card, nothing is charged."))
+        // An old trial row shows as plain Pro, never as a trial.
+        let old = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_trial")), now: now))
+        XCTAssertEqual(old.title, "Rivolt Pro")
+        XCTAssertFalse((old.title + old.line).lowercased().contains("trial"))
         XCTAssertEqual(ProCopy.card(PlanLogic.state(try me("me_plan_apple")))?.line, "Billed through Apple.")
         XCTAssertEqual(ProCopy.card(PlanLogic.state(try me("me_plan_subscriber")))?.line, "Billed through Stripe.")
         XCTAssertTrue(ProCopy.card(PlanLogic.state(try me("me_plan_founding")))?.title.hasPrefix("Rivolt Pro, free until") == true)
@@ -89,8 +85,6 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertTrue(lapse.line.contains("Nothing is deleted"))
         XCTAssertTrue(lapse.line.contains("in your export any time (Settings → Data)"))
         XCTAssertNil(ProCopy.card(.off))
-        XCTAssertNil(ProCopy.trialLine(.free))
-        XCTAssertTrue(ProCopy.trialLine(.lapsed(endedOn: nil, source: "trial"))?.contains("14 days of Pro were free") == true)
     }
 
     func testManageSubscriptionOpensTheAppStoresOwnPage() {
@@ -140,5 +134,15 @@ final class ProPaywallTests: XCTestCase {
             XCTFail("restore must not succeed before StoreKit exists")
         } catch {}
         XCTAssertTrue(ProCopy.unavailable.contains("Nothing was charged"))
+    }
+
+    func testTheDemoLinksArePlainAndFitTheNote() {
+        XCTAssertEqual(DemoLinks.all.map(\.url.absoluteString),
+                       ["https://demo.rivolt.dev/demo/trips/plan", "https://demo.rivolt.dev/demo/activity", "https://demo.rivolt.dev/demo/truck"])
+        for l in DemoLinks.all { XCTAssertNil(URL(string: l.url.absoluteString)?.query) }
+        XCTAssertEqual(DemoLinks.forNote(limit: .proRequired, message: ProCopy.plannerLimit), [DemoLinks.planner])
+        XCTAssertEqual(DemoLinks.forNote(limit: .proRequired, message: ProCopy.savedTripsLimit()), [DemoLinks.planner])
+        XCTAssertEqual(DemoLinks.forNote(limit: .outsideFreeWindow, message: nil), [DemoLinks.history, DemoLinks.trends])
+        XCTAssertTrue(DemoLinks.forNote(limit: .proRequired, message: ProCopy.vehicleLimit).isEmpty)
     }
 }
