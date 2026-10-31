@@ -294,9 +294,21 @@ export default function DriveDetailPage() {
         // segments the line by this value; absence falls back to
         // a uniform emerald stroke.
         s: p.SpeedMph,
+        // Elevation (metres), battery percent and odometer: the map's Elevation and Efficiency colour modes use them where the drive has them.
+        alt: p.altitude_m,
+        soc: p.BatteryLevelPct,
+        odo: p.OdometerMi,
       })),
     [mapPathSamples],
   );
+
+  // The pack's size as this drive's own figures imply it (energy used over the share of the battery it took), so the map's efficiency colours
+  // agree with the drive's headline mi/kWh. Absent when the drive used under 5 points of battery (too coarse to say).
+  const mapPackKWh = useMemo(() => {
+    if (!drive) return undefined;
+    const used = drive.StartSoCPct - drive.EndSoCPct;
+    return drive.EnergyUsedKWh > 0 && used >= 5 ? drive.EnergyUsedKWh / (used / 100) : undefined;
+  }, [drive]);
 
   // A drive with no samples (a gap or an import) still has its stored route: draw the map from that, without
   // speed colouring or a cursor, since there are no samples to colour or point at.
@@ -619,6 +631,7 @@ export default function DriveDetailPage() {
               setCursorMs(t != null ? Math.round(t * 1000) : null)
             }
             fixAgeSeconds={fixAgeSeconds}
+            packKWh={mapPackKWh}
           />
           </Suspense>
         )}

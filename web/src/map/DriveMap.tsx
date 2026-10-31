@@ -1,6 +1,7 @@
 // DriveMap draws one drive's route on the self-hosted MapLibre basemap: the recorded GPS trace first, replaced by the road-snapped route when
-// the Valhalla proxy returns it; speed-band colouring, start and end pins, the chart-scrub dot, hover-to-time, the speed legend and the GPS
-// staleness badge. MapLibre, its worker and the PMTiles reader load as their own chunk when this mounts (loader.ts). Without WebGL it says
+// the Valhalla proxy returns it; one smooth gradient coloured by speed, efficiency or elevation (scaled to the drive's own 5th to 95th
+// percentile; a mode shows only when the drive has the values), start and end pins with time pills, the chart-scrub dot and its readout,
+// hover-to-time, a legend card and the GPS staleness badge. MapLibre, its worker and the PMTiles reader load as their own chunk when this mounts (loader.ts). Without WebGL it says
 // the map is unavailable and leaves the rest of the page standing.
 import { useEffect, useMemo, useRef } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";
@@ -11,11 +12,17 @@ import { webglAvailable } from "./webgl";
 import { styleFor } from "./base";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
-import { boundsOf, routeData, setRoute, speedRuns, type LatLng } from "./route";
+import { boundsOf, firstLabelLayer, setDriveGradient, setDriveRoute, type LatLng } from "./route";
 import { snapToRoads, type SnapPoint } from "./snap";
-import { cursorElement, flavorControl, foldCredits, pinElement, speedLegend, stalenessBadge, tilesNotice } from "./controls";
+import { displayTimeZone } from "../lib/format";
+import { localUnits } from "../lib/preferences";
+import { cumulativeMiles, formatValue, gradientStops, percentileRange, RAMPS, seriesFor, type Mode, type Sample } from "./metrics";
+import { placePills, setPills } from "./pills";
+import { watchDrawn } from "./drawn";
+import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, tilesNotice } from "./controls";
 
-type Point = { lat: number; lon: number; t?: number; s?: number };
+// alt (metres), soc (battery percent) and odo (odometer, miles) feed the Elevation and Efficiency modes; without them those modes are hidden.
+type Point = { lat: number; lon: number; t?: number; s?: number; alt?: number; soc?: number; odo?: number };
 
 export function DriveMap({
   points,
@@ -25,6 +32,7 @@ export function DriveMap({
   cursorTime,
   onCursorChange,
   fixAgeSeconds,
+  packKWh,
 }: {
   points: Point[];
   start?: Point;
@@ -36,11 +44,16 @@ export function DriveMap({
   onCursorChange?: (t: number | null) => void;
   // Worst GNSS fix age across the drive's samples (seconds); at 5 minutes or more a "GPS fix N min stale" badge shows.
   fixAgeSeconds?: number | null;
+  // The pack's size in kWh, for the Efficiency mode (battery change against distance); without it that mode is hidden.
+  packKWh?: number;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
-  const timedRef = useRef<Required<Point>[]>([]);
+  // The timestamped samples (with their index into the drive's samples), and the readout text for sample i in the active mode.
+  const timedRef = useRef<(Required<Pick<Point, "lat" | "lon" | "t">> & { i: number })[]>([]);
+  const readoutRef = useRef<((i: number) => string) | null>(null);
+  const readoutMarkerRef = useRef<Marker | null>(null);
   const onCursorChangeRef = useRef(onCursorChange);
   onCursorChangeRef.current = onCursorChange;
   const cursorRef = useRef<Marker | null>(null);
@@ -115,37 +128,95 @@ export function DriveMap({
 
       // The D/L picker: a temporary override of the basemap that the app theme resets.
       let styleReady = false;
+      const picker = flavorControl(flavor, (f) => setFlavor(f));
       const setFlavor = (f: MapFlavor) => {
         if (f === flavor) return;
         flavor = f;
         el.setAttribute("data-flavor", f);
         styleReady = false;
+        picker.refresh(f);
         map.setStyle(styleFor(f));
       };
-      let legend: ReturnType<typeof speedLegend> | undefined;
-      const picker = flavorControl(flavor, (f) => { setFlavor(f); picker.refresh(f); legend?.refresh(f); });
+      // ---- the colour modes: which the drive supports, the active one, and the gradient it paints
+      const samples: Sample[] = valid.map((p) => ({ lat: p.lat, lon: p.lon, t: p.t, s: p.s, alt: p.alt, soc: p.soc, odo: p.odo }));
+      const { series, modes } = seriesFor(samples, packKWh);
+      const dist = localUnits().distanceUnit;
+      let mode: Mode = modes[0] ?? "speed";
+      // The track the gradient runs along, and for each of its vertices the index of the sample whose value colours it.
+      let track: LatLng[] = latlngs;
+      let trackIdx: number[] = [...(startPt ? [0] : []), ...valid.map((_, i) => i), ...(endPt && !sameSpot ? [Math.max(0, valid.length - 1)] : [])];
+      let trackCum = cumulativeMiles(track.map(([lat, lon]) => ({ lat, lon })));
+      let routedGaps: LatLng[][] = [];
+      let gaps: { from: LatLng; to: LatLng }[] = [];
+      const gradient = () => {
+        const vals = series[mode];
+        if (!vals) {
+          const c = RAMPS[flavor].speed[1];
+          return { stops: [0, c, 1, c] as (number | string)[], lo: 0, hi: 0, ramp: RAMPS[flavor].speed };
+        }
+        const [lo, hi] = percentileRange(vals);
+        const ramp = RAMPS[flavor][mode];
+        return { stops: gradientStops(trackCum, trackIdx.map((i) => vals[i]), lo, hi, ramp), lo, hi, ramp };
+      };
+      const legend = modes.length > 0
+        ? modeLegend(modes, (m) => { mode = m; applyMode(); }, { mode, flavor, ramp: RAMPS[flavor][mode], lo: "", hi: "" })
+        : undefined;
+      const refreshLegend = () => {
+        const g = gradient();
+        legend?.update({ mode, flavor, ramp: g.ramp, lo: formatValue(mode, g.lo, dist), hi: formatValue(mode, g.hi, dist) });
+      };
+      const applyMode = () => {
+        refreshLegend();
+        if (styleReady) setDriveGradient(map, gradient().stops);
+      };
       map.addControl(picker, "top-right");
-      cleanups.push(onAppMapFlavor((f) => { setFlavor(f); picker.refresh(f); legend?.refresh(f); }));
-
-      const hasSpeed = speeds.some((s) => s != null && Number.isFinite(s));
-      if (hasSpeed) {
-        legend = speedLegend(speeds, flavor);
-        map.addControl(legend, "bottom-left");
-      }
+      cleanups.push(onAppMapFlavor((f) => { setFlavor(f); }));
+      if (legend) map.addControl(legend, "bottom-left");
       if (typeof fixAgeSeconds === "number" && Number.isFinite(fixAgeSeconds) && fixAgeSeconds >= 5 * 60) map.addControl(stalenessBadge(fixAgeSeconds), "top-right");
 
       // What to keep framed: the raw trace first, the snapped route once it arrives; every resize refits to it.
       let fitBox = hasSpread ? boundsOf(latlngs) : null;
+
+      // ---- the Start / End pills: map symbols (so the basemap's labels yield to them), on the side of each pin with more room
+      const timeOf = (t: number | undefined) =>
+        Number.isFinite(t) ? new Date((t as number) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() }) : "";
+      const firstT = valid.find((p) => Number.isFinite(p.t))?.t;
+      const lastT = [...valid].reverse().find((p) => Number.isFinite(p.t))?.t;
+      let pillKey = "";
+      const updatePills = (force = false) => {
+        if (!styleReady || !lineStart || !(Number.isFinite(firstT) || Number.isFinite(lastT))) return;
+        const sLL: [number, number] = [lineStart.lon, lineStart.lat];
+        const eLL: [number, number] | null = lineEnd && !sameSpot ? [lineEnd.lon, lineEnd.lat] : null;
+        const sides = placePills(map, sLL, eLL);
+        const key = JSON.stringify([sides, flavor, firstT, lastT]);
+        if (!force && key === pillKey) return;
+        pillKey = key;
+        const specs = [{ id: "start", text: `${sameSpot ? "Start" : "Start"} ${timeOf(firstT)}`, lngLat: sLL, ...sides.start }];
+        if (eLL) specs.push({ id: "end", text: `End ${timeOf(lastT)}`, lngLat: eLL, ...sides.end });
+        setPills(map, specs, flavor);
+      };
       const fit = () => {
         if (!fitBox || !(el.clientWidth > 0 && el.clientHeight > 0)) return;
-        const bottom = el.clientWidth < 520 ? 64 : 44;
+        // Keep the route's end clear of the legend card: its height, its lift above the credits, and room for the pin.
+        const card = el.querySelector<HTMLElement>(".rivolt-legend");
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
+        const bottom = Math.max(el.clientWidth < 520 ? 64 : 44, lift);
         map.fitBounds(fitBox, { padding: { top: 44, left: 20, right: 72, bottom }, animate: false, maxZoom: 17 });
+        updatePills();
       };
 
-      let data = routeData({ runs: hasSpread ? speedRuns(latlngs, speeds) : [] });
-      // The style (re)loads on creation and on every flavour change; the route layers go back on top each time.
+      // The style (re)loads on creation and on every flavour change; the route layers and pills go back each time.
       // Not map.isStyleLoaded(): that is false while any source is loading a tile, which dropped route updates made in that time.
-      map.on("style.load", () => { styleReady = true; setRoute(map, data, flavor); });
+      const draw = () => {
+        const g = gradient();
+        setDriveRoute(map, { track: hasSpread ? track : [], stops: g.stops, routedGaps, gaps }, flavor, firstLabelLayer(map));
+        refreshLegend();
+        updatePills(true);
+        drawn.markDrawn();
+      };
+      const drawn = watchDrawn(map, el, "rivolt-track-main");
+      cleanups.push(drawn.stop);
+      map.on("style.load", () => { styleReady = true; draw(); });
 
       if (!hasSpread && latlngs.length > 0) map.jumpTo({ center: [latlngs[0][1], latlngs[0][0]], zoom: 16 });
 
@@ -155,8 +226,15 @@ export function DriveMap({
       cleanups.push(() => markers.forEach((m) => m.remove()));
 
       // Hover to time: the nearest timestamped sample within 28 px of the pointer.
-      const timed = valid.filter((p) => Number.isFinite(p.t)) as Required<Point>[];
+      const timed = valid.flatMap((p, i) => (Number.isFinite(p.t) ? [{ lat: p.lat, lon: p.lon, t: p.t as number, i }] : []));
       timedRef.current = timed;
+      // The readout beside the scrub dot: the time and the active mode's value at that sample.
+      readoutRef.current = (i) => {
+        const v = series[mode]?.[i];
+        const when = timeOf(valid[i]?.t);
+        return [when, v != null ? formatValue(mode, v, dist) : ""].filter(Boolean).join(" · ");
+      };
+      cleanups.push(() => { readoutRef.current = null; });
       if (timed.length > 0) {
         const HOVER_PX = 28;
         map.on("mousemove", (ev) => {
@@ -178,8 +256,6 @@ export function DriveMap({
 
       // Best effort: replace the raw trace with the road-snapped route from Valhalla; keep the raw one on failure.
       const synthT = (t: number | undefined, d: number) => (Number.isFinite(t) ? (t as number) + d : undefined);
-      const firstT = valid.find((p) => Number.isFinite(p.t))?.t;
-      const lastT = [...valid].reverse().find((p) => Number.isFinite(p.t))?.t;
       const tracePoints: SnapPoint[] = [
         ...(startPt ? [{ ...startPt, t: synthT(firstT, -60) }] : []),
         ...valid,
@@ -188,16 +264,25 @@ export function DriveMap({
       if (valhallaBase() !== "" && hasSpread) {
         snapToRoads(tracePoints, ac.signal).then((plan) => {
           if (ac.signal.aborted || mapRef.current !== map || !plan || plan.segments.length === 0) return;
-          const runs = [];
           const all: LatLng[] = [];
+          const t2: LatLng[] = [];
+          const idx: number[] = [];
           for (const { coords: matched } of plan.segments) {
-            const matchedSpeeds = matched.map(([lat, lon]) => nearestSpeed(tracePoints, lat, lon));
-            runs.push(...speedRuns(matched, matchedSpeeds));
+            for (const [lat, lon] of matched) {
+              t2.push([lat, lon]);
+              idx.push(nearestIndex(valid, lat, lon));
+            }
             all.push(...matched);
           }
           for (const r of plan.routedGaps) all.push(...r);
-          data = routeData({ runs, routedGaps: plan.routedGaps, gaps: plan.gaps });
-          if (styleReady) setRoute(map, data, flavor);
+          if (t2.length >= 2) {
+            track = t2;
+            trackIdx = idx;
+            trackCum = cumulativeMiles(track.map(([lat, lon]) => ({ lat, lon })));
+          }
+          routedGaps = plan.routedGaps;
+          gaps = plan.gaps;
+          if (styleReady) draw();
           const b = boundsOf(all);
           if (b) { fitBox = b; fit(); }
         });
@@ -211,6 +296,8 @@ export function DriveMap({
       cleanups.push(() => {
         cursorRef.current?.remove();
         cursorRef.current = null;
+        readoutMarkerRef.current?.remove();
+        readoutMarkerRef.current = null;
         map.remove();
         mapRef.current = null;
       });
@@ -219,9 +306,9 @@ export function DriveMap({
     return () => { for (const c of cleanups.reverse()) c(); };
     // points is an array derived upstream; re-run only when its identity or the endpoints change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds]);
+  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh]);
 
-  // The scrub dot follows cursorTime without rebuilding the map.
+  // The scrub dot and its readout follow cursorTime without rebuilding the map.
   useEffect(() => {
     const map = mapRef.current;
     const timed = timedRef.current;
@@ -229,6 +316,8 @@ export function DriveMap({
     if (cursorTime == null || !Number.isFinite(cursorTime) || timed.length === 0) {
       cursorRef.current?.remove();
       cursorRef.current = null;
+      readoutMarkerRef.current?.remove();
+      readoutMarkerRef.current = null;
       return;
     }
     let best = timed[0];
@@ -237,12 +326,19 @@ export function DriveMap({
       const d = Math.abs(timed[i].t - cursorTime);
       if (d < bestD) { bestD = d; best = timed[i]; }
     }
+    const text = readoutRef.current?.(best.i) ?? "";
     if (cursorRef.current) {
       cursorRef.current.setLngLat([best.lon, best.lat]);
+      readoutMarkerRef.current?.setLngLat([best.lon, best.lat]);
+      const el = readoutMarkerRef.current?.getElement();
+      if (el) el.textContent = text;
     } else {
       void loadMapLibre().then((ml) => {
-        if (mapRef.current !== map) return;
+        if (mapRef.current !== map || cursorRef.current) return;
         cursorRef.current = new ml.Marker({ element: cursorElement() }).setLngLat([best.lon, best.lat]).addTo(map);
+        if (text) {
+          readoutMarkerRef.current = new ml.Marker({ element: readoutElement(text), anchor: "bottom-left", offset: [10, -12] }).setLngLat([best.lon, best.lat]).addTo(map);
+        }
       });
     }
   }, [cursorTime, points]);
@@ -251,8 +347,8 @@ export function DriveMap({
   return <div ref={ref} className="rounded-lg overflow-hidden border border-neutral-800" style={{ height }} />;
 }
 
-// nearestSpeed is the speed of the recorded sample nearest a snapped coordinate (flat-earth distance), so the snapped line keeps its colours.
-function nearestSpeed(pts: SnapPoint[], lat: number, lon: number): number | undefined {
+// nearestIndex is the index of the recorded sample nearest a snapped coordinate (flat-earth distance), so the snapped line takes that sample's value.
+function nearestIndex(pts: { lat: number; lon: number }[], lat: number, lon: number): number {
   let bestI = 0;
   let bestD = Infinity;
   const cos = Math.cos((lat * Math.PI) / 180);
@@ -262,5 +358,5 @@ function nearestSpeed(pts: SnapPoint[], lat: number, lon: number): number | unde
     const d = dx * dx + dy * dy;
     if (d < bestD) { bestD = d; bestI = i; }
   }
-  return pts[bestI].s;
+  return bestI;
 }
