@@ -429,3 +429,40 @@ func TestSyncAllReportsWhatItCouldNotReconcile(t *testing.T) {
 		t.Fatalf("unreadable database: %+v, want ReadFailed", got[4])
 	}
 }
+
+// A version belongs to the session it was learnt for. A call that used another token (one still in flight when the client followed a sign-in
+// made elsewhere and relearnt the new version) gets no version: its rejection must not be attributed to the new session.
+func TestSessionVersionIsForTheSessionItWasLearntFor(t *testing.T) {
+	c := NewLive()
+	c.Restore(Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)})
+	v1 := time.Date(2026, 11, 1, 10, 0, 0, 123456000, time.UTC)
+	c.SetSessionVersion(v1)
+	if got := c.SessionVersionFor("old"); !got.Equal(v1) {
+		t.Fatalf("version for the token it was learnt for = %v, want %v", got, v1)
+	}
+	if got := c.SessionVersion(); !got.Equal(v1) {
+		t.Errorf("SessionVersion() = %v", got)
+	}
+	// The client follows a sign-in elsewhere: new token, new version.
+	c.Restore(Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now()})
+	v2 := v1.Add(time.Minute)
+	c.SetSessionVersion(v2)
+	if got := c.SessionVersionFor("fresh"); !got.Equal(v2) {
+		t.Errorf("version for the fresh token = %v, want %v", got, v2)
+	}
+	if got := c.SessionVersionFor("old"); !got.IsZero() {
+		t.Errorf("a call that used the OLD token is attributed version %v: its rejection would flag the fresh session", got)
+	}
+	if got := c.SessionVersionFor(""); !got.IsZero() {
+		t.Errorf("an unknown token got version %v", got)
+	}
+	// Between the Restore and the relearn the client holds a new token with the old version: that is no version either.
+	c.Restore(Session{Email: "d@example.invalid", UserSessionToken: "newest", AuthenticatedAt: time.Now()})
+	if got := c.SessionVersionFor("newest"); !got.IsZero() {
+		t.Errorf("a token the version was not learnt for got version %v", got)
+	}
+	c.SetSessionVersion(time.Time{})
+	if !c.SessionVersion().IsZero() || !c.SessionVersionFor("newest").IsZero() {
+		t.Error("clearing the version left one behind")
+	}
+}
