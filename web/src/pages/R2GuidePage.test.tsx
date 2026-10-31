@@ -34,4 +34,13 @@ describe("the R2 guide matches the Truck card's checked list", () => {
     expect(text).toContain("estimate");
     expect(text).toContain("unofficial and not affiliated with rivian");
   });
+
+  it("has the five-step pre-delivery checklist before Day 1, and does not promise emails that wait", () => {
+    const head = guide.indexOf("## Before your R2 arrives");
+    expect(head).toBeGreaterThan(-1);
+    expect(head).toBeLessThan(guide.indexOf("## Day 1: connect"));
+    const section = guide.slice(head, guide.indexOf("## Day 1: connect"));
+    expect(section.match(/^\d\. \*\*/gm)).toHaveLength(5);
+    expect(section.toLowerCase()).not.toContain("will wait");
+  });
 });
