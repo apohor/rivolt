@@ -178,6 +178,8 @@ export function modeLegend(
     title.style.color = c.muted;
     lo.textContent = s.lo;
     hi.textContent = s.hi;
+    // The end values are the numbers the colours mean: full text colour, semibold; the title is the quieter line.
+    lo.style.cssText = hi.style.cssText = "font-weight:600;white-space:nowrap";
     bar.style.background = rampCSS(s.ramp);
     for (const [m, b] of buttons) {
       const on = m === s.mode;

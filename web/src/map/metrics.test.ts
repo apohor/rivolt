@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { cumulativeMiles, efficiencySeries, elevationSeries, gradientStops, percentileRange, rampColor, RAMPS, seriesFor, smooth, type Sample } from "./metrics";
 
 // A made-up straight drive near (10, 10): n samples about 0.1 mi apart, speed varying, battery falling, altitude rising.
+// The battery falls faster on the climbs (a wave), so efficiency varies along the drive; 80% down to about 70% over 120 samples.
+const socWave = (i: number) => 80 - (0.083 * i + 0.06 * 9 * (1 - Math.cos(i / 9)));
 function drive(n: number, over: Partial<Sample> = {}, f: (i: number) => Partial<Sample> = () => ({})): Sample[] {
   return Array.from({ length: n }, (_, i) => ({
     lat: 10 + i * 0.0015, // ~0.1 mi per step
@@ -9,7 +11,7 @@ function drive(n: number, over: Partial<Sample> = {}, f: (i: number) => Partial<
     t: 1_700_000_000 + i * 20,
     s: 40 + (i % 5) * 5,
     alt: 100 + i * 2,
-    soc: 80 - i * 0.12,
+    soc: socWave(i),
     odo: 5000 + i * 0.1,
     ...over,
     ...f(i),
@@ -54,13 +56,17 @@ describe("modes", () => {
     const ok = drive(120);
     expect(efficiencySeries(ok, 135, cum(ok))).not.toBeNull();
   });
-  it("efficiency is miles per kWh from the battery: 12 mi on 14.4 percent of 135 kWh", () => {
-    const s = drive(121);
+  it("efficiency is miles per kWh from the battery: a steady 0.12 percent per 0.1 mi on 135 kWh is 0.62 mi/kWh", () => {
+    const s = drive(121, {}, (i) => ({ soc: 80 - i * 0.12 }));
     const eff = efficiencySeries(s, 135, cumulativeMiles(s))!;
     const mid = eff[60];
-    // 0.1 mi per 0.12 percent => 0.162 kWh => 0.617 mi... per sample step; ratio = 0.1 / (0.0012 * 135) = 0.617 mi/kWh
+    // 0.1 mi per (0.0012 * 135) kWh = 0.617 mi/kWh
     expect(mid).toBeGreaterThan(0.55);
     expect(mid).toBeLessThan(0.7);
+  });
+  it("a steady battery drain is hidden as a mode (nothing to show), a varying one is offered", () => {
+    expect(seriesFor(drive(121, {}, (i) => ({ soc: 80 - i * 0.12 })), 135).modes).not.toContain("eff");
+    expect(seriesFor(drive(121), 135).modes).toContain("eff");
   });
   it("efficiency is withheld without a pack size or battery values", () => {
     const s = drive(120);
@@ -73,6 +79,22 @@ describe("modes", () => {
     expect(elevationSeries(s, cumulativeMiles(s))).not.toBeNull();
     const less = drive(100, {}, (i) => (i % 4 === 0 ? { alt: undefined } : { alt: undefined, ...(i % 2 ? { alt: 5 } : {}) }));
     expect(elevationSeries(less, cumulativeMiles(less))).toBeNull();
+  });
+  it("a mode whose range is flat is hidden: efficiency under 5% spread, elevation under 10 m", () => {
+    // Battery falls at a constant rate: efficiency is one number all the way. Altitude moves 6 m in total.
+    const flat = drive(121, { alt: undefined }, (i) => ({ alt: 100 + (i % 2) * 3 }));
+    const { modes, series } = seriesFor(flat, 135);
+    expect(series.elev).toBeUndefined();
+    expect(modes).not.toContain("elev");
+    // The constant-rate battery gives a nearly constant efficiency; sampled coarsely it can still wobble, so only assert the rule's direction.
+    const steady = drive(121);
+    const m2 = seriesFor(steady, 135);
+    expect(m2.modes).toContain("elev"); // 240 m of climb is plenty
+  });
+  it("efficiency with a real spread stays", () => {
+    // Battery drops faster in the second half: efficiency halves.
+    const s = drive(121, {}, (i) => ({ soc: 80 - (i < 60 ? i * 0.08 : 60 * 0.08 + (i - 60) * 0.2) }));
+    expect(seriesFor(s, 135).modes).toContain("eff");
   });
   it("a drive with only speed offers one mode", () => {
     const { modes } = seriesFor(drive(120, { alt: undefined, soc: undefined }), 135);

@@ -22,9 +22,15 @@ async function setup(page: Page, withExtras = true) {
     StartLat: 10, StartLon: 10, EndLat: 10.192, EndLon: 10.192,
     MaxSpeedMph: 78, AvgSpeedMph: 40, EnergyUsedKWh: 8, Source: "live",
   };
+  // The battery falls faster on the climbs (a wave over the drive), so efficiency varies along the line: 80% to 70% overall.
+  let soc = 80;
+  const socAt = Array.from({ length: 121 }, (_, i) => {
+    if (i > 0) soc -= 0.083 + 0.06 * Math.sin(i / 9);
+    return soc;
+  });
   const samples = Array.from({ length: 121 }, (_, i) => ({
     VehicleID: VEHICLE_ID, At: new Date(START + i * 15_000).toISOString(),
-    BatteryLevelPct: 80 - i / 12, RangeMi: 250, OdometerMi: 5000 + i / 6,
+    BatteryLevelPct: socAt[i], RangeMi: 250, OdometerMi: 5000 + i / 6,
     Lat: 10 + i * 0.0016, Lon: 10 + i * 0.0016 + 0.01 * Math.sin(i / 14), SpeedMph: 30 + 25 * Math.abs(Math.sin(i / 17)),
     ShiftState: "D", ChargingState: "", ChargerPowerKW: 0, ChargeLimitPct: 80,
     InsideTempC: 21, OutsideTempC: 11, DriveNumber: 1, ChargeNumber: 0, Source: "live",
@@ -53,13 +59,6 @@ for (const [vpName, vp] of [
       // Speed, Efficiency and Elevation all qualify for this drive.
       await expect(legend.getByRole("group", { name: "Route colour" }).getByRole("button")).toHaveText(["Speed", "Efficiency", "Elevation"]);
       await legend.scrollIntoViewIfNeeded();
-      // Hover the chart to a fixed fraction: the dot and its readout show on the route.
-      const over = page.locator(".u-over").first();
-      if (await over.count()) {
-        const box = await over.boundingBox();
-        if (box) await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
-        await expect(page.locator(".rivolt-readout")).toBeVisible();
-      }
       await page.locator("[data-map-drawn]").first().screenshot({ path: path.join(SHOTS, `drive-map-polish-${vpName}-${theme}.png`) });
       await ctx.close();
     });
@@ -120,3 +119,32 @@ test("iphone: a drive without altitude or battery values shows no switch, only S
   await expect(page.locator(".rivolt-legend").getByRole("group", { name: "Route colour" })).toHaveCount(0);
   await ctx.close();
 });
+
+// The hover readout: a dot on the route and a pill beside it (time, the active mode's value with units), from hovering the chart at a fixed
+// fraction. The viewport is tall enough to hold the map and the chart, so the shot is taken without scrolling (which would end the hover).
+for (const [name, vp, theme] of [
+  ["desktop", { width: 1280, height: 1500 }, "dark"],
+  ["desktop", { width: 1280, height: 1500 }, "light"],
+  ["iphone", { width: 390, height: 1700 }, "dark"],
+] as const) {
+  test(`${name === "iphone" ? "iphone: " : ""}drive map hover readout · ${name} · ${theme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: vp, colorScheme: theme });
+    const page = await ctx.newPage();
+    await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
+    await setup(page);
+    await page.goto("/drives/drive-1");
+    await expect(drawn(page)).toBeAttached();
+    const over = page.locator(".u-over").first();
+    await expect(over).toBeVisible();
+    const box = (await over.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
+    const readout = page.locator(".rivolt-readout");
+    await expect(readout).toBeVisible();
+    await expect(readout).toContainText(/\d{1,2}:\d{2}/);
+    await expect(readout).toContainText("mph");
+    const map = (await page.locator("[data-map-drawn]").first().boundingBox())!;
+    await page.screenshot({ path: path.join(SHOTS, `drive-map-hover-${name}-${theme}.png`), clip: map });
+    await ctx.close();
+  });
+}

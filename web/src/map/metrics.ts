@@ -34,6 +34,10 @@ export const RAMPS: Record<MapFlavor, Record<Mode, string[]>> = {
 export const EFF_MIN_MILES = 5;
 export const EFF_MIN_SOC_CHANGE = 5;
 export const ELEV_MIN_COVERAGE = 0.8;
+// A mode whose 5th-to-95th percentile range is nearly flat has nothing to show (the whole line would take the ramp's first colour, and the
+// legend would read "2.5 to 2.5"): efficiency needs a spread of at least 5% of its mean, elevation of 10 m.
+export const EFF_MIN_SPREAD = 0.05;
+export const ELEV_MIN_SPREAD_M = 10;
 
 const finite = (n: number | undefined): n is number => typeof n === "number" && Number.isFinite(n);
 
@@ -153,6 +157,15 @@ export function speedSeries(s: Sample[], cum: number[]): number[] | null {
   return smooth(s.map((p) => (finite(p.s) ? p.s : NaN)), cum, 0.15);
 }
 
+// hasSpread: does the series' 5th-to-95th percentile range pass `ok(lo, hi, mean)`?
+function hasSpread(vals: number[], ok: (lo: number, hi: number, mean: number) => boolean): boolean {
+  const f = vals.filter(Number.isFinite);
+  if (f.length === 0) return false;
+  const [lo, hi] = percentileRange(f);
+  const mean = f.reduce((a, b) => a + b, 0) / f.length;
+  return ok(lo, hi, Math.abs(mean));
+}
+
 // seriesFor builds every mode the drive qualifies for. The mode list is in display order; speed comes first when it exists.
 export function seriesFor(s: Sample[], packKWh?: number): { series: Series; modes: Mode[]; cum: number[] } {
   const cum = cumulativeMiles(s);
@@ -160,9 +173,9 @@ export function seriesFor(s: Sample[], packKWh?: number): { series: Series; mode
   const speed = speedSeries(s, cum);
   if (speed) series.speed = speed;
   const eff = efficiencySeries(s, packKWh, cum);
-  if (eff) series.eff = eff;
+  if (eff && hasSpread(eff, (lo, hi, mean) => hi - lo >= EFF_MIN_SPREAD * mean)) series.eff = eff;
   const elev = elevationSeries(s, cum);
-  if (elev) series.elev = elev;
+  if (elev && hasSpread(elev, (lo, hi) => hi - lo >= ELEV_MIN_SPREAD_M)) series.elev = elev;
   const modes = (["speed", "eff", "elev"] as Mode[]).filter((m) => series[m]);
   return { series, modes, cum };
 }

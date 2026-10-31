@@ -78,7 +78,7 @@ const fakeML = { Map: FakeMap, Marker: FakeMarker, NavigationControl: ctl("nav")
 
 const line = Array.from({ length: 6 }, (_, i) => ({ lat: 40 + i * 0.01, lon: -100 - i * 0.01, t: 1000 + i * 10, s: 20 + i * 10 }));
 // A made-up long drive near (10, 10) with speed, altitude, battery and odometer on every sample: 12 miles, 14 points of battery.
-const full = Array.from({ length: 121 }, (_, i) => ({ lat: 10 + i * 0.0015, lon: 10, t: 1000 + i * 20, s: 40 + (i % 5) * 5, alt: 100 + i * 2, soc: 80 - i * 0.12, odo: 5000 + i * 0.1 }));
+const full = Array.from({ length: 121 }, (_, i) => ({ lat: 10 + i * 0.0015, lon: 10, t: 1000 + i * 20, s: 40 + (i % 5) * 5, alt: 100 + i * 2, soc: 80 - (0.083 * i + 0.54 * (1 - Math.cos(i / 9))), odo: 5000 + i * 0.1 }));
 
 beforeEach(() => {
   FakeMarker.all = [];
