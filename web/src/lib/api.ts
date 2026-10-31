@@ -190,6 +190,16 @@ export type VehicleImage = {
   placement?: string;
 };
 
+export type ServiceNotice = {
+  kind: string;
+  title: string;
+  body: string;
+  links: { label: string; href: string }[];
+  shows_until: string;
+  // The banner is hidden; the Settings row still shows the notice until shows_until.
+  dismissed: boolean;
+};
+
 export type Vehicle = {
   id: string;
   vin: string;
@@ -1159,6 +1169,9 @@ export const backend = {
   // URL to open. Nothing calls them while billing is off, because no screen offers them.
   billingCheckout: (interval: "month" | "year") => api.post<{ url: string }>("/api/billing/checkout", { interval }),
   billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
+  // Service notices (the Pro launch notice, the founding-member end): shown on Now until dismissed and in Settings until shows_until.
+  notices: () => api.get<ServiceNotice[]>("/api/notices"),
+  dismissNotice: (kind: string) => api.post<void>("/api/notices/dismiss", { kind }),
   yearInRivolt: (year?: number) => api.get<YearInRivolt>(`/api/year-in-rivolt${year ? `?year=${year}` : ""}`),
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
