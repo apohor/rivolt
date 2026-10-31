@@ -20,8 +20,14 @@ func longDate(iso string) string {
 	return t.Format("January 2, 2006")
 }
 
-// PurchaseSubject is the subject of the purchase confirmation.
-func PurchaseSubject(PurchaseParams) string { return "Your Rivolt Pro subscription" }
+// PurchaseSubject is the subject of the purchase confirmation. While the free period runs it names the first charge, so the two
+// confirmations (this one and the receipt of a later charge) can be told apart in an inbox.
+func PurchaseSubject(p PurchaseParams) string {
+	if p.Trialing && p.Date != "" {
+		return "Your Rivolt Pro subscription: first charge on " + longDate(p.Date)
+	}
+	return "Your Rivolt Pro subscription"
+}
 
 // RenderPurchase is the purchase confirmation: the renewal terms, how to cancel and the refund rule (Stripe's receipt has none of them).
 // Wording by growth. While the subscription is trialing the free period is the founding year or a grant, so the line does not name which.
