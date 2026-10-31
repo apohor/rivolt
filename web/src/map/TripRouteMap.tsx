@@ -162,19 +162,29 @@ export function TripRouteMap({
       // data-map-drawn: the route has been drawn (a render after it went on the map); a spec waits for it before it looks. Not the
       // library's "idle", which waits for every tile and never comes while a source keeps retrying a tile the server lacks.
       el.removeAttribute("data-map-drawn");
+      let watching: (() => void) | undefined;
       const markDrawn = () => {
-        el.removeAttribute("data-map-drawn");
-        map.once("render", () => requestAnimationFrame(() => {
-          // The value is how many route features the map is rendering in view: a spec can tell a drawn line from markers alone.
-          const n = (() => {
-            try {
-              return map.getLayer("rivolt-route-main") ? map.queryRenderedFeatures({ layers: ["rivolt-route-main"] }).length : 0;
-            } catch {
-              return 0;
-            }
-          })();
-          el.setAttribute("data-map-drawn", String(n));
-        }));
+        if (watching) map.off("render", watching);
+        el.setAttribute("data-map-drawn", "0");
+        // The value is how many route features the map renders in view: a spec can tell a drawn line from markers alone. The route's
+        // GeoJSON tiles are cut by the worker after the first frame, so it is read on each frame until the line is there.
+        const count = () => {
+          try {
+            return map.getLayer("rivolt-route-main") ? map.queryRenderedFeatures({ layers: ["rivolt-route-main"] }).length : 0;
+          } catch {
+            return 0;
+          }
+        };
+        const h = () => {
+          const n = count();
+          if (n > 0) {
+            el.setAttribute("data-map-drawn", String(n));
+            map.off("render", h);
+            if (watching === h) watching = undefined;
+          }
+        };
+        watching = h;
+        map.on("render", h);
         map.triggerRepaint();
       };
       map.touchZoomRotate.disableRotation();
