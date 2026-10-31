@@ -132,6 +132,12 @@ export function DriveMap({
 
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-left");
       map.addControl(new ml.AttributionControl({ compact: true, customAttribution: tiles ? undefined : OSM_ATTRIBUTION }), "bottom-right");
+      // The credits (terrain's is long) open by default; on a phone they would fill the map's corner over the route, so start them folded.
+      if (el.clientWidth < 640) {
+        const attrib = el.querySelector(".maplibregl-ctrl-attrib");
+        attrib?.classList.remove("maplibregl-compact-show");
+        attrib?.removeAttribute("open");
+      }
       if (!tiles) map.addControl(tilesNotice(TILES_UNAVAILABLE_TEXT), "bottom-left");
 
       // The D/L picker: a temporary override of the basemap that the app theme resets.
@@ -152,10 +158,7 @@ export function DriveMap({
       let fitBox = hasSpread ? boundsOf(latlngs) : null;
       const fit = () => {
         if (!fitBox || !(el.clientWidth > 0 && el.clientHeight > 0)) return;
-        // Keep the route's end clear of the bottom-left legend: its height, its lift above the attribution, and room for the pin.
-        const legend = el.querySelector<HTMLElement>(".rivolt-speed-legend");
-        const lift = legend ? legend.offsetHeight + (parseFloat(getComputedStyle(legend).marginBottom) || 0) + 28 : 0;
-        const bottom = Math.max(el.clientWidth < 520 ? 64 : 44, lift);
+        const bottom = el.clientWidth < 520 ? 64 : 44;
         map.fitBounds(fitBox, { padding: { top: 44, left: 20, right: 72, bottom }, animate: false, maxZoom: 17 });
       };
 
