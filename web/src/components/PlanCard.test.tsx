@@ -4,13 +4,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { PlanCard } from "./PlanCard";
 import { PlanNotice } from "./PlanNotice";
+import { ProLimitNotice } from "./ProLimitNotice";
 import { stubFetchRoutes } from "../test/fetchRoutes";
+import billingOff from "../../../ios/RivoltTests/Fixtures/me.json";
+import free from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
+import trial from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
+import stripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
+import founding from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
+import lapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
 
-const base = { authenticated: true, user_id: "u1", username: "a", role: "user", onboarding_completed: true };
-const now = new Date("2026-12-10T12:00:00Z");
+const now = new Date("2026-11-11T12:00:00Z");
 
 function renderWith(me: Record<string, unknown>, ui: React.ReactNode) {
-  stubFetchRoutes({ "/api/auth/me": { body: { ...base, ...me } } });
+  stubFetchRoutes({ "/api/auth/me": { body: me } });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -19,47 +25,58 @@ function renderWith(me: Record<string, unknown>, ui: React.ReactNode) {
   );
 }
 
-describe("PlanCard and PlanNotice", () => {
+describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
     window.localStorage.clear();
   });
 
-  it("show nothing where the server does not bill", async () => {
-    const { container } = renderWith({}, <><PlanCard now={now} /><PlanNotice now={now} /></>);
+  it("show nothing where billing is off", async () => {
+    const { container } = renderWith(billingOff, <><PlanCard now={now} /><PlanNotice /></>);
     await new Promise((r) => setTimeout(r, 30));
     expect(container.querySelector("[data-plan-card],[data-plan-notice]")).toBeNull();
   });
 
   it("shows the free state and opens the sheet", async () => {
-    renderWith({ plan: "free" }, <PlanCard now={now} />);
-    expect(await screen.findByText(/Free: the last 90 days/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "See Rivolt Pro" }));
+    renderWith(free, <PlanCard now={now} />);
+    expect(await screen.findByText("Recording, alerts, the last 90 days and the full export, always.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("shows the trial with its days left and that no card is needed", async () => {
-    renderWith({ plan: "pro", source: "trial", trial_ends: "2026-12-13T12:00:00Z" }, <PlanCard now={now} />);
-    expect(await screen.findByText(/Pro trial: 3 days left/)).toBeInTheDocument();
-    expect(screen.getByText(/needs no card/)).toBeInTheDocument();
+  it("shows the trial with its end, days left and that no card is needed", async () => {
+    renderWith(trial, <PlanCard now={now} />);
+    expect(await screen.findByText(/Pro trial, ends .*2026/)).toBeInTheDocument();
+    expect(screen.getByText(/3 days left\. No card, nothing is charged/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keep Pro" })).toBeInTheDocument();
   });
 
-  it("calls a founding year 'on us' with no charge, and a Stripe plan manageable", async () => {
-    const a = renderWith({ plan: "pro", source: "founding", period_end: "2027-11-01T00:00:00Z" }, <PlanCard now={now} />);
-    expect(await screen.findByText(/Pro is on us until/)).toBeInTheDocument();
+  it("calls a founding year free until its date, and a Stripe plan manageable", async () => {
+    const a = renderWith(founding, <PlanCard now={now} />);
+    expect(await screen.findByText(/Rivolt Pro, free until .*2027/)).toBeInTheDocument();
+    expect(screen.getByText(/no card, nothing is charged/)).toBeInTheDocument();
     a.unmount();
-    renderWith({ plan: "pro", source: "stripe", period_end: "2027-01-05T00:00:00Z" }, <PlanCard now={now} />);
-    expect(await screen.findByRole("button", { name: "Manage subscription" })).toBeInTheDocument();
+    renderWith(stripe, <PlanCard now={now} />);
+    expect(await screen.findByText(/Rivolt Pro, renews .*2026/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage subscription" })).toBeInTheDocument();
   });
 
-  it("explains a lapse: nothing deleted, the export stays, and the notice can be dismissed once", async () => {
-    renderWith({ plan: "free", period_end: "2026-12-01T00:00:00Z" }, <><PlanCard now={now} /><PlanNotice now={now} /></>);
-    expect(await screen.findByText(/everything older is kept, stays in your export/)).toBeInTheDocument();
-    const notice = await screen.findByText(/Nothing is deleted, and you can export everything any time/);
-    expect(notice).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Export" })).toHaveAttribute("href", "/settings#export");
+  it("explains a lapse: nothing deleted, the export stays, and the banner can be dismissed once", async () => {
+    renderWith(lapsed, <><PlanCard now={now} /><PlanNotice /></>);
+    expect((await screen.findAllByText(/Nothing is deleted; older history stays stored and is in your export any time \(Settings → Data\)/)).length).toBe(2);
+    expect(screen.getByRole("link", { name: "Export everything" })).toHaveAttribute("href", "/settings#export");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText(/you can export everything any time/)).toBeNull();
+    expect(document.querySelector("[data-plan-notice]")).toBeNull();
+  });
+
+  it("a 402 limit says why, that nothing is lost, and offers Pro only where the server bills", async () => {
+    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeDays: 90 }} />);
+    expect(await screen.findByText(/older than the last 90 days/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
+    a.unmount();
+    renderWith(billingOff, <ProLimitNotice limit={{ code: "pro_required" }} />);
+    expect(await screen.findByText(/part of Rivolt Pro/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "See Pro" })).toBeNull();
   });
 });

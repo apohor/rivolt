@@ -23,17 +23,21 @@ for (const v of [
   test(`free account: Plan card and the Pro sheet · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await withPlan(page, { plan: "free" });
+    await withPlan(page, { plan: "free", plan_source: null, plan_period_end: null, plan_trial_ends: null, plan_ended_at: null, plan_ended_source: null, billing_enabled: true, history_days: 90 });
     await page.goto("/settings#plan");
     const card = page.locator("[data-plan-card]");
     await expect(card).toHaveAttribute("data-plan-card", "free");
     await page.screenshot({ path: path.join(SHOTS, `pro-plan-card-${v.n}-dark.png`) });
-    await card.getByRole("button", { name: "See Rivolt Pro" }).click();
+    await card.getByRole("button", { name: "See Pro" }).click();
     const sheet = page.locator("[data-pro-sheet]");
     await expect(sheet).toContainText("$3.99");
     await expect(sheet).toContainText("$34.99");
+    await expect(sheet.getByRole("radio", { name: /Yearly/ })).not.toBeChecked();
+    await expect(sheet.getByRole("button", { name: "Choose a plan" })).toBeDisabled();
+    await sheet.getByText("Yearly").click();
     await expect(sheet.getByRole("checkbox")).not.toBeChecked();
-    await expect(sheet.getByRole("button", { name: "Subscribe" })).toBeDisabled();
+    await expect(sheet.getByRole("button", { name: /Subscribe: \$34\.99 a year, renews yearly/ })).toBeDisabled();
+    await expect(sheet).toContainText("the first charge is today");
     await expect(sheet.getByRole("link", { name: "Terms" })).toBeVisible();
     await expect(sheet.getByRole("link", { name: "Privacy" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -45,11 +49,11 @@ for (const v of [
   test(`lapsed account: the notice says nothing is deleted · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await withPlan(page, { plan: "free", period_end: "2020-01-01T00:00:00Z" });
+    await withPlan(page, { plan: "free", plan_source: null, plan_ended_at: "2026-10-01T00:00:00Z", plan_ended_source: "stripe", billing_enabled: true, history_days: 90 });
     await page.goto("/");
     const note = page.locator("[data-plan-notice]");
     await expect(note).toContainText("Nothing is deleted");
-    await expect(note.getByRole("link", { name: "Export" })).toBeVisible();
+    await expect(note.getByRole("link", { name: "Export everything" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: path.join(SHOTS, `pro-lapse-${v.n}-dark.png`) });
     await ctx.close();

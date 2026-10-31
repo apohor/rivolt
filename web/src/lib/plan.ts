@@ -1,33 +1,33 @@
-// The plan an account is on, for the paywall, the Settings card and the lapse notice. MOCKED against the shape in paid-tier-plan.md
-// section 3 ({plan, period_end, source, trial_ends} on the account) until the billing API merges; nothing here switches billing on.
-// With no `plan` on the account (billing off, a self-hosted server, the demo) every function answers "no plan screens".
+// The plan an account is on, for the paywall, the Settings card and the lapse notice, from the plan fields of GET /api/auth/me.
+// Billing off (a self-hosted server, `billing_enabled` false or absent), the demo account, or a failed entitlement lookup all mean
+// "off": no plan screen of any kind.
 
 import type { AuthUser } from "./api";
+
+export type PlanFields = Pick<
+  AuthUser,
+  "plan" | "plan_source" | "plan_period_end" | "plan_trial_ends" | "plan_ended_at" | "plan_ended_source" | "billing_enabled" | "history_days"
+>;
 
 export type PlanState =
   | { kind: "off" } // billing is off: everything is on, nothing mentions a plan
   | { kind: "free" } // never had Pro
   | { kind: "trial"; ends: string }
   | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null }
-  | { kind: "lapsed"; endedOn: string | null }; // had Pro or a trial, now on the free window
+  | { kind: "lapsed"; endedOn: string | null; endedSource: string | null }; // had Pro or a trial, now on the free window
 
 const DAY = 86_400_000;
 
-export function planState(me: Pick<AuthUser, "plan" | "source" | "period_end" | "trial_ends"> | null | undefined, now: Date = new Date()): PlanState {
-  if (!me || me.plan === undefined) return { kind: "off" };
-  const at = now.getTime();
-  const when = (iso: string | null | undefined) => {
-    const t = iso ? new Date(iso).getTime() : NaN;
-    return Number.isFinite(t) ? t : null;
-  };
+export function planState(me: PlanFields | null | undefined): PlanState {
+  if (!me || me.plan === undefined || me.billing_enabled !== true) return { kind: "off" };
+  if (me.plan_source === "demo" || me.plan_source === "billing_off") return { kind: "off" };
   if (me.plan === "pro") {
-    if (me.source === "trial") return { kind: "trial", ends: me.trial_ends ?? me.period_end ?? "" };
-    const src = me.source === "apple" || me.source === "stripe" || me.source === "founding" || me.source === "grant" ? me.source : "grant";
-    return { kind: "pro", source: src, periodEnd: me.period_end ?? null };
+    if (me.plan_source === "trial") return { kind: "trial", ends: me.plan_trial_ends ?? me.plan_period_end ?? "" };
+    const s = me.plan_source;
+    const source = s === "apple" || s === "stripe" || s === "founding" || s === "grant" ? s : "grant";
+    return { kind: "pro", source, periodEnd: me.plan_period_end ?? null };
   }
-  // Free: a lapse when a period or a trial has ended; otherwise never had Pro.
-  const ended = [when(me.period_end), when(me.trial_ends)].filter((t): t is number => t !== null && t <= at);
-  if (ended.length > 0) return { kind: "lapsed", endedOn: new Date(Math.max(...ended)).toISOString() };
+  if (me.plan_ended_at) return { kind: "lapsed", endedOn: me.plan_ended_at, endedSource: me.plan_ended_source ?? null };
   return { kind: "free" };
 }
 

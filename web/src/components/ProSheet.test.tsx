@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { ProSheet, consentText, firstChargeLine } from "./ProSheet";
-import { PRO } from "../lib/proCopy";
+import { ProSheet } from "./ProSheet";
+import { PRO, checkoutLabel, consentText, firstCharge, trialLine } from "../lib/proCopy";
+import { planState } from "../lib/plan";
+import trialMe from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
+import freeMe from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
+import stripeMe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
+import appleMe from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
+import lapsedMe from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
+
+const free = planState(freeMe);
+const trial = planState(trialMe);
 
 function renderSheet(state: Parameters<typeof ProSheet>[0]["state"]) {
   return render(
@@ -18,49 +27,63 @@ describe("ProSheet", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the price, period and what is included before the button, with Terms and Privacy links", () => {
-    renderSheet({ kind: "free" });
-    expect(screen.getByText("$3.99")).toBeInTheDocument();
-    expect(screen.getByText("$34.99")).toBeInTheDocument();
+  it("shows the title, the inclusions and both prices before any button, with nothing pre-selected", () => {
+    renderSheet(free);
+    expect(screen.getByText(PRO.title)).toBeInTheDocument();
     for (const x of PRO.included) expect(screen.getByText(x)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
-    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
-    expect(screen.getByText(/Unofficial, not affiliated with Rivian/)).toBeInTheDocument();
+    expect(screen.getByText("$34.99")).toBeInTheDocument();
+    expect(screen.getByText("$3.99")).toBeInTheDocument();
+    for (const r of screen.getAllByRole("radio")) expect(r).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Choose a plan" })).toBeDisabled();
+    expect(screen.getByText(PRO.unofficial)).toBeInTheDocument();
   });
 
-  it("keeps Subscribe off until the unticked renewal consent is ticked, and the consent names the price and period", () => {
-    renderSheet({ kind: "free" });
+  it("keeps the button off until a plan is chosen and the unticked renewal consent is ticked, and names price, period and the first charge", () => {
+    renderSheet(free);
+    fireEvent.click(screen.getByLabelText(/Yearly/));
     const box = screen.getByRole("checkbox");
     expect(box).not.toBeChecked();
-    const subscribe = screen.getByRole("button", { name: "Subscribe" });
+    const subscribe = screen.getByRole("button", { name: checkoutLabel("year") });
     expect(subscribe).toBeDisabled();
-    expect(screen.getByText(consentText("year"))).toBeInTheDocument();
-    expect(consentText("year")).toMatch(/renews automatically every year at \$34\.99 until I cancel/);
-    fireEvent.click(screen.getByLabelText(/Monthly/));
-    expect(screen.getByText(consentText("month"))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp("renews automatically at \\$34\\.99 a year until I cancel, that the first charge is today"))).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
     fireEvent.click(box);
     expect(subscribe).toBeEnabled();
+    fireEvent.click(screen.getByLabelText(/Monthly/));
+    expect(screen.getByRole("button", { name: checkoutLabel("month") })).toBeDisabled();
+    expect(checkoutLabel("month")).toBe("Subscribe: $3.99 a month, renews monthly");
   });
 
-  it("says the web trial needs no card, and when the first payment happens", () => {
-    expect(firstChargeLine({ kind: "trial", ends: "2026-12-20T00:00:00Z" })).toMatch(/needs no card and never charges you/);
-    expect(firstChargeLine({ kind: "free" })).toMatch(/first payment is today/);
+  it("a purchase during the trial starts billing when the trial ends, and the consent line agrees with that date", () => {
+    expect(trial.kind).toBe("trial");
+    const when = firstCharge(trial);
+    expect(when).toMatch(/^on .*2026/);
+    expect(consentText("year", trial)).toContain(`the first charge is ${when}`);
+    expect(consentText("year", free)).toContain("the first charge is today");
+    expect(consentText("month", planState(lapsedMe))).toContain("the first charge is today");
+    renderSheet(trial);
+    expect(screen.getByText(/You have 14 days of Pro free, with no card/)).toBeInTheDocument();
+    expect(trialLine(planState(lapsedMe))).toBeNull();
+    expect(trialLine({ kind: "lapsed", endedOn: "2026-11-01T00:00:00Z", endedSource: "trial" })).toMatch(/14 days of Pro were free when you signed up/);
   });
 
   it("says plainly that billing isn't available while it is mocked, and charges nothing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, headers: { get: () => "text/plain" }, text: async () => "not found" }) as unknown as Response));
-    renderSheet({ kind: "free" });
+    renderSheet(free);
+    fireEvent.click(screen.getByLabelText(/Yearly/));
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Subscribe" }));
-    expect(await screen.findByText(/Billing isn't available yet\. Nothing was charged\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: checkoutLabel("year") }));
+    expect(await screen.findByText(PRO.billingUnavailable)).toBeInTheDocument();
   });
 
   it("offers Manage subscription to a Stripe subscriber and the App Store route to an Apple one, with no Subscribe button", () => {
-    const { unmount } = renderSheet({ kind: "pro", source: "stripe", periodEnd: "2027-01-05T00:00:00Z" });
+    const { unmount } = renderSheet(planState(stripeMe));
     expect(screen.getByRole("button", { name: PRO.manageStripe })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Subscribe" })).toBeNull();
+    expect(screen.getByText(PRO.manageStripeHelp)).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).toBeNull();
     unmount();
-    renderSheet({ kind: "pro", source: "apple", periodEnd: null });
+    renderSheet(planState(appleMe));
     expect(screen.getByText(PRO.manageApple)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: PRO.manageStripe })).toBeNull();
   });
@@ -69,9 +92,10 @@ describe("ProSheet", () => {
     const assign = vi.fn();
     Object.defineProperty(window, "location", { value: { pathname: "/settings", search: "", assign }, writable: true });
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ url: "https://checkout.example/x" }) }) as unknown as Response));
-    renderSheet({ kind: "free" });
+    renderSheet(free);
+    fireEvent.click(screen.getByLabelText(/Monthly/));
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+    fireEvent.click(screen.getByRole("button", { name: checkoutLabel("month") }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.example/x"));
   });
 });
