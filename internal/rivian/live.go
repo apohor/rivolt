@@ -309,7 +309,7 @@ func (e *ErrRateLimited) Error() string {
 
 // WithRateLimit attaches a global token-bucket gate. Calls
 // without an explicit class go through the "main" class; the
-// account-aware paths (Login, RefreshToken, getUserInformation)
+// account-aware paths (Login, LoginWithOTP, getUserInformation)
 // can be promoted by the caller via doGraphQLPriority.
 func (c *LiveClient) WithRateLimit(rl RateLimiter) *LiveClient {
 	c.rateLimit = rl
@@ -371,7 +371,7 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 	if c.rateLimit != nil {
 		// Class is propagated via context; default is "main". The
 		// helper looks for the priority sentinel set by callers
-		// that handle user-blocking calls (Login, RefreshToken).
+		// that handle user-blocking calls (Login, LoginWithOTP).
 		class := "main"
 		switch {
 		case priorityFromContext(ctx):
@@ -399,7 +399,7 @@ type priorityCtxKey struct{}
 
 // WithPriority returns a derived context that, when reached by
 // checkUpstream, draws from the priority token bucket instead of
-// the main one. Use for Login, RefreshToken, and any other call
+// the main one. Use for Login, LoginWithOTP, and any other call
 // the UI is blocked on.
 func WithPriority(ctx context.Context) context.Context {
 	return context.WithValue(ctx, priorityCtxKey{}, true)
