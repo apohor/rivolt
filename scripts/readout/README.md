@@ -11,7 +11,7 @@ READOUT_SERVICE=readout_ro READOUT_OWNER_SERVICE=readout_owner scripts/readout/r
 **Connection.** Name the connections in `~/.pg_service.conf` (host, port, dbname, user) and put the passwords in `~/.pgpass` (mode 0600). `run.sh`
 connects with `PGSERVICE`, so no password and no connection string is ever on a command line, where `ps` shows it to everyone on the machine. A DSN
 (`READOUT_DSN` / `READOUT_OWNER_DSN`) is still accepted if it has no password in it (the password then comes from `~/.pgpass` or `PGPASSWORD`);
-one with a password is refused.
+one with a password is refused, whether it is in the URI (`user:pass@`), its query string (`?password=`) or a key=value DSN (`password=`).
 
 The week is Monday 00:00 UTC to the next Monday 00:00 UTC. With no `--week-start` it is the week that ended this morning, so run it on Monday.
 `psql` must be on the PATH. Reach the database the way the other read-only checks do (a port-forward to the CNPG read service; the service entry then points at localhost).

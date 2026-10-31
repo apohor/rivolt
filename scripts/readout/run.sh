@@ -45,7 +45,9 @@ week_end="$(addd "$week_start" 7)"
 # run_part SERVICE DSN FILE: one psql session, read-only, connected by service name or by a password-less URI.
 run_part() {
   local service="$1" dsn="$2" file="$3"
-  case "$dsn" in *://*:*@*) echo "refusing a DSN with a password in it (ps would show it): use a service name and ~/.pgpass" >&2; exit 2 ;; esac
+  # A password in the URI (user:pass@), in its query string (?password=) or in a key=value DSN (password=...) would be visible in ps.
+  local lower; lower="$(printf %s "$dsn" | tr '[:upper:]' '[:lower:]')"
+  case "$lower" in *://*:*@*|*password=*) echo "refusing a DSN with a password in it (ps would show it): use a service name and ~/.pgpass" >&2; exit 2 ;; esac
   local target=()
   if [ -n "$service" ]; then export PGSERVICE="$service"; else target=("$dsn"); fi
   PGOPTIONS='-c default_transaction_read_only=on' psql -X -v ON_ERROR_STOP=1 \
