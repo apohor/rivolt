@@ -135,7 +135,7 @@ export default function LandingPage() {
             </Claim>
           </div>
           <p className="text-xs text-neutral-500">
-            Same price on the web and in the iPhone app. Web payments through Stripe, app purchases through Apple; Rivolt never sees your card. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
+            Same price on the web and in the iPhone app. Web payments through Stripe, app purchases through Apple; Rivolt never sees your card. Web purchases need a US billing address for now. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
           </p>
         </section>
 

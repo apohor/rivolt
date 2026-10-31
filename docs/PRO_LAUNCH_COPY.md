@@ -185,7 +185,7 @@ Web consent line, directly above the checkout button, with an unticked box: "I u
 No trial (owner decision). iPhone line under the plans: "Renews automatically until cancelled. Cancel at least 24 hours before the end of any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
 Rule for {first_charge} (lead's decision, DA's rule): an account still inside its free founding year that subscribes starts billing when that free period ends, so no free days are lost. The phrase is generated from the actual Stripe Checkout session, "on {period_end}" when the session carries a billing start date, "today" otherwise; never hard-coded, with a test that the line and the session agree.
 Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
-Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted."
+Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted. Web purchases need a US billing address for now."
 iPhone, under the Subscribe button: "Terms · Privacy" (links to rivolt.dev/terms and rivolt.dev/privacy; Apple row A4), then "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
 
 Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."

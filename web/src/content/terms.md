@@ -32,7 +32,7 @@ Rivolt was free during its public beta. From LAUNCH_DATE the hosted service has 
 
 **Accounts created before LAUNCH_DATE** have Pro at no charge until FOUNDING_END_DATE, with no card and nothing charged. We will email you and show a notice in the app at least 30 days before that date. After it, the account is on the free tier unless you subscribe; nothing is deleted.
 
-**Paying for Pro.** Pro costs US$3.99 a month or US$34.99 a year. On the web you pay through Stripe; in the iPhone app through Apple's In-App Purchase. Rivolt never sees or stores your card. You accept the billing terms below when you subscribe; they apply only to subscribers.
+**Paying for Pro.** Pro costs US$3.99 a month or US$34.99 a year. On the web you pay through Stripe; in the iPhone app through Apple's In-App Purchase. Rivolt never sees or stores your card. Purchases on rivolt.dev are available to customers with a US billing address; if a web purchase goes through without one, email us and we refund it in full. You accept the billing terms below when you subscribe; they apply only to subscribers.
 - **Renewal.** A subscription renews automatically at the end of each period, at the price shown when you subscribed, until you cancel. For yearly plans bought on the web we email a reminder at least 30 days before each renewal.
 - **Cancelling.** On the web, Settings → Account → Plan opens Stripe's customer portal and cancels in one step, no questions asked; in the app, cancel in your Apple subscriptions. Cancelling stops the next charge; Pro stays on until the period you paid for ends.
 - **Price changes.** We will email you at least 30 days before a price change applies to you, and you can cancel before it does.
