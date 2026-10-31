@@ -250,7 +250,10 @@ func TestRenewalSource(t *testing.T) {
 	cancelling.deliver("subscription_created_active.json", nil)
 	cancelling.deliver("subscription_updated_cancel.json", nil)
 	src := RenewalSource{DB: annual.pool}
-	from, to := time.Unix(1821536000, 0).Add(-40*24*time.Hour), time.Unix(1821536000, 0).Add(-10*24*time.Hour)
+	// The window is [now, now+45 days]; the renewal is 40 days after "now" here, so it is inside it (the first version of this test ended the
+	// window 10 days BEFORE the renewal).
+	renewal := time.Unix(1821536000, 0)
+	from, to := renewal.Add(-40*24*time.Hour), renewal.Add(5*24*time.Hour)
 	rs, err := src.AnnualRenewals(ctx, from, to)
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +276,7 @@ func TestRenewalSource(t *testing.T) {
 	if cancels {
 		t.Error("a subscription set to cancel (it will not renew) is listed for a renewal reminder")
 	}
-	if rs, _ := src.AnnualRenewals(ctx, to.Add(48*time.Hour), to.Add(72*time.Hour)); func() bool {
+	if rs, _ := src.AnnualRenewals(ctx, renewal.Add(-100*24*time.Hour), renewal.Add(-50*24*time.Hour)); func() bool {
 		for _, r := range rs {
 			if r.UserID == annual.uid {
 				return true
