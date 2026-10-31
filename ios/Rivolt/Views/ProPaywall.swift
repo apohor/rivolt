@@ -160,7 +160,8 @@ enum ProCopy {
 /// "Delete older history" is web only (an irreversible bulk delete is not something an app token may do): the app opens the web page in the
 /// browser, where the confirmation and the web sign-in are. Free on every plan.
 enum DeleteHistoryLink {
-    static let caption = "Opens rivolt.dev, where you confirm. You may need to sign in."
+    /// Names the server the app is signed in to, so a self-hosted install does not say rivolt.dev.
+    static func caption(_ server: URL) -> String { "Opens \(server.host() ?? "the web page"), where you confirm. You may need to sign in." }
     static let title = "Delete older history"
 
     static func url(_ server: URL) -> URL {
@@ -214,7 +215,7 @@ struct ProLimitNote: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Link(DeleteHistoryLink.title, destination: DeleteHistoryLink.url(state.serverURL))
                         .accessibilityIdentifier("delete-history-link")
-                    Text(DeleteHistoryLink.caption).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    Text(DeleteHistoryLink.caption(state.serverURL)).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             if plan != .off {

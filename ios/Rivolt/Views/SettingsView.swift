@@ -197,7 +197,7 @@ struct SettingsView: View {
             // Irreversible, so web only: it opens the web page, where the confirmation lives (the app token cannot do it).
             VStack(alignment: .leading, spacing: 4) {
                 Link(destination: DeleteHistoryLink.url(state.serverURL)) { label(row) }
-                Text(DeleteHistoryLink.caption).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                Text(DeleteHistoryLink.caption(state.serverURL)).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
             }
         case .deleteAccount:
             Button(role: .destructive) { showDelete = true } label: { label(row, color: Theme.critical) }

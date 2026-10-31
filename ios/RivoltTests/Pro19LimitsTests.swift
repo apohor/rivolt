@@ -91,7 +91,8 @@ final class DeleteHistoryLinkTests: XCTestCase {
     func testOpensTheWebSettingsAnchor() {
         let u = DeleteHistoryLink.url(URL(string: "https://rivolt.dev")!)
         XCTAssertEqual(u.absoluteString, "https://rivolt.dev/settings#delete-history")
-        XCTAssertEqual(DeleteHistoryLink.caption, "Opens rivolt.dev, where you confirm. You may need to sign in.")
+        XCTAssertEqual(DeleteHistoryLink.caption(URL(string: "https://rivolt.dev")!), "Opens rivolt.dev, where you confirm. You may need to sign in.")
+        XCTAssertEqual(DeleteHistoryLink.caption(URL(string: "https://ev.example.org:8443")!), "Opens ev.example.org, where you confirm. You may need to sign in.")
     }
 
     func testSettingsDataGroupListsIt() {

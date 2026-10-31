@@ -14,7 +14,7 @@ final class SettingsTests: XCTestCase {
             ["Charging", "Charging rates", "Off-peak schedule", "Charging networks", "Trip planner defaults"],
             ["Notifications", "Notifications"],
             ["App", "Appearance"],
-            ["Data", "Export your data", "Delete account"],
+            ["Data", "Export your data", "Delete older history", "Delete account"],
             ["About", "Privacy policy", "Terms", "Support", "Acknowledgements"],
         ])
     }
