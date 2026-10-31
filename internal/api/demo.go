@@ -42,6 +42,7 @@ var demoExactPaths = map[string]bool{
 	"/api/ledger/summary":         true,
 	"/api/charges":                true,
 	"/api/drives":                 true,
+	"/api/drives/route-thumbs":    true, // the demo list's route thumbnails: the demo user's own drives, at most 60 ids, a few points each
 	"/api/ledger/trips":           true,
 	"/api/sleep-activity":         true,
 	"/api/charges/clusters":       true,

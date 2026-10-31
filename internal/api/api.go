@@ -1462,6 +1462,11 @@ func New(d Deps) http.Handler {
 			r.With(win, freeVeh, gz).Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
+			// The drive list's route thumbnails: a few points of each of up to 60 of the caller's drives (the list draws a tiny SVG from them), behind the
+			// same history window and vehicle limit as the list.
+			r.With(win, freeVeh, ls.user("route-thumbs", 60).Middleware).Get("/drives/route-thumbs", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleRouteThumbs(d.Drives.For(uid))(w, r)
+			}))
 			r.With(win, driveRow).Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
