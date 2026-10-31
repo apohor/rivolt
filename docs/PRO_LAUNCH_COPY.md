@@ -68,27 +68,11 @@ is always free.
 Buttons: "What changes" (→ /support#free-and-pro) · "Read the Terms" (→ /terms) ·
 "Got it"
 
-## 3. New sign-up and trial screens (web)
+## 3. Sign-up screen (web)
 
-Sign-up page line, web (replaces "Free during the beta"): "Free to start. Every
-new account gets 14 days of Rivolt Pro; no card, it ends on its own and nothing is
-charged." (The iPhone sign-up does not promise "no card": its trial is Apple's
-introductory offer, described on the paywall.)
+Sign-up page line (replaces "Free during the beta"): "Free to start; Rivolt Pro from $34.99 a year. Nothing is charged unless you subscribe." (Owner decision: no Pro trial. New accounts start on the free tier.)
 
-Trial card on Now, day 1: "You have Pro for 14 days: widgets, multi-day plans,
-full history. No card, nothing charges. Afterwards the free tier keeps every
-recording and the full export."
-
-Trial card, last 3 days: "Pro ends in {n} days. Nothing is deleted either way.
-Keep Pro for $3.99 a month or $34.99 a year, or do nothing."
-
-Paywall (web, Settings → Account → Plan; the Apple one follows Apple's 3.1.2 wording):
-"Rivolt Pro · $3.99 a month or $34.99 a year · Renews automatically until you
-cancel · Cancel any time in one step from this page · 14-day refund on the first
-charge, no questions · Stop paying and nothing is deleted · Payment through
-Stripe; Rivolt never sees your card · Terms · Privacy". Checkout button:
-"Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews
-monthly". No pre-ticked boxes.
+Paywall (web, Settings → Account → Plan; the Apple one follows Apple's 3.1.2 wording): see §10.
 
 ## 4. End-of-year notice (email and in-app, at least 30 days before FOUNDING_END_DATE; a dated task)
 
@@ -171,12 +155,10 @@ Plan choices (two options, nothing pre-selected):
 - Yearly: $34.99 a year (about $2.92 a month)
 - Monthly: $3.99 a month
 
-Trial line, web (trial granted at sign-up, no card): "You have 14 days of Pro free, with no card. It ends on {trial_end} on its own; nothing is charged unless you subscribe."
-Trial line, web, after the trial: "14 days of Pro were free when you signed up. Subscribe to keep it; cancel any time."
-Trial line, iPhone (Apple introductory offer): "14 days free, then $34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of the trial or any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
 
 Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
-Rule for {first_charge} (lead's decision, DA's rule): a subscription bought during the trial starts billing when the trial ends, so the remaining trial days are not lost. The phrase is generated from the actual Stripe Checkout session, "on {trial_end}" when the session has a trial end, "today" when there is no trial left; never hard-coded, with a test that the line and the session agree.
+No trial (owner decision). iPhone line under the plans: "Renews automatically until cancelled. Cancel at least 24 hours before the end of any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
+Rule for {first_charge} (lead's decision, DA's rule): an account still inside its free founding year that subscribes starts billing when that free period ends, so no free days are lost. The phrase is generated from the actual Stripe Checkout session, "on {period_end}" when the session carries a billing start date, "today" otherwise; never hard-coded, with a test that the line and the session agree.
 Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
 Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted."
 iPhone, under the Subscribe button: "Terms · Privacy" (links to rivolt.dev/terms and rivolt.dev/privacy; Apple row A4), then "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
@@ -189,7 +171,7 @@ Payment-failed banner (7-day grace, web only): "A payment for Rivolt Pro failed.
 
 Settings plan card states (title, line, action):
 - Free: "Free" · "Recording, alerts, the last 90 days and the full export, always." · "See Pro"
-- Trial: "Pro trial, ends {date}" · "No card, nothing is charged. Afterwards the free tier keeps every recording and the full export." · "Keep Pro"
+- Free, just signed up: same card; no trial state exists (owner decision, no Pro trial).
 - Pro via Apple: "Rivolt Pro, renews {date}" · "Billed through Apple." · "Manage subscription"
 - Pro via Stripe: "Rivolt Pro, renews {date}" · "Billed through Stripe, $34.99 a year [or $3.99 a month]." · "Manage subscription"
 - Pro, cancelled but still paid up: "Rivolt Pro until {date}" · "Cancelled; Pro stays on until then. Nothing is deleted after." · "Resubscribe"

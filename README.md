@@ -49,10 +49,8 @@ it; counts come from the billing table only.
   plans with hotel and campground overnights, re-plan from where the truck is,
   plan-vs-actual, unlimited saved trips, every vehicle shown, and the Lock
   Screen widgets and charging Live Activity on iPhone.
-- **Trial:** 14 days of Pro for every new account; on the web no card is
-  taken and it ends on its own; in the iPhone app it is Apple's free trial,
-  which renews unless cancelled. Accounts that existed at launch have Pro free
-  for a year.
+- **Accounts that existed at launch** have Pro free for a year, with no card
+  and nothing charged; new accounts start on the free tier.
 - **Lapse deletes nothing:** cancel and the account goes back to the free
   tier; older history stays stored, stays in the export, and reappears if you
   subscribe again. Cancelling is one step, with no retention flow.

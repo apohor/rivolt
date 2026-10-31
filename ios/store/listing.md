@@ -30,7 +30,7 @@ HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet on rivolt.dev. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
 
 FREE AND PRO
-The free tier records every drive and charge, shows the last 90 days, sends every alert, and always includes the full export of your data. Rivolt Pro is a subscription, $3.99 a month or $34.99 a year, that adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and the Lock Screen widgets and charging Live Activity. New accounts get a 14-day free trial. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period; manage or cancel them in your Apple subscriptions. If you stop paying, nothing is deleted and your export stays free.
+The free tier records every drive and charge, shows the last 90 days, sends every alert, and always includes the full export of your data. Rivolt Pro is a subscription, $3.99 a month or $34.99 a year, that adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and the Lock Screen widgets and charging Live Activity. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period; manage or cancel them in your Apple subscriptions. If you stop paying, nothing is deleted and your export stays free.
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings on rivolt.dev. The code is open source (MIT) and you can run your own server.
 
@@ -51,12 +51,12 @@ https://rivolt.dev
 https://rivolt.dev/privacy
 
 ## What's New
-First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. Rivolt Pro, with widgets and the charging Live Activity, as an in-app subscription with a 14-day free trial.
+First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. Rivolt Pro, with widgets and the charging Live Activity, as an in-app subscription.
 
 ## Review notes
 Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and every feature, including the Pro ones, is browsable there. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
 
-In-app purchase: one auto-renewable subscription group, "Rivolt Pro", with a monthly ($3.99) and a yearly ($34.99) product and a 14-day introductory free trial. It unlocks the Home Screen and Lock Screen widgets, the charging Live Activity, unlimited history and trends, and multi-day trip planning. The paywall (Settings → Account → Plan) shows the price, period, trial length, auto-renewal and cancellation terms, links to the Terms and Privacy Policy, and has Restore Purchases and Manage Subscription. A web subscription bought on rivolt.dev is also honoured in the app, and the app never links out to buy. The entitlement is verified server-side from the App Store Server API; sandbox purchases work on the test account.
+In-app purchase: one auto-renewable subscription group, "Rivolt Pro", with a monthly ($3.99) and a yearly ($34.99) product, no introductory offer. It unlocks the Home Screen and Lock Screen widgets, the charging Live Activity, unlimited history and trends, and multi-day trip planning. The paywall (Settings → Account → Plan) shows the price, period, auto-renewal and cancellation terms, links to the Terms and Privacy Policy, and has Restore Purchases and Manage Subscription. A web subscription bought on rivolt.dev is also honoured in the app, and the app never links out to buy. The entitlement is verified server-side from the App Store Server API; sandbox purchases work on the test account.
 
 A plain test account is also supplied in App Store Connect's private field; it has no truck connected, because a Rivian is needed for your own data.
 
