@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Map as MLMap } from "maplibre-gl";
-import { pillImage, placePills } from "./pills";
+import { pillImage, pillSide, placePills } from "./pills";
 
 // A map stand-in: a 400 px wide view where longitude 0..1 maps to x 0..400 and latitude 0..1 to y 300..0.
 const fakeMap = { getContainer: () => ({ clientWidth: 400 }), project: ([lon, lat]: [number, number]) => ({ x: lon * 400, y: 300 - lat * 300 }) } as unknown as MLMap;
@@ -28,5 +28,12 @@ describe("placePills", () => {
 describe("pillImage", () => {
   it("is null without a 2D canvas (jsdom), never a throw", () => {
     expect(pillImage("Start 8:13 PM", "dark")).toBeNull();
+  });
+});
+
+describe("pillSide", () => {
+  it("extends a pill from the pin toward the side of the view with room", () => {
+    expect(pillSide(fakeMap, [0.2, 0.5])).toEqual({ anchor: "left", offset: [16, 0] });
+    expect(pillSide(fakeMap, [0.8, 0.5])).toEqual({ anchor: "right", offset: [-16, 0] });
   });
 });

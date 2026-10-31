@@ -264,6 +264,8 @@ export function RouteCard({
               onSelectStop={(idx) => setSelectedStop(idx)}
               departureAt={departureAt}
               dayLabel={dayLabel}
+              originLabel={originLabel}
+              destLabel={destLabel}
             />
           </Suspense>
         </div>
@@ -327,6 +329,8 @@ export function RouteCard({
             onSelectStop={(idx) => setSelectedStop(idx)}
             departureAt={departureAt}
             dayLabel={dayLabel}
+            originLabel={originLabel}
+            destLabel={destLabel}
           />
         </Suspense>
       </div>

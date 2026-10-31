@@ -148,6 +148,8 @@ describe("overview and charge maps", () => {
     const { unmount } = render(<ChargeMap lat={10} lon={10} ownLabel="Home charger" />);
     await waitFor(() => expect(FakeMarker.all.length).toBe(1));
     await waitFor(() => expect(FakePopup.all.some((p) => p.html.includes("Home charger"))).toBe(true));
+    // A clear symbol at the pin so the basemap's place labels yield to it.
+    expect(FakeMap.last?.layers.has("rivolt-charge-pins-room")).toBe(true);
     unmount();
     expect(FakeMap.last?.removed).toBe(true);
   });
