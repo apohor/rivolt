@@ -23,6 +23,9 @@ import (
 // no-cache on the index, browsers were holding stale HTML for
 // minutes/hours after a deploy, leaving users on the previous bundle.
 func spaHandler(fsys fs.FS) http.Handler {
+	if fsys == nil {
+		fsys = noFS{} // no web build embedded (an API-only build, a test router): every page is a clean 404, not a nil dereference
+	}
 	fileServer := http.FileServer(http.FS(fsys))
 	noCacheIndex := func(w http.ResponseWriter) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -169,6 +172,13 @@ func spaHandler(fsys fs.FS) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// noFS is an empty file system.
+type noFS struct{}
+
+func (noFS) Open(name string) (fs.File, error) {
+	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
 // hashedAsset matches Vite's build output, assets/<name>-<8-char hash>.<ext>.

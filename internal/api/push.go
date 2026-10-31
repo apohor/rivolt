@@ -95,6 +95,10 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			OnSoftwareUpdate: prefs.OnSoftwareUpdate,
 			UserAgent:        body.UserAgent,
 		}
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if err := store.Upsert(r.Context(), sub); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
@@ -126,6 +130,10 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 
 func handlePushUnsubscribe(store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		var body struct {
 			Endpoint string `json:"endpoint"`
 		}
@@ -148,6 +156,10 @@ func handlePushUnsubscribe(store *push.Store) http.HandlerFunc {
 // endpoint URLs that would be meaningless to show.
 func handlePushStatus(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		n, err := store.Count(r.Context())
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -162,6 +174,10 @@ func handlePushStatus(svc *push.Service, store *push.Store) http.HandlerFunc {
 
 func handlePushTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		var body struct {
 			Endpoint string `json:"endpoint"`
 		}
@@ -188,6 +204,10 @@ func handlePushTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 // access logs. 404 when the endpoint is not one of the caller's.
 func handlePushDevice(store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		var body struct {
 			Endpoint string `json:"endpoint"`
 		}
@@ -221,6 +241,10 @@ func handlePushDevice(store *push.Store) http.HandlerFunc {
 // only the one in hand. Never an admin's act while viewing as the user.
 func handlePushOff(store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if auth.IsImpersonating(r.Context()) {
 			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
 			return
@@ -250,6 +274,10 @@ func handlePushOff(store *push.Store) http.HandlerFunc {
 // never an admin's act while viewing as the user.
 func handlePushOptIn(store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writePushUnavailable(w)
+			return
+		}
 		if auth.IsImpersonating(r.Context()) {
 			http.Error(w, "not available while viewing as another user", http.StatusForbidden)
 			return
@@ -286,4 +314,22 @@ func handlePushOptIn(store *push.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
+}
+
+// pushStoreMiddleware answers 503 {"error":"unavailable"} when the signed-in user has no push store (the factory is not wired, or the
+// store could not be opened), so a /push handler never dereferences a nil *push.Store. Routes with no signed-in user pass through.
+func pushStoreMiddleware(f *push.Factory) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if uid, ok := auth.UserFromContext(r.Context()); ok && f.For(uid) == nil {
+				writePushUnavailable(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func writePushUnavailable(w http.ResponseWriter) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 }
