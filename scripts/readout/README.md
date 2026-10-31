@@ -1,0 +1,50 @@
+# The Monday readout
+
+One command prints the weekly numbers. Read-only (every session is opened with `default_transaction_read_only=on`), counts only: no ids,
+emails, names, IPs, places or amounts come out, and nothing is written. The demo account (`rivolt-public-demo`) is left out of every number.
+
+```sh
+READOUT_DSN='postgres://grafana_ro:…@HOST/DB' scripts/readout/run.sh                       # the week that just ended
+READOUT_DSN=… READOUT_OWNER_DSN=… scripts/readout/run.sh --week-start 2026-10-19            # a given Monday, with part 2
+```
+
+The week is Monday 00:00 UTC to the next Monday 00:00 UTC. With no `--week-start` it is the week that ended this morning, so run it on Monday.
+`psql` must be on the PATH. Reach the database the way the other read-only checks do (a port-forward to the CNPG read service, or the Grafana
+datasource: the statements in `monday_ro.sql` run unchanged there with the two `:'from_ts'` / `:'to_ts'` variables replaced by literals).
+
+## Part 1: the read-only role (`monday_ro.sql`)
+
+| Section | What it counts |
+|---|---|
+| Sign-ups | accounts created this week, last week, and all accounts to date |
+| Connected | accounts whose first live vehicle appeared this week / last week; accounts holding a Rivian session now; how many of this week's sign-ups have connected by now |
+| First data | accounts whose first drive, charge or recorded state fell this week / last week; how many of this week's sign-ups have data by now |
+| Weekly active | accounts with a drive or charge started this week; last week; active in both |
+
+"Connected" does not count imported (`electrafi_`) vehicles. "First data" is the earliest of the first drive, the first charge and the first
+`vehicle_state` row (one index probe per vehicle).
+
+## Part 2: needs an owner-side read (`monday_owner.sql`)
+
+These tables are not on the read-only role's allowlist (`internal/db/readonly.go`), so grafana_ro gets *permission denied*; part 2 needs the lead's
+owner-side connection (`READOUT_OWNER_DSN`). Without it `run.sh` prints SKIPPED and the one command that runs it.
+
+| Section | Table(s) |
+|---|---|
+| `landing_view` by referrer host and utm_source (top 25, plus totals and distinct browsers) | `events` |
+| `plan_run` and `statement_share` counts (and statement_share by kind) | `events` |
+| Accounts with any alert on: any notification switch on, opted into an extra alert (plug-in reminder, milestones, left-open, live charging), on web, on iPhone; weekly recap, trip recap, statement email, R2 arrival reminder | `push_subscriptions`, `push_apns_devices`, `engagement_prefs`, `statement_email_prefs` |
+
+`events` holds a random per-browser id and allowlisted props only (referrer host and utm_source are tokens, never URLs). "Any switch on" includes
+switches that are on by default the moment a device subscribes (charging done, anomaly, software update), so read `opted_in_extra` as the
+deliberate ones.
+
+## If you want these in part 1
+
+Adding `events` (or a counts-only view over it) to the read-only allowlist would let the whole readout run with grafana_ro. That is a privacy
+decision for DA, not part of this change.
+
+## Status of the queries
+
+Part 1 was run against production through the read-only datasource for the week of 2026-10-19 (see the PR). Part 2 has not been run against a
+database by its author (no access to those tables); its first run is its test, and a syntax slip shows as an error naming the section.
