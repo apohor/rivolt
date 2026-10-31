@@ -136,3 +136,27 @@ func TestSyncFenceErrorClaimsNothing(t *testing.T) {
 		t.Errorf("claims %v, Rivian calls %d; want none", store.claims, acct.sumCalls)
 	}
 }
+
+// bothFencer is a lease-store stand-in: it answers per vehicle and per user.
+type bothFencer struct{ *fakeFencer }
+
+func (bothFencer) Fence(string) (fence.Token, fence.State) { return fence.Token{}, fence.Off }
+
+// Lead mode, a syncer built before the lease store exists: through a required, empty holder it behaves as a pod that does not own
+// the user (skips before the claim, no Rivian call, no account lookup); once the store is installed the same syncer syncs.
+func TestSyncSkipsBeforeTheFenceIsInstalledInLeadMode(t *testing.T) {
+	store := &tokenStore{fakeStore: &fakeStore{claimOK: true}}
+	acct := &fakeAcct{sums: []rivian.SessionSummary{{TransactionID: "t1"}}}
+	s, reg := newFenceSyncer(store, acct)
+	var h fence.Holder
+	h.Require(true)
+	s.SetFence(&h)
+	res, err := s.Sync(context.Background(), uuid.New(), time.Minute, false)
+	if err != nil || !res.Skipped || !res.NotOwner || len(store.claims) != 0 || acct.sumCalls != 0 || reg.fors != 0 {
+		t.Fatalf("before the install: %+v %v, claims %v, Rivian calls %d, lookups %d; want skipped, nothing touched", res, err, store.claims, acct.sumCalls, reg.fors)
+	}
+	h.Set(bothFencer{&fakeFencer{state: fence.Off}})
+	if _, err := s.Sync(context.Background(), uuid.New(), time.Minute, false); err != nil || acct.sumCalls != 1 {
+		t.Fatalf("after the install: %v, Rivian calls %d; want 1", err, acct.sumCalls)
+	}
+}

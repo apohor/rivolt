@@ -17,14 +17,3 @@ func TestLiveActivitySourceIsFenced(t *testing.T) {
 		}
 	}
 }
-
-func TestAtomicFenceIsOffUntilSet(t *testing.T) {
-	var a atomicFence
-	if _, st := a.Fence("v"); st != fence.Off {
-		t.Fatalf("unset: %v, want Off", st)
-	}
-	a.Set(stubFence{fence.Lost})
-	if _, st := a.Fence("v"); st != fence.Lost {
-		t.Fatalf("after Set: %v, want Lost", st)
-	}
-}
