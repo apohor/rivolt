@@ -228,6 +228,11 @@ jobs:
         working-directory: web
         run: npm run build
 
+      # The lazy MapLibre map chunk (library + worker + stylesheet + our map code), gzipped: printed here and capped at 480 KB.
+      - name: Map chunk size
+        working-directory: web
+        run: node scripts/map-bundle-size.mjs ../internal/web/dist 480
+
   # The Helm chart: chart-testing lint (yamllint, Chart.yaml schema and, on PRs, a
   # version bump for any chart change), helm lint --strict and a render of every
   # deploy/helm/rivolt/ci/*-values.yaml case (defaults, CNPG, existingSecret,

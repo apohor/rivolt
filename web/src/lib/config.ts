@@ -32,6 +32,15 @@ export type RuntimeConfig = {
     // basemap pois layer (less accurate, no operator/network/kW
     // info).
     chargersUrl: string;
+    // glyphsUrl is the same-origin label glyph template for a MapLibre style
+    // ("/api/maps/glyphs/{fontstack}/{range}.pbf"); empty when the server
+    // does not advertise it. demUrl is the same-origin Terrarium terrain tile
+    // template for the hillshade, empty when no terrain mirror is wired (the map
+    // then draws no hillshade); demMinZoom/demMaxZoom are the zooms to ask for.
+    glyphsUrl: string;
+    demUrl: string;
+    demMinZoom: number;
+    demMaxZoom: number;
   };
   valhalla: {
     // path is the same-origin URL prefix to the Valhalla HTTP API,
@@ -116,7 +125,7 @@ export type RuntimeConfig = {
 
 const fallback: RuntimeConfig = {
   valhalla: { path: "" },
-  tiles: { url: "", chargersUrl: "" },
+  tiles: { url: "", chargersUrl: "", glyphsUrl: "", demUrl: "", demMinZoom: 3, demMaxZoom: 10 },
   ai: { enabled: false },
   features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "", iosAppUrl: "" },
   grafana: { baseUrl: "" },
@@ -138,7 +147,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
     if (!r.ok) return fallback;
     const j = (await r.json()) as {
       valhalla?: { path?: string };
-      tiles?: { url?: string; chargers_url?: string };
+      tiles?: { url?: string; chargers_url?: string; glyphs_url?: string; dem_url?: string; dem_minzoom?: number; dem_maxzoom?: number };
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
@@ -151,6 +160,10 @@ async function loadConfig(): Promise<RuntimeConfig> {
       tiles: {
         url: j?.tiles?.url ?? "",
         chargersUrl: j?.tiles?.chargers_url ?? "",
+        glyphsUrl: j?.tiles?.glyphs_url ?? "",
+        demUrl: j?.tiles?.dem_url ?? "",
+        demMinZoom: typeof j?.tiles?.dem_minzoom === "number" ? j.tiles.dem_minzoom : 3,
+        demMaxZoom: typeof j?.tiles?.dem_maxzoom === "number" ? j.tiles.dem_maxzoom : 10,
       },
       ai: { enabled: !!j?.ai?.enabled },
       features: {
@@ -223,6 +236,15 @@ export function tilesPMTilesURL(): string {
   // raster needs an API key now and renders placeholder tiles, so it is
   // not a fallback for the demo.
   return cached.tiles.url;
+}
+
+// tilesGlyphsURL / tilesDEM are the MapLibre map's other same-origin map resources: the label glyph template and the terrain tile
+// template ("" when the server does not advertise them; no hillshade then).
+export function tilesGlyphsURL(): string {
+  return cached.tiles.glyphsUrl;
+}
+export function tilesDEM(): { url: string; minZoom: number; maxZoom: number } {
+  return { url: cached.tiles.demUrl, minZoom: cached.tiles.demMinZoom, maxZoom: cached.tiles.demMaxZoom };
 }
 
 // bookingAffiliateID returns the operator's Booking.com partner

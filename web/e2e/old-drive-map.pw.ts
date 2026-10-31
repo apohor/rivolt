@@ -66,14 +66,14 @@ for (const v of [
     await open(page, "/drives/old-route");
     await expect(page.locator("[data-no-samples='route']").first()).toContainText("Detailed data isn't available for this drive; its route and figures are.");
     // The map is drawn from the stored route: no "no telemetry" message in the Route card.
-    await expect(page.locator(".leaflet-container").first()).toBeVisible();
+    await expect(page.locator(".maplibregl-map").first()).toBeVisible();
     await expect(page.getByText(/No telemetry was recorded/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.waitForTimeout(1500);
     const shots = path.join(process.cwd(), "e2e", "__screenshots__");
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, `old-drive-map-${v.n}-dark.png`), fullPage: true });
-    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
     const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
     expect(summary, summary.join("\n")).toEqual([]);
     await ctx.close();

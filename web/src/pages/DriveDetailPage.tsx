@@ -13,7 +13,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 // Lazy-load DriveMap so the Leaflet + Protomaps bundle only ships
 // when a drive is actually opened.
 const DriveMap = lazy(() =>
-  import("../components/DriveMap").then((m) => ({ default: m.DriveMap })),
+  import("../map/DriveMap").then((m) => ({ default: m.DriveMap })),
 );
 import { DriveTimeline } from "../components/DriveTimeline";
 import { ShareTripButton } from "../components/ShareButtons";

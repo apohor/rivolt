@@ -157,7 +157,7 @@ for (const scheme of ["dark", "light"] as const) {
     await expect(note).toBeVisible();
     await expect(note.getByRole("link", { name: "Set your home rate" })).toHaveAttribute("href", "/settings?tab=charging#cost");
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+    const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
     const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
     expect(summary, summary.join("\n")).toEqual([]);
     await page.screenshot({ path: path.join(SHOTS, `money-zero-desktop-${scheme}.png`) });

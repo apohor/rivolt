@@ -33,7 +33,7 @@ for (const theme of ["dark", "light"] as const) {
           await expect(timeline).toBeVisible();
           await expect(page.locator("[data-plan-hero]")).toBeVisible();
           await page.screenshot({ path: path.join(SHOTS, `plan-${trip.key}-${v.name}-${theme}-${state}.png`), fullPage: v.name === "iphone" });
-          const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+          const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
           const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
           expect(summary, summary.join("\n")).toEqual([]);
           await ctx.close();
@@ -62,7 +62,7 @@ for (const theme of ["dark", "light"] as const) {
     await expect(page.getByRole("button", { name: /More options/ })).toHaveAttribute("aria-expanded", "true");
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(SHOTS, `plan-form-iphone-dark-${state}.png`), fullPage: true });
-    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
     const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n2) => n2.target.join(" ")).join(" | ")}`);
     expect(summary, summary.join("\n")).toEqual([]);
     await ctx.close();
@@ -123,7 +123,7 @@ for (const theme of ["dark", "light"] as const) {
       await detail.scrollIntoViewIfNeeded();
       await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(SHOTS, `plan-stopcard-${v.name}-${theme}.png`) });
-      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+      const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container, .maplibregl-map").analyze();
       const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
       await stop.click();
