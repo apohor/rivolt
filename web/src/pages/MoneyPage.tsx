@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { track } from "../lib/track";
 import { backend, type Charge } from "../lib/api";
+import { VehicleScopeNote } from "../components/VehicleScopeNote";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
@@ -137,6 +138,7 @@ export default function MoneyPage() {
           </div>
         }
       />
+      <VehicleScopeNote />
 
       {!isSample && <YearCard />}
 

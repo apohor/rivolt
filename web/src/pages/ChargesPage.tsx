@@ -10,6 +10,7 @@ import {
   backend,
   type Charge,
 } from "../lib/api";
+import { VehicleScopeNote } from "../components/VehicleScopeNote";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { ChargeTable, chargingSeconds, labelMap } from "../components/ActivityTables";
 import type { ChargePlaceLabel } from "../lib/chargePlace";
@@ -86,6 +87,7 @@ export default function ChargesPage() {
           </div>
         }
       />
+      <VehicleScopeNote />
       <Card>
         {q.isLoading ? (
           <Spinner />

@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { backend, type Charge, type Drive } from "../lib/api";
+import { VehicleScopeNote } from "../components/VehicleScopeNote";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { collapseRoundTrips, driveHasTrailer } from "../lib/drives";
 import { EfficiencyView } from "../components/EfficiencyView";
@@ -143,6 +144,7 @@ export default function ActivityPage() {
 <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />
         }
       />
+      <VehicleScopeNote />
       {early && <EarlyMonthNote />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="tablist" aria-label="Filter" className={`${view === "efficiency" ? "invisible " : ""}inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm`}>
