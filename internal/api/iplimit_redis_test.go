@@ -1,8 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -296,5 +301,51 @@ func TestFallbackSeriesAreCreatedAtZero(t *testing.T) {
 		if v := testutil.ToFloat64(m.RateLimiterFallbackTotal.WithLabelValues(name)); v != 0 {
 			t.Fatalf("%s starts at %v, want 0", name, v)
 		}
+	}
+}
+
+func TestRedisErrClass(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{errors.New("NOPERM User app has no permissions to run the 'time' command"), "noperm"},
+		{context.DeadlineExceeded, "timeout"},
+		{errors.New("dial tcp 127.0.0.1:6379: connect: connection refused"), "conn"},
+		{io.EOF, "conn"},
+		{errors.New("ERR Error running script (call to f_abc): user_script:2: nope"), "script"},
+		{errors.New("something else"), "other"},
+		{nil, "other"},
+	} {
+		if got := redisErrClass(c.err); got != c.want {
+			t.Errorf("redisErrClass(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
+}
+
+// A limiter that falls back says so once per backoff window, with its name and the class, never the key.
+func TestFallbackIsLoggedOncePerWindowWithoutTheKey(t *testing.T) {
+	rp := newRatePods(t, 1, 10)
+	var buf bytes.Buffer
+	rp.backends[0].logger = slog.New(slog.NewTextHandler(&buf, nil))
+	rp.mr.Close()
+	for i := 0; i < 5; i++ {
+		rp.pods[0].allowN("192.0.2.77", 1)
+	}
+	out := buf.String()
+	if n := strings.Count(out, "rate limiter fell back"); n != 1 {
+		t.Fatalf("%d log lines for one backoff window, want 1:\n%s", n, out)
+	}
+	if !strings.Contains(out, "limiter=test-route") || !strings.Contains(out, "error_class=") {
+		t.Fatalf("log line lacks the limiter name or class:\n%s", out)
+	}
+	if strings.Contains(out, "192.0.2") {
+		t.Fatalf("the key reached the log:\n%s", out)
+	}
+	// A new window logs again.
+	rp.backends[0].downUntil.Store(0)
+	rp.pods[0].allowN("192.0.2.77", 1)
+	if n := strings.Count(buf.String(), "rate limiter fell back"); n != 2 {
+		t.Fatalf("%d log lines after a second window, want 2", n)
 	}
 }
