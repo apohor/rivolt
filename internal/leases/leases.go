@@ -954,7 +954,14 @@ type groupLeader interface {
 	LeadGroups(ctx context.Context) (GroupLead, error)
 	ReleaseGroup(ctx context.Context, group string) error
 	GroupVehicles(ctx context.Context) (map[string]string, error)
+	// SetVehicleGroups hands the store the vehicle -> group map the pass just read. It is part of the interface, not an optional
+	// extra: a lead-mode store without it answers Lost for every vehicle, so a pod that holds every group refuses all of its own
+	// writes (the preview bug of Oct 31). A store that lacks it does not compile.
+	SetVehicleGroups(vg map[string]string)
 }
+
+// The real store is a lead-mode store; this fails the build, not a pass, if it stops being one.
+var _ groupLeader = (*Store)(nil)
 
 // leadView is which vehicles the held groups allow this pass.
 type leadView struct {
@@ -1009,9 +1016,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	// Install the vehicle -> group map before anything below acquires or subscribes a vehicle: the fence (Fence, Deadline) looks
 	// vehicles up in it, and a vehicle missing from it reads Lost however the group stands. A pass that failed to read the map
 	// (above) leaves the last one: tokenLocked still needs the group held and renewed within the local deadline.
-	if sv, ok := c.store.(interface{ SetVehicleGroups(map[string]string) }); ok {
-		sv.SetVehicleGroups(vg)
-	}
+	gl.SetVehicleGroups(vg)
 	c.followOpenSessions(ctx, gl, vg, res.Held)
 	res.Shed = c.chooseShed(res, vg)
 	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is

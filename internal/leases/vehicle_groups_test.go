@@ -159,3 +159,20 @@ func TestSetVehicleGroupsCopiesItsArgument(t *testing.T) {
 		t.Errorf("the store saw the caller's later edits: %q", got)
 	}
 }
+
+// The store interface the lead pass needs includes SetVehicleGroups: a store without it is not a lead-mode store at all (it does not
+// compile as one), instead of the pass skipping the call and every vehicle reading Lost. And the pass hands the map over, to a fake
+// that only records it.
+func TestLeadPassHandsTheMapToTheStoreInterface(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1"}, res: GroupLead{Held: map[string]int64{"g1": 1}}}
+	var gl groupLeader = ls // fails to compile if SetVehicleGroups leaves the interface
+	_ = gl
+	c := newLeadCoord(ls, []string{"v1"})
+	c.reconcile(context.Background())
+	ls.lmu.Lock()
+	got := ls.setVG
+	ls.lmu.Unlock()
+	if got["v1"] != "g1" {
+		t.Fatalf("the pass handed %v to the store, want v1 -> g1", got)
+	}
+}
