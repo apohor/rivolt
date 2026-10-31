@@ -1148,6 +1148,10 @@ export type YearInRivolt = {
 };
 
 export const backend = {
+  // MOCKED until the billing API merges (paid-tier-plan.md section 3): hosted Stripe Checkout and the Customer Portal each answer a
+  // URL to open. Nothing calls them while billing is off, because no screen offers them.
+  billingCheckout: (interval: "month" | "year") => api.post<{ url: string }>("/api/billing/checkout", { interval }),
+  billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
   yearInRivolt: (year?: number) => api.get<YearInRivolt>(`/api/year-in-rivolt${year ? `?year=${year}` : ""}`),
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
@@ -2267,6 +2271,21 @@ export type AuthUser = {
   units?: AccountUnits;
   // True when this server offers passkeys to the user (absent where they are off): the Passkeys card asks nothing otherwise.
   passkeys?: boolean;
+  // The plan fields of GET /api/auth/me (Sprint 14, item 1). Absent only when the server's entitlement lookup failed: show nothing, gate nothing.
+  plan?: "free" | "pro";
+  // What makes it Pro: "stripe" | "apple" | "trial" | "founding" | "grant" | "billing_off" | "demo"; null on free.
+  plan_source?: string | null;
+  // RFC 3339: when that grant ends (a past-due paid plan includes its 7-day grace); null when free or without an end.
+  plan_period_end?: string | null;
+  // RFC 3339: the 14-day trial's end, only while a trial is what grants Pro.
+  plan_trial_ends?: string | null;
+  // A lapse: the account is free now and had Pro until this instant, from this source; null when it never had Pro.
+  plan_ended_at?: string | null;
+  plan_ended_source?: string | null;
+  // False on a self-hosted or billing-off server (and its plan is "pro", source "billing_off"): no paywall, price or Manage control.
+  billing_enabled?: boolean;
+  // How many days of history this account sees: 90 on free, null (unlimited) otherwise.
+  history_days?: number | null;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was

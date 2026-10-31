@@ -38,6 +38,14 @@ import packHealth from "../../../ios/RivoltTests/Fixtures/pack_health.json";
 import sleepActivity from "../../../ios/RivoltTests/Fixtures/sleep_activity.json";
 import trendsSpread from "../../../ios/RivoltTests/Fixtures/trends_capacity_spread.json";
 import yearInRivolt from "../../../ios/RivoltTests/Fixtures/year_in_rivolt.json";
+import mePlanFree from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
+import mePlanTrial from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
+import mePlanStripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
+import mePlanApple from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
+import mePlanFounding from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
+import mePlanLapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
+import errOutside from "../../../ios/RivoltTests/Fixtures/err_outside_free_window.json";
+import errProRequired from "../../../ios/RivoltTests/Fixtures/err_pro_required.json";
 import yearNotYet from "../../../ios/RivoltTests/Fixtures/year_in_rivolt_not_yet.json";
 import type {
   DayActivity, EfficiencyInsights, LiveDrive, PackHealthResponse,
@@ -46,6 +54,7 @@ import type {
   VehicleState, YearInRivolt,
 } from "../lib/api";
 import type { LedgerMonth, LedgerSummary } from "../lib/ledger";
+import type { ProLimitBody } from "../lib/proLimit";
 import type { SavingsResponse } from "../lib/savings";
 
 // Fixtures are JSON, so every string is `string` and a union such as "mi" | "km" would never match. Wide<T> compares what the
@@ -99,6 +108,14 @@ export const _sleepActivity: Wide<DayActivity[]> = sleepActivity;
 export const _trendsSpread: Wide<TruckTrends> = trendsSpread;
 export const _yearInRivolt: Wide<YearInRivolt> = yearInRivolt;
 export const _yearNotYet: Wide<YearInRivolt> = yearNotYet;
+export const _mePlanFree: Wide<AuthUser> = mePlanFree;
+export const _mePlanTrial: Wide<AuthUser> = mePlanTrial;
+export const _mePlanStripe: Wide<AuthUser> = mePlanStripe;
+export const _mePlanApple: Wide<AuthUser> = mePlanApple;
+export const _mePlanFounding: Wide<AuthUser> = mePlanFounding;
+export const _mePlanLapsed: Wide<AuthUser> = mePlanLapsed;
+export const _errOutsideFreeWindow: Wide<ProLimitBody> = errOutside;
+export const _errProRequired: Wide<ProLimitBody> = errProRequired;
 
 // Fixtures with no web type to check, each with why. The guard in fixtures.contract.test.ts fails for a fixture that is neither
 // imported above nor listed here, so a new fixture cannot skip this check.
@@ -137,14 +154,6 @@ export const iosOnlyFixtures: Record<string, string> = {
   "error_app_refused.json": "the body the server gives an app token for a route it may not use",
   "error_not_connected.json": "409 not_connected, which the app reads as a state; the web reads errors through ApiError",
   "error_terms_required.json": "403 terms_required, which the app reads as a state; the web reads errors through ApiError",
-  "me_plan_free.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "me_plan_trial.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "me_plan_founding.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "me_plan_subscriber.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "me_plan_apple.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "me_plan_lapsed.json": "the Pro plan fields of /api/auth/me (Sprint 14, item 1); no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "err_outside_free_window.json": "a 402 body of the free plan's limits (Sprint 14, item 2): act on the error code; no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
-  "err_pro_required.json": "a 402 body of the free plan's limits (Sprint 14, item 2): act on the error code; no web consumer yet: ux assigns the web type here (and removes this line) when the plan UI is built",
   "me_signed_out.json": "the signed-out /api/auth/me body; the web reads it as AuthUser with authenticated: false (landingGate)",
   "now_prod_shape.json": "a deliberately trimmed capture for the app's tolerance tests; now_v1.json and now_v1_minimal.json carry the contract",
   "state.json": "the app's subset of /api/state; state_full.json carries every key",

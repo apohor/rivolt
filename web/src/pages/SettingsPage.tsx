@@ -44,6 +44,7 @@ import { formatNetworkLocation, parseNetworkLocation } from "../lib/networkLocat
 import { registerPushSubscription } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { R2ArrivalControl } from "../components/R2Arrival";
+import { PlanCard } from "../components/PlanCard";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
@@ -72,6 +73,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
   "ai-features": "account",
   "r2-arrival": "account",
+  plan: "account",
   "ambient-temp": "account",
   security: "security",
   passkeys: "security",
@@ -212,6 +214,7 @@ function SettingsPageInner() {
 
       {tab === "account" && (
         <>
+          <PlanCard />
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
