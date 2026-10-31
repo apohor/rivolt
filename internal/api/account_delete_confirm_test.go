@@ -136,3 +136,10 @@ func TestHistoryDeletesAreNotOnTheAppWriteList(t *testing.T) {
 		t.Error("the app token may POST /api/data/delete-range")
 	}
 }
+
+// The launch notice's dismiss is the one notices write the phone makes: it hides a banner, idempotent, and nothing else.
+func TestNoticeDismissIsOnTheAppWriteList(t *testing.T) {
+	if !appWriteAllowed(http.MethodPost, "/api/notices/dismiss") {
+		t.Error("the app cannot POST /api/notices/dismiss")
+	}
+}
