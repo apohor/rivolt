@@ -179,10 +179,14 @@ export function TripRouteMap({
       // In the fill layout the charger chips float over the top of the map: pad the fit so the route clears them.
       const narrow = window.innerWidth < 640;
       const padding = () => {
-        // The legend card sits at the bottom left: leave room under the route for its height.
+        // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
+        // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-leg-legend");
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
-        return fill ? { top: narrow ? 96 : 64, bottom: Math.max(narrow ? 40 : 24, lift), left: 24, right: 24 } : { top: 24, bottom: Math.max(24, lift), left: 24, right: 24 };
+        const top = fill ? (narrow ? 96 : 64) : 24;
+        const base = fill ? (narrow ? 40 : 24) : 24;
+        const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
+        return { top, bottom, left: 24, right: 24 };
       };
       let fitPath: LatLng[] = wpLatLngs;
       let fitted = false;
