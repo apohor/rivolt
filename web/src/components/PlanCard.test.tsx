@@ -13,7 +13,6 @@ import stripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
 import founding from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
 import lapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
 
-const now = new Date("2026-11-11T12:00:00Z");
 
 function renderWith(me: Record<string, unknown>, ui: React.ReactNode) {
   stubFetchRoutes({ "/api/auth/me": { body: me } });
@@ -33,37 +32,36 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
   });
 
   it("show nothing where billing is off", async () => {
-    const { container } = renderWith(billingOff, <><PlanCard now={now} /><PlanNotice /></>);
+    const { container } = renderWith(billingOff, <><PlanCard /><PlanNotice /></>);
     await new Promise((r) => setTimeout(r, 30));
     expect(container.querySelector("[data-plan-card],[data-plan-notice]")).toBeNull();
   });
 
   it("shows the free state and opens the sheet", async () => {
-    renderWith(free, <PlanCard now={now} />);
+    renderWith(free, <PlanCard />);
     expect(await screen.findByText("Recording, alerts, the last 90 days and the full export, always.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("shows the trial with its end, days left and that no card is needed", async () => {
-    renderWith(trial, <PlanCard now={now} />);
-    expect(await screen.findByText(/Pro trial, ends .*2026/)).toBeInTheDocument();
-    expect(screen.getByText(/3 days left\. No card, nothing is charged/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Keep Pro" })).toBeInTheDocument();
+  it("shows an old trial row as plain Pro, never as a trial or with Keep Pro", async () => {
+    const { container } = renderWith(trial, <PlanCard />);
+    expect(await screen.findByText("Rivolt Pro")).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/trial|14 days|Keep Pro/i);
   });
 
   it("calls a founding year free until its date, and a Stripe plan manageable", async () => {
-    const a = renderWith(founding, <PlanCard now={now} />);
+    const a = renderWith(founding, <PlanCard />);
     expect(await screen.findByText(/Rivolt Pro, free until .*2027/)).toBeInTheDocument();
     expect(screen.getByText(/no card, nothing is charged/)).toBeInTheDocument();
     a.unmount();
-    renderWith(stripe, <PlanCard now={now} />);
+    renderWith(stripe, <PlanCard />);
     expect(await screen.findByText(/Rivolt Pro, renews .*2026/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage subscription" })).toBeInTheDocument();
   });
 
   it("explains a lapse: nothing deleted, the export stays, and the banner can be dismissed once", async () => {
-    renderWith(lapsed, <><PlanCard now={now} /><PlanNotice /></>);
+    renderWith(lapsed, <><PlanCard /><PlanNotice /></>);
     expect((await screen.findAllByText(/Nothing is deleted; older history stays stored and is in your export any time \(Settings → Data\)/)).length).toBe(2);
     expect(screen.getByRole("link", { name: "Export everything" })).toHaveAttribute("href", "/settings#export");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
@@ -92,7 +90,7 @@ describe("a cancelled subscription and a failed payment", () => {
   });
 
   it("a cancelled but paid-up plan says so and never says it renews", async () => {
-    renderWith(cancelled, <PlanCard now={now} />);
+    renderWith(cancelled, <PlanCard />);
     expect(await screen.findByText(/Rivolt Pro until .*2026/)).toBeInTheDocument();
     expect(screen.getByText("Cancelled; Pro stays on until then. Nothing is deleted after.")).toBeInTheDocument();
     expect(screen.queryByText(/renews/)).toBeNull();
@@ -100,7 +98,7 @@ describe("a cancelled subscription and a failed payment", () => {
   });
 
   it("a failed payment inside the grace says to update the card, with Pro still on and nothing deleted", async () => {
-    renderWith(grace, <><PlanCard now={now} /><PlanNotice /></>);
+    renderWith(grace, <><PlanCard /><PlanNotice /></>);
     expect(await screen.findByText("Rivolt Pro, payment failed")).toBeInTheDocument();
     expect(screen.getByText(/Update your card by .*2026 to keep Pro\. Nothing is deleted either way\./)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Update card" })).toHaveLength(2); // the card and the banner
@@ -126,7 +124,7 @@ describe("PlanCard on the way back from Stripe", () => {
 
   it("says no charge was made when the buyer backed out, and drops ?checkout=", async () => {
     window.history.replaceState(null, "", "/settings?checkout=cancelled#plan");
-    renderWith(free, <PlanCard now={now} />);
+    renderWith(free, <PlanCard />);
     expect(await screen.findByText("No charge was made.")).toBeTruthy();
     expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("#plan");
@@ -134,20 +132,20 @@ describe("PlanCard on the way back from Stripe", () => {
 
   it("thanks the buyer once the plan reads Pro", async () => {
     window.history.replaceState(null, "", "/settings?checkout=success#plan");
-    renderWith(stripe, <PlanCard now={now} />);
+    renderWith(stripe, <PlanCard />);
     expect(await screen.findByText("Thanks, Pro is on.")).toBeTruthy();
     expect(window.location.search).toBe("");
   });
 
   it("says Pro turns on in a moment while the plan is still free", async () => {
     window.history.replaceState(null, "", "/settings?checkout=success#plan");
-    renderWith(free, <PlanCard now={now} />);
+    renderWith(free, <PlanCard />);
     expect(await screen.findByText("Thanks. Pro turns on in a moment.")).toBeTruthy();
   });
 
   it("shows nothing extra with no ?checkout=", async () => {
     window.history.replaceState(null, "", "/settings#plan");
-    const { container } = renderWith(free, <PlanCard now={now} />);
+    const { container } = renderWith(free, <PlanCard />);
     await waitFor(() => expect(container.querySelector("[data-plan-card]")).not.toBeNull());
     expect(container.querySelector("[data-checkout-return]")).toBeNull();
   });

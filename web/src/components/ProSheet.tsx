@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
-import { PRO, checkoutLabel, consentText, trialLine, type Interval } from "../lib/proCopy";
+import { DemoLinks } from "./DemoLinks";
+import { DEMO_HISTORY, DEMO_PLANNER, DEMO_TRENDS } from "../lib/demoLinks";
+import { PRO, checkoutLabel, consentText, type Interval } from "../lib/proCopy";
 import { planDate, type PlanState } from "../lib/plan";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
@@ -42,7 +44,6 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   const cancelled = state.kind === "pro" && !!state.cancelsAt;
   const failed = state.kind === "pro" && !!state.graceEnds;
   const apple = state.kind === "pro" && state.source === "apple";
-  const trial = trialLine(state);
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="pro-title" data-pro-sheet className="max-h-[92vh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-xl border border-neutral-800 bg-neutral-950 p-5 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
@@ -61,7 +62,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
           </ul>
         </div>
 
-        {trial && <p className="text-sm text-neutral-300">{trial}</p>}
+        {!stripe && !apple && <DemoLinks links={[DEMO_PLANNER, DEMO_HISTORY, DEMO_TRENDS]} />}
 
         {stripe || apple ? (
           <div className="space-y-2">

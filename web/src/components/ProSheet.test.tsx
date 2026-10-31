@@ -2,16 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ProSheet } from "./ProSheet";
-import { PRO, checkoutLabel, consentText, firstCharge, trialLine } from "../lib/proCopy";
+import { PRO, checkoutLabel, consentText, firstCharge } from "../lib/proCopy";
 import { planState } from "../lib/plan";
-import trialMe from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
+import foundingMe from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
 import freeMe from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
 import stripeMe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
 import appleMe from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
 import lapsedMe from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
 
 const free = planState(freeMe);
-const trial = planState(trialMe);
 
 function renderSheet(state: Parameters<typeof ProSheet>[0]["state"]) {
   return render(
@@ -55,17 +54,28 @@ describe("ProSheet", () => {
     expect(checkoutLabel("month")).toBe("Subscribe: $3.99 a month, renews monthly");
   });
 
-  it("a purchase during the trial starts billing when the trial ends, and the consent line agrees with that date", () => {
-    expect(trial.kind).toBe("trial");
-    const when = firstCharge(trial);
-    expect(when).toMatch(/^on .*2026/);
-    expect(consentText("year", trial)).toContain(`the first charge is ${when}`);
+  it("the first charge is today, or when a founding year ends, and the consent line agrees", () => {
+    const founding = planState(foundingMe);
+    const when = firstCharge(founding);
+    expect(when).toMatch(/^on .*2027/);
+    expect(consentText("year", founding)).toContain(`the first charge is ${when}`);
     expect(consentText("year", free)).toContain("the first charge is today");
     expect(consentText("month", planState(lapsedMe))).toContain("the first charge is today");
-    renderSheet(trial);
-    expect(screen.getByText(/You have 14 days of Pro free, with no card/)).toBeInTheDocument();
-    expect(trialLine(planState(lapsedMe))).toBeNull();
-    expect(trialLine({ kind: "lapsed", endedOn: "2026-11-01T00:00:00Z", endedSource: "trial" })).toMatch(/14 days of Pro were free when you signed up/);
+  });
+
+  it("promises no trial anywhere, and points a free account to the demo with plain links", () => {
+    const { container } = renderSheet(free);
+    expect(container.ownerDocument.body.textContent).not.toMatch(/trial|14 days of Pro|Keep Pro/i);
+    const links = Array.from(container.ownerDocument.querySelectorAll("[data-demo-links] a")) as HTMLAnchorElement[];
+    expect(links.map((a) => a.href)).toEqual([
+      "https://demo.rivolt.dev/demo/trips/plan",
+      "https://demo.rivolt.dev/demo/activity",
+      "https://demo.rivolt.dev/demo/truck",
+    ]);
+    for (const a of links) {
+      expect(a.getAttribute("href")).not.toContain("?");
+      expect(a.rel).toContain("noopener");
+    }
   });
 
   it("says plainly that billing isn't available while it is mocked, and charges nothing", async () => {

@@ -20,9 +20,10 @@ describe("planState from the server's fixtures", () => {
     expect(planState(null)).toEqual({ kind: "off" });
   });
 
-  it("tells free, a trial, each paid source and a founding year apart", () => {
+  it("tells free, each paid source and a founding year apart", () => {
     expect(planState(free)).toEqual({ kind: "free" });
-    expect(planState(trial)).toEqual({ kind: "trial", ends: "2026-11-14T12:00:00Z" });
+    // No new account gets a trial; an old trial row reads as Pro granted to the account, with nothing about a trial.
+    expect(planState(trial)).toMatchObject({ kind: "pro", source: "grant" });
     expect(planState(stripe)).toMatchObject({ kind: "pro", source: "stripe", periodEnd: "2026-12-01T00:00:00Z" });
     expect(planState(apple)).toMatchObject({ kind: "pro", source: "apple", periodEnd: "2026-12-01T00:00:00Z" });
     expect(planState(founding)).toMatchObject({ kind: "pro", source: "founding", periodEnd: "2027-11-01T00:00:00Z" });
