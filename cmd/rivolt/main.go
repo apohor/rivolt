@@ -137,6 +137,8 @@ func main() {
 			os.Exit(runEntitlementsFounding(os.Args[2:]))
 		case "launch-notice":
 			os.Exit(runLaunchNotice(os.Args[2:]))
+		case "launch-preflight":
+			os.Exit(runLaunchPreflight(os.Args[2:]))
 		case "archive":
 			os.Exit(runArchive(os.Args[2:]))
 		default:
@@ -198,6 +200,7 @@ Usage:
                   user id in --sent-log so a re-run resumes; --test-to
                   sends to one user. Never migrates; never prints emails.
   rivolt entitlements-founding --launch T [--apply --expect-count N --expect-sha SHA]
+  rivolt launch-preflight [--launch T] [--offline] [--no-db]    read-only report before the Rivolt Pro flip
                   Rivolt Pro: Pro free for one year from launch to every
                   account that exists at launch (the demo excluded). Dry
                   run lists user id prefixes and an ids hash; --apply
