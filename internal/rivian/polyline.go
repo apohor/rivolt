@@ -1,6 +1,11 @@
 package rivian
 
-import "strings"
+import (
+	"log/slog"
+	"math"
+	"strings"
+	"sync/atomic"
+)
 
 // encodePolyline encodes a slice of (lat, lon) points using Google's
 // polyline algorithm at precision 5 (~1.1m resolution). The result is
@@ -29,6 +34,10 @@ func encodePolyline(points [][2]float64) string {
 	b.Grow(len(points) * 8)
 	var prevLat, prevLon int32
 	for _, p := range points {
+		if !validCoord(p[0], p[1]) {
+			noteRoutePointRefused("encode_skip", "")
+			continue // never persist a point that is not on the globe: it would draw two huge segments out and back
+		}
 		lat := int32(roundHalfEven(p[0] * 1e5))
 		lon := int32(roundHalfEven(p[1] * 1e5))
 		encodeSigned(&b, lat-prevLat)
@@ -58,4 +67,41 @@ func encodeSigned(b *strings.Builder, v int32) {
 		u >>= 5
 	}
 	b.WriteByte(byte(u + 63))
+}
+
+// validCoord reports whether (lat, lon) is a real position on the globe: finite and within +-90 / +-180. (0, 0) is a valid coordinate here;
+// callers treat "no fix" separately.
+func validCoord(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsNaN(lon) && !math.IsInf(lat, 0) && !math.IsInf(lon, 0) && math.Abs(lat) <= 90 && math.Abs(lon) <= 180
+}
+
+// routePointObserver hears every route point the recorder or the encoder refuses to put into a stored route, with where it was refused:
+// "fix_offglobe" (a position off the globe), "fill_globe" (a route-fill with such a vertex, caught by the recorder), "fill_offglobe" and
+// "fill_detour" (the routing engine's shape failed its own check: off the globe, or nowhere near the two ends), "encode_skip" (the
+// encoder's last line). Set at startup by SetRoutePointObserver; nil counts nothing.
+var routePointObserver atomic.Pointer[func(where string)]
+
+// SetRoutePointObserver wires the counter for refused route points (rivolt_route_point_refused_total{where}).
+func SetRoutePointObserver(f func(where string)) { routePointObserver.Store(&f) }
+
+// noteRoutePointRefused counts a refusal and logs a WARN with where and the drive's external id only, never a coordinate (driveID "" logs
+// nothing: the encoder does not know which drive it is encoding).
+func noteRoutePointRefused(where, driveID string) {
+	if f := routePointObserver.Load(); f != nil && *f != nil {
+		(*f)(where)
+	}
+	if driveID != "" {
+		slog.Warn("route point refused", "where", where, "drive_id", driveID)
+	}
+}
+
+// encodePolylineSkipped is encodePolyline that also says how many points it left out (the recorder logs a WARN with the drive's id).
+func encodePolylineSkipped(points [][2]float64) (string, int) {
+	n := 0
+	for _, p := range points {
+		if !validCoord(p[0], p[1]) {
+			n++
+		}
+	}
+	return encodePolyline(points), n
 }

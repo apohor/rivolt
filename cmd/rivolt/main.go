@@ -1571,6 +1571,9 @@ func runServer() {
 		}
 	}
 
+	// Route points kept out of a stored drive route (not on the globe), counted by where; wired whether or not route-fill is on.
+	rivian.SetRoutePointObserver(func(where string) { appMetrics.RoutePointRefusedTotal.WithLabelValues(where).Inc() })
+
 	// Backend-side Valhalla client. Used by the live recorder to
 	// route-fill GPS-lag gaps in the live drive polyline so a dropped
 	// fix sequence doesn't leave a straight-line shortcut across the

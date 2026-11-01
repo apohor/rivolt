@@ -958,8 +958,12 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.drive.trailer.observe(curr.At, curr.TrailerState)
 		s.drive.observeFix(curr)
 		if curr.Latitude != 0 || curr.Longitude != 0 {
-			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
-			s.drive.lastFixAt = curr.At
+			if validCoord(curr.Latitude, curr.Longitude) {
+				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+				s.drive.lastFixAt = curr.At
+			} else {
+				noteRoutePointRefused("fix_offglobe", s.drive.id)
+			}
 		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		return s.drive.number
@@ -1148,6 +1152,10 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 	if lat == 0 && lon == 0 {
 		return
 	}
+	if !validCoord(lat, lon) {
+		noteRoutePointRefused("fix_offglobe", d.id)
+		return // not a position on the globe (a corrupt frame); never put it in the path
+	}
 	n := len(d.path)
 	if n > 0 && d.path[n-1][0] == lat && d.path[n-1][1] == lon {
 		return
@@ -1162,6 +1170,13 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 			shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{lat, lon})
 			elapsed := time.Since(startedAt)
 			cancel()
+			var bad interface {
+				BadShape() bool
+				ShapeKind() string
+			}
+			if errors.As(err, &bad) {
+				noteRoutePointRefused("fill_"+bad.ShapeKind(), d.id)
+			}
 			if err != nil {
 				// Warn, not Debug: a failed fill degrades the rendered
 				// route to a straight line across the gap. elapsed_ms
@@ -1173,6 +1188,8 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 					"dist_m", int(dist),
 					"elapsed_ms", elapsed.Milliseconds(),
 					"err", err.Error())
+			} else if len(shape) > 2 && !shapeValid(shape) {
+				noteRoutePointRefused("fill_globe", d.id)
 			} else if len(shape) > 2 {
 				// Drop the first vertex (== last) and the last (== the
 				// point we're about to append).
@@ -1718,6 +1735,11 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 			energy = socUsed / 100.0 * pack
 		}
 	}
+	routeEnc, skipped := encodePolylineSkipped(d.path)
+	if skipped > 0 {
+		// The path guards should have kept these out; the encoder's last line caught them (counted as encode_skip).
+		m.logger.Warn("route point refused", "where", "encode_skip", "drive_id", d.id, "points", skipped)
+	}
 	row := drives.Drive{
 		ID:              d.id,
 		VehicleID:       vehicleID,
@@ -1736,7 +1758,7 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		AvgSpeedMph:     avg,
 		EnergyUsedKWh:   energy,
 		Source:          "live",
-		RoutePolyline:   encodePolyline(d.path),
+		RoutePolyline:   routeEnc,
 		Trailer:         d.trailer.result(d.endAt),
 		// Whether the drive moved without the truck reporting where it was; the live row sets and clears it (drives.Upsert).
 		LocationUnavailable: d.locationUnavailable(),
@@ -2592,4 +2614,15 @@ func (m *StateMonitor) noteLocationUnavailable(vehicleID string, d *liveDrive) {
 	if o, ok := obs.(DriveLocationObserver); ok {
 		o.OnDriveLocationUnavailable()
 	}
+}
+
+// shapeValid reports whether every vertex of a route-fill shape is a real coordinate (the routing client checks the shape against its
+// ends too; this is the recorder's own last line, so a fill can never put a point off the globe into a stored route).
+func shapeValid(shape [][2]float64) bool {
+	for _, p := range shape {
+		if !validCoord(p[0], p[1]) {
+			return false
+		}
+	}
+	return true
 }
