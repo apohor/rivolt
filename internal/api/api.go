@@ -1123,9 +1123,14 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
-			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}/debug", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleVehicleStateDebug(clientFor(d, uid))(w, r)
-			}))
+			// The raw probes below send arbitrary or exploratory calls to Rivian as the signed-in user (two of them open a Parallax
+			// subscription per call) and no client uses them. They are mounted only where the debug probes are on (preview, local), never on
+			// prod; with the flag off they do not exist and the router answers 404 like any unknown path (TestRawProbeRoutesAreGatedByTheFlag).
+			if d.AdminDebugProbes {
+				r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}/debug", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleVehicleStateDebug(clientFor(d, uid))(w, r)
+				}))
+			}
 			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}/fresh", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleStateFresh(clientFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
@@ -1135,29 +1140,31 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveDrive(monitorFor(d, uid))(w, r)
 			}))
-			r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleChargingSchemaProbe(clientFor(d, uid))(w, r)
-			}))
-			// PoC: live battery pack cell temperatures via Parallax.
-			r.With(vehicleScoped, vehicleGate).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleBatteryTempProbe(clientFor(d, uid))(w, r)
-			}))
-			// RE tool: capture raw Parallax frames for a topic (default
-			// dynamics.vehicle.gnss) — ?rvms=a,b&max=N.
-			r.With(vehicleScoped, vehicleGate).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleParallaxRawProbe(clientFor(d, uid))(w, r)
-			}))
-			// Capability gate: SupportedFeatures per vehicle, incl.
-			// PX_STATE_ALL (Parallax vehicle-state) availability.
-			r.Get("/supported-features", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSupportedFeaturesProbe(clientFor(d, uid))(w, r)
-			}))
-			r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleChargingFieldProbe(clientFor(d, uid))(w, r)
-			}))
-			r.Get("/charging-frames", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleChargingFrames(clientFor(d, uid))(w, r)
-			}))
+			if d.AdminDebugProbes { // the same gate as state/{id}/debug above
+				r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingSchemaProbe(clientFor(d, uid))(w, r)
+				}))
+				// PoC: live battery pack cell temperatures via Parallax.
+				r.With(vehicleScoped, vehicleGate).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleBatteryTempProbe(clientFor(d, uid))(w, r)
+				}))
+				// RE tool: capture raw Parallax frames for a topic (default
+				// dynamics.vehicle.gnss) — ?rvms=a,b&max=N.
+				r.With(vehicleScoped, vehicleGate).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleParallaxRawProbe(clientFor(d, uid))(w, r)
+				}))
+				// Capability gate: SupportedFeatures per vehicle, incl.
+				// PX_STATE_ALL (Parallax vehicle-state) availability.
+				r.Get("/supported-features", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleSupportedFeaturesProbe(clientFor(d, uid))(w, r)
+				}))
+				r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingFieldProbe(clientFor(d, uid))(w, r)
+				}))
+				r.Get("/charging-frames", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingFrames(clientFor(d, uid))(w, r)
+				}))
+			}
 
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
