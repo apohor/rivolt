@@ -127,6 +127,9 @@ describe("where names go", () => {
     const moved = limitLabelAt(seg, X, Y, 300, false, [blocker]);
     expect(moved.anchor).toBe("end");
     expect(boxesMeet(textBox(moved.x, moved.y, "Limit 80%", moved.anchor), blocker)).toBe(false);
+    // Never cut off at the chart's edge: above a line end 40 px from the left there is no room for it, so it goes to the plot's right edge.
+    expect(textBox(moved.x, moved.y, "Limit 80%", moved.anchor).x0).toBeGreaterThanOrEqual(0);
+    expect(moved).toEqual({ x: 300, y: Y(80) - 4, anchor: "end" });
   });
 });
 

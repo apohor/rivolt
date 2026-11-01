@@ -131,6 +131,7 @@ export function limitLabelAt(
   plotRight: number,
   tight: boolean,
   others: Box[],
+  width = Infinity,
 ): { x: number; y: number; anchor: "start" | "end" } {
   const text = `Limit ${Math.round(seg.pct)}%`;
   const spots: { x: number; y: number; anchor: "start" | "end" }[] = [
@@ -139,7 +140,12 @@ export function limitLabelAt(
     { x: plotRight, y: Y(seg.pct) - 4, anchor: "end" },
     { x: plotRight, y: Y(seg.pct) + 15, anchor: "end" },
   ];
-  return spots.find((s) => !others.some((o) => boxesMeet(textBox(s.x, s.y, text, s.anchor), o))) ?? spots[0];
+  // A spot must stay inside the chart (its name is cut off at the edge otherwise) and clear of the other names.
+  const fits = (s: { x: number; y: number; anchor: "start" | "end" }) => {
+    const b = textBox(s.x, s.y, text, s.anchor);
+    return b.x0 >= 0 && b.x1 <= width && !others.some((o) => boxesMeet(b, o));
+  };
+  return spots.find(fits) ?? spots[spots.length - 2];
 }
 
 /** The day with the highest reading and the one with the lowest; null with fewer than two different levels. */
@@ -292,7 +298,7 @@ export function SocTrendChart({
     return [a, b];
   })();
   const nameBoxes = names.map((n) => textBox(n.x, n.y, n.text, n.anchor));
-  const limitAt = seg ? limitLabelAt(seg, X, Y, PAD.l + iw, segTight, nameBoxes) : null;
+  const limitAt = seg ? limitLabelAt(seg, X, Y, PAD.l + iw, segTight, nameBoxes, w) : null;
 
   const dayAt = (x: number): DayRange | null => {
     if (rows.length === 0) return null;

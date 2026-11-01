@@ -35,6 +35,13 @@ for (const theme of ["dark", "light"] as const) {
     const chart = page.locator("[data-soc-trend]");
     await expect(chart).toBeVisible();
     await expect(chart.locator("[data-testid='soc-range']")).toHaveText("65–80% · Nov 1");
+    // Every name is inside the chart, not cut off at its edge.
+    const svg = await chart.locator("svg").evaluate((e) => e.getBoundingClientRect().toJSON());
+    for (const el of await chart.locator("svg text[data-testid], svg [data-testid='soc-limit'] text").all()) {
+      const r = await el.evaluate((e) => (e as SVGGraphicsElement).getBoundingClientRect().toJSON());
+      expect(r.left, `"${await el.textContent()}" is cut off on the left`).toBeGreaterThanOrEqual(svg.left - 0.5);
+      expect(r.right, `"${await el.textContent()}" is cut off on the right`).toBeLessThanOrEqual(svg.right + 0.5);
+    }
     // No two names overlap on screen.
     const boxes = await chart.locator("svg text[data-testid], svg [data-testid='soc-limit'] text").evaluateAll((els) =>
       els.map((e) => {
