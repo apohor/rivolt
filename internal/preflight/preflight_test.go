@@ -14,14 +14,15 @@ var launchAt = time.Date(2027, 1, 15, 12, 0, 0, 0, time.UTC)
 
 func env(extra map[string]string) func(string) string {
 	m := map[string]string{
-		"RIVOLT_STRIPE_SECRET_KEY":     "sk_live_TOPSECRETKEYVALUE",
-		"RIVOLT_STRIPE_WEBHOOK_SECRET": "whsec_TOPSECRETWEBHOOKVALUE",
-		"RIVOLT_STRIPE_PRICE_MONTHLY":  "price_monthlyPRIVATEID",
-		"RIVOLT_STRIPE_PRICE_YEARLY":   "price_yearlyPRIVATEID",
-		"RIVOLT_PUBLIC_BASE_URL":       "https://rivolt.example",
-		"RIVOLT_APPLE_IAP_BUNDLE_ID":   "com.example.bundlePRIVATE",
-		"RIVOLT_APPLE_IAP_PRODUCTS":    "pro.monthly.PRIVATE,pro.yearly.PRIVATE",
-		"RIVOLT_REDIS_ADDR":            "redis.example:6379",
+		"RIVOLT_STRIPE_SECRET_KEY":            "sk_live_TOPSECRETKEYVALUE",
+		"RIVOLT_STRIPE_WEBHOOK_SECRET":        "whsec_TOPSECRETWEBHOOKVALUE",
+		"RIVOLT_STRIPE_PRICE_MONTHLY":         "price_monthlyPRIVATEID",
+		"RIVOLT_STRIPE_PRICE_YEARLY":          "price_yearlyPRIVATEID",
+		"RIVOLT_PUBLIC_BASE_URL":              "https://rivolt.example",
+		"RIVOLT_APPLE_IAP_BUNDLE_ID":          "com.example.bundlePRIVATE",
+		"RIVOLT_APPLE_IAP_PRODUCTS":           "pro.monthly.PRIVATE,pro.yearly.PRIVATE",
+		"RIVOLT_REDIS_ADDR":                   "redis.example:6379",
+		"RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG": "pmc_1PRIVATECONFIGID",
 	}
 	for k, v := range extra {
 		m[k] = v
@@ -29,11 +30,18 @@ func env(extra map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
+// goodStripe is a Stripe account that is ready: the configured payment method configuration is active and offers cards and wallets only, the
+// default configuration is the same, the portal is set up.
+func goodStripe() StripeFacts {
+	m := []string{"apple_pay", "card", "google_pay", "link"}
+	return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true,
+		PMCRead: true, PMCFound: true, PMCActive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m}
+}
+
 func okInput() Input {
 	return Input{
 		Getenv:         env(nil),
 		Launch:         launchAt,
-		Pinned:         []string{"card", "link"},
 		BillingAddress: "required",
 		Founding: func(context.Context, time.Time) (Founding, error) {
 			return Founding{Accounts: 11, Demo: 1, Eligible: 10, Already: 0, ToGrant: 10}, nil
@@ -42,7 +50,7 @@ func okInput() Input {
 		Webhook:   func(context.Context, string) (int, error) { return http.StatusBadRequest, nil },
 		RedisTime: func(context.Context) (bool, error) { return false, nil },
 		Stripe: func(context.Context) StripeFacts {
-			return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"apple_pay", "card", "google_pay", "link"}}
+			return goodStripe()
 		},
 	}
 }
@@ -67,7 +75,7 @@ func TestPreflightReady(t *testing.T) {
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
 		"host: rivolt.example", "https://rivolt.example/terms: reachable (HTTP 200)", "https://rivolt.example/privacy: reachable (HTTP 200)", "https://rivolt.example/settings: reachable (HTTP 200)", "unsigned POST to rivolt.example: 400",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"TIME as the app user: allowed", "Checkout sessions pin payment methods: card, link", "default configuration offers: apple_pay, card, google_pay, link", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"TIME as the app user: allowed", "Checkout offers (the payment method configuration): apple_pay, card, google_pay, link", "RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG: set", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -144,10 +152,34 @@ func TestPreflightProblems(t *testing.T) {
 				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true}
 			}
 		},
-		"checkout offers no card": func(in *Input) {
+		"the configuration offers no card": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCMethods = []string{"apple_pay"}; return f }
+		},
+		"the configuration offers klarna": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts {
-				return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true, CheckoutMethods: []string{"apple_pay"}}
+				f := goodStripe()
+				f.PMCMethods = []string{"card", "klarna"}
+				return f
 			}
+		},
+		"the configuration offers a bank method": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				f := goodStripe()
+				f.PMCMethods = []string{"card", "us_bank_account"}
+				return f
+			}
+		},
+		"the configuration is unreadable": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCRead = false; return f }
+		},
+		"the configuration does not exist": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCFound = false; return f }
+		},
+		"the configuration is inactive": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCActive = false; return f }
+		},
+		"the payment method configuration is not set": func(in *Input) {
+			in.Getenv = env(map[string]string{"RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG": ""})
 		},
 		"stripe unreadable is not ready": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts { return StripeFacts{Err: errors.New("stripe: 403 permission")} }
@@ -289,49 +321,54 @@ func TestPreflightProbesTheConfiguredBase(t *testing.T) {
 	}
 }
 
-// Our Checkout sessions pin card and link, so extra methods in the Dashboard's default configuration are ONE warning listing all of them
-// (they cannot reach our sessions); if the sessions ever lose the pin, the same finding is a problem again.
-func TestPreflightExtraMethodsAreAWarningWhilePinned(t *testing.T) {
+// The configured payment method configuration is what holds Checkout to cards and wallets, so ITS extras are ONE problem listing all of them;
+// the account's default configuration is not ours, so its extras are one warning (the Customer Portal follows it).
+func TestPreflightExtraMethods(t *testing.T) {
 	in := okInput()
 	in.Stripe = func(context.Context) StripeFacts {
-		return StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true,
-			CheckoutMethods: []string{"affirm", "card", "klarna", "us_bank_account"}}
+		f := goodStripe()
+		f.PMCMethods = []string{"affirm", "card", "klarna", "us_bank_account"}
+		return f
 	}
 	r := Run(context.Background(), in)
-	if !r.Ready() {
-		t.Fatalf("pinned sessions: extra default methods stopped the flip: %v", r.Problems)
-	}
 	n := 0
-	for _, w := range r.Warnings {
-		if strings.Contains(w, "beyond cards and wallets") {
+	for _, p := range r.Problems {
+		if strings.Contains(p, "beyond cards and wallets") {
 			n++
-			for _, m := range []string{"affirm", "klarna", "us_bank_account", "3 method(s)", "pin card, link"} {
-				if !strings.Contains(w, m) {
-					t.Errorf("the warning lacks %q: %s", m, w)
+			for _, m := range []string{"affirm", "klarna", "us_bank_account", "3 method(s)"} {
+				if !strings.Contains(p, m) {
+					t.Errorf("the problem line lacks %q: %s", m, p)
 				}
 			}
 		}
 	}
-	if n != 1 {
-		t.Errorf("%d warning lines for the extra methods, want exactly one", n)
+	if n != 1 || r.Ready() {
+		t.Errorf("%d problem lines for the configuration's extras (ready=%v), want exactly one and not ready", n, r.Ready())
 	}
-	// Without the pin it is a problem, and an empty or non-wallet pin counts as no pin.
-	for name, pin := range map[string][]string{"no pin": nil, "a pin with klarna": {"card", "klarna"}} {
-		in.Pinned = pin
-		r := Run(context.Background(), in)
-		if r.Ready() {
-			t.Errorf("%s: ready", name)
+
+	in.Stripe = func(context.Context) StripeFacts {
+		f := goodStripe()
+		f.CheckoutMethods = []string{"affirm", "card", "klarna", "us_bank_account"}
+		return f
+	}
+	r = Run(context.Background(), in)
+	if !r.Ready() {
+		t.Fatalf("the default configuration's extras stopped the flip: %v", r.Problems)
+	}
+	w := 0
+	for _, x := range r.Warnings {
+		if strings.Contains(x, "default configuration offers 3 method(s)") && strings.Contains(x, "Customer Portal") {
+			w++
 		}
-		if !strings.Contains(render(r), "do not pin payment_method_types") && name == "no pin" {
-			t.Errorf("%s: no problem about the missing pin:\n%s", name, render(r))
-		}
+	}
+	if w != 1 {
+		t.Errorf("%d warnings for the default configuration's extras, want one:\n%s", w, render(r))
 	}
 }
 
 // With automatic tax on, Stripe Tax must be active (and readable) in the mode of the key; with it off nothing is asked.
 func TestPreflightStripeTax(t *testing.T) {
-	good := StripeFacts{PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true, CheckoutRead: true,
-		CheckoutMethods: []string{"card"}}
+	good := goodStripe()
 	run := func(tax string, f StripeFacts) *Report {
 		in := okInput()
 		in.Getenv = env(map[string]string{"RIVOLT_STRIPE_AUTOMATIC_TAX": tax})

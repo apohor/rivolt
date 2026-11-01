@@ -557,6 +557,8 @@ func runServer() {
 				Client: &stripebill.Client{SecretKey: key}, DB: pgPool, Plans: entitlementsSvc,
 				Prices: prices, BaseURL: strings.TrimRight(publicBaseURL, "/"),
 				AutomaticTax: rivian.ParseBoolEnv(os.Getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")),
+				// The payment method configuration every Checkout session uses (cards, Link, Apple Pay, Google Pay). Unset: Checkout refuses.
+				PaymentMethodConfig: strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG")),
 			}
 		}
 	}

@@ -57,7 +57,6 @@ func runLaunchPreflight(args []string) int {
 		in.Fetch = preflight.HTTPFetch
 		in.Webhook = preflight.HTTPPostUnsigned
 		in.Stripe = preflightStripe(os.Getenv)
-		in.Pinned = stripebill.PinnedPaymentMethods()
 		in.BillingAddress = stripebill.BillingAddressCollection
 	}
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
@@ -121,6 +120,12 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 		// counts as unverified.
 		if methods, found, err := c.EnabledCheckoutMethods(ctx); err == nil && found {
 			f.CheckoutRead, f.CheckoutMethods = true, methods
+		}
+		// The configuration Checkout names (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG): found, active and what it offers.
+		if id := strings.TrimSpace(getenv("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG")); id != "" {
+			if active, methods, found, err := c.PaymentMethodConfiguration(ctx, id); err == nil {
+				f.PMCRead, f.PMCFound, f.PMCActive, f.PMCMethods = true, found, active, methods
+			}
 		}
 		// Stripe Tax is only asked about when automatic tax is on; a key that cannot read it leaves TaxRead false (unverified).
 		if rivian.ParseBoolEnv(getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")) {
