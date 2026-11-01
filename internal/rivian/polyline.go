@@ -1,6 +1,9 @@
 package rivian
 
-import "strings"
+import (
+	"math"
+	"strings"
+)
 
 // encodePolyline encodes a slice of (lat, lon) points using Google's
 // polyline algorithm at precision 5 (~1.1m resolution). The result is
@@ -29,6 +32,9 @@ func encodePolyline(points [][2]float64) string {
 	b.Grow(len(points) * 8)
 	var prevLat, prevLon int32
 	for _, p := range points {
+		if !validCoord(p[0], p[1]) {
+			continue // never persist a point that is not on the globe: it would draw two huge segments out and back
+		}
 		lat := int32(roundHalfEven(p[0] * 1e5))
 		lon := int32(roundHalfEven(p[1] * 1e5))
 		encodeSigned(&b, lat-prevLat)
@@ -58,4 +64,10 @@ func encodeSigned(b *strings.Builder, v int32) {
 		u >>= 5
 	}
 	b.WriteByte(byte(u + 63))
+}
+
+// validCoord reports whether (lat, lon) is a real position on the globe: finite and within +-90 / +-180. (0, 0) is a valid coordinate here;
+// callers treat "no fix" separately.
+func validCoord(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsNaN(lon) && !math.IsInf(lat, 0) && !math.IsInf(lon, 0) && math.Abs(lat) <= 90 && math.Abs(lon) <= 180
 }

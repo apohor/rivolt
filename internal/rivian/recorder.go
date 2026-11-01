@@ -957,7 +957,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		s.drive.trailer.observe(curr.At, curr.TrailerState)
 		s.drive.observeFix(curr)
-		if curr.Latitude != 0 || curr.Longitude != 0 {
+		if (curr.Latitude != 0 || curr.Longitude != 0) && validCoord(curr.Latitude, curr.Longitude) {
 			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
 			s.drive.lastFixAt = curr.At
 		}
@@ -1148,6 +1148,9 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 	if lat == 0 && lon == 0 {
 		return
 	}
+	if !validCoord(lat, lon) {
+		return // not a position on the globe (a corrupt frame); never put it in the path
+	}
 	n := len(d.path)
 	if n > 0 && d.path[n-1][0] == lat && d.path[n-1][1] == lon {
 		return
@@ -1173,7 +1176,7 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 					"dist_m", int(dist),
 					"elapsed_ms", elapsed.Milliseconds(),
 					"err", err.Error())
-			} else if len(shape) > 2 {
+			} else if len(shape) > 2 && shapeValid(shape) {
 				// Drop the first vertex (== last) and the last (== the
 				// point we're about to append).
 				d.path = append(d.path, shape[1:len(shape)-1]...)
@@ -2592,4 +2595,15 @@ func (m *StateMonitor) noteLocationUnavailable(vehicleID string, d *liveDrive) {
 	if o, ok := obs.(DriveLocationObserver); ok {
 		o.OnDriveLocationUnavailable()
 	}
+}
+
+// shapeValid reports whether every vertex of a route-fill shape is a real coordinate (the routing client checks the shape against its
+// ends too; this is the recorder's own last line, so a fill can never put a point off the globe into a stored route).
+func shapeValid(shape [][2]float64) bool {
+	for _, p := range shape {
+		if !validCoord(p[0], p[1]) {
+			return false
+		}
+	}
+	return true
 }
