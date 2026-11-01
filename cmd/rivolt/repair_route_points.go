@@ -18,7 +18,7 @@ import (
 // routes holding a bad point, bad points, routes that would have nothing left, the work list per month) and the sha256 of the sorted id list;
 // never a position or an id. --apply needs the approved dry run's --expect-count and --expect-sha (it aborts unless both match) and
 // --backup (a new 0600 CSV of every replaced route, written before each update); an update only applies if the stored route is still the one
-// the audit read. The repair drops the bad points and keeps the rest of the route exactly as it was. Undo with --restore-csv FILE [--apply].
+// the audit read. The repair puts a point that is exactly ten times too large back (divided by ten, when that lands within reach of both neighbours), drops any other, and keeps the rest of the route exactly as it was. Undo with --restore-csv FILE [--apply].
 // Never migrates (OpenNoMigrate): run it only from a released binary.
 func runRepairRoutePoints(args []string) int {
 	fs := flag.NewFlagSet("repair-route-points", flag.ContinueOnError)
@@ -100,7 +100,7 @@ func runRepairRoutePoints(args []string) int {
 	fmt.Printf("routes that could not be read: %d\n", plan.Undecoded)
 	fmt.Printf("routes holding a point off the globe, repairable: %d\n", len(ids))
 	fmt.Printf("routes holding one with fewer than two points left (left alone): %d\n", plan.Unfixable)
-	fmt.Printf("points off the globe: %d\n", plan.BadPoints)
+	fmt.Printf("points off the globe: %d (in the repairable routes: %d put back by dividing by ten, %d dropped)\n", plan.BadPoints, plan.Rescaled, plan.Dropped)
 	months := plan.ByMonth()
 	ms := make([]string, 0, len(months))
 	for m := range months {
@@ -128,7 +128,7 @@ func runRepairRoutePoints(args []string) int {
 	defer func() { _ = bk.f.Close() }() // error paths; the end checks the close below
 	fmt.Printf("backup file: %s\n", *backup)
 	res, err := routepoints.Apply(ctx, pool, plan, bk.write)
-	fmt.Printf("rewritten %d route(s), %d point(s) dropped; %d changed meanwhile and left alone\n", res.Updated, res.Removed, res.Raced)
+	fmt.Printf("rewritten %d route(s): %d point(s) put back by dividing by ten, %d dropped; %d changed meanwhile and left alone\n", res.Updated, res.Rescaled, res.Dropped, res.Raced)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-route-points: stopped:", err)
 		return 1

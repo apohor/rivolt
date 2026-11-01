@@ -97,6 +97,9 @@ func TestMakePlanCountsWithoutLeakingAnything(t *testing.T) {
 	if p.Scanned != 5 || p.Undecoded != 1 || p.BadPoints != 4 || p.Unfixable != 1 || len(p.Drives) != 2 {
 		t.Fatalf("plan = scanned %d, undecoded %d, bad %d, unfixable %d, drives %d; want 5, 1, 4, 1, 2", p.Scanned, p.Undecoded, p.BadPoints, p.Unfixable, len(p.Drives))
 	}
+	if p.Rescaled != 0 || p.Dropped != 2 {
+		t.Errorf("rescaled %d, dropped %d in the repairable routes; want 0 and 2", p.Rescaled, p.Dropped)
+	}
 	if m := p.ByMonth(); m["2026-10"] != 1 || m["2026-11"] != 1 || len(m) != 2 {
 		t.Errorf("by month = %v, want one in each of October and November", m)
 	}
@@ -113,5 +116,63 @@ func TestMakePlanOfNothing(t *testing.T) {
 	p := MakePlan(nil)
 	if p.Scanned != 0 || len(p.Drives) != 0 || len(p.IDs()) != 0 {
 		t.Fatalf("plan = %+v, want empty", p)
+	}
+}
+
+// The cause: a precision-6 routing vertex stored as precision 5, which is ten times too large. Put back by a tenth it lands on the road
+// between its neighbours, so the fill it belonged to survives.
+func TestRepairPutsATenfoldVertexBackAndDropsAnyOtherBadPoint(t *testing.T) {
+	mid := [2]float64{10.0015, 10.0015} // a fill vertex between good[1] and good[2]
+	tenfold := [2]float64{mid[0] * 10, mid[1] * 10}
+	out, rescaled, dropped := Repair([][2]float64{good[0], good[1], tenfold, good[2], good[3]})
+	if rescaled != 1 || dropped != 0 || len(out) != 5 {
+		t.Fatalf("rescaled %d, dropped %d, %d points; want 1, 0, 5", rescaled, dropped, len(out))
+	}
+	if math.Abs(out[2][0]-mid[0]) > 1e-9 || math.Abs(out[2][1]-mid[1]) > 1e-9 {
+		t.Errorf("the point came back as %v, want %v", out[2], mid)
+	}
+	for i, p := range [][2]float64{good[0], good[1], mid, good[2], good[3]} {
+		if rescaled := out[i]; math.Abs(rescaled[0]-p[0]) > 1e-9 || math.Abs(rescaled[1]-p[1]) > 1e-9 {
+			t.Errorf("point %d = %v, want %v", i, rescaled, p)
+		}
+	}
+	// Re-encoded at precision 5 (the stored format), the repaired route is the route as it would have been recorded.
+	if got, want := rivian.EncodePolyline(out), encode([][2]float64{good[0], good[1], mid, good[2], good[3]}); got != want {
+		t.Errorf("repaired route %q, want %q", got, want)
+	}
+}
+
+func TestRepairDropsABadPointThatDoesNotFallOnTheRoadWhenDividedByTen(t *testing.T) {
+	// A tenth of this is a real place, but nowhere near the road between the neighbours.
+	out, rescaled, dropped := Repair(withBad)
+	if rescaled != 0 || dropped != 1 || len(out) != len(good) {
+		t.Fatalf("rescaled %d, dropped %d, %d points; want 0, 1, %d", rescaled, dropped, len(out), len(good))
+	}
+}
+
+func TestRepairDropsABadPointAtEitherEndAndNeverGuesses(t *testing.T) {
+	first := [2]float64{good[0][0] * 10, good[0][1] * 10}
+	last := [2]float64{good[4][0] * 10, good[4][1] * 10}
+	out, rescaled, dropped := Repair([][2]float64{first, good[1], good[2], good[3], last})
+	if rescaled != 0 || dropped != 2 || len(out) != 3 {
+		t.Fatalf("rescaled %d, dropped %d, %d points; want 0, 2, 3 (no neighbour on one side, so no way to check)", rescaled, dropped, len(out))
+	}
+}
+
+func TestRepairJudgesARunOfBadPointsAgainstTheRoadNotEachOther(t *testing.T) {
+	m1, m2 := [2]float64{10.0012, 10.0012}, [2]float64{10.0018, 10.0018}
+	out, rescaled, dropped := Repair([][2]float64{good[0], good[1], {m1[0] * 10, m1[1] * 10}, {m2[0] * 10, m2[1] * 10}, good[2], good[3]})
+	if rescaled != 2 || dropped != 0 || len(out) != 6 {
+		t.Fatalf("rescaled %d, dropped %d, %d points; want 2, 0, 6", rescaled, dropped, len(out))
+	}
+	if math.Abs(out[2][0]-m1[0]) > 1e-9 || math.Abs(out[3][0]-m2[0]) > 1e-9 {
+		t.Errorf("the run came back as %v %v", out[2], out[3])
+	}
+}
+
+func TestRepairLeavesAGoodRouteAlone(t *testing.T) {
+	out, rescaled, dropped := Repair(good)
+	if rescaled != 0 || dropped != 0 || len(out) != len(good) {
+		t.Fatalf("rescaled %d, dropped %d; want none", rescaled, dropped)
 	}
 }

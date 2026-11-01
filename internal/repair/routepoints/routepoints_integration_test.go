@@ -74,17 +74,22 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 	put("rp-bad", "live", start, corrupt, start.Add(30*time.Minute))
 	put("rp-bad2", "live", start.Add(2*time.Hour), corrupt, start.Add(2*time.Hour+30*time.Minute))
 	put("rp-bad-imported", "electrafi", start.Add(3*time.Hour), corrupt, start.Add(3*time.Hour+30*time.Minute)) // any source
+	// The cause itself: a fill vertex ten times too large. It goes back where it belongs, not away.
+	mid := [2]float64{10.0005, 10.0005}
+	scaled := encodeRaw([][2]float64{good[0], {mid[0] * 10, mid[1] * 10}, good[1], good[2], good[3]})
+	repairedScaled := rivian.EncodePolyline([][2]float64{good[0], mid, good[1], good[2], good[3]})
+	put("rp-scaled", "live", start.Add(5*time.Hour), scaled, start.Add(5*time.Hour+30*time.Minute))
 	put("rp-clean", "live", start.Add(4*time.Hour), clean, start.Add(4*time.Hour+30*time.Minute))
 	put("rp-noroute", "live", start.Add(8*time.Hour), "", start.Add(8*time.Hour+30*time.Minute))
 	put("rp-recent", "live", time.Now().UTC().Add(-20*time.Minute), corrupt, time.Now().UTC().Add(-5*time.Minute)) // may still be written to
 
 	cands, err := routepoints.Select(ctx, pool, start.Add(-time.Hour), time.Now().UTC().Add(time.Hour))
-	if err != nil || len(cands) != 4 {
-		t.Fatalf("selected %d (%v), want the 4 closed drives with a route", len(cands), err)
+	if err != nil || len(cands) != 5 {
+		t.Fatalf("selected %d (%v), want the 5 closed drives with a route", len(cands), err)
 	}
 	plan := routepoints.MakePlan(cands)
-	if len(plan.Drives) != 3 || plan.BadPoints != 3 {
-		t.Fatalf("plan: %d drives, %d bad points; want 3 and 3", len(plan.Drives), plan.BadPoints)
+	if len(plan.Drives) != 4 || plan.BadPoints != 4 || plan.Rescaled != 1 || plan.Dropped != 3 {
+		t.Fatalf("plan: %d drives, %d bad points (%d rescaled, %d dropped); want 4, 4 (1, 3)", len(plan.Drives), plan.BadPoints, plan.Rescaled, plan.Dropped)
 	}
 
 	// One planned drive changes between the audit and the apply: it must be left alone.
@@ -103,8 +108,8 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Updated != 2 || res.Raced != 1 || res.Removed != 2 || len(backups) != 3 {
-		t.Fatalf("%+v, %d backup rows; want 2 updated, 1 raced, 2 points dropped, a backup row for each attempted update", res, len(backups))
+	if res.Updated != 3 || res.Raced != 1 || res.Rescaled != 1 || res.Dropped != 2 || len(backups) != 4 {
+		t.Fatalf("%+v, %d backup rows; want 3 updated, 1 raced, 1 point put back, 2 dropped, a backup row for each attempted update", res, len(backups))
 	}
 	get := func(id string) string {
 		var r string
@@ -116,6 +121,9 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 	if get("rp-bad") != clean || get("rp-bad-imported") != clean {
 		t.Error("a planned drive was not repaired to the route without its bad point")
 	}
+	if get("rp-scaled") != repairedScaled {
+		t.Error("a tenfold vertex was not put back where it belongs")
+	}
 	if get("rp-bad2") != clean || get("rp-clean") != clean {
 		t.Error("a drive that changed since the audit, or was never planned, was rewritten")
 	}
@@ -126,15 +134,15 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 	// Restore: the repaired drives go back; a second restore touches nothing.
 	var applied []routegaps.BackupRow
 	for _, b := range backups {
-		if b.Old == corrupt {
+		if b.Old == corrupt || b.Old == scaled {
 			applied = append(applied, b)
 		}
 	}
 	rr, err := routegaps.Restore(ctx, pool, applied)
-	if err != nil || rr.Restored != 2 {
+	if err != nil || rr.Restored != 3 {
 		t.Fatalf("restore: %+v %v", rr, err)
 	}
-	if get("rp-bad") != corrupt || get("rp-bad-imported") != corrupt {
+	if get("rp-bad") != corrupt || get("rp-bad-imported") != corrupt || get("rp-scaled") != scaled {
 		t.Error("the old routes did not come back")
 	}
 	rr, err = routegaps.Restore(ctx, pool, applied)

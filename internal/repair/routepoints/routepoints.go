@@ -5,10 +5,12 @@
 // no longer lets such a point in, and the readers skip one already stored; this package finds the routes that still hold one and
 // rewrites them without it.
 //
-// The audit reads every closed drive's route and reports counts only (never a position). The repair drops the off-globe points and
-// re-encodes the rest. It does NOT rebuild the route from samples: a stored route also holds the road-snapped fills the recorder
-// spliced in, which samples do not have, so a rebuild would turn each fill back into a straight line; dropping the bad point keeps
-// everything else exactly as it was. Only drives.route_polyline changes.
+// The audit reads every closed drive's route and reports counts only (never a position). The repair keeps every other point exactly as
+// it was and fixes only the off-globe ones: the cause was a precision-6 routing vertex stored as precision 5, which is ten times too
+// large, so a point that divided by ten lands on the line between its two neighbours is put back there (the road-snapped fill it belonged
+// to survives); any other off-globe point is dropped. It does NOT rebuild the route from samples: a stored route also holds the fills the
+// recorder spliced in, which samples do not have, so a rebuild would turn each fill back into a straight line. Only drives.route_polyline
+// changes.
 package routepoints
 
 import (
@@ -74,17 +76,66 @@ func Strip(pts [][2]float64) ([][2]float64, int) {
 	return out, len(pts) - len(out)
 }
 
+// Repair returns pts with each point that is not on the globe fixed or removed: rescaled by a tenth when that is a real position within the
+// reach of both its neighbours (the same reach the routing client allows a fill vertex: three times the distance between the neighbours,
+// plus a kilometre), dropped otherwise (also when it has no valid neighbour on one side). It reports how many it rescaled and how many it
+// dropped. Neighbours are the nearest valid points on either side, so a run of bad points is judged against the road, not against each other.
+func Repair(pts [][2]float64) (out [][2]float64, rescaled, dropped int) {
+	out = make([][2]float64, 0, len(pts))
+	for i, p := range pts {
+		if OnGlobe(p[0], p[1]) {
+			out = append(out, p)
+			continue
+		}
+		if len(out) > 0 {
+			if next, ok := nextOnGlobe(pts, i+1); ok {
+				prev := out[len(out)-1]
+				c := [2]float64{p[0] / 10, p[1] / 10}
+				reach := 3*haversineM(prev, next) + 1000
+				if OnGlobe(c[0], c[1]) && haversineM(c, prev) <= reach && haversineM(c, next) <= reach {
+					out = append(out, c)
+					rescaled++
+					continue
+				}
+			}
+		}
+		dropped++
+	}
+	return out, rescaled, dropped
+}
+
+func nextOnGlobe(pts [][2]float64, from int) ([2]float64, bool) {
+	for j := from; j < len(pts); j++ {
+		if OnGlobe(pts[j][0], pts[j][1]) {
+			return pts[j], true
+		}
+	}
+	return [2]float64{}, false
+}
+
+// haversineM is the great-circle distance in metres.
+func haversineM(a, b [2]float64) float64 {
+	const r = 6371000.0
+	rad := math.Pi / 180
+	dLat := (b[0] - a[0]) * rad
+	dLon := (b[1] - a[1]) * rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(a[0]*rad)*math.Cos(b[0]*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Min(1, math.Sqrt(h)))
+}
+
 // Plan is the audit: how many routes were read and which hold a point off the globe.
 type Plan struct {
 	Scanned    int // routes read
 	Undecoded  int // routes that are not a valid polyline (left alone, counted)
 	BadPoints  int // points off the globe, across all routes
+	Rescaled   int // of them, put back by dividing by ten (in the repairable routes)
+	Dropped    int // of them, removed (in the repairable routes)
 	Unfixable  int // routes that would have fewer than two points left (left alone, counted)
 	Drives     []Candidate
 	monthCount map[string]int
 }
 
-// MakePlan audits the candidates. A route is in Drives when it holds a bad point AND dropping it leaves a route of at least two points
+// MakePlan audits the candidates. A route is in Drives when it holds a bad point AND repairing it leaves a route of at least two points
 // (the repair's work list); a route with nothing left is only counted in Unfixable.
 func MakePlan(cands []Candidate) Plan {
 	p := Plan{Scanned: len(cands), monthCount: map[string]int{}}
@@ -94,7 +145,8 @@ func MakePlan(cands []Candidate) Plan {
 			p.Undecoded++
 			continue
 		}
-		kept, bad := Strip(pts)
+		kept, rescaled, dropped := Repair(pts)
+		bad := rescaled + dropped
 		if bad == 0 {
 			continue
 		}
@@ -103,6 +155,8 @@ func MakePlan(cands []Candidate) Plan {
 			p.Unfixable++
 			continue
 		}
+		p.Rescaled += rescaled
+		p.Dropped += dropped
 		p.Drives = append(p.Drives, c)
 		p.monthCount[routegaps.Month(c.StartedAt)]++
 	}
@@ -127,12 +181,13 @@ func Digest(ids []uuid.UUID) string { return routegaps.Digest(ids) }
 
 // ApplyResult counts what Apply did.
 type ApplyResult struct {
-	Updated int // routes rewritten
-	Raced   int // the route changed since the audit; left alone
-	Removed int // points dropped, across the routes rewritten
+	Updated  int // routes rewritten
+	Raced    int // the route changed since the audit; left alone
+	Rescaled int // points put back by dividing by ten, across the routes rewritten
+	Dropped  int // points removed, across the routes rewritten
 }
 
-// Apply rewrites the work list one drive at a time: the new route is the old one without its off-globe points; the backup row (the old
+// Apply rewrites the work list one drive at a time: the new route is the old one with its off-globe points rescaled or dropped (Repair); the backup row (the old
 // route and the hash of the new one) is written and flushed before the update; and the update only applies if the stored route is still
 // the one the audit read. routegaps.Restore undoes it from the same rows.
 func Apply(ctx context.Context, db *sql.DB, plan Plan, backup func(routegaps.BackupRow) error) (ApplyResult, error) {
@@ -145,8 +200,8 @@ func Apply(ctx context.Context, db *sql.DB, plan Plan, backup func(routegaps.Bac
 		if err != nil {
 			continue
 		}
-		kept, bad := Strip(pts)
-		if bad == 0 || len(kept) < 2 {
+		kept, rescaled, dropped := Repair(pts)
+		if rescaled+dropped == 0 || len(kept) < 2 {
 			continue
 		}
 		newRoute := rivian.EncodePolyline(kept)
@@ -160,7 +215,8 @@ func Apply(ctx context.Context, db *sql.DB, plan Plan, backup func(routegaps.Bac
 		}
 		if n, _ := r.RowsAffected(); n == 1 {
 			res.Updated++
-			res.Removed += bad
+			res.Rescaled += rescaled
+			res.Dropped += dropped
 		} else {
 			res.Raced++
 		}
