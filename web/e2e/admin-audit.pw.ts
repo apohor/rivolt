@@ -62,7 +62,7 @@ for (const theme of ["dark", "light"] as const) {
       const page = await ctx.newPage();
       await page.addInitScript(([t]) => localStorage.setItem("rivolt.theme", t), [theme]);
       await open(page);
-      expect(await ids(page)).toEqual(["1", "2", "3", "4", "5", "6"]);
+      await expect.poll(() => ids(page)).toEqual(["1", "2", "3", "4", "5", "6"]);
       const first = page.locator("[data-audit-row='1']");
       await expect(first).toContainText("Kill switch");
       await expect(first).toContainText("Owner");
@@ -100,7 +100,7 @@ test("filters narrow the list and are sent to the API", async ({ page }) => {
 
 test("paging: Load older follows the cursor until the end", async ({ page }) => {
   const seen = await open(page, { pageSize: 4 });
-  expect(await ids(page)).toEqual(["1", "2", "3", "4"]);
+  await expect.poll(() => ids(page)).toEqual(["1", "2", "3", "4"]);
   await page.getByRole("button", { name: "Load older" }).click();
   await expect.poll(() => ids(page)).toEqual(["1", "2", "3", "4", "5", "6"]);
   expect(seen.some((s) => s.includes("before=4"))).toBe(true);
