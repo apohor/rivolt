@@ -28,7 +28,7 @@ export default defineConfig({
   // to run it. Select one with --project=chromium|webkit.
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
-    ...(process.env.E2E_WEBKIT ? [{ name: "webkit", use: { browserName: "webkit" as const }, grep: /iphone|phone/i }] : []),
+    ...(process.env.E2E_WEBKIT ? [{ name: "webkit", use: { browserName: "webkit" as const }, grep: /iphone|phone|@webkit/i }] : []),
   ],
   webServer: {
     command: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,

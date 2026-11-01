@@ -87,7 +87,7 @@ test("sample requests always carry an explicit until", async ({ browser }) => {
   await ctx.close();
 });
 
-test("drive map: the speed legend and attribution never cover the route's end markers", async ({ browser }) => {
+test("drive map: the speed legend and attribution never cover the route's end markers @webkit", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   await stubApi(page);
@@ -148,7 +148,7 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   await ctx.close();
 });
 
-test("drive map: basemap toggle doesn't cover the end pin at 390 px", async ({ browser }) => {
+test("drive map: basemap toggle doesn't cover the end pin at 390 px @webkit", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
   await stubApi(page);

@@ -189,7 +189,7 @@ test("Activity filters in the demo keep the Activity tab and the filter sticks",
     await expect(page).not.toHaveURL(/f=/);
 });
 
-test("the demo map uses the self-hosted basemap, never CARTO's keyed raster", async ({ page }) => {
+test("the demo map uses the self-hosted basemap, never CARTO's keyed raster @webkit", async ({ page }) => {
   const reqs: string[] = [];
   page.on("request", (r) => reqs.push(r.url()));
   await openDemo(page, "/demo/activity");
@@ -201,7 +201,7 @@ test("the demo map uses the self-hosted basemap, never CARTO's keyed raster", as
   expect(reqs.some((u) => u.includes("/api/maps/tiles/us.pmtiles"))).toBe(true);
 });
 
-test("without a basemap archive the map says so, and calls no third-party tile host", async ({ page }) => {
+test("without a basemap archive the map says so, and calls no third-party tile host @webkit", async ({ page }) => {
   const reqs: string[] = [];
   page.on("request", (r) => reqs.push(r.url()));
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, noTiles: true });
@@ -215,7 +215,7 @@ test("without a basemap archive the map says so, and calls no third-party tile h
   expect(reqs.filter((u) => /cartocdn\.com|openstreetmap\.org\/\d/.test(u))).toEqual([]);
 });
 
-test("a charge's pin names the network on the receipt, never a neighbouring brand", async ({ page }) => {
+test("a charge's pin names the network on the receipt, never a neighbouring brand @webkit", async ({ page }) => {
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
   const session = (id: string, network: string) => ({
     charge_id: id, started_at: new Date(e2eNow()).toISOString(), ended_at: new Date(e2eNow()).toISOString(), soc_start: 20, soc_end: 80,
