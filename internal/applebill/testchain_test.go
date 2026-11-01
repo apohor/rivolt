@@ -47,17 +47,26 @@ func issue(t testing.TB, tmpl, parent *x509.Certificate, pub *ecdsa.PublicKey, s
 type chainOpts struct {
 	noLeafMarker, noInterMarker bool
 	leafNotAfter                time.Time
+	interNotAfter               time.Time // the intermediate's end (zero: a year)
+	leafP384                    bool      // a P-384 leaf key: ES256 needs P-256
 }
 
 func newChain(t testing.TB, o chainOpts) *testChain {
 	t.Helper()
 	now := time.Now()
-	rootKey, interKey, leafKey := mustKey(t, elliptic.P384()), mustKey(t, elliptic.P384()), mustKey(t, elliptic.P256())
+	leafCurve := elliptic.P256()
+	if o.leafP384 {
+		leafCurve = elliptic.P384()
+	}
+	rootKey, interKey, leafKey := mustKey(t, elliptic.P384()), mustKey(t, elliptic.P384()), mustKey(t, leafCurve)
 	rootT := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Test Root CA - G3"}, NotBefore: now.Add(-24 * time.Hour), NotAfter: now.Add(24 * time.Hour * 365),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	root := issue(t, rootT, rootT, &rootKey.PublicKey, rootKey)
 	interT := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "Test Worldwide Developer Relations"}, NotBefore: now.Add(-24 * time.Hour), NotAfter: now.Add(24 * time.Hour * 300),
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	if !o.interNotAfter.IsZero() {
+		interT.NotAfter = o.interNotAfter
+	}
 	if !o.noInterMarker {
 		interT.ExtraExtensions = []pkix.Extension{{Id: oidIntermediateMarker, Value: []byte{5, 0}}}
 	}
@@ -95,8 +104,9 @@ func (c *testChain) signWith(t testing.TB, payload any, alg string, x5c []string
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig := make([]byte, 64)
-	r.FillBytes(sig[:32])
-	s.FillBytes(sig[32:])
+	n := (key.Curve.Params().BitSize + 7) / 8 // 32 for P-256, 48 for P-384
+	sig := make([]byte, 2*n)
+	r.FillBytes(sig[:n])
+	s.FillBytes(sig[n:])
 	return input + "." + b64(sig)
 }
