@@ -289,3 +289,97 @@ final class RouteSnapClientTests: XCTestCase {
         XCTAssertEqual(SnapStub.calls, ["POST /api/maps/valhalla/trace_route", "POST /api/maps/valhalla/route"])
     }
 }
+
+/// The drive map's line in GPS-fix order, not arrival order (DriveTrack; the web's cleanTrack). Plainly fake places near (10, 10).
+final class DriveTrackTests: XCTestCase {
+    private let t0 = 1_800_000_000.0
+
+    /// A driving sample that arrives `at` seconds in, at position step `step` along a line, with its GPS fix taken `fix` seconds in (nil: no fix time).
+    private func s(_ at: Double, _ step: Double, fix: Double? = nil, lat: Double? = nil) -> DriveSample {
+        DriveSample(at: Date(timeIntervalSince1970: t0 + at), lat: lat ?? 10 + step * 0.001, lon: 10 + step * 0.001, speedMph: 40, shiftState: "D",
+                    locationFixAt: fix.map { Date(timeIntervalSince1970: t0 + $0) })
+    }
+
+    /// The step along the line each kept sample is at, to compare with what was sent.
+    private func steps(_ xs: [DriveSample]) -> [Int] { xs.map { Int((($0.lat - 10) / 0.001).rounded()) } }
+
+    func testACleanTrackIsUnchanged() {
+        XCTAssertEqual(steps(DriveTrack.clean([s(0, 0, fix: 0), s(5, 1, fix: 5), s(10, 2, fix: 10)])), [0, 1, 2])
+    }
+
+    func testAFixOlderThanTheNewestKeptIsDropped() {
+        // d arrives after c but carries b's older fix: drawn in arrival order the line would go 0, 1, 2, back to 1, then 3.
+        let xs = [s(0, 0, fix: 0), s(5, 1, fix: 5), s(10, 2, fix: 10), s(15, 1, fix: 5), s(20, 3, fix: 20)]
+        XCTAssertEqual(steps(DriveTrack.clean(xs)), [0, 1, 2, 3])
+    }
+
+    func testARepeatOfThePreviousFixIsDropped() {
+        let xs = [s(0, 0, fix: 0), s(5, 1, fix: 5), s(10, 1, fix: 5), s(15, 1, fix: 5), s(20, 2, fix: 20)]
+        XCTAssertEqual(steps(DriveTrack.clean(xs)), [0, 1, 2])
+    }
+
+    func testInterleavedLateFixesEndStrictlyForwardInFixTime() {
+        // Every fix is stamped before the frame that carries it arrives.
+        let xs = [s(0, 0, fix: 0), s(30, 4, fix: 20), s(31, 1, fix: 5), s(32, 2, fix: 10), s(40, 5, fix: 25), s(41, 3, fix: 15)]
+        let out = DriveTrack.clean(xs)
+        XCTAssertEqual(steps(out), [0, 4, 5])
+        let fixes = out.compactMap(\.locationFixAt)
+        XCTAssertEqual(fixes, fixes.sorted())
+    }
+
+    func testASampleWithNoFixTimeIsTakenAsFixedWhenItArrived() {
+        XCTAssertEqual(steps(DriveTrack.clean([s(0, 0), s(5, 1), s(10, 2, fix: 10), s(15, 3)])), [0, 1, 2, 3])
+    }
+
+    func testAFixStampedAfterItsOwnFrameIsNotBelieved() {
+        // b claims a fix an hour after it arrived. Believed, every later sample would look older and vanish.
+        let xs = [s(0, 0, fix: 0), s(5, 1, fix: 3600), s(10, 2, fix: 10), s(15, 3, fix: 15)]
+        XCTAssertEqual(steps(DriveTrack.clean(xs)), [0, 1, 2, 3])
+    }
+
+    func testASampleWithNoPositionPassesThroughAndMovesNothing() {
+        let noPos = s(7, 0, fix: 7, lat: 0).with(lon: 0)
+        XCTAssertEqual(DriveTrack.clean([s(0, 0, fix: 0), s(5, 1, fix: 5), noPos, s(10, 2, fix: 10)]).count, 4)
+    }
+
+    func testUnsortedInputGivesTheSameAnswer() {
+        let xs = [s(10, 2, fix: 10), s(0, 0, fix: 0), s(15, 1, fix: 5), s(5, 1, fix: 5)]
+        XCTAssertEqual(steps(DriveTrack.clean(xs)), [0, 1, 2])
+    }
+
+    func testNothingAndOneSample() {
+        XCTAssertTrue(DriveTrack.clean([]).isEmpty)
+        XCTAssertEqual(steps(DriveTrack.clean([s(0, 0, fix: 0)])), [0])
+    }
+
+    func testAFrozenFixLeavesTheFirstSample() {
+        XCTAssertEqual(steps(DriveTrack.clean([s(0, 0, fix: 0), s(5, 0, fix: 0), s(10, 0, fix: 0)])), [0])
+    }
+
+    /// Through RouteSnap.path, as the drive screen builds the line: every third sample repeats the previous fix and every seventh carries the
+    /// fix of the sample four steps back, so in arrival order the line would jump back. The path only ever moves forward.
+    func testThePathOnlyMovesForward() throws {
+        let json = #"{"ID":"d1","VehicleID":"veh-fixture","StartedAt":"2026-10-20T15:00:00Z","EndedAt":"2026-10-20T15:10:00Z","StartLat":10.0,"StartLon":10.0,"EndLat":10.07,"EndLon":10.07}"#
+        let d = try JSON.decoder().decode(DriveRoute.self, from: Data(json.utf8))
+        let start = JSON.parseDate("2026-10-20T15:01:00Z")!.timeIntervalSince1970 - t0
+        let samples: [DriveSample] = (0..<60).map { i in
+            var step = Double(i)
+            if i % 7 == 0 && i > 4 { step = Double(i - 4) } else if i % 3 == 0 && i > 0 { step = Double(i - 1) }
+            return s(start + Double(i) * 5, step + 1, fix: start + step * 5)
+        }
+        let path = try XCTUnwrap(RouteSnap.path(drive: d, samples: samples))
+        XCTAssertLessThan(path.points.count, 60 + 2)
+        XCTAssertGreaterThan(path.points.count, 30)
+        for (a, b) in zip(path.points, path.points.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.lat, b.lat, "the line went back")
+            XCTAssertLessThanOrEqual(a.lon, b.lon, "the line went back")
+        }
+    }
+}
+
+private extension DriveSample {
+    /// The same sample at another longitude (for a sample with no position at all).
+    func with(lon: Double) -> DriveSample {
+        DriveSample(at: at, lat: lat, lon: lon, speedMph: speedMph, shiftState: shiftState, locationFixAt: locationFixAt)
+    }
+}
