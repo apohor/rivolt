@@ -4,13 +4,22 @@ import XCTest
 /// The Efficiency and Elevation colour modes, with the web's metrics.test.ts cases: a made-up straight drive of samples about 0.1 mi apart,
 /// the battery falling faster on the climbs (a wave), altitude rising.
 final class RouteMetricsTests: XCTestCase {
-    private func socWave(_ i: Int) -> Double { 80 - (0.083 * Double(i) + 0.06 * 9 * (1 - cos(Double(i) / 9))) }
+    private func socWave(_ i: Int) -> Double {
+        let x = Double(i)
+        let wave: Double = 0.06 * 9.0 * (1.0 - cos(x / 9.0))
+        let trend: Double = 0.083 * x
+        return 80.0 - (trend + wave)
+    }
 
     private func drive(_ n: Int, soc: ((Int) -> Double?)? = nil, alt: ((Int) -> Double?)? = nil) -> [RouteMetrics.Sample] {
-        (0..<n).map { i in
-            RouteMetrics.Sample(lat: 10 + Double(i) * 0.0015, lon: 10, alt: alt.map { $0(i) } ?? (100 + Double(i) * 2),
-                                soc: soc.map { $0(i) } ?? socWave(i), odo: 5000 + Double(i) * 0.1)
+        var out: [RouteMetrics.Sample] = []
+        for i in 0..<n {
+            let x = Double(i)
+            let altitude: Double? = alt.map { $0(i) } ?? (100.0 + x * 2.0)
+            let level: Double? = soc.map { $0(i) } ?? socWave(i)
+            out.append(RouteMetrics.Sample(lat: 10.0 + x * 0.0015, lon: 10, alt: altitude, soc: level, odo: 5000.0 + x * 0.1))
         }
+        return out
     }
 
     func testALongDriveWithBatteryAndAltitudeHasBothModes() {
