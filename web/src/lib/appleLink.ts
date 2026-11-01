@@ -4,11 +4,13 @@ import { APPLE_LINK_COPY } from "../content/appleLinkCopy";
 const returned = APPLE_LINK_COPY.returned;
 
 // returnMessage is what to tell the person when Apple sent them back to Settings with ?apple=<code>; null for a code we don't know (nothing is shown).
-export function returnMessage(code: string | null): { text: string; bad: boolean } | null {
+export type Note = { text: string; tone: "good" | "bad" | "info" };
+
+export function returnMessage(code: string | null): Note | null {
   if (!code) return null;
   const text = returned[code];
   if (!text) return null;
-  return { text, bad: code !== "linked" };
+  return { text, tone: code === "linked" ? "good" : "bad" };
 }
 
 // failureMessage is what to tell the person when connecting or disconnecting did not work. Never the server's own text.

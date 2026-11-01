@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { ApiError, backend } from "../lib/api";
-import { failureMessage, returnMessage } from "../lib/appleLink";
+import { failureMessage, returnMessage, type Note } from "../lib/appleLink";
 import { APPLE_LINK_COPY as copy } from "../content/appleLinkCopy";
 import { Card } from "./ui";
 
@@ -14,9 +14,24 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
   const qc = useQueryClient();
   const status = useQuery({ queryKey: ["auth", "apple-link"], queryFn: () => backend.appleLink(), retry: 0, staleTime: 15_000 });
   const [params, setParams] = useSearchParams();
-  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(() => returnMessage(params.get("apple")));
+  const [note, setNote] = useState<Note | null>(() => returnMessage(params.get("apple")));
   const [mode, setMode] = useState<"connect" | "disconnect" | null>(null);
   const [password, setPassword] = useState("");
+  const ids = { blocked: useId(), body: useId() };
+  // When the prompt or the confirm closes, focus goes back to the button that opened it (it is a new element, so it is found after the render).
+  const opener = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (mode === null && refocus.current) {
+      refocus.current = false;
+      opener.current?.focus();
+    }
+  }, [mode]);
+  const close = () => {
+    refocus.current = true;
+    setMode(null);
+    setPassword("");
+  };
 
   // The return from Apple is shown once and then taken out of the address, so a reload does not repeat it.
   useEffect(() => {
@@ -32,25 +47,25 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
     mutationFn: () => backend.appleLinkStart(password),
     onSuccess: (r) => {
       setPassword("");
-      setNote({ text: copy.connecting, bad: false });
+      setNote({ text: copy.connecting, tone: "info" });
       go(r.url);
     },
     onError: (e) => {
       setPassword("");
-      setNote({ text: failureMessage(e), bad: true });
+      setNote({ text: failureMessage(e), tone: "bad" });
     },
   });
   const disconnect = useMutation({
     mutationFn: () => backend.appleUnlink(password),
     onSuccess: () => {
       setPassword("");
-      setMode(null);
-      setNote({ text: copy.disconnected, bad: false });
+      close();
+      setNote({ text: copy.disconnected, tone: "good" });
       void qc.invalidateQueries({ queryKey: ["auth", "apple-link"] });
     },
     onError: (e) => {
       setPassword("");
-      setNote({ text: failureMessage(e), bad: true });
+      setNote({ text: failureMessage(e), tone: "bad" });
     },
   });
 
@@ -79,17 +94,19 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
         </p>
         <p className="max-w-xl text-xs text-neutral-500">{linked ? copy.connectedLine : copy.connectLine}</p>
         {note && (
-          <p role="status" data-apple-note className={`max-w-xl text-xs ${note.bad ? "text-rose-400" : "text-neutral-400"}`}>
+          <p role="status" data-apple-note data-tone={note.tone} className={`max-w-xl text-xs ${note.tone === "bad" ? "text-rose-400" : note.tone === "good" ? "text-emerald-300" : "text-neutral-400"}`}>
             {note.text}
           </p>
         )}
         {!hasPassword ? (
           linked ? (
             <div data-apple-needs-password className="space-y-1">
-              <button type="button" disabled className="cursor-not-allowed rounded-md border border-neutral-800 px-3 py-1.5 text-xs text-neutral-500">
+              <button type="button" disabled aria-describedby={ids.blocked} className="cursor-not-allowed rounded-md border border-neutral-800 px-3 py-1.5 text-xs text-neutral-500">
                 {copy.disconnect}
               </button>
-              <p className="max-w-xl text-xs text-neutral-500">{copy.cannotDisconnect}</p>
+              <p id={ids.blocked} className="max-w-xl text-xs text-neutral-500">
+                {copy.cannotDisconnect}
+              </p>
             </div>
           ) : (
             <div data-apple-needs-password className="max-w-xl space-y-1">
@@ -100,7 +117,11 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
         ) : mode ? (
           <form onSubmit={submit} className="space-y-2 rounded-lg border border-neutral-800 p-3">
             <p className="text-sm font-medium text-neutral-200">{mode === "connect" ? copy.connectPromptTitle : copy.disconnectTitle}</p>
-            {mode === "disconnect" && <p className="max-w-xl text-xs text-neutral-500">{copy.disconnectBody}</p>}
+            {mode === "disconnect" && (
+              <p id={ids.body} className="max-w-xl text-xs text-neutral-500">
+                {copy.disconnectBody}
+              </p>
+            )}
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
               {copy.passwordLabel}
               <input
@@ -108,6 +129,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
                 required
                 autoFocus
                 autoComplete="current-password"
+                aria-describedby={mode === "disconnect" ? ids.body : undefined}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full max-w-xs rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100"
@@ -124,10 +146,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => {
-                  setMode(null);
-                  setPassword("");
-                }}
+                onClick={close}
                 className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300"
               >
                 {mode === "connect" ? copy.cancel : copy.keep}
@@ -137,6 +156,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
         ) : (
           <button
             type="button"
+            ref={opener}
             onClick={() => {
               setNote(null);
               setMode(linked ? "disconnect" : "connect");

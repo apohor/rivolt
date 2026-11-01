@@ -80,8 +80,10 @@ describe("AppleLinkCard", () => {
     renderCard();
     expect(await screen.findByText(copy.connected)).toBeTruthy();
     expect(screen.getByText(copy.cannotDisconnect)).toBeTruthy();
-    // The button is there, but disabled: the line says why.
-    expect((screen.getByRole("button", { name: copy.disconnect }) as HTMLButtonElement).disabled).toBe(true);
+    // The button is there, but disabled, and a screen reader is given the reason by name.
+    const btn = screen.getByRole("button", { name: copy.disconnect }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(document.getElementById(btn.getAttribute("aria-describedby") ?? "")?.textContent).toBe(copy.cannotDisconnect);
   });
 
   it("disconnects: confirms with the password, posts it, and says it is done", async () => {
@@ -96,7 +98,9 @@ describe("AppleLinkCard", () => {
     expect(screen.getByText(copy.disconnectBody)).toBeTruthy();
     typePassword("right");
     fireEvent.click(screen.getByRole("button", { name: copy.confirmDisconnect }));
-    expect(await screen.findByText(copy.disconnected)).toBeTruthy();
+    const done = await screen.findByText(copy.disconnected);
+    expect(done.getAttribute("data-tone")).toBe("good"); // reads as done: the accent green, not neutral grey
+    expect(done.className).toContain("text-emerald-300");
     expect(JSON.parse(String((posted(fetchMock, "/api/auth/apple-link/unlink")[0][1] as RequestInit).body))).toEqual({ password: "right" });
   });
 
@@ -106,17 +110,19 @@ describe("AppleLinkCard", () => {
     fireEvent.click(await screen.findByRole("button", { name: copy.disconnect }));
     fireEvent.click(screen.getByRole("button", { name: copy.keep }));
     expect(screen.queryByText(copy.disconnectTitle)).toBeNull();
+    // Focus goes back to the button that opened the confirm.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: copy.disconnect }));
     expect(posted(fetchMock, "/api/auth/apple-link/unlink")).toHaveLength(0);
   });
 
   it("shows what Apple sent the person back with, and not an unknown code", async () => {
     stubFetchRoutes({ "/api/auth/apple-link": status() });
     renderCard(vi.fn(), "/settings?apple=apple_in_use");
-    expect(await screen.findByText(copy.returned.apple_in_use)).toBeTruthy();
+    expect((await screen.findByText(copy.returned.apple_in_use)).getAttribute("data-tone")).toBe("bad"); // errors stay rose
     cleanup();
     stubFetchRoutes({ "/api/auth/apple-link": status({ linked: true }) });
     renderCard(vi.fn(), "/settings?apple=linked");
-    expect(await screen.findByText(copy.returned.linked)).toBeTruthy();
+    expect((await screen.findByText(copy.returned.linked)).getAttribute("data-tone")).toBe("good");
     cleanup();
     stubFetchRoutes({ "/api/auth/apple-link": status() });
     renderCard(vi.fn(), "/settings?apple=nonsense");
