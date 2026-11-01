@@ -3,19 +3,19 @@ import Markdown, { type Components } from "../lib/miniMarkdown";
 import { Link, useLocation } from "react-router-dom";
 import Logo from "./Logo";
 import { useSystemTheme } from "../lib/theme";
+import { headingId } from "../lib/headingId";
 
 // A public legal page (Privacy, Terms): rendered from one markdown source, styled with the theme
-// tokens, public (no layout, no API). Headings that start with a number ("## 2. ...") get id="2",
-// so /terms#2 lands on the section.
+// tokens, public (no layout, no API). A "##" heading that starts with a number ("## 2. ...") gets id="2", so /terms#2 lands on the
+// section; any other gets a slug of its text ("## Free and Pro" -> id="free-and-pro", /support#free-and-pro). See lib/headingId.ts.
 const textOf = (children: React.ReactNode): string =>
   Array.isArray(children) ? children.map(textOf).join("") : typeof children === "string" ? children : "";
 
 const mdComponents: Components = {
       h1: (p) => <h1 className="text-3xl font-semibold tracking-tight text-neutral-50" {...p} />,
       h2: ({ children, ...p }) => {
-        const m = textOf(children).match(/^(\d+)\./);
         return (
-          <h2 id={m ? m[1] : undefined} className="scroll-mt-4 pt-4 text-xl font-semibold text-neutral-50" {...p}>
+          <h2 id={headingId(textOf(children))} className="scroll-mt-4 pt-4 text-xl font-semibold text-neutral-50" {...p}>
             {children}
           </h2>
         );
