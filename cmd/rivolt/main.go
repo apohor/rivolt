@@ -2709,6 +2709,8 @@ func runServer() {
 		}
 		// Apple notification replay guard (hashes only; the freshness window is an hour).
 		jobs = append(jobs, retention.Job{Name: "apple_notification_seen", Run: appleid.New(pgPool, nil).PurgeSeen})
+		// Apple link requests (hashes only; each lives ten minutes).
+		jobs = append(jobs, retention.Job{Name: "apple_link_intents", Run: appleid.New(pgPool, nil).PurgeLinkIntents})
 		// Expired iPhone-app sign-in attempts (minutes-long; kept a day).
 		if appAuth != nil {
 			jobs = append(jobs, retention.Job{Name: "app_auth_requests", Run: appAuth.Store.Purge})
