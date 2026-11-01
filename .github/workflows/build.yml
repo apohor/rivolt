@@ -810,6 +810,27 @@ jobs:
           path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
+  # A change to a policy page's text must also move its "Last updated" date (DA's standing rule; the pages and the exempt frozen
+  # Terms are listed in .github/scripts/policy-date-check.sh). Pull requests only; a few seconds, no build.
+  policy-dates:
+    name: policy-dates
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: The check's own tests
+        run: bash .github/scripts/policy-date-check.test.sh
+      - name: Policy text changed, date moved
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # As in the changes job: a PR checks out its merge into the base, so HEAD^1..HEAD is exactly what the PR changes.
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          bash .github/scripts/policy-date-check.sh "$base" HEAD
+
   # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
   # runs beside `go` and adds nothing to the critical path, and so a lint finding
   # never hides test results. NOT a required check until it has stayed green; main
