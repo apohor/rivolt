@@ -177,6 +177,9 @@ func TestAppleLinkStartWithoutAPasswordIsRefused(t *testing.T) {
 		if len(r.begin.intents) != 0 {
 			t.Errorf("%s: a request was recorded", name)
 		}
+		if len(r.outcomes) != 1 || r.outcomes[0] != "password_needed" {
+			t.Errorf("%s: outcomes %v, want [password_needed]", name, r.outcomes)
+		}
 	}
 }
 

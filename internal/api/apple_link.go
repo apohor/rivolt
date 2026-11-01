@@ -72,7 +72,11 @@ func (a *appleLinkAPI) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if code, status := a.reauthenticate(w, r, uid); code != "" {
-		a.observe("reauth_refused")
+		if code == "password_needed_to_link" {
+			a.observe("password_needed") // counted apart: how many accounts have no password to link with
+		} else {
+			a.observe("reauth_refused")
+		}
 		writeJSON(w, status, map[string]any{"error": code})
 		return
 	}
