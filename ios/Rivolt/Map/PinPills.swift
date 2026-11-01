@@ -53,17 +53,20 @@ enum PinPills {
             }
         }
         let order: [Side] = (rightRoom >= leftRoom ? [.right, .left] : [.left, .right]) + [.above, .below]
-        let fits = order.map(candidate).first { s in bounds.contains(s.rect) && !avoiding.contains { $0.intersects(s.rect) } }
-        // Nothing fits (a tiny map): the roomier side, nudged inside, rather than no pill.
-        guard let fits else {
-            var s = candidate(order[0])
-            let dx = max(0, bounds.minX - s.rect.minX) - max(0, s.rect.maxX - bounds.maxX)
-            let dy = max(0, bounds.minY - s.rect.minY) - max(0, s.rect.maxY - bounds.maxY)
+        // A side that fits as it is, and is clear of `avoiding`, wins outright.
+        if let fits = order.map(candidate).first(where: { s in bounds.contains(s.rect) && !avoiding.contains { $0.intersects(s.rect) } }) { return fits }
+        // Else the first side that is clear once nudged inside the map (a pin near an edge), else the roomier side nudged, rather than no pill.
+        func nudged(_ side: Side) -> Spot {
+            var s = candidate(side)
+            var dx = -max(0, s.rect.maxX - bounds.maxX)
+            dx += max(0, bounds.minX - (s.rect.minX + dx))
+            var dy = -max(0, s.rect.maxY - bounds.maxY)
+            dy += max(0, bounds.minY - (s.rect.minY + dy))
             s.rect = s.rect.offsetBy(dx: dx, dy: dy)
             s.anchor = CGPoint(x: s.anchor.x + dx, y: s.anchor.y + dy)
             return s
         }
-        return fits
+        return order.map(nudged).first { s in !avoiding.contains { $0.intersects(s.rect) } } ?? nudged(order[0])
     }
 
     /// The corners other things sit in: the legend (bottom left) and the credit (bottom right).

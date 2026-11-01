@@ -15,8 +15,8 @@ final class PinPillsTests: XCTestCase {
 
     func testThePillStaysInsideTheMapAndClearOfTheCorners() {
         let keep = PinPills.keepClear(size: size, legend: true)
-        // A pin at the bottom left: right of it sits on the legend, so the pill goes above.
-        let s = PinPills.place(pin: CGPoint(x: 30, y: 200), width: 90, in: size, avoiding: keep)
+        // A pin near the bottom left: right of it sits on the legend, so the pill goes above (nudged in from the edge).
+        let s = PinPills.place(pin: CGPoint(x: 30, y: 175), width: 90, in: size, avoiding: keep)
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: PinPills.margin, dy: PinPills.margin)
         XCTAssertTrue(bounds.contains(s.rect), "\(s.rect)")
         XCTAssertFalse(keep.contains { $0.intersects(s.rect) }, "the pill must not sit on the legend or the credit")
@@ -43,7 +43,11 @@ final class PinPillsTests: XCTestCase {
 
     func testATinyMapStillGetsAPillInsideIt() {
         let tiny = CGSize(width: 120, height: 60)
-        let s = PinPills.place(pin: CGPoint(x: 60, y: 30), width: 140, in: tiny, avoiding: PinPills.keepClear(size: tiny, legend: true))
+        let s = PinPills.place(pin: CGPoint(x: 60, y: 30), width: 80, in: tiny, avoiding: PinPills.keepClear(size: tiny, legend: true))
         XCTAssertGreaterThanOrEqual(s.rect.minX, PinPills.margin - 0.001)
+        XCTAssertLessThanOrEqual(s.rect.maxX, tiny.width - PinPills.margin + 0.001)
+        // Wider than the map itself: pinned to the left margin, never off the left edge.
+        let wide = PinPills.place(pin: CGPoint(x: 60, y: 30), width: 140, in: tiny, avoiding: [])
+        XCTAssertGreaterThanOrEqual(wide.rect.minX, PinPills.margin - 0.001)
     }
 }
