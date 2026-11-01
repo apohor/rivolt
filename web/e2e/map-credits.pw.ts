@@ -95,6 +95,22 @@ for (const theme of ["dark", "light"] as const) {
     await page.keyboard.press("Tab");
     await expect(zoomIn).toBeFocused();
     expect(await zoomIn.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    // The ring is closed on all four sides: the button below it does not cover its bottom edge (the point just inside the bottom edge hits
+    // the focused button itself, not the next one).
+    for (const zoom of [zoomIn, map.locator(".maplibregl-ctrl-zoom-out")]) {
+      await zoom.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await expect(zoom).toBeFocused();
+      const hit = await zoom.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        // The point may land on the icon inside the button: the button must contain what is hit, not a neighbour.
+        const at = (y: number) => document.elementFromPoint(r.left + r.width / 2, y);
+        return !!at(r.bottom - 1) && el.contains(at(r.bottom - 1)) && !!at(r.top + 1) && el.contains(at(r.top + 1));
+      });
+      expect(hit, "a neighbouring button covers the focused one's top or bottom edge").toBe(true);
+      expect(await zoom.evaluate((el) => getComputedStyle(el).zIndex)).toBe("1");
+    }
     expect(await zoomIn.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
     await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-zoom-${theme}.png`) });
     await ctx.close();
