@@ -144,6 +144,9 @@ actor APIClient {
     private struct ApnsRegisterBody: Encodable {
         let token: String
         let env: String
+        let installId: String?
+
+        private enum CodingKeys: String, CodingKey { case token, env, installId = "install_id" }
     }
 
     private struct ApnsRegistered: Decodable {
@@ -156,8 +159,8 @@ actor APIClient {
 
     /// Tells the server this phone's Apple device token. The server answers with
     /// the phone's switches (new phones start with the web's defaults).
-    func registerApns(token: String, environment: String) async throws -> PushPreferences {
-        let r: ApnsRegistered = try await request("POST", "/api/push/apns/register", body: ApnsRegisterBody(token: token, env: environment))
+    func registerApns(token: String, environment: String, installID: String?) async throws -> PushPreferences {
+        let r: ApnsRegistered = try await request("POST", "/api/push/apns/register", body: ApnsRegisterBody(token: token, env: environment, installId: installID))
         return r.preferences
     }
 

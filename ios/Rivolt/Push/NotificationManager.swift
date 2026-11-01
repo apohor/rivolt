@@ -13,7 +13,7 @@ enum NotificationPresentation {
 /// The server calls push needs. `APIClient` is the real one; tests use a fake.
 protocol PushServer: Sendable {
     func appConfig() async throws -> AppConfig
-    func registerApns(token: String, environment: String) async throws -> PushPreferences
+    func registerApns(token: String, environment: String, installID: String?) async throws -> PushPreferences
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws
     func unregisterApns(token: String) async throws
     func testApns() async throws -> Int
@@ -134,7 +134,11 @@ final class NotificationManager {
         self.init(system: SystemNotifications(), defaults: .standard, environment: Self.defaultEnvironment)
     }
 
-    init(system: NotificationSystem, defaults: UserDefaults, environment: String) {
+    /// This install's id, sent with the token (`InstallID`).
+    private let installID: () -> String?
+
+    init(system: NotificationSystem, defaults: UserDefaults, environment: String, installID: @escaping () -> String? = { InstallID.current() }) {
+        self.installID = installID
         self.system = system
         self.defaults = defaults
         self.environment = environment
@@ -281,8 +285,12 @@ final class NotificationManager {
         let wasRegistered = registration == .registered
         if !wasRegistered { registration = .registering }
         do {
-            preferences = try await server.registerApns(token: token, environment: environment)
+            preferences = try await server.registerApns(token: token, environment: environment, installID: installID())
             registration = .registered
+        } catch APIError.server(status: 409, _) {
+            // The token is registered to another account from another install: not this person's to fix, and nothing to show. The next launch
+            // tries again (the token may be theirs by then).
+            if !wasRegistered { registration = .idle }
         } catch {
             if !wasRegistered { registration = .failed("Rivolt couldn't register this iPhone. Try again.") }
         }

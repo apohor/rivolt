@@ -7,7 +7,7 @@ private final class LiveFakeServer: PushServer, @unchecked Sendable {
     var ended: [String] = []
 
     func appConfig() async throws -> AppConfig { AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: true)) }
-    func registerApns(token: String, environment: String) async throws -> PushPreferences { PushPreferences() }
+    func registerApns(token: String, environment: String, installID: String?) async throws -> PushPreferences { PushPreferences() }
     func setApnsPreference(token: String, wireKey: String, on: Bool) async throws {}
     func unregisterApns(token: String) async throws {}
     func testApns() async throws -> Int { 1 }
