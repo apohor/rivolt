@@ -160,3 +160,102 @@ func TestNotificationStorage(t *testing.T) {
 		t.Errorf("cleared flag should restore the address, got %q", e)
 	}
 }
+
+// A link intent: made by an authenticated start, consumed once, tied to the session that made it, replaced by a newer
+// one, expired after ten minutes, dropped at sign-out and with the account.
+func TestLinkIntent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	a, err := db.EnsureUser(ctx, pool, "link-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.EnsureUser(ctx, pool, "link-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := appleid.New(pool, nil)
+	now := time.Now()
+	state1, state2, sessA, sessB := appleid.Hash("state-1"), appleid.Hash("state-2"), appleid.Hash("session-a"), appleid.Hash("session-b")
+
+	if err := st.CreateLinkIntent(ctx, a, state1, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	in, ok, err := st.ConsumeLinkIntent(ctx, state1, now.Add(time.Minute))
+	if err != nil || !ok || in.UserID != a || string(in.SessionHash) != string(sessA) {
+		t.Fatalf("consume = %+v, %v, %v; want a's intent", in, ok, err)
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now.Add(time.Minute)); ok {
+		t.Error("an intent was consumed twice")
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, appleid.Hash("never-made"), now); ok {
+		t.Error("an unknown state matched an intent")
+	}
+
+	// Starting again replaces the open intent: the old state no longer works.
+	if err := st.CreateLinkIntent(ctx, a, state1, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateLinkIntent(ctx, a, state2, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now); ok {
+		t.Error("a replaced intent still worked")
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state2, now); !ok {
+		t.Error("the newer intent did not work")
+	}
+
+	// Expired: refused, and the row is spent all the same.
+	if err := st.CreateLinkIntent(ctx, a, state1, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now.Add(appleid.LinkIntentTTL+time.Second)); ok {
+		t.Error("an expired intent worked")
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now); ok {
+		t.Error("an expired intent was not spent by the refused attempt")
+	}
+
+	// Sign-out of a session drops its intents and only its.
+	if err := st.CreateLinkIntent(ctx, a, state1, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateLinkIntent(ctx, b, state2, sessB, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DropSessionLinkIntents(ctx, sessA); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now); ok {
+		t.Error("a signed-out session's intent survived")
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state2, now); !ok {
+		t.Error("another session's intent was dropped")
+	}
+
+	// Retention sweeps old rows; the account's deletion takes the rest.
+	if err := st.CreateLinkIntent(ctx, a, state1, sessA, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE apple_link_intents SET created_at = now() - interval '2 days'`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.PurgeLinkIntents(ctx); err != nil || n != 1 {
+		t.Fatalf("PurgeLinkIntents = %d, %v; want 1", n, err)
+	}
+	if err := st.CreateLinkIntent(ctx, b, state2, sessB, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.ConsumeLinkIntent(ctx, state2, now); ok {
+		t.Error("an intent outlived its account")
+	}
+}
