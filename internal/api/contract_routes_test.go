@@ -52,10 +52,11 @@ type clientCall struct {
 // ignoredClientCalls (key: "swift|web METHOD path") are literals that look like calls but are not served by a route of this router, each with why. An entry that
 // matches no call in the source fails the test, so the list cannot rot.
 var ignoredClientCalls = map[string]string{
-	"swift GET /api":                 "WidgetFetch.request checks that a path the widget was handed starts with \"/api/\"; it is a prefix test, not a call",
-	"web POST /api/billing/checkout": "Pro 9 web mock: the billing API is not built yet (paid-tier-plan.md section 3); delete this entry when item 1 mounts the route, so the contract check covers it",
-	"web POST /api/billing/portal":   "as above",
-	"web GET /api/auth/hydra":        "api.ts's 401 handler checks url.startsWith(\"/api/auth/hydra/\") to leave the signed-out Hydra sign-in alone; it is a prefix test, not a call",
+	"swift GET /api": "WidgetFetch.request checks that a path the widget was handed starts with \"/api/\"; it is a prefix test, not a call",
+	"swift POST /api/billing/apple/transaction": "mounted only where StoreKit is configured (Deps.AppleIAPTransaction: RIVOLT_APPLE_IAP_BUNDLE_ID); the app sends it only when /api/app/config carries iap, which the server shows on the same condition",
+	"web POST /api/billing/checkout":            "Pro 9 web mock: the billing API is not built yet (paid-tier-plan.md section 3); delete this entry when item 1 mounts the route, so the contract check covers it",
+	"web POST /api/billing/portal":              "as above",
+	"web GET /api/auth/hydra":                   "api.ts's 401 handler checks url.startsWith(\"/api/auth/hydra/\") to leave the signed-out Hydra sign-in alone; it is a prefix test, not a call",
 }
 
 // readInterpolated reads a string literal body from s starting at i (just after the opening quote) and returns the body with every
