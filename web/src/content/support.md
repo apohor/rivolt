@@ -18,6 +18,8 @@ Sign in to rivolt.dev and add your Rivian account on the Connect step. We recomm
 **I connected, but I don't see my truck or any data.**
 The usual cause is a driver account whose invite has not been accepted yet: sign in to the Rivian app on a phone with that account once, then tap Check again in Rivolt. Drives and charges appear as the truck is used.
 
+## Free and Pro
+
 **What is free?**
 Recording every drive and charge on every connected vehicle; Now, Activity, Money and Truck for the last 90 days; the monthly statement and its email, with a CSV download for each of the three months the statement shows; a single-day trip planner with charging stops; three saved trips; share cards; imports from ElectraFi, TezLab and ABRP; every alert (charge done, plug-in reminder, left open, software updates, anomalies); and the full export of everything Rivolt holds, including history older than 90 days. One vehicle is shown at a time.
 
@@ -26,6 +28,8 @@ Rivolt Pro is $3.99 a month or $34.99 a year, the same price on the web and in t
 
 **What happens if I stop paying?**
 Nothing is deleted. Your account goes back to the free tier: the last 90 days stay visible, everything older stays stored and stays in the free export, and it all reappears if you subscribe again. Cancel on the web from Settings → Account → Plan (it opens Stripe's portal, no questions asked) or on iPhone from your Apple subscriptions. Web subscriptions can be refunded within 14 days by emailing us; Apple handles refunds for purchases made in the app. If Rivolt cannot reach Rivian for 30 consecutive days, or we stop the service, we refund the unused part of your Pro period.
+
+## More questions
 
 **Does Rivolt wake my truck?**
 Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
