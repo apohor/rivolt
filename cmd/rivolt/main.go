@@ -2282,7 +2282,11 @@ func runServer() {
 	// requires pgPool (we need EnsureUserFull and a sessions
 	// store) — emit a clear error rather than silently dropping.
 	var oidcSvc *oidc.Service
-	var appleNotifier http.Handler // an interface, so it stays nil unless the Apple provider is set up
+	var appleNotifier http.Handler    // an interface, so it stays nil unless the Apple provider is set up
+	var appleLinkAccounts interface { // whether an account is linked to Apple, and unlinking it; nil without the OIDC service
+		Linked(ctx context.Context, uid uuid.UUID) (bool, error)
+		Unlink(ctx context.Context, uid uuid.UUID) error
+	}
 	var appleLinkStore interface { // sign-out drops the Apple link requests of its session; nil without the OIDC service
 		DropSessionLinkIntents(ctx context.Context, sessionHash []byte) error
 	}
@@ -2361,6 +2365,7 @@ func runServer() {
 		}
 		oidcSvc = svc
 		appleLinkStore = appleid.New(pgPool, nil)
+		appleLinkAccounts = appleid.New(pgPool, secretsStore)
 		// Apple's server-to-server notifications, when the Apple provider is configured.
 		for _, p := range provs {
 			if p.Kind == "apple" && sessionStore != nil {
@@ -2988,6 +2993,7 @@ func runServer() {
 		OIDC:                  oidcSvc,
 		AppleNotifications:    appleNotifier,
 		AppleLinkIntents:      appleLinkStore,
+		AppleLinkAccounts:     appleLinkAccounts,
 		StripeWebhook:         stripeWebhook,
 		StripeBilling:         stripeBilling,
 		StripeClosure:         stripeClosure,

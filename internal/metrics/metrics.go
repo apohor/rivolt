@@ -34,9 +34,9 @@ import (
 
 // AppleLinkOutcomes are the rivolt_apple_link_total outcomes, all created at 0 at boot: started (a link began), linked,
 // in_use (that Apple ID belongs to another account), account_linked (this account has another Apple ID), expired (no
-// open request, a spent one, or the session ended), reauth_refused (start without the right password), password_needed (the account has no password to link with: Google or GitHub only),
+// open request, a spent one, or the session ended), reauth_refused (start without the right password), password_needed (the account has no password to link with: Google or GitHub only), unlinked, unlink_refused (the password check refused an unlink),
 // provider_error (Apple or our own failure on the way).
-var AppleLinkOutcomes = []string{"started", "linked", "in_use", "account_linked", "expired", "reauth_refused", "password_needed", "provider_error"}
+var AppleLinkOutcomes = []string{"started", "linked", "in_use", "account_linked", "expired", "reauth_refused", "password_needed", "unlinked", "unlink_refused", "provider_error"}
 
 // Metrics is the rivolt-specific instrumentation surface. One
 // instance is built at startup and shared with anything that

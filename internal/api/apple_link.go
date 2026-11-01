@@ -26,13 +26,22 @@ import (
 // the age of the session: a recently created session is no proof anyone typed anything, because Hydra's remembered login creates one
 // with no credential. An account with no password (it signs in only with Google or GitHub) cannot link yet; it is told so.
 
-// appleLinkAPI carries what the start uses.
+// appleLinkAPI carries what the start and unlink use.
 type appleLinkAPI struct {
 	OIDC interface {
 		BeginAppleLink(w http.ResponseWriter, r *http.Request, uid, sessionID uuid.UUID) (string, error)
 	}
 	Sessions interface {
 		Live(ctx context.Context, userID, id uuid.UUID) (created time.Time, ok bool, err error)
+	}
+	// Accounts is the account's Apple link (internal/appleid.Store).
+	Accounts interface {
+		Linked(ctx context.Context, uid uuid.UUID) (bool, error)
+		Unlink(ctx context.Context, uid uuid.UUID) error
+	}
+	// Revocation revokes the account's Apple token, or queues the revoke to retry (the account deletion's helper).
+	Revocation interface {
+		BeforeDelete(ctx context.Context, uid uuid.UUID) error
 	}
 	Kratos *kratos.Client
 	// Account is the account's sign-in email ("" when it has none).
@@ -48,36 +57,48 @@ func (a *appleLinkAPI) observe(outcome string) {
 	}
 }
 
-// start serves POST /api/auth/apple-link/start {"password": "..."} with {"url": "<where to send the browser>"}. The Apple state cookie
-// comes with the response.
-func (a *appleLinkAPI) start(w http.ResponseWriter, r *http.Request) {
+// authorize is what link and unlink both check first: a browser session of the caller's own that is still signed in, and the account's
+// password (see the file comment). refused is told the error code of a refused password check, to count it its own way.
+func (a *appleLinkAPI) authorize(w http.ResponseWriter, r *http.Request, refused func(code string)) (uuid.UUID, auth.SessionRef, bool) {
 	uid, ok := browserSessionGuard(w, r)
 	if !ok {
-		return
+		return uuid.Nil, auth.SessionRef{}, false
 	}
 	ref, ok := auth.SessionFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "needs_a_browser_session"})
-		return
+		return uuid.Nil, auth.SessionRef{}, false
 	}
 	_, live, err := a.Sessions.Live(r.Context(), uid, ref.ID)
 	if err != nil {
 		a.Logger.Error("apple link: session check", "err", logging.ScrubErr(err))
 		a.observe("provider_error")
 		http.Error(w, "unavailable", http.StatusInternalServerError)
-		return
+		return uuid.Nil, auth.SessionRef{}, false
 	}
 	if !live {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return uuid.Nil, auth.SessionRef{}, false
 	}
 	if code, status := a.reauthenticate(w, r, uid); code != "" {
+		refused(code)
+		writeJSON(w, status, map[string]any{"error": code})
+		return uuid.Nil, auth.SessionRef{}, false
+	}
+	return uid, ref, true
+}
+
+// start serves POST /api/auth/apple-link/start {"password": "..."} with {"url": "<where to send the browser>"}. The Apple state cookie
+// comes with the response.
+func (a *appleLinkAPI) start(w http.ResponseWriter, r *http.Request) {
+	uid, ref, ok := a.authorize(w, r, func(code string) {
 		if code == "password_needed_to_link" {
 			a.observe("password_needed") // counted apart: how many accounts have no password to link with
 		} else {
 			a.observe("reauth_refused")
 		}
-		writeJSON(w, status, map[string]any{"error": code})
+	})
+	if !ok {
 		return
 	}
 	authURL, err := a.OIDC.BeginAppleLink(w, r, uid, ref.ID)
@@ -94,6 +115,44 @@ func (a *appleLinkAPI) start(w http.ResponseWriter, r *http.Request) {
 	a.observe("started")
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"url": authURL})
+}
+
+// unlink serves POST /api/auth/apple-link/unlink {"password": "..."}: disconnect the account's Apple identity. The same checks as the
+// start. Lockout: the password the check needs is itself the other way in, so an account whose only way in is Apple (it has no password)
+// is refused and cannot unlink. Rivolt's Apple token is revoked at Apple first, or the revoke is queued to retry (the deletion path's
+// queue); only when neither works does the account stay linked. Then the link and the kept token go.
+func (a *appleLinkAPI) unlink(w http.ResponseWriter, r *http.Request) {
+	uid, _, ok := a.authorize(w, r, func(string) { a.observe("unlink_refused") })
+	if !ok {
+		return
+	}
+	linked, err := a.Accounts.Linked(r.Context(), uid)
+	if err != nil {
+		a.Logger.Error("apple unlink: lookup", "err", logging.ScrubErr(err))
+		a.observe("provider_error")
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	if !linked {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not_linked"})
+		return
+	}
+	if err := a.Revocation.BeforeDelete(r.Context(), uid); err != nil {
+		a.Logger.Error("apple unlink: revoke and queue both failed", "err", logging.ScrubErr(err))
+		a.observe("provider_error")
+		http.Error(w, "unavailable", http.StatusBadGateway)
+		return
+	}
+	if err := a.Accounts.Unlink(r.Context(), uid); err != nil {
+		a.Logger.Error("apple unlink", "err", logging.ScrubErr(err))
+		a.observe("provider_error")
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	a.Logger.Info("apple unlink", "outcome", "unlinked")
+	a.observe("unlinked")
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"unlinked": true})
 }
 
 // reauthenticate checks the password in the request. It returns an error code and status when the link must not go on, "" when it may.
@@ -141,7 +200,7 @@ func (a *appleLinkAPI) reauthenticate(w http.ResponseWriter, r *http.Request, ui
 // appleLinkAPI builds the start from the Deps, or nil when linking cannot work here: it needs the OIDC service (with an Apple provider
 // and the link store behind it), the sessions store and a database for the account's email, and is not on the admin deployment.
 func (d Deps) appleLinkAPI() *appleLinkAPI {
-	if d.OIDC == nil || d.Sessions == nil || d.Sessions.Store == nil || d.DB == nil || d.AdminOnly {
+	if d.OIDC == nil || d.AppleLinkAccounts == nil || d.Sessions == nil || d.Sessions.Store == nil || d.DB == nil || d.AdminOnly {
 		return nil
 	}
 	live, ok := d.Sessions.Store.(interface {
@@ -155,9 +214,11 @@ func (d Deps) appleLinkAPI() *appleLinkAPI {
 		logger = slog.Default()
 	}
 	a := &appleLinkAPI{
-		OIDC:     d.OIDC,
-		Sessions: live,
-		Kratos:   d.Kratos,
+		OIDC:       d.OIDC,
+		Sessions:   live,
+		Accounts:   d.AppleLinkAccounts,
+		Revocation: d.AppleRevocation,
+		Kratos:     d.Kratos,
 		Account: func(ctx context.Context, uid uuid.UUID) (string, error) {
 			var m sql.NullString
 			err := d.DB.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&m) // request pool: the caller's own row

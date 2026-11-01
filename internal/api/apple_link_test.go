@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -61,7 +62,30 @@ func (f fakeLive) Live(context.Context, uuid.UUID, uuid.UUID) (time.Time, bool, 
 	return f.created, f.live, nil
 }
 
+// fakeAccounts is the account's Apple link: linked, and Unlink clears it.
+type fakeAccounts struct {
+	linked   bool
+	unlinked int
+}
+
+func (f *fakeAccounts) Linked(context.Context, uuid.UUID) (bool, error) { return f.linked, nil }
+func (f *fakeAccounts) Unlink(context.Context, uuid.UUID) error {
+	f.linked = false
+	f.unlinked++
+	return nil
+}
+
+// fakeRevocation is AppleRevocation.BeforeDelete: it records the call, or fails.
+type fakeRevocation struct {
+	calls int
+	err   error
+}
+
+func (f *fakeRevocation) BeforeDelete(context.Context, uuid.UUID) error { f.calls++; return f.err }
+
 type linkRig struct {
+	accounts *fakeAccounts
+	revoke   *fakeRevocation
 	api      *appleLinkAPI
 	begin    *fakeBegin
 	outcomes []string
@@ -98,10 +122,11 @@ func newLinkRig(t *testing.T, age time.Duration, hasIdentity bool, account strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &linkRig{begin: &fakeBegin{intents: map[string]uuid.UUID{}, bySess: map[string][]string{}}, uid: uuid.New(), sid: uuid.New()}
+	r := &linkRig{accounts: &fakeAccounts{linked: true}, revoke: &fakeRevocation{}, begin: &fakeBegin{intents: map[string]uuid.UUID{}, bySess: map[string][]string{}}, uid: uuid.New(), sid: uuid.New()}
 	r.api = &appleLinkAPI{
 		OIDC:     r.begin,
 		Sessions: fakeLive{created: time.Now().Add(-age), live: true},
+		Accounts: r.accounts, Revocation: r.revoke,
 		Kratos:   kc,
 		Account:  func(context.Context, uuid.UUID) (string, error) { return account, nil },
 		Failures: newFailLimiter(10, 15*time.Minute),
@@ -121,6 +146,16 @@ func (r *linkRig) post(body string, mut func(*http.Request) *http.Request) *http
 	}
 	rec := httptest.NewRecorder()
 	r.api.start(rec, req)
+	return rec
+}
+
+// postUnlink is post for the unlink route.
+func (r *linkRig) postUnlink(body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/apple-link/unlink", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.WithSession(auth.WithUser(req.Context(), r.uid), auth.SessionRef{ID: r.sid, Kind: "web"}))
+	rec := httptest.NewRecorder()
+	r.api.unlink(rec, req)
 	return rec
 }
 
@@ -256,5 +291,89 @@ func TestTheStoreAndTheServiceHashTheSameWay(t *testing.T) {
 		if string(appleid.Hash(in)) != string(oidc.LinkHash(in)) {
 			t.Errorf("appleid.Hash and oidc.LinkHash differ for %q", in)
 		}
+	}
+}
+
+// Unlink: the password again, the token revoked (or queued), then the link gone.
+func TestAppleUnlinkRevokesThenRemovesTheLink(t *testing.T) {
+	r := newLinkRig(t, time.Second, true, appleLinkMail)
+	rec := r.postUnlink(`{"password":"right"}`)
+	if rec.Code != http.StatusOK || r.revoke.calls != 1 || r.accounts.unlinked != 1 || r.accounts.linked {
+		t.Fatalf("status %d, revoke calls %d, unlinked %d, still linked %v", rec.Code, r.revoke.calls, r.accounts.unlinked, r.accounts.linked)
+	}
+	if len(r.outcomes) != 1 || r.outcomes[0] != "unlinked" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("outcomes %v, cache-control %q", r.outcomes, rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestAppleUnlinkNeedsTheRightPassword(t *testing.T) {
+	r := newLinkRig(t, time.Second, true, appleLinkMail)
+	for body, want := range map[string]string{`{}`: "password_required", `{"password":"wrong"}`: "password_incorrect"} {
+		if rec := r.postUnlink(body); rec.Code != http.StatusForbidden || errCode(t, rec) != want {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if r.revoke.calls != 0 || r.accounts.unlinked != 0 || !r.accounts.linked {
+		t.Errorf("a refused unlink changed something: revoke %d, unlinked %d, linked %v", r.revoke.calls, r.accounts.unlinked, r.accounts.linked)
+	}
+	if strings.Join(r.outcomes, ",") != "unlink_refused,unlink_refused" {
+		t.Errorf("outcomes %v", r.outcomes)
+	}
+}
+
+// The lockout rule: the password the check needs is itself the other way in, so an account with no password (its only way in may be
+// Apple) cannot unlink. One case per kind of account that has none.
+func TestAppleUnlinkIsRefusedForAnAccountWithNoOtherWayIn(t *testing.T) {
+	for name, r := range map[string]*linkRig{
+		"no email on file":                    newLinkRig(t, time.Second, true, ""),
+		"no Kratos identity (Google, GitHub)": newLinkRig(t, time.Second, false, appleLinkMail),
+		"no identity, older session":          newLinkRig(t, 3*time.Hour, false, appleLinkMail),
+	} {
+		rec := r.postUnlink(`{"password":"right"}`)
+		if rec.Code != http.StatusForbidden || errCode(t, rec) != "password_needed_to_link" {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
+		if r.revoke.calls != 0 || r.accounts.unlinked != 0 || !r.accounts.linked {
+			t.Errorf("%s: a refused unlink changed something", name)
+		}
+	}
+}
+
+func TestAppleUnlinkOfAnAccountThatIsNotLinked(t *testing.T) {
+	r := newLinkRig(t, time.Second, true, appleLinkMail)
+	r.accounts.linked = false
+	if rec := r.postUnlink(`{"password":"right"}`); rec.Code != http.StatusNotFound || errCode(t, rec) != "not_linked" {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+	if r.revoke.calls != 0 || r.accounts.unlinked != 0 {
+		t.Error("nothing should be revoked for an account with no Apple link")
+	}
+}
+
+// When the revoke fails and cannot be queued either, the account stays linked: the token is still the only thing that can revoke it.
+func TestAppleUnlinkStaysLinkedWhenTheRevokeCannotBeDoneOrQueued(t *testing.T) {
+	r := newLinkRig(t, time.Second, true, appleLinkMail)
+	r.revoke.err = errors.New("apple unreachable and the queue is down")
+	if rec := r.postUnlink(`{"password":"right"}`); rec.Code != http.StatusBadGateway {
+		t.Errorf("status %d", rec.Code)
+	}
+	if r.accounts.unlinked != 0 || !r.accounts.linked {
+		t.Error("the link was removed although the token was neither revoked nor queued")
+	}
+	if len(r.outcomes) != 1 || r.outcomes[0] != "provider_error" {
+		t.Errorf("outcomes %v", r.outcomes)
+	}
+}
+
+func TestAppleUnlinkGuards(t *testing.T) {
+	r := newLinkRig(t, time.Second, true, appleLinkMail)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/apple-link/unlink", strings.NewReader(`{"password":"right"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req = req.WithContext(auth.WithSession(auth.WithUser(req.Context(), r.uid), auth.SessionRef{ID: r.sid, Kind: "web"}))
+	rec := httptest.NewRecorder()
+	r.api.unlink(rec, req)
+	if rec.Code < 400 || r.accounts.unlinked != 0 {
+		t.Errorf("a cross-site unlink: %d, unlinked %d", rec.Code, r.accounts.unlinked)
 	}
 }

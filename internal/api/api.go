@@ -201,6 +201,11 @@ type Deps struct {
 	AppleLinkIntents interface {
 		DropSessionLinkIntents(ctx context.Context, sessionHash []byte) error
 	}
+	// AppleLinkAccounts, when non-nil with the OIDC service, turns on linking: whether an account has an Apple identity, and removing it.
+	AppleLinkAccounts interface {
+		Linked(ctx context.Context, uid uuid.UUID) (bool, error)
+		Unlink(ctx context.Context, uid uuid.UUID) error
+	}
 	// StripeWebhook, when non-nil, is POST /api/billing/stripe/webhook: Stripe's signed events, applied to the entitlement table
 	// (internal/stripebill). Public (Stripe calls it, no cookie; the signature is the credential), behind a body cap and a per-IP limit.
 	// nil (no RIVOLT_STRIPE_WEBHOOK_SECRET): the route does not exist.
@@ -736,6 +741,7 @@ func New(d Deps) http.Handler {
 					// Link Apple to my account: a few starts a minute per signed-in user. (Not under /oidc: that prefix is the OIDC
 					// service's own subrouter.)
 					r.With(ls.user("apple-link-start", 5).Middleware).Post("/apple-link/start", al.start)
+					r.With(ls.user("apple-link-unlink", 5).Middleware).Post("/apple-link/unlink", al.unlink)
 				}
 				if d.AppleNotifications != nil && !d.AdminOnly {
 					// A real notification is ~1 KB and Apple sends few: 30 a minute per address is generous.

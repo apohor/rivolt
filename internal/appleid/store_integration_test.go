@@ -259,3 +259,47 @@ func TestLinkIntent(t *testing.T) {
 		t.Error("an intent outlived its account")
 	}
 }
+
+// Unlink removes the link and the kept token, and the account can link a different Apple identity afterwards.
+func TestUnlink(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	a, err := db.EnsureUser(ctx, pool, "unlink-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := appleid.New(pool, secrets.New(pool, crypto.NoopSealer{}))
+	if ok, err := st.Linked(ctx, a); err != nil || ok {
+		t.Fatalf("Linked before linking = %v, %v", ok, err)
+	}
+	if err := st.Unlink(ctx, a); err != nil {
+		t.Fatalf("unlinking an unlinked account: %v", err)
+	}
+	if err := st.Link(ctx, a, "sub-unlink-1", "rt-1"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.Linked(ctx, a); err != nil || !ok {
+		t.Fatalf("Linked after linking = %v, %v", ok, err)
+	}
+	if err := st.Unlink(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := st.Linked(ctx, a); ok {
+		t.Error("still linked after Unlink")
+	}
+	if tok, _ := st.RefreshToken(ctx, a); tok != "" {
+		t.Errorf("the token survived Unlink: %q", tok)
+	}
+	if _, ok, _ := st.UserBySub(ctx, "sub-unlink-1"); ok {
+		t.Error("the sub still resolves to the account")
+	}
+	// Free to link another Apple identity (or the same one) now.
+	if err := st.Link(ctx, a, "sub-unlink-2", ""); err != nil {
+		t.Errorf("linking another identity after Unlink: %v", err)
+	}
+}

@@ -223,6 +223,7 @@ var notOwnerSide = map[string]string{
 	"appleid.Store.CreateLinkIntent":          "account settings (Apple link)",
 	"appleid.Store.DropSessionLinkIntents":    "sign-out (Apple link)",
 	"appleid.Store.Link":                      "sign-in (Apple)",
+	"appleid.Store.Unlink":                    "account settings (Apple link)",
 	"appleid.Store.MarkSeen":                  "sign-in (Apple)",
 	"appleid.Store.PurgeLinkIntents":          "retention job",
 	"appleid.Store.PurgeSeen":                 "retention job",
