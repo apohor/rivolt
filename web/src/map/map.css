@@ -79,6 +79,9 @@
 .maplibregl-ctrl button:focus-visible {
   outline: 2px solid var(--color-emerald-300, #5ee9b5);
   outline-offset: -2px;
+  /* The zoom buttons are stacked: the one below paints over the focused one's bottom edge unless the focused one is raised. */
+  position: relative;
+  z-index: 1;
 }
 .maplibregl-ctrl-attrib-button:focus-visible {
   outline: none;
