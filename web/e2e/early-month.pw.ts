@@ -20,8 +20,12 @@ const charge = (id: string, at: string) => ({
   EnergyAddedKWh: 40, MilesAdded: 120, MaxPowerKW: 11, AvgPowerKW: 10, FinalState: "complete", Lat: 40, Lon: -100, Source: "live", Cost: 6, Currency: "USD", PricePerKWh: 0.15,
 });
 
-async function open(page: Page, now: Date, path: string, rows: { drives: unknown[]; charges: unknown[] }) {
+// Activity opens on the last 30 days for a device with no saved choice; these tests are about the Month choice, so they save it.
+const MONTH = { kind: "month", offset: 0 };
+
+async function open(page: Page, now: Date, path: string, rows: { drives: unknown[]; charges: unknown[] }, saved?: unknown) {
   await stubApi(page);
+  if (saved) await page.addInitScript((p) => window.localStorage.setItem("rivolt.period", JSON.stringify(p)), saved);
   await page.clock.setFixedTime(now);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
   await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j(rows.drives)));
@@ -56,7 +60,7 @@ for (const v of [
 test("Activity on Nov 2 shows October's rows with the same note", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT);
+  await open(page, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT, MONTH);
   await expect(page.locator("[data-early-month]")).toContainText("this shows the last 30 days");
   await expect(page.getByText("Nothing recorded in this period")).toHaveCount(0);
   await ctx.close();
@@ -71,7 +75,7 @@ test("no note once the month has data, or when another period is chosen, or when
   await expect(a.locator("[data-early-month]")).toHaveCount(0);
   // Nothing in the last 30 days either: the page stays as it is.
   const b = await ctx.newPage();
-  await open(b, new Date(2026, 11, 20, 9, 0, 0), "/activity", OCT);
+  await open(b, new Date(2026, 11, 20, 9, 0, 0), "/activity", OCT, MONTH);
   await b.waitForTimeout(800);
   await expect(b.locator("[data-early-month]")).toHaveCount(0);
   await expect(b.getByText(/No drives or charges in Dec/)).toBeVisible();
@@ -86,5 +90,19 @@ test("a brand-new account on Activity gets the new-account sentence; the tiles c
   const b = await ctx.newPage();
   await open(b, new Date(2026, 10, 2, 9, 0, 0), "/", OCT);
   await expect(b.locator('[data-ui-grid="now"]')).toContainText(/Last 30 days · 2 drives/);
+  await ctx.close();
+});
+
+test("Activity on its first visit opens on the last 30 days, and a saved Month choice wins", async ({ browser }) => {
+  // Desktop, where the segmented choices are always shown (on a phone they sit behind the compact bar).
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
+  const a = await ctx.newPage();
+  await open(a, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT);
+  await expect(a.getByRole("button", { name: "30 days", exact: true })).toHaveAttribute("aria-pressed", "true");
+  // October's rows are in view with no empty-month fallback note needed.
+  await expect(a.getByText("Nothing recorded in this period")).toHaveCount(0);
+  const b = await ctx.newPage();
+  await open(b, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT, MONTH);
+  await expect(b.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
   await ctx.close();
 });
