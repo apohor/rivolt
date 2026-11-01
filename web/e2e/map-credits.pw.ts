@@ -104,7 +104,9 @@ for (const theme of ["dark", "light"] as const) {
       await expect(zoom).toBeFocused();
       const hit = await zoom.evaluate((el) => {
         const r = el.getBoundingClientRect();
-        return document.elementFromPoint(r.left + r.width / 2, r.bottom - 1) === el && document.elementFromPoint(r.left + r.width / 2, r.top + 1) === el;
+        // The point may land on the icon inside the button: the button must contain what is hit, not a neighbour.
+        const at = (y: number) => document.elementFromPoint(r.left + r.width / 2, y);
+        return !!at(r.bottom - 1) && el.contains(at(r.bottom - 1)) && !!at(r.top + 1) && el.contains(at(r.top + 1));
       });
       expect(hit, "a neighbouring button covers the focused one's top or bottom edge").toBe(true);
       expect(await zoom.evaluate((el) => getComputedStyle(el).zIndex)).toBe("1");
