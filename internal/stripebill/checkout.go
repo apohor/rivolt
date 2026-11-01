@@ -53,7 +53,7 @@ type Service struct {
 	// session asking for it otherwise.
 	AutomaticTax bool
 	// PaymentMethodConfig is the Stripe payment method configuration (pmc_...) every Checkout session uses, which limits the session to cards,
-	// Link, Apple Pay and Google Pay (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG; an id, not a secret). Stripe no longer accepts payment_method_types
+	// Apple Pay and Google Pay (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG; an id, not a secret). Stripe no longer accepts payment_method_types
 	// on a Checkout Session: the methods are managed from the Dashboard, and a configuration is how a session is held to a set of them.
 	PaymentMethodConfig string
 	Now                 func() time.Time
