@@ -28,4 +28,3 @@ func TestSignatureTimestampsOutsideADurationAreStale(t *testing.T) {
 		}
 	}
 }
-
