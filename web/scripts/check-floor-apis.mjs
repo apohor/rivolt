@@ -33,18 +33,20 @@ export const FLOOR_APIS = [
   ["Intl.DurationFormat", /\bIntl\.DurationFormat\b/, "Safari 18.4, Chrome 129"],
 ];
 
-// Method-name entries are ambiguous: a library with its own class method of that name (MapLibre's render-to-texture fingerprint has
-// difference(e){...}) is not Set.prototype.difference. A call to a name the same file defines as a method is not counted.
-const OWN_METHOD = ["Set methods", "Map/WeakMap getOrInsert", "ArrayBuffer.prototype.transfer"];
-const definesMethod = (text, name) => new RegExp(`[;,{}]\\s*(?:static\\s+|async\\s+)?${name}\\s*\\([^()]*\\)\\s*\\{`).test(text);
+// Method-name entries are ambiguous: a library's own class method of the same name is not the new built-in. Each exemption is named, a chunk
+// file prefix and the method, with the reason, so a new library that defines and calls such a name still trips the scan for a human look.
+export const ALLOWED = [
+  { prefix: "maplibre-gl-", method: "difference", why: "the render-to-texture fingerprint class has its own difference(e){...}, not Set.prototype.difference" },
+];
+const METHOD_ENTRIES = ["Set methods", "Map/WeakMap getOrInsert", "ArrayBuffer.prototype.transfer"];
+const allowed = (file, method) => ALLOWED.some((a) => file.startsWith(a.prefix) && a.method === method);
 
-export function findFloorApis(text) {
+export function findFloorApis(text, file = "") {
   return FLOOR_APIS.filter(([name, re]) => {
-    if (!OWN_METHOD.includes(name)) return re.test(text);
-    const g = new RegExp(re.source, "g");
-    for (const m of text.matchAll(g)) {
+    if (!METHOD_ENTRIES.includes(name)) return re.test(text);
+    for (const m of text.matchAll(new RegExp(re.source, "g"))) {
       const method = /([A-Za-z]+)\($/.exec(m[0])?.[1];
-      if (!method || !definesMethod(text, method)) return true;
+      if (!method || !allowed(file, method)) return true;
     }
     return false;
   }).map(([name]) => name);
@@ -57,7 +59,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const f of readdirSync(dir)) {
     if (!/\.m?js$/.test(f)) continue;
     files++;
-    const found = findFloorApis(readFileSync(join(dir, f), "utf8"));
+    const found = findFloorApis(readFileSync(join(dir, f), "utf8"), f);
     if (found.length) {
       bad++;
       console.error(`${f}: uses ${found.join(", ")}`);
