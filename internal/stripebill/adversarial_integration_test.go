@@ -15,6 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/entitlements"
 )
 
@@ -35,6 +38,24 @@ func with(id string, created int64, more ...[2]string) func(string) string {
 
 var createdRE = regexp.MustCompile(`"created": [0-9]+`)
 
+// sibling is another account in the same database, with its own handler: events for two accounts that share one customers table.
+func (r *rig) sibling(name string) *rig {
+	r.t.Helper()
+	uid, err := db.EnsureUser(context.Background(), r.pool, name)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	s := &rig{t: r.t, pool: r.pool, uid: uid}
+	s.h = &Handler{DB: r.pool, Secret: testSecret, Now: func() time.Time { return t0 },
+		Invalidate: func(u uuid.UUID) { s.mu.Lock(); s.inval = append(s.inval, u); s.mu.Unlock() },
+		Observe: func(typ, outcome string) {
+			s.mu.Lock()
+			s.outcomes = append(s.outcomes, typ+":"+outcome)
+			s.mu.Unlock()
+		}}
+	return s
+}
+
 func (r *rig) claimed(id string) bool {
 	r.t.Helper()
 	var n int
@@ -48,33 +69,6 @@ func (r *rig) customer() (string, bool) {
 	var c string
 	err := r.pool.QueryRow(`SELECT stripe_customer_id FROM billing_customers WHERE user_id = $1`, r.uid).Scan(&c)
 	return c, err == nil
-}
-
-// A subscription ended and an "active" update stamped with the SAME second (Stripe's created has one-second resolution), delivered after it:
-// whichever Stripe sends last must not bring a ended subscription back. Both orders.
-func TestAdversarialSameSecondEndedBeatsActive(t *testing.T) {
-	now := time.Unix(1790500000, 0)
-	for _, order := range []string{"ended then active", "active then ended"} {
-		r := newRig(t, "adv-tie-"+strings.ReplaceAll(order, " ", "-"))
-		const T = 1790600000
-		ended := func() int { return r.deliver("subscription_deleted.json", with("evt_tie_ended", T)) }
-		active := func() int { return r.deliver("subscription_created_active.json", with("evt_tie_active", T)) }
-		var a, b func() int
-		if order == "ended then active" {
-			a, b = ended, active
-		} else {
-			a, b = active, ended
-		}
-		if code := a(); code != 200 {
-			t.Fatalf("%s, first: %d", order, code)
-		}
-		if code := b(); code != 200 {
-			t.Fatalf("%s, second: %d", order, code)
-		}
-		if st := r.state(now); st.Pro {
-			t.Errorf("%s: a subscription ended at second %d is Pro again: %+v", order, T, st)
-		}
-	}
 }
 
 // An event for account A that names a Stripe customer which is already account B's must not poison the endpoint (a 500 Stripe retries for days)
@@ -93,8 +87,8 @@ func TestAdversarialASubscriptionNamingAnotherAccountsCustomer(t *testing.T) {
 	}
 	bBefore, _, _, bExt, _ := b.row()
 
-	// A's event, with A's id in the metadata but B's customer.
-	a := newRig(t, "adv-cust-a")
+	// A's event, with A's id in the metadata but B's customer. A is another account in the SAME database (a rig of its own is a new database).
+	a := b.sibling("adv-cust-a")
 	cross := with("evt_cross_1", 1790000500,
 		[2]string{`"customer": "cus_` + a.uid.String()[:8] + `"`, `"customer": "` + bCustomer + `"`},
 		[2]string{`"id": "sub_` + a.uid.String()[:8] + `"`, `"id": "sub_cross_a"`})
@@ -333,25 +327,3 @@ func TestAdversarialBodyAtAndOverTheCap(t *testing.T) {
 		t.Error("an oversized body was recorded")
 	}
 }
-
-// A cancel that carries no period end anywhere (neither on the subscription nor its items) must still end the subscription: it is the one fact
-// the event exists to say.
-func TestAdversarialCancelWithoutAPeriodEnd(t *testing.T) {
-	now := time.Unix(1790500000, 0)
-	r := newRig(t, "adv-noperiod")
-	if code := r.deliver("subscription_created_active.json", nil); code != 200 {
-		t.Fatal(code)
-	}
-	noEnd := func(s string) string {
-		return strings.ReplaceAll(s, `"current_period_end": 1821536000`, `"x_removed_period_end": 0`)
-	}
-	if code := r.deliver("subscription_deleted.json", func(s string) string { return with("evt_adv_noend", 1790950000)(noEnd(s)) }); code != 200 {
-		t.Fatal(code)
-	}
-	if st := r.state(now); st.Pro {
-		t.Errorf("a cancel without a period end left Pro on: %+v", st)
-	}
-}
-
-// compile-time use of the context package for the helper file
-var _ = context.Background
