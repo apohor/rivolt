@@ -621,3 +621,190 @@ func TestInFlightCallOfAReplacedSessionCannotFlagTheFreshOne(t *testing.T) {
 // freshName makes a username no earlier run (the CI repeats these tests 20 times on one database) has used, so each starts from an account with no flag
 // and no stored session.
 func freshName(base string) string { return base + "-" + uuid.NewString()[:8] }
+
+// raceRounds is how many times each interleaving below is forced. The interleaving is deterministic (Postgres itself is the barrier), so one
+// round proves it; more only show it is not flaky.
+var raceRounds = 1
+
+// A deterministic interleaving, no sleeps: a stale pod's rejection reaches the database WHILE a sign-in (or a sign-out) is still in its
+// transaction. The sign-in (secrets.PutTxVersioned) writes the new session row (its version is the database's clock at that statement), then
+// the user's row (users.rivian_signed_in_at, which locks it), then commits; a sign-out (secrets.DeleteTx) deletes the row and writes the user's
+// row the same way. The stale raise (db.RaiseNeedsReauthIfCurrent) is guarded on "the stored session is still the one this client held". If
+// the guard were evaluated on the snapshot the raise started with, it would still see the OLD committed session and pass; the raise would wait
+// for the user's row and, after the commit, go through (Postgres rechecks only the target row after a lock wait, not the sessions table), flagging
+// a user who has just signed in again (or out). The barrier is the raise's own backend showing as waiting on a Lock, and only then does the
+// transaction commit. The user must not be flagged, and no email must follow.
+func TestStaleRaiseRacingASignInOrOutCommitCannotFlagTheUser(t *testing.T) {
+	for _, kind := range []string{"sign-in", "sign-out"} {
+		for i := 0; i < raceRounds; i++ {
+			t.Run(fmt.Sprintf("%s-%02d", kind, i), func(t *testing.T) { staleRaiseRace(t, kind) })
+		}
+	}
+}
+
+func staleRaiseRace(t *testing.T, kind string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, freshName("race"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)})
+	if err != nil || old.IsZero() {
+		t.Fatalf("old session: %v %v", old, err)
+	}
+
+	written := make(chan struct{})
+	commit := make(chan struct{})
+	txDone := make(chan error, 1)
+	var newVersion time.Time // the sign-in's stored version (read after txDone)
+	holdUserRow := func(ctx context.Context, tx *sql.Tx) error {
+		// What the sign-in or sign-out does after the session row: the user's row, locked until commit.
+		var at any
+		if kind == "sign-in" {
+			at = time.Now().UTC()
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET rivian_signed_in_at = $2 WHERE id = $1`, uid, at); err != nil {
+			return err
+		}
+		close(written)
+		select {
+		case <-commit:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	go func() {
+		if kind == "sign-in" {
+			fresh, _ := json.Marshal(rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)})
+			v, err := store.PutTxVersioned(ctx, uid, "rivian.session", fresh, holdUserRow)
+			newVersion = v
+			txDone <- err
+			return
+		}
+		txDone <- store.DeleteTx(ctx, uid, "rivian.session", holdUserRow)
+	}()
+	select {
+	case <-written:
+	case <-ctx.Done():
+		t.Fatal("the transaction never reached its barrier")
+	}
+
+	// The stale pod's rejection: its client holds `old`.
+	type result struct {
+		transitioned bool
+		err          error
+	}
+	raised := make(chan result, 1)
+	go func() {
+		tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old)
+		raised <- result{tr, err}
+	}()
+	// Barrier: wait until Postgres says the raise is blocked on the transaction's lock.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%needs_reauth = FALSE%' AND query LIKE '%users%'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			break
+		}
+		select {
+		case r := <-raised:
+			t.Fatalf("the raise did not block on the transaction's row lock (answered %+v): the interleaving this test needs did not happen", r)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the raise never showed as waiting on a lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(commit) // the sign-in (or sign-out) commits: the stored session is now the fresh one (or gone)
+	if err := <-txDone; err != nil {
+		t.Fatalf("%s: %v", kind, err)
+	}
+	r := <-raised
+	if r.err != nil {
+		t.Fatalf("raise: %v", r.err)
+	}
+	needs, _, _ := db.GetNeedsReauth(ctx, pool, uid)
+	if r.transitioned || needs {
+		t.Fatalf("a stale pod's rejection that was waiting on a %s's lock flagged the user after it committed: transitioned=%v needs_reauth=%v", kind, r.transitioned, needs)
+	}
+	// The guard still does its job: a rejection by a client that holds the session that IS stored flags the user (a sign-in leaves the fresh one;
+	// a sign-out leaves none, so there is nothing to flag, and a raise under the old version is still refused).
+	if kind == "sign-in" {
+		tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", newVersion)
+		if err != nil || !tr {
+			t.Fatalf("a rejection of the stored session did not flag the user: transitioned=%v err=%v", tr, err)
+		}
+	} else if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old); err != nil || tr {
+		t.Fatalf("a rejection under a deleted session flagged the user: transitioned=%v err=%v", tr, err)
+	}
+}
+
+// The second window: LiveClient.Login clears the user's flag early and the handler saves the new session only afterwards. A stale pod's
+// rejection that lands in between is legitimate by its own rule (the stored session is still the old one), so it flags the user; if the
+// save did not clear the flag, the new session would commit with it still set and nothing would clear it. The save is the authority: it
+// clears the flag in the same statement that locks the user's row and records the sign-in, in the session's own transaction.
+func TestAFlagRaisedBetweenLoginsClearAndTheSaveIsClearedByTheSave(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, freshName("between"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Login succeeded and cleared the flag (the sink with an empty reason); the session is not saved yet.
+	if err := db.SetNeedsReauth(ctx, pool, uid, ""); err != nil {
+		t.Fatal(err)
+	}
+	// A stale pod's rejection of the OLD session arrives now: the stored session is still the old one, so this raise is legitimate.
+	tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old)
+	if err != nil || !tr {
+		t.Fatalf("a rejection of the stored session did not flag the user: %v %v", tr, err)
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
+		t.Fatal("setup: the flag should be raised before the save")
+	}
+	// The handler saves the new session.
+	fresh, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)})
+	if err != nil || !fresh.After(old) {
+		t.Fatalf("fresh session: %v %v", fresh, err)
+	}
+	needs, reason, _ := db.GetNeedsReauth(ctx, pool, uid)
+	if needs || reason != "" {
+		t.Fatalf("the user is still flagged after a successful sign-in was saved: needs=%v reason=%q", needs, reason)
+	}
+	// And the old session's rejection, arriving after the save, is refused.
+	if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old); err != nil || tr {
+		t.Fatalf("a rejection under the replaced session flagged the user: %v %v", tr, err)
+	}
+	// A sign-out (deleting the session) does not clear a flag that is legitimately raised.
+	if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", fresh); err != nil || !tr {
+		t.Fatalf("a rejection of the stored session did not flag the user: %v %v", tr, err)
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{}); err != nil {
+		t.Fatal(err)
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
+		t.Fatal("a sign-out cleared a legitimately raised flag")
+	}
+}

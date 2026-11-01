@@ -74,10 +74,12 @@ func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason s
 // RaiseNeedsReauthIfCurrent is RaiseNeedsReauth for a rejection seen by a client that
 // held at loaded (the session row's updated_at, the version the rejected CALL used: see
 // rivian.LiveClient.SessionVersionFor). The flag is raised only if the stored session's
-// version is exactly loaded, in the same statement as the update: if it was replaced since
-// (the user signed in again on another pod and this client has not caught up) the
-// rejection says nothing about the real session, and the flag is not raised and no email
-// follows (transitioned is false). There is no read-then-write gap for a sign-in to land in.
+// version is exactly loaded, checked by the update itself under a lock on the user's row: if
+// it was replaced since (the user signed in again on another pod and this client has not
+// caught up) the rejection says nothing about the real session, and the flag is not raised
+// and no email follows (transitioned is false). There is no read-then-write gap for a
+// sign-in to land in, and a sign-in that is committing while this runs is waited for, not
+// raced (see the lock below).
 // The stored session must also still exist: a user who disconnected or signed out on
 // another pod (the row is deleted) is not flagged, nor told to reconnect, by a stale
 // client's rejection. A zero loaded means the client does not know which stored session it
@@ -86,6 +88,26 @@ func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason s
 func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID, reason string, loaded time.Time) (transitioned bool, err error) {
 	if loaded.IsZero() {
 		return false, nil
+	}
+	// The user's row is locked FIRST, in its own statement, and the guarded UPDATE runs after the lock is granted. A sign-in or a sign-out
+	// writes the session row and then the user's row (users.rivian_signed_in_at) in one transaction, holding the user's row until it commits.
+	// With one statement, `UPDATE users ... WHERE EXISTS(session version = loaded)` takes its snapshot when it starts: during that
+	// transaction the EXISTS still sees the OLD committed session and passes, the UPDATE then waits for the user's row, and after the commit
+	// Postgres rechecks only the TARGET row (needs_reauth = FALSE), not the sessions table, so the raise would go through on the old answer and
+	// flag a user who has just signed in again. In READ COMMITTED each statement takes a fresh snapshot: the UPDATE below starts after the lock
+	// wait, so its EXISTS sees whatever the sign-in committed. (Waiting on the sign-in is milliseconds, and takes the one pooled connection the
+	// single statement took.) The sessions table is only read, never locked, so there is no lock cycle with the sign-in.
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var locked bool
+	if err := tx.QueryRowContext(ctx, `SELECT TRUE FROM users WHERE id = $1 AND needs_reauth = FALSE FOR UPDATE`, userID).Scan(&locked); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil // already flagged, or no such user
+		}
+		return false, err
 	}
 	const q = `UPDATE users
 		SET needs_reauth = TRUE,
@@ -96,11 +118,14 @@ func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID,
 		  AND EXISTS (
 		    SELECT 1 FROM user_secrets us
 		    WHERE us.user_id = $1 AND us.name = 'rivian.session' AND us.updated_at = $4)`
-	res, err := d.ExecContext(ctx, q, userID, reason, time.Now().UTC(), loaded.UTC())
+	res, err := tx.ExecContext(ctx, q, userID, reason, time.Now().UTC(), loaded.UTC())
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
 	return n > 0, nil
 }
 
