@@ -227,3 +227,9 @@ export function placeStopPill(
   }
   return null;
 }
+
+// startPillText is the drive map's start pill. A drive that ends where it began (a loop, or a merged round trip) has one pin, so the one pill says
+// both times: "Start 9:23 PM · End 11:28 PM". Without an end time it says only the start.
+export function startPillText(loop: boolean, startTime: string, endTime: string): string {
+  return loop && endTime ? `Start ${startTime} · End ${endTime}` : `Start ${startTime}`;
+}

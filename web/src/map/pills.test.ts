@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Map as MLMap } from "maplibre-gl";
-import { pillAwayFromLine, pillBox, pillImage, pillSide, placePills, placeStopPill } from "./pills";
+import { startPillText, pillAwayFromLine, pillBox, pillImage, pillSide, placePills, placeStopPill } from "./pills";
 
 // A map stand-in: a 400 px wide view where longitude 0..1 maps to x 0..400 and latitude 0..1 to y 300..0.
 const fakeMap = { getContainer: () => ({ clientWidth: 400 }), project: ([lon, lat]: [number, number]) => ({ x: lon * 400, y: 300 - lat * 300 }) } as unknown as MLMap;
@@ -94,5 +94,13 @@ describe("placeStopPill", () => {
     expect(placeStopPill(pin, size, usual, everywhere, view)).toBeNull();
     // A pin at the right edge: the usual side (right) runs out of the view, and the left one is used.
     expect(placeStopPill({ x: 350, y: 230 }, size, usual, [], view)).toEqual({ anchor: "right", offset: [-16, 0] });
+  });
+});
+
+describe("startPillText", () => {
+  it("says both times on a loop (one pin), the start alone otherwise", () => {
+    expect(startPillText(true, "9:23 PM", "11:28 PM")).toBe("Start 9:23 PM · End 11:28 PM");
+    expect(startPillText(false, "9:23 PM", "11:28 PM")).toBe("Start 9:23 PM");
+    expect(startPillText(true, "9:23 PM", "")).toBe("Start 9:23 PM");
   });
 });
