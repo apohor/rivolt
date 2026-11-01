@@ -26,6 +26,7 @@ import {
   pct,
 } from "../lib/format";
 import { collapseRoundTrips, driveDurationSeconds, driveHasTrailer } from "../lib/drives";
+import { cleanTrack } from "../lib/driveTrack";
 import { TrailerControl } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
 import { useGPSThresholds } from "../lib/config";
@@ -283,9 +284,11 @@ export default function DriveDetailPage() {
   // mapped {lat,lon,t} list. Without this, every cursor-hover
   // re-render hands DriveMap a brand-new array, the map rebuilds
   // (zooming in/out visibly), and the cursor marker is wiped.
+  // The line is drawn in GPS-fix order, not arrival order (see cleanTrack): the badge below still counts every sample's fix.
+  const mapTrackSamples = useMemo(() => cleanTrack(mapPathSamples), [mapPathSamples]);
   const mapPoints = useMemo(
     () =>
-      mapPathSamples.map((p) => ({
+      mapTrackSamples.map((p) => ({
         lat: p.Lat,
         lon: p.Lon,
         // Unix seconds — the matcher needs a monotonic time axis,
@@ -300,7 +303,7 @@ export default function DriveDetailPage() {
         soc: p.BatteryLevelPct,
         odo: p.OdometerMi,
       })),
-    [mapPathSamples],
+    [mapTrackSamples],
   );
 
   // The pack's size as this drive's own figures imply it (energy used over the share of the battery it took), so the map's efficiency colours
