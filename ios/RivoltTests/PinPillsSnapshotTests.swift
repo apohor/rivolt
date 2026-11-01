@@ -13,7 +13,7 @@ final class PinPillsSnapshotTests: XCTestCase {
             Path { p in p.move(to: start); p.addLine(to: end) }.stroke(RouteMapView.color(.to50), lineWidth: 3)
             Circle().fill(Theme.routeStart).frame(width: 12, height: 12).position(start)
             Circle().fill(Theme.routeEnd).frame(width: 12, height: 12).position(end)
-            PinPillsOverlay(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: true)
+            PinPillsOverlay(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: true, startLine: [start, end], endLine: [end, start])
             SpeedLegend(bands: RouteSnap.Speed.allCases).padding(4).frame(width: size.width, height: size.height, alignment: .bottomLeading)
         }
         .frame(width: size.width, height: size.height)
