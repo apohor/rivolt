@@ -579,18 +579,6 @@ export default function DriveDetailPage() {
                 Limited GPS data
               </span>
             ) : null}
-            {hasEndpointPair(drive) ? (
-              <a
-                href={googleRouteURL(drive)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
-                title="Open route in Google Maps"
-              >
-                Google Maps
-                <span aria-hidden>↗</span>
-              </a>
-            ) : null}
           </div>
         }
       >
@@ -652,32 +640,6 @@ export default function DriveDetailPage() {
       {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>
   );
-}
-
-// Google Maps directions URL with driving mode, origin, and destination.
-// We omit waypoints — we have hundreds of samples per drive and the URL
-// has a 10-waypoint cap anyway. Google routes between endpoints fine;
-// this is "navigate me home" UX, not a polyline replayer.
-function googleRouteURL(d: {
-  StartLat: number;
-  StartLon: number;
-  EndLat: number;
-  EndLon: number;
-}): string {
-  const origin = `${d.StartLat},${d.StartLon}`;
-  const dest = `${d.EndLat},${d.EndLon}`;
-  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
-}
-
-function hasEndpointPair(d: {
-  StartLat: number;
-  StartLon: number;
-  EndLat: number;
-  EndLon: number;
-}): boolean {
-  const ok = (lat: number, lon: number) =>
-    Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0);
-  return ok(d.StartLat, d.StartLon) && ok(d.EndLat, d.EndLon);
 }
 
 function Stat({
