@@ -58,6 +58,8 @@ func TestNotificationRejections(t *testing.T) {
 	wrongEnv.Environment = EnvSandbox
 	wrongProd := ti("rv-test-orig-1", exp, tok)
 	wrongProd.ProductID = "pro.other"
+	noProd := ti("rv-test-orig-1", exp, tok)
+	noProd.ProductID = ""
 	for name, body := range map[string]string{
 		"not json":             "nope",
 		"no signed payload":    `{}`,
@@ -65,6 +67,7 @@ func TestNotificationRejections(t *testing.T) {
 		"another bundle":       notification(c, t, "DID_RENEW", "", uuid.NewString(), time.Now(), wrongBundle),
 		"another environment":  notification(c, t, "DID_RENEW", "", uuid.NewString(), time.Now(), wrongEnv),
 		"another product":      notification(c, t, "DID_RENEW", "", uuid.NewString(), time.Now(), wrongProd),
+		"no product id":        notification(c, t, "DID_RENEW", "", uuid.NewString(), time.Now(), noProd),
 		"no notification uuid": notification(c, t, "DID_RENEW", "", "", time.Now(), ti("rv-test-orig-1", exp, tok)),
 	} {
 		outcomes = nil
@@ -117,11 +120,14 @@ func TestTransactionRejectionsBeforeTheDatabase(t *testing.T) {
 	wrongBundle := ti("rv-test-orig-1", exp, uid.String())
 	wrongBundle.BundleID = "dev.other.test"
 	noOrig := ti("", exp, uid.String())
+	noProduct := ti("rv-test-orig-1", exp, uid.String()) // Config.Check skips an empty product (a notification without a transaction): the handler must not
+	noProduct.ProductID = ""
 	for name, signed := range map[string]string{
 		"no appAccountToken (a transaction is a shareable blob)": c.sign(t, noToken),
 		"another account's token":                                c.sign(t, otherToken),
 		"another bundle":                                         c.sign(t, wrongBundle),
 		"no original transaction id":                             c.sign(t, noOrig),
+		"no product id":                                          c.sign(t, noProduct),
 		"not Apple-signed":                                       newChain(t, chainOpts{}).sign(t, ti("rv-test-orig-1", exp, uid.String())),
 		"garbage":                                                "abc",
 	} {
