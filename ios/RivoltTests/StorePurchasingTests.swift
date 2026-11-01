@@ -142,6 +142,15 @@ final class StorePurchasingTests: XCTestCase {
         XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: false))
     }
 
+    func testRestoreIsListedWhereBillingIsOffButStoreKitIsSetUp() {
+        func account(_ restore: Bool) -> [SettingsLogic.Row] {
+            SettingsLogic.groups(notificationsOffered: false, restoreOffered: restore).first { $0.title == "Account" }!.rows
+        }
+        XCTAssertTrue(account(true).contains(.restore))
+        XCTAssertFalse(account(false).contains(.restore))
+        XCTAssertEqual(SettingsLogic.Row.restore.title, "Restore purchases")
+    }
+
     func testTheTransactionBodyKeepsItsCamelCaseKey() throws {
         let data = try JSONSerialization.data(withJSONObject: ["signedTransaction": "x"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: String])

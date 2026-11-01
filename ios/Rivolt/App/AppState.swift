@@ -165,10 +165,12 @@ final class AppState {
 
     /// What the paywall buys with: StoreKit when this server has purchases set up and the account id is known, otherwise nothing (the paywall
     /// says purchases aren't available). Never in the demo.
-    func makePurchasing() async -> ProPurchasing {
+    /// `selling: false` is for Restore purchases alone, which sells nothing and so does not wait for billing to be on.
+    func makePurchasing(selling: Bool = true) async -> ProPurchasing {
         guard !isDemo, case .loggedIn = phase,
               let config = try? await client.appConfig(), let products = config.iap?.products,
-              let me = try? await client.me(), StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable),
+              let me = try? await client.me(),
+              selling ? StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable) : config.purchasesAvailable,
               let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
         let client = self.client
         return StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })

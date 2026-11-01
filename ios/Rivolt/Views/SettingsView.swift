@@ -3,12 +3,13 @@ import SwiftUI
 /// What Settings lists and in what order, with no view code so a test can see it. It mirrors the web's Settings tabs and names.
 enum SettingsLogic {
     enum Row: String, Equatable {
-        case plan, notices, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
+        case plan, restore, notices, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
         case export, deleteHistory, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
             switch self {
             case .plan: return "Rivolt Pro"
+            case .restore: return "Restore purchases"
             case .notices: return "Notices"
             case .connection: return "Connection details"
             case .signOut: return "Sign out"
@@ -37,6 +38,7 @@ enum SettingsLogic {
         var symbol: String {
             switch self {
             case .plan: return "sparkles"
+            case .restore: return "arrow.clockwise.circle"
             case .notices: return "bell.badge"
             case .connection: return "antenna.radiowaves.left.and.right"
             case .signOut: return "rectangle.portrait.and.arrow.right"
@@ -71,9 +73,9 @@ enum SettingsLogic {
 
     /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), App, Data and About, as the web's tabs.
     /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan.
-    static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false, noticesOffered: Bool = false) -> [Group] {
+    static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false, noticesOffered: Bool = false, restoreOffered: Bool = false) -> [Group] {
         var out = [
-            Group(title: "Account", rows: (planOffered ? [.plan] : []) + (noticesOffered ? [.notices] : []) + [.connection, .signOut]),
+            Group(title: "Account", rows: (planOffered ? [.plan] : []) + (restoreOffered ? [.restore] : []) + (noticesOffered ? [.notices] : []) + [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
             Group(title: "Vehicle", rows: [.vehicleProfile] + (planOffered && primaryVehicleOffered ? [.primaryVehicle] : []) + [.homeLocation, .units]),
             Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
@@ -107,11 +109,13 @@ struct SettingsView: View {
     @State private var showDelete = false
     @State private var plan: PlanState = .off
     @State private var hasNotices = false
+    /// Billing is off here but StoreKit is set up: an existing Apple subscriber can still restore (it sells nothing).
+    @State private var restoreOffered = false
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free, noticesOffered: hasNotices)) { group in
+                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free, noticesOffered: hasNotices, restoreOffered: restoreOffered)) { group in
                     Section {
                         ForEach(group.rows, id: \.rawValue) { row in rowView(row) }
                     } header: {
@@ -142,6 +146,7 @@ struct SettingsView: View {
                 guard !state.isDemo else { return }
                 plan = PlanLogic.state(try? await state.client.me())
                 hasNotices = !((try? await state.client.notices()) ?? []).isEmpty
+                if plan == .off, let config = try? await state.client.appConfig() { restoreOffered = config.purchasesAvailable }
             }
         }
         .environment(\.inSettings, true)
@@ -160,6 +165,8 @@ struct SettingsView: View {
         switch row {
         case .plan:
             NavigationLink { ProPaywallView(plan: plan) } label: { label(row) }
+        case .restore:
+            NavigationLink { RestorePurchasesView() } label: { label(row) }
         case .notices:
             NavigationLink { NoticesView() } label: { label(row) }
         case .connection:
