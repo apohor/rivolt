@@ -163,7 +163,11 @@ var prefixClasses = []struct{ prefix, why string }{
 
 // optionalRoutes are mounted only where a feature is configured; the test router may not have them, and they are classified here for the
 // installs that do.
-var optionalRoutes = map[string]bool{"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true, "POST /api/billing/checkout": true, "POST /api/billing/portal": true}
+// The raw Rivian probes are mounted only where AdminDebugProbes is on (probes_gate_test.go proves the gate).
+var optionalRoutes = map[string]bool{
+	"GET /api/state/{vehicleID}/debug": true, "GET /api/battery-temp/{vehicleID}": true, "GET /api/parallax-raw/{vehicleID}": true,
+	"GET /api/charging-schema": true, "GET /api/charging-field/{field}": true, "GET /api/charging-frames": true,
+	"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true, "POST /api/billing/checkout": true, "POST /api/billing/portal": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {
