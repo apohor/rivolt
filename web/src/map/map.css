@@ -76,7 +76,7 @@
 /* Keyboard focus on the controls: the accent colour, not the browser's default (orange on the dark map, where the dark flavour's
    invert filter on the (i) turns the default blue around). The (i) rings its whole credits box, because a filter would invert a ring drawn on
    the button itself. The accent is the theme's own variable, so light and dark each get their token. */
-.maplibregl-ctrl-group button:focus-visible {
+.maplibregl-ctrl button:focus-visible {
   outline: 2px solid var(--color-emerald-300, #5ee9b5);
   outline-offset: -2px;
 }
