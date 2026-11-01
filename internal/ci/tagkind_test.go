@@ -58,9 +58,11 @@ func TestRetagTags(t *testing.T) {
 }
 
 // job returns the text of one top-level job of build.yml.
-func job(t *testing.T, name string) string {
+func job(t *testing.T, name string) string { return jobOf(t, "build.yml", name) }
+
+func jobOf(t *testing.T, file, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "build.yml"))
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +96,28 @@ func TestAReleaseCandidateNeverReachesProd(t *testing.T) {
 	}
 	if r := job(t, "retag"); !strings.Contains(r, ".github/ci/retag-tags.sh") || strings.Contains(r, `"${IMAGE}:latest"`) {
 		t.Error("retag must take its tag set from retag-tags.sh and name no floating tag itself")
+	}
+}
+
+// The other things a v*.*.* tag starts. A release candidate's GitHub Release is a prerelease that is never "Latest", its notes are
+// "since the last release" (not since the last rc), nothing is announced for it, and a manual publish run on an rc ref cannot move `latest`.
+func TestOtherTagWorkflowsKnowReleaseCandidates(t *testing.T) {
+	notes := jobOf(t, "release-notes.yml", "publish")
+	for _, want := range []string{
+		".github/ci/tag-kind.sh",      // the same classification, and an invalid tag makes no release
+		"--prerelease --latest=false", // an rc is a prerelease and never Latest
+		"--match 'v[0-9]*'",           // previous release: v-tags only (not ios-v...)
+		"--exclude='*-*'",             // ... and never a prerelease
+		`"${flags[@]}"`,               // the flags reach gh release create
+	} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("release-notes.yml lost %q", want)
+		}
+	}
+	if ch := jobOf(t, "release-channels.yml", "discussion"); !strings.Contains(ch, "!github.event.release.prerelease") {
+		t.Error("release-channels.yml would announce a prerelease")
+	}
+	if pub := job(t, "publish"); !strings.Contains(pub, "!contains(github.ref_name, '-')") {
+		t.Error("publish can move `latest` on a prerelease tag ref")
 	}
 }
