@@ -91,6 +91,27 @@ func (l *ipLimiter) MiddlewareN(cost func(*http.Request) int) func(http.Handler)
 	}
 }
 
+// debit takes n tokens from ip's bucket after the fact, without refusing: the work is done, so the bucket goes into debt and the
+// client's next request waits for it. Redis is charged unconditionally (down to -burst); the per-pod bucket is charged too, as it is on admission.
+func (l *ipLimiter) debit(ip string, n int) {
+	if n <= 0 {
+		return
+	}
+	if l.name != "" && l.shared != nil {
+		l.shared.debit(l.name, ip, float64(l.rps), l.burst, n)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	b, ok := l.buckets[ip]
+	if !ok {
+		b = &ipBucket{l: rate.NewLimiter(l.rps, l.burst)}
+		l.buckets[ip] = b
+	}
+	b.lastSeen = now
+	b.l.ReserveN(now, min(n, l.burst)) // a reservation is not cancelled: the tokens stay spent
+}
+
 // allowN checks and decrements n tokens (n <= 0 is free) of the bucket for ip.
 // Lazy-creates a new bucket on first sight and updates lastSeen for the janitor.
 func (l *ipLimiter) allowN(ip string, n int) (bool, time.Duration) {

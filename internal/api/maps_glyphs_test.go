@@ -5,8 +5,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -37,7 +39,7 @@ func TestDemoReadsShippedGlyphsOnly(t *testing.T) {
 			t.Errorf("GET %s = %v, want %v", p, got, want)
 		}
 	}
-	if demoMapAssetCost("/api/maps/glyphs/Noto Sans Regular/0-255.pbf") < 50_000 || demoMapAssetCost("/api/maps/dem/9/1/1.png") != demoDEMTileCost {
+	if demoMapAssetCost("/api/maps/glyphs/Noto Sans Regular/0-255.pbf") < 50_000 || demoMapAssetCost("/api/maps/dem/9/1/1.png") != demoDEMTileReserve {
 		t.Error("asset costs")
 	}
 }
@@ -87,4 +89,33 @@ func TestGlyphRouteThroughTheRouter(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// A terrain tile is admitted at a small reserve and then charged the bytes it really carried: with a 1 MiB hourly budget, 130 KB tiles run
+// out after eight (the old flat 96 KB estimate let ten through), and the budget is the client's own.
+func TestDemoChargesTerrainTilesTheirRealBytes(t *testing.T) {
+	t.Setenv("RIVOLT_DEMO_TILES_MB_PER_CLIENT_PER_HOUR", "1")
+	body := make([]byte, 130_000)
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(nil, uuid.New(), demoVeh, big(), big())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
+	do := func(ip string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/maps/dem/8/10/20.png", nil)
+		req.Header.Set("CF-Connecting-IP", ip)
+		req.RemoteAddr = "173.245.48.5:1"
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 1; i <= 8; i++ {
+		if c := do("198.51.100.1"); c != http.StatusOK {
+			t.Fatalf("tile %d = %d", i, c)
+		}
+	}
+	if c := do("198.51.100.1"); c != http.StatusTooManyRequests {
+		t.Fatalf("ninth tile = %d, want 429 (eight real tiles spent the budget)", c)
+	}
+	if c := do("198.51.100.2"); c != http.StatusOK {
+		t.Fatalf("another client = %d, want its own budget", c)
+	}
 }
