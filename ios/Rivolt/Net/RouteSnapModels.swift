@@ -17,11 +17,13 @@ struct DriveSample: Decodable, Equatable {
     var altitudeM: Double? = nil
     /// Rivian's drive mode ("everyday", "sport", "distance"…).
     var driveMode: String? = nil
+    /// The odometer in miles, for the Efficiency colour mode.
+    var odometerMi: Double? = nil
 
     // altitude_m and drive_mode arrive snake_case: the decoder's convertFromSnakeCase turns them into these names.
     private enum CodingKeys: String, CodingKey {
         case at = "At", lat = "Lat", lon = "Lon", speedMph = "SpeedMph", shiftState = "ShiftState", locationFixAt = "LocationFixAt"
-        case batteryLevelPct = "BatteryLevelPct", altitudeM, driveMode
+        case batteryLevelPct = "BatteryLevelPct", altitudeM, driveMode, odometerMi = "OdometerMi"
     }
 }
 

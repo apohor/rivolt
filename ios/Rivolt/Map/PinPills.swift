@@ -99,9 +99,9 @@ enum PinPills {
     }
 
     /// The corners other things sit in: the legend (bottom left) and the credit (bottom right).
-    static func keepClear(size: CGSize, legendWidth: CGFloat = 190, legend: Bool) -> [CGRect] {
+    static func keepClear(size: CGSize, legendWidth: CGFloat = 190, legendHeight: CGFloat = 52, legend: Bool) -> [CGRect] {
         var r = [CGRect(x: size.width - 130, y: size.height - 26, width: 130, height: 26)]
-        if legend { r.append(CGRect(x: 0, y: size.height - 52, width: legendWidth, height: 52)) }
+        if legend { r.append(CGRect(x: 0, y: size.height - legendHeight, width: legendWidth, height: legendHeight)) }
         return r
     }
 }
@@ -142,6 +142,7 @@ struct PinPillsOverlay: View {
     let startTime: String?
     let endTime: String?
     let legend: Bool
+    var legendHeight: CGFloat = 52
     var startLine: [CGPoint] = []
     var endLine: [CGPoint] = []
     /// The pills' real widths once drawn (the estimate stands until then, and at any text size): placement uses them.
@@ -156,11 +157,11 @@ struct PinPillsOverlay: View {
     }
 
     /// The pills to draw: one for a round trip, else a Start and an End placed so that they keep clear of the corners, the line and each other.
-    static func items(size: CGSize, start: CGPoint?, end: CGPoint?, startTime: String?, endTime: String?, legend: Bool,
+    static func items(size: CGSize, start: CGPoint?, end: CGPoint?, startTime: String?, endTime: String?, legend: Bool, legendHeight: CGFloat = 52,
                       startLine: [CGPoint] = [], endLine: [CGPoint] = [], widths: [Int: CGFloat] = [:]) -> [Item] {
         let shared = start.flatMap { s in end.map { hypot(s.x - $0.x, s.y - $0.y) < PinPills.sharedWithin } } ?? false
         let t = PinPills.text(start: startTime, end: endTime, shared: shared)
-        var taken = PinPills.keepClear(size: size, legend: legend)
+        var taken = PinPills.keepClear(size: size, legendHeight: legendHeight, legend: legend)
         var out: [Item] = []
         func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ line: [CGPoint]) {
             guard let text, let pin else { return }
@@ -176,7 +177,7 @@ struct PinPillsOverlay: View {
     }
 
     var body: some View {
-        let items = Self.items(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: legend,
+        let items = Self.items(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: legend, legendHeight: legendHeight,
                                startLine: startLine, endLine: endLine, widths: widths)
         ZStack(alignment: .topLeading) {
             ForEach(items) { item in

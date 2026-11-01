@@ -22,6 +22,14 @@ struct DriveRouteMap: View {
     @State private var routeDrawn = false
     /// The pins' positions in the map once it has fitted the route (for the Start and End pills), with the map's size.
     @State private var pins = RouteMapView.Pins()
+    /// What the line is coloured by (the web's legend switch); the first the drive supports until a person picks.
+    @State private var picked: RouteGradient.Metric?
+
+    private var metric: RouteGradient.Metric {
+        guard let drawing else { return .speed }
+        let available = drawing.availableMetrics
+        return picked.flatMap { available.contains($0) ? $0 : nil } ?? available.first ?? .speed
+    }
 
     var body: some View {
         ZStack {
@@ -29,11 +37,11 @@ struct DriveRouteMap: View {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 })
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric)
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes)
+                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }))
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
@@ -49,7 +57,7 @@ struct DriveRouteMap: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .opensFullScreenMap(enabled: openable, title: "Drive route", recenterLabel: "Recenter on the route") { recenter in
             if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                DriveRouteFullMap(styleJSON: style, drawing: drawing, times: pillTimes, recenter: recenter)
+                DriveRouteFullMap(styleJSON: style, drawing: drawing, times: pillTimes, recenter: recenter, initial: metric)
             }
         }
         .task(id: phase) { await load() }
@@ -110,13 +118,16 @@ private struct RouteDecor: ViewModifier {
     let pins: RouteMapView.Pins
     let times: (start: String?, end: String?)?
     var clipPins = false
+    var metric = RouteGradient.Metric.speed
+    var metrics: [RouteGradient.Metric] = []
+    var selection: Binding<RouteGradient.Metric>?
 
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottomTrailing) { MapAttribution() }
             .overlay(alignment: .bottomLeading) {
-                if ready, drawing.usesGradient, let r = drawing.speedRange {
-                    GradientLegend(lo: r.lo, hi: r.hi).padding(4)
+                if ready, let r = drawing.range(for: metric), metric != .speed || drawing.usesGradient {
+                    GradientLegend(lo: r.lo, hi: r.hi, metric: metric, metrics: metrics, selection: selection).padding(4)
                 } else if ready, drawing.pieces.contains(where: { $0.speed != nil }) {
                     SpeedLegend(bands: drawing.usedSpeeds).padding(4)
                 }
@@ -128,15 +139,17 @@ private struct RouteDecor: ViewModifier {
                     PinPillsOverlay(size: pins.size, start: pins.start.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     end: pins.end.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     startTime: times.start, endTime: times.end,
-                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), startLine: pins.startLine, endLine: pins.endLine)
+                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), legendHeight: metrics.count > 1 ? 76 : 52, startLine: pins.startLine, endLine: pins.endLine)
                 }
             }
     }
 }
 
 extension View {
-    fileprivate func routeDecor(drawing: RouteSnap.Drawing, ready: Bool, pins: RouteMapView.Pins, times: (start: String?, end: String?)?, clipPins: Bool = false) -> some View {
-        modifier(RouteDecor(drawing: drawing, ready: ready, pins: pins, times: times, clipPins: clipPins))
+    fileprivate func routeDecor(drawing: RouteSnap.Drawing, ready: Bool, pins: RouteMapView.Pins, times: (start: String?, end: String?)?, clipPins: Bool = false,
+                                metric: RouteGradient.Metric = .speed, selection: Binding<RouteGradient.Metric>? = nil) -> some View {
+        modifier(RouteDecor(drawing: drawing, ready: ready, pins: pins, times: times, clipPins: clipPins, metric: metric,
+                            metrics: drawing.availableMetrics, selection: selection))
     }
 }
 
@@ -146,17 +159,27 @@ struct DriveRouteFullMap: View {
     let drawing: RouteSnap.Drawing
     let times: (start: String?, end: String?)?
     let recenter: Int
+    /// The colour mode the inline map was showing.
+    var initial = RouteGradient.Metric.speed
+    @State private var picked: RouteGradient.Metric?
     @State private var health = MapHealth.ok
     @State private var routeDrawn = false
     @State private var pins = RouteMapView.Pins()
 
+    private var metric: RouteGradient.Metric {
+        let available = drawing.availableMetrics
+        let want = picked ?? initial
+        return available.contains(want) ? want : (available.first ?? .speed)
+    }
+
     var body: some View {
         RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
-                     interactive: true, recenter: recenter)
+                     interactive: true, recenter: recenter, metric: metric)
             .accessibilityElement()
             .accessibilityLabel("Map of the drive route, full screen")
             .accessibilityHint("Pinch to zoom, drag to move")
-            .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true)
+            .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true, metric: metric,
+                        selection: Binding(get: { metric }, set: { picked = $0 }))
             .overlay { if health == .noTiles { MapUnavailableOverlay() } }
     }
 }
@@ -202,28 +225,52 @@ struct SpeedLegend: View {
 struct GradientLegend: View {
     let lo: Double
     let hi: Double
+    var metric: RouteGradient.Metric = .speed
+    /// The colour modes the drive supports, and the one shown: the switch appears when there is more than one.
+    var metrics: [RouteGradient.Metric] = []
+    var selection: Binding<RouteGradient.Metric>?
     @Environment(\.colorScheme) private var scheme
+
     static let title = "Speed"
+    static func title(_ m: RouteGradient.Metric) -> String {
+        switch m {
+        case .speed: return "Speed"
+        case .efficiency: return "Efficiency (est.)"
+        case .elevation: return "Elevation"
+        }
+    }
+
+    /// What the colours mean, said in full for VoiceOver (efficiency is worked out from the battery, not Rivian's own figure).
+    static func spoken(_ m: RouteGradient.Metric) -> String {
+        switch m {
+        case .speed: return "speed"
+        case .efficiency: return "efficiency, estimated from the battery's change"
+        case .elevation: return "elevation"
+        }
+    }
 
     private var unit: RouteGradient.DistanceUnit { DisplayUnits.distanceMetric ? .kilometres : .miles }
-    var labels: (min: String, max: String) { RouteGradient.legend(lo: lo, hi: hi, metric: .speed, unit: unit) }
+    var labels: (min: String, max: String) { RouteGradient.legend(lo: lo, hi: hi, metric: metric, unit: unit) }
 
     /// "Speed 12–64 mph": the two ends share the unit.
     var line: String {
         let l = labels
-        guard let space = l.max.firstIndex(of: " ") else { return "\(Self.title) \(l.min)–\(l.max)" }
+        guard let space = l.max.firstIndex(of: " ") else { return "\(Self.title(metric)) \(l.min)–\(l.max)" }
         let unitText = String(l.max[l.max.index(after: space)...])
         let minNumber = l.min.split(separator: " ").first.map(String.init) ?? l.min
-        return "\(Self.title) \(minNumber)–\(l.max[..<space]) \(unitText)"
+        return "\(Self.title(metric)) \(minNumber)–\(l.max[..<space]) \(unitText)"
     }
 
     var body: some View {
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
-        // One line, "Speed 12–64 mph", over a bar as wide as the line.
+        // One line, "Speed 12–64 mph", over a bar as wide as the line; a switch above it when the drive has more than one colour mode.
         VStack(alignment: .leading, spacing: 3) {
+            if metrics.count > 1, let selection {
+                MetricSwitch(metrics: metrics, selection: selection)
+            }
             Text(line).lineLimit(1).fixedSize()
             RoundedRectangle(cornerRadius: 1.5)
-                .fill(LinearGradient(gradient: RouteRamp.speed.gradient(traits: traits), startPoint: .leading, endPoint: .trailing))
+                .fill(LinearGradient(gradient: RouteRamp.ramp(metric).gradient(traits: traits), startPoint: .leading, endPoint: .trailing))
                 .frame(height: 3)
         }
         .mapCaption()
@@ -233,8 +280,39 @@ struct GradientLegend: View {
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Route coloured by speed, from \(labels.min) to \(labels.max)")
+        .accessibilityElement(children: metrics.count > 1 ? .contain : .ignore)
+        .accessibilityLabel("Route coloured by \(Self.spoken(metric)), from \(labels.min) to \(labels.max)")
+    }
+}
+
+/// "Speed | Efficiency | Elevation": the route's colour modes, as the web's legend switch.
+struct MetricSwitch: View {
+    let metrics: [RouteGradient.Metric]
+    @Binding var selection: RouteGradient.Metric
+
+    static func label(_ m: RouteGradient.Metric) -> String {
+        switch m {
+        case .speed: return "Speed"
+        case .efficiency: return "Efficiency"
+        case .elevation: return "Elevation"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(metrics, id: \.self) { m in
+                Button { selection = m } label: {
+                    Text(Self.label(m)).lineLimit(1).fixedSize()
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .foregroundStyle(m == selection ? Theme.textPrimary : Theme.textSecondary)
+                        .background(m == selection ? Theme.borderStrong : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Colour by \(Self.label(m).lowercased())")
+                .accessibilityAddTraits(m == selection ? .isSelected : [])
+            }
+        }
     }
 }
 
@@ -261,6 +339,8 @@ struct RouteMapView: UIViewRepresentable {
     var interactive = false
     /// Bump to put the camera back on the whole route (the full-screen map's recenter button).
     var recenter = 0
+    /// What the gradient is coloured by.
+    var metric: RouteGradient.Metric = .speed
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
 
@@ -292,6 +372,7 @@ struct RouteMapView: UIViewRepresentable {
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
         context.coordinator.setStyle(styleJSON, on: map)
+        context.coordinator.setMetric(metric, on: map)
         context.coordinator.update(drawing, on: map)
         context.coordinator.recenter(recenter, on: map)
     }
@@ -379,13 +460,13 @@ struct RouteMapView: UIViewRepresentable {
             }
             // The glow under everything recorded, then the gaps, then the line by speed, then the pins.
             // (On the gradient the glow is a wider, fainter copy of the gradient itself, added with it.)
-            if !drawing.usesGradient { style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18)) }
+            if !gradientOn { style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18)) }
             style.addLayer(lineLayer("routed", "routed", color: Theme.routeGap, width: 2.5, opacity: 0.75))
             let dashed = lineLayer("gaps", "gaps", color: Theme.routeGap, width: 2, opacity: 0.7)
             dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
             dashed.lineCap = NSExpression(forConstantValue: "butt")
             style.addLayer(dashed)
-            if drawing.usesGradient {
+            if gradientOn {
                 addGradientRuns(drawing, map: map, style: style)
             } else {
                 for b in [nil] + RouteSnap.Speed.allCases.map(Optional.some) {
@@ -436,14 +517,17 @@ struct RouteMapView: UIViewRepresentable {
                 ring.circleStrokeWidth = NSExpression(forConstantValue: 3)
                 style.addLayer(ring)
             }
-            fit(map)
+            if !keepCamera { fit(map) }
             DispatchQueue.main.async { self.onDrawn() }
         }
 
         /// The line as a smooth gradient of speed: each unbroken run is its own source (the gradient is along one line) and layer, coloured by the
         /// speed at each vertex on the web's scale (5th to 95th percentile), under the pins.
+        /// The line is a gradient: of speed when it varies enough, and of another mode once that is picked.
+        private var gradientOn: Bool { metric == .speed ? drawing.usesGradient : (drawing.range(for: metric) != nil && !drawing.runs.isEmpty) }
+
         private func addGradientRuns(_ d: RouteSnap.Drawing, map: MLNMapView, style: MLNStyle) {
-            guard let range = d.speedRange else { return }
+            guard let range = d.range(for: metric) else { return }
             let traits = map.traitCollection
             let below = style.layer(withIdentifier: "\(RouteMapView.sourceID)-pin-start")
             for (i, run) in d.runs.enumerated() {
@@ -452,9 +536,9 @@ struct RouteMapView: UIViewRepresentable {
                 let source = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-run-\(i)", shape: line, options: [.lineDistanceMetrics: true])
                 style.addSource(source)
                 let layer = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-run-\(i)", source: source)
-                let stops = RouteGradient.stops(progress: run.progress, values: run.filledSpeeds, lo: range.lo, hi: range.hi)
+                let stops = RouteGradient.stops(progress: run.progress, values: run.filledValues(metric), lo: range.lo, hi: range.hi)
                 var colours: [NSNumber: UIColor] = [:]
-                for s in stops { colours[NSNumber(value: s.offset)] = RouteRamp.speed.color(at: s.t, traits: traits) }
+                for s in stops { colours[NSNumber(value: s.offset)] = RouteRamp.ramp(metric).color(at: s.t, traits: traits) }
                 let gradient = NSExpression(forMLNInterpolating: NSExpression.lineProgressVariable, curveType: .linear, parameters: nil, stops: NSExpression(forConstantValue: colours))
                 func style_(_ l: MLNLineStyleLayer, width: Double, opacity: Double) {
                     l.lineGradient = gradient
@@ -507,6 +591,18 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         override func resized(_ map: MLNMapView) { fit(map) }
+
+        private var metric = RouteGradient.Metric.speed
+        private var keepCamera = false
+        /// A colour mode was picked: the gradient layers start over in the new colours, the camera stays where it is.
+        func setMetric(_ m: RouteGradient.Metric, on map: MLNMapView) {
+            guard m != metric else { return }
+            metric = m
+            guard !sources.isEmpty, let style = map.style else { return }
+            keepCamera = true
+            styleLoaded(map, style)
+            keepCamera = false
+        }
 
         private var recentered = 0
         /// The recenter button was pressed: the whole route in view again, eased there.

@@ -9,6 +9,22 @@ struct RouteRamp {
     /// Blue, green and amber from the speed bucket tokens (the 5 to 25, 25 to 50 and 50 to 65 mph bands): the web's `speed` ramp.
     static let speed = RouteRamp(stops: [Theme.routeSpeed5to25, Theme.routeSpeed25to50, Theme.routeSpeed50to65])
 
+    private static func pair(_ dark: UInt32, _ light: UInt32) -> Color { Theme.color(ThemeTokens.Pair(dark: .init(dark), light: .init(light))) }
+
+    /// The web's efficiency ramp (low is bad): red, yellow, teal.
+    static let efficiency = RouteRamp(stops: [pair(0xFF6B81, 0xD6335A), pair(0xFFD230, 0xF0A000), pair(0x5EE9B5, 0x0FA37F)])
+
+    /// The web's elevation ramp: blue, teal, yellow, orange.
+    static let elevation = RouteRamp(stops: [pair(0x4C8DFF, 0x2B66E0), pair(0x5EE9B5, 0x0FA37F), pair(0xFFD230, 0xF0A000), pair(0xFE9A00, 0xD9480F)])
+
+    static func ramp(_ metric: RouteGradient.Metric) -> RouteRamp {
+        switch metric {
+        case .speed: return .speed
+        case .efficiency: return .efficiency
+        case .elevation: return .elevation
+        }
+    }
+
     /// The colour at `t`, interpolated in sRGB between the two nearest stops, resolved for `traits` (dark or light).
     func color(at t: Double, traits: UITraitCollection) -> UIColor {
         let c = stops.map { $0.rgba(traits) }

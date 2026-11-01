@@ -13,6 +13,41 @@ final class GradientLegendSnapshotTests: XCTestCase {
         .frame(width: 343, height: 90)
     }
 
+    private func switchCard(_ metric: RouteGradient.Metric, _ lo: Double, _ hi: Double) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.card)
+            GradientLegend(lo: lo, hi: hi, metric: metric, metrics: RouteGradient.Metric.allCases, selection: .constant(metric)).padding(4)
+        }
+        .frame(width: 343, height: 110)
+    }
+
+    /// The legend with the colour-mode switch, in each mode, light and dark, at the default and the largest text sizes.
+    func testRenderTheModeSwitch() throws {
+        Theme.registerFonts()
+        for scheme in [ColorScheme.light, .dark] {
+            for (label, type) in [("default", DynamicTypeSize.large), ("ax3", .accessibility3)] {
+                let page = VStack(spacing: 12) {
+                    switchCard(.speed, 12, 64)
+                    switchCard(.efficiency, 2.4, 3.6)
+                    switchCard(.elevation, 100, 450)
+                }
+                .padding(12).frame(width: 367).background(ThemePageBackground())
+                let renderer = ImageRenderer(content: page.environment(\.colorScheme, scheme).environment(\.dynamicTypeSize, type))
+                renderer.scale = 2
+                let png = try XCTUnwrap(try XCTUnwrap(renderer.uiImage, "legend did not render").pngData())
+                let file = "mode-switch-\(scheme == .dark ? "dark" : "light")-\(label).png"
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = file
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
+                    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                    try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
+                }
+            }
+        }
+    }
+
     func testRender() throws {
         Theme.registerFonts()
         for scheme in [ColorScheme.light, .dark] {
