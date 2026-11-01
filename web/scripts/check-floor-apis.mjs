@@ -33,8 +33,21 @@ export const FLOOR_APIS = [
   ["Intl.DurationFormat", /\bIntl\.DurationFormat\b/, "Safari 18.4, Chrome 129"],
 ];
 
+// Method-name entries are ambiguous: a library with its own class method of that name (MapLibre's render-to-texture fingerprint has
+// difference(e){...}) is not Set.prototype.difference. A call to a name the same file defines as a method is not counted.
+const OWN_METHOD = ["Set methods", "Map/WeakMap getOrInsert", "ArrayBuffer.prototype.transfer"];
+const definesMethod = (text, name) => new RegExp(`[;,{}]\\s*(?:static\\s+|async\\s+)?${name}\\s*\\([^()]*\\)\\s*\\{`).test(text);
+
 export function findFloorApis(text) {
-  return FLOOR_APIS.filter(([, re]) => re.test(text)).map(([name]) => name);
+  return FLOOR_APIS.filter(([name, re]) => {
+    if (!OWN_METHOD.includes(name)) return re.test(text);
+    const g = new RegExp(re.source, "g");
+    for (const m of text.matchAll(g)) {
+      const method = /([A-Za-z]+)\($/.exec(m[0])?.[1];
+      if (!method || !definesMethod(text, method)) return true;
+    }
+    return false;
+  }).map(([name]) => name);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
