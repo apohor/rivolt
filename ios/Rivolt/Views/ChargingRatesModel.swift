@@ -24,6 +24,8 @@ final class ChargingRatesModel {
         case invalid(String)
         /// 403 (and 404 or 405 from a server that has no such route): this server doesn't let the app change it.
         case notAllowed
+        /// 403 `terms_required`: the updated Terms have to be accepted on the web first.
+        case termsRequired
         /// 429: too many changes in a minute.
         case tooMany
         /// 5xx: the server couldn't save it.
@@ -35,6 +37,7 @@ final class ChargingRatesModel {
             switch self {
             case .invalid(let m): return "The server didn't accept that: \(m)"
             case .notAllowed: return "Your Rivolt server doesn't let the app change this. Change it on the web."
+            case .termsRequired: return "Accept the updated Terms to continue."
             case .tooMany: return "That's a lot of changes in a minute. Wait a little, then save again."
             case .serverError: return "The server couldn't save it. Try again in a moment."
             case .unknown: return "No answer from the server, so we can't say whether it saved. Reload to see the saved rate."
@@ -92,6 +95,7 @@ final class ChargingRatesModel {
         guard case APIError.server(let status, let message) = error else { return .unknown }
         switch status {
         case 400: return .invalid(message)
+        case 403 where message == APIError.termsRequiredMessage: return .termsRequired
         case 403, 404, 405: return .notAllowed
         case 429: return .tooMany
         case 500...599: return .serverError

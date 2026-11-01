@@ -6,6 +6,7 @@ enum UserFacingError {
     static func words(_ error: Error) -> String {
         switch error {
         case APIError.rivianReauth: return "Rivian needs to be reconnected. Do that in Rivolt on the web, then try again."
+        case APIError.server(403, let message) where message == APIError.termsRequiredMessage: return "Accept the updated Terms to continue."
         case APIError.server(let status, _): return server(status)
         case APIError.decoding, is DecodingError: return "The server's answer wasn't what the app expected. Update the app, or try again in a moment."
         case APIError.badURL: return "The server address isn't valid."
