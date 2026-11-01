@@ -12,9 +12,12 @@ export default defineConfig({
     // modern bundle; in plugin-legacy v8 that bundle's syntax floor and
     // polyfill set are driven by modernTargets (it owns build.target now),
     // not the vite build.target field.
+    //
+    // No polyfills: modernPolyfills used to be true, which injects core-js for every feature the floor lacks (Iterator helpers, Set
+    // methods, getOrInsert, ArrayBuffer.transfer, JSON.parse source: a 20.8 KB chunk) whether or not any code calls it, and none did.
+    // scripts/check-floor-apis.mjs, run after the build in CI, fails when the shipped JS starts using an API newer than the floor.
     legacy({
       modernTargets: ["safari >= 16.4", "ios_saf >= 16.4", "chrome >= 111", "firefox >= 128", "edge >= 111"],
-      modernPolyfills: true,
       renderLegacyChunks: false,
     }),
   ],
