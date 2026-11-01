@@ -113,6 +113,8 @@ struct SpeedLegend: View {
             .mapCaption()
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundStyle(Theme.textBody)
+            // Its own width (the bars are flexible shapes and would otherwise take the whole map).
+            .fixedSize()
             .padding(.horizontal, 6).padding(.vertical, 4)
             .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
