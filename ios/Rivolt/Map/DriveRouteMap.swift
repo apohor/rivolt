@@ -20,6 +20,8 @@ struct DriveRouteMap: View {
     @State private var health = MapHealth.ok
     /// The route's layers are on the map (the speed legend shows only over a drawn speed route).
     @State private var routeDrawn = false
+    /// The pins' positions in the map once it has fitted the route (for the Start and End pills), with the map's size.
+    @State private var pins = RouteMapView.Pins()
 
     var body: some View {
         ZStack {
@@ -27,13 +29,19 @@ struct DriveRouteMap: View {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true })
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 })
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay(alignment: .bottomLeading) {
                         if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend(bands: drawing.usedSpeeds).padding(4) }
+                    }
+                    .overlay {
+                        if routeDrawn, health == .ok, pins.size.width > 0, let times = pillTimes {
+                            PinPillsOverlay(size: pins.size, start: pins.start, end: pins.end, startTime: times.start, endTime: times.end,
+                                            legend: drawing.pieces.contains(where: { $0.speed != nil }), startLine: pins.startLine, endLine: pins.endLine)
+                        }
                     }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
@@ -49,6 +57,13 @@ struct DriveRouteMap: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .task(id: phase) { await load() }
+    }
+
+    /// "9:15 PM" and "11:28 PM": the drive's own start and end, in the phone's time zone and clock style (the web's pills do the same).
+    private var pillTimes: (start: String?, end: String?)? {
+        guard case .loaded(let d, _) = phase else { return nil }
+        func f(_ date: Date?) -> String? { date?.formatted(date: .omitted, time: .shortened) }
+        return (f(d.startedAt), f(d.endedAt))
     }
 
     private func load() async {
@@ -133,6 +148,17 @@ struct RouteMapView: UIViewRepresentable {
     var onHealth: (MapHealth) -> Void = { _ in }
     /// The route's layers went onto the map.
     var onDrawn: () -> Void = {}
+    /// The pins' positions in the map (and its size) each time the camera is fitted: where the Start and End pills go. Unused by the plan map.
+    var onPins: ((Pins) -> Void)?
+
+    struct Pins: Equatable {
+        var size: CGSize = .zero
+        var start: CGPoint?
+        var end: CGPoint?
+        /// The route's first stretch from each pin, in map points (about 100 pt of it): a pill never lies along it.
+        var startLine: [CGPoint] = []
+        var endLine: [CGPoint] = []
+    }
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
 
@@ -150,7 +176,7 @@ struct RouteMapView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn) }
+    func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn, onPins: onPins) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
@@ -170,11 +196,13 @@ struct RouteMapView: UIViewRepresentable {
         private var drawing: RouteSnap.Drawing
         private var sources: [String: MLNShapeSource] = [:]
         private let onDrawn: () -> Void
+        private let onPins: ((Pins) -> Void)?
         var onStop: ((Int) -> Void)?
 
-        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}) {
+        init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}, onPins: ((Pins) -> Void)? = nil) {
             self.drawing = drawing
             self.onDrawn = onDrawn
+            self.onPins = onPins
             super.init(onHealth: onHealth)
         }
 
@@ -334,6 +362,33 @@ struct RouteMapView: UIViewRepresentable {
         /// The camera on the whole drawing. MapLibre ignores a fit while the view has no size, so it's made again
         /// when the view gets one (`resized`).
         private func fit(_ map: MLNMapView) {
+            fitCamera(map)
+            reportPins(map)
+        }
+
+        /// Where the two pins are on screen, for the pills (the map is a picture, so this is the final camera).
+        private func reportPins(_ map: MLNMapView) {
+            guard let onPins, map.bounds.width > 0 else { return }
+            func point(_ c: RouteSnap.Coord?) -> CGPoint? { c.map { map.convert(CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon), toPointTo: map) } }
+            // About 100 pt of the line from each pin, followed from the ends of the drawn line.
+            func stretch(_ coords: [RouteSnap.Coord]) -> [CGPoint] {
+                var out: [CGPoint] = []
+                for c in coords {
+                    guard let p = point(c) else { continue }
+                    if let last = out.last, hypot(p.x - last.x, p.y - last.y) < 4 { continue }
+                    out.append(p)
+                    if let first = out.first, hypot(p.x - first.x, p.y - first.y) >= 100 { break }
+                }
+                return out
+            }
+            let first = drawing.pieces.first?.coords ?? []
+            let last = drawing.pieces.last?.coords.reversed() ?? []
+            let pins = Pins(size: map.bounds.size, start: point(drawing.start), end: point(drawing.end),
+                            startLine: stretch(first), endLine: stretch(Array(last)))
+            DispatchQueue.main.async { onPins(pins) }
+        }
+
+        private func fitCamera(_ map: MLNMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
                 .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
