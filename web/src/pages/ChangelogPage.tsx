@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import Markdown from "react-markdown";
+import Markdown from "../lib/miniMarkdown";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import Logo from "../components/Logo";
