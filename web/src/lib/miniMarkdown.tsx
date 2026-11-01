@@ -105,9 +105,10 @@ function tokens(s: string, c: Components, kb: { n: number }): Tok[] {
     }
     if (ch === "\n") {
       // Two or more trailing spaces before a newline are a hard break; otherwise the newline stays as it is (a soft break).
-      const m = /( {2,})$/.exec(buf);
-      if (m) { buf = buf.slice(0, buf.length - m[1].length); push(el(c, "br", { key: key() })); }
-      else buf = buf.replace(/ +$/, "") + "\n";
+      let e = buf.length;
+      while (e > 0 && buf[e - 1] === " ") e--;
+      if (buf.length - e >= 2) { buf = buf.slice(0, e); push(el(c, "br", { key: key() })); }
+      else buf = buf.slice(0, e) + "\n";
       i++;
       while (s[i] === " " || s[i] === "\t") i++; // leading spaces of the next line are not content
       continue;
@@ -335,17 +336,60 @@ function inline(s: string, c: Components, kb: { n: number }): ReactNode[] {
 
 // --- blocks -----------------------------------------------------------------------------------------------------------------------------
 
-const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+// Linear-time helpers. The patterns they replace ((.*?) before an optional closing run, [ \t]*([^`\s]*)[^`]*$, ( {2,})$) backtrack
+// quadratically on a long run of spaces, which a hostile document can supply.
+const rtrim = (s: string): string => {
+  let e = s.length;
+  while (e > 0 && (s[e - 1] === " " || s[e - 1] === "\t")) e--;
+  return e === s.length ? s : s.slice(0, e);
+};
+const ltrim = (s: string): string => {
+  let b = 0;
+  while (b < s.length && (s[b] === " " || s[b] === "\t")) b++;
+  return b === 0 ? s : s.slice(b);
+};
+
+/** An ATX heading line ("## text ##"): its level and text, or null. */
+function atx(l: string): { level: number; text: string } | null {
+  let i = 0;
+  while (i < 3 && l[i] === " ") i++;
+  let j = i;
+  while (l[j] === "#") j++;
+  const level = j - i;
+  if (level < 1 || level > 6) return null;
+  if (j < l.length && l[j] !== " " && l[j] !== "\t") return null;
+  let body = rtrim(ltrim(l.slice(j)));
+  let e = body.length;
+  while (e > 0 && body[e - 1] === "#") e--;
+  // A closing run of # counts only after a space (or when it is the whole text).
+  if (e < body.length && (e === 0 || body[e - 1] === " " || body[e - 1] === "\t")) body = rtrim(body.slice(0, e));
+  return { level, text: body };
+}
+
+/** An opening code fence: the fence itself and the first word of its info string, or null. */
+function fenceOpen(l: string): { fence: string; lang: string } | null {
+  let i = 0;
+  while (i < 3 && l[i] === " ") i++;
+  const ch = l[i];
+  if (ch !== "`" && ch !== "~") return null;
+  let j = i;
+  while (l[j] === ch) j++;
+  if (j - i < 3) return null;
+  const info = l.slice(j);
+  if (ch === "`" && info.includes("`")) return null;
+  const t = info.trim();
+  const sp = t.search(/\s/);
+  return { fence: l.slice(i, j), lang: sp < 0 ? t : t.slice(0, sp) };
+}
 const BULLET = /^ {0,3}([-*+])(?:[ \t]+(.*))?$/;
 const ORDERED = /^ {0,3}(\d{1,9})([.)])(?:[ \t]+(.*))?$/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
-const FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$/;
 const QUOTE = /^ {0,3}> ?(.*)$/;
 const HTMLBLOCK = /^ {0,3}<(?:!--|\/?[A-Za-z][A-Za-z0-9-]*(?:\s|\/?>|$))/;
 const isBlank = (l: string) => /^[ \t]*$/.test(l);
 
 function startsBlock(l: string): boolean {
-  return HEADING.test(l) || HR.test(l) || FENCE.test(l) || QUOTE.test(l) || BULLET.test(l) || /^ {0,3}1[.)](?:[ \t]|$)/.test(l);
+  return atx(l) !== null || HR.test(l) || fenceOpen(l) !== null || QUOTE.test(l) || BULLET.test(l) || /^ {0,3}1[.)](?:[ \t]|$)/.test(l);
 }
 
 function blocks(lines: string[], c: Components, kb: { n: number }): ReactNode[] {
@@ -364,19 +408,20 @@ function blocksAt(lines: string[], c: Components, kb: { n: number }): ReactNode[
   while (i < lines.length) {
     const line = lines[i];
     if (isBlank(line)) { i++; continue; }
-    let m: RegExpExecArray | null;
-    if ((m = FENCE.exec(line))) {
-      const fence = m[1];
+    const fo = fenceOpen(line);
+    if (fo) {
+      const fence = fo.fence;
       const body: string[] = [];
       i++;
       while (i < lines.length && !(lines[i].trim().startsWith(fence) && lines[i].trim().replace(new RegExp(`^${fence[0]}+`), "") === "")) body.push(lines[i++]);
       i++;
-      const props: Props = m[2] ? { className: `language-${m[2].replace(/[^A-Za-z0-9_-]/g, "")}` } : {};
+      const props: Props = fo.lang ? { className: `language-${fo.lang.replace(/[^A-Za-z0-9_-]/g, "")}` } : {};
       out.push(el(c, "pre", { key: kb.n++ }, el(c, "code", { key: 0, ...props }, body.length ? body.join("\n") + "\n" : "")));
       continue;
     }
-    if ((m = HEADING.exec(line))) {
-      out.push(el(c, ("h" + m[1].length) as Tag, { key: kb.n++ }, inline((m[2] ?? "").trim(), c, kb)));
+    const hd = atx(line);
+    if (hd) {
+      out.push(el(c, ("h" + hd.level) as Tag, { key: kb.n++ }, inline(hd.text, c, kb)));
       i++;
       continue;
     }
@@ -455,7 +500,7 @@ function blocksAt(lines: string[], c: Components, kb: { n: number }): ReactNode[
     const para: string[] = [line.replace(/^[ \t]+/, "")];
     i++;
     while (i < lines.length && !isBlank(lines[i]) && !startsBlock(lines[i]) && !HTMLBLOCKINTERRUPT.test(lines[i])) para.push(lines[i++].replace(/^[ \t]+/, ""));
-    out.push(el(c, "p", { key: kb.n++ }, inline(para.join("\n").replace(/[ \t]+$/, ""), c, kb)));
+    out.push(el(c, "p", { key: kb.n++ }, inline(rtrim(para.join("\n")), c, kb)));
   }
   return out;
 }
