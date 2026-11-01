@@ -245,7 +245,7 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 // yet) and Rivian rejects it. That rejection must not flag the user or send the email,
 // and one against the stored session still must. The check is in the UPDATE itself, so a
 // sign-in landing between B's read and write cannot lose.
-func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
+func staleRejectionRound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
@@ -267,7 +267,11 @@ func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-179 * 24 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
+	installFlagAudit(ctx, t, pool)
 	a, b := newRivianPod(ctx, pool, store), newRivianPod(ctx, pool, store)
+	diag := func() string {
+		return b.diagnose(ctx, pool, uid) + "\n  --- pod A:" + a.diagnose(ctx, pool, uid) + flagAudit(ctx, pool, uid)
+	}
 	a.get(ctx, t, uid)
 	b.get(ctx, t, uid) // B has the old session and knows its stored version
 
@@ -285,28 +289,72 @@ func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 		t.Fatal("expected Rivian's 401")
 	}
 	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); needs {
-		t.Fatal("a stale pod's rejection flagged the user right after a fresh sign-in" + b.diagnose(ctx, pool, uid))
+		t.Fatal("a stale pod's rejection flagged the user right after a fresh sign-in" + diag())
 	}
 	if n := b.emails.Load(); n != 0 {
-		t.Fatalf("a stale pod's rejection would send %d re-auth email(s) right after a fresh sign-in%s", n, b.diagnose(ctx, pool, uid))
+		t.Fatalf("a stale pod's rejection would send %d re-auth email(s) right after a fresh sign-in%s", n, diag())
 	}
 	// B converges and, holding the fresh session, is then rejected for real: that flags once.
 	if s := b.get(ctx, t, uid); s.NeedsReauth || b.token(uid) != "fresh" {
-		t.Fatalf("B did not converge: %+v token=%q%s", s, b.token(uid), b.diagnose(ctx, pool, uid))
+		t.Fatalf("B did not converge: %+v token=%q%s", s, b.token(uid), diag())
 	}
 	if _, err := b.raw(uid).(*rivian.LiveClient).WithEndpoint(rejecting.URL + "/gateway").Vehicles(ctx); err == nil {
 		t.Fatal("expected Rivian's 401")
 	}
 	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
-		t.Fatal("a rejection of the stored session must flag the user" + b.diagnose(ctx, pool, uid))
+		t.Fatal("a rejection of the stored session must flag the user" + diag())
 	}
 	if n := b.emails.Load(); n != 1 {
-		t.Fatalf("re-auth emails = %d, want 1%s", n, b.diagnose(ctx, pool, uid))
+		t.Fatalf("re-auth emails = %d, want 1%s", n, diag())
 	}
 	// Every pod then agrees.
 	if s := a.get(ctx, t, uid); !s.NeedsReauth {
 		t.Fatalf("pod A did not see the flag: %+v", s)
 	}
+}
+
+// DIAGNOSTIC (draft PR, not for merge): the A3 test, 40 rounds under CI load, each failure naming every writer of the flag.
+func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
+	for i := 0; i < 40; i++ {
+		t.Run(fmt.Sprintf("round-%02d", i), staleRejectionRound)
+	}
+}
+
+// installFlagAudit records, in the database, every change of users.needs_reauth with the SQL text that made it and the backend that ran it.
+func installFlagAudit(ctx context.Context, t *testing.T, pool *sql.DB) {
+	t.Helper()
+	for _, q := range []string{
+		`CREATE TABLE IF NOT EXISTS zz_reauth_audit (at timestamptz, uid uuid, needs boolean, pid int, q text)`,
+		`CREATE OR REPLACE FUNCTION zz_reauth_audit_fn() RETURNS trigger AS $$ BEGIN
+		   IF NEW.needs_reauth IS DISTINCT FROM OLD.needs_reauth THEN
+		     INSERT INTO zz_reauth_audit VALUES (clock_timestamp(), NEW.id, NEW.needs_reauth, pg_backend_pid(), left(regexp_replace(current_query(), '\s+', ' ', 'g'), 200));
+		   END IF; RETURN NEW; END $$ LANGUAGE plpgsql`,
+		`DROP TRIGGER IF EXISTS zz_reauth_audit_trg ON users`,
+		`CREATE TRIGGER zz_reauth_audit_trg AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION zz_reauth_audit_fn()`,
+	} {
+		if _, err := pool.ExecContext(ctx, q); err != nil {
+			t.Fatalf("flag audit: %v", err)
+		}
+	}
+	t.Cleanup(func() { _, _ = pool.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS zz_reauth_audit_trg ON users`) })
+}
+
+func flagAudit(ctx context.Context, pool *sql.DB, uid uuid.UUID) string {
+	rows, err := pool.QueryContext(ctx, `SELECT to_char(at AT TIME ZONE 'UTC', 'HH24:MI:SS.US'), needs, pid, q FROM zz_reauth_audit WHERE uid = $1 ORDER BY at`, uid)
+	if err != nil {
+		return "\n  flag audit: " + err.Error()
+	}
+	defer rows.Close()
+	out := "\n  every change of needs_reauth, from the database:"
+	for rows.Next() {
+		var at, q string
+		var needs bool
+		var pid int
+		if rows.Scan(&at, &needs, &pid, &q) == nil {
+			out += fmt.Sprintf("\n    %s needs=%v backend=%d %s", at, needs, pid, q)
+		}
+	}
+	return out
 }
 
 // A stale client's rejection must not flag a user who disconnected or signed out elsewhere
