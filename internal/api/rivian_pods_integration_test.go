@@ -671,3 +671,99 @@ func TestInFlightCallOfAReplacedSessionCannotFlagTheFreshOne(t *testing.T) {
 // freshName makes a username no earlier run (the CI repeats these tests 20 times on one database) has used, so each starts from an account with no flag
 // and no stored session.
 func freshName(base string) string { return base + "-" + uuid.NewString()[:8] }
+
+// A deterministic interleaving, no sleeps: a stale pod's rejection reaches the database WHILE the user's sign-in is still in its transaction.
+// The sign-in (secrets.PutTxVersioned) writes the new session row (its version is the database's clock at that statement), then the user's
+// row (rivian_signed_in_at), then commits. The stale raise is one UPDATE of users guarded by EXISTS(session version = the stale pod's). It
+// starts after the new row is written but before it commits, so the guard still sees the OLD committed session and passes; the UPDATE then
+// waits for the sign-in's lock on the user's row. The barrier is Postgres itself (the raise's backend shows as waiting on a Lock), and only
+// then does the sign-in commit. If the UPDATE then goes through on the guard's old answer, the user is flagged by a rejection of a session
+// that is already gone: the flag the A3 guard exists to prevent.
+func TestStaleRaiseRacingASignInCommitCannotFlagTheUser(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, freshName("race"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)})
+	if err != nil || old.IsZero() {
+		t.Fatalf("old session: %v %v", old, err)
+	}
+
+	signedInRowWritten := make(chan struct{})
+	commit := make(chan struct{})
+	signInDone := make(chan error, 1)
+	fresh, _ := json.Marshal(rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)})
+	go func() {
+		_, err := store.PutTxVersioned(ctx, uid, "rivian.session", fresh, func(ctx context.Context, tx *sql.Tx) error {
+			// What the sign-in does after the session row: the user's row, locked until commit.
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET rivian_signed_in_at = $2 WHERE id = $1`, uid, time.Now().UTC()); err != nil {
+				return err
+			}
+			close(signedInRowWritten)
+			select {
+			case <-commit:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		signInDone <- err
+	}()
+	select {
+	case <-signedInRowWritten:
+	case <-ctx.Done():
+		t.Fatal("the sign-in never reached its barrier")
+	}
+
+	// The stale pod's rejection: its client holds `old`.
+	type result struct {
+		transitioned bool
+		err          error
+	}
+	raised := make(chan result, 1)
+	go func() {
+		tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old)
+		raised <- result{tr, err}
+	}()
+	// Barrier: wait until Postgres says the raise is blocked on the sign-in's lock (never a sleep for its own sake).
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%needs_reauth = TRUE%' AND query LIKE '%user_secrets%'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			break
+		}
+		select {
+		case r := <-raised:
+			// It did not wait: the guard refused it (or the UPDATE finished) before the sign-in committed. Nothing left to interleave.
+			t.Fatalf("the raise did not block on the sign-in's row lock (answered %+v): the interleaving this test needs did not happen", r)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the raise never showed as waiting on a lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(commit) // the sign-in commits: the stored session is now the fresh one
+	if err := <-signInDone; err != nil {
+		t.Fatalf("sign-in: %v", err)
+	}
+	r := <-raised
+	if r.err != nil {
+		t.Fatalf("raise: %v", r.err)
+	}
+	needs, _, _ := db.GetNeedsReauth(ctx, pool, uid)
+	if r.transitioned || needs {
+		t.Fatalf("a stale pod's rejection that was waiting on a sign-in's lock flagged the user after the sign-in committed: transitioned=%v needs_reauth=%v (stored version is no longer the one the raise was guarded on)", r.transitioned, needs)
+	}
+}
