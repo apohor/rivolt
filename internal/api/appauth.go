@@ -57,7 +57,7 @@ type appConfigResponse struct {
 	Push        appConfigPush `json:"push"`
 	MinIOSBuild int           `json:"min_ios_build,omitempty"`
 	// IAP is what the app needs to sell Rivolt Pro through StoreKit on this server: absent unless StoreKit is configured here with at least
-	// one product id (no bundle id, or billing off with no products, and the app shows no purchase button).
+	// one product id AND billing is on (no bundle id, no products, or billing off, and the app shows no purchase button).
 	IAP *appConfigIAP `json:"iap,omitempty"`
 }
 
@@ -86,7 +86,9 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 			resp.AppLogin = d.OIDC != nil && len(d.OIDC.Providers()) > 0
 			resp.MinIOSBuild = d.AppAuth.MinIOSBuild
 		}
-		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 {
+		// Only a server that is selling: StoreKit products can be configured while RIVOLT_BILLING is off (during setup, after a rollback),
+		// and a Subscribe button there would let a user pay Apple for Pro that everyone already has.
+		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 && d.Entitlements.Billing() {
 			ids := make([]string, 0, len(t.Config.Products))
 			for id := range t.Config.Products {
 				ids = append(ids, id)

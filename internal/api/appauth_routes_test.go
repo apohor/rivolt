@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/entitlements"
 )
 
 // App sign-in exists only when main wired it (a callback configured, OIDC on,
@@ -93,25 +95,31 @@ func TestAppleNotificationsRoute(t *testing.T) {
 	}
 }
 
-// /api/app/config carries the StoreKit products only when StoreKit is configured with at least one: the app shows no purchase button
-// otherwise, and a server never sends an empty "iap".
+// /api/app/config carries the StoreKit products only when the server is selling (billing on) and StoreKit has at least one product: with
+// billing off a Subscribe button would let a user pay Apple for Pro that everyone already has, and the app shows no purchase button when
+// the field is absent.
 func TestAppConfigCarriesTheStoreKitProducts(t *testing.T) {
 	get := func(d Deps) string {
 		w := httptest.NewRecorder()
 		handleAppConfig(d)(w, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
 		return w.Body.String()
 	}
-	with := get(Deps{AppleIAPTransaction: &applebill.Transaction{Config: &applebill.Config{
-		BundleID: "dev.rivolt.test", Environment: applebill.EnvSandbox,
-		Products: map[string]bool{"test.pro.year": true, "test.pro.month": true},
-	}}})
+	cfg := func(products map[string]bool) *applebill.Transaction {
+		return &applebill.Transaction{Config: &applebill.Config{BundleID: "dev.rivolt.test", Environment: applebill.EnvSandbox, Products: products}}
+	}
+	both := map[string]bool{"test.pro.year": true, "test.pro.month": true}
+	billingOn := entitlements.New(new(sql.DB), entitlements.Config{Billing: true}) // never queried here: only Billing() is read
+	billingOff := entitlements.New(nil, entitlements.Config{})
+	with := get(Deps{Entitlements: billingOn, AppleIAPTransaction: cfg(both)})
 	if !strings.Contains(with, `"iap":{"environment":"Sandbox","products":["test.pro.month","test.pro.year"]}`) {
-		t.Errorf("StoreKit configured: %s", with)
+		t.Errorf("billing on, StoreKit configured: %s", with)
 	}
 	for name, d := range map[string]Deps{
-		"no StoreKit":         {},
-		"no config":           {AppleIAPTransaction: &applebill.Transaction{}},
-		"billing off, no ids": {AppleIAPTransaction: &applebill.Transaction{Config: &applebill.Config{BundleID: "dev.rivolt.test", Environment: applebill.EnvProduction}}},
+		"no StoreKit":                        {Entitlements: billingOn},
+		"no config":                          {Entitlements: billingOn, AppleIAPTransaction: &applebill.Transaction{}},
+		"billing on, no product ids":         {Entitlements: billingOn, AppleIAPTransaction: cfg(nil)},
+		"billing OFF, products configured":   {Entitlements: billingOff, AppleIAPTransaction: cfg(both)},
+		"no entitlement service, configured": {AppleIAPTransaction: cfg(both)},
 	} {
 		if body := get(d); strings.Contains(body, `"iap"`) {
 			t.Errorf("%s: iap must be absent: %s", name, body)
