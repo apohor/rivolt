@@ -87,7 +87,7 @@ func SaveRivianSessionVersioned(ctx context.Context, s *Store, userID uuid.UUID,
 		return time.Time{}, fmt.Errorf("marshal rivian session: %w", err)
 	}
 	return s.PutTxVersioned(ctx, userID, rivianSessionName, buf, func(ctx context.Context, tx *sql.Tx) error {
-		return setSignedIn(ctx, tx, userID, sess.AuthenticatedAt)
+		return setSignedInAndClearFlag(ctx, tx, userID, sess.AuthenticatedAt)
 	})
 }
 
@@ -104,6 +104,31 @@ func setSignedIn(ctx context.Context, tx *sql.Tx, userID uuid.UUID, at time.Time
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE users SET rivian_signed_in_at = $2 WHERE id = $1`, userID, v); err != nil {
 		return fmt.Errorf("record rivian sign-in time: %w", err)
+	}
+	return nil
+}
+
+// setSignedInAndClearFlag is setSignedIn for a session that was just signed in, and also clears the user's re-auth flag in the same statement
+// (the columns db.SetNeedsReauth(…, "") clears). The save is the authority on "this user has a good session now": LiveClient.Login clears the
+// flag early, but the handler saves the session only afterwards, and a stale pod's rejection of the OLD session that lands in between is
+// legitimate by its own rule (the stored session is still the old one), so it flags the user; without this the save would commit the new
+// session with that flag still set, and nothing would clear it. In the same statement as the user's row lock, the clear and the commit of the
+// new version are one step: a rejection before the commit is undone here, and a rejection after it sees the new version and is refused
+// (db.RaiseNeedsReauthIfCurrent).
+func setSignedInAndClearFlag(ctx context.Context, tx *sql.Tx, userID uuid.UUID, at time.Time) error {
+	var v any
+	if !at.IsZero() {
+		v = at.UTC()
+	}
+	const q = `UPDATE users
+		SET rivian_signed_in_at = $2,
+		    needs_reauth = FALSE,
+		    needs_reauth_reason = NULL,
+		    needs_reauth_at = NULL,
+		    needs_reauth_notified_at = NULL
+		WHERE id = $1`
+	if _, err := tx.ExecContext(ctx, q, userID, v); err != nil {
+		return fmt.Errorf("record rivian sign-in and clear the re-auth flag: %w", err)
 	}
 	return nil
 }

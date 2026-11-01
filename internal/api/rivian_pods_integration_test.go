@@ -757,3 +757,61 @@ func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 		t.Run(fmt.Sprintf("round-%02d", i), staleRejectionRoundTemp)
 	}
 }
+
+// The second window: LiveClient.Login clears the user's flag early and the handler saves the new session only afterwards. A stale pod's
+// rejection that lands in between is legitimate by its own rule (the stored session is still the old one), so it flags the user; if the
+// save did not clear the flag, the new session would commit with it still set and nothing would clear it. The save is the authority: it
+// clears the flag in the same statement that locks the user's row and records the sign-in, in the session's own transaction.
+func TestAFlagRaisedBetweenLoginsClearAndTheSaveIsClearedByTheSave(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store := secrets.New(pool, crypto.NoopSealer{})
+	uid, err := db.EnsureUser(ctx, pool, freshName("between"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: time.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Login succeeded and cleared the flag (the sink with an empty reason); the session is not saved yet.
+	if err := db.SetNeedsReauth(ctx, pool, uid, ""); err != nil {
+		t.Fatal(err)
+	}
+	// A stale pod's rejection of the OLD session arrives now: the stored session is still the old one, so this raise is legitimate.
+	tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old)
+	if err != nil || !tr {
+		t.Fatalf("a rejection of the stored session did not flag the user: %v %v", tr, err)
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
+		t.Fatal("setup: the flag should be raised before the save")
+	}
+	// The handler saves the new session.
+	fresh, err := secrets.SaveRivianSessionVersioned(ctx, store, uid, rivian.Session{Email: "d@example.invalid", UserSessionToken: "fresh", AuthenticatedAt: time.Now().Add(-time.Minute)})
+	if err != nil || !fresh.After(old) {
+		t.Fatalf("fresh session: %v %v", fresh, err)
+	}
+	needs, reason, _ := db.GetNeedsReauth(ctx, pool, uid)
+	if needs || reason != "" {
+		t.Fatalf("the user is still flagged after a successful sign-in was saved: needs=%v reason=%q", needs, reason)
+	}
+	// And the old session's rejection, arriving after the save, is refused.
+	if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old); err != nil || tr {
+		t.Fatalf("a rejection under the replaced session flagged the user: %v %v", tr, err)
+	}
+	// A sign-out (deleting the session) does not clear a flag that is legitimately raised.
+	if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", fresh); err != nil || !tr {
+		t.Fatalf("a rejection of the stored session did not flag the user: %v %v", tr, err)
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{}); err != nil {
+		t.Fatal(err)
+	}
+	if needs, _, _ := db.GetNeedsReauth(ctx, pool, uid); !needs {
+		t.Fatal("a sign-out cleared a legitimately raised flag")
+	}
+}
