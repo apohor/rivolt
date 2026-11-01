@@ -99,7 +99,10 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 			raced = c.ID.String()
 		}
 	}
-	if _, err := pool.ExecContext(ctx, `UPDATE drives SET route_polyline = $2 WHERE id = $1`, raced, clean); err != nil {
+	// It becomes a route that is neither the corrupt one nor the repaired one (a restore matches on the hash of the repaired route, so a route
+	// that happened to equal it would be restored: that is the restore doing its job, not a race).
+	edited := rivian.EncodePolyline(good[:3])
+	if _, err := pool.ExecContext(ctx, `UPDATE drives SET route_polyline = $2 WHERE id = $1`, raced, edited); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,7 +127,7 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 	if get("rp-scaled") != repairedScaled {
 		t.Error("a tenfold vertex was not put back where it belongs")
 	}
-	if get("rp-bad2") != clean || get("rp-clean") != clean {
+	if get("rp-bad2") != edited || get("rp-clean") != clean {
 		t.Error("a drive that changed since the audit, or was never planned, was rewritten")
 	}
 	if get("rp-recent") != corrupt {
@@ -139,8 +142,11 @@ func TestRoutePointsSelectApplyRestore(t *testing.T) {
 		}
 	}
 	rr, err := routegaps.Restore(ctx, pool, applied)
-	if err != nil || rr.Restored != 3 {
-		t.Fatalf("restore: %+v %v", rr, err)
+	if err != nil || rr.Restored != 3 || rr.Skipped != 1 {
+		t.Fatalf("restore: %+v %v; want 3 restored and the drive edited since the repair skipped", rr, err)
+	}
+	if get("rp-bad2") != edited {
+		t.Error("a drive edited after the repair was overwritten by the restore")
 	}
 	if get("rp-bad") != corrupt || get("rp-bad-imported") != corrupt || get("rp-scaled") != scaled {
 		t.Error("the old routes did not come back")
