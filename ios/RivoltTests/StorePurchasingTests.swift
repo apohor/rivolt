@@ -142,6 +142,18 @@ final class StorePurchasingTests: XCTestCase {
         XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: false))
     }
 
+    func testWithBillingOffNoPurchaseOrRestoreUIAppearsAnywhere() {
+        // The server sends no iap while billing is off, and the app also checks billing_enabled: neither a Subscribe nor a Restore path exists.
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: false, iapAvailable: true))
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: nil, iapAvailable: true))
+        let off = try? JSON.decoder().decode(AppConfig.self, from: Data(#"{"server":"rivolt","api_version":1,"app_login":true}"#.utf8))
+        XCTAssertEqual(off?.purchasesAvailable, false)
+        // Settings lists no purchase row of any kind: the paywall (with its Restore) is reached only through the Rivolt Pro row, which needs plan fields.
+        let rows = SettingsLogic.groups(notificationsOffered: false, planOffered: false).flatMap(\.rows)
+        XCTAssertFalse(rows.contains(.plan))
+        XCTAssertNil(SettingsLogic.Row(rawValue: "restore"), "no stand-alone Restore row exists")
+    }
+
     func testTheTransactionBodyKeepsItsCamelCaseKey() throws {
         let data = try JSONSerialization.data(withJSONObject: ["signedTransaction": "x"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: String])
