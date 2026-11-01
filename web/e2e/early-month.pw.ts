@@ -94,15 +94,20 @@ test("a brand-new account on Activity gets the new-account sentence; the tiles c
 });
 
 test("Activity on its first visit opens on the last 30 days, and a saved Month choice wins", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  // Desktop, where the segmented choices are always shown (on a phone they sit behind the compact bar, which reads the label).
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   const a = await ctx.newPage();
   await open(a, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT);
-  await expect(a.getByRole("button", { name: "30 days" }).first()).toHaveAttribute("aria-pressed", "true");
+  await expect(a.getByRole("button", { name: "30 days", exact: true })).toHaveAttribute("aria-pressed", "true");
   // October's rows are in view with no empty-month fallback note needed.
   await expect(a.getByText("Nothing recorded in this period")).toHaveCount(0);
   const b = await ctx.newPage();
   await open(b, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT, MONTH);
-  await expect(b.getByRole("button", { name: "Month" }).first()).toHaveAttribute("aria-pressed", "true");
+  await expect(b.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
+  // The phone's compact bar names the rolling period.
+  const c = await ctx.newPage();
+  await c.setViewportSize({ width: 390, height: 844 });
+  await open(c, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT);
+  await expect(c.getByRole("button", { name: /Last 30 days/ }).first()).toBeVisible();
   await ctx.close();
 });
-
