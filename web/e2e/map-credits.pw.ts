@@ -51,21 +51,25 @@ for (const theme of ["dark", "light"] as const) {
     await page.mouse.move(box.x + 2, box.y + 2);
     await expect(tip).toHaveCount(0);
 
-    // The compact attribution: closed it is the (i) button; opened it shows the credits.
+    // The compact attribution (foldCredits): folded to its (i) until tapped, then the credits show, and a second tap folds them again.
     const attrib = map.locator(".maplibregl-ctrl-attrib");
     await expect(attrib).toBeVisible();
     const button = attrib.locator(".maplibregl-ctrl-attrib-button");
     await expect(button).toBeVisible();
-    await button.click();
-    await expect(attrib).toHaveClass(/maplibregl-compact-show/);
     const protomaps = attrib.getByRole("link", { name: "Protomaps" });
     const osm = attrib.getByRole("link", { name: "OpenStreetMap" });
+    await expect(protomaps).toBeHidden();
+    await expect(osm).toBeHidden();
+    await button.click();
     await expect(protomaps).toBeVisible();
     await expect(osm).toBeVisible();
     await expect(osm).toHaveAttribute("href", "https://openstreetmap.org/copyright");
     // The MapLibre logo is gone by design (its licence does not require it); the credits above are not.
     await expect(map.locator(".maplibregl-ctrl-logo")).toHaveCount(0);
     await map.screenshot({ path: path.join(SHOTS, `map-credits-open-${theme}.png`) });
+    await button.click();
+    await expect(protomaps).toBeHidden();
+    await expect(osm).toBeHidden();
     await ctx.close();
   });
 }
