@@ -19,7 +19,7 @@ import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
-import { pillSide, setPills, type PillSpec } from "./pills";
+import { pillAwayFromLine, pillSide, setPills, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits } from "../lib/preferences";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
@@ -250,22 +250,34 @@ export function TripRouteMap({
         const max = narrow ? 18 : 30;
         return part.length > max ? part.slice(0, max - 1) + "…" : part;
       };
+      // awayPoint is a point of the route about 40 px along from the origin (or back from the destination), on the screen: where the line goes from the pin.
+      const awayPoint = (fromStart: boolean) => {
+        const pin = map.project(fromStart ? [track[0][1], track[0][0]] : [track[track.length - 1][1], track[track.length - 1][0]]);
+        for (let k = 1; k < track.length; k++) {
+          const v = fromStart ? track[k] : track[track.length - 1 - k];
+          const p = map.project([v[1], v[0]]);
+          if (Math.hypot(p.x - pin.x, p.y - pin.y) >= 40) return p;
+        }
+        return null;
+      };
       const pillKeyRef = { key: "" };
       const updatePills = (force = false) => {
         if (!styleReadyRef.current) return;
         const last = ws.length - 1;
         const specs: PillSpec[] = ws.map((w, i) => {
           const ll: [number, number] = [w.Longitude, w.Latitude];
-          const side = pillSide(map, ll);
           if (i === 0 || i === last) {
+            // The ends sit where the route leaves or arrives: the pill goes on the side away from the line, a little off its height.
+            const side = pillAwayFromLine(map.project(ll), awayPoint(i === 0), map.getContainer().clientWidth || 1);
             const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
             return { id: `wp${i}`, text: shortName(name), lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 };
           }
+          const side = pillSide(map, ll);
           const min = Math.round(w.ChargeDurationSec / 60);
           const text = w.ChargeDurationSec > 0 ? `${min} min · ${Math.round(w.ArrivalSoC)}→${Math.round(w.DepartureSoC)}%` : shortName(w.Name || "Stop");
           return { id: `wp${i}`, text, lngLat: ll, ...side, priority: 2 };
         });
-        const key = JSON.stringify(specs.map((p) => [p.id, p.text, p.anchor, p.dot])) + flavor;
+        const key = JSON.stringify(specs.map((p) => [p.id, p.text, p.anchor, p.offset, p.dot])) + flavor;
         if (!force && key === pillKeyRef.key) return;
         pillKeyRef.key = key;
         setPills(map, specs, flavor, true);

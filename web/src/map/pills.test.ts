@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Map as MLMap } from "maplibre-gl";
-import { pillImage, pillSide, placePills } from "./pills";
+import { pillAwayFromLine, pillImage, pillSide, placePills } from "./pills";
 
 // A map stand-in: a 400 px wide view where longitude 0..1 maps to x 0..400 and latitude 0..1 to y 300..0.
 const fakeMap = { getContainer: () => ({ clientWidth: 400 }), project: ([lon, lat]: [number, number]) => ({ x: lon * 400, y: 300 - lat * 300 }) } as unknown as MLMap;
@@ -35,5 +35,27 @@ describe("pillSide", () => {
   it("extends a pill from the pin toward the side of the view with room", () => {
     expect(pillSide(fakeMap, [0.2, 0.5])).toEqual({ anchor: "left", offset: [16, 0] });
     expect(pillSide(fakeMap, [0.8, 0.5])).toEqual({ anchor: "right", offset: [-16, 0] });
+  });
+});
+
+describe("pillAwayFromLine", () => {
+  it("goes on the side away from where the line leaves the pin, and off the line's height", () => {
+    // Pin mid-view, the line runs off to the right and down: the pill extends left (anchor "right") and is lifted.
+    expect(pillAwayFromLine({ x: 200, y: 100 }, { x: 260, y: 160 }, 400)).toEqual({ anchor: "right", offset: [-16, -6] });
+    // The line runs left and up: the pill extends right and is lowered.
+    expect(pillAwayFromLine({ x: 200, y: 100 }, { x: 140, y: 40 }, 400)).toEqual({ anchor: "left", offset: [16, 6] });
+  });
+  it("keeps to the side with more room when the line is straight up or down, or has no neighbour", () => {
+    expect(pillAwayFromLine({ x: 100, y: 100 }, { x: 102, y: 200 }, 400).anchor).toBe("left");
+    expect(pillAwayFromLine({ x: 300, y: 100 }, null, 400)).toEqual({ anchor: "right", offset: [-16, 0] });
+  });
+  it("with no room on the away side it goes above or below the pin, along the roomy side, clear of a level line", () => {
+    // The line goes right from a pin 60 px from the left edge, level: a pill left of it would run off the view, and one to the right would lie along
+    // the line. It goes above the pin, extending right.
+    expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 100 }, 400)).toEqual({ anchor: "bottom-left", offset: [4, -10] });
+    // The mirror: the end of a west-to-east route at the right edge, the line arriving from the left.
+    expect(pillAwayFromLine({ x: 360, y: 100 }, { x: 300, y: 100 }, 400)).toEqual({ anchor: "bottom-right", offset: [-4, -10] });
+    // A line that leaves upward puts the pill below.
+    expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 40 }, 400)).toEqual({ anchor: "top-left", offset: [4, 10] });
   });
 });

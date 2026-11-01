@@ -134,6 +134,34 @@ export function pillSide(map: MLMap, ll: [number, number]): { anchor: string; of
   return right ? { anchor: "right", offset: [-16, 0] } : { anchor: "left", offset: [16, 0] };
 }
 
+// pillAwayFromLine places a pill on the side of its pin away from where the route leaves it, and nudges it about 6 px off the line's height, so the
+// line does not brush the pill's corner. `pin` and `toward` are screen points: the pin, and a point of the route a little way along from it (null
+// when there is none). Where the line runs straight up or down it keeps the side with more room. Where the away side has no room for a pill
+// (`room` px from the view's edge: an end of a west-to-east route sits at the view's edge, with the line on the only side that has room), the pill
+// stays on the roomy side but goes above the pin, or below it when the line leaves upward, so it clears the line instead of lying along it.
+export function pillAwayFromLine(
+  pin: { x: number; y: number },
+  toward: { x: number; y: number } | null,
+  viewWidth: number,
+  room = 150,
+): { anchor: string; offset: [number, number] } {
+  const roomy = pin.x > viewWidth / 2 ? "right" : "left";
+  const dx = toward ? toward.x - pin.x : 0;
+  const dy = toward ? toward.y - pin.y : 0;
+  const nudge = toward && Math.abs(dy) >= 6 ? (dy > 0 ? -6 : 6) : 0;
+  if (toward && Math.abs(dx) >= 6) {
+    const away = dx > 0 ? "right" : "left"; // the line goes right: the pill extends left of the pin (anchor "right")
+    const fits = away === "right" ? pin.x >= room : viewWidth - pin.x >= room;
+    if (fits) return away === "right" ? { anchor: "right", offset: [-16, nudge] } : { anchor: "left", offset: [16, nudge] };
+    // No room on the away side, and the roomy side is where the line goes: above or below the pin, along the roomy side, clear of the line.
+    const above = dy >= -6; // the line stays level or goes down: above; it goes up: below
+    return roomy === "right"
+      ? { anchor: above ? "bottom-right" : "top-right", offset: [-4, above ? -10 : 10] }
+      : { anchor: above ? "bottom-left" : "top-left", offset: [4, above ? -10 : 10] };
+  }
+  return roomy === "right" ? { anchor: "right", offset: [-16, nudge] } : { anchor: "left", offset: [16, nudge] };
+}
+
 // reserveLabelRoom puts a clear symbol of `size` px on every point of `source`, on top, so the basemap's place labels yield to the markers
 // drawn there (a circle layer takes no part in label collision). Safe to call after every style load. Its own image id per layer.
 export function reserveLabelRoom(map: MLMap, source: string, layerId: string, size: number): void {
