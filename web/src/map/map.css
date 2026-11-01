@@ -83,6 +83,12 @@
 .maplibregl-ctrl-attrib-button:focus-visible {
   outline: none;
 }
+/* The library's own focus ring is a blue box-shadow (orange once the dark flavour's invert filter turns it); ours replaces it. */
+.maplibregl-ctrl button:focus,
+.maplibregl-ctrl button:focus:focus-visible,
+.maplibregl-ctrl-group button:focus:focus-visible {
+  box-shadow: none !important;
+}
 .maplibregl-ctrl-attrib:has(.maplibregl-ctrl-attrib-button:focus-visible) {
   outline: 2px solid var(--color-emerald-300, #5ee9b5);
   outline-offset: 1px;

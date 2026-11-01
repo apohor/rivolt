@@ -85,6 +85,7 @@ for (const theme of ["dark", "light"] as const) {
     expect(ring.style).toBe("solid");
     expect(ring.width).toBe("2px");
     expect(await button.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+    expect(await button.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
     await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-${theme}.png`) });
     const zoomIn = map.locator(".maplibregl-ctrl-zoom-in");
     await page.keyboard.press("Shift+Tab");
@@ -94,6 +95,8 @@ for (const theme of ["dark", "light"] as const) {
     await page.keyboard.press("Tab");
     await expect(zoomIn).toBeFocused();
     expect(await zoomIn.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    expect(await zoomIn.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
+    await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-zoom-${theme}.png`) });
     await ctx.close();
   });
 }
