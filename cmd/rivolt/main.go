@@ -1036,7 +1036,11 @@ func runServer() {
 				}
 				if transitioned {
 					bg.Go(func() {
-						sendReauthEmail(context.Background(), mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
+						sendReauthEmailAfterGrace(ctx, reauthEmailGrace,
+							func(c context.Context) (time.Time, bool, error) { return db.ReauthRaisedAt(c, pgPool, boundUID) },
+							func(c context.Context) {
+								sendReauthEmail(c, mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
+							}, logger, boundUID)
 					})
 				}
 			})
