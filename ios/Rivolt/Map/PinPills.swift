@@ -24,6 +24,20 @@ enum PinPills {
     /// A rough width for a one-line pill at the map caption size: enough to test collisions, never used to draw.
     static func estimatedWidth(_ text: String) -> CGFloat { CGFloat(text.count) * 6.4 + 22 }
 
+    /// One end of the drive in a pill: its name ("Start", "End") and its time.
+    struct Part: Equatable {
+        let name: String
+        let time: String
+    }
+
+    /// "Start 9:15 PM · End 11:28 PM" as its parts (each end's name is the first word).
+    static func parts(of text: String) -> [Part] {
+        text.components(separatedBy: " · ").compactMap { piece in
+            guard let space = piece.firstIndex(of: " ") else { return nil }
+            return Part(name: String(piece[..<space]), time: String(piece[piece.index(after: space)...]))
+        }
+    }
+
     static func text(start: String?, end: String?, shared: Bool) -> (start: String?, end: String?, both: String?) {
         let s = start.map { "Start \($0)" }, e = end.map { "End \($0)" }
         if shared, let s, let e { return (nil, nil, "\(s) · \(e)") }
@@ -92,25 +106,31 @@ enum PinPills {
     }
 }
 
+/// A pill as quiet as the map's other captions: the end's name in the secondary colour, its time in the primary one with digits that keep
+/// their width, medium weight, no dot (the pin beside it already has the colour). It stops growing with Dynamic Type at xxxLarge.
 struct PinPill: View {
-    let text: String
-    let dot: Color
+    let parts: [PinPills.Part]
+    let label: String
 
     var body: some View {
-        HStack(spacing: 4) {
-            Circle().fill(dot).frame(width: 7, height: 7)
-            Text(text).lineLimit(1).fixedSize()
+        HStack(spacing: 6) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
+                if i > 0 { Text("·").foregroundStyle(Theme.textTertiary) }
+                HStack(spacing: 3) {
+                    Text(part.name).foregroundStyle(Theme.textSecondary)
+                    Text(part.time).monospacedDigit().foregroundStyle(Theme.textPrimary)
+                }
+            }
         }
-        .mapCaption()
-        .fontWeight(.semibold)
+        .lineLimit(1).fixedSize()
+        .font(Theme.sans(ThemeTokens.typeMapCaption, .medium, relativeTo: .caption2))
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .foregroundStyle(Theme.textPrimary)
         .padding(.horizontal, 8).frame(height: PinPills.height)
-        .background(Theme.background.opacity(0.85), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
+        .background(Theme.background.opacity(0.72), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.border.opacity(0.7), lineWidth: 1))
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
+        .accessibilityLabel(label)
     }
 }
 
@@ -130,8 +150,9 @@ struct PinPillsOverlay: View {
     struct Item: Identifiable {
         let id: Int
         let text: String
-        let dot: Color
         let spot: PinPills.Spot
+        /// The pill's words: "Start" or "End" (quiet) and its time (the loud part), one pair per end shown.
+        var parts: [PinPills.Part] { PinPills.parts(of: text) }
     }
 
     /// The pills to draw: one for a round trip, else a Start and an End placed so that they keep clear of the corners, the line and each other.
@@ -141,15 +162,15 @@ struct PinPillsOverlay: View {
         let t = PinPills.text(start: startTime, end: endTime, shared: shared)
         var taken = PinPills.keepClear(size: size, legend: legend)
         var out: [Item] = []
-        func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ dot: Color, _ line: [CGPoint]) {
+        func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ line: [CGPoint]) {
             guard let text, let pin else { return }
             let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
             taken.append(spot.rect)
-            out.append(Item(id: id, text: text, dot: dot, spot: spot))
+            out.append(Item(id: id, text: text, spot: spot))
         }
-        if let both = t.both { add(0, both, start, Theme.routeEnd, startLine) } else {
-            add(1, t.start, start, Theme.routeStart, startLine)
-            add(2, t.end, end, Theme.routeEnd, endLine)
+        if let both = t.both { add(0, both, start, startLine) } else {
+            add(1, t.start, start, startLine)
+            add(2, t.end, end, endLine)
         }
         return out
     }
@@ -162,7 +183,7 @@ struct PinPillsOverlay: View {
                 let alignment: Alignment = item.spot.side == .right ? .leading : item.spot.side == .left ? .trailing : .center
                 Color.clear.frame(width: 0, height: 0)
                     .overlay(alignment: alignment) {
-                        PinPill(text: item.text, dot: item.dot)
+                        PinPill(parts: item.parts, label: item.text)
                             .background(GeometryReader { g in Color.clear.preference(key: PillWidthKey.self, value: [item.id: g.size.width]) })
                     }
                     .position(x: item.spot.anchor.x, y: item.spot.anchor.y)

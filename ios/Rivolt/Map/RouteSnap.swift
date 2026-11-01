@@ -202,8 +202,19 @@ enum RouteSnap {
         }
     }
 
+    /// A run across an unmatched stretch the road router filled: its speed goes from the speed beside its first point to the speed beside its
+    /// last, in proportion to the distance along it, so the colour carries across the gap instead of the line going neutral. Nil without a speed
+    /// at either end (a drive with no speeds at all has no gradient to carry).
+    static func filledRun(_ coords: [Coord], from: Double?, to: Double?) -> Run? {
+        guard coords.count >= 2, let a = from ?? to, let b = to ?? from, a.isFinite, b.isFinite else { return nil }
+        var d = [0.0]
+        for i in 1..<coords.count { d.append(d[i - 1] + haversine(Point(lat: coords[i - 1].lat, lon: coords[i - 1].lon), Point(lat: coords[i].lat, lon: coords[i].lon))) }
+        let total = d.last ?? 0
+        return Run(coords: coords, speeds: d.map { total > 0 ? a + (b - a) * ($0 / total) : a })
+    }
+
     /// The most separate runs the gradient is drawn for (each is its own map layer); a drive cut into more than this keeps the speed buckets.
-    static let maxGradientRuns = 12
+    static let maxGradientRuns = 24
 
     struct Drawing: Equatable {
         var pieces: [Piece]
@@ -351,7 +362,10 @@ extension RouteSnap {
             var filled = [[Coord]?](repeating: nil, count: gaps.count)
             for await (i, r) in group { filled[i] = r }
             for (i, g) in gaps.enumerated() {
-                if let r = filled[i], r.count > 1 { routed.append(r) } else { remaining.append(g) }
+                if let r = filled[i], r.count > 1 {
+                    routed.append(r)
+                    if let run = filledRun(r, from: nearestSpeed(r[0], in: recorded), to: nearestSpeed(r[r.count - 1], in: recorded)) { allRuns.append(run) }
+                } else { remaining.append(g) }
             }
         }
         if Task.isCancelled { return nil }

@@ -155,17 +155,23 @@ struct GradientLegend: View {
     private var unit: RouteGradient.DistanceUnit { DisplayUnits.distanceMetric ? .kilometres : .miles }
     var labels: (min: String, max: String) { RouteGradient.legend(lo: lo, hi: hi, metric: .speed, unit: unit) }
 
+    /// "Speed 12–64 mph": the two ends share the unit.
+    var line: String {
+        let l = labels
+        guard let space = l.max.firstIndex(of: " ") else { return "\(Self.title) \(l.min)–\(l.max)" }
+        let unitText = String(l.max[l.max.index(after: space)...])
+        let minNumber = l.min.split(separator: " ").first.map(String.init) ?? l.min
+        return "\(Self.title) \(minNumber)–\(l.max[..<space]) \(unitText)"
+    }
+
     var body: some View {
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
-        VStack(alignment: .leading, spacing: 2) {
-            Text(Self.title).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize()
-            HStack(spacing: 6) {
-                Text(labels.min).lineLimit(1).fixedSize()
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(LinearGradient(gradient: RouteRamp.speed.gradient(traits: traits), startPoint: .leading, endPoint: .trailing))
-                    .frame(width: 56, height: 4)
-                Text(labels.max).lineLimit(1).fixedSize()
-            }
+        // One line, "Speed 12–64 mph", over a bar as wide as the line.
+        VStack(alignment: .leading, spacing: 3) {
+            Text(line).lineLimit(1).fixedSize()
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(LinearGradient(gradient: RouteRamp.speed.gradient(traits: traits), startPoint: .leading, endPoint: .trailing))
+                .frame(height: 3)
         }
         .mapCaption()
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -313,7 +319,8 @@ struct RouteMapView: UIViewRepresentable {
                 return l
             }
             // The glow under everything recorded, then the gaps, then the line by speed, then the pins.
-            style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18))
+            // (On the gradient the glow is a wider, fainter copy of the gradient itself, added with it.)
+            if !drawing.usesGradient { style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18)) }
             style.addLayer(lineLayer("routed", "routed", color: Theme.routeGap, width: 2.5, opacity: 0.75))
             let dashed = lineLayer("gaps", "gaps", color: Theme.routeGap, width: 2, opacity: 0.7)
             dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
@@ -389,12 +396,19 @@ struct RouteMapView: UIViewRepresentable {
                 let stops = RouteGradient.stops(progress: run.progress, values: run.filledSpeeds, lo: range.lo, hi: range.hi)
                 var colours: [NSNumber: UIColor] = [:]
                 for s in stops { colours[NSNumber(value: s.offset)] = RouteRamp.speed.color(at: s.t, traits: traits) }
-                layer.lineGradient = NSExpression(forMLNInterpolating: NSExpression.lineProgressVariable, curveType: .linear, parameters: nil, stops: NSExpression(forConstantValue: colours))
-                layer.lineWidth = NSExpression(forConstantValue: 3.5)
-                layer.lineOpacity = NSExpression(forConstantValue: 0.95)
-                layer.lineCap = NSExpression(forConstantValue: "round")
-                layer.lineJoin = NSExpression(forConstantValue: "round")
-                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
+                let gradient = NSExpression(forMLNInterpolating: NSExpression.lineProgressVariable, curveType: .linear, parameters: nil, stops: NSExpression(forConstantValue: colours))
+                func style_(_ l: MLNLineStyleLayer, width: Double, opacity: Double) {
+                    l.lineGradient = gradient
+                    l.lineWidth = NSExpression(forConstantValue: width)
+                    l.lineOpacity = NSExpression(forConstantValue: opacity)
+                    l.lineCap = NSExpression(forConstantValue: "round")
+                    l.lineJoin = NSExpression(forConstantValue: "round")
+                }
+                // The glow: the same gradient, wider and fainter, under the line.
+                let glow = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-run-glow-\(i)", source: source)
+                style_(glow, width: 9, opacity: 0.18)
+                style_(layer, width: 3.5, opacity: 0.95)
+                for l in [glow, layer] { if let below { style.insertLayer(l, below: below) } else { style.addLayer(l) } }
             }
         }
 
