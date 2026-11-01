@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { type Components } from "../lib/miniMarkdown";
 import { Link, useLocation } from "react-router-dom";
 import Logo from "./Logo";
 import { useSystemTheme } from "../lib/theme";

@@ -64,10 +64,14 @@ describe("ChangelogPage", () => {
     expect(container.textContent).not.toContain("<script");
   });
 
-  it("treats a protocol-relative link as external", async () => {
-    changelog.mockResolvedValue({ releases: [{ ...releases[1], body_md: "- See [elsewhere](//evil.example/x) and [planner](/plan)." }] });
+  // A "//host" target is another site written without a scheme: the renderer does not link it (only https, mailto and this site's own paths
+  // are linked), so the text stays and there is nothing to click. An https link opens in a new tab with noopener.
+  it("does not link a protocol-relative target, and opens an https one safely", async () => {
+    changelog.mockResolvedValue({ releases: [{ ...releases[1], body_md: "- See [elsewhere](//evil.example/x), [docs](https://docs.example/x) and [planner](/plan)." }] });
     renderPage();
-    const ext = await screen.findByRole("link", { name: "elsewhere" });
+    expect(await screen.findByText(/elsewhere/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "elsewhere" })).toBeNull();
+    const ext = screen.getByRole("link", { name: "docs" });
     expect(ext).toHaveAttribute("rel", "noopener noreferrer");
     expect(ext).toHaveAttribute("target", "_blank");
     expect(screen.getByRole("link", { name: "planner" })).not.toHaveAttribute("target");

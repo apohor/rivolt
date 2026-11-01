@@ -1,0 +1,862 @@
+[
+{
+"tag": "v0.40.16",
+"body": "**Rivolt v0.40.16**\n\n**Fixes**\n- Rivolt no longer asks you to sign in to Rivian again right after you just did. A late reply from your old session could trigger it.\n- When the truck sends no location during a drive, the drive page now says so instead of showing an empty map.\n\n**Changes**\n- The old public sample-trip pages now open the demo's trip planner.\n- Clearer wording on the home page and charging-cost page during the beta.\n\n**For self-hosters**\n- Sign-in via a trusted proxy header has been removed. Use the normal sign-in.\n"
+},
+{
+"tag": "v0.40.15",
+"body": "**Rivolt v0.40.15**\n\n**Fixes**\n- Drive maps follow the road again where the truck's GPS dropped out, instead of drawing a straight line across the gap.\n- The site now says plainly that Rivolt is free during the beta.\n\n**Under the hood**\n- More groundwork for one server per account, still switched off, so nothing changes in how Rivolt behaves today.\n- Better counters for charging-schedule reads.\n"
+},
+{
+"tag": "v0.40.14",
+"body": "**Rivolt v0.40.14**\n\n**New**\n- Expecting an R2? The R2 page now has a short \"before your R2 arrives\" checklist, and you can ask for one email in your delivery month with the steps to connect it. It's off unless you choose a month, and the month is deleted once the email goes.\n\n**Privacy**\n- The privacy policy explains the R2 reminder: we keep only the month you pick, and delete it after sending.\n\n**Fixes**\n- Clearer wording about costs: Rivolt uses what Rivian billed where it can, otherwise your rate or a labelled estimate.\n- The demo always shows sample data, even when you're signed in, and its first-charge example appears again.\n- Trip planning gets priority when the server is busy right after an update, and charging schedules retry instead of being skipped.\n\n**Under the hood**\n- Groundwork for a year-in-review card in January.\n"
+},
+{
+"tag": "v0.40.13",
+"body": "**Rivolt v0.40.13**\n\n**New**\n- A week after your first charge, the first-charge card points you to Money, and to setting off-peak hours if you haven't yet.\n\n**Fixes**\n- The account deletion link from the iPhone app now lands on the right section even if you have to sign in first.\n- Charging schedules read more reliably right after a server restart.\n\n**Under the hood**\n- Every write a vehicle's connection makes now checks which server owns that vehicle, groundwork for one server per account. It isn't switched on yet, so nothing changes in how Rivolt behaves today.\n- Database connections are sized per server, and new alerts watch them.\n\n**For self-hosters**\n- Chart 0.16.2 works out the database pool size from the replica count (one replica keeps 20). With autoscaling on, set `dbConnections.systemMaxConns` explicitly.\n"
+},
+{
+"tag": "v0.40.12",
+"body": "**Rivolt v0.40.12**\n\n**New**\n- Money can offer to share what charging cost you this month. It appears once, and the cost stays hidden unless you add it.\n- The \"Is it safe to connect?\" page is clearer about what Rivolt reads, what it keeps, and exactly how to sign out of Rivian.\n\n**Under the hood**\n- Updates now shut down more gently, so recording hands over cleanly between servers.\n- More groundwork so a single server owns each Rivian connection. It isn't switched on yet, so nothing changes in how Rivolt behaves today.\n\n**For self-hosters**\n- The Helm chart (0.15.0) adds a pre-stop step and a 45-second shutdown grace period. Don't roll the image back below v0.40.11 without also reverting the chart.\n"
+},
+{
+"tag": "v0.40.11",
+"body": "**Rivolt v0.40.11**\n\n**Under the hood**\n- More groundwork so a single server owns each Rivian connection, for steadier recording during restarts. It isn't switched on yet, so nothing changes in how Rivolt behaves today.\n- A temporary clean-up of old Rivian tokens has finished its job and is removed.\n\n**For self-hosters**\n- An unknown command-line argument now exits with an error instead of starting the server.\n"
+},
+{
+"tag": "v0.40.10",
+"body": "**Rivolt v0.40.10**\n\n**Fixes**\n- The \"See a planned trip first\" link on the home page now opens the Los Angeles to Las Vegas sample trip straight away. Before, it showed \"This sample trip didn't load\" until you reloaded. The same fix applies to the trip links on the charging networks page.\n"
+},
+{
+"tag": "v0.40.9",
+"body": "**Rivolt v0.40.9**\n\n**New**\n- **Five new sample road trips:** Seattle–Portland, Denver–Moab, San Francisco–Lake Tahoe, Los Angeles–Phoenix and New York–Boston, each showing times in its own time zone.\n- **A first-week guide for R2 owners** at /r2: what's recorded today and what isn't yet.\n- **Compare charging networks** at /charging-networks.\n- **Optional trip recap notification:** after you drive a saved trip, see how it went. It's off by default; turn it on in Settings → Notifications.\n- **A one-time prompt on Money** to add your off-peak hours, if you have a home rate set without them.\n\n**Privacy**\n- The connect step now says up front what Rivolt reads (such as drives, charges, battery and location), that it never sends commands to your truck, and that your Rivian password is never stored.\n- The privacy page mentions the trip recap notification (updated Oct 28).\n\n**Under the hood**\n- Groundwork so a single server owns each Rivian connection, for steadier recording during restarts.\n"
+},
+{
+"tag": "v0.40.8",
+"body": "**Rivolt v0.40.8**\n\n**New**\n- **A heads-up before your Rivian connection expires.** Rivian sign-ins last about 6 months. A week before yours ends, Rivolt shows \"Your Rivian connection expires <date>.\" with a Reconnect link, on the web and in the iPhone app. Settings → Rivian account shows the date too.\n\n**Privacy**\n- Deleting your account now also clears your live vehicle snapshot and planner counters right away, instead of letting them expire within a few hours.\n- Rivolt no longer requests or stores two Rivian tokens it never used.\n\n**Fixes**\n- Trip-planner and Rivian request limits now hold steady even during a brief internal outage.\n- Waking a plugged-in truck no longer logs a blip \"charge\" of a second or two. These never showed in your lists, but they inflated charge counts and, rarely, sent a false \"Charging complete\" alert.\n"
+},
+{
+"tag": "v0.40.7",
+"body": "**Rivolt v0.40.7**\n\n**Fixes**\n- **Reconnecting your Rivian account works reliably.** After you sign in to Rivian again, Rivolt no longer keeps saying \"needs re-login\" on some page loads, and no stray \"reconnect\" email follows.\n- **The Rivian sign-in form stays put while you type.** It no longer disappears or resets mid-entry.\n- **Clearer sign-in recovery.** If a Rivolt sign-in took too long or was started in another tab, you get a \"Start sign-in again\" button.\n- **Privacy:** turning off recap weather now takes effect everywhere within seconds.\n"
+},
+{
+"tag": "v0.40.6",
+"body": "**Rivolt v0.40.6**\n\n**Improvements**\n- **Flat-rate electricity:** if you've said your rate is flat, the Off-peak savings card no longer appears on Money.\n- **Period picker on phones:** opening it no longer squeezes the page title.\n- **iPhone app support:** the app can now change your off-peak schedule, flat-rate setting, charging network prices and trip planner defaults (gas price and MPG included). Applying a rate to past charges stays on the website.\n"
+},
+{
+"tag": "v0.40.5",
+"body": "**Rivolt v0.40.5**\n\n**Fixes**\n- **Notifications on Chrome Beta, Dev and Canary:** turning notifications on no longer fails with \"unsupported push service\". If notifications can't be turned on in your browser, the page now says so plainly instead of looking switched on.\n- **Truck sleep chart:** dates read like \"Oct 1\" and the hour marks are round numbers.\n- **Period picker on phones:** the open panel no longer covers the page's own tabs.\n- **Drive maps:** the route's end marker no longer sits under the speed legend.\n"
+},
+{
+"tag": "v0.40.4",
+"body": "**Rivolt v0.40.4**\n\n**New**\n- **Pick the period you want:** on Now, Activity and Truck, choose Day, Week, Month or Custom. Day starts on today, and the arrows step back one day at a time. \"This year\" and \"All time\" are one tap away inside Custom, and views you saved before still open.\n\n**Improvements**\n- **Charts are easier to read:** axis labels are smaller and lighter than the data, ticks use round numbers (0 · 200 · 400 instead of 509 and 255), and dates read like \"Oct 1\" in your language.\n- **No more overlapping \"0\":** the baseline no longer shows a \"0\" or \"0%\" that collided with the first date.\n\n**iPhone app** (TestFlight): the same period picker and chart changes.\n"
+},
+{
+"tag": "v0.40.3",
+"body": "**Rivolt v0.40.3**\n\n**Fixes**\n- **Drive map:** the speed key is now a small corner chip that shows only the speeds that drive reached.\n- **Consistent text sizes:** every label on a map uses one size, and the remaining one-off text sizes across the site now follow a single scale. Some small labels grow by about one pixel.\n"
+},
+{
+"tag": "v0.40.2",
+"body": "**Rivolt v0.40.2**\n\n**Fixes**\n- **Demo:** months you open more than once load again on the website and in the iPhone app. A repeat request was being sent back compressed twice, so it came through unreadable. Signed-in accounts were not affected.\n"
+},
+{
+"tag": "v0.40.1",
+"body": "**Rivolt v0.40.1**\n\n**Fixes**\n- **iPhone app sign-in page:** the Cancel button is readable again in dark mode.\n- **Demo:** browsing months and tabs quickly no longer hits \"couldn't load\".\n- **Hotels with no charger:** the nearby fast charger now reads \"right next to it\" when it's within a short walk, and power is shown only when the listing gives it.\n"
+},
+{
+"tag": "v0.40.0",
+"body": "**Rivolt v0.40.0**\n\n**New**\n- **Better places to stay on long trips:** the two-day planner now follows the actual road when it looks for a hotel or campground with a charger, so it finds more of them.\n- **Hotels near a fast charger:** where no stay lists a charger, Rivolt can suggest a nearby hotel with no charger and plan the next morning's first stop at the closest fast charger. It's always labelled \"No charger listed here\".\n- **\"Nearest listed stay\":** when nothing fits the day, you see how far back or ahead the nearest listed stay is, instead of just \"none\".\n- **Arrival times on the destination's clock,** with the time zone named when it differs from yours.\n\n**iPhone app** (TestFlight): the full trip planner, saved trips, plan vs actual, per-day stops for two-day trips, and a read-only passkeys list.\n\nHotel listings © OpenStreetMap contributors.\n"
+},
+{
+"tag": "v0.39.10",
+"body": "**Rivolt v0.39.10**\n\n- **Privacy page:** a new section explains what Rivolt stores if you use passkeys, ahead of sign-in with passkeys. Your fingerprint, face and the passkey's private key never leave your device.\n"
+},
+{
+"tag": "v0.39.9",
+"body": "**Rivolt v0.39.9**\n\n- **New Security tab in Settings:** change your password, or reset it and remove all passkeys in one step if you think someone else got in. Either way your other devices are signed out and you get an email.\n- **Shorter signed-in devices list:** your recent browsers are shown, with \"Show all\" for the rest. \"Sign out everywhere else\" still signs out every one.\n- **Stronger passwords:** new passwords must be at least 8 characters and can't be your email address.\n- **Privacy:** our diagnostic traces no longer record your IP address or browser.\n\n**For self-hosters:**\n- Docker builds from the repository work again.\n- Rivolt no longer accepts an Ory Kratos session cookie as a sign-in. Set `RIVOLT_ACCEPT_KRATOS_COOKIE=true` only if your own setup signs users in through Kratos's browser flow; Rivolt then also requires `RIVOLT_KRATOS_COOKIE_HOST`.\n"
+},
+{
+"tag": "v0.39.8",
+"body": "**Rivolt v0.39.8**\n\nA security fix for signing out.\n\n- **Signing out now fully signs you out.** Before, a browser that had signed in within the last day could click Sign in after signing out and get straight back in without a password. Now it has to enter the password again. This also covers \"Sign out other devices\" and signing out a single device from your devices list.\n- **Passkeys (not switched on yet):** a clear message if a passkey no longer works, and no failed background request on Settings.\n"
+},
+{
+"tag": "v0.39.7",
+"body": "**Rivolt v0.39.7**\n\nA behind-the-scenes release: nothing changes on your screens.\n\n- **Stronger separation between accounts:** groundwork so the database itself can keep each account's data apart, on top of the checks the app already makes.\n- **Safer updates:** database updates can now run as a separate step before a new version starts, so a failed update can't take the site down.\n- **Notifications:** registering an iPhone for notifications is checked more strictly across accounts.\n- **Coming soon:** sign-in with passkeys is built but stays switched off for now.\n"
+},
+{
+"tag": "v0.39.6",
+"body": "**Rivolt v0.39.6**\n\n- **One units setting for your account:** miles or kilometres, °F or °C, saved to your account and used everywhere you sign in. Change it in Settings → Vehicle → Display. The first time, it starts from your device's region; your own pick always wins.\n- **Efficiency, trends and cold-weather range** follow that setting too.\n- **Clearer message** when a truck isn't connected to Rivian yet, instead of a server error.\n- **iPhone app (next TestFlight):** a Units screen in the account menu, home location and vehicle details editable in the app, and real map tiles in the demo.\n"
+},
+{
+"tag": "v0.39.5",
+"body": "**Rivolt v0.39.5**\n\n- **Now updates after a drive:** \"Since last charge\" and Miles refresh by themselves in the minutes after a drive or charge ends, instead of showing the old numbers until you reopen the page.\n- **Kilometres in the trip planner:** with km selected, multi-day plans show km everywhere (totals, day headers, legs, warnings).\n- **Tire warning:** the low-tire banner on Now shows two decimals in bar, like the Tires card.\n"
+},
+{
+"tag": "v0.39.4",
+"body": "**Rivolt v0.39.4**\n\n- **Trip planner, long routes:** chargers along a cross-country route now load in about a second instead of up to half a minute, and no longer time out. Switching between Fast charging, Level 2, hotels and campgrounds is quick too.\n- **iPhone notifications:** a phone's notification registration can no longer be moved to another account by someone else. Switching accounts on your own phone works as before.\n"
+},
+{
+"tag": "v0.39.3",
+"body": "**Rivolt v0.39.3**\n\n- **Trip planner, long routes:** cross-country trips plan without the \"query is too large\" error, and chargers along very long routes load.\n- **Overnight stops:** the search looks further around your 8-hour point. When nothing is found it says how far it looked; a stay away from that point says how far before or after it is (in km if you use metric).\n- **Plainer charger words:** \"Fast charging\" and \"Level 2\" instead of DCFC and L2.\n- **Now card:** cabin temperature gets its own row, like outside; both in whole degrees.\n- **Tires card:** pressure in bar shows two decimals, so nearby readings no longer look the same.\n- **New support page** at rivolt.dev/support, linked from the footer.\n- **Privacy page** updated (Oct 24): we use AI tools to help run and repair Rivolt.\n- **Terms** are now also enforced by the server, not just the website. Export and account deletion always stay available.\n"
+},
+{
+"tag": "v0.39.2",
+"body": "**Fixes**\n- The trip map shows chargers along long routes again. Since Oct 18, routes over roughly 1,000 km showed no chargers on the map (the route was refused as too detailed); long routes are now simplified instead.\n- Faster Now page and app: a background query that re-read your truck's whole history on every refresh now reads only the recent week.\n"
+},
+{
+"tag": "v0.39.1",
+"body": "**Fixes**\n- Time left while charging uses your truck's own estimate (time to your charge limit) when it's trustworthy; otherwise Rivolt's estimate, marked \"est.\".\n- The live charging card's \"cost so far\" now comes from the charge's own energy. A charge that had just started could briefly show a cost left over from an earlier session.\n- No home-rate \"cost so far\" estimate on fast charging or charging away from home.\n"
+},
+{
+"tag": "v0.39.0",
+"body": "**Sprint 8: more from your truck's own data**\n- **Tires card** on the Truck tab: four pressures and how old the reading is. A tire is marked \"Low\" below 32 psi or when the truck itself says low.\n- **Sleep health:** \"Nothing unusual this week\" or \"Woke N more times than usual this week\", compared only with your truck's own last 30 days.\n- **Trailer on drives:** drives with a trailer connected are tagged, left out of your efficiency figures (and it says how many), and you can correct a drive.\n- **Left-open alert** (opt-in, web and iPhone): a door, frunk, liftgate, tailgate or tonneau open 15 minutes after parking. Windows aren't covered.\n- **Comfort line on Now** while the truck is live: cabin temperature, pet mode, climate hold, preconditioning.\n- **Software update status** in the truck's own words.\n- **Estimated charges are marked** with \"~\", and the October statement says so.\n\nNot in this release: a tire-pressure alert, a charge time estimate from the truck, an update progress percentage.\n\nThe demo at demo.rivolt.dev now shows the Tires card and, from Oct 28, a trailer drive.\n"
+},
+{
+"tag": "v0.38.28",
+"body": "**New**\n- Sleep health on the Truck tab: \"Nothing unusual this week\" or \"Woke N more times than usual this week\", compared only with your truck's own last 30 days.\n- Trailer on drives: drives with a trailer connected are tagged, left out of your efficiency figures (with a note saying how many), and you can correct a drive on its page.\n- Estimated charges are marked: when a charge's energy had to be estimated from the battery's change, its kWh and cost show with \"~\", and the monthly statement says so.\n\n**Fixes**\n- Sign-in buttons always appear in the same order: Email, Google, GitHub.\n- Plan vs actual reads \"Why:\" before its reasons, and the demo no longer suggests saving a route.\n- Faster background statistics, with less load on the database.\n\n**Self-hosting**\n- Runtime images are pinned by digest.\n\n**Correction (Oct 24)**\n- Some home charges since Oct 15 recorded too little energy because of a bug. We've corrected them from the battery's change, so their cost may be higher; they're marked as estimated.\n"
+},
+{
+"tag": "v0.38.27",
+"body": "**Fixes**\n- Home charges no longer lose recorded energy when Rivolt's server restarts or hands a truck over mid-charge. Since Oct 15 some home charges recorded too little energy, so their cost showed too low.\n- If a charge's measured energy still comes out far below what the battery's change implies, Rivolt now estimates it from the battery's change and marks it as estimated.\n- Past affected charges were corrected on Oct 24 (see v0.38.28): their energy now comes from the battery's change, so their cost may be higher, and they're marked as estimated.\n"
+},
+{
+"tag": "v0.38.26",
+"body": "**New**\n- Left-open alert: an opt-in notification when a door, the frunk, liftgate, tailgate or tonneau stays open 15 minutes while the truck is parked. Off until you turn it on in Settings, Notifications. Windows aren't covered.\n- Tires card on the Truck tab: all four pressures with the time of the last reading.\n- Flat-rate electricity: if your plan has no off-peak hours, set one rate in Settings.\n- Software update status on the Truck tab (downloading, ready to install, installing) when your truck reports one.\n\n**Changed**\n- One look everywhere: the old look is gone, and the sign-in, legal and calculator pages now match the app.\n- Plan vs actual explains every reason and the dotted estimate again, and says what to do when you have no saved trips yet. The demo planner shows its \"Sample plan\" label.\n\n**Privacy**\n- The privacy page now lists whether a trailer is connected (recorded for an upcoming efficiency split) and the left-open alert.\n\n**Self-hosting**\n- The Docker image now builds with Go 1.27.3, matching the release binaries.\n"
+},
+{
+"tag": "v0.38.25",
+"body": "One Battery capacity card, a Truck summary, and cabin status on Now.\n\n- Truck: a single \"Battery capacity\" card. The headline is what your truck reports as usable; under it, Rivolt's own estimate from your charges (\"about 122 kWh, from 5 charges\") and Rivian's spec for the pack. The chart now shows one dot per charge (bigger for larger charges) with a trend only where charges are close together, instead of lines across empty months.\n- Truck: a one-line summary at the top: usable pack and parked drain (last 7 days).\n- Now: a quiet line with cabin temperature, pet mode, climate hold and preconditioning, shown only while your truck's data is current.\n- Now: your truck's card comes first; tips and milestones sit below it.\n"
+},
+{
+"tag": "v0.38.24",
+"body": "A calmer Battery chart, and release notes that open.\n\n- The Battery (SoC) trend is redrawn: a soft band shows each day's lowest-to-highest level, one smooth line shows where the day ended, and only the month's highest and lowest points are labelled. Road trips read as a peak or a dip instead of spikes; the charge limit shows from its last change to today; small ticks mark the days you charged.\n- \"Release notes\" for your truck's software now opens: Rivolt fetches a fresh link from Rivian when you tap it (the old one expired after an hour).\n\nPrivacy\n- Rivian's release-notes links carried temporary access credentials; Rivolt no longer stores them, and the stored ones were removed.\n"
+},
+{
+"tag": "v0.38.23",
+"body": "Rivolt is now run by ZeroDowntime LLC.\n\n- The Terms and Privacy Policy name ZeroDowntime LLC, a Texas limited liability company, as the operator. Nothing changes about the service or your data.\n- Questions, privacy requests and security reports now go to support@rivolt.dev.\n\nFixes\n- Saving a charge's Home/Away choice or pin shows a plain \"Couldn't save\" message instead of a technical error.\n- The phone app can change your home charging rate (needs the next TestFlight build).\n"
+},
+{
+"tag": "v0.38.22",
+"body": "Your charges, your call.\n\n- Mark a charge Home or Away yourself, and pin it where the truck actually was instead of the nearest public charger. Your choices stay put when your home location changes.\n- Networks you add yourself can have a location, so charges there are labelled and offered that network's rate.\n- Home address search no longer shows duplicate suggestions, and says \"Searching…\" while it looks.\n\nFixes\n- New accounts without a connected Rivian no longer see an error when loading their trucks.\n- Self-hosting docs now explain street-level address search.\n"
+},
+{
+"tag": "v0.38.21",
+"body": "Home location and phone security.\n\n- Set your home precisely: type coordinates, search a street address, or use one of your charges as home (Settings, on the web). You'll see which past charges would change before anything is re-labelled, and you can undo it.\n- The iPhone app can now change your home charging rate (the app screen arrives in a coming TestFlight build).\n\nPrivacy and security\n- The iPhone app's sign-in can now only do what the app needs (notifications, the charging Live Activity, signing out, hiding milestones, and your home rate). It can't change your account, privacy settings or Rivian connection, export your data, or force a fresh read from your truck.\n- The privacy page now says your home location is stored as exactly as you set it.\n"
+},
+{
+"tag": "v0.38.20",
+"body": "Battery trend, clearer.\n\n- The Battery (SoC) trend now uses a straight line between readings and covers the whole calendar month, with dates on the 1st, 11th, 21st and the last day.\n- A thin strip under the chart shows when the truck was charging or driving.\n- The charge limit is drawn as steps: it changes on the day you changed it, using the limit each charge actually had.\n- Each charge now remembers the charge limit it was set to, including charges from before this update.\n"
+},
+{
+"tag": "v0.38.19",
+"body": "Map server hardening.\n\n- Map tile requests must ask for a small, specific piece of the map; anything else is refused before it reaches the map server.\n- Route matching, which the next iPhone update uses to draw drives on the roads, now has firm size limits and only accepts the request shapes the apps send.\n\nNothing changes in how maps look or work.\n"
+},
+{
+"tag": "v0.38.18",
+"body": "Map tile protections.\n\n- Map tiles can now only be downloaded in small pieces, the way maps actually use them. A trick that let one request download the whole map file is closed.\n- The public demo site has a fair-use data allowance per visitor, so nobody can pull large amounts of map data from it.\n- The battery history behind the Truck page can be fetched in smaller pieces, so the phone downloads less.\n\nNothing changes in how maps look or work.\n"
+},
+{
+"tag": "v0.38.17",
+"body": "Small web fixes, and server support for the iPhone Money tab.\n\n- Links to a Settings card on a phone now land with the card's heading visible, clear of the header, and the last row stays above the bottom tab bar.\n- Every Settings card link opens its own tab. Some used to open the Account tab with no card.\n- Links to cards that load a moment later, such as setup emails and the weekly recap, now land on the card every time.\n- A new, smaller feed for the Money tab's \"To confirm\" list. It carries no locations.\n"
+},
+{
+"tag": "v0.38.16",
+"body": "Server support for the next iPhone app update.\n\n- Drive and charge lists can be filtered to one truck, so two-truck households see the right truck's last drive and charge.\n- New small data feeds for the iPhone's Home charts (miles per day, charge level, idle time), the Home / Away / Fast charging split, and the Activity list. They carry no locations.\n- These feeds have a fair-use limit per account, so a misbehaving app can't slow things down for everyone.\n- Fixed a test that occasionally failed for no real reason.\n\nNothing changes on the website.\n"
+},
+{
+"tag": "v0.38.15",
+"body": "## What's new\n\n- **Live charging on your iPhone's Lock Screen (TestFlight).** Turn on \"Live Activity while charging\" in the app, and while your truck charges the Lock Screen (and Dynamic Island) shows charge level, power and minutes to your limit. Off until you turn it on, per iPhone.\n\n## Privacy\n\n- The privacy policy now covers live charging on the Lock Screen: what's kept and for how long (until the charge ends, at most 13 hours), and that Apple receives only the charge level, power and minutes to your limit, never your truck's location, name or VIN. Last updated October 21, 2026.\n"
+},
+{
+"tag": "v0.38.14",
+"body": "## What's new\n\n- **Rivolt for iPhone is coming (invite-only TestFlight).** The server side is ready: signing in from the app through rivolt.dev, a list of your signed-in devices, and iPhone notifications. The app itself is in internal testing.\n\n## Privacy\n\n- The privacy policy now covers the iPhone app: the device type it reports for your list of signed-in devices, your phone's Apple push address (deleted when you turn notifications off or sign the phone out), and Apple's push service, which only ever sees a random number and \"Rivolt update\", never the text. Last updated October 21, 2026.\n\n## Fixes\n\n- The sign-in confirmation page shows your account's email correctly.\n"
+},
+{
+"tag": "v0.38.13",
+"body": "## What's new\n\n- **Campgrounds now always get a spot in overnight suggestions.** When a federal campground with an electric hookup is within reach of your overnight stop, one of the three suggestions is the best one, next to Level 2 hotels.\n\n## Fixes\n\n- **On phones, the trip summary no longer covers the campground card.** The reservation note and the Recreation.gov credit can be scrolled into view at any sheet height.\n- **Faster repeat visits:** app files are now cached properly by your browser.\n"
+},
+{
+"tag": "v0.38.12",
+"body": "## Fixes\n\n- **No more blank page right after an update.** If you opened Rivolt while we were deploying, a page could fail to load until you refreshed. It now recovers by itself.\n\n## Behind the scenes\n\n- More groundwork for the Rivolt iPhone app (signed-in devices and notifications). It stays switched off until the app ships, and nothing changes for you today.\n"
+},
+{
+"tag": "v0.38.11",
+"body": "## What's new\n\n- **Demo:** the off-peak savings card on demo.rivolt.dev now says plainly that it uses the sample truck and an example schedule.\n\n## Behind the scenes\n\n- Groundwork for the Rivolt iPhone app (sign-in and notifications). It stays switched off until the app ships, and nothing changes for you today.\n"
+},
+{
+"tag": "v0.38.10",
+"body": "## What's new\n\n- **Off-peak hours.** In Settings → Charging, add your utility's off-peak windows (weekday and weekend, past midnight, with a rate for each). Rivolt uses them only for estimates and never contacts your utility.\n- **What off-peak could have saved.** Money shows an estimate of what moving last month's home charging into your off-peak windows could have saved, and which sessions were left out and why. It's advice only, and Rivolt never changes charging on your truck.\n- **Savings in your monthly email**, as one estimate line when you have a schedule.\n- **Download the month as CSV**: totals by cost type, home versus away, and one line per session.\n- **Off-peak share on share cards**: an optional line, with a switch that is off every time.\n- **Membership plan terms** under Charging networks, each with its source and the date it was last checked.\n- **New public page:** [How much does it cost to charge a Rivian at home?](https://rivolt.dev/charging-cost), a calculator that needs no sign-in.\n"
+},
+{
+"tag": "v0.38.9",
+"body": "## What's new\n\n- **Add your own overnight stop.** In the trip planner, add any place as an overnight and pick its hookup: a J1772 station, or a NEMA 14-50 RV outlet with Rivian's Portable Charger (planned at 7.2 kW). Slow 30 A and 120 V outlets are marked as such.\n- **Federal campgrounds with electric hookups** can now appear next to Level 2 hotels as overnight options, with data from Recreation.gov. They start showing after the next charger-data refresh.\n- **Clearer charging power.** When a station offers more than your truck can take, the plan shows the power your truck will actually use.\n- **\"Billed by Rivian\"** now labels charges priced from your Rivian receipt.\n"
+},
+{
+"tag": "v0.38.8",
+"body": "## What's new\n\n- **Honest fast-charging prices.** Fast-charging sessions without your own rate are now estimated from a typical price (DCFC Tracker), not an old table. Add the rate you pay for exact costs. Money shows estimated sessions and sessions that still need a price on their own lines.\n- **Set your rate once, price the past.** After you add a network's rate in Settings, \"Price earlier sessions at this rate\" fills in estimated and unpriced sessions. It never touches a bill or a price you entered.\n- **Rivian bills win.** With charging receipts turned on, a session Rivian billed shows the billed amount everywhere.\n- **More overnight options.** Bed-and-breakfasts with Level 2 charging now appear next to hotels in the trip planner.\n\n## Fixes\n\n- Settings no longer shows old default network prices as if they were yours.\n- Sample trips link each typical price to its source.\n"
+},
+{
+"tag": "v0.38.7",
+"body": "## Fixes\n\n- **Honest charging prices in the trip planner.** Fast-charging stops are no longer priced from an old mid-2025 table. Each stop now uses your own Rivian receipts (if you've turned them on), then a dated typical price from DCFC Tracker, and otherwise says \"price shown at the charger\". Trip costs show as a range.\n- **Correct membership names.** EVgo Plus, Shell Recharge Rewards and \"Rivian owner discount\" replace three plan names we had wrong, including in rates you saved earlier.\n"
+},
+{
+"tag": "v0.38.6",
+"body": "## Fixes\n\n- **Drives and Charges on phones.** The page no longer scrolls sideways on narrow screens; the view and date-range buttons now wrap onto a second line.\n"
+},
+{
+"tag": "v0.38.5",
+"body": "## Privacy\n\n- **Maps no longer pass on your IP address.** Map tiles and route planning go through our own servers, and those servers now never receive your IP address.\n\n## Behind the scenes\n\n- Code checks now run on every change, and the issues they found are fixed.\n"
+},
+{
+"tag": "v0.38.4",
+"body": "## What's new\n\n- **Parked-drain split on quiet weeks.** If the last 7 days don't have enough parked time, the card switches to the last 30 days and says so.\n- **Battery capacity wording.** The \"not enough data yet\" line no longer lists a time span that's already met.\n\n## Demo\n\n- The demo now has enough history for the trends, battery capacity and range-by-temperature cards to draw.\n\n## Behind the scenes\n\n- Routine dependency updates, plus faster, more reliable automatic updates.\n"
+},
+{
+"tag": "v0.38.3",
+"body": "## What's new\n\n- **R2: asleep vs awake.** The parked-drain card now shows how much of the battery lost while parked went while the truck was awake, for the R2 too. Sleep and power state are now confirmed on real R2s.\n\n## Behind the scenes\n\n- Groundwork for the coming long-term archive and database monitoring.\n"
+},
+{
+"tag": "v0.38.2",
+"body": "## Behind the scenes\n\n- The parked-drain calculation uses less disk on the server.\n"
+},
+{
+"tag": "v0.38.1",
+"body": "## Fixes\n\n- **Your data export now includes everything:** saved trips, trip recaps, efficiency analyses, milestones and the weather stored for your drives. Backups now include saved trips, milestones, recaps and analyses too, and restoring the same backup twice never duplicates them.\n- Text you type, such as saved-trip names, always shows exactly as typed.\n\n## Behind the scenes\n\n- The parked-drain calculation no longer writes large temporary files to disk on every run.\n"
+},
+{
+"tag": "v0.38.0",
+"body": "## Hardening complete\n\nEvery urgent finding from an independent review of Rivolt is now fixed: safer sign-in, AI that runs only when you ask, self-healing after Rivian outages, safer restarts, faster lists and honest battery numbers.\n\n## What's new\n\n- **Clearer sign-in errors:** if connecting your Rivian account fails, Rivolt now says what went wrong and what to do next (for example, accept the driver invite, wait a few minutes, or start again for a new code).\n- **Range on Now:** with outside temperature turned on, Now shows the range your truck usually gets at today's temperature, from your own drives.\n\n## Fixes\n\n- **Your data export and backup now include every stored drive and charge,** including very short ones the lists hide.\n- The first-charge card shows cost per mile from the range that charge added.\n- The R2 card no longer claims battery health or sleep tracking are confirmed on the R2.\n- The one-time-code step and the share sheet fit and work better on phones and with a keyboard.\n\n## Privacy\n\n- The privacy policy now says exactly what goes to the weather service (where a drive started, rounded to about 11 km, plus the hour), and that accounts which never verify an email and never connect are deleted after 120 days.\n"
+},
+{
+"tag": "v0.37.8",
+"body": "## What's new\n\n- **Trends for your truck:** monthly efficiency and estimated usable battery capacity on the Truck tab, from your own drives and charges.\n- **Range in the cold:** pick a temperature to see the range your truck usually gets near it, from your own drives and stored weather. Colder choices fill in as you drive through winter.\n- **Parked drain, asleep vs awake:** see how much of the battery lost while parked went while the truck was awake.\n- **Share cards:** share a month, a trip or a milestone as an image. Cards are made on your device and never uploaded, and place names, VIN and location never appear. **Cost is now opt-in when you share a statement.**\n- **Outside temperature (optional, off by default):** Rivian doesn't report it, so Rivolt can look it up from Open-Meteo using your truck's location rounded to about 11 km, only while you have Rivolt open. Turn it on in Settings.\n\n## Fixes\n\n- **\"Delete your history\"** now also removes the weather, recap and efficiency details stored for those drives.\n- New accounts that use miles see temperatures in °F. You can change it in Settings → Vehicle → Display.\n- The first-charge card no longer shows \"$0.00/mi\" on trucks with a long history.\n\n## Privacy\n\n- The privacy policy now covers the outside-temperature lookup and share cards.\n"
+},
+{
+"tag": "v0.37.7",
+"body": "## What's new\n\n- **No empty screens early in the month:** until this month has a drive or charge, Now and Activity show the last 30 days and say so.\n- **Sample trips:** three example road-trip plans you can read without an account, at rivolt.dev/sample-trips.\n- **Demo:** now shows the first-charge card and \"Three things you may not have turned on\".\n\n## Fixes\n\n- **Pack capacity** shows the kWh your truck reports, next to Rivian's spec only when we know your exact pack. It no longer shows a percentage or \"degradation\", which we can't measure reliably.\n- Backup downloads are ready for the coming long-term archive.\n\n## Behind the scenes\n\n- Long drives write to the database far less often, and updates hand vehicles between servers more cleanly.\n- The live view reconnects to its cache on its own after a restart.\n"
+},
+{
+"tag": "v0.37.6",
+"body": "## What's new\n\n- **AI is now opt-in.** Drive analysis and other AI features stay off until you turn them on in Settings, and the switch lists exactly what gets sent. If you used AI before, turn it back on there.\n- **New cards on Now:** \"Three things you may not have turned on\", a first-charge card, and an Install row on the first-day card where your browser offers to install.\n\n## Fixes\n\n- Lists and Activity load faster: routes are fetched only when a map needs them.\n- Old drives still show their map after the detailed data has aged out.\n- The version bar no longer hides behind a page's sticky header.\n- A drive with no starting odometer reading no longer shows a huge distance.\n\n## Behind the scenes\n\n- Steadier Rivian connections: calmer startup, bounded connection timeouts, one server per account's vehicles, and clean shutdowns during updates.\n- The privacy policy describes the new AI switch.\n"
+},
+{
+"tag": "v0.37.5",
+"body": "## What's new\n\n- **Alert settings:** plug-in reminder (pick a level and a time up to 10 PM), milestone notifications, and a weekly summary email. All are off until you turn them on, and \"Stop these reminders\" turns them off on every device.\n- **Milestones on Now:** a card when you pass one, such as 1,000 miles or 100 charges. Hide it with one tap.\n- **Single-day trips** now use the date you pick, including trips more than a month out.\n\n## Fixes\n\n- The iPhone \"add to home screen\" banner shows once instead of on every screen.\n- Clearer help when Rivolt finds no vehicles (usually a driver invite that hasn't been accepted).\n- Shorter suggested names for saved trips.\n\n## Behind the scenes\n\n- Security and reliability fixes from an independent review: limits on oversized requests and imports, stricter login limits, safer push notifications and map proxies, a Rivian connection breaker that can't get stuck, key rotation that keeps your data readable, and fewer dropped connections after a database blip.\n\n## Self-hosting\n\n- Helm chart 0.11.0: `secrets.autoGenerateKek` now defaults to false, and the chart refuses to render without `secrets.kek` or `existingSecret`. If you installed with plain `helm install` and an auto-generated key, add `--set secrets.autoGenerateKek=true` when you upgrade; your existing key is kept.\n"
+},
+{
+"tag": "v0.37.4",
+"body": "## Privacy\n\n- AI trip advice now only runs when you tap \"Get AI advice\", and the card lists what it sends. Before this release, it also ran automatically on trips over 200 miles or with a charging stop.\n"
+},
+{
+"tag": "v0.37.3",
+"body": "## Security\n\n- Sign-in hardening: the login step that connects other Rivolt sign-in apps now checks the sign-in request before the password, gives the same answer for any failure, and limits repeated attempts.\n"
+},
+{
+"tag": "v0.37.2",
+"body": "## What's new\n\n- **Save trip from the plan:** a \"Save trip\" button now sits right on your trip result, with a suggested name. It confirms when it's saved and links to your saved trips.\n- **Plan further ahead:** multi-day trips can start up to 6 months out. For trips more than a month away, stops and arrival times are based on today's chargers and conditions, so re-plan closer to the date. Single-day trips get the same in the next update.\n- **Plan vs actual explains a low start:** if you set off with less charge than planned, the comparison says so and shows what it cost.\n\n## Fixes\n\n- The star next to a place now reads \"save place\", so it's clear it saves the place, not the trip.\n- Opening a saved trip takes you straight to it.\n- On the demo, the 2-day sample trip is first in the list and opens next to it.\n"
+},
+{
+"tag": "v0.37.1",
+"body": "## Fixes\n\n- **Multi-day trips:** each day's header now shows the right number of charging stops. In 0.37.0 it could say \"No charging stop needed\" above a day that had one.\n"
+},
+{
+"tag": "v0.37.0",
+"body": "**Trip planner:** plan a trip over several days with overnight stops, pick a stop with a Level 2 charger, avoid tolls, ferries or highways, save it, re-plan from where your truck is, and see each day's plan against what you drove. Plans are estimates.\n\n## What's new\n\n- **Multi-day trips:** plan up to 10 days with stops along the way. Each day gets its own departure, arrival and charging stops, and every night shows how much charge you'll leave with.\n- **Overnight charging at hotels:** pick a hotel with a listed Level 2 charger as your overnight stop, and that night's charging uses its power. Long days get a \"Where to sleep\" suggestion. Chargers are listed, not guaranteed.\n- **Avoid tolls, ferries or highways** under More options.\n- **Save and reopen** a multi-day trip, then compare each day's plan with what you actually drove.\n- **Re-plan from here:** on a trip you've started, plan the rest from your truck's current position and charge.\n- **What's new page:** release notes at rivolt.dev/changelog, with a feed for your reader.\n\n## Fixes\n\n- A multi-day day that would arrive too low now gets a charging stop, or a plain reason why it can't be driven.\n- **R2:** time to full charge (marked as an estimate), and power state no longer stays blank after a reconnect.\n\n## Behind the scenes\n\n- Security updates for several dependencies.\n- Self-hosting: this release migrates the database. Going back to 0.36.x needs a restore from backup.\n- On demo.rivolt.dev, the sample truck now has a saved 2-day trip; hotel suggestions don't appear there.\n"
+},
+{
+"tag": "v0.36.21",
+"body": "## Fixes\n\n- **Admin:** clicking anywhere on a user in the admin Users list opens that user again (it had stopped responding).\n\n## Behind the scenes\n\n- Dependency updates now merge automatically once they're at least three days old and every check passes.\n"
+},
+{
+"tag": "v0.36.20",
+"body": "## What's new\n\n- **Safer sign-in:** after signing in you're always returned to a page on Rivolt itself, never sent to another site.\n- **Clearer emails:** links in signup and monthly statement emails always point to rivolt.dev.\n\n## Behind the scenes\n\n- Admin tools are moving to a separate, locked-down site. This release includes the new admin pages and the protections that site needs; nothing changes for regular users.\n"
+},
+{
+"tag": "v0.36.19",
+"body": "## What's new\n\n- **Clearer sign-out:** Settings now has separate \"Sign out of Rivian\" and \"Sign out of Rivolt\" buttons.\n- **Friendlier rate-limit message:** if you try signing up too many times, you'll see \"Too many tries. Wait a minute and try again.\" instead of an error page.\n- **Demo link in the footer:** the landing page footer now links to the demo truck.\n- **Privacy policy update:** records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security. See [rivolt.dev/privacy](https://rivolt.dev/privacy).\n\n## Behind the scenes\n\n- Admin actions are now recorded in an audit log, and some admin-only debugging tools were removed from the live site.\n"
+},
+{
+"tag": "v0.36.18",
+"body": "## Fixes\n\n- **Email signup limits apply per visitor.** Before, a handful of signups across the whole site could block everyone else for an hour.\n- **Backups download compressed** (.json.gz, about 30× smaller) and **restore works for large accounts**, with live progress. Restoring the same file again is safe.\n- Clear messages for files that aren't Rivolt backups, and limits that keep backup and restore from overloading the server.\n\n## Security\n\n- Closed a sign-in setting that should never have been enabled, and added safeguards so the server refuses to start with it.\n- Request logs now record how each request was signed in.\n"
+},
+{
+"tag": "v0.36.17",
+"body": "## Fixes\n\n- **Full JSON backup no longer crashes the server** on large accounts: it streams instead of loading everything into memory, and is limited to one at a time per person.\n- **Lease calculator** is linked from the footer and the landing page.\n- The sign-up confirmation shows \"Already have an account? Sign in\" only once.\n\n## Security\n\n- Updated Go and several libraries to close the vulnerabilities the weekly scan reported; the scan runs again and now opens an issue if it fails.\n"
+},
+{
+"tag": "v0.36.16",
+"body": "## New\n\n- **Lease mileage calculator** at rivolt.dev/lease-calculator: no signup, and nothing you type leaves your browser.\n\n## Fixes\n\n- **Sign-up page** says email signup is instant (\"we'll send you a signup link\") and offers \"Already have an account? Sign in\".\n- New accounts see the Terms step before connecting Rivian.\n- Export is described accurately: a zip of CSVs, or a full JSON backup.\n- Clearer links and more readable notes on the sign-up page.\n"
+},
+{
+"tag": "v0.36.15",
+"body": "## New\n\n- **Instant email signup:** while there's room in the beta, signing up with email works straight away, like Google and GitHub.\n- **Your first day with Rivolt:** new accounts get a short card on Now to set the home charging rate, add a lease and turn on software-update alerts.\n- **Connecting, in plain terms:** the Rivian connect screen explains what Rivolt keeps, that it's read-only, and how to undo it. There's also a public page: rivolt.dev/safe-to-connect.\n- **Welcome email and up to two setup reminders** until Rivolt has data from your truck, with a one-click unsubscribe and a switch in Settings → Notifications.\n\n## Improvements\n\n- **Money** explains a $0 month instead of showing a bare zero.\n\n## Privacy\n\n- The privacy policy now describes the welcome and setup emails and how to turn them off.\n"
+},
+{
+"tag": "v0.36.14",
+"body": "## New\n\n- **Moving from ElectraFi:** a guide at rivolt.dev/moving-from-electrafi for bringing your ElectraFi history into Rivolt, linked from the landing page.\n"
+},
+{
+"tag": "v0.36.13",
+"body": "## New\n\n- **Easier for AI assistants and search:** the public pages now offer a plain-text version, an llms.txt summary and structured data, and say that search and AI answers may use them but AI training may not.\n\n## Fixes\n\n- **Lease:** the Settings link to the lease form now scrolls to the card.\n- Unknown addresses under /.well-known/ return \"not found\" instead of the app.\n"
+},
+{
+"tag": "v0.36.12",
+"body": "## New\n\n- **Coming from ElectraFi?** The landing page now points ElectraFi users to the history import.\n- **Search results:** rivolt.dev, the privacy page and the terms page each get their own title and description, and search engines can read them without running the app.\n\n## Fixes\n\n- **Lease:** kilometre mode says \"of lease kilometers\", and the Settings link to the lease form opens the right tab.\n"
+},
+{
+"tag": "v0.36.11",
+"body": "## New\n\n- **Terms of Service** at rivolt.dev/terms, linked from the footer, the sign-in screen and the privacy policy.\n- **New accounts** agree to the Terms and Privacy Policy once, before using the app. Existing accounts are not asked.\n- **Link previews:** sharing a rivolt.dev link now shows a title, description and image.\n- **Landing page copy** refreshed, with a demo button and \"Create an account\" (the landing page itself is switched on separately).\n\n## Improvements\n\n- **Lease card** shows projected lease miles at return, with the odometer underneath; kilometre mode says \"each kilometer over\".\n\n## Privacy\n\n- **Trip advice** sends only charger names or locations rounded to about 11 km to the AI provider, never the text you type. The privacy policy says so.\n\n## Fixes\n\n- The installed app now has proper home-screen icons.\n"
+},
+{
+"tag": "v0.36.10",
+"body": "## New\n\n- **Privacy policy** at rivolt.dev/privacy, linked from the footer and the sign-in screen.\n- **Lease tracker** on Truck: miles used against your allowance, projected miles at return, and any overage cost.\n- **Efficiency** in Activity: mi/kWh by outside temperature, speed and drive mode.\n- **Software update alerts:** a push notification when an update is offered or installs.\n\n## Privacy\n\n- **Charging receipts** are now opt-in, per user, in Settings. Turning them off deletes them.\n- Old sign-ins and unapproved access requests are deleted on a schedule.\n- Each user's data is now separated at the database level on every table.\n- The Rivian connect step says what Rivolt records.\n\n## Fixes\n\n- No error page while Rivolt restarts during an update.\n"
+},
+{
+"tag": "v0.36.9",
+"body": "## Fixes\n\n- **Money says \"Fast\"** for fast charging, like the rest of the app.\n- **Activity Table** marks merged round trips (\"round trip, 2 drives\"), so the drives add up with Now; the short-drives group counts drives.\n- **Charge page title** says Home charge, Away charge or Fast charge.\n\n## Internal\n\n- Removed the temporary R2 charging-status and battery-details capture (plug state for R2s stays on).\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.8...v0.36.9\n"
+},
+{
+"tag": "v0.36.8",
+"body": "## Fixes\n\n- **Home charges no longer lose energy when Rivolt restarts mid-charge.** A charge in progress during an update or restart used to record only the energy added after the restart. Three affected charges have been corrected.\n- **Now matches Money.** Now's \"Charging cost\" is the same number as Money's total, and cost per mile comes from it.\n- **Charging locations** show each place's share of energy (summing to 100%), not its share of sessions.\n- **Drive counts** are the same on every page, and a charge is named the same way (Home / Away / Fast) everywhere.\n- **Battery chart legend** matches what's drawn; the misleading \"Pack capacity\" row is gone.\n- Charts: \"All time\" covers all your data; the year view starts on the right day; Money compares a month in progress with the same days of the previous month; trip arrival times round to the nearest minute.\n\n## Internal\n\n- Groundwork for removing accounts that never connected a vehicle (off until the privacy policy is published).\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.7...v0.36.8\n"
+},
+{
+"tag": "v0.36.7",
+"body": "## Internal\n\n- A short, privacy-safe capture of more Rivian vehicle topics (charging estimates, smart charging, parked-energy breakdown, modes), so upcoming features can be built on verified data. It logs numbers only, never text or precise locations, and switches itself off on Oct 20.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.6...v0.36.7\n"
+},
+{
+"tag": "v0.36.6",
+"body": "## What's new\n\n- **R2: software version on Truck.** R2s now show their installed and pending software version, read from the truck's own feed (Rivian's update lookup doesn't answer for R2s yet).\n\n## Fixes\n\n- When Rivian declines a request for one vehicle (a shared-driver account, or an R2 lookup), Rivolt backs off that vehicle for a week instead of retrying daily, and the user's other vehicles still update.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.5...v0.36.6\n"
+},
+{
+"tag": "v0.36.5",
+"body": "## What's new\n\n- **Money: what Rivian actually billed.** Sessions Rivian billed show \"Billed by Rivian\" with the real amount; the rest stay \"Estimated\"; a mixed receipt says \"Partly billed\". The month total always equals billed + estimated. (Rolling out gradually.)\n- **Truck: software updates.** The installed and any available update, each with a link to Rivian's release notes.\n- **Now: scheduled charging.** When the truck is plugged in and waiting for its schedule: \"Plugged in · charging starts 11:00 PM (schedule)\".\n\n## Fixes\n\n- Charging receipts read every date format Rivian sends.\n- A charge can never be counted twice on Money.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.4...v0.36.5\n"
+},
+{
+"tag": "v0.36.4",
+"body": "## What's new\n\n- **Vehicle model, trim and picture** now fill in for every connected vehicle, not only after you open the app.\n- Groundwork for **real charging costs from Rivian's own receipts** (off by default while it's validated).\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.3...v0.36.4\n"
+},
+{
+"tag": "v0.36.3",
+"body": "## Changes since v0.36.2\n\n- Merge pull request #328 from apohor/r2-plug-state-parallax (21abe82)\n- Merge pull request #327 from apohor/qa/parallax-doc-refresh (3bb8a67)\n- docs: power.state 5-7 are mapped on main (#323) (d8dcb17)\n- R2 plug state from Parallax charging.session.status (8f361bf)\n- Merge pull request #326 from apohor/ux/readme-refresh (ce8ac65)\n- docs: refresh PARALLAX_MIGRATION with verified per-topic status (Oct 2026) (75be5e8)\n- docs: screenshots README names the Las Vegas weekend sample trip (effb780)\n- docs: screenshots from demo.rivolt.dev (dark desktop, phone, light) and sample trip names (c50dea5)\n- docs: landing copy matches open signup (no invite needed) (b3c54f6)\n- docs: landing copy uses the five tab names and demo.rivolt.dev (88594e3)\n- docs: README for the five-tab UI and the demo; screenshot notes (images follow) (9e9466a)\n- Merge pull request #325 from apohor/backend/vehicle-trim (d6ae848)\n- vehicles: persist trim and the hero image; request images the way the app does (v3 webp, then v2 png) (b2e7157)\n- Merge pull request #324 from apohor/r2-blank-gear-follows-parallax (480a025)\n- Merge pull request #323 from apohor/backend/parallax-power-enums (77076a4)\n- rivian: keep applicable's doc comment on applicable (DA nit) (d216072)\n- rivian: Parallax park also fills a blank cached gear (R2) (29eb0b7)\n- rivian: map Parallax power enums 5-7 (vehicle_reset, ota_update, shutdown) (bda24f2)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.2...v0.36.3\n"
+},
+{
+"tag": "v0.36.2",
+"body": "## Fixes\n\n- **Public demo:** opening a demo tab directly (Activity, Money, Truck) now shows the new look, not only when you navigate there from Now.\n- **Now (desktop):** stat values such as \"2.30 mi/kWh\" stay on one line; the unit is a small suffix.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.1...v0.36.2\n"
+},
+{
+"tag": "v0.36.1",
+"body": "## What's new\n\n- **Activity: Feed, Table and Map.** Switch between the day-by-day feed, a sortable table of drives and charges, and a map of where you drove and charged. The view follows the Drives/Charges filter and the selected period, and is kept in the link. On a phone the table shows the key columns; the full detail is one tap away.\n- **\"New version available\" bar.** When Rivolt updates while a tab is open, a small bar offers to reload, so you're never stuck on an old build.\n\n## Fixes\n\n- **Plan on a phone:** after a plan comes back, the map scrolls into view above the bottom sheet, so the route is visible without scrolling.\n- **Plan map:** the route no longer sits under the Chargers filter chips or the sheet.\n- **Now:** the Idle-awake tile stays on one line on a phone (\"today · no full days yet\" for a new truck).\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.0...v0.36.1\n"
+},
+{
+"tag": "v0.36.0",
+"body": "## The new look, for everyone\n\nRivolt's redesigned interface is now the default. It is lighter, more consistent and, on the phone, easier to use one-handed.\n\n**Plan, rebuilt around the map**\n- The map comes first. On a desktop the route and stops sit beside a full-height map; on a phone the result slides up over the map as a bottom sheet you can pull between peek, half and full height (drag the handle, or tap it).\n- A compact route bar: From and To with a swap button, a departure chip, a starting-charge slider with \"Use live\", and a collapsed **More options** for drive mode, adapter, via stops and overnight.\n- Plan tabs (Planner, and Plan vs actual when you have it); the tab is kept in the link.\n- Alternatives are a route chooser instead of stacked cards.\n- Charging stops are expandable cards, and an expanded stop scrolls itself fully into view, title included.\n- One type family and one size scale across the planner, matching Now, Truck, Money and Activity.\n\n**Everywhere else**\n- A shared type scale (11/12/14/24/36) on Now, Truck, Money and Activity.\n- Solid top bar, tab bar and sticky page headers, with a soft shadow under the page header; the Add to Home Screen banner is solid too.\n- Truck: a state-of-charge trend chart with limit and min/max, and a crosshair.\n- Now: the idle chart is a compact tile that links to Truck.\n- The public demo's footer matches the signed-in one (Docs, Discord, version).\n\n## Fixes\n\n- The bottom sheet's handle is always the thing you touch (a layered-element bug could make it unresponsive on some phones).\n- Route bar options use one column at every width, so labels no longer crowd at about 350 px on desktop.\n- The planner's phone itinerary no longer needs scrolling to reach an expanded stop's title.\n\n## Internal and CI\n\n- Playwright e2e now runs on every web PR, sharded, with a WebKit (iPhone Safari engine) project for the phone specs, and re-runs when a PR's base changes.\n- Visual-regression baselines for the new look, and wider light/dark and phone/desktop coverage for the planner.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.35.1...v0.36.0\n"
+},
+{
+"tag": "v0.35.1",
+"body": "## Changes since v0.35.0\n\n- Merge pull request #289 from apohor/ux/fix-period-test (6e41e18)\n- web: make the flag-off filtering test deterministic (fixed clock, explicit boundary items) (78d5e64)\n- Merge pull request #287 from apohor/ux/demo-footer (0cc2ac0)\n- Merge pull request #288 from apohor/ci/link-check-any-file (3739b6b)\n- web: Now swaps the idle-awake chart for a compact tile linking to Truck (ui_theme_next) (be2284b)\n- web: demo footer matches the signed-in one (Docs, Discord, version); shared Footer component (fb58dc2)\n- ci: link-check finds the Discord invite anywhere in web/src (d2f0fdb)\n- Merge pull request #285 from apohor/ux/soc-trend (c3c8027)\n- web: ui_theme_next SoC trend chart (bands, limit label, min/max, crosshair) and near-solid glass bars (2c565aa)\n- Merge pull request #286 from apohor/ux/plan-polish2 (c7d4818)\n- web: Plan hero in sans, compact Plan vs actual bars, edge-to-edge map (ui_theme_next) (2196186)\n- Merge pull request #284 from apohor/ci/go-mod-download-retry (ba78c98)\n- Merge pull request #283 from apohor/ux/plan-polish (37cb0f4)\n- build: retry go mod download (module proxy stream resets) (3438640)\n- web: Plan polish e2e (before/after, light and dark, form) and full-width submit (d8739da)\n- web: ui_theme_next Plan polish: result hero, route timeline, compact form (b5300e3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.35.0...v0.35.1\n"
+},
+{
+"tag": "v0.35.0",
+"body": "## Changes since v0.34.0\n\n- Merge pull request #282 from apohor/web/discord-invite (fc9289f)\n- web: footer Discord link to the new never-expiring invite; weekly link check (5707316)\n- Merge pull request #276 from apohor/ux/ui-next-plan (5617fa2)\n- Merge pull request #280 from apohor/ux/ui-next-period (e40720c)\n- web: Plan next-mode DOM order (result right after the form), flat flag-off DOM, desktop columns by grid (e6d1be0)\n- web: ui_theme_next Plan on a phone: the result follows the form/sample-trip picker, before Plan vs actual and Saved trips (29c989c)\n- web: ui_theme_next on Plan (cockpit: form and Plan vs actual left, result right); strict preview host for the override (05fe3f1)\n- web: cap the Truck/Now sleep query to 90 days and snap to whole UTC days; test flag-off Now filtering matches main (229fbc8)\n- Merge pull request #278 from apohor/ux/ui-next-period (dfbdf90)\n- web: scope control in the sticky page header (compact on phones), Now hero and KPI grid at equal height (181ed7c)\n- web: ui_theme_next calendar scope (Week/Month/Year/All/Custom with stepping) on Now, Activity and Truck's sleep chart (531b78b)\n- Merge pull request #279 from apohor/ux/ui-next-light (9ae3cab)\n- web: ui_theme_next qa2 fixes (opaque glass bars, charge limit as an arc tick without the linear bar, mono only for short numeric readouts); Money in the light e2e (b3af497)\n- web: ui_theme_next light theme (soft elevation, pale light pools, glass bars in white) (dc30773)\n- Merge pull request #275 from apohor/ux/ui-next-activity-money (7687f9a)\n- web: ui_theme_next Money: receipts card matches the left column's height and scrolls inside (8faf240)\n- Merge pull request #277 from apohor/backend/build-version-wins (508059e)\n- health version test: pin the devtag and X.Y alias cases (291f32f)\n- web: Money sample-data banner sits above the next-mode desktop grid, full width (dc9f576)\n- /api/health: a commit-named image tag no longer hides the build's version stamp (8ac5fe5)\n- web: ui_theme_next on Activity (timeline rail, two-column days) and Money (cockpit grid, big statement numeral) (00000a5)\n- Merge pull request #274 from apohor/ux/ui-override-preview-only (13f3ad2)\n- Merge pull request #273 from apohor/backend/client-key-xff (b747440)\n- web: the ?ui= override is honoured only on preview and local dev; prod and the demo use the server flag alone (57b1087)\n- Merge pull request #271 from apohor/ux/ui-theme-next (6dc87c0)\n- Merge pull request #272 from apohor/backend/ui-theme-next (3eaa1f2)\n- web: ui_theme_next hint lines back in Geist sans; mono only for the hero readouts (20ac0e5)\n- web: ui_theme_next round 2: Geist (self-hosted), rounded gradient bars, desktop cockpit grids, Since-last-charge tile, charging sparkline, map glow (483fab6)\n- Demo client-key metric: count tunnel visitors as xff, not peer (5c877d0)\n- ui_theme_next: per-user flag, reported by GET /api/ledger/enabled (17c5836)\n- web: ui_theme_next prototype (cinematic cockpit layer, flag-gated, off by default): tokens, elevation, hero light and live glow, arc gauge, gradient charts, mono numerals (4730e08)\n- Merge pull request #269 from apohor/ux/drain-skeleton (3fbce9e)\n- web: DrainCard test awaits the skeleton going away on 404; add a pending-skeleton test (b59fe47)\n- Merge pull request #270 from apohor/rivian-tests-faster-2 (83882ba)\n- test(rivian): render the sample corpus's frames once for all corpus tests (4405278)\n- web: Truck's Parked drain card shows a titled loading skeleton on a cold first load (9b93eef)\n- Merge pull request #268 from apohor/rivian-tests-faster (b19da9e)\n- Merge pull request #267 from apohor/backend/kratos-host-guard (d5229eb)\n- test(rivian): keep the wall-clock replay-feed test serial (backend review) (073886d)\n- Merge pull request #266 from apohor/ci/parallel-main-builds (48c4165)\n- test(rivian): share the sample corpus and its replay; run independent tests in parallel (b0e5414)\n- auth: key the Kratos host guard on the cookie host, not the install's own host (4b187a4)\n- auth: Kratos session issuer only for the base URL's host (d477d67)\n- ci: DA notes: skip bump on a failed compare, drop the floating main tag, exclude pre-release tags from the version base (cdaa5db)\n- Merge pull request #265 from apohor/pm/readme-dcfc-rate (8014e4e)\n- ci: main builds run in parallel; preview bump is newest-wins; semver dev versions (9055ac8)\n- README: trip analysis uses each network's rate, not one default (235653d)\n- Merge pull request #264 from apohor/ci/docs-only-required-checks (78bb668)\n- ci: docs-only PRs report the required checks (skipped) instead of never running (3df6586)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.34.0...v0.35.0\n"
+},
+{
+"tag": "v0.34.0",
+"body": "## Changes since v0.33.2\n\n- Merge pull request #263 from apohor/backend/metrics-listener (0c36a29)\n- Merge pull request #258 from apohor/sample-idle-awake (8fd3332)\n- Merge pull request #262 from apohor/pm/readme-estimate-wording (1f219d1)\n- Merge pull request #259 from apohor/ux/demo-a11y (6348683)\n- web: emerald-700 buttons hover to emerald-800 (emerald-600 is deeper now, so the old hover was flat) (2ccc54e)\n- Demo: count 429s by route class and budget scope (no addresses) (9f861ea)\n- /metrics only on its own listener, in every mode; stray RIVOLT_DEMO_ONLY is ignored (260ff66)\n- test: idle-awake per day has a floor too; note the failed-sleep night (ux review) (01d04ea)\n- README: trip analysis figures are estimates (c2d766e)\n- Merge pull request #260 from apohor/pm/readme-no-rivian-app-claims (7c8ea52)\n- Merge pull request #261 from apohor/demo-tile-budget-env (73696aa)\n- demo: tile budgets configurable per deployment (8d23ba1)\n- web: plain copy in the demo planner (Sample plan, Likely/Possible match instead of preview and band jargon) (1ea90f1)\n- web: accessibility pass on the demo shell and planner (axe in the demo e2e) (42654fa)\n- web: description no longer says data stays on your hardware (false for hosted) (c227845)\n- README: describe what Rivolt does, not what other apps lack (a919b7a)\n- Merge pull request #257 from apohor/ux/sleep-duration-format (ba2e5f7)\n- Merge pull request #256 from apohor/ci/faster-pipeline (207a224)\n- Merge pull request #249 from apohor/ux/demo-only-mode (f7c4ef4)\n- Merge pull request #254 from apohor/backend/demo-only (b1811fb)\n- sample truck: park the way the R1 fleet does (13 min up, 1 min standby, sleep) (bd6cb42)\n- web: idle-awake chart reads in minutes under an hour and hours plus minutes above (Truck and Now) (4538b38)\n- ci: run web checks when the shared dcfcrates test vectors change (917c2d0)\n- Merge pull request #252 from apohor/backend/now-plugged-r2 (45c329e)\n- ci: stop cancelling main builds, publish alongside tests, skip untouched halves on PRs (0073c5d)\n- Serve /metrics on its own listener, off the public router (a5f5b62)\n- Merge pull request #255 from apohor/ux/money-edge-states (12ccccc)\n- Merge pull request #253 from apohor/ux/dcfc-confirm-fixes (066ad14)\n- Merge pull request #251 from apohor/remote-latest-cache (07d7724)\n- Merge pull request #250 from apohor/now-frame-at-wsseen (7e7d66f)\n- Merge pull request #248 from apohor/setsubcancel-ctx-err (ab23452)\n- Merge pull request #244 from apohor/ux/drop-shape-alias (170ab53)\n- Merge pull request #246 from apohor/r2-stale-charging-active (1ae809c)\n- web: demo-only CTAs go to the real app's /signup even though the demo server forces signup_enabled off (03775e9)\n- /now: charger_status connected is plugged whatever the charging_state (ab764f7)\n- web: Money edge states: no misleading delta or $/mi when nothing is priced; no-home-rate CTA; shared month builder for fixtures (c927afc)\n- Standalone demo mode (RIVOLT_DEMO_ONLY) for demo.rivolt.dev (a9e8d14)\n- web: charge price fields follow Change/Confirm; a confirmed network reads as confirmed on Money (f7bc4cc)\n- rivian: a stuck R2 charge's sticky tail adds no energy (0d02bed)\n- Merge pull request #247 from apohor/backend/deleted-backup-idx (f66799c)\n- /now: R2 plugged only on charging_connecting with power (462afd7)\n- rivian: RemoteLatest reuses a store read for 2 s (b1a240e)\n- rivian: /now frame_at waits for this ownership's first frame (25708ed)\n- web: demo-only deployment mode (features.demo_only + app_url): / lands on /demo, auth routes redirect, CTAs point at the real app (909fed3)\n- Merge pull request #242 from apohor/backend/now-plugged (04392d3)\n- rivian: a subscription cancelled before it publishes doesn't replace its successor's handle (c4242a7)\n- Index charges_deleted_backup(user_id) (c72426b)\n- rivian: an R2 charge stuck in charging_active after unplug closes once (f23a8b9)\n- web: demo presets read route_polyline only (drop the shape alias) (92fde10)\n- /now: plugged follows charger_status when the row has one (8b7f592)\n- Merge pull request #237 from apohor/ux/samples-vehicle-param (a89037c)\n- Merge pull request #241 from apohor/followups-guard-226 (54973cd)\n- db: say in Migrate's doc that a lock_timeout hit fails startup (retried on restart) (cae2a83)\n- db, samples: #226 follow-ups (lock_timeout guard for vehicle_state ALTERs; bind-limit comment) (3df0a4c)\n- rivian: guard that cached state is only written through putCacheLocked (fe54c13)\n- Merge pull request #236 from apohor/ux/demo-shell (cd17851)\n- Merge pull request #235 from apohor/demo-parity-sample-data (1c414c4)\n- test: rename the preset test helper that collides with the embedded loader's readPresets (#234) (e208b79)\n- test: create the vehicle_state partition for the demo plans seed fixture (9b3cf5c)\n- demo: name the preset route shape route_polyline; check it stays in CA/NV (8a03dbf)\n- demo: back to fixed saved-trip ids for the presets; route shapes for the demo map (e3536a6)\n- demo: link presets to saved trips by name; pair plans only with a trip recorded whole (cc9a904)\n- demo: preset planner trips for the anonymous demo, with stable saved-trip ids (c6ca626)\n- demo: seed the sample owner's Las Vegas plans for Plan vs Actual; sample software version (5034140)\n- Merge pull request #240 from apohor/backend/ttlcache-panic-safe (e8c2681)\n- Merge pull request #238 from apohor/backend/pricing-409-open (7c8e8b5)\n- Merge pull request #234 from apohor/backend/demo-parity (4353914)\n- ttlCache: a panicking load no longer wedges its key (3f1daa8)\n- Demo client key: also trust CF-Connecting-IP from our private LB hop (0cdc57e)\n- 409 only for a live session still being recorded (c7f188b)\n- Demo parity: static presets, cache before shared budget, client-key metric (f46d07a)\n- Merge pull request #239 from apohor/backend/sleep-activity-cache (e8d3325)\n- Cache sleep-activity for 5 minutes; drain cache to 5 minutes (a801ef8)\n- web: demo presets read the index.json shape (polyline6); route_polyline stays an alias (0245243)\n- Pricing edits: 409 while the charge is still in progress (a42f725)\n- web: demo never calls the routing proxy; e2e allowlist pinned to the demo vehicle and the two public archives (19afca7)\n- web: a demo preset highlights its saved trip's Plan vs Actual (fixed saved-trip id) (94d6d3e)\n- web: demo presets draw the stored route polyline (straight legs as fallback); missing Plan vs Actual stays silent (ea26693)\n- Demo parity: close abuse-review gaps (f289460)\n- web: demo planner copy: Try a sample trip, sample-trip subtitle (5b2f782)\n- web: demo planner uses the preset trips; no corridor query, no re-plan, no AI card in the demo (8bea397)\n- web: /demo/* shell with the app's tab nav, real pages in read-only demo mode, planner without saves or AI (c700bd0)\n- web: pass ?vehicle= on drive, charge and trip-planner samples calls (server-side scope; forVehicle stays as a guard) (25e7cc2)\n- Demo parity API: drain, price book, saved trips, charger tiles, preset trips (b55c95a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.33.2...v0.34.0\n"
+},
+{
+"tag": "v0.33.2",
+"body": "## Changes since v0.33.0\n\n- Merge pull request #213 from apohor/backend/dcfc-network-api (510a057)\n- Resolve test conflict with main (4ef2f05)\n- Merge pull request #233 from apohor/backend/samples-vehicle-scope (aed47cc)\n- Drop /api/ledger/to-confirm; slug change marks the network confirmed (contract v1.1) (97f8b11)\n- Fix network price rounding cast and real-precision test assertion (5606c80)\n- DCFC network verify API: confirm/change, to-confirm list and counts, confirm push (e14cea1)\n- Scope /api/samples and drive efficiency to one vehicle (5170812)\n- Merge pull request #218 from apohor/now-vehicle-state-frame-at (5cca676)\n- Merge pull request #212 from apohor/ux/dcfc-auto-network (19dec8e)\n- Merge pull request #231 from apohor/backend/announce-cli (68c2f4c)\n- Merge pull request #232 from apohor/ux/prod-defects-0332 (cfe40cb)\n- web: auto-network wording only when a row or the count actually carries it (1ab96bf)\n- announce: show the sender address in the dry run (replies go to From) (f69afc2)\n- Merge pull request #230 from apohor/ux/trip-position-vehicle (1256dc8)\n- Merge pull request #229 from apohor/r2-charge-without-status (32a8bac)\n- web: Activity 'Charging now' only for open recent sessions; Truck: no empty card, no 0.0.0 update, no false 'no sleep data' (db8e993)\n- Add rivolt announce: one-time service email through the internal mailer (c004458)\n- web: test that To confirm requests the full charge history and agrees with the badge (7595430)\n- web: contract v1.1 (409 offers Change, /money?filter=confirm), vectors test enforced (59c2227)\n- web: Receipts filter chips sit under the heading (b8a016e)\n- web: evidence osm key is now node_check (2f1be45)\n- web: skip shared vectors test until the file lands (5037b51)\n- web: one Money story with auto-network, To confirm view spans all months (a61c36f)\n- web: shared choosePin vectors test; empty POI name falls back like Go (c84efb9)\n- web: DCFC auto-network pricing card, Money to-confirm badge and filter (faa13ea)\n- web: trip planner's latest-position fallback uses its own vehicle's samples (bdf301e)\n- Merge pull request #225 from apohor/ux/fix-route-fan (e4194f7)\n- Merge pull request #227 from apohor/registry-owner-timeout (bf5b9c6)\n- rivian: an R2's charge opens without chargerStatus (f09303f)\n- rivian: owner lookup bounded at 2 s; lease loss stops the vehicle's run on any monitor (ad08bc4)\n- docs: README signup is open, no invite needed (b4bfb01)\n- now: vehicle_state_frame_at, when the live feed last delivered a frame (ab02487)\n- web: drive and charge pages use only their own vehicle's samples (fixes the route fan on two-truck accounts) (d3e6038)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.33.0...v0.33.2\n"
+},
+{
+"tag": "v0.33.1",
+"body": "## Changes since v0.33.0\n\n- rivian: an R2's charge opens without chargerStatus (f9becaa)\n- rivian: owner lookup bounded at 2 s; lease loss stops the vehicle's run on any monitor (ce5aa57)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.33.0...v0.33.1\n"
+},
+{
+"tag": "v0.33.0",
+"body": "## Changes since v0.32.1\n\n- Merge pull request #217 from apohor/wake-at-first-awake-frame (963453b)\n- Merge pull request #223 from apohor/reprice-followups (5ea97b1)\n- Merge pull request #228 from apohor/ux/demo-no-live-drive (e17f378)\n- Merge pull request #224 from apohor/r2-history-repair (3660119)\n- rivian: test the wake anchor through applyVehicleStatePush (and the held-sleep case) (2d0291e)\n- rivian: wake attribution anchors on the first awake frame's arrival (5536110)\n- Merge pull request #221 from apohor/readonly-rivian-connected-view (50cb09d)\n- web: the signed-out demo does not call /api/live-drive (5d61166)\n- reprice: abort on a row that changed since the dry run; --restore-csv undo (0f2115f)\n- Merge pull request #226 from apohor/vehicle-state-charger-status (bdacd1e)\n- Merge pull request #219 from apohor/subcancel-successor (dc1eaa1)\n- Merge pull request #215 from apohor/phantom-guard-consolidated (963b678)\n- Merge pull request #220 from apohor/lease-self-heal (14f469b)\n- Merge pull request #216 from apohor/evict-cache-on-lease-loss (604b34b)\n- Merge pull request #222 from apohor/dcfc-detector (9ff950a)\n- repair-r2-history: restore's comment matches its check (b2a1674)\n- integration: the R2 repair test's samples carry source (NOT NULL) (0588f91)\n- repair-r2-history: print the window check; restore refuses rows the user edited since (465844c)\n- rivian: the start-time freshness check gets the elapsed check's slack; close logs say what it saw (3b939b7)\n- rivian: one session-freshness rule for energy, price and network (#195) (881f639)\n- samples: store chargerStatus, the plug indicator, as vehicle_state.charger_status (bdb9d77)\n- leases: Streaming is any local monitor's run, with no database lookup (f30eaf8)\n- repair-r2-history: price AC at the home rate unless known away (the recorder's rule) (8dbfe36)\n- repair-r2-history: R2 only, fold parked-row odometer, price home AC like the recorder (49f5a11)\n- repair: rebuild an R2's drives and charges from its samples (f69635e)\n- charges: the site-memory test gives each charge its own hour (live overlap guard) (f96a715)\n- integration: the connected-view test seeds a full user_secrets row (9700b20)\n- Merge pull request #214 from apohor/r2-support (d39a530)\n- rivian, charges: isRivianCharger into detection; detected state survives re-saves (3a2d20f)\n- rivian: charging_ready-doesn't-open rule is R2-only (e01ded3)\n- reprice: --detect classifies with network detection and writes the verify state (70456e6)\n- rivian: detect the network of an unbilled DC fast charge, with a verify state (a9539c2)\n- charges, chargers: site memory and the whole site for DCFC detection (b5f7eb0)\n- dcfcrates: Detect, the DC fast charge network verdict with confidence and evidence (6a8db26)\n- db: user_rivian_connected, a has-a-Rivian-session boolean for the reporting role (d824ed5)\n- leases: re-subscribe a vehicle whose lease this pod holds without a subscription (cd753a3)\n- rivian: a subscription's exit never clears its successor's resubscribe handle (0639845)\n- electrafi: the R2 pack test expects 91.5 kWh (756f300)\n- rivian: a pod that loses a vehicle's lease forgets it (e9c5194)\n- rivian: R2 support, park and sleep from Parallax (1ce4db0)\n- Merge pull request #194 from apohor/rivian-charger-network (9279b88)\n- recorder: Rivian's price and charger flag only from this charge's own session (b0f72fc)\n- charges: store Rivian's isRivianCharger; a Rivian-billed DC fast charge on Rivian's charger is the Rivian Adventure Network (cd710ea)\n- Merge pull request #166 from apohor/phantom-charge-guard (4a4ce98)\n- Merge pull request #137 from apohor/backend/b13-ws-version (b5b4c7a)\n- Merge pull request #143 from apohor/close-hooks-mutex (926a123)\n- Merge pull request #129 from apohor/rest-quiet-guardrail (5a6fb64)\n- Merge pull request #198 from apohor/serve-state (d09703c)\n- Merge pull request #211 from apohor/dcfc-auto-network-base (22f34c5)\n- Merge pull request #209 from apohor/ux/distance-units (9df2f73)\n- Merge pull request #210 from apohor/ux/map-follows-theme (b4be127)\n- charges: verify states for auto-detected DC fast charge networks (ac8fa2b)\n- Merge pull request #208 from apohor/reprice-ids (eed257a)\n- web: receipt distance moves to the metadata line so it never truncates (71b2473)\n- web: map colour scheme follows the app theme; D/L is a temporary override (927f981)\n- reprice: --ids for an audited list, and a CSV backup before --apply (c3ae244)\n- web: e2e screenshots for distance units (0b36fb1)\n- web: distance units setting (miles default) with one formatDistance helper (21bc4dd)\n- Merge pull request #206 from apohor/backend/no-email-logs (b2d6b40)\n- Log hashed bypass user; add signup-request log leak test (7b5d74f)\n- ScrubEmails: keep plus-address local parts, widen to atext, exact-output tests (53018df)\n- Stop logging email addresses in oidc and signup-request handlers (5e1b576)\n- Merge pull request #207 from apohor/delete-account-clears-backup (1630668)\n- Merge pull request #205 from apohor/fix/no-email-in-cmd-logs (ed9b4b1)\n- Merge pull request #204 from apohor/race-fix-successor (64060e5)\n- Merge pull request #203 from apohor/ci/release-branch-hotfix (4703132)\n- db: deleting an account removes its charge repair backups (c10f14d)\n- ci: run PR checks into release/** too; fix the tag-validate comment (7ea344a)\n- cmd: keep user emails out of logs (7a48c73)\n- ci: build and tag hotfixes from release/** branches (723e2c6)\n- rivian: a run goroutine's exit never removes its successor's subscription (b3f8f29)\n- Web: AC sessions don't snap to DC nodes, legend/attribution, moments row (#201) (b6d105c)\n- replay: refuse the live-state store under prod's keyspace (#200) (b308d07)\n- replay: share live state through Redis like live mode (#199) (3bcc2dd)\n- api/state: cap the non-owner REST fallback (once per 5 min per vehicle, never while asleep) (ee057d3)\n- api: /api/state on a non-owner pod follows the owner's snapshot instead of a frozen local entry (af5fad6)\n- web polish: drop end-of-drive Lowest SoC, fade clipped moment chips, smaller map legend, ChargeMap re-pins without rebuild, DC label only for DC (#197) (3c51ebd)\n- now card: age from the freshest of /state and /now; plugged-in sleeping trucks read Asleep, not Last seen (#196) (1f60001)\n- Web QA fixes: map fit NaN guard, trip placeholder, toggle overlap, demo hint (#193) (8bc2807)\n- Drive timeline redesign: stacked panels, synced readout (#189) (49b5262)\n- demo: plugged in, the sample truck holds at its charge limit, not past it (#192) (247a9e9)\n- sample corpus: realistic drive speed/SoC/mode profiles (#188) (7b92acd)\n- /now: asleep flag; plugged-in asleep trucks use the asleep freshness limits (#191) (169f30a)\n- demo: the Rivian-billed sample stop records its network (Rivian Adventure Network) (#190) (0c94861)\n- web: charge map pin uses the ledger's network when the snapped charger is a different brand (#187) (493deee)\n- Merge pull request #182 from apohor/backend/b23-downsample (ed69a2b)\n- Merge pull request #185 from apohor/ux/u43-osm-attribution (4dcf4d6)\n- csp: drop the CARTO basemap hosts from img-src (#186) (0c9c6bb)\n- Merge pull request #184 from apohor/ux/u44-map-legend (b078aba)\n- downsample test: window is (since, until], expect 120 rows (7fd8a75)\n- web: static OpenStreetMap attribution when there is no basemap (e34b01b)\n- web: pad the drive map's fit bounds so end markers clear the legend and attribution (a40181a)\n- Merge pull request #177 from apohor/ux/u39-no-carto-fallback (1ee72a7)\n- Merge pull request #181 from apohor/sample-road-routes (16e849d)\n- Merge pull request #183 from apohor/ux/u42-samples-until (a97e1f0)\n- web: no CARTO fallback: maps say tiles are unavailable on a plain background (0b67fba)\n- sample routes: credit OpenStreetMap (ODbL) and Valhalla in the generated header (5e93857)\n- sample truck: drives follow real roads (precomputed shapes) (ce66825)\n- web: charge samples window ends 60 s after the session (now for an open one) (b6ab5d9)\n- demo: bound an anonymous /api/samples window to 24 h (7f8c40b)\n- web: every samples request passes an explicit until (fe5cffc)\n- Merge pull request #180 from apohor/ux/u41-stale-thresholds (5b32d5d)\n- samples downsample: only with until, span capped at 7 d, buckets per vehicle (cca6a93)\n- samples: downsample windows over the cap across their whole span, keeping peaks (f416a76)\n- Merge pull request #179 from apohor/ux/u40-reaudit (8b60b5c)\n- Merge pull request #178 from apohor/sample-cadence (4d2a1bb)\n- web: keep asleep lenient (30 min stale); only the awake limit tightens (502b957)\n- web: stale thresholds from prod frame cadence (awake 2 min, asleep 7 min) (424d6b7)\n- web: re-audit fixes: chart times use the page zone, phone chart labels, one money format, receipt context on charge detail (363fc66)\n- sample truck: report as often as a real truck (5 s awake, 3 min asleep) (52c3985)\n- Merge pull request #170 from apohor/backend/demo-tiles (857f407)\n- Merge pull request #176 from apohor/ux/u38-demo-pmtiles-basemap (7e5b932)\n- web: the demo uses the self-hosted pmtiles basemap, not CARTO's keyed raster (91d319d)\n- Merge remote-tracking branch 'origin/main' into backend/demo-tiles (58e451d)\n- Merge pull request #173 from apohor/ux/u35-activity-filter-params (f5f5759)\n- web: demo filter e2e also clicks Charges (8bb5203)\n- web: Activity filter keeps other URL params (demo tab=activity) (dc7c629)\n- Merge pull request #175 from apohor/ux/u37-gps-fix-wording (6493112)\n- Merge pull request #174 from apohor/ux/u36-demo-theme (0f1d0c4)\n- web: Now card says the GPS fix came before it parked when the fix predates the state (2605ebe)\n- web: the public demo follows the OS theme (pre-paint included) (b6b7603)\n- Merge pull request #172 from apohor/ux/u34-demo-tz (d6f870a)\n- web: demo uses a fixed Pacific time zone for ledger months and displayed times (694dba2)\n- Merge pull request #171 from apohor/backend/demo-userprice (3406339)\n- demo seed test: two seeds, dropped seeds absent and removed on reseed (5b08e8b)\n- demo price test: find the next hotel session by scan, not a hard-coded loop period (ab7efbf)\n- demo: apply the sample's hand price to the hotel L2 on a timer; drop stale billed/user seeds (92e30a0)\n- Merge pull request #152 from apohor/backend/b17-repair-fragments (c080505)\n- Merge pull request #169 from apohor/ux/u33-demo-maps (25a69d7)\n- Merge main into backend/b17-repair-fragments (e4aff46)\n- Merge pull request #168 from apohor/backend/b22-phantom-repair (0b1138f)\n- reprice never migrates (same change as #168) (208a110)\n- repair-charge-fragments never migrates: OpenNoMigrate and a required-table check (678cea3)\n- demo: serve the basemap tile archive to anonymous visitors (610cadc)\n- web: demo maps use the public basemap and the stored polyline; guard deferred map callbacks (3337100)\n- repair commands never migrate: OpenNoMigrate, required-table check, CSV-only backup when 0049 absent, --restore-csv (41367b2)\n- Merge pull request #153 from apohor/ux/u28-demo-qa (c13e538)\n- Merge pull request #162 from apohor/ux/u32-demo-no-chargers (911700c)\n- Merge pull request #164 from apohor/backend/b21-me-nostore (3f038a9)\n- Merge pull request #133 from apohor/ux/u23-plan-vs-actual (00ecc38)\n- Merge pull request #155 from apohor/ux/u29-driver-account (db7b692)\n- web: fix merged e2e test block (e981a1a)\n- web: demo QA fixes: no table links in demo Activity; Share statement feedback and sample marking (9c30d0f)\n- Merge remote-tracking branch 'origin/main' into backend/b22-phantom-repair (619ec0d)\n- phantom: abort message lists every changed id (60cfd68)\n- repair-phantom-charges: --user filter, required with --apply (b04acbc)\n- repair-phantom-charges: audited-id delete with backup table, CSV and restore (0b369c0)\n- Merge pull request #163 from apohor/backend/b20-statement-email (f25e487)\n- Merge pull request #161 from apohor/ux/u31-statement-email (0cc8688)\n- Merge branch 'main' into backend/b21-me-nostore (9364dbd)\n- Merge branch 'main' into backend/b20-statement-email (37b72ab)\n- Merge branch 'main' into ux/u31-statement-email (c40314b)\n- Merge branch 'main' into ux/u29-driver-account (3f5b779)\n- Merge branch 'main' into ux/u23-plan-vs-actual (b73799a)\n- Merge branch 'main' into ux/u32-demo-no-chargers (219823a)\n- rivian: a session that has run far longer than the charge doesn't give it its total (147e55a)\n- rivian: sleep gate tests retry a short sleep the gate didn't see (f924595)\n- rivian: no live charge while scheduled; a session total needs power behind it (be9b7bc)\n- Merge pull request #165 from apohor/fix-main-planactual-test (31228d5)\n- web: demo skips the chargers pmtiles layer (6e04614)\n- ledger: plan-vs-actual test controls the Barstow price itself (d988aa5)\n- auth/me: no-store on the signed-out 200; document proxy-header mode (49c1897)\n- web: statement email follows backend's API (reason codes, 409, default-month preview, optin/optout and money_view src events) (713e45b)\n- web: send the browser timezone with the statement-email opt-in (c52011b)\n- web: monthly statement email: Settings toggle + preview, share=1 prompt, unpriced charges filter (8bd3e7c)\n- statement email: verified addresses only, Resend idempotency key, attempts cap, stuck-claim visibility, CF-keyed unsubscribe limiter, no opt-in while impersonating (944bb7e)\n- web: point the driver-account guide at the recommended SIGNUP.md anchor (2067992)\n- web: connect step recommends a driver account (PM copy), Why expander, rivian_connect events (f38ecad)\n- web: Plan vs Actual shows a lost link (link_stale with no comparison) (3b30281)\n- web: Plan vs Actual v1.1 (miles, in-progress, unlink with trip_id, planned energy 0 is unknown) (cfd2320)\n- web: Plan vs Actual handles nearby stops and AC extras (contract clarifications) (8cfb45c)\n- web: Plan vs Actual uses PM copy: cost header, two reasons max, placeholder-free fallbacks (3611ee5)\n- web: Plan vs Actual follows contract v1 (candidates, metrics, stops; not-this-trip; neutral tones) (b549a35)\n- web: Plan vs Actual on the Plan tab (stub-first; none/suggested/matched/partial states) (e35f22b)\n- statement email: monthly job, settings/preview API, signed one-click unsubscribe, List-Unsubscribe headers (flag off by default) (f097132)\n- Merge pull request #144 from apohor/sample-cost-mix (a02c7e2)\n- Merge pull request #141 from apohor/backend/b12-plan-actual (2e94f61)\n- Merge pull request #136 from apohor/plan-vs-actual (50cc3e7)\n- Merge pull request #156 from apohor/ux/u30-paused-banner (ee8e6d6)\n- Merge pull request #154 from apohor/backend/b16-paused (0ee8705)\n- repair-charge-fragments: delete merged pieces before widening the keeper; report energy-inconsistent groups for review (0ad6ea2)\n- Merge pull request #151 from apohor/ux/u27-demo-onboarding (830ab88)\n- Merge pull request #148 from apohor/backend/b15b-demo-samples-limit (efade40)\n- Merge pull request #145 from apohor/backend/b15-demo-detail (287a84e)\n- sample truck: SampleUserPrice, the hand-priced Vegas hotel session, for the demo seeder (2c94453)\n- Merge pull request #147 from apohor/ux/u26-demo-detail (a825398)\n- sample truck: Rivian-billed price at the RAN stop, so the demo shows every cost source (73ceee5)\n- Merge pull request #142 from apohor/backend/b14-auth-me (310a1f8)\n- Merge pull request #124 from apohor/backend/b8-drain-followup (f2ab8eb)\n- rivian: close hooks fire once per session; no hooks for forced-close fragments (2618b31)\n- rivian: fire the close hooks when a drive or charge closes on the other starting (8f3af60)\n- rivian: a frame that says both driving and charging resolves by motion (f36d496)\n- rivian: drive mode and power state only from fresh Parallax frames; count ignored replays (37ce5fb)\n- Merge pull request #149 from apohor/sample-replay-wrap (2f00314)\n- Merge pull request #138 from apohor/sample-dcfc-park (d6ce313)\n- repair-charge-fragments: 200 s gaps, running-total vs own-SoC-gain rule, no drive between, null-energy never keeper, refuse user-priced/restamped, apply needs a window (be20bf7)\n- Merge pull request #158 from apohor/pm/dccid (531601c)\n- docs/product: name the WebSocket dc-cid iOS device label (8e663cf)\n- Merge pull request #139 from apohor/ux/u25-demo-fixes (640213b)\n- Merge pull request #150 from apohor/pm/signup-ad (004ddbc)\n- Merge pull request #140 from apohor/pm/ws-disclosure (897bbfb)\n- Merge pull request #135 from apohor/pm/readme-demo (7144ced)\n- rivian: ignore replayed Parallax gear frames (ts_ms not advancing or too old) instead of applying them (6a90052)\n- web: DegradedBanner shows a paused connection ahead of per-user states (B16) (7b9a409)\n- demo: check per-client limiters before the install-wide ones (a rejected client no longer drains the global budget) (bf4dff2)\n- ledger: PlanWindow loads whole outings; the leg prefers a drive from the origin itself (6f89ff6)\n- api: expose the kill-switch pause (paused, paused_reason) on /api/settings/rivian (B16) (5c71c77)\n- cli: rivolt repair-charge-fragments (dry run by default, CSV backup before --apply) (02ced53)\n- web: demo onboarding: sample-truck card, demo CTA to signup, track() events (demo_view, demo_tab, landing_view, signup_start) (06e9b46)\n- ledger: plan stops match tripadvice by charger name; the leg starts near the plan's origin (25dad41)\n- docs/SIGNUP: Authorized Driver account is the recommended path (4fe917c)\n- replay: sample demo loops without a 6 h freeze (cdec5ad)\n- demo: separate anonymous rate limit on /api/samples (20/min per client, 200/min global) (25d604a)\n- web: demo detail routes (/demo/charges/:id, /demo/drives/:id), read-only, links point there in the demo (17d37c1)\n- demo: allow per-drive weather, weather series and clamped samples for the detail views (74c598b)\n- plan vs actual: snapshot immutable on re-link, v1.1 unlink semantics (reject by trip_id, no-body no-op), link_stale when unrecoverable, generic 500s (107b39f)\n- plan vs actual: set plan_from, map ErrPlanUnusable to none (5de9f98)\n- api: Plan vs Actual endpoints (actual/link/unlink) + trip_plan_links migration 0047 (B12) (8bc4dd0)\n- drain: integration test compares awake/observed hours with a tolerance and the right expectation; signup route test skips the nil-store token GET (43c4102)\n- web: Now pill follows data freshness; demo skips session/Rivian-account calls; own e2e port (3da532a)\n- Merge pull request #134 from apohor/ux/u24-export (a995c70)\n- Merge pull request #122 from apohor/ux/u21-drain-card (a897a5e)\n- auth: /api/auth/me answers 200 {authenticated:false} for a signed-out visitor (B14) (a5908c7)\n- ledger: Plan vs Actual v1.1, miles, trip in progress, structured reasons (3220bca)\n- docs/product: disclose WebSocket iOS device label and X-Rivolt-Version plan (80d8f63)\n- web: demo Now card has no Full telemetry link (needs a session) (4544636)\n- rivian: send X-Rivolt-Version on the subscription WebSocket handshake (B13) (cadedf9)\n- sample truck: park and unplug around fast-charge stops; replay records charges (ad93409)\n- Merge pull request #132 from apohor/backend/b11-export (a70c980)\n- ledger: Plan vs Actual matching and comparison (plan-vs-actual-contract v1) (5c9c176)\n- sample truck: park and unplug around fast-charge stops; replay records charges (8a51596)\n- README: no claims about Rivian's app; drop demo screenshot until the sample DCFC fix lands (62429b8)\n- README: try the live demo; landing CTA copy (c671c99)\n- web: Export my data link in Settings > Data (GET /api/export) (8d72f6e)\n- Merge pull request #127 from apohor/restamp-undo-latest (19b1ebe)\n- web: drain card drops its awake-hours line (single source: the Sleep card) (26cca8f)\n- web: e2e expectation follows consistent drain fixtures (0481259)\n- web: drain card states its window, consistent fixtures, dashed scale line (46a05f3)\n- web: drain bars show SoC-rose days as a tick, not a fake 0 (a3542aa)\n- web: drain card follows contract v1.1 (only insufficient days excluded) (ed2be09)\n- web: parked-drain card on the Truck tab (drain-contract v1), hidden when the endpoint is absent (330a59a)\n- drain: demo-aware money-tab gate (dc0b232)\n- drain: daily rows carry raw awake/observed hours and attribute intervals to their start day (agrees with sleep-activity at tz=UTC) (3d704e1)\n- drain: daily bar needs 12 h of parked pairs (window rate unchanged); negatives returned as-is (a469920)\n- drain: NULL gear/charging_state rows count as parked awake time (COALESCE), with integration test (5e6a237)\n- export: settings.json from an allowlist (+classification test), 403 while impersonating, CSV quoting on every string cell (58602d0)\n- charges: undo only the latest correction (da17bbd)\n- Merge pull request #123 from apohor/backend/b8-drain (e4a7cfa)\n- Merge pull request #130 from apohor/sample-dcfc-stations (50a7757)\n- Merge pull request #125 from apohor/drain-metrics-nits (4466a1a)\n- api: GET /api/export — zip of CSVs (charges with effective cost source, drives, trips) + settings/profiles JSON (B11) (0a902da)\n- api: GET /api/vehicles/{id}/drain parked-drain card data (B8) (7a519df)\n- sample truck: DC fast charges at real stations, so network pricing resolves (c47e446)\n- rivian: rest_quiet guardrail, one safety poll after 6 h quiet or 30 min of WS silence (76efadc)\n- samples: unknown gear or charging state counts as idle for sleep-activity (b169244)\n- drain: unknown gear or charging state counts as parked for idle-awake; document pods and labels (d911e35)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.32.1...v0.33.0\n"
+},
+{
+"tag": "v0.32.3",
+"body": "## Changes since v0.32.2\n\n- rivian: rest_quiet guardrail, one safety poll after 6 h quiet or 30 min of WS silence (317ab30)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.32.2...v0.32.3\n"
+},
+{
+"tag": "v0.32.2",
+"body": "## Changes since v0.32.1\n\n- cmd: keep user emails out of logs (514dc11)\n- rivian: a run goroutine's exit never removes its successor's subscription (c3962aa)\n- ci: run PR checks into release/** too; fix the tag-validate comment (900b353)\n- ci: build and tag hotfixes from release/** branches (19ee186)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.32.1...v0.32.2\n"
+},
+{
+"tag": "v0.32.1",
+"body": "## Changes since v0.32.0\n\n- Merge pull request #131 from apohor/backend/b10-unverified-email (97e554e)\n- Merge pull request #128 from apohor/backend/b9-signup-disabled (424b9ad)\n- oidc: test that Hydra local-part twins get separate iss:sub accounts (eeec061)\n- oidc: a bare preferred_username keys only for IdPs that send no email; refuse if an account exists under any unverified candidate (9f15153)\n- oidc: with two or more providers a bare preferred_username keys only for providers that opt in (USERNAME_KEY) (1c5b8e3)\n- identity: unverified email is never an account key or admin match; one first-party trust switch (8a83745)\n- web: signups_disabled redirect is exclusive of the generic 401 bounce (75481ce)\n- signup: bootstrap exception needs a verified email, no empty-install exception while it is set; Kratos refusal surfaces as signups_disabled (aeac873)\n- signup: share the cap guard (flag-off unchanged, tested), serialise the empty-install exception, log reason without PII, document (617434d)\n- signup: RIVOLT_SIGNUP_DISABLED closes sign-up routes and first sign-in of unknown identities (6444848)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.32.0...v0.32.1\n"
+},
+{
+"tag": "v0.32.0",
+"body": "## Changes since v0.31.3\n\n- Merge pull request #120 from apohor/wake-safety (faf2d5a)\n- Merge pull request #126 from apohor/ux/u22-theme-option (2f7cc16)\n- Merge pull request #90 from apohor/import-skip-live (37b46a8)\n- rivian: rest_quiet skips and REST call reasons in the wake-attribution stream (db54385)\n- rivian: wake-safety switches for the drain experiment (D2, D2a) (2c15184)\n- rivian: reset the reconnect backoff after a healthy session (5bd2e1b)\n- Merge pull request #121 from apohor/wake-attribution (e32a64a)\n- Merge pull request #118 from apohor/backend/b7-demo (c98ba60)\n- web: Theme option in Settings (System/Light/Dark), honoured before first paint (24077f4)\n- electrafi: don't import sessions the live recorder already has (99f7d0b)\n- demo: after rebase, allow /api/ledger/trips (not /api/trips); /now uses the demo-aware money-tab gate (6d0ccac)\n- demo: Enabled also requires RIVOLT_REPLAY_SOURCE_VEHICLE to be unset (215d480)\n- demo: require RIVOLT_REPLAY_SOURCE=sample (fail closed); rate-limit on CF-Connecting-IP plus a global cap (b0b768b)\n- demo: allow GET settings/charging, settings/home-location, charges/clusters, pack-health (ad74481)\n- demo: seeded public demo account and anonymous read-only allowlist (preview only, RIVOLT_DEMO) (dc5353a)\n- Merge pull request #117 from apohor/ux/u20-demo (d5c1123)\n- Merge pull request #119 from apohor/drain-metrics (ee90919)\n- rivian: per-wake attribution log for the drain experiment (D3) (a0aab2b)\n- web: public /demo (Now, Money, Activity on the sample truck) and sample-truck link (e3f1ec1)\n- Merge pull request #111 from apohor/backend/b6-now-cache (c275e9f)\n- Merge pull request #112 from apohor/ux/u18-now-endpoint (5dcdae3)\n- Merge pull request #106 from apohor/charges-classification-followups (0f0cc3e)\n- Merge pull request #114 from apohor/ux/u19-restamp-undo (71015bd)\n- Merge pull request #116 from apohor/place-restamp-undo (26790c8)\n- charges list: dedupe like Money; omit classification without settings (d81e828)\n- drain: the integration test's row at now is outside the half-open window (8661842)\n- drain: per-vehicle parked-drain gauges from vehicle_state (D1) (70fde66)\n- now: run query no longer passes an unused parameter (state is $4) (e47b26d)\n- web: Now card consumes GET /vehicles/{id}/now (state, charge baseline, fix time, since, replay) (12a671c)\n- Merge pull request #115 from apohor/ux/u17-classification-edges (ac1438b)\n- Merge pull request #113 from apohor/sample-truck (c591cf1)\n- Merge pull request #105 from apohor/ux/u16-degraded-banner (cd48015)\n- Merge pull request #110 from apohor/ux/u12-home-change (3f0366c)\n- Merge pull request #109 from apohor/place-restamp (1786936)\n- Merge pull request #100 from apohor/trips-endpoint (4d1fa08)\n- Merge pull request #91 from apohor/idp-failure-retry (bb5c280)\n- Merge pull request #103 from apohor/backend/b5-events (274c72f)\n- Merge pull request #108 from apohor/backend/b3-now-followup (fa3ee69)\n- Merge pull request #101 from apohor/backend/b3-now (ae5904d)\n- charges: price corrected home charges at the home rate; undo a correction (a9cb2fa)\n- charges: re-stamp past charges' place after a home-pin correction (17b1463)\n- web: honour classification_unavailable and superseded flags on charges (contract 16.1) (678dc3c)\n- web: home change prompt shows pricing consequences and offers Undo (A15b) (86c6649)\n- Merge pull request #88 from apohor/rejected-session-retry (1b68e8a)\n- rivian: generated sample-truck corpus for demos (A16) (ebef756)\n- Merge pull request #104 from apohor/ux/u15-effective-cost (b3a5c02)\n- web: gate the home-change prompt on money_tab_enabled; show dry-run consequences and keep unpriced honest (aed5220)\n- now: cache the run-start and failed-sleep lookups per vehicle for 60 s (561b301)\n- web: ask 'wrong pin or moved?' when home changes; re-stamp past charges on a correction (A15) (3279578)\n- Merge pull request #107 from apohor/pm/privacy-events (1d67af1)\n- now: plugged outranks asleep; early-stop run scan; state_since null beyond lookback (22245c9)\n- docs/product: privacy draft resolves DNT/GPC and anon-only deletion (5d880d2)\n- events: purge at boot and hourly regardless of the flag (da15fb2)\n- docs/product: privacy draft discloses events anon_id/user_id link, retention, DNT (c2cefbe)\n- Merge pull request #102 from apohor/ux/u14-shell-cleanup (dc562c0)\n- web: degraded-state banner in the shell (offline, MFA pending, re-auth, not connected) (b6e44ce)\n- events: integration test resets purge rate limit (27f10a4)\n- ledger/trips: a trip needs distance and a fast charge; stays away don't split (9f12ef6)\n- ledger: GET /api/ledger/trips, auto-detected trips for Activity (9360df3)\n- account delete: cap the retry backoff exponent; redact emails from IdP errors (fc29c76)\n- web: Activity feed and charge page use the ledger's effective classification (contract §16) (0fb114e)\n- account delete: retry failed IdP deletions automatically; no emails in logs (af564aa)\n- events: POST /api/events + events table (0046) + activated view, behind RIVOLT_EVENTS (7955a78)\n- rivian: a rejected live session retries with a trimmed start (cc4ff53)\n- web: shell cleanup: Now card leads, no hero/pill/sub-tabs, Sign out in Settings, one nav row on Activity (d57aa7d)\n- api: GET /api/vehicles/{id}/now Now-card state fields (behind money_tab_enabled) (bb0c7e8)\n- Merge pull request #97 from apohor/ux/u13-e2e (3148c32)\n- Merge pull request #96 from apohor/charges-effective-classification (a799a6f)\n- Merge pull request #94 from apohor/cost-per-mile-floor (240d82d)\n- Merge pull request #93 from apohor/replay-flush-requeue (918d3e9)\n- Merge pull request #92 from apohor/backend/b1-config-landing-csp (1c0312e)\n- web: Playwright smoke and screenshot harness (stubbed API, phone+desktop, dark+light); fix invisible hero in light (51793df)\n- api: /api/charges returns the ledger's classification for each charge (bccea9d)\n- ledger: cost_per_mile is null below 100 miles (889acba)\n- review follow-ups: keep failed replay flushes; user prices end reprice undo; Free survives Upsert (dc4e571)\n- config: landing_enabled/demo_enabled features; drop cloudflareinsights from CSP (51c2a0b)\n- Merge pull request #89 from apohor/charge-place-snapshot (92dfa3e)\n- Merge pull request #87 from apohor/ux/u11-landing (5877d2e)\n- Merge pull request #86 from apohor/ux/u10-idp-failures (dac9299)\n- charges: record place (home/away) with the charge; 0.05 kWh crumb floor (3b2c46a)\n- web: landing gate treats only 401 as signed out; password-not-stored line (0a9de17)\n- web: public landing page for signed-out visitors, behind landing_enabled (2b48eb0)\n- Merge pull request #83 from apohor/overlap-guard-all-time (8a07103)\n- Merge pull request #82 from apohor/ux/u9-theme-followups (a6540a3)\n- web: admin sign-in removal failures list with Retry; notice on delete (contract A6) (ed8ffe8)\n- Merge pull request #78 from apohor/away-ac-unknown (f6f4e4b)\n- Merge pull request #85 from apohor/pm/privacy-a6 (3fc82d0)\n- Merge pull request #84 from apohor/pm/privacy-cloudflare (ced59bf)\n- docs/product: privacy draft resolves signup_requests deletion (A6) (56dd0f5)\n- web: load theme bootstrap as a same-origin script (CSP forbids inline) (74199e1)\n- Merge pull request #76 from apohor/ux/u5-activity-feed (97e9b50)\n- docs/product: privacy policy names Cloudflare; analytics beacon VERIFY (6aa52bc)\n- db: live-session overlap guard covers all dates (migration 0043) (3150990)\n- Merge pull request #81 from apohor/account-delete-purge (049d651)\n- Merge pull request #80 from apohor/ux/u7-idle-so-far (c56c0c3)\n- web: theme follow-ups: cached flag + pre-paint theme, SVG literals to tokens, amber margin (b247791)\n- Merge pull request #79 from apohor/ux/u8-light-theme (e39ac3b)\n- ledger: integration test expects NULL-energy rows as null_energy, not unpriced (5cb50bc)\n- rivian: DC fast charging must deliver at least 1 kWh (55448b3)\n- ci: run ledger and samples integration tests (7945158)\n- pricing: away-from-home AC is unknown until priced; one DCFC rule (1f29e00)\n- account delete: purge signup requests; admin-visible IdP failures (6a9bf8d)\n- web: Activity feed shows network estimates dotted and legacy home-rate fast charges as pending (176be26)\n- web: Activity feed v1 (day-grouped cards, errands fold, filters) behind money_tab_enabled (6a90745)\n- web: Truck idle-awake average covers completed days only (423d63e)\n- Merge pull request #75 from apohor/ux/u4-free-price (05e1607)\n- web: light theme following the system preference, inside the money_tab_enabled shell (7781469)\n- Merge pull request #77 from apohor/ux/u6-truck-tab (09e88d1)\n- web: gate Mark as free on money_tab_enabled, refresh ledger after pricing, copy (1320788)\n- web: Truck tab v1 (pack capacity, sleep, tires, software) behind money_tab_enabled (e41f151)\n- Merge pull request #74 from apohor/live-session-overlap-guard (de6f7d4)\n- web: explicit Free price action on the charge page (contract §12) (ed89597)\n- Merge pull request #70 from apohor/ux/u3-statement-card (699626d)\n- Merge pull request #66 from apohor/ux/u1-now-card (95d1329)\n- web: Now card shows Asleep on first sight of a sleeping truck; stricter open-charge match (b81bdc7)\n- db: refuse overlapping live sessions per vehicle (migration 0041) (09dd939)\n- web: statement card notes unpriced sessions, partial month, fits long totals; Away label (93ec415)\n- Merge pull request #73 from apohor/pm/gate-c-followup (681259a)\n- web: statement card model drops raw cost floats (53b8db9)\n- web: shareable monthly statement card (PNG, totals only) (1a1eef9)\n- web: Now card on Overview behind money_tab_enabled (state-driven hero, freshness, sleep debounce) (856d29f)\n- Merge pull request #72 from apohor/replay-batched-catchup (13c65a6)\n- docs/product: letter notes X-Rivolt-Version on REST, none on WebSocket (3b8b79a)\n- Merge pull request #67 from apohor/pm/gate-c-docs (dcd9f96)\n- Merge pull request #71 from apohor/pm/product-docs (6c18d7a)\n- docs/product: disclose UA mimicry; describe sleep gate as opt-in, not in use (60c5fc9)\n- replay: batch recorder writes during catch-up (84de193)\n- docs/product: read-only confirmed; document signup_requests deletion gap (8240ad2)\n- docs/product: fix landing, sample, events claims per review (1ac862c)\n- docs/product: apply review fixes (sleep gate, UA disclosure, processors, runbook) (df713e9)\n- Merge pull request #68 from apohor/charge-mark-free (8e3db49)\n- Merge pull request #69 from apohor/ux/u2-place-kind-bar (c3bfff9)\n- Merge pull request #64 from apohor/pm/product-docs (bb00d18)\n- Merge pull request #65 from apohor/ledger-by-place-kind (7037967)\n- web: single Home/Public/DCFC bar from energy.by_place_kind, falls back to two bars (fe065e4)\n- charges: explicit Free price (PATCH pricing {\"free\": true}) (ca86dc1)\n- runbook: kill-switch payload matches handler (4393b45)\n- docs/product: draft ToS, privacy policy, Rivian outreach letter, incident runbook (0f9d1b2)\n- ledger: energy.by_place_kind cross-tab (91f2fbf)\n- docs/product: claim verification, landing copy, sample-truck and instrumentation specs (2745cc1)\n- Merge pull request #62 from apohor/dcfc-network-pricing (18d19b3)\n- Merge pull request #63 from apohor/replay-sticky-plug (40d81a0)\n- charges: no home-rate estimate for unpriced DCFC; undo covers unpriced rows (0d4b2b4)\n- replay: keep the cable plugged through a mid-session charging_ready (847b002)\n- Merge pull request #60 from apohor/money-tab-ui (864df3d)\n- Merge pull request #61 from apohor/ledger-endpoint (b8b942d)\n- web/money: mixed receipts don't read as \"likely wrong\" from pending parts (43feec3)\n- rivian: sleep-gate test waits for the resume log instead of racing it (e09576f)\n- ledger: test that receipt costs reconcile with spend.total (591f4ad)\n- charges: DCFC by effective power; never stamp a guessed price (4f57eb3)\n- web/money: adopt ledger contract §10 (persisted pricing, by_place) (dfbbb0e)\n- charges: price unbilled DC fast charges at the station's network rate (63385d2)\n- ledger: read persisted cost_source/network; per-session kind and place (349bbe5)\n- web/money: floor suspect count at server counters (2cfa213)\n- web/money: reconcile Home/Public split per session; superseded optional (1bf6523)\n- ledger: server-side monthly money statement behind money_tab_enabled (f54ecb1)\n- web/money: label recorded non-home-rate prices as Billed (2080f0e)\n- web: Money tab + tab-bar shell behind money_tab_enabled (80fb3de)\n- Merge pull request #59 from apohor/replay-allowlist-fail-closed (d9c515b)\n- replay: quiet drive-close hook during catch-up; truthy live guard (b46a9c5)\n- replay: demo-vehicle allowlist fails closed (0ec9ee9)\n- Merge pull request #58 from apohor/preview-replay-demo-vehicle (026df92)\n- rivian: replay mode — demo vehicles fed by recorded history, no Rivian (5916226)\n- chore(deps): update npm dependencies (non-major) (#38) (88dce97)\n- chore(deps): update container base images to v1.27 (#41) (609d38c)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.31.3...v0.32.0\n"
+},
+{
+"tag": "v0.31.3",
+"body": "## Changes since v0.31.2\n\n- Merge pull request #54 from apohor/readonly-grafana-role (f8ce752)\n- db: read-only reporting role for Grafana's Postgres datasource (59c3240)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.31.2...v0.31.3\n"
+},
+{
+"tag": "v0.31.2",
+"body": "## Changes since v0.31.1\n\n- Merge pull request #53 from apohor/sleep-safe-subscriptions (cf046e4)\n- rivian: sleep gate — park subscriptions while asleep, detect failed sleeps (b909a55)\n- Merge pull request #52 from apohor/renovate-automerge (3613bcd)\n- renovate: automerge non-major updates once CI is green (79d3d15)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.31.1...v0.31.2\n"
+},
+{
+"tag": "v0.31.1",
+"body": "## Changes since v0.31.0\n\n- Merge pull request #51 from apohor/fix-stale-charger-power (043077e)\n- rivian: stop charger power outliving the charge; idle-awake by state (5da19e6)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.31.0...v0.31.1\n"
+},
+{
+"tag": "v0.31.0",
+"body": "## Changes since v0.30.4\n\n- Merge pull request #50 from apohor/onboarding-simplify-rivian-connect (46dfbc9)\n- onboarding: cut the drop-off between signup and first vehicle (dc0a002)\n- Merge pull request #47 from apohor/renovate/tile-stack (eee9f63)\n- chore(deps): update tile stack (c0a3116)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.30.4...v0.31.0\n"
+},
+{
+"tag": "v0.30.4",
+"body": "## Changes since v0.30.3\n\n- Merge pull request #48 from apohor/regen-accuracy (a9e35ea)\n- fix: correct \"Regen recovered\", and stop the duplicate samples feeding it (ec83fe1)\n- rivian: replay harness Phase 2 — JSONL export/load + real fixture + CLI (ca7b240)\n- rivian: replay harness Phase 1 — offline recorder regression testing (7df2bf4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.30.3...v0.30.4\n"
+},
+{
+"tag": "v0.30.3",
+"body": "## Changes since v0.30.2\n\n- rivian: single RIVOLT_PARALLAX flag (granular vars kept as fallback) (9d0b336)\n- docs: replay-harness design for offline recorder regression testing (5c33a56)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.30.2...v0.30.3\n"
+},
+{
+"tag": "v0.30.2",
+"body": "## Changes since v0.30.1\n\n- rivian: test the flap detector; noteSubEnd returns warned (2c3a951)\n- rivian: warn loudly when a vehicle's live feed is flapping (d6175a3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.30.1...v0.30.2\n"
+},
+{
+"tag": "v0.30.1",
+"body": "## Changes since v0.30.0\n\n- charts: fix label distortion on async-data charts (callback ref) (847d48a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.30.0...v0.30.1\n"
+},
+{
+"tag": "v0.30.0",
+"body": "## Changes since v0.29.1\n\n- overview: fix stale comment on the idle-awake activity query (a94ddc5)\n- overview: track idle-awake time (vampire drain), not all awake time (bd40d9d)\n- overview: persist power_state + car awake/sleep graph (e7239b1)\n- parallax: only count fresh (ts-advancing) frames as sleep activity (68bc836)\n- parallax: log frame activity while the car sleeps (sleep hygiene) (a81cba8)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.29.1...v0.30.0\n"
+},
+{
+"tag": "v0.29.1",
+"body": "## Changes since v0.29.0\n\n- parallax: decode + apply pet mode from APK enum; capture hold/OTA shapes (a61c392)\n- parallax: phase-3 SoC reconciliation log + capture remaining read topics (7c5974a)\n- parallax: decode alarm/12V/trailer/precon from APK 3.14.0 enums (29d4616)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.29.0...v0.29.1\n"
+},
+{
+"tag": "v0.29.0",
+"body": "## Changes since v0.28.1\n\n- parallax: decode windows from the closures topic (12=FL/13=FR/14=RL/15=RR) (b4c2976)\n- web: dedupe drive readout, add capacity line, un-cap overview graphs (75bcd37)\n- parallax: graduate closures/locks to base subscription; decode windows shadow (eed6e5b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.28.1...v0.29.0\n"
+},
+{
+"tag": "v0.28.1",
+"body": "## Changes since v0.28.0\n\n- web: anchor round-trip collapse on the prior drive's end, not a drifted start (098a270)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.28.0...v0.28.1\n"
+},
+{
+"tag": "v0.28.0",
+"body": "## Changes since v0.27.5\n\n- web: drop the in-SVG floating tooltip on the drive timeline (1c25eae)\n- web: fix unreliable touch tap-to-inspect on the drive timeline (bca8e89)\n- web: consolidate drive timeline into a single dual-axis graph (989436f)\n- web: add tap-to-add chip legend to the drive timeline (0909678)\n- web: fix edge-label clipping and make chart legend fully toggleable (624e232)\n- fix(charts): wrap BarChart labels in textTF (was declared-unused) (fff178f)\n- fix(charts): distinct series colors + undistort LineChart/BarChart text (09477b7)\n- feat(charge): single consolidated chart with tap-to-add series chips (2e6151b)\n- fix(timeline): drop dead cm assignment (lint no-useless-assignment) (1e5fd55)\n- fix(timeline): compress park/gap dead-zones + undistort axis text (fe81c4d)\n- fix(mobile): charge cursor readout + un-collapse charts on narrow screens (3d2347d)\n- fix(mobile): scrollable nav, touch-scroll charts, touch copy (7033fce)\n- feat(recorder): Parallax gnss primary GPS + debounced close, merge-on-reopen, endpoint splice (8135436)\n- feat(parallax): decode body closures + locks (doors/frunk/liftgate/locked) (19dc130)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.5...v0.28.0\n"
+},
+{
+"tag": "v0.27.5",
+"body": "## Changes since v0.27.4\n\n- feat(parallax): cabin interior temperature authoritative (8951979)\n- feat(parallax): preview-gated capture of remaining read topics (4d7ce5a)\n- fix(vehicles): don't clobber observed pack_kwh with InferPackKWh guess (75af56c)\n- fix(pack-health): show documented-vs-current without a charge session (6675956)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.4...v0.27.5\n"
+},
+{
+"tag": "v0.27.4",
+"body": "## Changes since v0.27.0\n\n- feat(pack-health): show documented (nameplate) vs vehicle-reported capacity (6681d92)\n- fix(parallax): SoC + pack capacity are doubles, not float32 (67d2640)\n- chore(parallax): temp-log raw battery_state to RE charge_state layout (7b46018)\n- feat(parallax): decode SoC + pack capacity from battery_state (818e18a)\n- feat(parallax): range + tires authoritative (decoded from live frames) (6ac50d6)\n- docs: remove stale comments left by the flag consolidation (da87c2d)\n- feat(parallax): shadow-capture dynamics.vehicle.range + dynamics.tires.state (2a785bd)\n- feat(parallax): liveness watch — detect a silent stream while driving (b6797cb)\n- refactor(parallax): one flag for drive-dynamics + drive_mode authoritative (665ba03)\n- feat(parallax): odometer stall-bridge + power.state authoritative on preview (db32546)\n- feat(parallax): make gear authoritative for opening drives (RIVOLT_PARALLAX_GEAR) (a421493)\n- feat(parallax): pin gear enum from drive capture (1=P 2=R 3=N 4=D) (cb061fa)\n- docs(parallax): RE vehicle.power.state — {1:varint}, 3=ready (from shadow) (1cabfdc)\n- feat(parallax): fold vehicle.power.state into the drive-dynamics shadow (8df9892)\n- feat(parallax): Phase 2 groundwork — drive-dynamics decoders + shadow recorder (65aaaaf)\n- fix(recorder): capture drive distance/time lost to pre-park telemetry gap (e41848b)\n- fix(drives): merged round-trip duration excludes parked gaps (2471725)\n- fix(charges): real charging duration + cap phantom energy (5a83bd6)\n- feat: chart battery pack temperature in place of cabin temp (01d744f)\n- feat(rivian): serve live state cross-pod via shared Redis snapshot (bd739d3)\n- chore(release): document release-cut mechanism at version var (25ec22a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.0...v0.27.4\n"
+},
+{
+"tag": "v0.27.3",
+"body": "## Changes since v0.27.2\n\n- fix(charges): real charging duration + cap phantom energy (4e98a3f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.2...v0.27.3\n"
+},
+{
+"tag": "v0.27.2",
+"body": "## Changes since v0.27.1\n\n- feat: chart battery pack temperature in place of cabin temp (4e19d47)\n- feat(rivian): serve live state cross-pod via shared Redis snapshot (5e45c4f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.1...v0.27.2\n"
+},
+{
+"tag": "v0.27.1",
+"body": "## Changes since v0.27.0\n\n- chore(release): document release-cut mechanism at version var (3e95a47)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.27.0...v0.27.1\n"
+},
+{
+"tag": "v0.27.0",
+"body": "## Changes since v0.26.1\n\n- docs: Parallax migration plan (90e1f28)\n- fix(rivian): gate Parallax gap-fill on motion (12ccab6)\n- fix(rivian): surface route-fill failures at Warn with latency (7c8367d)\n- feat(rivian): Parallax GPS gap-fill instead of full switch (99b2b9f)\n- feat(rivian): gate Parallax GPS on connectivity + engage on first frame (c65ec5e)\n- chore(rivian): log full SupportedFeatures at GPS resolve (0ebf44a)\n- feat(rivian): gate Parallax GPS on the SupportedFeatures capability (5ff6f80)\n- chore(rivian): log GPS source at monitor start (73c398c)\n- feat(rivian): Parallax GPS as recorded source behind RIVOLT_PARALLAX_GPS (fc782bf)\n- feat(rivian): dynamics.vehicle.gnss decoder + cadence measurement rig (c042099)\n- feat(rivian): raw Parallax frame capture probe (dynamics RE) (cc98d36)\n- feat(web): surface battery pack temperature (848f019)\n- feat(rivian): record battery pack cell temperature via Parallax (b5735df)\n- feat(rivian): PoC battery pack temperature via Parallax (5fccff2)\n- Remove temporary vehicleState pack-temp probe (7dcc3b5)\n- tmp(admin): probe real vehicleState query for cell-temp field shape (3ec5264)\n- Merge: temp vehicleState introspection probe (de51104)\n- tmp(admin): vehicleState introspection probe for pack-temp field shape (7b917b9)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.26.1...v0.27.0\n"
+},
+{
+"tag": "v0.26.1",
+"body": "## Changes since v0.26.0\n\n- Merge pull request #46 from apohor/fix/ownerof-prefers-healthy-account (80ed030)\n- fix(rivian): resolve vehicle owner to the account that can stream (a375c62)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.26.0...v0.26.1\n"
+},
+{
+"tag": "v0.26.0",
+"body": "## Changes since v0.25.0\n\n- Merge pull request #45 from apohor/fix/needs-reauth-login-loop (3838ed2)\n- fix(api): carry class on needs_reauth 401 so the SPA stops looping (cd6cd1f)\n- Add read-only admin impersonation (\"View as user\") (#43) (aed1d0c)\n- fix(leases): reap subscription when a user disconnects Rivian (b7390a7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.25.0...v0.26.0\n"
+},
+{
+"tag": "v0.25.0",
+"body": "## Changes since v0.24.5\n\n- feat(engagement): recover stuck users, reap zombie leases, honest connect errors (b72a788)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.5...v0.25.0\n"
+},
+{
+"tag": "v0.24.5",
+"body": "## Changes since v0.24.4\n\n- fix(web): don't treat a Rivian-upstream 401 as a Rivolt-session expiry (#40) (f7bf7c4)\n- fix(rivian): park the WS monitor while needs_reauth is set (b3c7e28)\n- fix(rivian): let RefreshSession probe auto-heal a stale csrf (2101221)\n- feat(rivian): re-auth email, auto CSRF-heal, admin refresh-session button (84b9ec1)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.4...v0.24.5\n"
+},
+{
+"tag": "v0.24.4",
+"body": "## Changes since v0.24.3\n\n- fix(rivian): shared store wins over stale per-pod MFA state (bb9a6c4)\n- build: pin toolchain go1.25.11 (a26e6a0)\n- style: gofmt alignment drift in three api files (a59e3b3)\n- refactor(api): split api.go into domain files (f75fe99)\n- ci: race detector on unit tests + weekly govulncheck scan (9e749b6)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.3...v0.24.4\n"
+},
+{
+"tag": "v0.24.3",
+"body": "## Changes since v0.24.2\n\n- feat(admin): surface needs_reauth in the user table (616f608)\n- feat(web): inline Rivian connect in onboarding + account-separation copy (c9d4e13)\n- fix(chart): drop dead local-auth knobs, document OIDC-only sign-in (#34) (5f91123)\n- fix(web): 2FA prompt no longer assumes email OTP (#35) (e88fac0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.2...v0.24.3\n"
+},
+{
+"tag": "v0.24.2",
+"body": "## Changes since v0.24.1\n\n- fix: gate low-GPS pill on stale-fix fraction, rename to 'Limited GPS data' (b8a9b2c)\n- fix: only flag GPS staleness when a real share of the drive is stale (3dead6d)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.1...v0.24.2\n"
+},
+{
+"tag": "v0.24.1",
+"body": "## Changes since v0.24.0\n\n- fix: render drives with a frozen GPS fix instead of crashing (5857e28)\n- fix: guard DriveMap start/end against NaN coords (853c7c3)\n- feat: mark Photon geocoder live, fix stale settings copy (3239643)\n- docs: mark OSRM retirement complete, Valhalla is sole router (106461b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.24.0...v0.24.1\n"
+},
+{
+"tag": "v0.24.0",
+"body": "## Changes since v0.23.3\n\n- feat: render OIDC sign-in failures as a login banner (960b4bb)\n- feat: per-user daily AI call cap on LLM endpoints (ed71ec7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.23.3...v0.24.0\n"
+},
+{
+"tag": "v0.23.3",
+"body": "## Changes since v0.23.2\n\n- Merge pull request #30 from apohor/fix/rivian-dataplane-rehydrate (dc12daf)\n- fix: rehydrate stale per-pod Rivian client on the data plane (42ca3b0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.23.2...v0.23.3\n"
+},
+{
+"tag": "v0.23.2",
+"body": "## Changes since v0.23.1\n\n- Merge pull request #29 from apohor/fix/rivian-status-rehydrate (e114401)\n- fix: rehydrate Rivian status from shared store across pods (3a9d487)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.23.1...v0.23.2\n"
+},
+{
+"tag": "v0.23.1",
+"body": "## Changes since v0.23.0\n\n- Merge pull request #28 from apohor/fix/mfa-shared-pending-state (54c6090)\n- fix: share pending Rivian MFA challenge across pods (ab80727)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.23.0...v0.23.1\n"
+},
+{
+"tag": "v0.23.0",
+"body": "## Changes since v0.22.9\n\n- Merge pull request #27 from apohor/a11y/keyboard-rows (e26351f)\n- Merge pull request #26 from apohor/perf/route-prefetch (c200413)\n- a11y: make clickable table rows keyboard-accessible (835b29d)\n- perf: prefetch route chunks on nav hover/focus (53bd3c4)\n- Merge pull request #25 from apohor/perf/route-code-splitting (844eeed)\n- perf: code-split route pages with React.lazy (e5b0fde)\n- Merge pull request #24 from apohor/chore/body-size-limit (3a82e7e)\n- security: cap JSON request bodies on authed CRUD + signup routes (de766b7)\n- Merge pull request #23 from apohor/chore/typescript-6 (7e8114f)\n- chore(deps): typescript 5 -> 6 (e1284c2)\n- Merge pull request #22 from apohor/chore/tailwindcss-v4 (b093315)\n- chore(deps): migrate to Tailwind CSS v4 (09faa25)\n- Merge pull request #21 from apohor/chore/tile-stack-deps (96077fd)\n- Merge pull request #20 from apohor/chore/eslint-10 (11e211c)\n- Merge pull request #14 from apohor/renovate/major-container-base-images (e30d425)\n- chore(deps): pbf 4 -> 5, @mapbox/vector-tile 2 -> 3 (bdd788f)\n- chore(deps): eslint 9 -> 10 (cfee4f4)\n- Merge pull request #18 from apohor/renovate/major-react-router-monorepo (1a9c823)\n- Merge pull request #19 from apohor/renovate/major-react-monorepo (1bb7a88)\n- Merge pull request #17 from apohor/renovate/pmtiles-4.x (1b58eda)\n- Merge pull request #11 from apohor/renovate/postcss-preset-env-11.x (39e23ed)\n- fix(deps): update react monorepo to v19 (3b594a8)\n- fix(deps): update dependency react-router-dom to v7 (e029e05)\n- fix(deps): update dependency pmtiles to v4 (d497908)\n- chore(deps): update postgres docker tag to v18 (36f3c71)\n- chore(deps): update dependency postcss-preset-env to v11 (4f442c4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.9...v0.23.0\n"
+},
+{
+"tag": "v0.22.9",
+"body": "## Changes since v0.22.8\n\n- Merge pull request #9 from apohor/chore/vite-8-migration (9754a7d)\n- Merge pull request #4 from apohor/renovate/npm-devdependencies-(non-major) (5a93764)\n- Merge pull request #3 from apohor/renovate/npm-dependencies-(non-major) (7518764)\n- chore(deps): migrate vite ecosystem to v8 (9a9e7da)\n- Merge pull request #5 from apohor/renovate/container-base-images (30f75cf)\n- Merge pull request #6 from apohor/renovate/go-modules-(non-major) (e61f6ac)\n- fix(ci): point infra bump jobs at apps/platform/ paths (cb08d6d)\n- Merge pull request #7 from apohor/renovate/major-github-actions (d4124b5)\n- test: add Vitest frontend suite and wire into CI (5183eb4)\n- chore(deps): update actions/checkout action to v6 (6e77bd1)\n- fix(deps): update go modules (non-major) (25d55cb)\n- chore(deps): update container base images (1797ccc)\n- chore(deps): update npm devdependencies (non-major) (d415126)\n- chore(deps): update npm dependencies (non-major) (0863e22)\n- ci: add self-hosted Renovate workflow (c797f20)\n- chore: add Renovate config (6e278a7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.8...v0.22.9\n"
+},
+{
+"tag": "v0.22.8",
+"body": "## Changes since v0.22.7\n\n- recorder: keep restored charges from splitting on pod restart (7e4d913)\n- monitor: back off REST cadence for idle-plugged cars (901570c)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.7...v0.22.8\n"
+},
+{
+"tag": "v0.22.7",
+"body": "## Changes since v0.22.6\n\n- recorder: close ghost charge sessions on idle sticky-replay frames (1a9a9b0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.6...v0.22.7\n"
+},
+{
+"tag": "v0.22.6",
+"body": "## Changes since v0.22.5\n\n- trip planner: alternatives collapsed by default, 'Tap to view' to expand (c31b675)\n- trip planner: collapse toggle stays in the same row as 'Tap to view' (2e0a71c)\n- roadmap: backups off-cluster (B2/R2) in phase 3 (8d8d964)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.5...v0.22.6\n"
+},
+{
+"tag": "v0.22.5",
+"body": "## Changes since v0.22.4\n\n- trip-planner: recreate pmtiles basemap on tileerror (81acf0c)\n- roadmap: move tiles to R2/CDN in phase 3 (drops in-cluster nginx + proxy) (559255e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.4...v0.22.5\n"
+},
+{
+"tag": "v0.22.2",
+"body": "## Changes since v0.22.1\n\n- pack-health: drop circular non-DC samples + anchor chart Y2 to nameplate (8f8fc82)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.1...v0.22.2\n"
+},
+{
+"tag": "v0.22.1",
+"body": "## Changes since v0.22.0\n\n- live: persist Rivian-reported batteryCapacity to vehicles.pack_kwh (4abb3b1)\n- live: pack-health chart honors window picker + prune sub-60-kWh fits (ee7bd62)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.22.0...v0.22.1\n"
+},
+{
+"tag": "v0.22.0",
+"body": "## Changes since v0.21.5\n\n- live: formatWindow matches HA semantics (open iff value is 'open') (17cc078)\n- live: windows as own Section like Tires, raw Rivian enum strings (a8ffc92)\n- live: hide windows row until we ground-truth the Rivian closure enum (327a920)\n- live: overlay pack-health kWh on the Battery SoC trend chart (e5a6e34)\n- live: move Pack health into KPI row as a compact Stat next to Cost (a87502c)\n- pack-health: tolerate nil samples slice (serializes as JSON null) (9a3cde8)\n- live: Pack health card on Overview with headline + sparkline (ab47d2d)\n- live: derived pack health (effective kWh per charge session) (fc58ab2)\n- live: show all four windows individually instead of aggregating L/R (9370b57)\n- live: add driver name, special-mode chips, windows + fix Stage A subscription (874c761)\n- live: surface charging-context metrics from vehicleState subscription (a8b6e44)\n- roadmap: derived battery health from charge/drive history (123f2e0)\n- roadmap: live-view metric expansion mined from Rivian APK (20d5c9b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.5...v0.22.0\n"
+},
+{
+"tag": "v0.21.5",
+"body": "## Changes since v0.21.4\n\n- trip-planner: pin Booking.com hotel search to POI coordinates (ede5fb9)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.4...v0.21.5\n"
+},
+{
+"tag": "v0.21.4",
+"body": "## Changes since v0.21.3\n\n- trip-planner: render chargers as canvas circleMarkers, not DOM divIcons (404c32e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.3...v0.21.4\n"
+},
+{
+"tag": "v0.21.3",
+"body": "## Changes since v0.21.2\n\n- trip-planner: coalesce ResizeObserver invalidateSize into rAF (8fc2076)\n- Revert \"trip-planner: await runtime config before adding pmtiles basemap\" (1e5b7e0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.2...v0.21.3\n"
+},
+{
+"tag": "v0.21.2",
+"body": "## Changes since v0.21.1\n\n- trip-planner: await runtime config before adding pmtiles basemap (6c501a2)\n- csp: allow basemaps.cartocdn.com so the trip-planner basemap renders (8092a3a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.1...v0.21.2\n"
+},
+{
+"tag": "v0.21.1",
+"body": "## Changes since v0.21.0\n\n- rivian: don't flip needs_reauth on a failed Login attempt (93c68f8)\n- chart: soft podAntiAffinity on hostname for rivolt replicas (82ad08e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.21.0...v0.21.1\n"
+},
+{
+"tag": "v0.21.0",
+"body": "## Changes since v0.20.4\n\n- onboarding: stop double-cycling new users through the wizard (e17b5c3)\n- oauth: Google + GitHub social sign-in with admin signup cap (5099741)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.20.4...v0.21.0\n"
+},
+{
+"tag": "v0.20.4",
+"body": "## Changes since v0.20.3\n\n- Electrafi import: auto-fill pack_kwh from selected vehicle (88f18c6)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.20.3...v0.20.4\n"
+},
+{
+"tag": "v0.20.3",
+"body": "## Changes since v0.20.2\n\n- Docs+signup: real ElectraFi export flow (9be708e)\n- SignupPage: same-day approval window + spam-folder reminder (25d9665)\n- SignupPage: rephrase the request-access intro for flow (d92e79d)\n- SignupPage: 'when approved' (passive, drops the 'we') (c302838)\n- SignupPage: 'open-source' instead of 'self-hosted' (e7674d1)\n- SignupPage: drop about-you textarea; restore What's-next with ElectraFi import (ded9b5e)\n- SignupPage: surface request-access as primary content when no token (e7085d5)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.20.2...v0.20.3\n"
+},
+{
+"tag": "v0.20.2",
+"body": "## Changes since v0.20.1\n\n- Saved trips: capture multi-day form state (84c9c75)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.20.1...v0.20.2\n"
+},
+{
+"tag": "v0.20.1",
+"body": "## Changes since v0.20.0\n\n- /api/health: read deploy-time tag from downward-API pod info file (d13c7f6)\n- Revert \"/api/health: prefer RIVOLT_DEPLOYED_AS env over compile-time VERSION\" (ca0cae0)\n- /api/health: prefer RIVOLT_DEPLOYED_AS env over compile-time VERSION (d1462a2)\n- CI: skip tests on tag pushes (retag is image-metadata only) (9b8c848)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.20.0...v0.20.1\n"
+},
+{
+"tag": "v0.20.0",
+"body": "## Changes since v0.19.13\n\n- Hotel popup: emerald overnight button (distinct from violet Booking link) (d7e304b)\n- Hotel L2 popup: 'Add as overnight stop' instead of preview detour (5099ba5)\n- Charging networks panel: card layout + only Rivian-supported seed (b125e65)\n- networkPreferences: send preference=1 (full app wire shape) (eac7a65)\n- Park networkPreferences: both inline + variable forms rejected (0cf4bf0)\n- networkPreferences: variable form ($networkPreferences map) (97b6538)\n- chargers: actually apply corridor filter + fix projection mismatch (4b8a5ef)\n- Revert: stop inlining networkPreferences in planTrip2 query (23611eb)\n- go mod tidy after pmtiles/orb pull (8a518e2)\n- Send networkPreferences in the planTrip2 query for real (3d1aa2b)\n- networkPreferences: real IDs from Rivian app decompile (b6fb3c0)\n- Server-side chargers-along-corridor query (86f6e99)\n- poi: cap chargers-corridor tile fetches at 8 in flight (cd23ff0)\n- networkPreferences: send full list with 1/0, not just preferred IDs (9d6de07)\n- Overnight limit: add 'Depart' mode with time picker (24eb9bc)\n- Planner form: compact overnight-limit control with SoC|Time toggle (2b41c9a)\n- Wire preferred networks into planTrip + plan-multiday (assumed 10001-10009) (2389759)\n- RAN seed: bump guest to $0.60, add 10% Rivian-owner discount (f831874)\n- Trip planner: suppress 'Tesla adapter required' on non-Tesla stops (4a788bf)\n- rivian: stop flipping needs_reauth on non-auth 4xx (404/422/etc.) (b614a87)\n- LivePanel: surface a Re-link CTA on 401/503 instead of 'Bad gateway' (4b7393e)\n- writeUpstreamError: map ErrNeedsReauth/ErrUpstreamPaused to 401/503 (944b496)\n- Multi-day endpoint: move into 5-min timeout group (cba1305)\n- Multi-day v1.5: per-day RouteCard, long-day chip, max-overnight slider (8ecc318)\n- maps proxy: bump MaxIdleConnsPerHost from 2 to 64 (c8c5bff)\n- Version stamp: <last-tag>+sha-<short> on main builds (1c718cd)\n- tripmultiday: orchestrator tests for SoC chain + leg sequencing (8b8669b)\n- Multi-day trip planner SPA: overnight toggle + stacked Day cards (6001e6a)\n- Multi-day trip planner backend: orchestrator + /api/trips/plan-multiday (f7c70ae)\n- CI: retag job strips 'v' prefix to match existing GHCR tag naming (acb21be)\n- Stop tracking CLAUDE.md (gitignored agent docs) (b8a7496)\n- CI: tag pushes retag the soaked main image instead of rebuilding (323558d)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.13...v0.20.0\n"
+},
+{
+"tag": "v0.19.13",
+"body": "## Changes since v0.19.12\n\n- Release v0.19.13: gas-equivalent chip, NACS visibility, footer link fix, CI redesign (57de7da)\n- Hide Tesla NACS adapter UI on native-NACS R1 vehicles (d88a183)\n- CI: prioritize sha- tag so VERSION stamp is sha-<short>, not 'main' (3aaf2cf)\n- Footer version link: route sha-* builds to commit URL (a615ebd)\n- docs(CLAUDE.md): describe main-to-preview + tag-to-prod ship-it flow (fb51a71)\n- CI: publish main pushes and auto-bump rivolt-preview values (3f97987)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.12...v0.19.13\n"
+},
+{
+"tag": "v0.19.12",
+"body": "## Changes since v0.19.11\n\n- Trip planner: gas/MPG inputs move to planner defaults; bare-number cost header (v0.19.12) (86a5bc4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.11...v0.19.12\n"
+},
+{
+"tag": "v0.19.11",
+"body": "## Changes since v0.19.10\n\n- Trip planner: gas-equivalent cost chip (v0.19.11) (5ee0223)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.10...v0.19.11\n"
+},
+{
+"tag": "v0.19.10",
+"body": "## Changes since v0.19.9\n\n- Same-domain Discord redirect for signup email (v0.19.10) (5636d32)\n- roadmap: multi-day trips with hotel L2 overnights (e094b44)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.9...v0.19.10\n"
+},
+{
+"tag": "v0.19.9",
+"body": "## Changes since v0.19.8\n\n- Trip planner: collapsed-by-default Trip analysis card (v0.19.9) (96a4afc)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.8...v0.19.9\n"
+},
+{
+"tag": "v0.19.8",
+"body": "## Changes since v0.19.7\n\n- Trip planner: Booking.com deep link on hotel L2 popups (v0.19.8) (c1ab917)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.7...v0.19.8\n"
+},
+{
+"tag": "v0.19.7",
+"body": "## Changes since v0.19.6\n\n- Trip planner: violet markers for Hotel L2 chargers on the route map (v0.19.7) (9a78f00)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.6...v0.19.7\n"
+},
+{
+"tag": "v0.19.6",
+"body": "## Changes since v0.19.5\n\n- Trip planner: Hotels (L2) filter chip (v0.19.6) (e9e382e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.5...v0.19.6\n"
+},
+{
+"tag": "v0.19.5",
+"body": "## Changes since v0.19.4\n\n- trip planner: park preferred-networks auto-inject (v0.19.5) (e29a3c3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.4...v0.19.5\n"
+},
+{
+"tag": "v0.19.4",
+"body": "## Changes since v0.19.3\n\n- rivian: split enumValues into a separate IntrospectEnum query (v0.19.4) (504301b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.3...v0.19.4\n"
+},
+{
+"tag": "v0.19.3",
+"body": "## Changes since v0.19.2\n\n- introspect: log upstream error + 400 instead of 502 (v0.19.3) (c6b1d23)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.2...v0.19.3\n"
+},
+{
+"tag": "v0.19.2",
+"body": "## Changes since v0.19.1\n\n- rivian: introspection probe returns enumValues too (v0.19.2) (af600f1)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.1...v0.19.2\n"
+},
+{
+"tag": "v0.19.1",
+"body": "## Changes since v0.19.0\n\n- Trip planner: preferred-networks spike (v0.19.1) (abce6e3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.19.0...v0.19.1\n"
+},
+{
+"tag": "v0.19.0",
+"body": "## Changes since v0.18.99\n\n- Trip planner: preview shows Rivian's re-optimisation (v0.19.0) (7bee0cd)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.99...v0.19.0\n"
+},
+{
+"tag": "v0.18.99",
+"body": "## Changes since v0.18.98\n\n- Trip planner: auto-replan when adding a stop from the map (v0.18.99) (a1bdb3d)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.98...v0.18.99\n"
+},
+{
+"tag": "v0.18.98",
+"body": "## Changes since v0.18.97\n\n- Trip planner: \"Preview impact\" before committing a via-stop (v0.18.98) (4a60de7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.97...v0.18.98\n"
+},
+{
+"tag": "v0.18.97",
+"body": "## Changes since v0.18.96\n\n- Trip planner: bidirectional stops table <-> map selection (v0.18.97) (6b1170f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.96...v0.18.97\n"
+},
+{
+"tag": "v0.18.96",
+"body": "## Changes since v0.18.95\n\n- Trip planner: alternative route comparison hint (v0.18.96) (30891a0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.95...v0.18.96\n"
+},
+{
+"tag": "v0.18.95",
+"body": "## Changes since v0.18.94\n\n- Trip planner: Distance column in stops table (v0.18.95) (826d38e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.94...v0.18.95\n"
+},
+{
+"tag": "v0.18.94",
+"body": "## Changes since v0.18.93\n\n- Charges: manual prefill dropdown respects member toggle (v0.18.94) (aa08fa6)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.93...v0.18.94\n"
+},
+{
+"tag": "v0.18.93",
+"body": "## Changes since v0.18.92\n\n- Trip planner: drive-mode All-Purpose/Conserve + compact member cost (v0.18.93) (36eb513)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.92...v0.18.93\n"
+},
+{
+"tag": "v0.18.92",
+"body": "## Changes since v0.18.91\n\n- Trip planner: collapse drive-mode dropdown to Default + Conserve (v0.18.92) (17e40c4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.91...v0.18.92\n"
+},
+{
+"tag": "v0.18.91",
+"body": "## Changes since v0.18.90\n\n- dcfcrates: match Rivian's bracket-tag Tesla / Flo names (v0.18.91) (8d70aca)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.90...v0.18.91\n"
+},
+{
+"tag": "v0.18.90",
+"body": "## Changes since v0.18.89\n\n- Trip planner: simpler titles + member-upsell per stop (v0.18.90) (f27a7a7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.89...v0.18.90\n"
+},
+{
+"tag": "v0.18.89",
+"body": "## Changes since v0.18.88\n\n- Trip planner: profile-aware planning - wheels/tires/accessories/payload (v0.18.89) (55e184a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.88...v0.18.89\n"
+},
+{
+"tag": "v0.18.88",
+"body": "## Changes since v0.18.87\n\n- Trip planner: rephrase hint to charging settings, drop \"(route X)\" suffix (v0.18.88) (62ff8dd)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.87...v0.18.88\n"
+},
+{
+"tag": "v0.18.87",
+"body": "## Changes since v0.18.86\n\n- Trip planner: clearer Set Home hint + deep-link to the right tab (v0.18.87) (0b77dc5)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.86...v0.18.87\n"
+},
+{
+"tag": "v0.18.86",
+"body": "## Changes since v0.18.85\n\n- Trip planner: clearer cost copy + reorder Cost before Adapter? (v0.18.86) (0328aad)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.85...v0.18.86\n"
+},
+{
+"tag": "v0.18.85",
+"body": "## Changes since v0.18.84\n\n- Trip planner: per-route cost in route card, smarter route labels (v0.18.85) (7e1384f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.84...v0.18.85\n"
+},
+{
+"tag": "v0.18.84",
+"body": "## Changes since v0.18.83\n\n- Settings: wire DCFC networks + memberships into trip planner (v0.18.84) (1e90ecc)\n- docs: fix Tesla non-Tesla supercharging link (594d145)\n- docs: DCFC pricing - fix Tesla link, bump to mid-2026, drop em-dashes (9758330)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.83...v0.18.84\n"
+},
+{
+"tag": "v0.18.83",
+"body": "## Changes since v0.18.82\n\n- Trip planner: per-network DCFC pricing + member-rate column (v0.18.83) (2d88b47)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.82...v0.18.83\n"
+},
+{
+"tag": "v0.18.82",
+"body": "## Changes since v0.18.81\n\n- Trip planner: fix map intermittent blank + weather chip false positive (v0.18.82) (8c6493a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.81...v0.18.82\n"
+},
+{
+"tag": "v0.18.81",
+"body": "## Changes since v0.18.80\n\n- Trip planner: weather-aware arrival SoC chip (v0.18.81) (5c5f0c0)\n- weather: in-process MemCache for FetchHour (5bac5e9)\n- tripweather: per-leg energy multiplier for trip planner v1 (7b8bffc)\n- AdminPage: type the trip-planner mutation's setQueryData updater (16e9b4e)\n- signuprequests test: backdate token row to test expiry (4eabbe0)\n- Tests: drives/charges/signuprequests stores, cross-tenant API, resend metrics (31c45e4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.80...v0.18.81\n"
+},
+{
+"tag": "v0.18.80",
+"body": "## Changes since v0.18.79\n\n- Trips test: compare JSON semantically (Postgres JSONB reorders keys) (7d51ff4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.79...v0.18.80\n"
+},
+{
+"tag": "v0.18.79",
+"body": "## Changes since v0.18.78\n\n- Trips: integration tests + release-notes generator fix (2753312)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.78...v0.18.79\n"
+},
+{
+"tag": "v0.18.78",
+"body": "## Changes since v0.18.77\n\n- Trips: scan plan/advice into []byte, not sql.RawBytes (324632c)\n- CI: auto-generate GitHub Release notes on every tag (3604eca)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.77...v0.18.78\n"
+},
+{
+"tag": "v0.18.77",
+"body": "## Changes since v0.18.76\n\n- Planner: user-defined favorites + footer version → release notes (ffdad1e)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.76...v0.18.77\n"
+},
+{
+"tag": "v0.18.76",
+"body": "## Changes since v0.18.75\n\n- Home location: short 'Home' label + outlined chip in trip planner (ebd9e58)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.75...v0.18.76\n"
+},
+{
+"tag": "v0.18.75",
+"body": "## Changes since v0.18.74\n\n- Charger popup: flag 'Tesla adapter required' for NACS-only stations (08c2bc5)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.74...v0.18.75\n"
+},
+{
+"tag": "v0.18.74",
+"body": "## Changes since v0.18.73\n\n- Add Discord community link to footer + signup approval email (39f820f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.73...v0.18.74\n"
+},
+{
+"tag": "v0.18.73",
+"body": "## Changes since v0.18.72\n\n- Admin: Grafana 11+ Explore URL schema (c5587ad)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.72...v0.18.73\n"
+},
+{
+"tag": "v0.18.72",
+"body": "## Changes since v0.18.71\n\n- Admin: Grafana Explore link uses {type,uid} datasource form (922f0a3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.71...v0.18.72\n"
+},
+{
+"tag": "v0.18.71",
+"body": "## Changes since v0.18.70\n\n- Email: Prometheus counter for Resend send outcomes (80cb4e4)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.70...v0.18.71\n"
+},
+{
+"tag": "v0.18.70",
+"body": "## Changes since v0.18.69\n\n- Admin: Telemetry span row links to Tempo traces too (705fc5a)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.69...v0.18.70\n"
+},
+{
+"tag": "v0.18.69",
+"body": "## Changes since v0.18.68\n\n- Tracing: stamp user.id on every span via WithUser (fff621c)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.68...v0.18.69\n"
+},
+{
+"tag": "v0.18.68",
+"body": "## Changes since v0.18.67\n\n- Admin: signups-first tab + responsive users table (5648ba6)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.67...v0.18.68\n"
+},
+{
+"tag": "v0.18.67",
+"body": "## Changes since v0.18.66\n\n- Tracing: stamp deployment.environment per Helm release (c17b768)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.66...v0.18.67\n"
+},
+{
+"tag": "v0.18.66",
+"body": "## Changes since v0.18.65\n\n- Admin user drawer: deep-link Telemetry span to Grafana Loki Explore (7cd8565)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.65...v0.18.66\n"
+},
+{
+"tag": "v0.18.65",
+"body": "## Changes since v0.18.64\n\n- Admin: tabbed layout, drop unused Backend section (dbdf5f7)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.64...v0.18.65\n"
+},
+{
+"tag": "v0.18.64",
+"body": "## Changes since v0.18.63\n\n- Admin detail: emit empty vehicles slice, defend SPA against null (d4f345f)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.63...v0.18.64\n"
+},
+{
+"tag": "v0.18.63",
+"body": "## Changes since v0.18.62\n\n- Admin detail: fix vehicle last-frame subquery type mismatch (056a61b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.62...v0.18.63\n"
+},
+{
+"tag": "v0.18.62",
+"body": "## Changes since v0.18.61\n\n- Admin: full-width users table with detail panel below (a905cb0)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.61...v0.18.62\n"
+},
+{
+"tag": "v0.18.61",
+"body": "## Changes since v0.18.60\n\n- Admin: master-detail user view with deep-dive bundle (db26854)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.60...v0.18.61\n"
+},
+{
+"tag": "v0.18.60",
+"body": "## Changes since v0.18.59\n\n- POI lookups await /api/config before reading archive URLs (c085d3c)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.59...v0.18.60\n"
+},
+{
+"tag": "v0.18.59",
+"body": "## Changes since v0.18.58\n\n- Charge map: widen snap radius to 750m, show \"limited data\" note (0b2a92d)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.58...v0.18.59\n"
+},
+{
+"tag": "v0.18.58",
+"body": "## Changes since v0.18.57\n\n- Trips: route Create/Update through the NULL-safe scanRow (fd4ea0b)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.57...v0.18.58\n"
+},
+{
+"tag": "v0.18.57",
+"body": "## Changes since v0.18.56\n\n- Remove OSRM client + server plumbing (bd60081)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.56...v0.18.57\n"
+},
+{
+"tag": "v0.18.56",
+"body": "## Changes since v0.18.55\n\n- Admin: Sync Rivian button on the user row (9c6c331)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.55...v0.18.56\n"
+},
+{
+"tag": "v0.18.55",
+"body": "## Changes since v0.18.54\n\n- Rivian: lazy-prime vehicles from /api/settings/rivian status (d3ba9ec)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.54...v0.18.55\n"
+},
+{
+"tag": "v0.18.54",
+"body": "## Changes since v0.18.53\n\n- Rivian: prime vehicles table on login + MFA success (2b821c3)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.53...v0.18.54\n"
+},
+{
+"tag": "v0.18.53",
+"body": "## Changes since v0.18.52\n\n- Rivian: lazy-restore session per-pod on first LiveClient build (c18d462)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.52...v0.18.53\n"
+},
+{
+"tag": "v0.18.52",
+"body": "## Changes since v0.18.51\n\n- Timeline: lower gap threshold to 90s, neutralize colour (bc7cfeb)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.51...v0.18.52\n"
+},
+{
+"tag": "v0.18.51",
+"body": "## Changes since v0.18.50\n\n- Timeline: distinguish parked vs telemetry-gap bands (7a40fce)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.50...v0.18.51\n"
+},
+{
+"tag": "v0.18.50",
+"body": "## Changes since v0.18.49\n\n- Route-fill gap connectors instead of straight chords (0c566b5)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.49...v0.18.50\n"
+},
+{
+"tag": "v0.18.49",
+"body": "## Changes since v0.18.48\n\n- Valhalla: read all matchings, not just trip.legs (64f2d50)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.48...v0.18.49\n"
+},
+{
+"tag": "v0.18.48",
+"body": "## Changes since v0.18.47\n\n- Snap tail-coverage + dark tooltips + light popup text (e16ba65)\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.18.47...v0.18.48\n"
+}
+]
