@@ -71,6 +71,7 @@ describe("AppleLinkCard", () => {
     stubFetchRoutes({ "/api/auth/apple-link": status({ has_password: false }) });
     renderCard();
     expect(await screen.findByText(copy.needsPasswordTitle)).toBeTruthy();
+    expect(screen.queryByText(copy.connectLine)).toBeNull(); // the refusal is not preceded by the pitch
     expect(screen.getByText(copy.needsPasswordBody)).toBeTruthy();
     expect(screen.queryByRole("button", { name: copy.connect })).toBeNull();
   });

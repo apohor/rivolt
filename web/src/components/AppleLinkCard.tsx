@@ -92,7 +92,8 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
         <p data-apple-state={linked ? "linked" : "not-linked"} className="text-sm font-medium text-neutral-200">
           {linked ? copy.connected : copy.connect}
         </p>
-        <p className="max-w-xl text-xs text-neutral-500">{linked ? copy.connectedLine : copy.connectLine}</p>
+        {/* No pitch above the refusal: an account with no password that is not connected is told it cannot be, not sold the feature. */}
+        {(linked || hasPassword) && <p className="max-w-xl text-xs text-neutral-500">{linked ? copy.connectedLine : copy.connectLine}</p>}
         {note && (
           <p role="status" data-apple-note data-tone={note.tone} className={`max-w-xl text-xs ${note.tone === "bad" ? "text-rose-400" : note.tone === "good" ? "text-emerald-300" : "text-neutral-400"}`}>
             {note.text}
@@ -100,11 +101,11 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
         )}
         {!hasPassword ? (
           linked ? (
-            <div data-apple-needs-password className="space-y-1">
+            <div data-apple-needs-password>
               <button type="button" disabled aria-describedby={ids.blocked} className="cursor-not-allowed rounded-md border border-neutral-800 px-3 py-1.5 text-xs text-neutral-500">
                 {copy.disconnect}
               </button>
-              <p id={ids.blocked} className="max-w-xl text-xs text-neutral-500">
+              <p id={ids.blocked} className="mt-1.5 max-w-xl text-xs text-neutral-500">
                 {copy.cannotDisconnect}
               </p>
             </div>

@@ -73,6 +73,7 @@ for (const [vp, size] of [
       await page.unroute("**/api/auth/apple-link");
       card = await open(page, { available: true, linked: false, has_password: false });
       await expect(card.getByText("Apple can't be connected to this account yet")).toBeVisible();
+      await expect(card.getByText("Lets you sign in with your Apple ID")).toHaveCount(0); // no pitch above the refusal
       await expect(card.getByRole("button", { name: "Connect Apple" })).toHaveCount(0);
       await shot(card, "6-not-connected-no-password", vp, theme);
 
