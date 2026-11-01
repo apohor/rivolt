@@ -167,8 +167,9 @@ final class AppState {
     /// says purchases aren't available). Never in the demo.
     func makePurchasing() async -> ProPurchasing {
         guard !isDemo, case .loggedIn = phase,
-              let config = try? await client.appConfig(), config.purchasesAvailable, let products = config.iap?.products,
-              let me = try? await client.me(), let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
+              let config = try? await client.appConfig(), let products = config.iap?.products,
+              let me = try? await client.me(), StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable),
+              let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
         let client = self.client
         return StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
     }

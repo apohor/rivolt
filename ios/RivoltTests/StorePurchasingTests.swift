@@ -135,6 +135,13 @@ final class StorePurchasingTests: XCTestCase {
         XCTAssertFalse(empty.purchasesAvailable)
     }
 
+    func testAPurchaseIsOfferedOnlyWhereTheServerBillsAndHasStoreKit() {
+        XCTAssertTrue(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: true))
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: false, iapAvailable: true), "billing off: never sell what everyone has free")
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: nil, iapAvailable: true))
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: false))
+    }
+
     func testTheTransactionBodyKeepsItsCamelCaseKey() throws {
         let data = try JSONSerialization.data(withJSONObject: ["signedTransaction": "x"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: String])

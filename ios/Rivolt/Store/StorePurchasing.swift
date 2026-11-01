@@ -48,6 +48,10 @@ enum StoreLogic {
         products.first { $0.period == (yearly ? .year : .month) }
     }
 
+    /// A purchase is offered only where the server bills (`billing_enabled` true in /api/auth/me) and has StoreKit set up: never from the iap
+    /// field alone, so a billing-off server (setup, or a rollback) never sells Pro that everyone already has.
+    static func mayOffer(billingEnabled: Bool?, iapAvailable: Bool) -> Bool { billingEnabled == true && iapAvailable }
+
     /// The account id as StoreKit's `appAccountToken` (the server parses it case-insensitively); nil for anything that is not a UUID.
     static func accountToken(_ userID: String?) -> UUID? { userID.flatMap(UUID.init(uuidString:)) }
 }
