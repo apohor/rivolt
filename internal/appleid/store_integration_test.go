@@ -136,16 +136,27 @@ func TestNotificationStorage(t *testing.T) {
 	if e, err := st.DeliverableEmail(ctx, uid); err != nil || e != "n@example.com" {
 		t.Fatalf("DeliverableEmail = %q, %v", e, err)
 	}
+	// Apple's forwarding-off event is about the relay: an account with its own address is left alone.
+	if err := st.SetEmailUndeliverable(ctx, uid, true); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := st.DeliverableEmail(ctx, uid); e != "n@example.com" {
+		t.Errorf("a real address was marked undeliverable by an Apple relay event: %q", e)
+	}
+	// An account whose address is the relay's: marked, and cleared again.
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET email = 'Abc123@PrivateRelay.AppleID.com' WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SetEmailUndeliverable(ctx, uid, true); err != nil {
 		t.Fatal(err)
 	}
 	if e, _ := st.DeliverableEmail(ctx, uid); e != "" {
-		t.Errorf("an undeliverable address was offered: %q", e)
+		t.Errorf("an undeliverable relay address was offered: %q", e)
 	}
 	if err := st.SetEmailUndeliverable(ctx, uid, false); err != nil {
 		t.Fatal(err)
 	}
-	if e, _ := st.DeliverableEmail(ctx, uid); e != "n@example.com" {
+	if e, _ := st.DeliverableEmail(ctx, uid); e != "Abc123@PrivateRelay.AppleID.com" {
 		t.Errorf("cleared flag should restore the address, got %q", e)
 	}
 }
