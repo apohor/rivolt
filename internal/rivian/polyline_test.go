@@ -1,10 +1,12 @@
 package rivian
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,22 +105,29 @@ func TestValidCoord(t *testing.T) {
 	}
 }
 
-// The refusals are counted by reason, so a fill that keeps being refused shows on a dashboard.
-func TestRefusedRoutePointsAreCountedByReason(t *testing.T) {
+// The refusals are counted by where they were refused, and logged with the drive's id only.
+func TestRefusedRoutePointsAreCountedByWhereAndLoggedWithoutCoordinates(t *testing.T) {
 	var got []string
-	SetRoutePointObserver(func(r string) { got = append(got, r) })
+	SetRoutePointObserver(func(w string) { got = append(got, w) })
 	t.Cleanup(func() { SetRoutePointObserver(nil) })
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
 
 	t0 := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	from, to := [2]float64{10.000, 10.000}, [2]float64{10.003, 10.003}
-	d := &liveDrive{path: [][2]float64{from}, lastFixAt: t0}
-	m := &StateMonitor{logger: slog.Default(), routeFiller: &fakeFiller{shape: [][2]float64{from, {100.25, -970.1}, to}}}
-	m.appendDrivePath(context.Background(), "veh-1", d, to[0], to[1], t0.Add(time.Minute)) // a bad fill
-	m.appendDrivePath(context.Background(), "veh-1", d, 100, 10, t0.Add(2*time.Minute))    // a bad fix
-	encodePolyline([][2]float64{from, {400, 0}})                                           // the encoder's last line
-	m2 := &StateMonitor{logger: slog.Default(), routeFiller: &fakeFiller{err: badShape{}}}
-	m2.appendDrivePath(context.Background(), "veh-1", &liveDrive{path: [][2]float64{from}, lastFixAt: t0}, to[0], to[1], t0.Add(time.Minute))
-	want := []string{"fill", "fix", "encode", "shape"}
+	newDrive := func() *liveDrive { return &liveDrive{id: "live-drive-1", path: [][2]float64{from}, lastFixAt: t0} }
+	run := func(f RouteFiller, lat, lon float64) {
+		m := &StateMonitor{logger: slog.Default(), routeFiller: f}
+		m.appendDrivePath(context.Background(), "veh-1", newDrive(), lat, lon, t0.Add(time.Minute))
+	}
+	run(&fakeFiller{shape: [][2]float64{from, {100.25, -970.1}, to}}, to[0], to[1]) // a fill with a vertex off the globe
+	run(&fakeFiller{err: badShape{kind: "offglobe"}}, to[0], to[1])                 // the routing client refused its shape: off the globe
+	run(&fakeFiller{err: badShape{kind: "detour"}}, to[0], to[1])                   // ... or nowhere near the ends
+	run(&fakeFiller{}, 100, 10)                                                     // a fix off the globe
+	encodePolyline([][2]float64{from, {400, 0}})                                    // the encoder's last line
+	want := []string{"fill_globe", "fill_offglobe", "fill_detour", "fix_offglobe", "encode_skip"}
 	if len(got) != len(want) {
 		t.Fatalf("refusals = %v, want %v", got, want)
 	}
@@ -127,10 +136,25 @@ func TestRefusedRoutePointsAreCountedByReason(t *testing.T) {
 			t.Errorf("refusal %d = %q, want %q (all: %v)", i, got[i], want[i], got)
 		}
 	}
+	out := logs.String()
+	for _, w := range want[:4] { // the encoder does not know which drive it is encoding: counted, not logged
+		if !strings.Contains(out, "where="+w) {
+			t.Errorf("no WARN for %s in:\n%s", w, out)
+		}
+	}
+	if !strings.Contains(out, "drive_id=live-drive-1") {
+		t.Errorf("the WARN does not name the drive:\n%s", out)
+	}
+	for _, leak := range []string{"100.25", "970", "10.003", "lat", "lon"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("the WARN carries %q, which is a coordinate or names one:\n%s", leak, out)
+		}
+	}
 }
 
-// badShape stands in for maps.BadShapeError: the recorder recognises it by its method, with no import of the maps package.
-type badShape struct{}
+// badShape stands in for maps.BadShapeError: the recorder recognises it by its methods, with no import of the maps package.
+type badShape struct{ kind string }
 
-func (badShape) Error() string  { return "valhalla: shape has a vertex outside the globe" }
-func (badShape) BadShape() bool { return true }
+func (badShape) Error() string       { return "valhalla: shape refused" }
+func (badShape) BadShape() bool      { return true }
+func (b badShape) ShapeKind() string { return b.kind }

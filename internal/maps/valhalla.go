@@ -69,9 +69,10 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 			{"lat": to[0], "lon": to[1], "type": "break"},
 		},
 		"costing": "auto",
-		// polyline5 keeps wire format aligned with our existing
-		// drive-polyline encoder/decoder precision.
-		"shape_format": "polyline5",
+		// polyline6, which is also Valhalla's default and what the trip planner asks for. This used to ask for polyline5, and the
+		// in-cluster Valhalla answered polyline6 anyway, so every fill was read ten times too large; a short fill spliced one such vertex
+		// into a drive's stored route. Ask for the format it really sends and decode it as that (the stored route stays precision 5).
+		"shape_format": "polyline6",
 		// Skip the verbal/maneuver narrative payload — we only need
 		// the geometry.
 		"directions_options": map[string]any{"language": "en-US"},
@@ -113,7 +114,7 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 
 	var out [][2]float64
 	for _, leg := range parsed.Trip.Legs {
-		out = append(out, decodePolyline5(leg.Shape)...)
+		out = append(out, decodePolyline(leg.Shape, 1e6)...)
 	}
 	if len(out) == 0 {
 		return nil, errors.New("valhalla: empty shape")
@@ -125,35 +126,40 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 }
 
 // checkShape refuses a route shape that cannot be a road between from and to. The shape is decoded from a string the caller trusts
-// to be polyline5; one decoded at the wrong precision (polyline6 read as polyline5 is ten times too large) or garbled has vertices
+// to be polyline6; one decoded at the wrong precision (polyline5 read as polyline6 is ten times too small, polyline6 read as polyline5 ten
+// times too large) or garbled has vertices
 // outside the globe, or nowhere near the two ends, and spliced into a drive's path it draws two enormous segments out and back. Every
 // vertex must be a real coordinate and lie within a generous detour of the straight line between the ends: three times its length
 // plus a kilometre (a road can wind, a vertex cannot be in another city).
 func checkShape(shape [][2]float64, from, to [2]float64) error {
-	if err := shapeProblem(shape, from, to); err != nil {
-		return &BadShapeError{Reason: err.Error()}
+	if kind, reason := shapeProblem(shape, from, to); kind != "" {
+		return &BadShapeError{Kind: kind, Reason: reason}
 	}
 	return nil
 }
 
 // BadShapeError is RouteShape's answer when the routing engine's shape cannot be a road between the ends. The recorder counts these apart
 // from a routing engine that is merely down (it recognises the BadShape method, so it needs no import of this package).
-type BadShapeError struct{ Reason string }
+type BadShapeError struct {
+	Kind   string // "offglobe" or "detour": which check refused it (the recorder's refusal counter is labelled by it)
+	Reason string
+}
 
-func (e *BadShapeError) Error() string  { return "valhalla: " + e.Reason }
-func (e *BadShapeError) BadShape() bool { return true }
+func (e *BadShapeError) Error() string     { return "valhalla: " + e.Reason }
+func (e *BadShapeError) BadShape() bool    { return true }
+func (e *BadShapeError) ShapeKind() string { return e.Kind }
 
-func shapeProblem(shape [][2]float64, from, to [2]float64) error {
+func shapeProblem(shape [][2]float64, from, to [2]float64) (kind, reason string) {
 	reach := 3*haversineM(from[0], from[1], to[0], to[1]) + 1000
 	for _, p := range shape {
 		if math.IsNaN(p[0]) || math.IsNaN(p[1]) || math.Abs(p[0]) > 90 || math.Abs(p[1]) > 180 {
-			return errors.New("shape has a vertex outside the globe")
+			return "offglobe", "shape has a vertex outside the globe"
 		}
 		if haversineM(p[0], p[1], from[0], from[1]) > reach && haversineM(p[0], p[1], to[0], to[1]) > reach {
-			return errors.New("shape strays far from the requested ends")
+			return "detour", "shape strays far from the requested ends"
 		}
 	}
-	return nil
+	return "", ""
 }
 
 // haversineM is the great-circle distance in metres.

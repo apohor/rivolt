@@ -962,7 +962,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
 				s.drive.lastFixAt = curr.At
 			} else {
-				noteRoutePointRefused("fix")
+				noteRoutePointRefused("fix_offglobe", s.drive.id)
 			}
 		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
@@ -1153,7 +1153,7 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 		return
 	}
 	if !validCoord(lat, lon) {
-		noteRoutePointRefused("fix")
+		noteRoutePointRefused("fix_offglobe", d.id)
 		return // not a position on the globe (a corrupt frame); never put it in the path
 	}
 	n := len(d.path)
@@ -1170,9 +1170,12 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 			shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{lat, lon})
 			elapsed := time.Since(startedAt)
 			cancel()
-			var bad interface{ BadShape() bool }
+			var bad interface {
+				BadShape() bool
+				ShapeKind() string
+			}
 			if errors.As(err, &bad) {
-				noteRoutePointRefused("shape")
+				noteRoutePointRefused("fill_"+bad.ShapeKind(), d.id)
 			}
 			if err != nil {
 				// Warn, not Debug: a failed fill degrades the rendered
@@ -1186,7 +1189,7 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 					"elapsed_ms", elapsed.Milliseconds(),
 					"err", err.Error())
 			} else if len(shape) > 2 && !shapeValid(shape) {
-				noteRoutePointRefused("fill")
+				noteRoutePointRefused("fill_globe", d.id)
 			} else if len(shape) > 2 {
 				// Drop the first vertex (== last) and the last (== the
 				// point we're about to append).
@@ -1732,6 +1735,11 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 			energy = socUsed / 100.0 * pack
 		}
 	}
+	routeEnc, skipped := encodePolylineSkipped(d.path)
+	if skipped > 0 {
+		// The path guards should have kept these out; the encoder's last line caught them (counted as encode_skip).
+		m.logger.Warn("route point refused", "where", "encode_skip", "drive_id", d.id, "points", skipped)
+	}
 	row := drives.Drive{
 		ID:              d.id,
 		VehicleID:       vehicleID,
@@ -1750,7 +1758,7 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		AvgSpeedMph:     avg,
 		EnergyUsedKWh:   energy,
 		Source:          "live",
-		RoutePolyline:   encodePolyline(d.path),
+		RoutePolyline:   routeEnc,
 		Trailer:         d.trailer.result(d.endAt),
 		// Whether the drive moved without the truck reporting where it was; the live row sets and clears it (drives.Upsert).
 		LocationUnavailable: d.locationUnavailable(),
