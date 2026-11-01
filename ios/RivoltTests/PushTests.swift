@@ -17,8 +17,13 @@ private final class FakeServer: PushServer, @unchecked Sendable {
         AppConfig(server: "rivolt", apiVersion: 1, appLogin: true, minIosBuild: nil, push: .init(apns: apns, live: live))
     }
 
-    func registerApns(token: String, environment: String) async throws -> PushPreferences {
+    var registerConflict = false
+    var installIDs: [String?] = []
+
+    func registerApns(token: String, environment: String, installID: String?) async throws -> PushPreferences {
+        if registerConflict { throw APIError.server(status: 409, message: "device_registered_elsewhere") }
         if registerFails { throw APIError.server(status: 500, message: "no") }
+        installIDs.append(installID)
         registered.append((token, environment))
         return prefs
     }
@@ -75,7 +80,7 @@ private final class FakeSystem: NotificationSystem {
 final class NotificationManagerTests: XCTestCase {
     private func make(_ system: FakeSystem) -> NotificationManager {
         let defaults = UserDefaults(suiteName: "rivolt.tests.push.\(UUID().uuidString)")!
-        return NotificationManager(system: system, defaults: defaults, environment: "sandbox")
+        return NotificationManager(system: system, defaults: defaults, environment: "sandbox", installID: { "test-install-id" })
     }
 
     func testNothingIsOfferedOrAskedWhenTheServerHasNoApns() async {
@@ -117,6 +122,32 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertTrue(m.isOn)
         XCTAssertEqual(m.preferences, PushPreferences())
         XCTAssertFalse(m.shouldAskInApp)
+    }
+
+    func testTheInstallIDGoesWithTheToken() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        let m = make(system)
+        await m.signedIn(server: server)
+        await m.turnOn()
+        await m.register(deviceToken: Data([0x01]))
+        XCTAssertEqual(server.installIDs, ["test-install-id"])
+    }
+
+    func testAnotherAccountsTokenIsRefusedWithNoErrorOnScreen() async {
+        let system = FakeSystem()
+        let server = FakeServer()
+        server.registerConflict = true
+        let m = make(system)
+        await m.signedIn(server: server)
+        await m.turnOn()
+        await m.register(deviceToken: Data([0x01]))
+        XCTAssertEqual(m.registration, .idle, "silent: not failed, not registered")
+        XCTAssertFalse(m.isOn)
+        // The next launch tries again, and gets in once the token is this account's.
+        server.registerConflict = false
+        await m.register(deviceToken: Data([0x01]))
+        XCTAssertTrue(m.isOn)
     }
 
     func testDeniedNeverRegisters() async {
