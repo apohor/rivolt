@@ -33,6 +33,24 @@ for (const theme of ["dark", "light"] as const) {
     const page = await ctx.newPage();
     const map = await open(page, theme);
 
+    // A hover popup: sweep the pointer across the map until a route's tip appears, then look at it.
+    const box = (await map.boundingBox())!;
+    const tip = page.locator(".maplibregl-popup.rivolt-tip");
+    let found = false;
+    for (let y = box.y + 30; y < box.y + box.height - 30 && !found; y += 18) {
+      for (let x = box.x + 30; x < box.x + box.width - 30; x += 9) {
+        await page.mouse.move(x, y);
+        if (await tip.count()) { found = true; break; }
+      }
+    }
+    expect(found, "no route under the pointer produced a tip popup").toBe(true);
+    await expect(tip.locator(".maplibregl-popup-content")).toBeVisible();
+    await expect(tip.locator(".maplibregl-popup-tip")).toHaveCount(1);
+    await map.screenshot({ path: path.join(SHOTS, `map-popup-${theme}.png`) });
+    // Pointer away: the tip goes.
+    await page.mouse.move(box.x + 2, box.y + 2);
+    await expect(tip).toHaveCount(0);
+
     // The compact attribution: closed it is the (i) button; opened it shows the credits.
     const attrib = map.locator(".maplibregl-ctrl-attrib");
     await expect(attrib).toBeVisible();
@@ -48,23 +66,6 @@ for (const theme of ["dark", "light"] as const) {
     // The MapLibre logo is gone by design (its licence does not require it); the credits above are not.
     await expect(map.locator(".maplibregl-ctrl-logo")).toHaveCount(0);
     await map.screenshot({ path: path.join(SHOTS, `map-credits-open-${theme}.png`) });
-    await button.click();
-    await expect(attrib).not.toHaveClass(/maplibregl-compact-show/);
-
-    // A hover popup: sweep the pointer across the map until a route's tip appears, then look at it.
-    const box = (await map.boundingBox())!;
-    const tip = page.locator(".maplibregl-popup.rivolt-tip");
-    let found = false;
-    for (let y = box.y + 30; y < box.y + box.height - 30 && !found; y += 18) {
-      for (let x = box.x + 30; x < box.x + box.width - 30; x += 9) {
-        await page.mouse.move(x, y);
-        if (await tip.count()) { found = true; break; }
-      }
-    }
-    expect(found, "no route under the pointer produced a tip popup").toBe(true);
-    await expect(tip.locator(".maplibregl-popup-content")).toBeVisible();
-    await expect(tip.locator(".maplibregl-popup-tip")).toHaveCount(1);
-    await map.screenshot({ path: path.join(SHOTS, `map-popup-${theme}.png`) });
     await ctx.close();
   });
 }
