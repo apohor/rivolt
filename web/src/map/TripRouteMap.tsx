@@ -19,7 +19,7 @@ import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
-import { pillAwayFromLine, pillSide, setPills, type PillSpec } from "./pills";
+import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPills, type Box, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits } from "../lib/preferences";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
@@ -264,19 +264,40 @@ export function TripRouteMap({
       const updatePills = (force = false) => {
         if (!styleReadyRef.current) return;
         const last = ws.length - 1;
-        const specs: PillSpec[] = ws.map((w, i) => {
+        const view = { w: map.getContainer().clientWidth || 1, h: map.getContainer().clientHeight || 1 };
+        // What is already taken: every pin (a disc and its ring), and the end pills, which win over a stop's.
+        const pinBoxes: Box[] = ws.map((w) => {
+          const p = map.project([w.Longitude, w.Latitude]);
+          return { x0: p.x - 14, y0: p.y - 14, x1: p.x + 14, y1: p.y + 14 };
+        });
+        const taken: Box[] = [...pinBoxes];
+        const specs: PillSpec[] = [];
+        const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k);
+        for (const i of ends) {
+          const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
-          if (i === 0 || i === last) {
-            // The ends sit where the route leaves or arrives: the pill goes on the side away from the line, a little off its height.
-            const side = pillAwayFromLine(map.project(ll), awayPoint(i === 0), map.getContainer().clientWidth || 1);
-            const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
-            return { id: `wp${i}`, text: shortName(name), lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 };
-          }
-          const side = pillSide(map, ll);
+          // The ends sit where the route leaves or arrives: the pill goes on the side away from the line, a little off its height.
+          const side = pillAwayFromLine(map.project(ll), awayPoint(i === 0), view.w);
+          const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
+          const text = shortName(name);
+          const size = measurePill(text, true);
+          if (size) taken.push(pillBox(map.project(ll), side.anchor, side.offset, size));
+          specs.push({ id: `wp${i}`, text, lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 });
+        }
+        // A stop's pill goes on its usual side, or the other side, above or below, wherever it clears what is taken; none fits: dropped.
+        for (let i = 1; i < last; i++) {
+          const w = ws[i];
+          const ll: [number, number] = [w.Longitude, w.Latitude];
           const min = Math.round(w.ChargeDurationSec / 60);
           const text = w.ChargeDurationSec > 0 ? `${min} min · ${Math.round(w.ArrivalSoC)}→${Math.round(w.DepartureSoC)}%` : shortName(w.Name || "Stop");
-          return { id: `wp${i}`, text, lngLat: ll, ...side, priority: 2 };
-        });
+          const size = measurePill(text);
+          const usual = pillSide(map, ll);
+          const pin = map.project(ll);
+          const at = size ? placeStopPill(pin, size, usual, taken.filter((b) => b !== pinBoxes[i]), view) : usual; // its own pin is not in its way
+          if (!at) continue;
+          if (size) taken.push(pillBox(pin, at.anchor, at.offset, size));
+          specs.push({ id: `wp${i}`, text, lngLat: ll, ...at, priority: 2 });
+        }
         const key = JSON.stringify(specs.map((p) => [p.id, p.text, p.anchor, p.offset, p.dot])) + flavor;
         if (!force && key === pillKeyRef.key) return;
         pillKeyRef.key = key;

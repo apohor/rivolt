@@ -171,3 +171,59 @@ export function reserveLabelRoom(map: MLMap, source: string, layerId: string, si
     map.addLayer({ id: layerId, type: "symbol", source, layout: { "icon-image": image, "icon-allow-overlap": true, "icon-ignore-placement": false } });
   }
 }
+
+// ---- placing a stop's pill where it fits ----
+
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+// measurePill is the size in px of a pill's picture for `text` (with a leading dot or not), as pillImage draws it; null without a canvas.
+export function measurePill(text: string, dot = false): { w: number; h: number } | null {
+  if (measureCtx === undefined) {
+    measureCtx = typeof document === "undefined" ? null : document.createElement("canvas").getContext?.("2d") ?? null;
+  }
+  if (!measureCtx) return null;
+  measureCtx.font = `600 ${MAP_CAPTION_PX + 1}px ui-sans-serif, system-ui, sans-serif`;
+  return { w: Math.ceil(measureCtx.measureText(text).width) + 18 + (dot ? 11 : 0), h: MAP_CAPTION_PX + 12 };
+}
+
+// pillBox is the box a pill of size `s` takes when its `anchor` corner or edge sits at the pin moved by `offset` (the symbol layer's icon-anchor and
+// icon-offset), in the same px as the pin.
+export function pillBox(pin: { x: number; y: number }, anchor: string, offset: [number, number], s: { w: number; h: number }): Box {
+  const x = pin.x + offset[0];
+  const y = pin.y + offset[1];
+  const x0 = anchor.endsWith("right") ? x - s.w : anchor.endsWith("left") ? x : x - s.w / 2;
+  const y0 = anchor.startsWith("bottom") ? y - s.h : anchor.startsWith("top") ? y : y - s.h / 2;
+  return { x0, y0, x1: x0 + s.w, y1: y0 + s.h };
+}
+
+const overlaps = (a: Box, b: Box, pad = 3) => a.x0 < b.x1 + pad && a.x1 > b.x0 - pad && a.y0 < b.y1 + pad && a.y1 > b.y0 - pad;
+
+// placeStopPill picks, for a stop's pill, the first of its candidate places that clears everything already placed (the end pills, the pins, other
+// stops' pills) and stays inside the view: its usual side, then the other side, then above and below the pin on each side. null when none fits:
+// the pill is dropped (the symbol layer would drop it anyway, but then the stop shows no detail, where another side would have shown it).
+export function placeStopPill(
+  pin: { x: number; y: number },
+  size: { w: number; h: number },
+  usual: { anchor: string; offset: [number, number] },
+  taken: Box[],
+  view: { w: number; h: number },
+): { anchor: string; offset: [number, number] } | null {
+  const usualRight = usual.anchor.endsWith("right");
+  const cands: { anchor: string; offset: [number, number] }[] = [
+    usual,
+    usualRight ? { anchor: "left", offset: [16, 0] } : { anchor: "right", offset: [-16, 0] },
+    usualRight ? { anchor: "top-right", offset: [-4, 16] } : { anchor: "top-left", offset: [4, 16] },
+    usualRight ? { anchor: "bottom-right", offset: [-4, -16] } : { anchor: "bottom-left", offset: [4, -16] },
+    usualRight ? { anchor: "top-left", offset: [4, 16] } : { anchor: "top-right", offset: [-4, 16] },
+    usualRight ? { anchor: "bottom-left", offset: [4, -16] } : { anchor: "bottom-right", offset: [-4, -16] },
+  ];
+  for (const c of cands) {
+    const b = pillBox(pin, c.anchor, c.offset, size);
+    if (b.x0 < 4 || b.y0 < 4 || b.x1 > view.w - 4 || b.y1 > view.h - 4) continue;
+    if (taken.some((t) => overlaps(b, t))) continue;
+    return c;
+  }
+  return null;
+}

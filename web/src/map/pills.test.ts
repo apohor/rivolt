@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Map as MLMap } from "maplibre-gl";
-import { pillAwayFromLine, pillImage, pillSide, placePills } from "./pills";
+import { pillAwayFromLine, pillBox, pillImage, pillSide, placePills, placeStopPill } from "./pills";
 
 // A map stand-in: a 400 px wide view where longitude 0..1 maps to x 0..400 and latitude 0..1 to y 300..0.
 const fakeMap = { getContainer: () => ({ clientWidth: 400 }), project: ([lon, lat]: [number, number]) => ({ x: lon * 400, y: 300 - lat * 300 }) } as unknown as MLMap;
@@ -57,5 +57,42 @@ describe("pillAwayFromLine", () => {
     expect(pillAwayFromLine({ x: 360, y: 100 }, { x: 300, y: 100 }, 400)).toEqual({ anchor: "bottom-right", offset: [-4, -10] });
     // A line that leaves upward puts the pill below.
     expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 40 }, 400)).toEqual({ anchor: "top-left", offset: [4, 10] });
+  });
+});
+
+describe("pillBox", () => {
+  it("puts a pill's anchored corner or edge at the pin moved by the offset", () => {
+    const s = { w: 100, h: 20 };
+    expect(pillBox({ x: 200, y: 100 }, "left", [16, 0], s)).toEqual({ x0: 216, y0: 90, x1: 316, y1: 110 });
+    expect(pillBox({ x: 200, y: 100 }, "right", [-16, 0], s)).toEqual({ x0: 84, y0: 90, x1: 184, y1: 110 });
+    expect(pillBox({ x: 200, y: 100 }, "bottom-left", [4, -10], s)).toEqual({ x0: 204, y0: 70, x1: 304, y1: 90 });
+    expect(pillBox({ x: 200, y: 100 }, "top-right", [-4, 10], s)).toEqual({ x0: 96, y0: 110, x1: 196, y1: 130 });
+  });
+});
+
+describe("placeStopPill", () => {
+  const size = { w: 110, h: 23 };
+  const view = { w: 360, h: 460 };
+  const pin = { x: 180, y: 230 };
+  const usual = { anchor: "left", offset: [16, 0] as [number, number] };
+  it("keeps its usual side when that is clear", () => {
+    expect(placeStopPill(pin, size, usual, [], view)).toEqual(usual);
+  });
+  it("takes the other side when the usual one is taken", () => {
+    // An end pill sits where the usual (right) side would be.
+    const taken = [pillBox(pin, "left", [16, 0], { w: 100, h: 23 })];
+    expect(placeStopPill(pin, size, usual, taken, view)).toEqual({ anchor: "right", offset: [-16, 0] });
+  });
+  it("goes below, then above, the pin when both sides are taken (a level line with the end pills above it)", () => {
+    const taken = [pillBox(pin, "left", [16, 0], { w: 100, h: 23 }), pillBox(pin, "right", [-16, 0], { w: 100, h: 23 })];
+    expect(placeStopPill(pin, size, usual, taken, view)).toEqual({ anchor: "top-left", offset: [4, 16] });
+    const withBelow = [...taken, pillBox(pin, "top-left", [4, 12], size)];
+    expect(placeStopPill(pin, size, usual, withBelow, view)).toEqual({ anchor: "bottom-left", offset: [4, -16] });
+  });
+  it("is dropped (null) when no place clears everything or stays in the view", () => {
+    const everywhere = [{ x0: 0, y0: 0, x1: 360, y1: 460 }];
+    expect(placeStopPill(pin, size, usual, everywhere, view)).toBeNull();
+    // A pin at the right edge: the usual side (right) runs out of the view, and the left one is used.
+    expect(placeStopPill({ x: 350, y: 230 }, size, usual, [], view)).toEqual({ anchor: "right", offset: [-16, 0] });
   });
 });

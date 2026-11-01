@@ -6,7 +6,8 @@ import { DEMO_PLAN, stubApi } from "./stub";
 // The plan map's origin and destination pills sit on the side of the pin away from the route and clear of its line. This fixture is the hard
 // case: a straight west-to-east route, so each end sits at the view's edge with the line leaving along the only side that has room for a pill.
 // The pills must go above (or below) the pin there, not along the line. Made-up coordinates near (10, 10). The shots are for ux and qa: the
-// pills are canvas images, so a pixel is the only thing to look at.
+// pills are canvas images, so a pixel is the only thing to look at. The mid-route stop's pill must still show its details: the end pills
+// sit above the line, so it takes the other side of the stop (below the line) instead of being dropped.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
