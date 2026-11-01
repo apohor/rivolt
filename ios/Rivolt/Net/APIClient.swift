@@ -84,6 +84,16 @@ actor APIClient {
         try await request("GET", "/api/auth/me")
     }
 
+    // MARK: In-App Purchase
+
+    /// Tells the server about a StoreKit transaction (its signed JWS). The server verifies the signature, the bundle, the environment, the product
+    /// and that `appAccountToken` is this account, then turns Pro on. 400 `invalid` for anything it does not accept.
+    func reportAppleTransaction(signed: String) async throws {
+        // Built by hand: the encoder's snake_case key strategy would turn `signedTransaction` into `signed_transaction`, which the server ignores.
+        let body = try JSONSerialization.data(withJSONObject: ["signedTransaction": signed])
+        let _: Empty = try await request("POST", "/api/billing/apple/transaction", body: RawJSONBody(data: body))
+    }
+
     // MARK: Units
 
     /// How the account shows distance and temperature.
@@ -720,7 +730,11 @@ actor APIClient {
         }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try encoder.encode(AnyEncodable(body))
+            if let raw = body as? RawJSONBody {
+                req.httpBody = raw.data
+            } else {
+                req.httpBody = try encoder.encode(AnyEncodable(body))
+            }
         }
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else {
@@ -786,6 +800,12 @@ enum APIError: LocalizedError {
         case .decoding(let e): return "Could not parse response: \(e.localizedDescription)"
         }
     }
+}
+
+/// A body that is already JSON, sent as it is.
+struct RawJSONBody: Encodable {
+    let data: Data
+    func encode(to encoder: Encoder) throws { fatalError("RawJSONBody is written to the request as it is") }
 }
 
 /// AnyEncodable is the standard trick to let `request` accept any

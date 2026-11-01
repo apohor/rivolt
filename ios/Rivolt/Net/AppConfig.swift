@@ -10,6 +10,17 @@ struct AppConfig: Decodable, Equatable {
     let minIosBuild: Int?
     /// Which push transports the server runs. Absent on a server that predates push.
     var push: Push? = nil
+    /// StoreKit on this server: its environment ("Sandbox" or "Production") and its subscription product ids, which are not labelled
+    /// (the app tells monthly from yearly by each product's period). Absent unless purchases are set up: then there is no buy button.
+    var iap: IAP? = nil
+
+    struct IAP: Decodable, Equatable {
+        let environment: String
+        let products: [String]
+    }
+
+    /// Whether the app may offer a purchase on this server.
+    var purchasesAvailable: Bool { !(iap?.products.isEmpty ?? true) }
 
     struct Push: Decodable, Equatable {
         let apns: Bool

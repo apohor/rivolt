@@ -97,6 +97,22 @@ enum ProCopy {
     static let manageHelp = "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."
     static let unofficial = "Unofficial, not affiliated with Rivian."
     static let unavailable = "Purchases aren't available yet. Nothing was charged."
+    static let purchased = "Thanks, Pro is on."
+    static let restored = "Restored. Pro is on."
+    static let pending = "Waiting for approval. Pro turns on once the purchase goes through."
+    static let nothingToRestore = "There is nothing to restore on this Apple ID."
+    static let notConfirmed = "We couldn't confirm the purchase just now. If you were charged, tap Restore purchases in a minute."
+
+    /// What a failed or unfinished purchase says. A cancel says nothing (the person chose it).
+    static func purchaseMessage(_ error: Error) -> String? {
+        switch error {
+        case StoreError.cancelled: return nil
+        case StoreError.pending: return pending
+        case StoreError.nothingToRestore: return nothingToRestore
+        case StoreError.notConfirmed: return notConfirmed
+        default: return unavailable
+        }
+    }
     static let deletionNote = "If you subscribed through the App Store, cancel in Settings → your name → Subscriptions first: deleting your Rivolt account doesn't cancel it."
 
     // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
@@ -269,6 +285,9 @@ struct ProPaywallView: View {
     @Environment(\.openURL) private var openURL
     let plan: PlanState
     var purchasing: ProPurchasing = UnavailablePurchasing()
+    /// What the server sets up, found when the sheet opens; `purchasing` stands until then, and always when it was given.
+    @State private var live: ProPurchasing?
+    private var buyer: ProPurchasing { live ?? purchasing }
     /// Only the content, without the scroll view and navigation around it: a snapshot test renders this (`ImageRenderer` cannot draw those).
     var snapshotOnly = false
 
@@ -284,18 +303,25 @@ struct ProPaywallView: View {
     }
 
     var body: some View {
-        if snapshotOnly {
-            content
-        } else {
-            SettingsStack {
-                ScrollView { content }
-                .themePage()
-                .navigationTitle(ProCopy.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(Theme.bar, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
+        Group {
+            if snapshotOnly {
+                content
+            } else {
+                SettingsStack {
+                    ScrollView { content }
+                    .themePage()
+                    .navigationTitle(ProCopy.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarBackground(Theme.bar, for: .navigationBar)
+                    .toolbarBackground(.visible, for: .navigationBar)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
+                }
             }
+        }
+        .task {
+            // Where the server has purchases set up the sheet buys through StoreKit; elsewhere it says they aren't available.
+            guard !snapshotOnly else { return }
+            live = await state.makePurchasing()
         }
     }
 
@@ -378,14 +404,20 @@ struct ProPaywallView: View {
         busy = true
         message = nil
         defer { busy = false }
-        do { try await purchasing.purchase(yearly: yearly) } catch { message = ProCopy.unavailable }
+        do {
+            try await buyer.purchase(yearly: yearly)
+            message = ProCopy.purchased
+        } catch { message = ProCopy.purchaseMessage(error) }
     }
 
     private func restore() async {
         busy = true
         message = nil
         defer { busy = false }
-        do { try await purchasing.restore() } catch { message = ProCopy.unavailable }
+        do {
+            try await buyer.restore()
+            message = ProCopy.restored
+        } catch { message = ProCopy.purchaseMessage(error) }
     }
 }
 
