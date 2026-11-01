@@ -62,6 +62,32 @@ enum SocDaily {
         return (high, low)
     }
 
+    /// The name of the month's high and low points. On one day (a month with a single day of readings, or a high and a low that fall on the
+    /// same day) they would lie on each other: one name for the day's range ("32–37% · Nov 1"). Otherwise one name each.
+    enum ExtremeNames: Equatable {
+        case range(String)
+        case separate(high: String, low: String)
+    }
+
+    static func extremeNames(_ e: (high: Day, low: Day), calendar: Calendar) -> ExtremeNames {
+        func pc(_ v: Double) -> String { NumberText.fixed(v, 0) }
+        if calendar.isDate(e.high.day, inSameDayAs: e.low.day) {
+            return .range("\(pc(e.low.low))–\(pc(e.high.high))% · \(dayLabel(e.high.day, calendar: calendar))")
+        }
+        return .separate(high: "\(pc(e.high.high))% · \(dayLabel(e.high.day, calendar: calendar))",
+                         low: "\(pc(e.low.low))% · \(dayLabel(e.low.day, calendar: calendar))")
+    }
+
+    /// Where the limit's name goes: after its line's end (the days still to come), else above that end, else against the plot's right edge above
+    /// the line. It moves on when a name already sits where it would go: beside the line's end, within `clearance` points of level.
+    enum LimitName: Equatable { case afterEnd, aboveEnd, rightEdge }
+
+    static func limitName(limitPct: Double, tight: Bool, extremeLevels: [Double], clearance: Double = 9) -> LimitName {
+        let crowded = extremeLevels.contains { abs($0 - limitPct) < clearance }
+        if !crowded { return tight ? .aboveEnd : .afterEnd }
+        return .rightEdge
+    }
+
     /// "Oct 12".
     static func dayLabel(_ day: Date, calendar: Calendar) -> String {
         var f = Date.FormatStyle(timeZone: calendar.timeZone).month(.abbreviated).day()
@@ -129,8 +155,7 @@ struct SocDailyChart: View {
         return Chart {
             lowZone(r)
             limitMarks(r)
-            bandMarks
-            lineMarks
+            if shown.count == 1 { singleDayMarks } else { bandMarks; lineMarks }
             tickMarks
             extremeMarks(r)
             if let d = inspected {
@@ -188,12 +213,15 @@ struct SocDailyChart: View {
     private func limitMarks(_ r: (since: Date, until: Date)) -> some ChartContent {
         if let limit {
             let tight = r.until.timeIntervalSince(limit.end) < 4 * 86_400
+            let name = SocDaily.limitName(limitPct: limit.pct, tight: tight, extremeLevels: extremes.map { [$0.high.high, $0.low.low] } ?? [])
             RuleMark(xStart: .value("From", limit.start), xEnd: .value("To", limit.end), y: .value("Limit", limit.pct))
                 .lineStyle(StrokeStyle(lineWidth: 1))
                 .foregroundStyle(Theme.chartSocLimit.opacity(0.32))
-            PointMark(x: .value("To", limit.end), y: .value("Limit", limit.pct))
+            // The name sits where nothing else is: after the line, above its end, or (when the high or low's name is beside it) against the
+            // plot's right edge above the line.
+            PointMark(x: .value("To", name == .rightEdge ? r.until : limit.end), y: .value("Limit", limit.pct))
                 .symbolSize(0)
-                .annotation(position: tight ? .top : .trailing, alignment: tight ? .trailing : .center, spacing: 4) {
+                .annotation(position: name == .afterEnd ? .trailing : .top, alignment: name == .afterEnd ? .center : .trailing, spacing: 4) {
                     Text("Limit \(NumberText.fixed(limit.pct, 0))%").themeText(.caption, color: Theme.chartSocLimit)
                 }
         }
@@ -206,6 +234,20 @@ struct SocDailyChart: View {
             AreaMark(x: .value("Day", center(d.day)), yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 0.6)), series: .value("Series", "Band"))
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Theme.chartSocCharge.opacity(0.22))
+        }
+    }
+
+    /// A single day of readings has no band or line to draw between days: its range is a rounded bar a little wider than a day's tick, and where
+    /// it ended is a dot, so a month's first day reads as something rather than a sliver at the axis.
+    @ChartContentBuilder
+    private var singleDayMarks: some ChartContent {
+        ForEach(shown) { d in
+            RectangleMark(xStart: .value("From", center(d.day).addingTimeInterval(-0.45 * 86_400)), xEnd: .value("To", center(d.day).addingTimeInterval(0.45 * 86_400)),
+                          yStart: .value("Low", d.low), yEnd: .value("High", max(d.high, d.low + 1.2)))
+                .cornerRadius(3)
+                .foregroundStyle(Theme.chartSocCharge.opacity(0.28))
+            PointMark(x: .value("Day", center(d.day)), y: .value("End", d.end))
+                .symbolSize(36).foregroundStyle(Theme.chartSocCharge)
         }
     }
 
@@ -236,13 +278,23 @@ struct SocDailyChart: View {
         if let e = extremes, e.high.high != e.low.low {
             let highRight = center(e.high.day).timeIntervalSince(r.since) < 0.6 * r.until.timeIntervalSince(r.since)
             let lowRight = center(e.low.day).timeIntervalSince(r.since) < 0.6 * r.until.timeIntervalSince(r.since)
-            PointMark(x: .value("Day", center(e.high.day)), y: .value("High", e.high.high))
-                .symbolSize(40).foregroundStyle(Theme.textPrimary)
-                .annotation(position: highRight ? .trailing : .leading, spacing: 4) { extremeLabel("\(NumberText.fixed(e.high.high, 0))% · \(SocDaily.dayLabel(e.high.day, calendar: calendar))") }
-            PointMark(x: .value("Day", center(e.low.day)), y: .value("Low", e.low.low))
-                .symbolSize(40).foregroundStyle(Theme.textPrimary)
-                // A low near the floor is lifted off the charging ticks.
-                .annotation(position: e.low.low < 12 ? (lowRight ? .topTrailing : .topLeading) : (lowRight ? .trailing : .leading), spacing: 4) { extremeLabel("\(NumberText.fixed(e.low.low, 0))% · \(SocDaily.dayLabel(e.low.day, calendar: calendar))") }
+            switch SocDaily.extremeNames(e, calendar: calendar) {
+            case .range(let text):
+                // One day: both points marked, one name for the range beside them (at the middle of the two).
+                PointMark(x: .value("Day", center(e.high.day)), y: .value("High", e.high.high)).symbolSize(40).foregroundStyle(Theme.textPrimary)
+                PointMark(x: .value("Day", center(e.low.day)), y: .value("Low", e.low.low)).symbolSize(40).foregroundStyle(Theme.textPrimary)
+                PointMark(x: .value("Day", center(e.high.day)), y: .value("Mid", (e.high.high + e.low.low) / 2))
+                    .symbolSize(0)
+                    .annotation(position: highRight ? .trailing : .leading, spacing: 8) { extremeLabel(text) }
+            case .separate(let high, let low):
+                PointMark(x: .value("Day", center(e.high.day)), y: .value("High", e.high.high))
+                    .symbolSize(40).foregroundStyle(Theme.textPrimary)
+                    .annotation(position: highRight ? .trailing : .leading, spacing: 4) { extremeLabel(high) }
+                PointMark(x: .value("Day", center(e.low.day)), y: .value("Low", e.low.low))
+                    .symbolSize(40).foregroundStyle(Theme.textPrimary)
+                    // A low near the floor is lifted off the charging ticks.
+                    .annotation(position: e.low.low < 12 ? (lowRight ? .topTrailing : .topLeading) : (lowRight ? .trailing : .leading), spacing: 4) { extremeLabel(low) }
+            }
         }
     }
 
