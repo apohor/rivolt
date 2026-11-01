@@ -94,4 +94,37 @@ final class SocDailySnapshotTests: XCTestCase {
                 .padding(4 * Theme.unit)
         }.padding(16).frame(width: 390).background(ThemePageBackground()))
     }
+
+    /// The first of a month with one day of readings: a drive from 37 to 32% and a charge to a 35% limit, at the largest chart text size. The
+    /// high, the low and the limit sit within a few points of each other; their names must not land on one another.
+    func testRenderAOneDayMonthAtALargeTextSize() throws {
+        let nov1 = Date(timeIntervalSince1970: 1_793_491_200)
+        let drives = [DrivePoint(startedAt: nov1.addingTimeInterval(14 * 3_600), endedAt: nov1.addingTimeInterval(14.5 * 3_600), distanceMi: 12, startSocPct: 37, endSocPct: 32)]
+        let charges = [ChargePoint(startedAt: nov1.addingTimeInterval(20 * 3_600), endedAt: nov1.addingTimeInterval(21 * 3_600), startSocPct: 32, endSocPct: 35, chargeLimitPct: 35)]
+        let days = SocDaily.days(drives: drives, charges: charges, calendar: utc)
+        let now = nov1.addingTimeInterval(22 * 3_600)
+        let pm = PeriodMonth(containing: now, calendar: utc)
+        let r = pm.range(calendar: utc)
+        let limit = ChartMath.limitSegment(charges, from: r.since, to: r.until, now: now, live: 35)
+        XCTAssertEqual(days.count, 1)
+        try render("soc-one-day-large", ThemeSection(title: "Battery (SoC) trend") {
+            SocDailyChart(days: days, limit: limit, month: pm, calendar: utc)
+                .padding(4 * Theme.unit)
+        }.padding(16).frame(width: 390).background(ThemePageBackground()).environment(\.dynamicTypeSize, .xxxLarge))
+    }
+
+    func testAHighAndLowOnOneDayShareOneName() {
+        let d = SocDaily.Day(day: oct1, low: 32, high: 37, end: 35, charged: false)
+        let e = (high: d, low: d)
+        XCTAssertEqual(SocDaily.extremeNames(e, calendar: utc), .range("32–37% · Oct 1"))
+        let later = SocDaily.Day(day: oct1.addingTimeInterval(3 * 86_400), low: 20, high: 30, end: 25, charged: false)
+        XCTAssertEqual(SocDaily.extremeNames((high: d, low: later), calendar: utc), .separate(high: "37% · Oct 1", low: "20% · Oct 4"))
+    }
+
+    func testTheLimitNameMovesOffAnExtremeNameAtItsLevel() {
+        XCTAssertEqual(SocDaily.limitName(limitPct: 80, tight: false, extremeLevels: [97, 3]), .afterEnd)
+        XCTAssertEqual(SocDaily.limitName(limitPct: 80, tight: true, extremeLevels: [97, 3]), .aboveEnd)
+        XCTAssertEqual(SocDaily.limitName(limitPct: 35, tight: true, extremeLevels: [37, 32]), .rightEdge)
+        XCTAssertEqual(SocDaily.limitName(limitPct: 35, tight: false, extremeLevels: []), .afterEnd)
+    }
 }
