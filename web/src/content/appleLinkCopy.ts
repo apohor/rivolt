@@ -1,6 +1,5 @@
 // The words of Settings → Security → Apple (Link Apple to my account), in one place. From growth's copy (_shared/apple-link-copy.md, DA-approved
-// Nov 1, 2026); ux places them. The lines marked "not in growth's list" are mine and still need growth's eye: the failures of the password check
-// and the "taking too long" lines, which the copy file does not cover.
+// Nov 1, 2026); ux places them. The lines marked "not in growth's list" were mine; growth reviewed them (§6 of the copy file) and four were reworded.
 export const APPLE_LINK_COPY = {
   title: "Apple",
 
@@ -45,17 +44,17 @@ export const APPLE_LINK_COPY = {
   // Progress (not in growth's list).
   connecting: "Opening Apple…",
   disconnecting: "Disconnecting…",
-  loadFailed: "Couldn't load this. Try again.",
+  loadFailed: "Couldn't load your sign-in methods. Try again.",
 
   // Failures of connect and disconnect, by the server's error code (not in growth's list, except the refusal above).
   failures: {
     password_incorrect: "That password isn't right.",
     password_required: "Type your password to confirm.",
-    apple_not_available: "Sign in with Apple isn't available here.",
+    apple_not_available: "Sign in with Apple isn't available on this server.",
     not_linked: "Apple isn't connected to this account.",
     too_many: "Too many attempts. Wait a few minutes, then try again.",
-    not_here: "This can't be changed from here (the iPhone app, or viewing as another user). Use a browser signed in as yourself.",
-    generic: "Couldn't do that. Try again.",
+    not_here: "Use a browser signed in as yourself to change this. It can't be done from the iPhone app or while viewing as another user.",
+    generic: "That didn't work. Try again in a moment.",
   },
 
   // Under "Continue with Apple" on the sign-in page.
