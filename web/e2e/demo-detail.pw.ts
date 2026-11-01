@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { stubApi } from "./stub";
+import { allTime, stubApi } from "./stub";
 import { e2eNow } from "./clock";
 
 // Signed-out demo: receipts and Activity rows open working, read-only
 // detail views under /demo, and back / refresh / a fresh open all work.
 
 async function openDemo(page: Page, path: string) {
+  await allTime(page);
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
   await page.goto(path);
 }
@@ -204,6 +205,7 @@ test("the demo map uses the self-hosted basemap, never CARTO's keyed raster @web
 test("without a basemap archive the map says so, and calls no third-party tile host @webkit", async ({ page }) => {
   const reqs: string[] = [];
   page.on("request", (r) => reqs.push(r.url()));
+  await allTime(page);
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, noTiles: true });
   await page.goto("/demo/activity");
   await page.locator('a[href^="/demo/charges/"]').first().click();
