@@ -229,6 +229,11 @@ type Service struct {
 
 	// appleLinks, see Config.AppleLinks.
 	appleLinks AppleLinks
+
+	// linkIntents, sessionLive and linkObserve, see Config.
+	linkIntents AppleLinkIntents
+	sessionLive func(ctx context.Context, uid uuid.UUID, sessionHash []byte) (bool, error)
+	linkObserve func(outcome string)
 }
 
 type provider struct {
@@ -272,6 +277,14 @@ type Config struct {
 	// AppleLinks finds and records Apple identities' accounts. An
 	// "apple" provider refuses every sign-in without it.
 	AppleLinks AppleLinks
+
+	// AppleLinkIntents and SessionLive turn on "Link Apple to my account"
+	// (BeginAppleLink and the callback's link mode). Without them, linking
+	// is not available and every Apple callback is a sign-in.
+	AppleLinkIntents AppleLinkIntents
+	SessionLive      func(ctx context.Context, uid uuid.UUID, sessionHash []byte) (bool, error)
+	// LinkObserve, when set, is told each link outcome (the metric's vocabulary).
+	LinkObserve func(outcome string)
 }
 
 // New builds a Service. Providers that fail to bootstrap (DNS
@@ -318,6 +331,9 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		log:            log,
 		providers:      make(map[string]*provider),
 		appleLinks:     cfg.AppleLinks,
+		linkIntents:    cfg.AppleLinkIntents,
+		sessionLive:    cfg.SessionLive,
+		linkObserve:    cfg.LinkObserve,
 	}
 	var pending []ProviderConfig
 	for _, pc := range cfg.Providers {
@@ -584,6 +600,9 @@ type flowState struct {
 	Nonce    string `json:"n"` // OIDC nonce
 	Verifier string `json:"v"` // PKCE code_verifier
 	Return   string `json:"r"` // post-login redirect target
+	// Link marks a "Link Apple to my account" flow. A hint only (the cookie is unsigned): it can only make the callback stricter,
+	// refusing a flow whose request has expired instead of letting it end as an ordinary sign-in.
+	Link bool `json:"l,omitempty"`
 }
 
 func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -595,7 +614,24 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown provider", http.StatusNotFound)
 		return
 	}
+	ret := strings.TrimSpace(r.URL.Query().Get("return"))
+	// Only honour same-site paths to avoid open-redirect via
+	// ?return=https://evil.example (see safeReturnPath).
+	if !safeReturnPath(ret) {
+		ret = s.postLoginURL
+	}
+	_, cookieVal, authURL, err := s.startFlow(p, name, ret, false)
+	if err != nil {
+		http.Error(w, "start", http.StatusInternalServerError)
+		return
+	}
+	s.setStateCookie(w, p, cookieVal)
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
 
+// startFlow makes the state, nonce and PKCE verifier for one sign-in with p and returns the flow state, the state cookie's
+// value and the provider's authorize URL.
+func (s *Service) startFlow(p *provider, name, ret string, link bool) (flowState, string, string, error) {
 	// state == nonce: we generate one 32-byte random and use it
 	// for both. Reusing is safe because the nonce is opaque to
 	// us — only the IdP echoes it back inside the signed ID
@@ -603,48 +639,34 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 	// collide because they live in different protocols.
 	stateRaw, err := randURL(32)
 	if err != nil {
-		http.Error(w, "rng", http.StatusInternalServerError)
-		return
+		return flowState{}, "", "", err
 	}
 	verifier, err := randURL(48) // 64 chars after base64 — within RFC 7636 43-128 range.
 	if err != nil {
-		http.Error(w, "rng", http.StatusInternalServerError)
-		return
+		return flowState{}, "", "", err
 	}
-	challenge := pkceChallenge(verifier)
-
-	ret := strings.TrimSpace(r.URL.Query().Get("return"))
-	// Only honour same-site paths to avoid open-redirect via
-	// ?return=https://evil.example (see safeReturnPath).
-	if !safeReturnPath(ret) {
-		ret = s.postLoginURL
-	}
-
 	st := flowState{
 		Provider: name,
 		State:    stateRaw,
 		Nonce:    stateRaw,
 		Verifier: verifier,
 		Return:   ret,
+		Link:     link,
 	}
 	cookieVal, err := encodeState(st)
 	if err != nil {
-		http.Error(w, "encode state", http.StatusInternalServerError)
-		return
+		return flowState{}, "", "", err
 	}
-	s.setStateCookie(w, p, cookieVal)
-
 	opts := []oauth2.AuthCodeOption{
 		oidc.Nonce(stateRaw),
-		oauth2.SetAuthURLParam("code_challenge", challenge),
+		oauth2.SetAuthURLParam("code_challenge", pkceChallenge(verifier)),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	}
 	if p.cfg.Kind == kindApple {
 		// Required by Apple when asking for name or email.
 		opts = append(opts, oauth2.SetAuthURLParam("response_mode", "form_post"))
 	}
-	authURL := p.oauth.AuthCodeURL(stateRaw, opts...)
-	http.Redirect(w, r, authURL, http.StatusFound)
+	return st, cookieVal, p.oauth.AuthCodeURL(stateRaw, opts...), nil
 }
 
 func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -657,6 +679,17 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isApple := p.cfg.Kind == kindApple
+	// link is set when this callback finishes a "Link Apple to my account" request (see consumeLinkIntent); every failure then
+	// goes back to Settings, not to the sign-in page.
+	var link *AppleLinkIntent
+	linkFlow := false // link != nil, or the cookie says this flow began as a link
+	fail := func(code, description string) {
+		if link != nil || linkFlow {
+			s.failLink(w, r, code)
+			return
+		}
+		s.failRedirect(w, r, code, description)
+	}
 	// Apple answers with a form POST; every other provider with a GET.
 	if isApple != (r.Method == http.MethodPost) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -668,26 +701,40 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		clearAppleCookie(w, name)
 		r.Body = http.MaxBytesReader(w, r.Body, appleFormMax)
 		if err := r.ParseForm(); err != nil {
-			s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+			fail("session_expired", "Your sign-in session expired. Please try again.")
 			return
 		}
 		q = r.PostForm
+		// Before any check that can fail: the request is spent whatever happens next.
+		var err error
+		if link, err = s.consumeLinkIntent(r.Context(), q.Get("state")); err != nil {
+			s.log.Error("oidc: apple link request", "err", logging.ScrubErr(err))
+			fail("server_error", "Something went wrong on our end. Please try again.")
+			return
+		}
 	}
 	c, err := stateCookieFor(r, p)
 	if err != nil {
-		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+		fail("session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	st, err := decodeState(c.Value)
 	if err != nil {
-		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+		fail("session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	// Defence in depth: provider mismatch means the user
 	// completed a different flow than the cookie claims. Refuse.
 	if st.Provider != name {
-		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+		fail("session_expired", "Your sign-in session expired. Please try again.")
 		return
+	}
+	if isApple && st.Link {
+		linkFlow = true
+		if link == nil { // began as a link, but the request is gone or spent: never an ordinary sign-in
+			fail("session_expired", "Your sign-in session expired. Please try again.")
+			return
+		}
 	}
 	if errParam := q.Get("error"); errParam != "" {
 		s.log.Warn("oidc: idp returned error",
@@ -701,24 +748,24 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		if desc == "" {
 			desc = "The identity provider reported an error (" + errParam + ")."
 		}
-		s.failRedirect(w, r, "idp_error", desc)
+		fail("idp_error", desc)
 		return
 	}
 	gotState := q.Get("state")
 	if subtle.ConstantTimeCompare([]byte(gotState), []byte(st.State)) != 1 {
-		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+		fail("session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	code := q.Get("code")
 	if code == "" {
-		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
+		fail("session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 
 	secret, err := exchangeSecretFor(p, time.Now())
 	if err != nil {
 		s.log.Error("oidc: client secret", "provider", name, "err", err)
-		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+		fail("server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	oc := *p.oauth
@@ -728,7 +775,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		s.log.Warn("oidc: token exchange failed", "provider", name, "err", logging.ScrubErr(err))
-		s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
+		fail("provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 		return
 	}
 	var (
@@ -739,7 +786,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		gh, err := fetchGitHubIdentity(r.Context(), tok.AccessToken)
 		if err != nil {
 			s.log.Warn("oidc: github identity fetch failed", "provider", name, "err", logging.ScrubErr(err))
-			s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
+			fail("provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 			return
 		}
 		// GitHub doesn't emit a stable namespaced sub; we use its
@@ -753,17 +800,17 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	} else {
 		rawIDToken, ok := tok.Extra("id_token").(string)
 		if !ok || rawIDToken == "" {
-			s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
+			fail("provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 			return
 		}
 		idTok, err := p.verifier.Verify(r.Context(), rawIDToken)
 		if err != nil {
 			s.log.Warn("oidc: id_token verify failed", "provider", name, "err", logging.ScrubErr(err))
-			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
+			fail("verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		if subtle.ConstantTimeCompare([]byte(idTok.Nonce), []byte(st.Nonce)) != 1 {
-			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
+			fail("verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		var claims struct {
@@ -775,7 +822,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			Name              string   `json:"name"`
 		}
 		if err := idTok.Claims(&claims); err != nil {
-			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
+			fail("verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		claimSub = claims.Sub
@@ -784,6 +831,10 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		claimPrivateEmail = bool(claims.IsPrivateEmail)
 		claimPreferred = claims.PreferredUsername
 		claimName = claims.Name
+	}
+	if link != nil {
+		s.finishAppleLink(w, r, *link, claimSub, tok.RefreshToken)
+		return
 	}
 	if isApple {
 		// Apple's id_token carries no name; the form's unsigned "user"
@@ -822,14 +873,14 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 				exists, uerr = s.userExists(r.Context(), cand)
 				if uerr != nil {
 					s.log.Error("oidc: account lookup", "err", logging.ScrubErr(uerr))
-					s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+					fail("server_error", "Something went wrong on our end. Please try again.")
 					return
 				}
 			}
 			if exists {
 				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "email_unverified: account exists under an unverified identifier")
 				s.clearStateCookie(w)
-				s.failRedirect(w, r, "email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
+				fail("email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
 				return
 			}
 		}
@@ -837,7 +888,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		// Without a stable identity we can't safely mint a
 		// session — refusing is correct.
-		s.failRedirect(w, r, "verification_failed", "Your provider didn't share enough information to sign you in.")
+		fail("verification_failed", "Your provider didn't share enough information to sign you in.")
 		return
 	}
 	display := strings.TrimSpace(claimName)
@@ -853,7 +904,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, ErrSignupDisabled) {
 				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "signups_disabled: unknown identity")
 				s.clearStateCookie(w)
-				s.failRedirect(w, r, "signups_disabled", "Sign-ups are closed on this server. Ask the administrator for an account.")
+				fail("signups_disabled", "Sign-ups are closed on this server. Ask the administrator for an account.")
 				return
 			}
 			if errors.Is(err, ErrCapExceeded) {
@@ -872,7 +923,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.log.Error("oidc: cap guard failed", "err", logging.ScrubErr(err))
-			s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+			fail("server_error", "Something went wrong on our end. Please try again.")
 			return
 		}
 	}
@@ -885,11 +936,11 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// as a transient infrastructure failure.
 		if errors.Is(err, ErrUserForbidden) {
 			s.log.Warn("oidc: sign-in refused", "user_hash", logging.IDHash(username))
-			s.failRedirect(w, r, "account_disabled", "This account has been disabled. Contact the administrator if you think this is a mistake.")
+			fail("account_disabled", "This account has been disabled. Contact the administrator if you think this is a mistake.")
 			return
 		}
 		s.log.Error("oidc: ensure user", "err", logging.ScrubErr(err))
-		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+		fail("server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	if isApple {
@@ -898,17 +949,17 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		if err := s.appleLinks.Link(r.Context(), uid, claimSub, tok.RefreshToken); err != nil {
 			if errors.Is(err, ErrAppleLinkConflict) {
 				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "apple_linked: account linked to another Apple ID")
-				s.failRedirect(w, r, "apple_linked", "This account is already connected to a different Apple ID. Sign in with that Apple ID or the method you used before.")
+				fail("apple_linked", "This account is already connected to a different Apple ID. Sign in with that Apple ID or the method you used before.")
 				return
 			}
 			s.log.Error("oidc: apple link", "err", logging.ScrubErr(err))
-			s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+			fail("server_error", "Something went wrong on our end. Please try again.")
 			return
 		}
 	}
 	if err := s.issueSession(w, r, uid); err != nil {
 		s.log.Error("oidc: issue session", "err", logging.ScrubErr(err))
-		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+		fail("server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	s.clearStateCookie(w)

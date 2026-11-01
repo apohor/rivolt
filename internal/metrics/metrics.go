@@ -32,6 +32,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// AppleLinkOutcomes are the rivolt_apple_link_total outcomes, all created at 0 at boot: started (a link began), linked,
+// in_use (that Apple ID belongs to another account), account_linked (this account has another Apple ID), expired (no
+// open request, a spent one, or the session ended), reauth_refused (start without a fresh sign-in or the right password),
+// provider_error (Apple or our own failure on the way).
+var AppleLinkOutcomes = []string{"started", "linked", "in_use", "account_linked", "expired", "reauth_refused", "provider_error"}
+
 // Metrics is the rivolt-specific instrumentation surface. One
 // instance is built at startup and shared with anything that
 // emits a metric. Keep it small — adding a metric here means it
@@ -261,6 +267,8 @@ type Metrics struct {
 	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
 	// a bundle, environment or product that is not this deployment's. Pre-created at 0.
 	AppleNotificationsTotal *prometheus.CounterVec
+	// AppleLinkTotal counts Link Apple to my account requests by outcome (see appleLinkOutcomes in internal/api).
+	AppleLinkTotal *prometheus.CounterVec
 	// BillingNonUSTotal counts Stripe customers whose billing address is outside the US (Rivolt Pro is sold in the US only), once per customer
 	// and country per process. The account keeps Pro; the operator refunds and cancels, so any increase is worth an alert. Starts at 0.
 	BillingNonUSTotal prometheus.Counter
@@ -576,6 +584,13 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		AppleLinkTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_apple_link_total",
+				Help: "Link Apple to my account by outcome.",
+			},
+			[]string{"outcome"},
+		),
 		DatedNoticesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_dated_notices_total",
@@ -758,6 +773,7 @@ func New() *Metrics {
 		m.SingletonRunsTotal,
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,
+		m.AppleLinkTotal,
 		m.BillingNonUSTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
@@ -790,6 +806,9 @@ func New() *Metrics {
 	// very event it is for). Keep the label values in step with the callers.
 	for _, outcome := range applebill.Outcomes {
 		m.AppleNotificationsTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, outcome := range AppleLinkOutcomes {
+		m.AppleLinkTotal.WithLabelValues(outcome).Add(0)
 	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
 	for _, kind := range launchnotice.MetricKinds {

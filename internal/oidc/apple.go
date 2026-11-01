@@ -63,6 +63,8 @@ var ErrAppleLinkConflict = errors.New("oidc: Apple identity linked to another ac
 type AppleLinks interface {
 	// UsernameBySub returns the account key of the account linked to sub, or ok=false.
 	UsernameBySub(ctx context.Context, sub string) (username string, ok bool, err error)
+	// UserBySub returns the account linked to sub, or ok=false (the link flow compares it with the signed-in user).
+	UserBySub(ctx context.Context, sub string) (uid uuid.UUID, ok bool, err error)
 	// Link records that uid signs in with sub and keeps refreshToken (may be "") for revocation. A conflict is
 	// ErrAppleLinkConflict.
 	Link(ctx context.Context, uid uuid.UUID, sub, refreshToken string) error
@@ -342,4 +344,142 @@ func (s *Service) AppleRevoke(ctx context.Context, refreshToken string) error {
 		return fmt.Errorf("apple revoke: %s: %s", resp.Status, apiErr.Error)
 	}
 	return fmt.Errorf("apple revoke: %s", resp.Status)
+}
+
+// Linking an Apple identity to the account someone is signed in to (design: _shared/apple-link-design.md).
+//
+// The start is an authenticated request (internal/api) that records an intent: who is linking, from which session, under which OAuth
+// state. Apple's answer is a cross-site POST that carries no Rivolt session cookie, and the state cookie is unsigned, so the account
+// to link comes from the intent, found by the state in the form, never from a cookie or a form field. The callback spends the intent
+// first of all (a request is single use whatever follows), checks the session that started it is still signed in, and links; it
+// issues no session.
+
+// appleLinkReturn is where the browser lands after a link attempt: Settings, with ?apple=linked or ?apple=<error code>.
+const appleLinkReturn = "/settings"
+
+// AppleLinkIntent is a spent link request: the account that started it and sha256 of the id of the session it started from.
+type AppleLinkIntent struct {
+	UserID      uuid.UUID
+	SessionHash []byte
+}
+
+// AppleLinkIntents keeps link requests (internal/appleid's table).
+type AppleLinkIntents interface {
+	Create(ctx context.Context, uid uuid.UUID, stateHash, sessionHash []byte, now time.Time) error
+	// Consume takes the request for stateHash once; ok=false when there is none or it has expired.
+	Consume(ctx context.Context, stateHash []byte, now time.Time) (AppleLinkIntent, bool, error)
+}
+
+// LinkHash is the sha256 the intent table keeps of an OAuth state or a session id (internal/appleid.Hash is the same function).
+func LinkHash(raw string) []byte {
+	h := sha256.Sum256([]byte(raw))
+	return h[:]
+}
+
+// BeginAppleLink starts linking an Apple identity to uid, who is signed in with the session sessionID: it records the intent, sets the
+// Apple state cookie and returns the URL to send the browser to. ErrAppleNotConfigured when linking is not available here.
+func (s *Service) BeginAppleLink(w http.ResponseWriter, r *http.Request, uid, sessionID uuid.UUID) (string, error) {
+	if s == nil || s.linkIntents == nil || s.sessionLive == nil || s.appleLinks == nil {
+		return "", ErrAppleNotConfigured
+	}
+	var p *provider
+	s.mu.RLock()
+	for _, cand := range s.providers {
+		if cand.cfg.Kind == kindApple && cand.apple != nil {
+			p = cand
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if p == nil {
+		return "", ErrAppleNotConfigured
+	}
+	st, cookieVal, authURL, err := s.startFlow(p, p.cfg.Name, appleLinkReturn, true)
+	if err != nil {
+		return "", fmt.Errorf("apple link: start: %w", err)
+	}
+	if err := s.linkIntents.Create(r.Context(), uid, LinkHash(st.State), LinkHash(sessionID.String()), time.Now()); err != nil {
+		return "", fmt.Errorf("apple link: record request: %w", err)
+	}
+	s.setStateCookie(w, p, cookieVal)
+	return authURL, nil
+}
+
+// consumeLinkIntent spends the link request that goes with the OAuth state in Apple's form; nil when there is none (an ordinary
+// sign-in).
+func (s *Service) consumeLinkIntent(ctx context.Context, state string) (*AppleLinkIntent, error) {
+	if s.linkIntents == nil || state == "" {
+		return nil, nil
+	}
+	in, ok, err := s.linkIntents.Consume(ctx, LinkHash(state), time.Now())
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &in, nil
+}
+
+// failLink sends the browser back to Settings with an error code, and counts it.
+func (s *Service) failLink(w http.ResponseWriter, r *http.Request, code string) {
+	outcome := "provider_error"
+	switch code {
+	case "session_expired":
+		outcome = "expired"
+	case "apple_in_use":
+		outcome = "in_use"
+	case "apple_linked":
+		outcome = "account_linked"
+	}
+	s.observeLink(outcome)
+	http.Redirect(w, r, appleLinkReturn+"?apple="+url.QueryEscape(code), http.StatusFound)
+}
+
+func (s *Service) observeLink(outcome string) {
+	if s.linkObserve != nil {
+		s.linkObserve(outcome)
+	}
+}
+
+// finishAppleLink is the callback's link mode, after Apple's id_token has been verified: link sub to the account that started the
+// request, provided the session it started from is still signed in. Nothing about Apple's email or name is used or kept, and no
+// session is issued (the browser has one). Logs the outcome only: never the sub, an address or a token.
+func (s *Service) finishAppleLink(w http.ResponseWriter, r *http.Request, in AppleLinkIntent, sub, refreshToken string) {
+	if strings.TrimSpace(sub) == "" {
+		s.failLink(w, r, "verification_failed")
+		return
+	}
+	live, err := s.sessionLive(r.Context(), in.UserID, in.SessionHash)
+	if err != nil {
+		s.log.Error("oidc: apple link session check", "err", logging.ScrubErr(err))
+		s.failLink(w, r, "server_error")
+		return
+	}
+	if !live {
+		s.log.Info("oidc: apple link refused", "reason", "session_ended")
+		s.failLink(w, r, "session_expired")
+		return
+	}
+	owner, found, err := s.appleLinks.UserBySub(r.Context(), sub)
+	if err != nil {
+		s.log.Error("oidc: apple link lookup", "err", logging.ScrubErr(err))
+		s.failLink(w, r, "server_error")
+		return
+	}
+	if found && owner != in.UserID {
+		s.log.Info("oidc: apple link refused", "reason", "apple_id_in_use")
+		s.failLink(w, r, "apple_in_use")
+		return
+	}
+	if err := s.appleLinks.Link(r.Context(), in.UserID, sub, refreshToken); err != nil {
+		if errors.Is(err, ErrAppleLinkConflict) {
+			s.log.Info("oidc: apple link refused", "reason", "account_has_another_apple_id")
+			s.failLink(w, r, "apple_linked")
+			return
+		}
+		s.log.Error("oidc: apple link", "err", logging.ScrubErr(err))
+		s.failLink(w, r, "server_error")
+		return
+	}
+	s.log.Info("oidc: apple link", "outcome", "linked")
+	s.observeLink("linked")
+	http.Redirect(w, r, appleLinkReturn+"?apple=linked", http.StatusFound)
 }

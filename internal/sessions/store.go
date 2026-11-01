@@ -284,6 +284,34 @@ func (s *Store) Revoke(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// Live returns when the session id of userID was created, and whether it is still usable (not revoked, not expired).
+func (s *Store) Live(ctx context.Context, userID, id uuid.UUID) (created time.Time, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx,
+		`SELECT created_at FROM sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > now()`, id, userID).Scan(&created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("sessions: live: %w", err)
+	}
+	return created, true, nil
+}
+
+// LiveByIDHash is Live for a session known only by sha256 of its id's text (what the Apple link request keeps instead of the id).
+func (s *Store) LiveByIDHash(ctx context.Context, userID uuid.UUID, idHash []byte) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM sessions WHERE user_id = $1 AND sha256(convert_to(id::text, 'UTF8')) = $2 AND revoked_at IS NULL AND expires_at > now()`,
+		userID, idHash).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("sessions: live by hash: %w", err)
+	}
+	return true, nil
+}
+
 // RevokeByToken is the convenience called by the /logout handler
 // — translates the cookie value to a row id and revokes it in a
 // single round-trip. Garbage tokens resolve to nothing and are

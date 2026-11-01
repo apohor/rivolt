@@ -2283,6 +2283,9 @@ func runServer() {
 	// store) — emit a clear error rather than silently dropping.
 	var oidcSvc *oidc.Service
 	var appleNotifier http.Handler // an interface, so it stays nil unless the Apple provider is set up
+	var appleLinkStore interface { // sign-out drops the Apple link requests of its session; nil without the OIDC service
+		DropSessionLinkIntents(ctx context.Context, sessionHash []byte) error
+	}
 	// Passkeys (WebAuthn) for the email accounts: only with RIVOLT_WEBAUTHN_RP_ID and _ORIGINS set, a database, and not on the
 	// admin or demo-only deployments. The pointer stays nil otherwise, so no passkey route exists.
 	var passkeySvc *passkeys.Service
@@ -2342,12 +2345,22 @@ func runServer() {
 			Providers:    provs,
 			CapGuard:     signupgate.NewCapGuard(pgPool, func() int { return flagsStore.SignupCap().Limit }),
 			AppleLinks:   appleLinks{appleid.New(pgPool, secretsStore)},
+			// Link Apple to my account: the request store, the check that the starting session is still signed in, the metric.
+			AppleLinkIntents: appleLinkIntents{appleid.New(pgPool, nil)},
+			SessionLive: func(ctx context.Context, uid uuid.UUID, sessionHash []byte) (bool, error) {
+				if sessionStore == nil {
+					return false, nil
+				}
+				return sessionStore.LiveByIDHash(ctx, uid, sessionHash)
+			},
+			LinkObserve: func(outcome string) { appMetrics.AppleLinkTotal.WithLabelValues(outcome).Inc() },
 		})
 		if oerr != nil {
 			logger.Error("oidc init", "err", oerr.Error())
 			os.Exit(1)
 		}
 		oidcSvc = svc
+		appleLinkStore = appleid.New(pgPool, nil)
 		// Apple's server-to-server notifications, when the Apple provider is configured.
 		for _, p := range provs {
 			if p.Kind == "apple" && sessionStore != nil {
@@ -2974,6 +2987,7 @@ func runServer() {
 		AdminDebugProbes:      adminDebugProbes,
 		OIDC:                  oidcSvc,
 		AppleNotifications:    appleNotifier,
+		AppleLinkIntents:      appleLinkStore,
 		StripeWebhook:         stripeWebhook,
 		StripeBilling:         stripeBilling,
 		StripeClosure:         stripeClosure,
@@ -3500,6 +3514,18 @@ func (a appleLinks) Link(ctx context.Context, uid uuid.UUID, sub, refreshToken s
 		return oidc.ErrAppleLinkConflict
 	}
 	return err
+}
+
+// appleLinkIntents adapts appleid.Store to oidc.AppleLinkIntents.
+type appleLinkIntents struct{ *appleid.Store }
+
+func (a appleLinkIntents) Create(ctx context.Context, uid uuid.UUID, stateHash, sessionHash []byte, now time.Time) error {
+	return a.Store.CreateLinkIntent(ctx, uid, stateHash, sessionHash, now)
+}
+
+func (a appleLinkIntents) Consume(ctx context.Context, stateHash []byte, now time.Time) (oidc.AppleLinkIntent, bool, error) {
+	in, ok, err := a.Store.ConsumeLinkIntent(ctx, stateHash, now)
+	return oidc.AppleLinkIntent{UserID: in.UserID, SessionHash: in.SessionHash}, ok, err
 }
 
 // newPlanLegs builds the planner cache and quota. Without Redis (or while it is down) the

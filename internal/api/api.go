@@ -196,6 +196,11 @@ type Deps struct {
 	// server-to-server notifications (consent revoked, Apple account deleted, relay email
 	// off or on). Public (Apple calls it, no cookie), behind a body cap and a per-IP limit.
 	AppleNotifications http.Handler
+	// AppleLinkIntents, when non-nil, lets sign-out drop the "Link Apple to my account" requests its session started (the callback
+	// also checks the session is still signed in, so this is housekeeping that keeps a dead session's request from lingering).
+	AppleLinkIntents interface {
+		DropSessionLinkIntents(ctx context.Context, sessionHash []byte) error
+	}
 	// StripeWebhook, when non-nil, is POST /api/billing/stripe/webhook: Stripe's signed events, applied to the entitlement table
 	// (internal/stripebill). Public (Stripe calls it, no cookie; the signature is the credential), behind a body cap and a per-IP limit.
 	// nil (no RIVOLT_STRIPE_WEBHOOK_SECRET): the route does not exist.
@@ -500,6 +505,11 @@ func (d Deps) logoutHandler() http.HandlerFunc {
 				slog.WarnContext(r.Context(), "logout: could not clear the identity provider's remembered login", "err", logging.ScrubErr(err))
 			}
 		}
+		if ref, ok := auth.SessionFromContext(r.Context()); ok && d.AppleLinkIntents != nil {
+			if err := d.AppleLinkIntents.DropSessionLinkIntents(r.Context(), appleid.Hash(ref.ID.String())); err != nil {
+				slog.WarnContext(r.Context(), "logout: could not drop the session's Apple link requests", "err", logging.ScrubErr(err))
+			}
+		}
 		d.Auth.ClearKratosCookie(w, r) // a browser may hold one (see ForgetLogin)
 		d.Auth.Logout(w, r)
 	}
@@ -721,6 +731,11 @@ func New(d Deps) http.Handler {
 						r.Patch("/{id}", pk.rename)
 						r.Delete("/{id}", pk.remove)
 					})
+				}
+				if al := d.appleLinkAPI(); al != nil {
+					// Link Apple to my account: a few starts a minute per signed-in user. (Not under /oidc: that prefix is the OIDC
+					// service's own subrouter.)
+					r.With(ls.user("apple-link-start", 5).Middleware).Post("/apple-link/start", al.start)
 				}
 				if d.AppleNotifications != nil && !d.AdminOnly {
 					// A real notification is ~1 KB and Apple sends few: 30 a minute per address is generous.
