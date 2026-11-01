@@ -33,7 +33,7 @@ func env(extra map[string]string) func(string) string {
 // goodStripe is a Stripe account that is ready: the configured payment method configuration is active and offers cards and wallets only, the
 // default configuration is the same, the portal is set up.
 func goodStripe() StripeFacts {
-	m := []string{"apple_pay", "card", "google_pay", "link"}
+	m := []string{"apple_pay", "card", "google_pay"}
 	return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true,
 		PMCRead: true, PMCFound: true, PMCActive: true, PMCLive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m}
 }
@@ -75,7 +75,7 @@ func TestPreflightReady(t *testing.T) {
 		"items cleared", "accounts: 11, demo: 1, eligible (created by launch, demo excluded): 10", "already founding: 0, to grant: 10",
 		"host: rivolt.example", "https://rivolt.example/terms: reachable (HTTP 200)", "https://rivolt.example/privacy: reachable (HTTP 200)", "https://rivolt.example/settings: reachable (HTTP 200)", "unsigned POST to rivolt.example: 400",
 		"RIVOLT_BILLING: off", "RIVOLT_STRIPE_SECRET_KEY: set", "RIVOLT_APPLE_IAP_PRODUCTS: set",
-		"TIME as the app user: allowed", "Checkout offers (the payment method configuration): apple_pay, card, google_pay, link", "RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG: set", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
+		"TIME as the app user: allowed", "Checkout offers (the payment method configuration): apple_pay, card, google_pay", "RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG: set", "mode: live", "portal: Terms URL set, Privacy URL set, payment-method update on",
 		"Nothing was switched on or written",
 	} {
 		if !strings.Contains(out, want) {
@@ -159,6 +159,13 @@ func TestPreflightProblems(t *testing.T) {
 			in.Stripe = func(context.Context) StripeFacts {
 				f := goodStripe()
 				f.PMCMethods = []string{"card", "klarna"}
+				return f
+			}
+		},
+		"the configuration offers link": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				f := goodStripe()
+				f.PMCMethods = []string{"apple_pay", "card", "google_pay", "link"}
 				return f
 			}
 		},
@@ -399,6 +406,9 @@ func TestPreflightStripeTax(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Customer Portal's update-payment-method follows it") {
 		t.Error("the manual steps lack the live default payment-method configuration line")
+	}
+	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "the named configuration has only card, Apple Pay and Google Pay") {
+		t.Error("the manual steps lack the named-configuration line")
 	}
 	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Stripe Tax is set up in live mode") {
 		t.Error("the manual steps lack the Stripe Tax line")

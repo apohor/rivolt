@@ -238,7 +238,7 @@ func Run(ctx context.Context, in Input) *Report {
 	present("RIVOLT_STRIPE_WEBHOOK_SECRET", true)
 	present("RIVOLT_STRIPE_PRICE_MONTHLY", true)
 	present("RIVOLT_STRIPE_PRICE_YEARLY", true)
-	present("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG", true) // the pmc_ id Checkout names (cards, Link, wallets); without it Checkout refuses
+	present("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG", true) // the pmc_ id Checkout names (cards and wallets); without it Checkout refuses
 	if baseURL == "" {
 		r.problem("RIVOLT_PUBLIC_BASE_URL (or RIVOLT_BASE_URL) is not set; Stripe Checkout stays off without it")
 	} else {
@@ -357,7 +357,7 @@ func Run(ctx context.Context, in Input) *Report {
 
 // allowedCheckoutMethods are the payment method types Checkout may offer: cards and wallets. ACH, buy-now-pay-later and the delayed or
 // redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
-var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true, "link": true}
+var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true}
 
 func modeName(live bool) string {
 	if live {
@@ -393,7 +393,7 @@ func (r *Report) checkoutMethods(f StripeFacts, configured bool) {
 			}
 		}
 		if len(extra) > 0 {
-			r.problem("the payment method configuration also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay, google_pay and link; other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
+			r.problem("the payment method configuration also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay and google_pay; Link's bank option is an ACH debit, and other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
 		}
 		if !card {
 			r.problem("the payment method configuration does not offer cards")
@@ -422,7 +422,7 @@ func ManualSteps() []string {
 		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
 		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
 		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
-		"Stripe Dashboard, Payment methods: a LIVE payment method configuration exists with only cards and wallets (card, Link, Apple Pay, Google Pay) on, and its pmc_ id is RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG (Checkout names it; the report reads it, but the id must be the live one)",
+		"Stripe Dashboard, Payment methods: a LIVE payment method configuration exists, and the named configuration has only card, Apple Pay and Google Pay on; its pmc_ id is RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG (Checkout names it; the report reads it, but the id must be the live one)",
 		"Stripe Dashboard, Payment methods, the account's DEFAULT live configuration: only cards and wallets are on as well. Checkout does not use it, but the Customer Portal's update-payment-method follows it, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method",
 		"Stripe Tax is set up in live mode: origin address, and registrations where required (Texas first), since RIVOLT_STRIPE_AUTOMATIC_TAX is on; with no live tax setup, live Checkout fails",
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",

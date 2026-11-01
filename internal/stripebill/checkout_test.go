@@ -580,7 +580,7 @@ func TestCheckoutFreePeriodExplainer(t *testing.T) {
 	}
 }
 
-// Every Checkout session names the payment method configuration (cards, Link, Apple Pay, Google Pay), which is how it is held to those
+// Every Checkout session names the payment method configuration (cards, Apple Pay, Google Pay), which is how it is held to those
 // methods: Stripe no longer accepts payment_method_types on a Checkout Session (the preview rejected it with a 502). The form carries the
 // configuration, the billing address requirement, and never a payment_method_types key.
 func TestCheckoutUsesThePaymentMethodConfiguration(t *testing.T) {
