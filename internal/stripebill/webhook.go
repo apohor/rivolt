@@ -46,6 +46,10 @@ var ErrUnmapped = errors.New("stripe: no account for the event yet")
 type Handler struct {
 	DB     *sql.DB // the system pool: the webhook has no signed-in user
 	Secret string  // the endpoint's signing secret
+	// ObserveLag is told how long after Stripe created an event it was received (the event's own created time against this server's clock).
+	// OnBilling is told a billing moment an operator may want to see ("payment_failed": a subscription went past due). Counts only.
+	ObserveLag func(time.Duration)
+	OnBilling  func(kind string)
 	// Invalidate drops the account's cached plan on this pod (the others see it within the plan cache's TTL).
 	Invalidate func(uuid.UUID)
 	Now        func() time.Time
@@ -74,6 +78,26 @@ const (
 	OutcomeStale     = "stale"
 	OutcomeRejected  = "rejected"
 )
+
+// MetricTypes are the event types the endpoint handles, as the metric labels them; any other type is "other", and a delivery rejected before
+// its type is known is "none". MetricOutcomes are the outcomes. Both are fixed sets, so the label cardinality is bounded by this package.
+var (
+	MetricTypes    = []string{"checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "charge.refunded", "other", "none"}
+	MetricOutcomes = []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeStale, OutcomeRejected}
+)
+
+// MetricType is the label for an event type.
+func MetricType(t string) string {
+	if t == "" {
+		return "none"
+	}
+	for _, k := range MetricTypes {
+		if k == t {
+			return t
+		}
+	}
+	return "other"
+}
 
 func (h *Handler) now() time.Time {
 	if h.Now != nil {
@@ -107,6 +131,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &ev); err != nil || ev.ID == "" || ev.Type == "" {
 		http.Error(w, "bad event", http.StatusBadRequest)
 		return
+	}
+	if h.ObserveLag != nil && ev.Created > 0 {
+		h.ObserveLag(h.now().Sub(time.Unix(ev.Created, 0)))
 	}
 	outcome, uid, err := h.apply(r.Context(), ev)
 	if err != nil {
@@ -291,6 +318,12 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 	if n, _ := res.RowsAffected(); n == 0 {
 		return OutcomeStale, uuid.Nil, nil
 	}
+	// payment_failed is the TRANSITION into past due, once per failure: Stripe sends several subscription.updated events while it retries the
+	// invoice, and each would otherwise count. The previous status is read here, in the same transaction as the write below.
+	var before sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM entitlements WHERE user_id = $1 AND source = 'stripe'`, uid).Scan(&before); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", uuid.Nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO entitlements (user_id, source, status, current_period_end, external_id, cancel_at_period_end)
 		VALUES ($1, 'stripe', $2, $3, $4, $5)
@@ -298,6 +331,9 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		    external_id = EXCLUDED.external_id, cancel_at_period_end = EXCLUDED.cancel_at_period_end, updated_at = now()`,
 		uid, status, end, sub.ID, sub.WillCancel() && status == entitlements.StatusActive); err != nil {
 		return "", uuid.Nil, err
+	}
+	if status == entitlements.StatusPastDue && before.String != entitlements.StatusPastDue && ev.Type != "customer.subscription.deleted" && h.OnBilling != nil {
+		h.OnBilling("payment_failed")
 	}
 	return OutcomeApplied, uid, nil
 }
