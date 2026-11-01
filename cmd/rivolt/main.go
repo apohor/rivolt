@@ -131,6 +131,8 @@ func main() {
 			os.Exit(runRepairR2History(os.Args[2:]))
 		case "repair-route-gaps":
 			os.Exit(runRepairRouteGaps(os.Args[2:]))
+		case "repair-route-points":
+			os.Exit(runRepairRoutePoints(os.Args[2:]))
 		case "announce":
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "entitlements-founding":
@@ -179,6 +181,10 @@ Usage:
   rivolt repair-route-gaps [--since T] [--until T] [--min-gap-m N]        (dry run: counts and the id-list sha256)
   rivolt repair-route-gaps --apply --expect-count N --expect-sha SHA --backup CSV [--valhalla-url URL]
   rivolt repair-route-gaps --restore-csv FILE [--apply]
+  rivolt repair-route-points [--since T] [--until T]                      (dry run = the audit: counts and the id-list sha256, no positions)
+  rivolt repair-route-points --apply --expect-count N --expect-sha SHA --backup CSV
+  rivolt repair-route-points --restore-csv FILE [--apply]
+                  Stored drive routes holding a point off the globe: drop it, keep the rest
   rivolt repair-r2-history --vehicle ID --since T --until T [--apply --backup CSV]
   rivolt repair-r2-history --vehicle ID --restore-csv FILE [--apply]
                   Rebuild a vehicle's drives and charges in a window
@@ -1570,6 +1576,9 @@ func runServer() {
 			logger.Info("elevation lookup disabled", "reason", "ELEVATION_ENABLED!=1 (opt-in)")
 		}
 	}
+
+	// Route points kept out of a stored drive route (not on the globe), counted by where; wired whether or not route-fill is on.
+	rivian.SetRoutePointObserver(func(where string) { appMetrics.RoutePointRefusedTotal.WithLabelValues(where).Inc() })
 
 	// Backend-side Valhalla client. Used by the live recorder to
 	// route-fill GPS-lag gaps in the live drive polyline so a dropped

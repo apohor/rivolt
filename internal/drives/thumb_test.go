@@ -90,3 +90,20 @@ func TestThumbPointsAreSnappedToElevenMetres(t *testing.T) {
 		}
 	}
 }
+
+// A stored route can hold a point off the globe (a corrupt route-fill, since refused when a route is built). The thumbnail drops it, so the
+// picture is the road and not two lines shooting off and back. Plainly fake places near (10, 10).
+func TestThumbDropsAStoredPointOffTheGlobe(t *testing.T) {
+	good := [][2]float64{{10.000, 10.000}, {10.001, 10.001}, {10.002, 10.002}, {10.003, 10.003}}
+	withBad := [][2]float64{{10.000, 10.000}, {10.001, 10.001}, {100.25, -970.1}, {10.002, 10.002}, {10.003, 10.003}}
+	want := ThumbPolyline(encodePolyline5(good))
+	got := ThumbPolyline(encodePolyline5(withBad))
+	if got == "" || got != want {
+		t.Fatalf("thumb with a bad point = %q, want the same as without it (%q)", got, want)
+	}
+	for _, p := range decodePolyline5(got) {
+		if math.Abs(p[0]) > 90 || math.Abs(p[1]) > 180 {
+			t.Fatalf("a thumbnail point is off the globe: %v", p)
+		}
+	}
+}

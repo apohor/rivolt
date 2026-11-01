@@ -194,7 +194,11 @@ func decodePolyline5(s string) [][2]float64 {
 		}
 		lat += dlat
 		lon += dlon
-		out = append(out, [2]float64{float64(lat) / 1e5, float64(lon) / 1e5})
+		// A stored route can hold a point that is not on the globe (a corrupt fill, now refused when a route is built): skip it, the
+		// deltas carry on from it so the points after it are right.
+		if la, lo := float64(lat)/1e5, float64(lon)/1e5; math.Abs(la) <= 90 && math.Abs(lo) <= 180 {
+			out = append(out, [2]float64{la, lo})
+		}
 	}
 	return out
 }

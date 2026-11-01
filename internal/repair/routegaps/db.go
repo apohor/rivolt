@@ -121,6 +121,9 @@ type ApplyResult struct {
 	Filled    int // dropouts filled
 }
 
+// HashRoute is the sha256 a backup row keeps of the route a repair wrote (a restore only touches a drive whose route still hashes to it).
+func HashRoute(s string) string { return hashRoute(s) }
+
 func hashRoute(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])

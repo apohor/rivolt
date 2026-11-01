@@ -40,7 +40,11 @@ export function decodePolyline(
     const dlon = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
     lon += dlon;
 
-    out.push([lat * factor, lon * factor]);
+    // A stored route can hold a point that is not on the globe (a corrupt fill, now refused when a route is built): it would draw two
+    // segments of thousands of kilometres out and back. Skip it; the deltas above still carry on from it, so the points after it are right.
+    const la = lat * factor;
+    const lo = lon * factor;
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) out.push([la, lo]);
   }
   return out;
 }
