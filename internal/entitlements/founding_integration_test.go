@@ -96,6 +96,14 @@ func TestFoundingGrantAgainstPostgres(t *testing.T) {
 	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, rep.IDsHash()); code != 0 {
 		t.Fatalf("apply: %d %s", code, errOut.String())
 	}
+	// The same --apply again is a refusal that says the grant was already applied, with the counts, and writes nothing.
+	errOut.Reset()
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, launch, true, rep.ToGrant, rep.IDsHash()); code == 0 {
+		t.Error("a repeated apply reported success")
+	}
+	if msg := errOut.String(); !strings.Contains(msg, "already applied") || strings.Contains(msg, "accounts changed") {
+		t.Errorf("repeated apply said: %s", msg)
+	}
 	// Every account at launch (not the demo, not the late one) is Pro until launch + 1 year, as a founding grant.
 	for _, id := range existing {
 		var end time.Time
