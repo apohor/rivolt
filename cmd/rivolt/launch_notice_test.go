@@ -208,3 +208,34 @@ func TestLaunchNoticeTestSendWritesNothing(t *testing.T) {
 		t.Errorf("an unverified test target: exit %d, %d sent", code, len(m.sent))
 	}
 }
+
+// --render prints the notice for the launch date and touches nothing: no database (the process has no DSN, so a connection attempt would
+// fail the run), no mailer. It states the dates, has no placeholder left, and refuses to be combined with a flag that sends.
+func TestLaunchNoticeRenderPrintsAndTouchesNothing(t *testing.T) {
+	var out bytes.Buffer
+	if code := renderLaunchNotice(&out, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)); code != 0 {
+		t.Fatalf("render exit %d: %s", code, out.String())
+	}
+	got := out.String()
+	for _, want := range []string{"nothing is sent or written", "Subject: " + launchnotice.Subject, "November 2, 2026", "November 2, 2027", "December 2, 2026",
+		"--- in-app notice ---", "/support#free-and-pro"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("render output lacks %q:\n%s", want, got)
+		}
+	}
+	if tok := launchnotice.Unfilled(got); tok != "" {
+		t.Errorf("render output still has the placeholder %q", tok)
+	}
+	if code := runLaunchNotice([]string{"--render", "--launch-date", "2026-11-02"}); code != 0 {
+		t.Errorf("the command with --render exited %d (it must not open a database)", code)
+	}
+	for _, args := range [][]string{
+		{"--render", "--launch-date", "2026-11-02", "--apply"},
+		{"--render", "--launch-date", "2026-11-02", "--test-to", "00000000-0000-0000-0000-000000000001"},
+		{"--render"},
+	} {
+		if code := runLaunchNotice(args); code != 2 {
+			t.Errorf("%v exited %d, want 2", args, code)
+		}
+	}
+}

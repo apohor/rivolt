@@ -42,11 +42,15 @@ type noticeStore interface {
 // The dates come from --launch-date alone: the founding year ends a year after it, and the new Terms take effect 30 days after it. The
 // notice must be sent on or before the launch date, so the stated Terms date is never fewer than 30 days after the email. A row keeps
 // the dates it was created with; a retry states those, and is refused once the row is more than a week old.
+//
+// --render prints the email and the in-app notice exactly as they would be sent for --launch-date and sends or writes nothing: no database,
+// no mailer, so it is safe anywhere (a rehearsal on a deployment that shares a real sender reads the notice this way).
 func runLaunchNotice(args []string) int {
 	fs := flag.NewFlagSet("launch-notice", flag.ContinueOnError)
 	launchDate := fs.String("launch-date", "", "the launch date, YYYY-MM-DD (required); send on or before it")
 	apply := fs.Bool("apply", false, "create the notices and send the emails (default: dry run, counts only)")
 	testTo := fs.String("test-to", "", "send the email only to this user id and write nothing")
+	render := fs.Bool("render", false, "print the email and the in-app notice for --launch-date and exit: no database, no mailer, nothing sent or written")
 	rate := fs.Float64("rate", 2, "emails per second")
 	var exclude repeatedFlag
 	fs.Var(&exclude, "exclude-user", "user id or username to leave out (repeatable)")
@@ -57,6 +61,13 @@ func runLaunchNotice(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "launch-notice: --launch-date YYYY-MM-DD is required")
 		return 2
+	}
+	if *render {
+		if *apply || *testTo != "" {
+			fmt.Fprintln(os.Stderr, "launch-notice: --render only prints; it cannot be combined with --apply or --test-to")
+			return 2
+		}
+		return renderLaunchNotice(os.Stdout, launch)
 	}
 	if *rate <= 0 || *rate > 10 {
 		fmt.Fprintln(os.Stderr, "launch-notice: --rate must be in (0, 10]")
@@ -120,6 +131,30 @@ func runLaunchNotice(args []string) int {
 		SkipIDs: skipIDs, Excluded: excluded, Only: only, Apply: *apply, Launch: launch,
 		Interval: time.Duration(float64(time.Second) / *rate),
 	})
+}
+
+// renderLaunchNotice prints the notice as it would be sent for the launch date: the subject, the email body and the in-app notice. It
+// reads no database and no environment and sends nothing. A body with an unfilled placeholder is refused, as --apply refuses it.
+func renderLaunchNotice(w io.Writer, launch time.Time) int {
+	p := launchnotice.NewParams(launch)
+	if err := p.Check(); err != nil {
+		fmt.Fprintln(w, "launch-notice:", err)
+		return 2
+	}
+	body := launchnotice.RenderEmail(p)
+	if tok := launchnotice.Unfilled(body); tok != "" {
+		fmt.Fprintf(w, "launch-notice: the rendered email still has %q\n", tok)
+		return 1
+	}
+	fmt.Fprintln(w, "launch-notice --render (nothing is sent or written)")
+	fmt.Fprintf(w, "dates stated: launch %s, free Pro year ends %s, new Terms take effect %s\n", p.Launch, p.FoundingEnd, p.TermsEffective)
+	fmt.Fprintf(w, "Subject: %s\n\n--- email (plain text) ---\n%s\n", launchnotice.Subject, body)
+	app := launchnotice.RenderInApp(p)
+	fmt.Fprintf(w, "--- in-app notice ---\ntitle: %s\nbody: %s\n", app.Title, app.Body)
+	for _, l := range app.Links {
+		fmt.Fprintf(w, "link: %s -> %s\n", l.Label, l.Href)
+	}
+	return 0
 }
 
 type launchNoticeDeps struct {
