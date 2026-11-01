@@ -123,7 +123,7 @@ Rivolt has been free during its public beta. From LAUNCH_DATE the hosted service
 
 Your account has Pro at no charge until FOUNDING_END_DATE. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
 
-What the free tier keeps: Now, Activity, Money and Truck for the last 90 days; the monthly statement; a single-day trip planner; three saved trips; share cards; imports; every alert; and the full export of everything Rivolt holds, always, including history older than 90 days. Nothing is ever deleted when a plan ends.
+What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 90 days; the monthly statement; a single-day trip planner; three saved trips; share cards; imports; every alert; and the full export of everything Rivolt holds, always, including history older than 90 days. Nothing is ever deleted when a plan ends.
 
 If you have more than one vehicle: on the free plan, Rivolt keeps recording every drive and charge on all your vehicles, but shows one vehicle at a time (you choose which). Every vehicle stays in your full export, and Pro shows them all.
 

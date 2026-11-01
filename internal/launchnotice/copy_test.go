@@ -46,7 +46,7 @@ func TestRenderedCopyHasNoPlaceholdersAndStatesTheDates(t *testing.T) {
 	if tok := Unfilled(body); tok != "" {
 		t.Errorf("email still has %q", tok)
 	}
-	for _, want := range []string{"December 1, 2026", "December 1, 2027", "December 31, 2026", "not affiliated with Rivian", "$34.99", "https://rivolt.dev/terms/2026-10-23", "shows one vehicle at a time", "Pro shows them all"} {
+	for _, want := range []string{"December 1, 2026", "December 1, 2027", "December 31, 2026", "not affiliated with Rivian", "$34.99", "https://rivolt.dev/terms/2026-10-23", "What the free tier keeps: every drive and charge keeps being recorded;", "shows one vehicle at a time", "Pro shows them all"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("email is missing %q", want)
 		}
