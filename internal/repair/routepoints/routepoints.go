@@ -11,6 +11,11 @@
 // to survives); any other off-globe point is dropped. It does NOT rebuild the route from samples: a stored route also holds the fills the
 // recorder spliced in, which samples do not have, so a rebuild would turn each fill back into a straight line. Only drives.route_polyline
 // changes.
+//
+// Known limit: the audit finds only points that are OFF the globe. A ten-times-too-large vertex of a place near (0, 0), with |lat| <= 9 and
+// |lon| <= 18, is still a valid position and goes unnoticed. That is no case for the drives this was written for (ten times any US
+// coordinate is off the globe), but it is why the plain test fixtures near (10, 10) are placed where they are: a tenfold copy of them is off
+// the globe, a tenfold copy of a point within 9 degrees of the equator and 18 of the meridian is not.
 package routepoints
 
 import (
