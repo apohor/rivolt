@@ -237,3 +237,28 @@ func TestSignInIsUnchangedByLinkMode(t *testing.T) {
 		t.Errorf("issued %v, Location %q", h.issued, rec.Header().Get("Location"))
 	}
 }
+
+// DA's condition B: an Apple ID linked to an account (here by the link flow) signs in to THAT account when it hides its email, never to
+// a new one.
+func TestALinkedRelayIdentitySignsIntoTheLinkedAccountNotANewOne(t *testing.T) {
+	h := newAppleHarness(t)
+	c, loc := h.beginLink()
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=linked" {
+		t.Fatalf("link: Location = %q", got)
+	}
+	// The store now answers for the sub (the fake records the link; mirror what the real store does).
+	h.links.bySub[testAppleSub] = "owner@example.com"
+	h.existing["owner@example.com"] = true
+	rec := h.signIn(map[string]any{"sub": testAppleSub, "email": "hidden@privaterelay.appleid.com", "email_verified": "true", "is_private_email": "true"}, "")
+	if got := location(t, rec); got != "/" {
+		t.Fatalf("sign-in: Location = %q, want /", got)
+	}
+	if len(h.ensured) != 1 || h.ensured[0].username != "owner@example.com" || h.ensured[0].email != "" {
+		t.Errorf("ensured = %+v, want only the linked account, with no email taken from Apple", h.ensured)
+	}
+	for _, e := range h.ensured {
+		if strings.Contains(e.username, "privaterelay") || strings.Contains(e.email, "privaterelay") {
+			t.Errorf("the relay address reached the account: %+v", e)
+		}
+	}
+}
