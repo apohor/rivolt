@@ -123,4 +123,50 @@ final class PeriodTests: XCTestCase {
         XCTAssertEqual(PeriodSheetLogic.noun(month), "month")
         XCTAssertEqual(PeriodSheetLogic.noun(Period(kind: .day, containing: now, calendar: cal)), "day")
     }
+
+    // MARK: The rolling last 30 days (the Activity default)
+
+    func testTheLast30DaysAreTodayAndTheTwentyNineBeforeIt() {
+        let p = Period.last30(now: now, calendar: cal)
+        XCTAssertEqual(p.start, d(2026, 9, 26)); XCTAssertEqual(p.end, d(2026, 10, 26))
+        XCTAssertEqual(p.allDays(calendar: cal).count, 30)
+        // Early in a month it still has a month's worth: the 1st of November.
+        let first = Period.last30(now: d(2026, 11, 1, 9), calendar: cal)
+        XCTAssertEqual(first.start, d(2026, 10, 3))
+        XCTAssertEqual(p.title(calendar: cal, now: now), "Last 30 days")
+        XCTAssertEqual(p.spokenTitle(calendar: cal, now: now), "the last 30 days")
+        XCTAssertEqual(p.inPhrase(calendar: cal, now: now), "in the last 30 days")
+    }
+
+    func testTheLast30DaysDoNotStepAndAreRememberedAsThemselves() {
+        let p = Period.last30(now: now, calendar: cal)
+        XCTAssertFalse(p.canStep)
+        XCTAssertEqual(p.shifted(by: -1, calendar: cal), p)
+        let stored = p.stored(now: now, calendar: cal)
+        XCTAssertEqual(stored, Period.Stored(kind: .last30))
+        XCTAssertEqual(Period(stored, now: d(2026, 10, 27, 8), calendar: cal).start, d(2026, 9, 28), "it follows the calendar, like Today")
+    }
+
+    func testTheSheetOffersThirtyDaysBetweenMonthAndCustom() {
+        XCTAssertEqual(PeriodSheetLogic.Choice.allCases.map(\.rawValue), ["Day", "Week", "Month", "30 days", "Custom"])
+        let p = Period.last30(now: now, calendar: cal)
+        XCTAssertEqual(PeriodSheetLogic.choice(p), .last30)
+        XCTAssertEqual(PeriodSheetLogic.pick(.last30, from: Period(containing: now, calendar: cal), now: now, calendar: cal), p)
+    }
+
+    @MainActor func testActivityOpensOnTheLast30DaysUntilAChoiceIsSaved() {
+        let suite = "rivolt.test.period.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let state = AppState(defaults: defaults)
+        XCTAssertFalse(state.hasSavedPeriod)
+        XCTAssertEqual(state.activityPeriod.kind, .last30, "a first visit: the feed shows what is recent")
+        XCTAssertEqual(state.period.kind, .month, "Now and Truck keep this month")
+        state.setPeriod(Period(containing: .now, calendar: .current))
+        XCTAssertTrue(state.hasSavedPeriod)
+        XCTAssertEqual(state.activityPeriod.kind, .month, "a saved choice wins, Month included")
+        let again = AppState(defaults: defaults)
+        XCTAssertTrue(again.hasSavedPeriod)
+        XCTAssertEqual(again.activityPeriod.kind, .month)
+    }
 }

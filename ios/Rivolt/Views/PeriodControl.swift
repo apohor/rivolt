@@ -5,9 +5,11 @@ import SwiftUI
 struct PeriodControl: View {
     @Environment(AppState.self) private var state
     @State private var choosing = false
+    /// Activity: a phone with no saved choice shows the last 30 days (Now and Truck keep this month).
+    var activity = false
 
     var body: some View {
-        let p = state.period
+        let p = activity ? state.activityPeriod : state.period
         let cal = Calendar.current
         ThemeStepper(
             title: p.title(calendar: cal), spokenTitle: p.spokenTitle(calendar: cal),
@@ -15,7 +17,7 @@ struct PeriodControl: View {
             previous: { state.setPeriod(p.shifted(by: -1, calendar: cal)) },
             next: { state.setPeriod(p.shifted(by: 1, calendar: cal)) },
             onTitle: { choosing = true })
-        .sheet(isPresented: $choosing) { PeriodSheet().followsAppearance() }
+        .sheet(isPresented: $choosing) { PeriodSheet(activity: activity).followsAppearance() }
     }
 }
 
@@ -23,7 +25,7 @@ struct PeriodControl: View {
 enum PeriodSheetLogic {
     /// Which of the four choices a period shows pressed: This year and All time live under Custom.
     enum Choice: String, CaseIterable, Identifiable {
-        case day = "Day", week = "Week", month = "Month", custom = "Custom"
+        case day = "Day", week = "Week", month = "Month", last30 = "30 days", custom = "Custom"
         var id: String { rawValue }
     }
 
@@ -32,6 +34,7 @@ enum PeriodSheetLogic {
         case .day: return .day
         case .week: return .week
         case .month: return .month
+        case .last30: return .last30
         case .year, .all, .custom: return .custom
         }
     }
@@ -42,6 +45,7 @@ enum PeriodSheetLogic {
         case .day: return Period(kind: .day, containing: now, calendar: calendar)
         case .week: return Period(kind: .week, containing: now, calendar: calendar)
         case .month: return Period(kind: .month, containing: now, calendar: calendar)
+        case .last30: return Period.last30(now: now, calendar: calendar)
         case .custom:
             if choice(p) == .custom { return p }
             return last30(now: now, calendar: calendar)
@@ -67,6 +71,10 @@ enum PeriodSheetLogic {
 struct PeriodSheet: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
+    var activity = false
+
+    /// What the screen the sheet was opened from is showing.
+    private var shown: Period { activity ? state.activityPeriod : state.period }
 
     private var cal: Calendar { .current }
 
@@ -75,13 +83,13 @@ struct PeriodSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4 * Theme.unit) {
                     Picker("Period", selection: Binding(
-                        get: { PeriodSheetLogic.choice(state.period) },
-                        set: { state.setPeriod(PeriodSheetLogic.pick($0, from: state.period, now: .now, calendar: cal)) })) {
+                        get: { PeriodSheetLogic.choice(shown) },
+                        set: { state.setPeriod(PeriodSheetLogic.pick($0, from: shown, now: .now, calendar: cal)) })) {
                         ForEach(PeriodSheetLogic.Choice.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    if PeriodSheetLogic.choice(state.period) == .custom { custom }
-                    Text(state.period.title(calendar: cal)).themeText(.value, color: Theme.textSecondary)
+                    if PeriodSheetLogic.choice(shown) == .custom { custom }
+                    Text(shown.title(calendar: cal)).themeText(.value, color: Theme.textSecondary)
                 }
                 .padding(4 * Theme.unit)
             }
@@ -98,7 +106,7 @@ struct PeriodSheet: View {
     /// The two shortcuts, and the dates when dates are in use.
     @ViewBuilder
     private var custom: some View {
-        let p = state.period
+        let p = shown
         let last = cal.date(byAdding: .day, value: -1, to: p.end) ?? p.end
         VStack(alignment: .leading, spacing: 3 * Theme.unit) {
             if p.kind == .custom {

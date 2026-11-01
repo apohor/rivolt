@@ -11,7 +11,8 @@ struct ActivityView: View {
     @State private var model = ActivityModel()
     @State private var monthLoadedOnce = false
     /// The scope Now, Activity and Truck share (see `PeriodControl`).
-    private var month: Period { state.period }
+    /// The saved choice, else the last 30 days on a first visit (see `AppState.activityPeriod`).
+    private var month: Period { state.activityPeriod }
     @State private var filter = ActivityFilter.all
     /// List every launch (not kept): the accessible view first, and no map read on a slow connection unless asked.
     @State private var mode = ActivityMode.list
@@ -187,7 +188,7 @@ struct ActivityView: View {
     private var titleRow: some View {
         VStack(spacing: 0) {
             ThemeTitleRow(title: "Activity") {
-                PeriodControl()
+                PeriodControl(activity: true)
             }
             VehicleScopeNote(vehicles: vehicles).padding(.horizontal, 4 * Theme.unit)
         }

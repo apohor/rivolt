@@ -92,11 +92,17 @@ final class AppState {
     /// The time scope Now, Activity and Truck share (the web's picker: Day, Week, Month or Custom, with This year and All time inside
     /// Custom), remembered on this phone. Money keeps its own month.
     private(set) var period: Period
+    /// Whether this phone has a saved choice (a first visit has none: Activity then opens on the last 30 days, the others on this month).
+    private(set) var hasSavedPeriod: Bool
     private let periodDefaults: UserDefaults
     private static let periodDefaultsKey = "rivolt.period"
 
+    /// What Activity shows: the saved choice, else the rolling last 30 days (the feed wants what is recent; on the 1st "this month" is empty).
+    var activityPeriod: Period { hasSavedPeriod ? period : Period.last30(now: .now, calendar: .current) }
+
     func setPeriod(_ p: Period) {
         period = p
+        hasSavedPeriod = true
         if let data = try? JSONEncoder().encode(p.stored(now: .now, calendar: .current)) {
             periodDefaults.set(data, forKey: Self.periodDefaultsKey)
         }
@@ -112,6 +118,7 @@ final class AppState {
         let server = stored ?? ServerURL.default
         self.serverURL = server
         self.periodDefaults = defaults
+        self.hasSavedPeriod = defaults.data(forKey: Self.periodDefaultsKey).flatMap { try? JSONDecoder().decode(Period.Stored.self, from: $0) } != nil
         self.period = defaults.data(forKey: Self.periodDefaultsKey).flatMap { try? JSONDecoder().decode(Period.Stored.self, from: $0) }
             .map { Period($0, now: .now, calendar: .current) } ?? Period(containing: .now, calendar: .current)
         self.tokens = tokens
