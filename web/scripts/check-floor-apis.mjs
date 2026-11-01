@@ -3,6 +3,8 @@
 // The floor is vite.config.ts's modernTargets (Safari/iOS 16.4, Chrome/Edge 111, Firefox 128). Each entry is an API one of those lacks;
 // the build used to inject core-js for all of them (a 20.8 KB chunk) whether or not any code called them. A dependency bump that starts
 // calling one fails here, and the fix is to polyfill that one feature (modernPolyfills: ["es.xxx"]) or not take the bump.
+// Known limit: the scan is textual, on minified output. It catches named globals and distinctive method names, not a generator's iterator
+// `.map` or a computed property access, so it is a tripwire, not a proof of every call.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +22,7 @@ export const FLOOR_APIS = [
   ["Set methods", /\.(?:union|intersection|difference|symmetricDifference|isSubsetOf|isSupersetOf|isDisjointFrom)\(/, "Safari 17, Chrome 122"],
   ["Iterator helpers", new RegExp(`\\bIterator\\.(?:from|concat)\\b|${iter}\\.${helpers}\\(`), "Safari 18.4, Chrome 122, Firefox 131"],
   ["Map/WeakMap getOrInsert", /\.getOrInsert(?:Computed)?\(/, "not yet shipped"],
+  ["URL.parse", /\bURL\.parse\b/, "Safari 18, Chrome 126, Firefox 126"],
   ["Promise.try", /\bPromise\.try\b/, "Safari 18.2, Chrome 128, Firefox 134"],
   ["RegExp.escape / Error.isError", /\bRegExp\.escape\b|\bError\.isError\b/, "Safari 18.2, Chrome 136, Firefox 134"],
   ["Uint8Array base64 / hex", /\.(?:toBase64|toHex|setFromBase64|setFromHex)\(|\bUint8Array\.from(?:Base64|Hex)\b/, "Safari 18.2, Chrome 140, Firefox 133"],

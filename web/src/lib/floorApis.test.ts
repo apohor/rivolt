@@ -15,6 +15,7 @@ describe("the post-floor API scan (the build ships no polyfills)", () => {
     ["s.matchAll(/a/g).filter(Boolean)", "Iterator helpers"],
     ["Iterator.from(x)", "Iterator helpers"],
     ["URL.canParse(u)", "URL.canParse"],
+    ["URL.parse(u)", "URL.parse"],
     ["Promise.try(f)", "Promise.try"],
     ["buf.transfer(8)", "ArrayBuffer.prototype.transfer"],
     ["new Uint8Array(4).toBase64()", "Uint8Array base64 / hex"],
