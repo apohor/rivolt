@@ -134,6 +134,7 @@ var notOwnerSide = map[string]string{
 	"repair/blips.Apply":           "operator CLI (repair)",
 	"repair/routegaps.Apply":       "operator CLI (repair)",
 	"repair/routegaps.Restore":     "operator CLI (repair undo)",
+	"repair/routepoints.Apply":     "operator CLI (repair)",
 	"repair/chargeenergy.Apply":    "operator CLI (repair)",
 	"repair/chargeenergy.Restore":  "operator CLI (repair undo)",
 	"repair/phantom.Apply":         "operator CLI (repair)",
