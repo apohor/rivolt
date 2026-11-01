@@ -12,7 +12,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 for (const theme of ["dark", "light"] as const) {
   for (const w of [390, 1280, 1440] as const) {
     for (const view of ["table", "map"] as const) {
-      test(`activity ${view} · ${w}px · ${theme}`, async ({ browser }) => {
+      test(`activity ${view} · ${w}px · ${theme}${w === 390 ? " @webkit" : ""}`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: { width: w, height: w === 390 ? 844 : 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {

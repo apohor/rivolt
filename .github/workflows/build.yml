@@ -392,17 +392,15 @@ jobs:
       fail-fast: false
       matrix:
         # One suite: every spec, with the new look (the only one users get).
-        # PRs: chromium, three shards. Main pushes and a manual run: WebKit (the iPhone
-        # Safari engine; the phone specs only, see web/playwright.config.ts), two shards.
-        # Both are balanced by each spec's test time from main's newest runs
-        # (web/scripts/e2e-shard.mjs; e2e-report and the nightly run save the timings). WebKit left the PR
-        # path for speed (the owner, Oct 23); keep it on main: a WebKit failure turns
-        # that main build red, tag-validate refuses a tag whose SHA has no green main
-        # build, bump-preview waits for e2e-ok (so preview only gets SHAs that can be
-        # tagged), and e2e-report opens the "e2e red on main" issue. A Safari
-        # regression can land on main but can't reach preview or ship. publish does not
-        # wait for it (it only pushes per-commit image tags). Also nightly
-        # (e2e-nightly.yml) and the pre-release iPhone WebKit gate at tag.
+        # PRs: chromium, three shards (WebKit runs beside them in e2e-webkit-pr below, outside e2e-ok). Main pushes and a
+        # manual run: WebKit (the iPhone Safari engine; the phone specs and the "@webkit" map specs, see
+        # web/playwright.config.ts), two shards. Both are balanced by each spec's test time from main's newest runs
+        # (web/scripts/e2e-shard.mjs; e2e-report and the nightly run save the timings). WebKit left the PR path
+        # for speed (the owner, Oct 23); keep it on main: a WebKit failure turns that main build red, tag-validate
+        # refuses a tag whose SHA has no green main build, bump-preview waits for e2e-ok (so preview only gets SHAs
+        # that can be tagged), and e2e-report opens the "e2e red on main" issue. A Safari regression can land on
+        # main but can't reach preview or ship. publish does not wait for it (it only pushes per-commit image
+        # tags). Also nightly (e2e-nightly.yml) and the pre-release iPhone WebKit gate at tag.
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"suite":"all","project":"chromium","shard":1,"total":3},{"suite":"all","project":"chromium","shard":2,"total":3},{"suite":"all","project":"chromium","shard":3,"total":3}]' || '[{"suite":"all","project":"webkit","shard":1,"total":2},{"suite":"all","project":"webkit","shard":2,"total":2}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -508,6 +506,86 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-${{ matrix.suite }}-${{ matrix.project }}-${{ matrix.shard }}
+          path: |
+            web/playwright-report
+            web/e2e/__screenshots__
+            web/e2e/__results__
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # WebKit on pull requests (Maps 9a): the same specs as main's WebKit shards, two shards, in Playwright's image. A separate job and NOT in
+  # e2e-ok's needs, so a Safari failure shows red on the PR (no continue-on-error: a failure is a failure) but does not block the merge button; the
+  # owner's Oct 23 call took WebKit off the PR path for speed, and this adds no wall time (it runs beside the Chromium shards). Whether it should
+  # block is the owner's to decide: add this job to e2e-ok's needs.
+  e2e-webkit-pr:
+    name: e2e (webkit PR ${{ matrix.shard }}/${{ matrix.total }})
+    needs: changes
+    if: "needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'"
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { shard: 1, total: 2 }
+          - { shard: 2, total: 2 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: The WebKit image matches Playwright
+        working-directory: web
+        run: |
+          VERSION=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")
+          # The image's tag is the Playwright version it was built for; a different playwright-core would look for a browser
+          # build the image does not have.
+          if [ "$VERSION" != "1.64.1" ]; then
+            echo "::error::playwright-core is $VERSION but the webkit image is v1.64.1: bump the container tag and digest"
+            exit 1
+          fi
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Restore spec timings
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: web/e2e-timings
+          key: e2e-timings-webkit-none
+          restore-keys: e2e-timings-webkit-
+
+      - name: Playwright (WebKit)
+        working-directory: web
+        env:
+          CI: "true"
+          E2E_WEBKIT: "1"
+          E2E_PROJECT: webkit
+          E2E_TIMINGS: e2e-timings/webkit.json
+        run: |
+          node scripts/e2e-shard.mjs --check ${{ matrix.total }}
+          npx playwright test $(node scripts/e2e-shard.mjs ${{ matrix.shard }} ${{ matrix.total }}) --project=webkit --pass-with-no-tests
+
+      - name: Summary (flaky tests)
+        if: always()
+        working-directory: web
+        run: node scripts/e2e-timings.mjs summary e2e-results/results.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-webkit-pr-${{ matrix.shard }}
           path: |
             web/playwright-report
             web/e2e/__screenshots__

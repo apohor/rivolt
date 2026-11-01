@@ -21,7 +21,7 @@ for (const vp of [
   { name: "390", size: { width: 390, height: 844 } },
   { name: "1280", size: { width: 1280, height: 900 } },
 ]) {
-  test(`next: Feed, Table and Map views render at ${vp.name}`, async ({ page }) => {
+  test(`next: Feed, Table and Map views render at ${vp.name} @webkit`, async ({ page }) => {
     await page.setViewportSize(vp.size);
     await open(page);
     await page.goto("/activity");

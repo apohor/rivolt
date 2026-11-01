@@ -60,7 +60,7 @@ for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
   { n: "desktop", vp: { width: 1280, height: 900 } },
 ] as const) {
-  test(`a drive with no samples draws its stored route and says what is there · ${v.n}`, async ({ browser }) => {
+  test(`a drive with no samples draws its stored route and says what is there · ${v.n} @webkit`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, "/drives/old-route");
