@@ -33,20 +33,7 @@ struct DriveRouteMap: View {
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .overlay(alignment: .bottomTrailing) { MapAttribution() }
-                    .overlay(alignment: .bottomLeading) {
-                        if routeDrawn, health == .ok, drawing.usesGradient, let r = drawing.speedRange {
-                            GradientLegend(lo: r.lo, hi: r.hi).padding(4)
-                        } else if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) {
-                            SpeedLegend(bands: drawing.usedSpeeds).padding(4)
-                        }
-                    }
-                    .overlay {
-                        if routeDrawn, health == .ok, pins.size.width > 0, let times = pillTimes {
-                            PinPillsOverlay(size: pins.size, start: pins.start, end: pins.end, startTime: times.start, endTime: times.end,
-                                            legend: drawing.pieces.contains(where: { $0.speed != nil }), startLine: pins.startLine, endLine: pins.endLine)
-                        }
-                    }
+                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes)
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
@@ -60,8 +47,16 @@ struct DriveRouteMap: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .opensFullScreenMap(enabled: openable, title: "Drive route", recenterLabel: "Recenter on the route") { recenter in
+            if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
+                DriveRouteFullMap(styleJSON: style, drawing: drawing, times: pillTimes, recenter: recenter)
+            }
+        }
         .task(id: phase) { await load() }
     }
+
+    /// The inline map is drawn and the basemap is up: it can open full screen.
+    private var openable: Bool { drawing != nil && routeDrawn && health == .ok && !empty && !failed }
 
     /// "9:15 PM" and "11:28 PM": the drive's own start and end, in the phone's time zone and clock style (the web's pills do the same).
     private var pillTimes: (start: String?, end: String?)? {
@@ -106,6 +101,64 @@ struct DriveRouteMap: View {
 
     /// What the server observed, with no cause and no fault.
     static let noLocationText = "The vehicle didn't report its location during this drive."
+}
+
+/// The legend, the credit and the Start/End pills over a route map (inline or full screen). `ready`: the route's layers are on a working basemap.
+private struct RouteDecor: ViewModifier {
+    let drawing: RouteSnap.Drawing
+    let ready: Bool
+    let pins: RouteMapView.Pins
+    let times: (start: String?, end: String?)?
+    var clipPins = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottomTrailing) { MapAttribution() }
+            .overlay(alignment: .bottomLeading) {
+                if ready, drawing.usesGradient, let r = drawing.speedRange {
+                    GradientLegend(lo: r.lo, hi: r.hi).padding(4)
+                } else if ready, drawing.pieces.contains(where: { $0.speed != nil }) {
+                    SpeedLegend(bands: drawing.usedSpeeds).padding(4)
+                }
+            }
+            .overlay {
+                if ready, pins.size.width > 0, let times {
+                    // A pin panned out of the map takes its pill with it.
+                    let bounds = CGRect(origin: .zero, size: pins.size)
+                    PinPillsOverlay(size: pins.size, start: pins.start.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
+                                    end: pins.end.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
+                                    startTime: times.start, endTime: times.end,
+                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), startLine: pins.startLine, endLine: pins.endLine)
+                }
+            }
+    }
+}
+
+extension View {
+    fileprivate func routeDecor(drawing: RouteSnap.Drawing, ready: Bool, pins: RouteMapView.Pins, times: (start: String?, end: String?)?, clipPins: Bool = false) -> some View {
+        modifier(RouteDecor(drawing: drawing, ready: ready, pins: pins, times: times, clipPins: clipPins))
+    }
+}
+
+/// The drive's route full screen: the same drawing, gradient, pins, pills and legend, to pinch, pan and double-tap zoom.
+struct DriveRouteFullMap: View {
+    let styleJSON: String
+    let drawing: RouteSnap.Drawing
+    let times: (start: String?, end: String?)?
+    let recenter: Int
+    @State private var health = MapHealth.ok
+    @State private var routeDrawn = false
+    @State private var pins = RouteMapView.Pins()
+
+    var body: some View {
+        RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
+                     interactive: true, recenter: recenter)
+            .accessibilityElement()
+            .accessibilityLabel("Map of the drive route, full screen")
+            .accessibilityHint("Pinch to zoom, drag to move")
+            .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true)
+            .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+    }
 }
 
 /// The speed legend as a small corner card, laid out like the web's: a title line that carries the unit ("Speed, mph"), then a bar of the
@@ -204,6 +257,10 @@ struct RouteMapView: UIViewRepresentable {
         var startLine: [CGPoint] = []
         var endLine: [CGPoint] = []
     }
+    /// A map to explore (pinch, pan, double-tap zoom; never rotate or tilt), as on the full-screen screen.
+    var interactive = false
+    /// Bump to put the camera back on the whole route (the full-screen map's recenter button).
+    var recenter = 0
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
 
@@ -224,7 +281,8 @@ struct RouteMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(drawing: drawing, onHealth: onHealth, onDrawn: onDrawn, onPins: onPins) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
+        let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
+        if interactive, onPins != nil { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
         if onStop != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
@@ -235,6 +293,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.onStop = onStop
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.update(drawing, on: map)
+        context.coordinator.recenter(recenter, on: map)
     }
 
     final class Coordinator: MapLoadWatch {
@@ -449,6 +508,17 @@ struct RouteMapView: UIViewRepresentable {
 
         override func resized(_ map: MLNMapView) { fit(map) }
 
+        private var recentered = 0
+        /// The recenter button was pressed: the whole route in view again, eased there.
+        func recenter(_ count: Int, on map: MLNMapView) {
+            guard count != recentered else { return }
+            recentered = count
+            fitCamera(map, animated: true)
+        }
+
+        /// A pan or zoom: the pins' places moved, and the pills with them.
+        func cameraMoved(_ map: MLNMapView) { reportPins(map) }
+
         /// The camera on the whole drawing. MapLibre ignores a fit while the view has no size, so it's made again
         /// when the view gets one (`resized`).
         private func fit(_ map: MLNMapView) {
@@ -478,7 +548,7 @@ struct RouteMapView: UIViewRepresentable {
             DispatchQueue.main.async { onPins(pins) }
         }
 
-        private func fitCamera(_ map: MLNMapView) {
+        private func fitCamera(_ map: MLNMapView, animated: Bool = false) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
                 .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
@@ -486,10 +556,10 @@ struct RouteMapView: UIViewRepresentable {
             let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
             // One spot (a frozen fix): centred, as the web does, never a zero-size fit.
             if (lats.max()! - lats.min()!) < 1e-4 && (lons.max()! - lons.min()!) < 1e-4 {
-                map.setCenter(coords[0], zoomLevel: 15, animated: false)
+                map.setCenter(coords[0], zoomLevel: 15, animated: animated)
                 return
             }
-            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 32, right: 24), animated: false)
+            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 32, right: 24), animated: animated)
         }
     }
 }
@@ -648,6 +718,11 @@ class MapLoadWatch: NSObject, MLNMapViewDelegate {
         for layer in style.layers where layer.identifier.hasPrefix(prefix) { style.removeLayer(layer) }
         for source in style.sources where source.identifier.hasPrefix(prefix) { style.removeSource(source) }
     }
+
+    /// The camera moved (a person panned or zoomed a full-screen map).
+    var onCamera: ((MLNMapView) -> Void)?
+    func mapViewRegionIsChanging(_ map: MLNMapView) { onCamera?(map) }
+    func mapView(_ map: MLNMapView, regionDidChangeAnimated animated: Bool) { onCamera?(map) }
 
     func mapView(_ map: MLNMapView, didFinishLoading style: MLNStyle) { styleLoaded(map, style) }
 

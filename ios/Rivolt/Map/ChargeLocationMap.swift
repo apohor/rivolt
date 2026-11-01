@@ -68,6 +68,13 @@ struct ChargeLocationMap: View {
                     .accessibilityLabel(pinLabel.map { "Map of where the charge happened: \($0)" } ?? "Map of where the charge happened")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+                    .opensFullScreenMap(enabled: health == .ok, title: "Charge location", recenterLabel: "Recenter on the charge") { recenter in
+                        ChargeMapView(styleJSON: style, location: location, interactive: true, recenter: recenter)
+                            .accessibilityElement()
+                            .accessibilityLabel(pinLabel.map { "Map of where the charge happened, full screen: \($0)" } ?? "Map of where the charge happened, full screen")
+                            .accessibilityHint("Pinch to zoom, drag to move")
+                            .overlay(alignment: .bottomTrailing) { MapAttribution() }
+                    }
             } else if failed || health == .failed || location != nil {
                 MapMessage(text: "Map unavailable.")
             } else {
@@ -130,6 +137,10 @@ struct ChargeMapView: UIViewRepresentable {
     let location: ChargeLocation
     var onHealth: (MapHealth) -> Void = { _ in }
     var onPin: (ChargerPin.Pin) -> Void = { _ in }
+    /// A map to explore (pinch, pan, double-tap zoom; never rotate or tilt), as on the full-screen screen.
+    var interactive = false
+    /// Bump to put the camera back on the charge (the full-screen map's recenter button).
+    var recenter = 0
 
     /// The prefix of this map's own sources and layers (`clear` removes them); never a prefix of the charger
     /// archive's ids (MapStyle.chargerSourceID, "rivolt-chargers…"), which the style itself carries.
@@ -140,11 +151,12 @@ struct ChargeMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(location: location, onHealth: onHealth, onPin: onPin) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator)
+        MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.setStyle(styleJSON, on: map)
+        context.coordinator.recenter(recenter, on: map)
     }
 
     final class Coordinator: MapLoadWatch {
@@ -244,6 +256,14 @@ struct ChargeMapView: UIViewRepresentable {
         }
 
         override func resized(_ map: MLNMapView) { center(map) }
+
+        private var recentered = 0
+        /// The recenter button was pressed: the charge at zoom 16 again, eased there.
+        func recenter(_ count: Int, on map: MLNMapView) {
+            guard count != recentered else { return }
+            recentered = count
+            map.setCenter(here, zoomLevel: ChargeMapView.zoom, animated: true)
+        }
 
         /// The charge at zoom 16, as the web (once the view has a size: MapLibre ignores a camera set before).
         private func center(_ map: MLNMapView) {
