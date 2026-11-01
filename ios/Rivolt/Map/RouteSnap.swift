@@ -184,6 +184,8 @@ enum RouteSnap {
     struct Run: Equatable {
         let coords: [Coord]
         let speeds: [Double?]
+        /// The road router guessed this stretch (there was no GPS along it): it is drawn so it plainly looks guessed (`GradientStyle`).
+        var filled = false
 
         /// Metres along the line to each vertex, as a share of the whole (0 at the first, 1 at the last): `line-progress`.
         var progress: [Double] {
@@ -210,7 +212,23 @@ enum RouteSnap {
         var d = [0.0]
         for i in 1..<coords.count { d.append(d[i - 1] + haversine(Point(lat: coords[i - 1].lat, lon: coords[i - 1].lon), Point(lat: coords[i].lat, lon: coords[i].lon))) }
         let total = d.last ?? 0
-        return Run(coords: coords, speeds: d.map { total > 0 ? a + (b - a) * ($0 / total) : a })
+        return Run(coords: coords, speeds: d.map { total > 0 ? a + (b - a) * ($0 / total) : a }, filled: true)
+    }
+
+    /// How a gradient run is drawn: a recorded one is the full line with a faint glow; one the router filled is the same colours, but about 60% as
+    /// wide at half the opacity and with no glow, so it never passes for measured speed. (MapLibre's line-gradient cannot be dashed.)
+    struct GradientStyle: Equatable {
+        let width: Double
+        let opacity: Double
+        let glow: (width: Double, opacity: Double)?
+
+        static func of(_ run: Run) -> GradientStyle {
+            run.filled ? GradientStyle(width: 2.1, opacity: 0.5, glow: nil) : GradientStyle(width: 3.5, opacity: 0.95, glow: (9, 0.18))
+        }
+
+        static func == (a: GradientStyle, b: GradientStyle) -> Bool {
+            a.width == b.width && a.opacity == b.opacity && a.glow?.width == b.glow?.width && a.glow?.opacity == b.glow?.opacity
+        }
     }
 
     /// The most separate runs the gradient is drawn for (each is its own map layer); a drive cut into more than this keeps the speed buckets.

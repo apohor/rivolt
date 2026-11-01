@@ -404,11 +404,17 @@ struct RouteMapView: UIViewRepresentable {
                     l.lineCap = NSExpression(forConstantValue: "round")
                     l.lineJoin = NSExpression(forConstantValue: "round")
                 }
-                // The glow: the same gradient, wider and fainter, under the line.
-                let glow = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-run-glow-\(i)", source: source)
-                style_(glow, width: 9, opacity: 0.18)
-                style_(layer, width: 3.5, opacity: 0.95)
-                for l in [glow, layer] { if let below { style.insertLayer(l, below: below) } else { style.addLayer(l) } }
+                let look = RouteSnap.GradientStyle.of(run)
+                var layers: [MLNLineStyleLayer] = []
+                // The glow: the same gradient, wider and fainter, under the line (not under a stretch the router guessed).
+                if let g = look.glow {
+                    let glow = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-run-glow-\(i)", source: source)
+                    style_(glow, width: g.width, opacity: g.opacity)
+                    layers.append(glow)
+                }
+                style_(layer, width: look.width, opacity: look.opacity)
+                layers.append(layer)
+                for l in layers { if let below { style.insertLayer(l, below: below) } else { style.addLayer(l) } }
             }
         }
 

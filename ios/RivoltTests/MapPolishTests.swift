@@ -23,6 +23,16 @@ final class MapPolishTests: XCTestCase {
         XCTAssertEqual(s, s.sorted(), "never goes the wrong way")
     }
 
+    func testAStretchTheRouterGuessedIsDrawnThinFaintAndWithoutGlow() throws {
+        let coords = [RouteSnap.Coord(lat: 40, lon: -100), RouteSnap.Coord(lat: 40, lon: -99.99)]
+        let guessed = RouteSnap.GradientStyle.of(try XCTUnwrap(RouteSnap.filledRun(coords, from: 20, to: 60)))
+        let recorded = RouteSnap.GradientStyle.of(RouteSnap.Run(coords: coords, speeds: [20, 60]))
+        XCTAssertEqual(guessed.width / recorded.width, 0.6, accuracy: 0.01)
+        XCTAssertEqual(guessed.opacity, 0.5, accuracy: 0.001)
+        XCTAssertNil(guessed.glow)
+        XCTAssertNotNil(recorded.glow)
+    }
+
     func testAFilledStretchUsesTheOneNeighbourItHasAndNothingWithNone() throws {
         let coords = [RouteSnap.Coord(lat: 40, lon: -100), RouteSnap.Coord(lat: 40, lon: -99.99)]
         XCTAssertEqual(try XCTUnwrap(RouteSnap.filledRun(coords, from: nil, to: 33)).speeds.compactMap { $0 }, [33, 33])
