@@ -5,7 +5,7 @@ import Foundation
 /// `Period`). `start` is inclusive and `end` exclusive, as the server takes `since` and `until`: a day is its midnight to the next one.
 /// The kind and how far back it was stepped are remembered (`Stored`), so "Today" is still today tomorrow.
 struct Period: Equatable, Hashable {
-    enum Kind: String, Codable, CaseIterable { case day, week, month, year, all, custom }
+    enum Kind: String, Codable, CaseIterable { case day, week, month, last30, year, all, custom }
 
     let kind: Kind
     /// The first instant, in the phone's calendar.
@@ -25,8 +25,8 @@ struct Period: Equatable, Hashable {
         let day = calendar.startOfDay(for: date)
         func add(_ c: Calendar.Component, _ n: Int, to d: Date) -> Date { calendar.date(byAdding: c, value: n, to: d) ?? d }
         switch kind {
-        case .day, .custom, .all:
-            // Custom and All time have their own makers; asked for here they are the day.
+        case .day, .custom, .all, .last30:
+            // Custom, All time and the last 30 days have their own makers; asked for here they are the day.
             self.init(kind: .day, start: day, end: add(.day, 1, to: day))
         case .week:
             // Monday to Sunday, like the web's, whatever the phone's first weekday.
@@ -48,6 +48,14 @@ struct Period: Equatable, Hashable {
     static func custom(from: Date, to: Date, calendar: Calendar) -> Period {
         let a = calendar.startOfDay(for: min(from, to)), b = calendar.startOfDay(for: max(from, to))
         return Period(kind: .custom, start: a, end: calendar.date(byAdding: .day, value: 1, to: b) ?? b)
+    }
+
+    /// The rolling last 30 days: today and the 29 days before it. What Activity opens on the first time (a feed wants what is recent, and on
+    /// the 1st of a month "this month" is nearly empty); a choice made on the phone is remembered and wins. It does not step.
+    static func last30(now: Date, calendar: Calendar) -> Period {
+        let today = calendar.startOfDay(for: now)
+        return Period(kind: .last30, start: calendar.date(byAdding: .day, value: -29, to: today) ?? today,
+                      end: calendar.date(byAdding: .day, value: 1, to: today) ?? today)
     }
 
     /// Everything the truck has recorded: from before the first Rivian reached a driveway to the end of today.
@@ -97,6 +105,8 @@ struct Period: Equatable, Hashable {
         switch kind {
         case .all:
             return "All time"
+        case .last30:
+            return "Last 30 days"
         case .day:
             if calendar.isDate(start, inSameDayAs: now) { return "Today" }
             let sameYear = calendar.component(.year, from: start) == calendar.component(.year, from: now)
@@ -131,6 +141,7 @@ struct Period: Equatable, Hashable {
         }
         switch kind {
         case .all: return "all time"
+        case .last30: return "the last 30 days"
         case .day: return calendar.isDate(start, inSameDayAs: now) ? "today" : wide(start, year: calendar.component(.year, from: start) != calendar.component(.year, from: now))
         case .week: return "the week of \(wide(start, year: false))"
         case .month:
@@ -216,6 +227,7 @@ struct Period: Equatable, Hashable {
     func stored(now: Date, calendar: Calendar) -> Stored {
         switch kind {
         case .all: return Stored(kind: .all)
+        case .last30: return Stored(kind: .last30)
         case .custom: return Stored(kind: .custom, from: Self.ymd(start, calendar), to: Self.ymd(lastDay(calendar), calendar))
         default:
             let current = Period(kind: kind, containing: now, calendar: calendar)
@@ -231,6 +243,8 @@ struct Period: Equatable, Hashable {
         switch s.kind {
         case .all:
             self = Period.allTime(now: now, calendar: calendar)
+        case .last30:
+            self = Period.last30(now: now, calendar: calendar)
         case .custom:
             if let a = Self.parse(s.from, calendar), let b = Self.parse(s.to, calendar) {
                 self = Period.custom(from: a, to: b, calendar: calendar)
