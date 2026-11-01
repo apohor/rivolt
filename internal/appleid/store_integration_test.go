@@ -229,7 +229,7 @@ func TestLinkIntent(t *testing.T) {
 	if err := st.CreateLinkIntent(ctx, b, state2, sessB, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.DeleteLinkIntentsForSession(ctx, sessA); err != nil {
+	if err := st.DropSessionLinkIntents(ctx, sessA); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, _ := st.ConsumeLinkIntent(ctx, state1, now); ok {

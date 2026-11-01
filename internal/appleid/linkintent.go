@@ -72,8 +72,8 @@ func (s *Store) ConsumeLinkIntent(ctx context.Context, stateHash []byte, now tim
 	return in, true, nil
 }
 
-// DeleteLinkIntentsForSession drops every open intent started from the session whose hash is sessionHash (sign-out).
-func (s *Store) DeleteLinkIntentsForSession(ctx context.Context, sessionHash []byte) error {
+// DropSessionLinkIntents drops every open intent started from the session whose hash is sessionHash (sign-out).
+func (s *Store) DropSessionLinkIntents(ctx context.Context, sessionHash []byte) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM apple_link_intents WHERE session_hash = $1`, sessionHash); err != nil {
 		return fmt.Errorf("appleid: drop link intents: %w", err)
 	}
