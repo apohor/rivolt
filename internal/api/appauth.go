@@ -56,6 +56,18 @@ type appConfigResponse struct {
 	AppLogin    bool          `json:"app_login"`
 	Push        appConfigPush `json:"push"`
 	MinIOSBuild int           `json:"min_ios_build,omitempty"`
+	// IAP is what the app needs to sell Rivolt Pro through StoreKit on this server: absent unless StoreKit is configured here with at least
+	// one product id (no bundle id, or billing off with no products, and the app shows no purchase button).
+	IAP *appConfigIAP `json:"iap,omitempty"`
+}
+
+// appConfigIAP is the StoreKit side of /api/app/config. Environment is "Production" or "Sandbox" (one per deployment); Products are the
+// product ids Rivolt Pro is sold as, which are public in the App Store. The server does not say which is monthly or yearly: the app asks
+// StoreKit for the products and reads each one's subscription period, so the two cannot drift. A purchase must carry the account's id
+// (GET /api/auth/me user_id) as appAccountToken.
+type appConfigIAP struct {
+	Environment string   `json:"environment"`
+	Products    []string `json:"products"`
 }
 
 type appConfigPush struct {
@@ -73,6 +85,14 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 		if d.AppAuth != nil {
 			resp.AppLogin = d.OIDC != nil && len(d.OIDC.Providers()) > 0
 			resp.MinIOSBuild = d.AppAuth.MinIOSBuild
+		}
+		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 {
+			ids := make([]string, 0, len(t.Config.Products))
+			for id := range t.Config.Products {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			resp.IAP = &appConfigIAP{Environment: t.Config.Environment, Products: ids}
 		}
 		resp.Push.APNs = d.PushService.APNsEnabled()
 		resp.Push.Live = d.PushService.LiveEnabled()

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -89,5 +90,31 @@ func TestAppleNotificationsRoute(t *testing.T) {
 	}
 	if limited == 0 {
 		t.Error("40 quick requests from one address were never rate limited")
+	}
+}
+
+// /api/app/config carries the StoreKit products only when StoreKit is configured with at least one: the app shows no purchase button
+// otherwise, and a server never sends an empty "iap".
+func TestAppConfigCarriesTheStoreKitProducts(t *testing.T) {
+	get := func(d Deps) string {
+		w := httptest.NewRecorder()
+		handleAppConfig(d)(w, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+		return w.Body.String()
+	}
+	with := get(Deps{AppleIAPTransaction: &applebill.Transaction{Config: &applebill.Config{
+		BundleID: "dev.rivolt.test", Environment: applebill.EnvSandbox,
+		Products: map[string]bool{"test.pro.year": true, "test.pro.month": true},
+	}}})
+	if !strings.Contains(with, `"iap":{"environment":"Sandbox","products":["test.pro.month","test.pro.year"]}`) {
+		t.Errorf("StoreKit configured: %s", with)
+	}
+	for name, d := range map[string]Deps{
+		"no StoreKit":         {},
+		"no config":           {AppleIAPTransaction: &applebill.Transaction{}},
+		"billing off, no ids": {AppleIAPTransaction: &applebill.Transaction{Config: &applebill.Config{BundleID: "dev.rivolt.test", Environment: applebill.EnvProduction}}},
+	} {
+		if body := get(d); strings.Contains(body, `"iap"`) {
+			t.Errorf("%s: iap must be absent: %s", name, body)
+		}
 	}
 }
