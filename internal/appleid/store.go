@@ -124,3 +124,25 @@ func (s *Store) DropToken(ctx context.Context, userID uuid.UUID) error {
 	}
 	return nil
 }
+
+// Linked reports whether the account has an Apple identity linked.
+func (s *Store) Linked(ctx context.Context, userID uuid.UUID) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM apple_identities WHERE user_id = $1`, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("appleid: linked: %w", err)
+	}
+	return true, nil
+}
+
+// Unlink removes the account's Apple identity and forgets the kept refresh token. The caller has revoked the token at Apple, or queued
+// that, first: after this the token is gone from here. Unlinking an account that is not linked is not an error.
+func (s *Store) Unlink(ctx context.Context, userID uuid.UUID) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM apple_identities WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("appleid: unlink: %w", err)
+	}
+	return s.DropToken(ctx, userID)
+}
