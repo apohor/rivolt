@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // Outside temperature is off until the user turns it on: the Settings switch, the offer under Now's details,
 // and the reading once it is on. Nothing is asked or shown in the demo.
@@ -25,7 +26,7 @@ async function open(page: Page, o: { enabled: boolean }) {
   });
   // /now carries the reading only once it is on.
   await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/now`), (r) => {
-    const iso = (ago: number) => new Date(Date.now() - ago).toISOString();
+    const iso = (ago: number) => new Date(e2eNow() - ago).toISOString();
     return r.fulfill(
       j({
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: "parked", state_since: iso(2 * 3_600_000),

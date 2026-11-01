@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // Settings → Security → Signed-in devices: the browsers and the iPhone app signed in as this user, "This device", one sign-out
 // with a confirm, "Sign out everywhere else", the 409 note, and nothing at all where the server has no sessions (404) or an
@@ -10,7 +11,7 @@ import { stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+const ago = (min: number) => new Date(e2eNow() - min * 60_000).toISOString();
 const sess = (id: string, kind: "web" | "app", label: string, o: Record<string, unknown> = {}) => ({
   id, kind, device_label: label, created_at: ago(60 * 24 * 3), last_seen_at: ago(5), expires_at: ago(-60 * 24 * 27), current: false, ...o,
 });

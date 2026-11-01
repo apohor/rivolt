@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
 
 // A drive with no second-by-second samples (a gap or an import) still has its stored route: the map is drawn from it, and
 // the empty states say what is missing and what is there, with no claim about age.
@@ -30,7 +31,7 @@ function encode5(pts: [number, number][]): string {
   return out;
 }
 const ROUTE = encode5([[40.0, -100.0], [40.1, -100.2], [40.25, -100.3], [40.4, -100.6]]);
-const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+const ago = (days: number) => new Date(e2eNow() - days * 86_400_000).toISOString();
 const drive = (id: string, days: number, route: string) => ({
   ID: id, VehicleID: VEHICLE_ID, StartedAt: ago(days), EndedAt: ago(days - 0.02), StartSoCPct: 70, EndSoCPct: 60, StartOdometerMi: 100, EndOdometerMi: 130,
   DistanceMi: 30, StartLat: 40, StartLon: -100, EndLat: 40.4, EndLon: -100.6, MaxSpeedMph: 70, AvgSpeedMph: 40, EnergyUsedKWh: 10, Source: "live", RoutePolyline: route,
