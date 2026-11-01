@@ -245,7 +245,7 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 // yet) and Rivian rejects it. That rejection must not flag the user or send the email,
 // and one against the stored session still must. The check is in the UPDATE itself, so a
 // sign-in landing between B's read and write cannot lose.
-func staleRejectionRoundTemp(t *testing.T) {
+func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
@@ -624,7 +624,7 @@ func freshName(base string) string { return base + "-" + uuid.NewString()[:8] }
 
 // raceRounds is how many times each interleaving below is forced. The interleaving is deterministic (Postgres itself is the barrier), so one
 // round proves it; more only show it is not flaky.
-var raceRounds = 20 // TEMPORARY (validation run), reverted before review
+var raceRounds = 1
 
 // A deterministic interleaving, no sleeps: a stale pod's rejection reaches the database WHILE a sign-in (or a sign-out) is still in its
 // transaction. The sign-in (secrets.PutTxVersioned) writes the new session row (its version is the database's clock at that statement), then
@@ -748,13 +748,6 @@ func staleRaiseRace(t *testing.T, kind string) {
 		}
 	} else if tr, err := db.RaiseNeedsReauthIfCurrent(ctx, pool, uid, "session expired", old); err != nil || tr {
 		t.Fatalf("a rejection under a deleted session flagged the user: transitioned=%v err=%v", tr, err)
-	}
-}
-
-// TEMPORARY (validation run), reverted before review: the stale-pod test, 20 rounds.
-func TestStalePodRejectionDoesNotReflagAFreshSignIn(t *testing.T) {
-	for i := 0; i < 20; i++ {
-		t.Run(fmt.Sprintf("round-%02d", i), staleRejectionRoundTemp)
 	}
 }
 
