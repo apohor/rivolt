@@ -336,7 +336,9 @@ func installFlagAudit(ctx context.Context, t *testing.T, pool *sql.DB) {
 			t.Fatalf("flag audit: %v", err)
 		}
 	}
-	t.Cleanup(func() { _, _ = pool.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS zz_reauth_audit_trg ON users`) })
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.Background(), `DROP TRIGGER IF EXISTS zz_reauth_audit_trg ON users`)
+	})
 }
 
 func flagAudit(ctx context.Context, pool *sql.DB, uid uuid.UUID) string {
