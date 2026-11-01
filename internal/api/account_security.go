@@ -55,6 +55,12 @@ type accountSecurityAPI struct {
 }
 
 func (a *accountSecurityAPI) guard(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	return browserSessionGuard(w, r)
+}
+
+// browserSessionGuard is what the routes that change how someone signs in check first: a signed-in user, a browser session of their
+// own (not an admin viewing as them, not the iPhone app's token), not a cross-site request, and a JSON body.
+func browserSessionGuard(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	uid, ok := auth.UserFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

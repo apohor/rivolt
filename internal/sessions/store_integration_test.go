@@ -5,6 +5,7 @@ package sessions_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"strings"
 	"testing"
 	"time"
@@ -222,5 +223,69 @@ func TestRevokeAllEndsEverySessionOfOneUser(t *testing.T) {
 	}
 	if n, err := st.RevokeAll(ctx, uuid.Nil); err != nil || n != 0 {
 		t.Errorf("nil user: %d, %v", n, err)
+	}
+}
+
+// Live and LiveByIDHash: what the Apple link flow asks of a session. The hash is sha256 of the id's text, computed in Go by the link
+// request and in Postgres by the lookup, so this pins that the two agree.
+func TestLiveSessionLookups(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	st, err := sessions.New(pool, bytes.Repeat([]byte("p"), 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, _ := db.EnsureUser(ctx, pool, "sess-live-me")
+	other, _ := db.EnsureUser(ctx, pool, "sess-live-other")
+	sess, _, err := st.Create(ctx, me, time.Hour, sessions.CreateOpts{Kind: sessions.KindWeb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := func(id string) []byte { h := sha256.Sum256([]byte(id)); return h[:] }
+
+	created, ok, err := st.Live(ctx, me, sess.ID)
+	if err != nil || !ok || created.IsZero() {
+		t.Fatalf("Live = %v, %v, %v; want a live session", created, ok, err)
+	}
+	if ok, err := st.LiveByIDHash(ctx, me, hash(sess.ID.String())); err != nil || !ok {
+		t.Fatalf("LiveByIDHash = %v, %v; want live", ok, err)
+	}
+	// Someone else's id, a wrong hash, and an unknown session are not live.
+	if _, ok, _ := st.Live(ctx, other, sess.ID); ok {
+		t.Error("Live answered for another user's session")
+	}
+	if ok, _ := st.LiveByIDHash(ctx, other, hash(sess.ID.String())); ok {
+		t.Error("LiveByIDHash answered for another user's session")
+	}
+	if ok, _ := st.LiveByIDHash(ctx, me, hash("not-the-id")); ok {
+		t.Error("LiveByIDHash matched a wrong hash")
+	}
+	// Revoked and expired sessions are not live.
+	if err := st.Revoke(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.Live(ctx, me, sess.ID); ok {
+		t.Error("a revoked session is live")
+	}
+	if ok, _ := st.LiveByIDHash(ctx, me, hash(sess.ID.String())); ok {
+		t.Error("a revoked session is live by hash")
+	}
+	old, _, err := st.Create(ctx, me, time.Hour, sessions.CreateOpts{Kind: sessions.KindWeb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE sessions SET expires_at = now() - interval '1 minute' WHERE id = $1`, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.Live(ctx, me, old.ID); ok {
+		t.Error("an expired session is live")
+	}
+	if ok, _ := st.LiveByIDHash(ctx, me, hash(old.ID.String())); ok {
+		t.Error("an expired session is live by hash")
 	}
 }

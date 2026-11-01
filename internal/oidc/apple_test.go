@@ -212,9 +212,15 @@ func (fa *fakeApple) revoke(w http.ResponseWriter, r *http.Request) {
 
 // fakeLinks is AppleLinks over a map.
 type fakeLinks struct {
-	bySub   map[string]string
-	linkErr error
-	linked  []string // "uid sub refresh"
+	bySub    map[string]string
+	uidBySub map[string]uuid.UUID
+	linkErr  error
+	linked   []string // "uid sub refresh"
+}
+
+func (f *fakeLinks) UserBySub(_ context.Context, sub string) (uuid.UUID, bool, error) {
+	u, ok := f.uidBySub[sub]
+	return u, ok, nil
 }
 
 func (f *fakeLinks) UsernameBySub(_ context.Context, sub string) (string, bool, error) {
@@ -246,6 +252,9 @@ type appleHarness struct {
 	issued   []uuid.UUID
 	capErr   error
 	svc      *Service
+	intents  *fakeIntents
+	live     bool // what SessionLive answers
+	outcomes []string
 }
 
 func newAppleHarness(t *testing.T) *appleHarness {
@@ -257,7 +266,9 @@ func newAppleHarness(t *testing.T) *appleHarness {
 	h := &appleHarness{
 		t:        t,
 		fa:       newFakeApple(t, &appleKey.PublicKey),
-		links:    &fakeLinks{bySub: map[string]string{}},
+		links:    &fakeLinks{bySub: map[string]string{}, uidBySub: map[string]uuid.UUID{}},
+		intents:  &fakeIntents{m: map[string]AppleLinkIntent{}},
+		live:     true,
 		logs:     &bytes.Buffer{},
 		existing: map[string]bool{},
 	}
@@ -282,7 +293,10 @@ func newAppleHarness(t *testing.T) *appleHarness {
 			// GitHub needs no discovery: the non-Apple provider for the cookie and method pins.
 			{Name: "github", Kind: "oauth2-github", ClientID: "gh", RedirectURL: "https://rivolt.test/api/auth/oidc/github/callback"},
 		},
-		AppleLinks: h.links,
+		AppleLinks:       h.links,
+		AppleLinkIntents: h.intents,
+		SessionLive:      func(context.Context, uuid.UUID, []byte) (bool, error) { return h.live, nil },
+		LinkObserve:      func(o string) { h.outcomes = append(h.outcomes, o) },
 	})
 	if err != nil {
 		t.Fatal(err)
