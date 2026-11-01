@@ -19,7 +19,7 @@ export function failureMessage(e: unknown): string {
     if (e.status === 429) return f.too_many;
     if (code === "password_incorrect") return f.password_incorrect;
     if (code === "password_required") return f.password_required;
-    if (code === "password_needed_to_link") return f.password_needed_to_link;
+    if (code === "password_needed_to_link") return `${APPLE_LINK_COPY.needsPasswordTitle}. ${APPLE_LINK_COPY.needsPasswordBody}`;
     if (code === "apple_not_available") return f.apple_not_available;
     if (code === "not_linked") return f.not_linked;
     if (e.status === 403) return f.not_here;

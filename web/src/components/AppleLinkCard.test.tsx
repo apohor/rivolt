@@ -44,10 +44,11 @@ describe("AppleLinkCard", () => {
       "/api/auth/apple-link": status(),
     });
     const go = renderCard();
-    expect(await screen.findByText(copy.notLinked)).toBeTruthy();
+    expect(await screen.findByText(copy.connectLine)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: copy.connect }));
+    expect(screen.getByText(copy.connectPromptTitle)).toBeTruthy();
     typePassword("right");
-    fireEvent.click(screen.getByRole("button", { name: copy.connect }));
+    fireEvent.click(screen.getByRole("button", { name: copy.continueToApple }));
     await waitFor(() => expect(go).toHaveBeenCalledWith("https://appleid.example/authorize?state=x"));
     expect(JSON.parse(String((posted(fetchMock, "/api/auth/apple-link/start")[0][1] as RequestInit).body))).toEqual({ password: "right" });
   });
@@ -60,7 +61,7 @@ describe("AppleLinkCard", () => {
     const go = renderCard();
     fireEvent.click(await screen.findByRole("button", { name: copy.connect }));
     typePassword("wrong");
-    fireEvent.click(screen.getByRole("button", { name: copy.connect }));
+    fireEvent.click(screen.getByRole("button", { name: copy.continueToApple }));
     expect(await screen.findByText(copy.failures.password_incorrect)).toBeTruthy();
     expect((screen.getByLabelText(copy.passwordLabel) as HTMLInputElement).value).toBe("");
     expect(go).not.toHaveBeenCalled();
@@ -69,16 +70,18 @@ describe("AppleLinkCard", () => {
   it("an account with no password is told so and offered no button", async () => {
     stubFetchRoutes({ "/api/auth/apple-link": status({ has_password: false }) });
     renderCard();
-    expect(await screen.findByText(copy.needsPassword)).toBeTruthy();
+    expect(await screen.findByText(copy.needsPasswordTitle)).toBeTruthy();
+    expect(screen.getByText(copy.needsPasswordBody)).toBeTruthy();
     expect(screen.queryByRole("button", { name: copy.connect })).toBeNull();
   });
 
   it("an account connected to Apple with no password cannot disconnect from here", async () => {
     stubFetchRoutes({ "/api/auth/apple-link": status({ linked: true, has_password: false }) });
     renderCard();
-    expect(await screen.findByText(copy.linked)).toBeTruthy();
+    expect(await screen.findByText(copy.connected)).toBeTruthy();
     expect(screen.getByText(copy.cannotDisconnect)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: copy.disconnect })).toBeNull();
+    // The button is there, but disabled: the line says why.
+    expect((screen.getByRole("button", { name: copy.disconnect }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("disconnects: confirms with the password, posts it, and says it is done", async () => {
@@ -87,12 +90,23 @@ describe("AppleLinkCard", () => {
       "/api/auth/apple-link": status({ linked: true }),
     });
     renderCard();
-    expect(await screen.findByText(copy.linked)).toBeTruthy();
+    expect(await screen.findByText(copy.connected)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: copy.disconnect }));
+    expect(screen.getByText(copy.disconnectTitle)).toBeTruthy();
+    expect(screen.getByText(copy.disconnectBody)).toBeTruthy();
     typePassword("right");
     fireEvent.click(screen.getByRole("button", { name: copy.confirmDisconnect }));
     expect(await screen.findByText(copy.disconnected)).toBeTruthy();
     expect(JSON.parse(String((posted(fetchMock, "/api/auth/apple-link/unlink")[0][1] as RequestInit).body))).toEqual({ password: "right" });
+  });
+
+  it("Keep it closes the disconnect confirm without posting anything", async () => {
+    const fetchMock = stubFetchRoutes({ "/api/auth/apple-link": status({ linked: true }) });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: copy.disconnect }));
+    fireEvent.click(screen.getByRole("button", { name: copy.keep }));
+    expect(screen.queryByText(copy.disconnectTitle)).toBeNull();
+    expect(posted(fetchMock, "/api/auth/apple-link/unlink")).toHaveLength(0);
   });
 
   it("shows what Apple sent the person back with, and not an unknown code", async () => {
@@ -106,7 +120,7 @@ describe("AppleLinkCard", () => {
     cleanup();
     stubFetchRoutes({ "/api/auth/apple-link": status() });
     renderCard(vi.fn(), "/settings?apple=nonsense");
-    await screen.findByText(copy.notLinked);
+    await screen.findByText(copy.connectLine);
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

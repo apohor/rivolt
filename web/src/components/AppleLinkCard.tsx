@@ -59,7 +59,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
   if (status.isError)
     return (
       <Card title={copy.title} id="apple">
-        <p className="text-xs text-rose-400">{copy.failures.generic}</p>
+        <p className="text-xs text-rose-400">{copy.loadFailed}</p>
       </Card>
     );
   const { linked, has_password: hasPassword } = status.data;
@@ -74,21 +74,33 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
   return (
     <Card title={copy.title} id="apple">
       <div data-apple-link className="space-y-3">
-        <p className="max-w-xl text-xs text-neutral-500">{copy.intro}</p>
-        <p data-apple-state={linked ? "linked" : "not-linked"} className="text-sm text-neutral-300">
-          {linked ? copy.linked : copy.notLinked}
+        <p data-apple-state={linked ? "linked" : "not-linked"} className="text-sm font-medium text-neutral-200">
+          {linked ? copy.connected : copy.connect}
         </p>
+        <p className="max-w-xl text-xs text-neutral-500">{linked ? copy.connectedLine : copy.connectLine}</p>
         {note && (
-          <p role="status" data-apple-note className={`text-xs ${note.bad ? "text-rose-400" : "text-neutral-400"}`}>
+          <p role="status" data-apple-note className={`max-w-xl text-xs ${note.bad ? "text-rose-400" : "text-neutral-400"}`}>
             {note.text}
           </p>
         )}
         {!hasPassword ? (
-          <p data-apple-needs-password className="max-w-xl text-xs text-neutral-500">
-            {linked ? copy.cannotDisconnect : copy.needsPassword}
-          </p>
+          linked ? (
+            <div data-apple-needs-password className="space-y-1">
+              <button type="button" disabled className="cursor-not-allowed rounded-md border border-neutral-800 px-3 py-1.5 text-xs text-neutral-500">
+                {copy.disconnect}
+              </button>
+              <p className="max-w-xl text-xs text-neutral-500">{copy.cannotDisconnect}</p>
+            </div>
+          ) : (
+            <div data-apple-needs-password className="max-w-xl space-y-1">
+              <p className="text-sm font-medium text-neutral-200">{copy.needsPasswordTitle}</p>
+              <p className="text-xs text-neutral-500">{copy.needsPasswordBody}</p>
+            </div>
+          )
         ) : mode ? (
           <form onSubmit={submit} className="space-y-2 rounded-lg border border-neutral-800 p-3">
+            <p className="text-sm font-medium text-neutral-200">{mode === "connect" ? copy.connectPromptTitle : copy.disconnectTitle}</p>
+            {mode === "disconnect" && <p className="max-w-xl text-xs text-neutral-500">{copy.disconnectBody}</p>}
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
               {copy.passwordLabel}
               <input
@@ -107,7 +119,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
                 disabled={busy || password === ""}
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${mode === "connect" ? "bg-emerald-700 hover:bg-emerald-600" : "bg-rose-700 hover:bg-rose-600"}`}
               >
-                {mode === "connect" ? (connect.isPending ? copy.connecting : copy.connect) : disconnect.isPending ? copy.disconnecting : copy.confirmDisconnect}
+                {mode === "connect" ? (connect.isPending ? copy.connecting : copy.continueToApple) : disconnect.isPending ? copy.disconnecting : copy.confirmDisconnect}
               </button>
               <button
                 type="button"
@@ -118,7 +130,7 @@ export function AppleLinkCard({ go = (url: string) => window.location.assign(url
                 }}
                 className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300"
               >
-                {copy.cancel}
+                {mode === "connect" ? copy.cancel : copy.keep}
               </button>
             </div>
           </form>
