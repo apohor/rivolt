@@ -4,13 +4,17 @@
 // Only maplibre-gl's own stylesheet is touched; a selector list loses just its unused members, and an emptied @media block goes with them.
 export const UNUSED_CONTROLS = /\.maplibregl-(?:ctrl-logo|ctrl-geolocate|ctrl-fullscreen|ctrl-shrink|ctrl-terrain|ctrl-globe|ctrl-scale|ctrl-compass|user-location)/;
 
+// Never pruned, whatever UNUSED_CONTROLS says: the attribution control (the OpenStreetMap and Protomaps credits must stay visible, and
+// foldCredits/map.css depend on its structure) and the compact class it toggles. Only the logo's own compact rule is not protected.
+export const KEEP = (selector) => /\.maplibregl-ctrl-attrib/.test(selector) || (/\.maplibregl-compact/.test(selector) && !/ctrl-logo/.test(selector));
+
 const plugin = () => ({
   postcssPlugin: "rivolt-prune-maplibre",
   Once(root) {
     const file = root.source?.input?.file ?? "";
     if (!/[\\/]maplibre-gl[^\\/]*\.css$/.test(file)) return;
     root.walkRules((rule) => {
-      const keep = rule.selectors.filter((s) => !UNUSED_CONTROLS.test(s));
+      const keep = rule.selectors.filter((s) => KEEP(s) || !UNUSED_CONTROLS.test(s));
       if (keep.length === 0) rule.remove();
       else if (keep.length !== rule.selectors.length) rule.selectors = keep;
     });

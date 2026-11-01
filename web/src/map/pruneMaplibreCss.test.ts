@@ -3,7 +3,7 @@ import { join } from "node:path";
 import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a build-time plugin written as plain ESM
-import prune, { UNUSED_CONTROLS } from "../../scripts/postcss-prune-maplibre.mjs";
+import prune, { KEEP, UNUSED_CONTROLS } from "../../scripts/postcss-prune-maplibre.mjs";
 
 const run = (css: string, from: string) => postcss([prune()]).process(css, { from }).css;
 
@@ -72,5 +72,49 @@ describe("pruning the MapLibre stylesheet", () => {
       expect(after.has(c), c).toBe(true);
     }
     expect(out.length).toBeLessThan(css.length * 0.5);
+  });
+
+  // The credits are licence-required and foldCredits/map.css depend on the attribution control's structure: every rule that mentions the
+  // attribution or the compact class survives the prune byte for byte, except the MapLibre logo's own compact rule.
+  describe("the attribution rules", () => {
+    const attribRules = (css: string) => {
+      const out: string[] = [];
+      postcss.parse(css).walkRules((r) => {
+        if (/attrib|compact/.test(r.selector) && !/ctrl-logo/.test(r.selector)) out.push(`${r.parent?.type === "atrule" ? "@" + (r.parent as postcss.AtRule).name + " " + (r.parent as postcss.AtRule).params + " " : ""}${r.toString()}`);
+      });
+      return out;
+    };
+
+    it("are all kept, in the fixture", () => {
+      const css = `
+        .maplibregl-ctrl-attrib { background: rgba(255,255,255,.5); }
+        .maplibregl-ctrl-attrib.maplibregl-compact { min-height: 20px; }
+        .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner { display: block; }
+        .maplibregl-ctrl-attrib-button { background-image: url("i"); }
+        @media (forced-colors: active) { .maplibregl-ctrl-attrib-button { background-image: url("hc"); } a.maplibregl-ctrl-logo { background: url("logo-hc"); } }
+        a.maplibregl-ctrl-logo.maplibregl-compact { width: 14px; }
+      `;
+      const out = run(css, "/x/node_modules/maplibre-gl/dist/maplibre-gl.css");
+      expect(attribRules(out)).toEqual(attribRules(css));
+      expect(out).not.toContain("ctrl-logo");
+      // Even a deny-list that is edited to be too broad cannot drop them.
+      expect(KEEP(".maplibregl-ctrl-attrib-button")).toBe(true);
+      expect(KEEP(".maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner")).toBe(true);
+      expect(KEEP("a.maplibregl-ctrl-logo.maplibregl-compact")).toBe(false);
+      expect(UNUSED_CONTROLS.test(".maplibregl-ctrl-attrib")).toBe(false);
+    });
+
+    it("are all kept, byte for byte, in maplibre-gl's own stylesheet", () => {
+      const file = join(process.cwd(), "node_modules/maplibre-gl/dist/maplibre-gl.css");
+      if (!existsSync(file)) {
+        if (process.env.CI) throw new Error(`${file} is missing`);
+        return;
+      }
+      const css = readFileSync(file, "utf8");
+      const before = attribRules(css);
+      expect(before.length).toBeGreaterThan(10);
+      const after = new Set(attribRules(run(css, file)));
+      for (const rule of before) expect(after.has(rule), `lost: ${rule.slice(0, 120)}`).toBe(true);
+    });
   });
 });
