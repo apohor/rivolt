@@ -151,6 +151,8 @@ enum RouteSnap {
         var inDrive = sorted.filter { $0.at >= started && $0.at <= ended }
         while inDrive.first?.shiftState == "P" { inDrive.removeFirst() }
         while inDrive.last?.shiftState == "P" { inDrive.removeLast() }
+        // In GPS-fix order, not arrival order: older and repeated fixes would jump the line back along the road (DriveTrack).
+        inDrive = DriveTrack.clean(inDrive)
         let valid = inDrive.filter { real($0.lat, $0.lon) }.map {
             Point(lat: $0.lat, lon: $0.lon, t: $0.at.timeIntervalSince1970, s: $0.speedMph)
         }
