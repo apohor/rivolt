@@ -111,6 +111,37 @@ export function dailyRanges(trend: Pt[], charges: Span[]): DayRange[] {
     });
 }
 
+// Where the chart's words go. A box is the text's rectangle at 11 px (a character is about 6.3 px wide, a line 14 px high), enough to see that two
+// names would lie on each other; the chart then moves one of them rather than print over it.
+export type Box = { x0: number; y0: number; x1: number; y1: number };
+const CHAR_PX = 6.3;
+export function textBox(x: number, y: number, text: string, anchor: "start" | "end"): Box {
+  const w = text.length * CHAR_PX;
+  const x0 = anchor === "start" ? x : x - w;
+  return { x0, x1: x0 + w, y0: y - 11, y1: y + 3 };
+}
+export const boxesMeet = (a: Box, b: Box): boolean => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+/** The limit's name goes after the end of its line (days still to come), else above that end, else against the plot's right edge above the
+ *  line, else below it: the first spot that does not lie on one of the other names. */
+export function limitLabelAt(
+  seg: { x1: number; pct: number },
+  X: (x: number) => number,
+  Y: (y: number) => number,
+  plotRight: number,
+  tight: boolean,
+  others: Box[],
+): { x: number; y: number; anchor: "start" | "end" } {
+  const text = `Limit ${Math.round(seg.pct)}%`;
+  const spots: { x: number; y: number; anchor: "start" | "end" }[] = [
+    ...(tight ? [] : [{ x: X(seg.x1) + 5, y: Y(seg.pct) + 3.5, anchor: "start" as const }]),
+    { x: X(seg.x1), y: Y(seg.pct) - 4, anchor: "end" },
+    { x: plotRight, y: Y(seg.pct) - 4, anchor: "end" },
+    { x: plotRight, y: Y(seg.pct) + 15, anchor: "end" },
+  ];
+  return spots.find((s) => !others.some((o) => boxesMeet(textBox(s.x, s.y, text, s.anchor), o))) ?? spots[0];
+}
+
 /** The day with the highest reading and the one with the lowest; null with fewer than two different levels. */
 export function extremesOf(rows: DayRange[]): { hi: DayRange; lo: DayRange } | null {
   if (rows.length === 0) return null;
@@ -207,7 +238,7 @@ export function SocTrendChart({
     if (rows.length === 0) return null;
     const cx = rows.map(centre);
     if (rows.length === 1) {
-      const half = Math.max(3, ((DAY * 0.3) / (x1 - x0)) * iw);
+      const half = Math.max(5, ((DAY * 0.3) / (x1 - x0)) * iw);
       return { single: { x: X(cx[0]), half }, band: "", line: "" };
     }
     const lo = monotoneAt(cx, rows.map((r) => r.low));
@@ -235,6 +266,33 @@ export function SocTrendChart({
     X(x) - PAD.l < 14 ? "start" : PAD.l + iw - X(x) < 14 ? "end" : "middle";
   // A name goes on the side with room, and a low near the floor is lifted off the charging ticks.
   const labelRight = (r: DayRange) => centre(r) - x0 < 0.6 * (x1 - x0);
+  // The names of the period's highest and lowest points. On one day (a month with a single day of readings, or a high and a low that fall
+  // on the same day) they would lie on each other: one name for the day's range, with both points marked. Otherwise each sits beside its
+  // point, and the second moves off the first if they would still meet.
+  const names = (() => {
+    if (!extremes) return [] as { id: string; text: string; x: number; y: number; anchor: "start" | "end"; dots: { x: number; y: number }[] }[];
+    const { hi, lo } = extremes;
+    const right = labelRight(hi);
+    const anchor: "start" | "end" = right ? "start" : "end";
+    if (hi.day === lo.day) {
+      const yMid = (Y(hi.high) + Y(lo.low)) / 2;
+      return [{
+        id: "soc-range", text: `${Math.round(lo.low)}–${pctLabel(hi.high)} · ${dayName(hi.day)}`,
+        x: X(centre(hi)) + (right ? 10 : -10), y: yMid + 3.5, anchor,
+        dots: [{ x: X(centre(hi)), y: Y(hi.high) }, { x: X(centre(lo)), y: Y(lo.low) }],
+      }];
+    }
+    const make = (id: string, r: DayRange, v: number) => ({
+      id, text: `${pctLabel(v)} · ${dayName(r.day)}`, x: X(centre(r)) + (labelRight(r) ? 8 : -8), y: v < 12 ? Y(v) - 9 : Y(v) + 3.5,
+      anchor: (labelRight(r) ? "start" : "end") as "start" | "end", dots: [{ x: X(centre(r)), y: Y(v) }],
+    });
+    const a = make("soc-max", hi, hi.high);
+    const b = make("soc-min", lo, lo.low);
+    if (boxesMeet(textBox(a.x, a.y, a.text, a.anchor), textBox(b.x, b.y, b.text, b.anchor))) b.y = b.y + (b.y >= a.y ? 14 : -14);
+    return [a, b];
+  })();
+  const nameBoxes = names.map((n) => textBox(n.x, n.y, n.text, n.anchor));
+  const limitAt = seg ? limitLabelAt(seg, X, Y, PAD.l + iw, segTight, nameBoxes) : null;
 
   const dayAt = (x: number): DayRange | null => {
     if (rows.length === 0) return null;
@@ -270,11 +328,7 @@ export function SocTrendChart({
         {seg && (
           <g data-testid="soc-limit" data-draw="limit">
             <line x1={X(seg.x0)} x2={X(seg.x1)} y1={Y(seg.pct)} y2={Y(seg.pct)} stroke={SOC_LIMIT} strokeOpacity={0.32} strokeWidth={1} data-limit-line />
-            {segTight ? (
-              <text x={X(seg.x1)} y={Y(seg.pct) - 4} textAnchor="end" className="fill-amber-400 text-[11px]">Limit {Math.round(seg.pct)}%</text>
-            ) : (
-              <text x={X(seg.x1) + 5} y={Y(seg.pct) + 3.5} textAnchor="start" className="fill-amber-400 text-[11px]">Limit {Math.round(seg.pct)}%</text>
-            )}
+            {limitAt && <text x={limitAt.x} y={limitAt.y} textAnchor={limitAt.anchor} className="fill-amber-400 text-[11px]">Limit {Math.round(seg.pct)}%</text>}
           </g>
         )}
         {shapes?.single && (
@@ -292,24 +346,17 @@ export function SocTrendChart({
         {shapes && !shapes.single && <path d={shapes.band} data-draw="band" fill={SOC_GREEN} fillOpacity={0.22} stroke={SOC_GREEN} strokeOpacity={0.28} strokeWidth={0.8} strokeLinejoin="round" />}
         {shapes && !shapes.single && <path d={shapes.line} data-draw="line" fill="none" stroke={SOC_GREEN} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />}
         {rows.filter((r) => r.charged).map((r) => (
-          <line key={r.day} data-draw="tick" x1={X(centre(r))} x2={X(centre(r))} y1={Y(0)} y2={Y(0) - 5} stroke={SOC_GREEN} strokeWidth={1.6} strokeLinecap="round" />
+          <line key={r.day} data-draw="tick" x1={X(centre(r))} x2={X(centre(r))} y1={Y(0)} y2={Y(0) + 5} stroke={SOC_GREEN} strokeWidth={1.6} strokeLinecap="round" />
         ))}
-        {extremes && (
+        {names.length > 0 && (
           <g data-draw="extreme">
-            {[
-              { r: extremes.hi, v: extremes.hi.high, id: "soc-max" },
-              { r: extremes.lo, v: extremes.lo.low, id: "soc-min" },
-            ].map(({ r, v, id }) => (
-              <g key={id}>
-                <circle cx={X(centre(r))} cy={Y(v)} r={3} fill="currentColor" className="text-neutral-100" />
-                <text
-                  x={X(centre(r)) + (labelRight(r) ? 8 : -8)}
-                  y={v < 12 ? Y(v) - 9 : Y(v) + 3.5}
-                  textAnchor={labelRight(r) ? "start" : "end"}
-                  className="fill-neutral-100 text-[11px] font-semibold"
-                  data-testid={id}
-                >
-                  {pctLabel(v)} · {dayName(r.day)}
+            {names.map((n) => (
+              <g key={n.id}>
+                {n.dots.map((d, i) => (
+                  <circle key={i} cx={d.x} cy={d.y} r={3} fill="currentColor" className="text-neutral-100" />
+                ))}
+                <text x={n.x} y={n.y} textAnchor={n.anchor} className="fill-neutral-100 text-[11px] font-semibold" data-testid={n.id}>
+                  {n.text}
                 </text>
               </g>
             ))}

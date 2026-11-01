@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { SocTrendChart, limitSteps } from "./SocTrendChart";
+import { SocTrendChart, boxesMeet, limitLabelAt, limitSteps, textBox } from "./SocTrendChart";
 
 const DAY = 86_400_000;
 const OCT = new Date(2026, 9, 1).getTime();
@@ -86,4 +86,47 @@ describe("SocTrendChart", () => {
     const none = render(<SocTrendChart trend={trend} charges={[charge(3, null)]} domain={[OCT, NOV]} limit={null} />);
     expect(none.container.querySelector("[data-testid='soc-limit']")).toBeNull();
   });
+
+  it("a month with one day of readings names that day's range once, and the limit's name keeps off it (the first of a month)", () => {
+    vi.useFakeTimers({ now: new Date(2026, 10, 1, 15).getTime(), toFake: ["Date"] });
+    const one = [{ x: NOV + 8 * 3_600_000, y: 65 }, { x: NOV + 12 * 3_600_000, y: 80 }];
+    const dec = new Date(2026, 11, 1).getTime();
+    const { container } = render(<SocTrendChart trend={one} charges={[{ x0: NOV + 9 * 3_600_000, x1: NOV + 11 * 3_600_000, limit: 80 }]} domain={[NOV, dec]} limit={80} />);
+    expect(container.querySelector("[data-testid='soc-range']")!.textContent).toBe("65–80% · Nov 1");
+    expect(container.querySelector("[data-testid='soc-max']")).toBeNull();
+    expect(container.querySelector("[data-testid='soc-min']")).toBeNull();
+    expect(container.querySelectorAll("[data-draw='extreme'] circle")).toHaveLength(2);
+    // No two names lie on each other.
+    const t = Array.from(container.querySelectorAll("text[data-testid], [data-testid='soc-limit'] text")).map((el) => {
+      const anchor = el.getAttribute("text-anchor") === "end" ? "end" : "start";
+      return textBox(Number(el.getAttribute("x")), Number(el.getAttribute("y")), el.textContent ?? "", anchor);
+    });
+    expect(t.length).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) expect(boxesMeet(t[i], t[j]), `names ${i} and ${j} meet`).toBe(false);
+    // The charged tick sits under the baseline, not inside the low zone's tint.
+    const tick = container.querySelector("[data-draw='tick']")!;
+    expect(Number(tick.getAttribute("y2"))).toBeGreaterThan(Number(tick.getAttribute("y1")));
+    // A lone day's band is wide enough to see.
+    expect(Number(container.querySelector("rect[data-draw='band']")!.getAttribute("width"))).toBeGreaterThanOrEqual(10);
+  });
 });
+
+describe("where names go", () => {
+  const X = (x: number) => x, Y = (y: number) => 200 - y * 2;
+  it("textBox and boxesMeet see names that lie on each other", () => {
+    expect(boxesMeet(textBox(10, 50, "80% · Nov 1", "start"), textBox(14, 52, "Limit 80%", "start"))).toBe(true);
+    expect(boxesMeet(textBox(10, 50, "80% · Nov 1", "start"), textBox(10, 80, "65% · Nov 1", "start"))).toBe(false);
+    expect(textBox(100, 50, "abc", "end").x1).toBe(100);
+  });
+  it("the limit's name takes the first spot that is free", () => {
+    const seg = { x1: 40, pct: 80 };
+    const free = limitLabelAt(seg, X, Y, 300, false, []);
+    expect(free).toEqual({ x: 45, y: Y(80) + 3.5, anchor: "start" });
+    // Something sits right after the line's end: it goes above the end instead.
+    const blocker = textBox(48, Y(80) + 3.5, "80% · Nov 1", "start");
+    const moved = limitLabelAt(seg, X, Y, 300, false, [blocker]);
+    expect(moved.anchor).toBe("end");
+    expect(boxesMeet(textBox(moved.x, moved.y, "Limit 80%", moved.anchor), blocker)).toBe(false);
+  });
+});
+

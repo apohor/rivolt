@@ -108,7 +108,8 @@ function UserLayout() {
           <Outlet />
         </main>
       </div>
-      <div className="pb-16 md:pb-0">
+      {/* The footer clears the fixed tab bar (56 px) and the home indicator, not just a fixed 64 px. */}
+      <div className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <Footer />
       </div>
       <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />

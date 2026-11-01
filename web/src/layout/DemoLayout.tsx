@@ -60,13 +60,13 @@ export default function DemoLayout() {
       </header>
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
         <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
-        <main data-app-main className="min-w-0 flex-1 py-4 pb-24 md:py-6 md:pb-6">
+        <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <SubNav tab={current} onPrefetch={prefetchRoute} />
           <p className="pb-2 text-[11px] text-neutral-500">Times shown in Pacific time.</p>
           <Outlet />
         </main>
       </div>
-      <div className="pb-16 md:pb-0">
+      <div className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <Footer />
       </div>
       <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
