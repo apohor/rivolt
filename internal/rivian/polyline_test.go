@@ -102,3 +102,35 @@ func TestValidCoord(t *testing.T) {
 		}
 	}
 }
+
+// The refusals are counted by reason, so a fill that keeps being refused shows on a dashboard.
+func TestRefusedRoutePointsAreCountedByReason(t *testing.T) {
+	var got []string
+	SetRoutePointObserver(func(r string) { got = append(got, r) })
+	t.Cleanup(func() { SetRoutePointObserver(nil) })
+
+	t0 := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	from, to := [2]float64{10.000, 10.000}, [2]float64{10.003, 10.003}
+	d := &liveDrive{path: [][2]float64{from}, lastFixAt: t0}
+	m := &StateMonitor{logger: slog.Default(), routeFiller: &fakeFiller{shape: [][2]float64{from, {100.25, -970.1}, to}}}
+	m.appendDrivePath(context.Background(), "veh-1", d, to[0], to[1], t0.Add(time.Minute)) // a bad fill
+	m.appendDrivePath(context.Background(), "veh-1", d, 100, 10, t0.Add(2*time.Minute))    // a bad fix
+	encodePolyline([][2]float64{from, {400, 0}})                                           // the encoder's last line
+	m2 := &StateMonitor{logger: slog.Default(), routeFiller: &fakeFiller{err: badShape{}}}
+	m2.appendDrivePath(context.Background(), "veh-1", &liveDrive{path: [][2]float64{from}, lastFixAt: t0}, to[0], to[1], t0.Add(time.Minute))
+	want := []string{"fill", "fix", "encode", "shape"}
+	if len(got) != len(want) {
+		t.Fatalf("refusals = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("refusal %d = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// badShape stands in for maps.BadShapeError: the recorder recognises it by its method, with no import of the maps package.
+type badShape struct{}
+
+func (badShape) Error() string  { return "valhalla: shape has a vertex outside the globe" }
+func (badShape) BadShape() bool { return true }

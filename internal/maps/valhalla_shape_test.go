@@ -3,6 +3,7 @@ package maps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,6 +67,11 @@ func TestRouteShapeRefusesAShapeAtTheWrongPrecision(t *testing.T) {
 	got, err := v.RouteShape(context.Background(), shapeFrom, shapeTo)
 	if err == nil {
 		t.Fatalf("a shape ten times too large was accepted: %v", got)
+	}
+	// Typed, so the recorder can count it apart from a routing engine that is merely down.
+	var bad interface{ BadShape() bool }
+	if !errors.As(err, &bad) {
+		t.Errorf("error %v is not a BadShapeError", err)
 	}
 }
 

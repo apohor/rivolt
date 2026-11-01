@@ -957,9 +957,13 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		s.drive.trailer.observe(curr.At, curr.TrailerState)
 		s.drive.observeFix(curr)
-		if (curr.Latitude != 0 || curr.Longitude != 0) && validCoord(curr.Latitude, curr.Longitude) {
-			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
-			s.drive.lastFixAt = curr.At
+		if curr.Latitude != 0 || curr.Longitude != 0 {
+			if validCoord(curr.Latitude, curr.Longitude) {
+				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+				s.drive.lastFixAt = curr.At
+			} else {
+				noteRoutePointRefused("fix")
+			}
 		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		return s.drive.number
@@ -1149,6 +1153,7 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 		return
 	}
 	if !validCoord(lat, lon) {
+		noteRoutePointRefused("fix")
 		return // not a position on the globe (a corrupt frame); never put it in the path
 	}
 	n := len(d.path)
@@ -1165,6 +1170,10 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 			shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{lat, lon})
 			elapsed := time.Since(startedAt)
 			cancel()
+			var bad interface{ BadShape() bool }
+			if errors.As(err, &bad) {
+				noteRoutePointRefused("shape")
+			}
 			if err != nil {
 				// Warn, not Debug: a failed fill degrades the rendered
 				// route to a straight line across the gap. elapsed_ms
@@ -1176,7 +1185,9 @@ func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d 
 					"dist_m", int(dist),
 					"elapsed_ms", elapsed.Milliseconds(),
 					"err", err.Error())
-			} else if len(shape) > 2 && shapeValid(shape) {
+			} else if len(shape) > 2 && !shapeValid(shape) {
+				noteRoutePointRefused("fill")
+			} else if len(shape) > 2 {
 				// Drop the first vertex (== last) and the last (== the
 				// point we're about to append).
 				d.path = append(d.path, shape[1:len(shape)-1]...)

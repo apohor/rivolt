@@ -32,6 +32,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// RoutePointRefusals are the rivolt_route_points_refused_total reasons, all created at 0 at boot: fix (a position off the globe), fill (a
+// route-fill with such a vertex), shape (the routing engine's shape failed its check), encode (the encoder's last line).
+var RoutePointRefusals = []string{"fix", "fill", "shape", "encode"}
+
 // AppleLinkOutcomes are the rivolt_apple_link_total outcomes, all created at 0 at boot: started (a link began), linked,
 // in_use (that Apple ID belongs to another account), account_linked (this account has another Apple ID), expired (no
 // open request, a spent one, or the session ended), reauth_refused (start without the right password), password_needed (the account has no password to link with: Google or GitHub only), unlinked, unlink_refused (the password check refused an unlink),
@@ -269,6 +273,8 @@ type Metrics struct {
 	AppleNotificationsTotal *prometheus.CounterVec
 	// AppleLinkTotal counts Link Apple to my account requests by outcome (see appleLinkOutcomes in internal/api).
 	AppleLinkTotal *prometheus.CounterVec
+	// RoutePointsRefusedTotal counts route points kept out of a stored drive route, by reason (see RoutePointRefusals).
+	RoutePointsRefusedTotal *prometheus.CounterVec
 	// BillingNonUSTotal counts Stripe customers whose billing address is outside the US (Rivolt Pro is sold in the US only), once per customer
 	// and country per process. The account keeps Pro; the operator refunds and cancels, so any increase is worth an alert. Starts at 0.
 	BillingNonUSTotal prometheus.Counter
@@ -584,6 +590,13 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		RoutePointsRefusedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_route_points_refused_total",
+				Help: "Route points kept out of a stored drive route because they are not on the globe, by reason.",
+			},
+			[]string{"reason"},
+		),
 		AppleLinkTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_apple_link_total",
@@ -774,6 +787,7 @@ func New() *Metrics {
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,
 		m.AppleLinkTotal,
+		m.RoutePointsRefusedTotal,
 		m.BillingNonUSTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
@@ -806,6 +820,9 @@ func New() *Metrics {
 	// very event it is for). Keep the label values in step with the callers.
 	for _, outcome := range applebill.Outcomes {
 		m.AppleNotificationsTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, reason := range RoutePointRefusals {
+		m.RoutePointsRefusedTotal.WithLabelValues(reason).Add(0)
 	}
 	for _, outcome := range AppleLinkOutcomes {
 		m.AppleLinkTotal.WithLabelValues(outcome).Add(0)

@@ -130,13 +130,27 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 // vertex must be a real coordinate and lie within a generous detour of the straight line between the ends: three times its length
 // plus a kilometre (a road can wind, a vertex cannot be in another city).
 func checkShape(shape [][2]float64, from, to [2]float64) error {
+	if err := shapeProblem(shape, from, to); err != nil {
+		return &BadShapeError{Reason: err.Error()}
+	}
+	return nil
+}
+
+// BadShapeError is RouteShape's answer when the routing engine's shape cannot be a road between the ends. The recorder counts these apart
+// from a routing engine that is merely down (it recognises the BadShape method, so it needs no import of this package).
+type BadShapeError struct{ Reason string }
+
+func (e *BadShapeError) Error() string  { return "valhalla: " + e.Reason }
+func (e *BadShapeError) BadShape() bool { return true }
+
+func shapeProblem(shape [][2]float64, from, to [2]float64) error {
 	reach := 3*haversineM(from[0], from[1], to[0], to[1]) + 1000
 	for _, p := range shape {
 		if math.IsNaN(p[0]) || math.IsNaN(p[1]) || math.Abs(p[0]) > 90 || math.Abs(p[1]) > 180 {
-			return errors.New("valhalla: shape has a vertex outside the globe")
+			return errors.New("shape has a vertex outside the globe")
 		}
 		if haversineM(p[0], p[1], from[0], from[1]) > reach && haversineM(p[0], p[1], to[0], to[1]) > reach {
-			return errors.New("valhalla: shape strays far from the requested ends")
+			return errors.New("shape strays far from the requested ends")
 		}
 	}
 	return nil

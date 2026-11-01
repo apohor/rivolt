@@ -3,6 +3,7 @@ package rivian
 import (
 	"math"
 	"strings"
+	"sync/atomic"
 )
 
 // encodePolyline encodes a slice of (lat, lon) points using Google's
@@ -33,6 +34,7 @@ func encodePolyline(points [][2]float64) string {
 	var prevLat, prevLon int32
 	for _, p := range points {
 		if !validCoord(p[0], p[1]) {
+			noteRoutePointRefused("encode")
 			continue // never persist a point that is not on the globe: it would draw two huge segments out and back
 		}
 		lat := int32(roundHalfEven(p[0] * 1e5))
@@ -70,4 +72,18 @@ func encodeSigned(b *strings.Builder, v int32) {
 // callers treat "no fix" separately.
 func validCoord(lat, lon float64) bool {
 	return !math.IsNaN(lat) && !math.IsNaN(lon) && !math.IsInf(lat, 0) && !math.IsInf(lon, 0) && math.Abs(lat) <= 90 && math.Abs(lon) <= 180
+}
+
+// routePointObserver hears every route point the recorder or the encoder refuses to put into a stored route, with a reason: "fix" (a position
+// off the globe), "fill" (a route-fill with such a vertex), "shape" (the routing engine's shape failed its own check), "encode" (the encoder's
+// last line). Set at startup by SetRoutePointObserver; nil counts nothing.
+var routePointObserver atomic.Pointer[func(reason string)]
+
+// SetRoutePointObserver wires the counter for refused route points (rivolt_route_points_refused_total).
+func SetRoutePointObserver(f func(reason string)) { routePointObserver.Store(&f) }
+
+func noteRoutePointRefused(reason string) {
+	if f := routePointObserver.Load(); f != nil && *f != nil {
+		(*f)(reason)
+	}
 }
