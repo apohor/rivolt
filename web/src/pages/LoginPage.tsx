@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { backend, type OIDCProvider } from "../lib/api";
-import { ProviderButton } from "../components/ProviderButton";
+import { ProviderButton, isApple } from "../components/ProviderButton";
+import { APPLE_LINK_COPY } from "../content/appleLinkCopy";
 import Logo from "../components/Logo";
 import { useAdminOnly, useSignupEnabled } from "../lib/config";
 import { SESSION_EXPIRED_TEXT, providerToRestart, readSigninProvider, rememberSigninProvider } from "../lib/signinDraft";
@@ -185,7 +186,14 @@ export default function LoginPage() {
           <>
             <div className="flex flex-col gap-2">
               {providers.map((p) => (
-                <ProviderButton key={p.name} provider={p} onClick={() => startOIDC(p)} />
+                <Fragment key={p.name}>
+                  <ProviderButton provider={p} onClick={() => startOIDC(p)} />
+                  {isApple(p) && (
+                    <p data-apple-note className="text-[11px] leading-relaxed text-neutral-500">
+                      {APPLE_LINK_COPY.signInNote}
+                    </p>
+                  )}
+                </Fragment>
               ))}
             </div>
             {providers.length > 1 && !plain && (

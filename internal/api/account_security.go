@@ -61,6 +61,15 @@ func (a *accountSecurityAPI) guard(w http.ResponseWriter, r *http.Request) (uuid
 // browserSessionGuard is what the routes that change how someone signs in check first: a signed-in user, a browser session of their
 // own (not an admin viewing as them, not the iPhone app's token), not a cross-site request, and a JSON body.
 func browserSessionGuard(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	return browserSession(w, r, true)
+}
+
+// browserSessionRead is the same for a route that only reads (a GET with no body): the same signed-in browser session, but no body to type.
+func browserSessionRead(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	return browserSession(w, r, false)
+}
+
+func browserSession(w http.ResponseWriter, r *http.Request, body bool) (uuid.UUID, bool) {
 	uid, ok := auth.UserFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -73,6 +82,9 @@ func browserSessionGuard(w http.ResponseWriter, r *http.Request) (uuid.UUID, boo
 	if ref, ok := auth.SessionFromContext(r.Context()); ok && ref.Kind == sessions.KindApp || auth.ViaBearer(r.Context()) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "not_available_from_the_app"})
 		return uuid.Nil, false
+	}
+	if !body {
+		return uid, true
 	}
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "cross_site_request"})

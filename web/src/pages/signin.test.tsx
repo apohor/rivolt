@@ -119,3 +119,33 @@ describe("the email form across a restart or reload", () => {
     expect(JSON.stringify({ ...window.sessionStorage })).not.toContain("hunter2");
   });
 });
+
+describe("the note under Continue with Apple", () => {
+  const withApple = () =>
+    stubFetchRoutes({
+      "/api/auth/oidc": { body: [...providers, { name: "apple", display_name: "Apple", start_url: "/api/auth/oidc/apple/start" }] },
+      "/api/auth/me": { status: 401, body: { error: "unauthorized" } },
+      "/api/config": { body: {} },
+    });
+
+  it("warns a person who hides their email, once, under the Apple button and nowhere else", async () => {
+    withApple();
+    login("/login");
+    expect(await screen.findByText("Continue with Apple")).toBeTruthy();
+    const notes = screen.getAllByText(/Signing in with Apple here, with your email hidden, would make a new, empty account/);
+    expect(notes).toHaveLength(1);
+    // Right after the Apple button, before any other provider's.
+    expect(screen.getByText("Continue with Apple").closest("button")?.nextElementSibling).toBe(notes[0]);
+  });
+
+  it("is not shown where Apple is not a provider", async () => {
+    stubFetchRoutes({
+      "/api/auth/oidc": { body: providers },
+      "/api/auth/me": { status: 401, body: { error: "unauthorized" } },
+      "/api/config": { body: {} },
+    });
+    login("/login");
+    expect(await screen.findByText("Continue with Google")).toBeTruthy();
+    expect(screen.queryByText(/with your email hidden/)).toBeNull();
+  });
+});

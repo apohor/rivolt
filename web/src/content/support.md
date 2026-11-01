@@ -24,6 +24,9 @@ Rivolt sends no commands to your truck (no locks, climate or charging controls).
 **How do I disconnect Rivolt from my Rivian?**
 In Settings → Account, choose Sign out of Rivian; Rivolt stops reading your truck. If you connected an Authorized Driver account, you can also remove that driver in the Rivian app, which cuts access from Rivian's side.
 
+**I signed in with Apple and got an empty account.**
+Apple's Hide My Email gives us a relay address, so a first Apple sign-in makes a new account rather than joining your existing one. There is no way to merge the two. To fix it: sign in to the new account with Apple, delete it from Settings → Data (that also tells Apple to forget it), sign in to your real account the way you did before, and use Settings → Security → Apple → Connect Apple. From then on, Apple signs in to your real account. Connecting Apple needs your Rivolt password; an account that signs in only with Google or GitHub can't connect Apple yet.
+
 **Where is my data, and how do I export or delete it?**
 Your data is stored on servers we run in the United States. On rivolt.dev, open Settings → Data to download everything as a zip of CSV files or a full JSON backup, or to delete your account. Deleting removes your data; copies can remain in logs for up to 90 days and in backups for up to a year, as the Privacy Policy describes. The iPhone app links to the same page.
 

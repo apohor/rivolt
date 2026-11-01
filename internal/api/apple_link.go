@@ -30,6 +30,7 @@ import (
 type appleLinkAPI struct {
 	OIDC interface {
 		BeginAppleLink(w http.ResponseWriter, r *http.Request, uid, sessionID uuid.UUID) (string, error)
+		AppleLinkAvailable() bool
 	}
 	Sessions interface {
 		Live(ctx context.Context, userID, id uuid.UUID) (created time.Time, ok bool, err error)
@@ -155,21 +156,60 @@ func (a *appleLinkAPI) unlink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"unlinked": true})
 }
 
+// hasPassword reports whether the account has a password to type: an email on file and a Kratos identity for it. (Passkeys are additive, so
+// an identity always has its password.) The email is returned for the failure limiter's key.
+func (a *appleLinkAPI) hasPassword(ctx context.Context, uid uuid.UUID) (mail string, has bool, err error) {
+	if a.Account != nil {
+		mail, err = a.Account(ctx, uid)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if mail == "" || a.Kratos == nil || !a.Kratos.Enabled() {
+		return mail, false, nil
+	}
+	if id, err := a.Kratos.IdentityIDByEmail(ctx, mail); err == nil && id == "" {
+		return mail, false, nil
+	}
+	return mail, true, nil
+}
+
+// status serves GET /api/auth/apple-link with what the Settings card needs: whether linking is on here, whether this account is linked,
+// and whether it has a password to link or unlink with. 404 where linking is off (the card is then not shown).
+func (a *appleLinkAPI) status(w http.ResponseWriter, r *http.Request) {
+	uid, ok := browserSessionRead(w, r)
+	if !ok {
+		return
+	}
+	if !a.OIDC.AppleLinkAvailable() {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "apple_not_available"})
+		return
+	}
+	linked, err := a.Accounts.Linked(r.Context(), uid)
+	if err != nil {
+		a.Logger.Error("apple link: status", "err", logging.ScrubErr(err))
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	_, has, err := a.hasPassword(r.Context(), uid)
+	if err != nil {
+		a.Logger.Error("apple link: status account", "err", logging.ScrubErr(err))
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"available": true, "linked": linked, "has_password": has})
+}
+
 // reauthenticate checks the password in the request. It returns an error code and status when the link must not go on, "" when it may.
 func (a *appleLinkAPI) reauthenticate(w http.ResponseWriter, r *http.Request, uid uuid.UUID) (string, int) {
-	mail, err := "", error(nil)
-	if a.Account != nil {
-		mail, err = a.Account(r.Context(), uid)
-	}
+	mail, has, err := a.hasPassword(r.Context(), uid)
 	if err != nil {
 		a.Logger.Error("apple link: account", "err", logging.ScrubErr(err))
 		return "unavailable", http.StatusInternalServerError
 	}
-	if mail == "" || a.Kratos == nil || !a.Kratos.Enabled() {
+	if !has {
 		return "password_needed_to_link", http.StatusForbidden // no password to ask for: not available yet
-	}
-	if id, err := a.Kratos.IdentityIDByEmail(r.Context(), mail); err == nil && id == "" {
-		return "password_needed_to_link", http.StatusForbidden
 	}
 	var in struct {
 		Password string `json:"password"`

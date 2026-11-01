@@ -34,6 +34,7 @@ import {
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { SignedInDevices } from "../components/SignedInDevices";
 import { PasskeysCard } from "../components/PasskeysCard";
+import { AppleLinkCard } from "../components/AppleLinkCard";
 import { AccountSecurityCards } from "../components/AccountSecurityCards";
 import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
@@ -82,6 +83,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   "ambient-temp": "account",
   security: "security",
   passkeys: "security",
+  apple: "security",
   devices: "security",
   password: "security",
   display: "vehicle",
@@ -242,6 +244,7 @@ function SettingsPageInner() {
         <>
           <AccountSecurityCards />
           <PasskeysCard />
+          <AppleLinkCard />
           <SignedInDevices />
         </>
       )}
