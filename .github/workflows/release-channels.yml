@@ -40,6 +40,9 @@ concurrency:
 
 jobs:
   discussion:
+    # A release candidate's Release is a prerelease: editing its notes never announces anything (the script also checks the tag shape and the
+    # prerelease flag; this keeps the run from starting at all). A manual run has no `release` in its event and still goes through.
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     steps:
       - name: Announce the release notes in Discussions

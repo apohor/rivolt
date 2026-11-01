@@ -20,6 +20,8 @@ name: build
 on:
   push:
     branches: [main, "release/**"]
+    # vX.Y.Z promotes a release to prod; vX.Y.Z-rc.N is a release candidate (an image for the preview gate, never promoted).
+    # tag-validate classifies the tag and refuses any other shape (.github/ci/tag-kind.sh).
     tags: ["v*.*.*"]
     # Non-code paths build nothing, except Markdown under web/: that is
     # shipped page content (web/src/content/privacy.md, terms.md). Later
@@ -1277,7 +1279,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Never for a prerelease: a manual run on an rc tag ref must not move `latest` (retag-tags.sh gives an rc only its own tag).
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
             type=raw,value=${{ needs.image.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
@@ -1444,7 +1447,28 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      # final (vX.Y.Z: promoted to prod) or rc (vX.Y.Z-rc.N: published for the gate, never promoted).
+      kind: ${{ steps.kind.outputs.kind }}
     steps:
+      - name: Checkout the tag scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+
+      # First, before anything is retagged or bumped: a tag that is neither vX.Y.Z nor vX.Y.Z-rc.N (v1.2.3-beta, v1.2.3-rc,
+      # v1.2.3+meta) stops the run here. A release candidate goes on to the same successful-build check as a release: it can only be
+      # cut from a SHA main built green.
+      - name: Classify the tag
+        id: kind
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          kind=$(bash .github/ci/tag-kind.sh "$TAG") || { echo "::error::Tag $TAG is neither vX.Y.Z nor vX.Y.Z-rc.N: nothing is retagged or bumped."; exit 1; }
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG is a $kind tag."
+
       - name: Confirm SHA has a successful build run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1490,6 +1514,11 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Checkout the tag scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
@@ -1523,32 +1552,33 @@ jobs:
           echo "::error::${IMAGE}:${short} never appeared on GHCR after 10 minutes."
           exit 1
 
-      - name: Retag sha-<short> → X.Y.Z / X.Y / latest
+      # The tag set comes from .github/ci/retag-tags.sh: a release (vX.Y.Z) gets X.Y.Z, X.Y and latest; a release candidate
+      # (vX.Y.Z-rc.N) gets only X.Y.Z-rc.N, so it can never move the floating tags prod's image comes from. Same bytes either way:
+      # the image the gated rc pointed at is the image the final tag promotes.
+      - name: Retag sha-<short> → the tag's image tags
         env:
-          VERSION: ${{ github.ref_name }}   # e.g. v0.19.13
+          TAG: ${{ github.ref_name }}   # e.g. v0.19.13 or v0.19.14-rc.1
           SHA: ${{ github.sha }}
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
+          set -e
           short="sha-${SHA:0:7}"
-          # Strip leading 'v' — GHCR tags are bare semver to match
-          # docker/metadata-action's {{version}} output.
-          v="${VERSION#v}"                  # 0.19.13
-          minor="${v%.*}"                   # 0.19
-          echo "Retagging ${IMAGE}:${short} → ${v} / ${minor} / latest"
-          docker buildx imagetools create \
-            --tag "${IMAGE}:${v}" \
-            --tag "${IMAGE}:${minor}" \
-            --tag "${IMAGE}:latest" \
-            "${IMAGE}:${short}"
+          args=()
+          for t in $(bash .github/ci/retag-tags.sh "$TAG"); do args+=(--tag "${IMAGE}:${t}"); done
+          [ ${#args[@]} -gt 0 ] || { echo "::error::no image tags for ${TAG}"; exit 1; }
+          echo "Retagging ${IMAGE}:${short} → ${args[*]}"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}:${short}"
 
   bump-prod:
     name: bump-prod
-    needs: retag
+    needs: [tag-validate, retag]
     # After retag attaches the prod tag to the existing image, rewrite
     # rivolt-infra's apps/platform/rivolt{,-admin}/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
     # that previously followed every tag push.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Only a FINAL tag (vX.Y.Z) reaches prod's values. A release candidate (vX.Y.Z-rc.N) is published for the preview gate and stops
+    # at retag: tag-validate's verdict decides, and the step below refuses a prerelease version again on its own.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-validate.outputs.kind == 'final'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1578,6 +1608,10 @@ jobs:
           VERSION: ${{ github.ref_name }}   # e.g. v0.22.3
         run: |
           set -e
+          # Defence in depth: whatever the job condition says, a prerelease version (v1.2.3-rc.1) never gets written to prod's values.
+          case "$VERSION" in
+            *-*) echo "::error::refusing to promote ${VERSION} to prod: a prerelease is never a prod version"; exit 1 ;;
+          esac
           v="${VERSION#v}"                  # 0.22.3 — image tag uses bare semver
           app=apps/platform/rivolt/app.yaml
           values=apps/platform/rivolt/values.yaml

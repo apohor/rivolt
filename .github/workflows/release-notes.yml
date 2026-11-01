@@ -1,4 +1,4 @@
-# Auto-generate GitHub Release notes for every vX.Y.Z tag.
+# Auto-generate GitHub Release notes for every vX.Y.Z tag, and a prerelease for every vX.Y.Z-rc.N tag.
 #
 # The SPA footer links each running version to its release page —
 # without this workflow the link 404s for any tag that wasn't
@@ -40,6 +40,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # vX.Y.Z is a release; vX.Y.Z-rc.N is a release candidate: a prerelease that is never "Latest" (the SPA footer and anyone
+          # watching releases must not see an rc as current). Any other tag shape makes no release.
+          kind=$(bash .github/ci/tag-kind.sh "$TAG") || { echo "::error::$TAG is neither vX.Y.Z nor vX.Y.Z-rc.N: no release created."; exit 1; }
+          flags=()
+          [ "$kind" = rc ] && flags=(--prerelease --latest=false)
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists — skipping."
             exit 0
@@ -49,7 +54,9 @@ jobs:
           # GitHub-side generator produces an empty list. Build the
           # body from `git log` between the previous tag and HEAD
           # instead — first-line subjects, bullet-formatted.
-          PREV="$(git describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)"
+          # The previous RELEASE: v-tags only, and no prerelease, so v0.40.21's notes read "since v0.40.20", not "since v0.40.21-rc.2"
+          # (and an rc's notes read since the last release too). A bare describe also found ios-v0.2.31 once.
+          PREV="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude="$TAG" --exclude='*-*' 2>/dev/null || true)"
           {
             # Marks the body as the generated commit list, not the
             # hand-written notes that replace it (gh release edit). The
@@ -68,4 +75,4 @@ jobs:
               git log --pretty=format:'- %s (%h)' "$TAG"
             fi
           } > /tmp/notes.md
-          gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md "${flags[@]}"
