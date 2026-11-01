@@ -124,7 +124,7 @@ final class StorePurchasingTests: XCTestCase {
 
     func testTheServerSendsItsProductsAndEnvironment() throws {
         let d = JSON.decoder()
-        let c = try d.decode(AppConfig.self, from: Fixture.data("app_config"))
+        let c = try d.decode(AppConfig.self, from: try Fixture.data("app_config"))
         XCTAssertEqual(c.iap?.environment, "Sandbox")
         XCTAssertEqual(c.iap?.products.count, 2)
         XCTAssertTrue(c.purchasesAvailable)
