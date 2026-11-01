@@ -150,7 +150,10 @@ describe("hostile input", () => {
     const big = (s: string, n: number) => s.repeat(n);
     const cases = [big("[", 30000), big("]", 30000), big("*", 30000), big("*a ", 10000), big("_a_", 10000), big("`", 30000), big("`a", 15000), big("[a](", 8000), big("[a](<", 8000),
       big("![", 15000), big("(", 30000), big("<", 30000), big("<a ", 10000), big("&", 30000), big("&#x", 10000), big("\\", 30000), big("> ", 5000), big("- ", 5000), big("1. ", 5000),
-      big("#", 30000), big("\n", 30000), big("  \n", 10000), big("* ", 10000) + "a", big("**a ", 5000), big("[**a](", 4000), "[".repeat(5000) + "a" + "](x)".repeat(5000)];
+      big("#", 30000), big("\n", 30000), big("  \n", 10000), big("* ", 10000) + "a", big("**a ", 5000), big("[**a](", 4000), "[".repeat(5000) + "a" + "](x)".repeat(5000),
+      // A heading line with a very long run of spaces or tabs (DA: the HEADING pattern must stay linear if it is ever edited).
+      "# " + " ".repeat(50000) + "x", "#\t" + "\t".repeat(50000) + "x", "# a" + " ".repeat(50000) + "#" + " ".repeat(50000) + "x", "# a " + "# ".repeat(25000),
+      "```" + " ".repeat(50000) + "`", "~~~" + " ".repeat(50000) + "x~", "a" + " ".repeat(50000) + "x\ny", "a" + " ".repeat(50000) + "\nb", "- - ".repeat(15000) + "x", "* * ".repeat(15000) + "x", "1. ".repeat(15000) + "x"];
     for (const md of cases) {
       const t0 = performance.now();
       const h = html(md);
