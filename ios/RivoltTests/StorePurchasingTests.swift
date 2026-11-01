@@ -128,9 +128,15 @@ final class StorePurchasingTests: XCTestCase {
         XCTAssertEqual(c.iap?.environment, "Sandbox")
         XCTAssertEqual(c.iap?.products.count, 2)
         XCTAssertTrue(c.purchasesAvailable)
+        XCTAssertTrue(c.restoreAvailable)
         let none = try d.decode(AppConfig.self, from: Data(#"{"server":"rivolt","api_version":1,"app_login":true}"#.utf8))
         XCTAssertNil(none.iap)
         XCTAssertFalse(none.purchasesAvailable, "no iap, no buy button")
+        // Billing off but StoreKit set up: no products, not selling, and still a Restore.
+        let off = try d.decode(AppConfig.self, from: Data(#"{"server":"rivolt","api_version":1,"app_login":true,"iap":{"environment":"Production","selling":false}}"#.utf8))
+        XCTAssertFalse(off.purchasesAvailable, "not selling: no Subscribe")
+        XCTAssertTrue(off.restoreAvailable, "StoreKit is set up: Restore stays")
+        XCTAssertFalse(none.restoreAvailable)
         let empty = try d.decode(AppConfig.self, from: Data(#"{"server":"rivolt","api_version":1,"app_login":true,"iap":{"environment":"Sandbox","products":[]}}"#.utf8))
         XCTAssertFalse(empty.purchasesAvailable)
     }

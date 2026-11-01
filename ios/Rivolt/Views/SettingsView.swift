@@ -146,7 +146,7 @@ struct SettingsView: View {
                 guard !state.isDemo else { return }
                 plan = PlanLogic.state(try? await state.client.me())
                 hasNotices = !((try? await state.client.notices()) ?? []).isEmpty
-                if plan == .off, let config = try? await state.client.appConfig() { restoreOffered = config.purchasesAvailable }
+                if plan == .off, let config = try? await state.client.appConfig() { restoreOffered = config.restoreAvailable }
             }
         }
         .environment(\.inSettings, true)

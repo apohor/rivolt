@@ -170,7 +170,7 @@ final class AppState {
         guard !isDemo, case .loggedIn = phase,
               let config = try? await client.appConfig(), let products = config.iap?.products,
               let me = try? await client.me(),
-              selling ? StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable) : config.purchasesAvailable,
+              selling ? StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable) : config.restoreAvailable,
               let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
         let client = self.client
         return StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
@@ -182,7 +182,7 @@ final class AppState {
         storeUpdates?.cancel()
         storeUpdates = nil
         guard !isDemo, case .loggedIn = phase,
-              let config = try? await client.appConfig(), config.purchasesAvailable, let products = config.iap?.products,
+              let config = try? await client.appConfig(), config.restoreAvailable, let products = config.iap?.products,
               let me = try? await client.me(), let token = StoreLogic.accountToken(me.userId) else { return }
         let client = self.client
         let purchasing = StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
