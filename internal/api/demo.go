@@ -240,11 +240,26 @@ func demoTileRangeOK(h string) int {
 func isDemoTilePath(p string) bool { return p == demoTilesPath || p == demoChargersTilesPath }
 
 // demoDEMPrefix is the anonymous terrain route: the demo's map draws a hillshade like the app's, from the same in-cluster mirror. Static
-// public elevation data, one whole tile per GET; it spends the tile budgets (a tile is charged demoDEMTileCost bytes) and needs no Range.
+// public elevation data, one whole tile per GET; it spends the tile budgets (a tile is charged its real byte count) and needs no Range.
 const demoDEMPrefix = "/api/maps/dem"
 
-// demoDEMTileCost is what one terrain tile is charged against the demo's tile byte budgets: a Terrarium tile is under 100 KB.
-const demoDEMTileCost = 96 << 10
+// demoDEMTileReserve is what a terrain tile is charged to be admitted, before its size is known; once the tile is served the budgets are
+// charged the rest of its real byte count (a z8 tile is 126 KB), so a tile smaller than the reserve costs the reserve.
+const demoDEMTileReserve = 16 << 10
+
+// demoCountingWriter counts the body bytes a handler writes.
+type demoCountingWriter struct {
+	http.ResponseWriter
+	n int
+}
+
+func (c *demoCountingWriter) Write(b []byte) (int, error) {
+	n, err := c.ResponseWriter.Write(b)
+	c.n += n
+	return n, err
+}
+
+func (c *demoCountingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 // demoGlyphsPrefix is the anonymous label route: the demo's map needs the same label glyphs, embedded in the binary and public data.
 const demoGlyphsPrefix = "/api/maps/glyphs"
@@ -258,12 +273,12 @@ func isDemoMapAssetPath(p string) bool {
 	return ok && maps.GlyphSize(rest) > 0
 }
 
-// demoMapAssetCost is the byte charge of one static map asset: a glyph range by its size, a terrain tile by the cap above.
+// demoMapAssetCost is the byte charge of one static map asset: a glyph range by its size, a terrain tile by the admission reserve (its real size is charged after it is served).
 func demoMapAssetCost(p string) int {
 	if rest, ok := strings.CutPrefix(p, demoGlyphsPrefix); ok {
 		return maps.GlyphSize(rest)
 	}
-	return demoDEMTileCost
+	return demoDEMTileReserve
 }
 
 // demoHeavyTZ is the set of time zones an anonymous visitor may ask the
@@ -575,10 +590,19 @@ func demoAccessMW(ls *limiterSet, uid uuid.UUID, vehicleID string, limiter, glob
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			}))
 			if asset {
-				// A whole terrain tile: no Range, a fixed byte charge, the same per-client then install-wide order as tiles.
+				// A whole terrain tile: no Range. Admitted at a small reserve, same per-client then install-wide order as tiles; after the answer,
+				// both byte budgets are charged the rest of the bytes it carried.
 				cost := func(r *http.Request) int { return demoMapAssetCost(r.URL.Path) }
+				counted := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					cw := &demoCountingWriter{ResponseWriter: w}
+					serve.ServeHTTP(cw, r)
+					if extra := cw.n - cost(r); extra > 0 && !strings.HasPrefix(r.URL.Path, demoGlyphsPrefix) {
+						tileBytes.debit(tileBytes.key(r), extra)
+						tileBytesGlobal.debit(tileBytesGlobal.key(r), extra)
+					}
+				})
 				tiles.Middleware(tileBytes.MiddlewareN(cost)(
-					tilesGlobal.Middleware(tileBytesGlobal.MiddlewareN(cost)(serve)))).ServeHTTP(w, r)
+					tilesGlobal.Middleware(tileBytesGlobal.MiddlewareN(cost)(counted)))).ServeHTTP(w, r)
 				return
 			}
 			if tile {
