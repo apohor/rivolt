@@ -134,6 +134,30 @@ export function pillSide(map: MLMap, ll: [number, number]): { anchor: string; of
   return right ? { anchor: "right", offset: [-16, 0] } : { anchor: "left", offset: [16, 0] };
 }
 
+// pillAwayFromLine places a pill on the side of its pin away from where the route leaves it, and nudges it about 6 px off the line's height, so the
+// line does not brush the pill's corner. `pin` and `toward` are screen points: the pin, and a point of the route a little way along from it (null
+// when there is none). It falls back to the side with more room when the line runs straight up or down, or when the away side has no room for a
+// pill (`room` px from the view's edge).
+export function pillAwayFromLine(
+  pin: { x: number; y: number },
+  toward: { x: number; y: number } | null,
+  viewWidth: number,
+  room = 150,
+): { anchor: string; offset: [number, number] } {
+  const roomy = pin.x > viewWidth / 2 ? "right" : "left";
+  const dx = toward ? toward.x - pin.x : 0;
+  const dy = toward ? toward.y - pin.y : 0;
+  let side = roomy;
+  if (toward && Math.abs(dx) >= 6) {
+    const away = dx > 0 ? "right" : "left"; // the line goes right: the pill extends left of the pin (anchor "right")
+    const fits = away === "right" ? pin.x >= room : viewWidth - pin.x >= room;
+    if (fits) side = away;
+  }
+  // Away from the line vertically too: if it runs down from the pin, lift the pill a little; if up, lower it.
+  const nudge = toward && Math.abs(dy) >= 6 ? (dy > 0 ? -6 : 6) : 0;
+  return side === "right" ? { anchor: "right", offset: [-16, nudge] } : { anchor: "left", offset: [16, nudge] };
+}
+
 // reserveLabelRoom puts a clear symbol of `size` px on every point of `source`, on top, so the basemap's place labels yield to the markers
 // drawn there (a circle layer takes no part in label collision). Safe to call after every style load. Its own image id per layer.
 export function reserveLabelRoom(map: MLMap, source: string, layerId: string, size: number): void {
