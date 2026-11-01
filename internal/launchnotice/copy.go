@@ -119,38 +119,17 @@ func (p Params) Check() error {
 
 const emailTemplate = `Hi,
 
-Rivolt has been free during its public beta. From LAUNCH_DATE the hosted service
-at rivolt.dev has a free tier and a paid plan, Rivolt Pro.
+Rivolt has been free during its public beta. From LAUNCH_DATE the hosted service at rivolt.dev has a free tier and a paid plan, Rivolt Pro.
 
-Your account has Pro at no charge until FOUNDING_END_DATE. There is no card
-on file and nothing will be charged. We will email you and show a notice in the
-app at least 30 days before that date. After it, your account is on the free tier
-unless you choose to subscribe.
+Your account has Pro at no charge until FOUNDING_END_DATE. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
 
-What the free tier keeps: Now, Activity, Money and Truck for the last 90
-days; the monthly statement; a single-day trip planner; three saved trips; share
-cards; imports; every alert; and the full export of everything Rivolt holds,
-always, including history older than 90 days. Nothing is ever deleted when a plan
-ends.
+What the free tier keeps: Now, Activity, Money and Truck for the last 90 days; the monthly statement; a single-day trip planner; three saved trips; share cards; imports; every alert; and the full export of everything Rivolt holds, always, including history older than 90 days. Nothing is ever deleted when a plan ends.
 
-If you have more than one vehicle: on the free plan, Rivolt keeps recording
-every drive and charge on all your vehicles, but shows one vehicle at a time (you
-choose which). Every vehicle stays in your full export, and Pro shows them all.
+If you have more than one vehicle: on the free plan, Rivolt keeps recording every drive and charge on all your vehicles, but shows one vehicle at a time (you choose which). Every vehicle stays in your full export, and Pro shows them all.
 
-What Pro is: unlimited history and trends, range near a temperature,
-multi-day trip plans with hotel and campground overnights, re-plan from where the
-truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and the
-Lock Screen widgets and charging Live Activity on iPhone. $3.99 a month or
-$34.99 a year, the same on the web and in the app.
+What Pro is: unlimited history and trends, range near a temperature, multi-day trip plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and the Lock Screen widgets and charging Live Activity on iPhone. $3.99 a month or $34.99 a year, the same on the web and in the app.
 
-The Terms and the Privacy Policy change with this. The updated Terms
-(section 5, free tier and Pro, and the refund line in section 2) take effect for
-your account on TERMS_EFFECTIVE_EXISTING, 30 days from this email:
-https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro"
-section that applies only to accounts that subscribe: https://rivolt.dev/privacy.
-Until TERMS_EFFECTIVE_EXISTING the previous Terms apply: https://rivolt.dev/terms/2026-10-23.
-If you do not agree, you can export and delete your account from Settings before
-then.
+The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro, and the refund line in section 2) take effect for your account on TERMS_EFFECTIVE_EXISTING, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until TERMS_EFFECTIVE_EXISTING the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
 
 Nothing to do today. Questions: support@rivolt.dev.
 
