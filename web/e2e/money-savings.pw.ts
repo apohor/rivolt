@@ -36,7 +36,7 @@ for (const v of [
     const asked: string[] = [];
     await open(page, (m) => ({ month: m, currency: "USD", could_have_saved: 12.4, sessions_moved: 9, sessions_left_out: 3, left_out_reasons: { no_cheaper_hours: 2, plugged_in_too_briefly: 1 }, sessions_considered: 12, basis: "Cheapest window that fits inside each session.", as_charged_total: 40, if_moved_total: 27.6 }), asked);
     const card = page.locator("[data-savings]");
-    expect(asked).toContain(LAST);
+    await expect.poll(() => asked).toContain(LAST); // the card can be up from the first answer before the last-month request has gone
     await expect(card).toContainText("Moving 9 home charges into your off-peak windows could have saved about $12.40 (estimate).");
     await expect(card).toContainText("3 sessions could not be moved and are left out.");
     await expect(card).toContainText("Why: already at the cheapest hours it could use (2); plugged in too briefly for the charge to fit in one stretch (1).");
