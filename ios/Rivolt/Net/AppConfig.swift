@@ -16,26 +16,11 @@ struct AppConfig: Decodable, Equatable {
 
     struct IAP: Decodable, Equatable {
         let environment: String
-        /// True only where billing is on. Absent on an older server, which advertised `iap` only when it was selling.
-        var selling: Bool? = nil
-        /// Only while selling: the server shows no catalogue otherwise.
-        var products: [String] = []
-
-        enum CodingKeys: String, CodingKey { case environment, selling, products }
-
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            environment = try c.decode(String.self, forKey: .environment)
-            selling = try c.decodeIfPresent(Bool.self, forKey: .selling)
-            products = try c.decodeIfPresent([String].self, forKey: .products) ?? []
-        }
+        let products: [String]
     }
 
-    /// Whether the app may offer a purchase on this server: it is selling and has products.
-    var purchasesAvailable: Bool { (iap?.selling ?? true) && !(iap?.products.isEmpty ?? true) }
-
-    /// Whether Restore purchases belongs here: StoreKit is set up, selling or not (it sells nothing).
-    var restoreAvailable: Bool { iap != nil }
+    /// Whether the app may offer a purchase on this server.
+    var purchasesAvailable: Bool { !(iap?.products.isEmpty ?? true) }
 
     struct Push: Decodable, Equatable {
         let apns: Bool
