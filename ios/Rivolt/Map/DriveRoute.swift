@@ -21,10 +21,15 @@ struct DriveRoute: Decodable, Equatable {
     let routePolyline: String?
     /// The drive moved but its truck sent no usable live location, so it has no route. Absent on an older server.
     var locationUnavailable: Bool? = nil
+    /// What the drive used and the battery it took, for the Efficiency colour mode's pack size (as the web's `mapPackKWh`).
+    var energyUsedKWh: Double? = nil
+    var startSocPct: Double? = nil
+    var endSocPct: Double? = nil
 
     private enum CodingKeys: String, CodingKey {
         case vehicleID = "VehicleID", startedAt = "StartedAt", endedAt = "EndedAt"
         case startLat = "StartLat", startLon = "StartLon", endLat = "EndLat", endLon = "EndLon", routePolyline = "RoutePolyline", locationUnavailable = "LocationUnavailable"
+        case energyUsedKWh = "EnergyUsedKWh", startSocPct = "StartSoCPct", endSocPct = "EndSoCPct"
     }
 
     /// The trace, or a straight line between the ends when there is none (as the web). Points at 0,0 (no fix) are

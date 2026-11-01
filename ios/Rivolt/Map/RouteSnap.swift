@@ -11,6 +11,9 @@ enum RouteSnap {
         var t: Double?
         /// mph, when known.
         var s: Double?
+        /// Efficiency (mi/kWh) and elevation (m) at this sample, when the drive supports those colour modes (`RouteMetrics`).
+        var eff: Double?
+        var elev: Double?
     }
 
     typealias Coord = DriveRoute.Point
@@ -153,8 +156,15 @@ enum RouteSnap {
         while inDrive.last?.shiftState == "P" { inDrive.removeLast() }
         // In GPS-fix order, not arrival order: older and repeated fixes would jump the line back along the road (DriveTrack).
         inDrive = DriveTrack.clean(inDrive)
-        let valid = inDrive.filter { real($0.lat, $0.lon) }.map {
-            Point(lat: $0.lat, lon: $0.lon, t: $0.at.timeIntervalSince1970, s: $0.speedMph)
+        let real_ = inDrive.filter { real($0.lat, $0.lon) }
+        // The other colour modes' values, one per sample, from the whole in-drive trace (their windows run along the road).
+        let series = RouteMetrics.series(real_.map {
+            RouteMetrics.Sample(lat: $0.lat, lon: $0.lon, alt: $0.altitudeM,
+                                soc: ($0.batteryLevelPct ?? 0) > 0 ? $0.batteryLevelPct : nil, odo: $0.odometerMi)
+        }, packKWh: RouteMetrics.packKWh(energyUsedKWh: drive.energyUsedKWh, startSoc: drive.startSocPct, endSoc: drive.endSocPct))
+        let valid = real_.enumerated().map { i, p in
+            Point(lat: p.lat, lon: p.lon, t: p.at.timeIntervalSince1970, s: p.speedMph,
+                  eff: series[.efficiency]?[i].finiteOrNil, elev: series[.elevation]?[i].finiteOrNil)
         }
         let start = homeStart.map { Coord(lat: $0.lat, lon: $0.lon) } ?? (real(drive.startLat, drive.startLon) ? Coord(lat: drive.startLat, lon: drive.startLon) : nil)
         let end = homeEnd.map { Coord(lat: $0.lat, lon: $0.lon) } ?? (real(drive.endLat, drive.endLon) ? Coord(lat: drive.endLat, lon: drive.endLon) : nil)
@@ -186,6 +196,19 @@ enum RouteSnap {
         let speeds: [Double?]
         /// The road router guessed this stretch (there was no GPS along it): it is drawn so it plainly looks guessed (`GradientStyle`).
         var filled = false
+        /// The other colour modes' value at each vertex (efficiency, elevation), where the drive has them.
+        var extras: [RouteGradient.Metric: [Double?]] = [:]
+
+        /// The value at each vertex of `metric`.
+        func values(_ metric: RouteGradient.Metric) -> [Double?] { metric == .speed ? speeds : (extras[metric] ?? []) }
+
+        /// The values with the gaps filled from the previous known one (else the next), so the colour carries on instead of dropping to the bottom.
+        func filledValues(_ metric: RouteGradient.Metric) -> [Double] {
+            let known = values(metric).map { $0.flatMap { $0.isFinite ? $0 : nil } }
+            guard let first = known.compactMap({ $0 }).first else { return [] }
+            var last = first
+            return known.map { v in if let v { last = v }; return last }
+        }
 
         /// Metres along the line to each vertex, as a share of the whole (0 at the first, 1 at the last): `line-progress`.
         var progress: [Double] {
@@ -195,24 +218,25 @@ enum RouteSnap {
             return d.map { $0 / total }
         }
 
-        /// The speeds with the gaps filled from the previous known one (else the next), so the colour carries on instead of dropping to the bottom.
-        var filledSpeeds: [Double] {
-            let known = speeds.map { $0.flatMap { $0.isFinite ? $0 : nil } }
-            guard let first = known.compactMap({ $0 }).first else { return [] }
-            var last = first
-            return known.map { v in if let v { last = v }; return last }
-        }
+        /// The speeds, filled (`filledValues(.speed)`).
+        var filledSpeeds: [Double] { filledValues(.speed) }
     }
 
     /// A run across an unmatched stretch the road router filled: its speed goes from the speed beside its first point to the speed beside its
     /// last, in proportion to the distance along it, so the colour carries across the gap instead of the line going neutral. Nil without a speed
     /// at either end (a drive with no speeds at all has no gradient to carry).
-    static func filledRun(_ coords: [Coord], from: Double?, to: Double?) -> Run? {
+    static func filledRun(_ coords: [Coord], from: Double?, to: Double?, extras: (from: Point?, to: Point?)? = nil) -> Run? {
         guard coords.count >= 2, let a = from ?? to, let b = to ?? from, a.isFinite, b.isFinite else { return nil }
         var d = [0.0]
         for i in 1..<coords.count { d.append(d[i - 1] + haversine(Point(lat: coords[i - 1].lat, lon: coords[i - 1].lon), Point(lat: coords[i].lat, lon: coords[i].lon))) }
         let total = d.last ?? 0
-        return Run(coords: coords, speeds: d.map { total > 0 ? a + (b - a) * ($0 / total) : a }, filled: true)
+        func along(_ a: Double, _ b: Double) -> [Double?] { d.map { total > 0 ? a + (b - a) * ($0 / total) : a } }
+        var more: [RouteGradient.Metric: [Double?]] = [:]
+        if let e = extras {
+            if let x = e.from?.eff ?? e.to?.eff, let y = e.to?.eff ?? e.from?.eff { more[.efficiency] = along(x, y) }
+            if let x = e.from?.elev ?? e.to?.elev, let y = e.to?.elev ?? e.from?.elev { more[.elevation] = along(x, y) }
+        }
+        return Run(coords: coords, speeds: along(a, b), filled: true, extras: more)
     }
 
     /// How a gradient run is drawn: a recorded one is the full line with a faint glow; one the router filled is the same colours, but about 60% as
@@ -254,7 +278,21 @@ enum RouteSnap {
         var runs: [Run] = []
 
         /// The 5th to 95th percentile of the drive's speeds (the web's scale), nil when the drive barely varies: then the buckets stay.
-        var speedRange: (lo: Double, hi: Double)? { RouteGradient.range(values: runs.flatMap(\.filledSpeeds), metric: .speed) }
+        var speedRange: (lo: Double, hi: Double)? { range(for: .speed) }
+
+        /// The 5th to 95th percentile of `metric` over the whole drive (the legend's two ends and the colours' scale), nil when it has no spread.
+        func range(for metric: RouteGradient.Metric) -> (lo: Double, hi: Double)? {
+            RouteGradient.range(values: runs.flatMap { $0.filledValues(metric) }, metric: metric)
+        }
+
+        /// The colour modes the drive supports, in the web's order: speed first when it has one. Efficiency and elevation need a value on every
+        /// run (a run without any would be a gap in the colour) and a range with a spread.
+        var availableMetrics: [RouteGradient.Metric] {
+            guard !runs.isEmpty, runs.count <= RouteSnap.maxGradientRuns else { return [] }
+            return RouteGradient.Metric.allCases.filter { m in
+                runs.allSatisfy { !$0.filledValues(m).isEmpty } && range(for: m) != nil
+            }
+        }
 
         /// Whether the line is drawn as a smooth gradient of speed (it needs speeds that vary, and a number of runs one layer each can carry).
         var usesGradient: Bool { !runs.isEmpty && runs.count <= RouteSnap.maxGradientRuns && speedRange != nil }
@@ -288,20 +326,36 @@ enum RouteSnap {
     }
 
     /// The coordinates with their speeds as one run (none when there are fewer than two points, or no speeds at all).
-    static func runs(_ coords: [Coord], speeds: [Double?]) -> [Run] {
+    static func runs(_ coords: [Coord], speeds: [Double?], extras: [RouteGradient.Metric: [Double?]] = [:]) -> [Run] {
         guard coords.count >= 2, speeds.count == coords.count, speeds.contains(where: { $0?.isFinite == true }) else { return [] }
-        return [Run(coords: coords, speeds: speeds)]
+        return [Run(coords: coords, speeds: speeds, extras: extras.filter { $0.value.count == coords.count })]
+    }
+
+    /// The efficiency and elevation at each of `points`, for the metrics the drive has (none when no point carries one).
+    static func extras(of points: [Point]) -> [RouteGradient.Metric: [Double?]] {
+        var out: [RouteGradient.Metric: [Double?]] = [:]
+        if points.contains(where: { $0.eff != nil }) { out[.efficiency] = points.map(\.eff) }
+        if points.contains(where: { $0.elev != nil }) { out[.elevation] = points.map(\.elev) }
+        return out
+    }
+
+    /// The same for snapped vertices: each takes its nearest recorded point's.
+    static func extras(at coords: [Coord], in trace: [Point]) -> [RouteGradient.Metric: [Double?]] {
+        guard trace.contains(where: { $0.eff != nil || $0.elev != nil }) else { return [:] }
+        return extras(of: coords.compactMap { nearestPoint($0, in: trace) })
     }
 
     /// The recorded trace as drawn before (or without) snapping.
     static func raw(_ path: Path) -> Drawing {
         let coords = path.points.map { Coord(lat: $0.lat, lon: $0.lon) }
         return Drawing(pieces: pieces(coords, speeds: path.points.map(\.s)), routedGaps: [], gaps: [], start: path.start, end: path.end,
-                       hasSpeed: path.points.contains { $0.s?.isFinite == true }, runs: runs(coords, speeds: path.points.map(\.s)))
+                       hasSpeed: path.points.contains { $0.s?.isFinite == true }, runs: runs(coords, speeds: path.points.map(\.s), extras: extras(of: path.points)))
     }
 
     /// The speed at a snapped point: the nearest trace point's.
-    static func nearestSpeed(_ c: Coord, in trace: [Point]) -> Double? {
+    static func nearestSpeed(_ c: Coord, in trace: [Point]) -> Double? { nearestPoint(c, in: trace)?.s }
+
+    static func nearestPoint(_ c: Coord, in trace: [Point]) -> Point? {
         var best = 0
         var bestD = Double.infinity
         for (i, p) in trace.enumerated() {
@@ -310,7 +364,7 @@ enum RouteSnap {
             let d = dx * dx + dy * dy
             if d < bestD { bestD = d; best = i }
         }
-        return trace.isEmpty ? nil : trace[best].s
+        return trace.isEmpty ? nil : trace[best]
     }
 
     static let maxTrace = 1500
@@ -344,12 +398,12 @@ extension RouteSnap {
             let rawCoords = seg.map { Coord(lat: $0.lat, lon: $0.lon) }
             if classify(seg) == .trivial {
                 pieces += RouteSnap.pieces(rawCoords, speeds: seg.map(\.s))
-                allRuns += runs(rawCoords, speeds: seg.map(\.s))
+                allRuns += runs(rawCoords, speeds: seg.map(\.s), extras: extras(of: seg))
                 continue
             }
             guard let matched = await trace(seg, source: source), !matched.chunks.isEmpty else {
                 pieces += RouteSnap.pieces(rawCoords, speeds: seg.map(\.s))
-                allRuns += runs(rawCoords, speeds: seg.map(\.s))
+                allRuns += runs(rawCoords, speeds: seg.map(\.s), extras: extras(of: seg))
                 continue
             }
             let chunks = matched.chunks, inner = matched.gaps
@@ -357,7 +411,7 @@ extension RouteSnap {
             for c in chunks {
                 let speeds = c.map { nearestSpeed($0, in: recorded) }
                 pieces += RouteSnap.pieces(c, speeds: speeds)
-                allRuns += runs(c, speeds: speeds)
+                allRuns += runs(c, speeds: speeds, extras: extras(at: c, in: recorded))
             }
             gaps += inner
             let head = Point(lat: seg[0].lat, lon: seg[0].lon), firstSnap = chunks[0][0]
@@ -382,7 +436,8 @@ extension RouteSnap {
             for (i, g) in gaps.enumerated() {
                 if let r = filled[i], r.count > 1 {
                     routed.append(r)
-                    if let run = filledRun(r, from: nearestSpeed(r[0], in: recorded), to: nearestSpeed(r[r.count - 1], in: recorded)) { allRuns.append(run) }
+                    let head = nearestPoint(r[0], in: recorded), tail = nearestPoint(r[r.count - 1], in: recorded)
+                    if let run = filledRun(r, from: head?.s, to: tail?.s, extras: (head, tail)) { allRuns.append(run) }
                 } else { remaining.append(g) }
             }
         }
@@ -432,4 +487,8 @@ extension RouteSnap {
         }
         return out.count > 1 ? out : nil
     }
+}
+
+private extension Double {
+    var finiteOrNil: Double? { isFinite ? self : nil }
 }

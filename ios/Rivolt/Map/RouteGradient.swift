@@ -6,7 +6,7 @@ import Foundation
 /// alike. The colour ramp itself, the series per sample and the wiring are elsewhere.
 enum RouteGradient {
     /// What a drive can be coloured by. Values are in the units the server sends: speed in mph, efficiency in mi/kWh, elevation in metres.
-    enum Metric: Equatable {
+    enum Metric: Hashable, CaseIterable {
         case speed, efficiency, elevation
     }
 
