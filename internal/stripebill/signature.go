@@ -73,11 +73,9 @@ func VerifySignature(body []byte, header, secret string, now time.Time, toleranc
 	if !matched {
 		return ErrNoValidSignature
 	}
-	d := now.Sub(time.Unix(ts, 0))
-	if d < 0 {
-		d = -d
-	}
-	if d > tolerance {
+	// In whole seconds, not a Duration: a Duration holds about 292 years, and a timestamp further out than that wraps around to "fresh".
+	n, tol := now.Unix(), int64(tolerance/time.Second)
+	if ts > n+tol || ts < n-tol {
 		return ErrStaleTimestamp
 	}
 	return nil
