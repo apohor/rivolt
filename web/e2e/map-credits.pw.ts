@@ -70,6 +70,30 @@ for (const theme of ["dark", "light"] as const) {
     await button.click();
     await expect(protomaps).toBeHidden();
     await expect(osm).toBeHidden();
+
+    // Keyboard focus rings the (i)'s box and the zoom buttons in the accent colour, never the browser default.
+    await page.mouse.move(box.x + 2, box.y + 2);
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press("Tab");
+      if (await button.evaluate((el) => el === document.activeElement)) break;
+    }
+    await expect(button).toBeFocused();
+    const ring = await attrib.evaluate((el) => {
+      const c = getComputedStyle(el);
+      return { style: c.outlineStyle, width: c.outlineWidth, color: c.outlineColor };
+    });
+    expect(ring.style).toBe("solid");
+    expect(ring.width).toBe("2px");
+    expect(await button.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+    await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-${theme}.png`) });
+    const zoomIn = map.locator(".maplibregl-ctrl-zoom-in");
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    await zoomIn.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(zoomIn).toBeFocused();
+    expect(await zoomIn.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
     await ctx.close();
   });
 }
