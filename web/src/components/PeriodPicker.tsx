@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { canStep, periodLabel, pickerKind, stepPeriod, toYmd, type Period, type PickerKind } from "../lib/period";
 
-// PeriodPicker: calendar scope for the app. Day | Week | Month | Custom;
+// PeriodPicker: calendar scope for the app. Day | Week | Month | 30 days (rolling) | Custom;
 // calendar periods get arrows to step back (never into the future) and a
 // label ("Today", "Oct 24", "Oct 2026", "Oct 6–12"). On desktop the segmented
 // control is inline; on a phone it collapses to a compact bar (label with
@@ -15,6 +15,7 @@ const KINDS: { key: PickerKind; label: string }[] = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
+  { key: "last30", label: "30 days" },
   { key: "custom", label: "Custom" },
 ];
 

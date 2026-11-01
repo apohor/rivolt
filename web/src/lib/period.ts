@@ -7,10 +7,10 @@ import { useEffect, useState } from "react";
 // The choice is remembered per device. Ranges are computed in the browser's
 // local calendar and are half-open: [start, end). `null` bounds are open.
 
-export type PeriodKind = "day" | "week" | "month" | "year" | "all" | "custom";
+export type PeriodKind = "day" | "week" | "month" | "last30" | "year" | "all" | "custom";
 
 // The kinds the picker offers; Year and All are reached from Custom.
-export type PickerKind = "day" | "week" | "month" | "custom";
+export type PickerKind = "day" | "week" | "month" | "last30" | "custom";
 
 // Which choice the picker shows pressed: Year and All live under Custom.
 export function pickerKind(p: Period): PickerKind {
@@ -29,6 +29,10 @@ export type Period = {
 export type PeriodRange = { start: Date | null; end: Date | null };
 
 export const DEFAULT_PERIOD: Period = { kind: "month", offset: 0 };
+
+// The rolling last 30 days (today and the 29 before it): what Activity opens on the first time (a feed wants what is recent, and on the 1st of
+// a month "this month" is nearly empty). A choice made on a device is remembered and wins.
+export const LAST_30: Period = { kind: "last30", offset: 0 };
 
 const KEY = "rivolt.period";
 
@@ -70,6 +74,10 @@ export function periodRange(p: Period, now: Date = new Date()): PeriodRange {
       const start = new Date(now.getFullYear(), now.getMonth() + p.offset, 1);
       return { start, end: new Date(start.getFullYear(), start.getMonth() + 1, 1) };
     }
+    case "last30": {
+      const today = startOfDay(now);
+      return { start: addDays(today, -29), end: addDays(today, 1) };
+    }
     case "year": {
       const y = now.getFullYear() + p.offset;
       return { start: new Date(y, 0, 1), end: new Date(y + 1, 0, 1) };
@@ -97,6 +105,7 @@ export function periodLabel(p: Period, now: Date = new Date()): string {
     const sameYear = r.start.getFullYear() === now.getFullYear();
     return `${MONTHS[r.start.getMonth()]} ${r.start.getDate()}${sameYear ? "" : `, ${r.start.getFullYear()}`}`;
   }
+  if (p.kind === "last30") return "Last 30 days";
   if (p.kind === "year") return String(r.start.getFullYear());
   if (p.kind === "month") return `${MONTHS[r.start.getMonth()]} ${r.start.getFullYear()}`;
   if (p.kind === "week") {
@@ -179,9 +188,9 @@ export function earlyMonthFallback(
 
 function sanitize(raw: unknown): Period {
   const o = (raw ?? {}) as Partial<Period>;
-  const kind: PeriodKind = o.kind === "day" || o.kind === "week" || o.kind === "month" || o.kind === "year" || o.kind === "all" || o.kind === "custom" ? o.kind : "month";
+  const kind: PeriodKind = o.kind === "day" || o.kind === "week" || o.kind === "month" || o.kind === "last30" || o.kind === "year" || o.kind === "all" || o.kind === "custom" ? o.kind : "month";
   const offset = typeof o.offset === "number" && Number.isFinite(o.offset) ? Math.min(0, Math.round(o.offset)) : 0;
-  const out: Period = { kind, offset: kind === "all" || kind === "custom" ? 0 : offset };
+  const out: Period = { kind, offset: kind === "all" || kind === "custom" || kind === "last30" ? 0 : offset };
   if (kind === "custom") {
     if (parseYmd(o.from)) out.from = o.from;
     if (parseYmd(o.to)) out.to = o.to;
@@ -189,12 +198,13 @@ function sanitize(raw: unknown): Period {
   return out;
 }
 
-export function loadPeriod(): Period {
+// `fallback` is what a device with no saved choice gets (Activity passes LAST_30; the others stay on this month).
+export function loadPeriod(fallback: Period = DEFAULT_PERIOD): Period {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? sanitize(JSON.parse(raw)) : DEFAULT_PERIOD;
+    return raw ? sanitize(JSON.parse(raw)) : fallback;
   } catch {
-    return DEFAULT_PERIOD;
+    return fallback;
   }
 }
 
@@ -210,12 +220,12 @@ export function savePeriod(p: Period) {
 }
 
 // usePeriod: the shared per-device scope (Now, Activity and Truck follow it).
-export function usePeriod(): [Period, (p: Period) => void] {
-  const [p, setP] = useState<Period>(() => loadPeriod());
+export function usePeriod(fallback: Period = DEFAULT_PERIOD): [Period, (p: Period) => void] {
+  const [p, setP] = useState<Period>(() => loadPeriod(fallback));
   useEffect(() => {
     const on = (e: Event) => setP(sanitize((e as CustomEvent<Period>).detail));
     const onStorage = (e: StorageEvent) => {
-      if (e.key === KEY) setP(loadPeriod());
+      if (e.key === KEY) setP(loadPeriod(fallback));
     };
     window.addEventListener(EVENT, on);
     window.addEventListener("storage", onStorage);
@@ -223,7 +233,7 @@ export function usePeriod(): [Period, (p: Period) => void] {
       window.removeEventListener(EVENT, on);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [fallback]);
   return [p, savePeriod];
 }
 

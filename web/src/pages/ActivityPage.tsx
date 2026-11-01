@@ -2,7 +2,7 @@ import { attachRoutes, drivesAllQuery, drivesRoutesQuery, chargesAllQuery } from
 import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, energyKWhText, isEnergyEstimated } from "../lib/energyEstimated";
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { earlyMonthFallback, filterByRange, periodLabel, periodRange, usePeriod } from "../lib/period";
+import { earlyMonthFallback, filterByRange, LAST_30, periodLabel, periodRange, usePeriod } from "../lib/period";
 import { EarlyMonthNote, NEW_ACCOUNT_LINE, emptyMonthLine } from "../components/EarlyMonthNote";
 import { displayTimeZone } from "../lib/format";
 import { detailPath } from "../lib/demo";
@@ -52,7 +52,8 @@ export default function ActivityPage() {
   const navigate = useNavigate();
   const { roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes } = usePreferences();
   // The shared calendar scope filters the feed.
-  const [period, setPeriod] = usePeriod();
+  // A first visit opens on the last 30 days (the feed wants what is recent); a choice made on this device wins.
+  const [period, setPeriod] = usePeriod(LAST_30);
   const baseRange = useMemo(() => periodRange(period), [period]);
   const view: ActivityView = parseActivityView(params.get("view"));
   // Efficiency view: the selected truck's breakdowns for the period.

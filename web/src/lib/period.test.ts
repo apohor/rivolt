@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { axisDayIndices, barsEndDay, canStep, earlyMonthFallback, filterByRange, periodLabel, periodRange, pickerKind, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
+import { axisDayIndices, barsEndDay, canStep, earlyMonthFallback, filterByRange, LAST_30, loadPeriod, periodLabel, periodRange, pickerKind, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
@@ -173,3 +173,31 @@ describe("axisDayIndices", () => {
     expect(axisDayIndices(days(2026, 0, 1, 365))).toBeNull();
   });
 });
+
+describe("the rolling last 30 days (the Activity default)", () => {
+  it("is today and the 29 days before it, so it never runs out early in a month", () => {
+    const r = periodRange(LAST_30, NOW);
+    expect([ymd(r.start), ymd(r.end)]).toEqual(["2026-09-15", "2026-10-15"]);
+    expect(rangeDays(r)).toBe(30);
+    const first = new Date(2026, 10, 1, 9, 0, 0);
+    const early = periodRange(LAST_30, first);
+    expect(ymd(early.start)).toBe("2026-10-03");
+    expect(periodLabel(LAST_30, NOW)).toBe("Last 30 days");
+  });
+  it("does not step, and has its own picker choice", () => {
+    expect(canStep(LAST_30)).toBe(false);
+    expect(stepPeriod(LAST_30, -1)).toEqual(LAST_30);
+    expect(pickerKind(LAST_30)).toBe("last30");
+  });
+  it("is what a device with no saved choice gets on Activity, while a saved choice wins", () => {
+    window.localStorage.clear();
+    expect(loadPeriod(LAST_30)).toEqual(LAST_30);
+    expect(loadPeriod()).toEqual({ kind: "month", offset: 0 });
+    window.localStorage.setItem("rivolt.period", JSON.stringify({ kind: "week", offset: -2 }));
+    expect(loadPeriod(LAST_30)).toEqual({ kind: "week", offset: -2 });
+    window.localStorage.setItem("rivolt.period", JSON.stringify({ kind: "last30", offset: -4 }));
+    expect(loadPeriod()).toEqual({ kind: "last30", offset: 0 });
+    window.localStorage.clear();
+  });
+});
+
