@@ -1,5 +1,6 @@
 import { drivesAllQuery } from "../lib/activityLists";
 import { decodePolyline } from "../lib/polyline";
+import { pickAnchor } from "../lib/driveAnchor";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -615,15 +616,17 @@ export default function DriveDetailPage() {
             // fitBounds includes those far-away anchors — which drags
             // the visible map back out to the whole drive instead of
             // framing just the cropped slice.
+            // A parked sample is the anchor only where the route is (driveAnchor.ts): a parked frame with a stale position,
+            // miles from the drive's own end, would put the pin there and, on the start's spot, fold both pins into one.
             start={
               viewWindow
                 ? undefined
-                : (homeStart ?? { lat: drive.StartLat, lon: drive.StartLon })
+                : pickAnchor(homeStart, mapPoints[0], { lat: drive.StartLat, lon: drive.StartLon })
             }
             end={
               viewWindow
                 ? undefined
-                : (homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon })
+                : pickAnchor(homeEnd, mapPoints[mapPoints.length - 1], { lat: drive.EndLat, lon: drive.EndLon })
             }
             height={360}
             cursorTime={cursorMs != null ? cursorMs / 1000 : null}
