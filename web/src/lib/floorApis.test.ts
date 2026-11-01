@@ -7,11 +7,14 @@ describe("the post-floor API scan (the build ships no polyfills)", () => {
     const ok = "const a=[1,2].flatMap(x=>[x]);const b=[3,1].toSorted();const m=new Map();for(const v of m.values())v;Array.from(m.values()).map(x=>x);structuredClone({});";
     expect(findFloorApis(ok)).toEqual([]);
   });
-  it("does not mistake a library's own method of the same name for the new built-in", () => {
+  it("exempts only the named chunk and method", () => {
     const own = "class F{constructor(){}difference(e){return this.r===e.r?`none`:`rtt`}}const d=a?.difference(o);";
-    expect(findFloorApis(own)).toEqual([]);
-    expect(findFloorApis(own + "new Set(a).union(b)")).toContain("Set methods");
-    expect(findFloorApis("class F{difference(e){return 1}}new Set(a).difference(b)")).toEqual([]); // documented blind spot: same name defined and used
+    expect(findFloorApis(own, "maplibre-gl-CGF_OhMs.js")).toEqual([]);
+    // the same text in any other chunk is looked at, even if that file defines the method itself
+    expect(findFloorApis(own, "some-lib-AbCdEfGh.js")).toContain("Set methods");
+    expect(findFloorApis(own)).toContain("Set methods");
+    // a different Set method in the named chunk is not exempt
+    expect(findFloorApis(own + "new Set(a).union(b)", "maplibre-gl-CGF_OhMs.js")).toContain("Set methods");
   });
   it.each([
     ["Object.groupBy(a,f)", "Object.groupBy / Map.groupBy"],
