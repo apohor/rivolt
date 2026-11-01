@@ -46,7 +46,7 @@ func TestRenderedCopyHasNoPlaceholdersAndStatesTheDates(t *testing.T) {
 	if tok := Unfilled(body); tok != "" {
 		t.Errorf("email still has %q", tok)
 	}
-	for _, want := range []string{"December 1, 2026", "December 1, 2027", "December 31, 2026", "not affiliated with Rivian", "$34.99", "https://rivolt.dev/terms/2026-10-23"} {
+	for _, want := range []string{"December 1, 2026", "December 1, 2027", "December 31, 2026", "not affiliated with Rivian", "$34.99", "https://rivolt.dev/terms/2026-10-23", "shows one vehicle at a time", "Pro shows them all"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("email is missing %q", want)
 		}
@@ -57,7 +57,7 @@ func TestRenderedCopyHasNoPlaceholdersAndStatesTheDates(t *testing.T) {
 		}
 	}
 	in := RenderInApp(p)
-	if tok := Unfilled(in.Title + in.Body); tok != "" || !strings.Contains(in.Body, "December 31, 2026") || !strings.Contains(in.Body, "December 1, 2027") || len(in.Links) != 2 {
+	if tok := Unfilled(in.Title + in.Body); tok != "" || !strings.Contains(in.Body, "December 31, 2026") || !strings.Contains(in.Body, "December 1, 2027") || !strings.Contains(in.Body, "one vehicle is shown at a time") || len(in.Links) != 2 {
 		t.Errorf("in-app notice: %q %+v", tok, in)
 	}
 	if Unfilled("hello LAUNCH_DATE") != "LAUNCH_DATE" {

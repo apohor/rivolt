@@ -67,7 +67,7 @@ func RenderInApp(p Params) InApp {
 	return InApp{
 		Title: "Rivolt now has a free tier and Pro",
 		Body: "Your account has Pro at no charge until " + long(p.FoundingEnd) + ", with no card and nothing charged. The updated Terms take effect for you on " +
-			long(p.TermsEffective) + ". Nothing is deleted when a plan ends, and the full export is always free.",
+			long(p.TermsEffective) + ". Nothing is deleted when a plan ends, and the full export is always free; on the free plan one vehicle is shown at a time, all are recorded.",
 		Links: []Link{
 			{Label: "What changes", Href: "/support#free-and-pro"},
 			{Label: "Read the Terms", Href: "/terms"},
@@ -127,11 +127,15 @@ on file and nothing will be charged. We will email you and show a notice in the
 app at least 30 days before that date. After it, your account is on the free tier
 unless you choose to subscribe.
 
-What the free tier keeps: every drive and charge recorded, on every connected
-vehicle; Now, Activity, Money and Truck for the last 90 days; the monthly
-statement; a single-day trip planner; three saved trips; share cards; imports;
-every alert; and the full export of everything Rivolt holds, always, including
-history older than 90 days. Nothing is ever deleted when a plan ends.
+What the free tier keeps: Now, Activity, Money and Truck for the last 90
+days; the monthly statement; a single-day trip planner; three saved trips; share
+cards; imports; every alert; and the full export of everything Rivolt holds,
+always, including history older than 90 days. Nothing is ever deleted when a plan
+ends.
+
+If you have more than one vehicle: on the free plan, Rivolt keeps recording
+every drive and charge on all your vehicles, but shows one vehicle at a time (you
+choose which). Every vehicle stays in your full export, and Pro shows them all.
 
 What Pro is: unlimited history and trends, range near a temperature,
 multi-day trip plans with hotel and campground overnights, re-plan from where the
