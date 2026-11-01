@@ -71,4 +71,25 @@ describe("DriveDetailPage route points", () => {
     for (let i = 1; i < pts.length; i++) worst = Math.max(worst, Math.hypot(pts[i].lat - pts[i - 1].lat, pts[i].lon - pts[i - 1].lon));
     expect(worst).toBeLessThan(0.001);
   });
+
+  it("has no Google Maps link in the Route card (the owner removed it), but still has its GPS badge logic", async () => {
+    stubFetchRoutes({
+      "/api/drives": { body: [drive] },
+      "/api/samples": { body: rows },
+      "/api/vehicles": { body: [] },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/drives/d1"]}>
+          <Routes>
+            <Route path="/drives/:id" element={<DriveDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(seen.some((p) => p.length > 0)).toBe(true));
+    expect(container.querySelector("a[href*='google.com']")).toBeNull();
+    expect(container.textContent).not.toContain("Google Maps");
+  });
 });
