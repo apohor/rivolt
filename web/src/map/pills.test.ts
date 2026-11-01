@@ -85,9 +85,9 @@ describe("placeStopPill", () => {
   });
   it("goes below, then above, the pin when both sides are taken (a level line with the end pills above it)", () => {
     const taken = [pillBox(pin, "left", [16, 0], { w: 100, h: 23 }), pillBox(pin, "right", [-16, 0], { w: 100, h: 23 })];
-    expect(placeStopPill(pin, size, usual, taken, view)).toEqual({ anchor: "top-left", offset: [4, 16] });
+    expect(placeStopPill(pin, size, usual, taken, view)).toEqual({ anchor: "top-left", offset: [4, 18] });
     const withBelow = [...taken, pillBox(pin, "top-left", [4, 12], size)];
-    expect(placeStopPill(pin, size, usual, withBelow, view)).toEqual({ anchor: "bottom-left", offset: [4, -16] });
+    expect(placeStopPill(pin, size, usual, withBelow, view)).toEqual({ anchor: "bottom-left", offset: [4, -18] });
   });
   it("is dropped (null) when no place clears everything or stays in the view", () => {
     const everywhere = [{ x0: 0, y0: 0, x1: 360, y1: 460 }];

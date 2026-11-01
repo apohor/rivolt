@@ -214,10 +214,10 @@ export function placeStopPill(
   const cands: { anchor: string; offset: [number, number] }[] = [
     usual,
     usualRight ? { anchor: "left", offset: [16, 0] } : { anchor: "right", offset: [-16, 0] },
-    usualRight ? { anchor: "top-right", offset: [-4, 16] } : { anchor: "top-left", offset: [4, 16] },
-    usualRight ? { anchor: "bottom-right", offset: [-4, -16] } : { anchor: "bottom-left", offset: [4, -16] },
-    usualRight ? { anchor: "top-left", offset: [4, 16] } : { anchor: "top-right", offset: [-4, 16] },
-    usualRight ? { anchor: "bottom-left", offset: [4, -16] } : { anchor: "bottom-right", offset: [-4, -16] },
+    usualRight ? { anchor: "top-right", offset: [-4, 18] } : { anchor: "top-left", offset: [4, 18] },
+    usualRight ? { anchor: "bottom-right", offset: [-4, -18] } : { anchor: "bottom-left", offset: [4, -18] },
+    usualRight ? { anchor: "top-left", offset: [4, 18] } : { anchor: "top-right", offset: [-4, 18] },
+    usualRight ? { anchor: "bottom-left", offset: [4, -18] } : { anchor: "bottom-right", offset: [-4, -18] },
   ];
   for (const c of cands) {
     const b = pillBox(pin, c.anchor, c.offset, size);
