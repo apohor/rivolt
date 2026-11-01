@@ -49,8 +49,13 @@ describe("pillAwayFromLine", () => {
     expect(pillAwayFromLine({ x: 100, y: 100 }, { x: 102, y: 200 }, 400).anchor).toBe("left");
     expect(pillAwayFromLine({ x: 300, y: 100 }, null, 400)).toEqual({ anchor: "right", offset: [-16, 0] });
   });
-  it("falls back to the roomy side when the away side has no room for a pill", () => {
-    // The line goes right from a pin 60 px from the left edge: a pill left of it would run off the view.
-    expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 100 }, 400).anchor).toBe("left");
+  it("with no room on the away side it goes above or below the pin, along the roomy side, clear of a level line", () => {
+    // The line goes right from a pin 60 px from the left edge, level: a pill left of it would run off the view, and one to the right would lie along
+    // the line. It goes above the pin, extending right.
+    expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 100 }, 400)).toEqual({ anchor: "bottom-left", offset: [4, -10] });
+    // The mirror: the end of a west-to-east route at the right edge, the line arriving from the left.
+    expect(pillAwayFromLine({ x: 360, y: 100 }, { x: 300, y: 100 }, 400)).toEqual({ anchor: "bottom-right", offset: [-4, -10] });
+    // A line that leaves upward puts the pill below.
+    expect(pillAwayFromLine({ x: 60, y: 100 }, { x: 120, y: 40 }, 400)).toEqual({ anchor: "top-left", offset: [4, 10] });
   });
 });
