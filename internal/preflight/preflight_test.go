@@ -35,7 +35,7 @@ func env(extra map[string]string) func(string) string {
 func goodStripe() StripeFacts {
 	m := []string{"apple_pay", "card", "google_pay", "link"}
 	return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true,
-		PMCRead: true, PMCFound: true, PMCActive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m}
+		PMCRead: true, PMCFound: true, PMCActive: true, PMCLive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m}
 }
 
 func okInput() Input {
@@ -177,6 +177,12 @@ func TestPreflightProblems(t *testing.T) {
 		},
 		"the configuration is inactive": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCActive = false; return f }
+		},
+		"the configuration is from the other environment (test id, live key)": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.PMCLive = false; return f }
+		},
+		"the configuration is a live one with a test key": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.Live = false; return f }
 		},
 		"the payment method configuration is not set": func(in *Input) {
 			in.Getenv = env(map[string]string{"RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG": ""})
@@ -391,7 +397,7 @@ func TestPreflightStripeTax(t *testing.T) {
 	if r := run("true", good); r.Ready() {
 		t.Error("tax on, Stripe Tax unreadable: ready")
 	}
-	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Customer Portal's update-payment-method follows that configuration") {
+	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Customer Portal's update-payment-method follows it") {
 		t.Error("the manual steps lack the live default payment-method configuration line")
 	}
 	if !strings.Contains(strings.Join(ManualSteps(), "\n"), "Stripe Tax is set up in live mode") {

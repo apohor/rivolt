@@ -413,21 +413,31 @@ func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, 
 	return nil, false, nil
 }
 
-// PaymentMethodConfiguration reads one payment method configuration (read-only): whether it is active and the payment method types it has on.
-// found is false when Stripe has no such configuration.
-func (c *Client) PaymentMethodConfiguration(ctx context.Context, id string) (active bool, methods []string, found bool, err error) {
-	var cfg map[string]json.RawMessage
-	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations/"+url.PathEscape(id), nil, "", &cfg); err != nil {
+// PaymentMethodConfig is what the launch pre-flight reads of a payment method configuration.
+type PaymentMethodConfig struct {
+	Active  bool
+	Live    bool     // livemode: a test configuration cannot serve a live key, nor the reverse
+	Methods []string // the payment method types it has on, sorted
+}
+
+// PaymentMethodConfiguration reads one payment method configuration (read-only). found is false when Stripe has no such configuration.
+func (c *Client) PaymentMethodConfiguration(ctx context.Context, id string) (cfg PaymentMethodConfig, found bool, err error) {
+	var obj map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations/"+url.PathEscape(id), nil, "", &obj); err != nil {
 		var se *Error
 		if errors.As(err, &se) && se.Status == http.StatusNotFound {
-			return false, nil, false, nil
+			return PaymentMethodConfig{}, false, nil
 		}
-		return false, nil, false, err
+		return PaymentMethodConfig{}, false, err
 	}
-	if raw, ok := cfg["active"]; ok {
-		_ = json.Unmarshal(raw, &active)
+	if raw, ok := obj["active"]; ok {
+		_ = json.Unmarshal(raw, &cfg.Active)
 	}
-	return active, enabledMethods(cfg), true, nil
+	if raw, ok := obj["livemode"]; ok {
+		_ = json.Unmarshal(raw, &cfg.Live)
+	}
+	cfg.Methods = enabledMethods(obj)
+	return cfg, true, nil
 }
 
 // TaxActive reads Stripe Tax's settings status (read-only): "active" means the head office address and default tax behaviour are set up and

@@ -123,8 +123,8 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 		}
 		// The configuration Checkout names (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG): found, active and what it offers.
 		if id := strings.TrimSpace(getenv("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG")); id != "" {
-			if active, methods, found, err := c.PaymentMethodConfiguration(ctx, id); err == nil {
-				f.PMCRead, f.PMCFound, f.PMCActive, f.PMCMethods = true, found, active, methods
+			if cfg, found, err := c.PaymentMethodConfiguration(ctx, id); err == nil {
+				f.PMCRead, f.PMCFound, f.PMCActive, f.PMCLive, f.PMCMethods = true, found, cfg.Active, cfg.Live, cfg.Methods
 			}
 		}
 		// Stripe Tax is only asked about when automatic tax is on; a key that cannot read it leaves TaxRead false (unverified).

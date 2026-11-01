@@ -41,6 +41,7 @@ type StripeFacts struct {
 	PMCRead    bool
 	PMCFound   bool
 	PMCActive  bool
+	PMCLive    bool // the configuration's livemode, to compare with the mode of the key (Live)
 	PMCMethods []string
 	// The account's DEFAULT configuration, which our sessions do not use but the Customer Portal's update-payment-method follows.
 	CheckoutMethods []string
@@ -358,6 +359,13 @@ func Run(ctx context.Context, in Input) *Report {
 // redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
 var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true, "link": true}
 
+func modeName(live bool) string {
+	if live {
+		return "live"
+	}
+	return "test"
+}
+
 func (r *Report) checkoutMethods(f StripeFacts, configured bool) {
 	// Our Checkout sessions name a payment method configuration; Stripe holds a session to the methods that configuration has on. Without one
 	// Checkout refuses (the setting is checked above), and an unread, inactive or too-wide configuration is a launch problem.
@@ -368,6 +376,8 @@ func (r *Report) checkoutMethods(f StripeFacts, configured bool) {
 		r.problem("the payment method configuration could not be read, so what Checkout offers is unverified (a restricted key needs read access on Payment method configurations)")
 	case !f.PMCFound:
 		r.problem("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG names no payment method configuration in this Stripe account (a test-mode id with a live key, or the reverse)")
+	case f.PMCLive != f.Live:
+		r.problem("the payment method configuration is in %s mode but the key and prices are in %s mode (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG is from the other Stripe environment)", modeName(f.PMCLive), modeName(f.Live))
 	case !f.PMCActive:
 		r.problem("the payment method configuration is not active")
 	default:
@@ -412,7 +422,8 @@ func ManualSteps() []string {
 		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
 		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
 		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
-		"Stripe Dashboard, Payment methods (the live default configuration): only cards and wallets are on. The Customer Portal's update-payment-method follows that configuration, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method that the Checkout pin does not cover",
+		"Stripe Dashboard, Payment methods: a LIVE payment method configuration exists with only cards and wallets (card, Link, Apple Pay, Google Pay) on, and its pmc_ id is RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG (Checkout names it; the report reads it, but the id must be the live one)",
+		"Stripe Dashboard, Payment methods, the account's DEFAULT live configuration: only cards and wallets are on as well. Checkout does not use it, but the Customer Portal's update-payment-method follows it, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method",
 		"Stripe Tax is set up in live mode: origin address, and registrations where required (Texas first), since RIVOLT_STRIPE_AUTOMATIC_TAX is on; with no live tax setup, live Checkout fails",
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
 		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
