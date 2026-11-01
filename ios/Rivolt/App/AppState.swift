@@ -65,6 +65,8 @@ final class AppState {
     private var awaitingDeletion = false
     /// True while the server says the current Terms must be accepted before it answers data routes (they are accepted on the web).
     private(set) var termsRequired = false
+    /// The version of the Terms to accept (a date, like "2026-10-23"), when the server said.
+    private(set) var termsVersion: String?
     /// The account the demo was opened from, when it was opened from one (see `enterDemoFromAccount`).
     private var resumeAfterDemo: String?
     /// What the Connection details screen shows: the last two reads' outcomes and the newest frame, in memory only.
@@ -361,7 +363,10 @@ final class AppState {
     /// Asks the server whether the Terms still have to be accepted. An unreachable server leaves the answer as it was.
     func recheckTerms() async {
         guard case .loggedIn = phase else { return }
-        if let me = try? await client.me() { termsRequired = me.terms?.isRequired ?? false }
+        if let me = try? await client.me() {
+            termsRequired = me.terms?.isRequired ?? false
+            termsVersion = termsRequired ? me.terms?.current : nil
+        }
     }
 
     func logout() async {

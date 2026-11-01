@@ -105,3 +105,13 @@ final class TermsRequiredTests: XCTestCase {
         }
     }
 }
+
+final class TermsUpdatedExtrasTests: XCTestCase {
+    func testTheScreenNamesTheVersionAndKeepsExportAndDeleteOnTheWeb() {
+        XCTAssertEqual(TermsUpdated.updatedOn("2026-10-23"), "Terms updated 2026-10-23")
+        XCTAssertNil(TermsUpdated.updatedOn(nil))
+        XCTAssertNil(TermsUpdated.updatedOn(""))
+        XCTAssertEqual(TermsUpdated.dataURL(URL(string: "https://rivolt.dev")!).absoluteString, "https://rivolt.dev/settings?tab=data")
+        XCTAssertEqual(TermsUpdated.dataLine, "Export or delete your data")
+    }
+}
