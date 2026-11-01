@@ -21,7 +21,7 @@ import (
 
 // Link Apple to my account, the start and the sign-out hook (design: _shared/apple-link-design.md; DA's conditions A and C).
 
-const linkMail = "me@example.com"
+const appleLinkMail = "me@example.com"
 
 // fakeBegin stands in for the OIDC service: it records the request exactly as oidc.BeginAppleLink keys it (sha256 of the state and of
 // the session id's text), so the sign-out hook is tested against the same hashes.
@@ -74,8 +74,8 @@ func newLinkRig(t *testing.T, age time.Duration, hasIdentity bool, account strin
 	krat := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
 		case "/admin/identities":
-			if hasIdentity && req.URL.Query().Get("credentials_identifier") == linkMail {
-				_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "kid", "traits": map[string]any{"email": linkMail}}})
+			if hasIdentity && req.URL.Query().Get("credentials_identifier") == appleLinkMail {
+				_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "kid", "traits": map[string]any{"email": appleLinkMail}}})
 				return
 			}
 			_, _ = w.Write([]byte("[]"))
@@ -88,7 +88,7 @@ func newLinkRig(t *testing.T, age time.Duration, hasIdentity bool, account strin
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"session_token": "", "session": map[string]any{"identity": map[string]any{"id": "kid", "traits": map[string]any{"email": linkMail}}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"session_token": "", "session": map[string]any{"identity": map[string]any{"id": "kid", "traits": map[string]any{"email": appleLinkMail}}}})
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -135,7 +135,7 @@ func errCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestAppleLinkStartWithAFreshSessionNeedsNoPassword(t *testing.T) {
-	r := newLinkRig(t, 2*time.Minute, true, linkMail)
+	r := newLinkRig(t, 2*time.Minute, true, appleLinkMail)
 	rec := r.post("{}", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
@@ -154,7 +154,7 @@ func TestAppleLinkStartWithAFreshSessionNeedsNoPassword(t *testing.T) {
 }
 
 func TestAppleLinkStartWithAnOlderSessionAsksForThePassword(t *testing.T) {
-	r := newLinkRig(t, 3*time.Hour, true, linkMail)
+	r := newLinkRig(t, 3*time.Hour, true, appleLinkMail)
 	if rec := r.post("{}", nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_required" {
 		t.Errorf("no password: %d %s", rec.Code, rec.Body)
 	}
@@ -177,7 +177,7 @@ func TestAppleLinkStartWithAnOlderSessionAsksForThePassword(t *testing.T) {
 func TestAppleLinkStartOldSessionWithoutAPasswordNeedsAFreshSignIn(t *testing.T) {
 	for name, r := range map[string]*linkRig{
 		"no email":    newLinkRig(t, 3*time.Hour, true, ""),
-		"no identity": newLinkRig(t, 3*time.Hour, false, linkMail),
+		"no identity": newLinkRig(t, 3*time.Hour, false, appleLinkMail),
 	} {
 		if rec := r.post(`{"password":"right"}`, nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "recent_sign_in_required" {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
@@ -189,7 +189,7 @@ func TestAppleLinkStartOldSessionWithoutAPasswordNeedsAFreshSignIn(t *testing.T)
 }
 
 func TestAppleLinkStartRefusals(t *testing.T) {
-	r := newLinkRig(t, time.Minute, true, linkMail)
+	r := newLinkRig(t, time.Minute, true, appleLinkMail)
 	cases := map[string]func(*http.Request) *http.Request{
 		"cross-site": func(q *http.Request) *http.Request { q.Header.Set("Sec-Fetch-Site", "cross-site"); return q },
 		"not json":   func(q *http.Request) *http.Request { q.Header.Set("Content-Type", "text/plain"); return q },
@@ -222,7 +222,7 @@ func TestAppleLinkStartRefusals(t *testing.T) {
 // DA's condition A, end to end: the request the start recorded for a session is gone after that session signs out through the real
 // sign-out handler, and only that session's.
 func TestSigningOutDropsTheLinkRequestsOfThatSession(t *testing.T) {
-	r := newLinkRig(t, time.Minute, true, linkMail)
+	r := newLinkRig(t, time.Minute, true, appleLinkMail)
 	if rec := r.post("{}", nil); rec.Code != http.StatusOK {
 		t.Fatalf("start: %d", rec.Code)
 	}
