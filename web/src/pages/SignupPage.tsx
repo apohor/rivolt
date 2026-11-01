@@ -273,9 +273,6 @@ export default function SignupPage() {
               ? "We're at capacity"
               : "Create your account"}
           </h1>
-          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300">
-            Beta
-          </span>
         </div>
 
         {fullMode && !tokenMode && (
@@ -307,7 +304,7 @@ export default function SignupPage() {
         {!tokenMode && tokenStatus !== "checking" && (
           <>
             <p className="mb-3 text-sm text-neutral-300">
-              Rivolt is an open-source Rivian companion in closed beta.
+              Rivolt is an open-source Rivian companion.
               {fullMode
                 ? " "
                 : oauthProviders && oauthProviders.length > 0

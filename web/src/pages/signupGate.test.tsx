@@ -64,3 +64,25 @@ describe("sign-up closed (RIVOLT_SIGNUP_DISABLED)", () => {
     expect(screen.queryByLabelText(/password/i)).toBeNull();
   });
 });
+
+describe("no Beta wording on the sign-in and sign-up cards (owner, Nov 1)", () => {
+  beforeEach(() => vi.resetModules());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("login has no Beta pill", async () => {
+    await mount(true, "/login");
+    await screen.findByRole("link", { name: /create an account/i });
+    expect(screen.queryByText("Beta")).toBeNull();
+  });
+
+  it("sign-up has no Beta pill and says it is an open-source Rivian companion, not that it is in closed beta", async () => {
+    await mount(true, "/signup");
+    expect(await screen.findByText(/Rivolt is an open-source Rivian companion\./)).toBeTruthy();
+    expect(screen.queryByText("Beta")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/closed beta/i);
+  });
+});
+
