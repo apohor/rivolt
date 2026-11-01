@@ -159,6 +159,38 @@ final class AppState {
         }
     }
 
+    // MARK: In-App Purchase (Pro 6)
+
+    private var storeUpdates: Task<Void, Never>?
+
+    /// What the paywall buys with: StoreKit when this server has purchases set up and the account id is known, otherwise nothing (the paywall
+    /// says purchases aren't available). Never in the demo.
+    func makePurchasing() async -> ProPurchasing {
+        guard !isDemo, case .loggedIn = phase,
+              let config = try? await client.appConfig(), config.purchasesAvailable, let products = config.iap?.products,
+              let me = try? await client.me(), let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
+        let client = self.client
+        return StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
+    }
+
+    /// Listens for transactions that arrive outside a purchase (renewals, Ask to Buy approved, another device) and reports them. Started
+    /// once per sign-in; stopped on sign-out.
+    func startStoreUpdates() async {
+        storeUpdates?.cancel()
+        storeUpdates = nil
+        guard !isDemo, case .loggedIn = phase,
+              let config = try? await client.appConfig(), config.purchasesAvailable, let products = config.iap?.products,
+              let me = try? await client.me(), let token = StoreLogic.accountToken(me.userId) else { return }
+        let client = self.client
+        let purchasing = StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
+        storeUpdates = StoreKit2Gateway.listen(purchasing: purchasing)
+    }
+
+    func stopStoreUpdates() {
+        storeUpdates?.cancel()
+        storeUpdates = nil
+    }
+
     /// This build's number, compared with the server's `min_ios_build`.
     static var appBuild: Int {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String).flatMap(Int.init) ?? 0
@@ -179,6 +211,7 @@ final class AppState {
             await refreshUnits(known: me.units)
             await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
+        await startStoreUpdates()
         } catch {
             phase = .loggedOut
         }
@@ -277,6 +310,7 @@ final class AppState {
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
+        await startStoreUpdates()
     }
 
     /// The person is being sent to the web page that deletes the account (Apple's 5.1.1(v) asks for a way to delete it from the app).
@@ -301,6 +335,7 @@ final class AppState {
     /// Ends this phone's session without asking the server (it has already ended it): the token, the notification registration
     /// and the widgets' and map's data all go, and the sign-in screen is shown with `notice`.
     private func forgetSession(notice: String) async {
+        stopStoreUpdates()
         await liveActivity.stop()
         liveActivity.attach(server: nil)
         try? tokens.deleteToken(for: serverURL)
