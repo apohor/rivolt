@@ -90,6 +90,54 @@ describe("supported constructs beyond the corpus", () => {
   });
 });
 
+// What the pages may use, by construct: the ones react-markdown rendered and this renders identically are compared with it; the ones it does
+// not support are pinned to the plain text they degrade to (no markup outside the allowed set), so a content change that starts using one
+// is a decision, not a surprise. The content pages and the release notes are already compared with react-markdown above, so a future
+// Terms or changelog entry that used an unsupported construct fails the corpus test before it ships.
+describe("constructs a future page might use", () => {
+  const same: Record<string, string> = {
+    "a table (react-markdown without GFM shows it as text too)": "| a | b |\n|---|---|\n| 1 | 2 |\n",
+    "a table written without pipes at the edges": "Plan | Price\n--- | ---\nFree | $0",
+    "an ordered list": "1. a\n2. b\n3. c",
+    "an ordered list with parentheses": "1) a\n2) b",
+    "a loose ordered list": "1. a\n\n2. b",
+    "a block quote": "> quote\n> more",
+    "a block quote holding a list": "> - a\n> - b",
+    "a fenced code block": "```\ncode\n```",
+    "a thematic break": "---",
+    "strikethrough (plain text without GFM)": "~~gone~~",
+    "a task list (plain text without GFM)": "- [ ] a\n- [x] b",
+    "a bare URL (not linked without GFM)": "see https://x.test/a now",
+    "a raw HTML block": "<div>hi</div>",
+    "a heading with closing hashes": "## Title ##",
+  };
+  it.each(Object.entries(same))("%s renders as react-markdown does", (_n, md) => {
+    expect(norm(html(md))).toBe(norm(ref(md)));
+  });
+
+  it("an image is shown only where the page supplies an img component, and only from an allowed source", () => {
+    const img = (p: Record<string, unknown>) => createElement("img", p as never);
+    expect(norm(html("![alt](https://x.test/a.png)", { img } as never))).toBe(norm(ref("![alt](https://x.test/a.png)")));
+    // The legal pages and the changelog pass no img component: images are dropped (the changelog always dropped them).
+    expect(html("![alt](https://x.test/a.png)")).toBe("<p></p>");
+    expect(html("![alt](javascript:alert(1))", { img } as never)).toBe("<p></p>");
+  });
+
+  const unsupported: Record<string, [string, string]> = {
+    "indented code": ["    code line\n\nafter", "<p>code line</p><p>after</p>"],
+    "a nested bullet list (flattened)": ["- a\n  - b\n  - c\n- d", "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>"],
+    "an ordered list inside a bullet": ["- a\n  1. b", "<ul><li>a</li></ul><ol><li>b</li></ol>"],
+    "a setext heading (=====)": ["Title\n=====", "<p>Title\n=====</p>"],
+    "a setext heading (-----)": ["Title\n-----", "<p>Title</p><hr/>"],
+    "a reference link": ["[a][1]\n\n[1]: https://x.test", "<p>[a][1]</p><p>[1]: https://x.test</p>"],
+    "a footnote": ["a[^1]\n\n[^1]: note", "<p>a[^1]</p><p>[^1]: note</p>"],
+  };
+  it.each(Object.entries(unsupported))("%s degrades to plain, safe text", (_n, [md, want]) => {
+    expect(html(md)).toBe(want);
+    expect(tagsOf(html(md)).filter((t) => !ALLOWED_TAGS.has(t))).toEqual([]);
+  });
+});
+
 // ---- safety ---------------------------------------------------------------------------------------------------------------------------
 const ALLOWED_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "code", "hr", "br", "strong", "em", "a"]);
 const tagsOf = (h: string) => [...h.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9]*)/g)].map((m) => m[1].toLowerCase());
