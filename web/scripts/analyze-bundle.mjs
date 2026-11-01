@@ -37,3 +37,17 @@ for (const f of readdirSync(dir).filter((f) => /\.m?js$/.test(f))) {
     console.log(`   ${o.padEnd(52)} ${(n / 1024).toFixed(1).padStart(8)} kB raw  ~${((n / code.length) * (gz / 1024)).toFixed(1).padStart(6)} kB gzip`);
   }
 }
+
+// The MapLibre stylesheet by rule family (first class of each rule), raw bytes and their share of its gzip size.
+for (const f of readdirSync(dir).filter((f) => /^maplibre-gl.*\.css$/.test(f))) {
+  const css = readFileSync(join(dir, f), "utf8");
+  const gz = gzipSync(css, { level: 9 }).length;
+  const fam = new Map();
+  for (const rule of css.split("}")) {
+    const m = rule.match(/\.(maplibregl-[a-z-]+?)(?:[ :.\[,>{]|$)/) || rule.match(/@([a-z-]+)/);
+    const k = m ? m[1].replace(/-(icon|hover|active|disabled|waiting|track|background|dot|heading|accuracy)\b.*/, "") : "(other)";
+    fam.set(k, (fam.get(k) || 0) + rule.length + 1);
+  }
+  console.log(`\n== ${f}  ${(css.length / 1024).toFixed(0)} kB raw, ${(gz / 1024).toFixed(1)} kB gzip, by rule family`);
+  for (const [k, n] of [...fam].sort((a, b) => b[1] - a[1]).slice(0, 16)) console.log(`   ${k.padEnd(40)} ${(n / 1024).toFixed(1).padStart(7)} kB raw  ~${((n / css.length) * (gz / 1024)).toFixed(1).padStart(5)} kB gzip`);
+}
