@@ -114,7 +114,7 @@ func TestLinkModeAttachesTheIdentityToTheIntentsAccount(t *testing.T) {
 	h := newAppleHarness(t)
 	c, loc := h.beginLink()
 	rec := h.linkCallback(c, loc)
-	if got := location(t, rec); got != "/settings?apple=linked" {
+	if got := location(t, rec); got != "/settings?apple=linked#security" {
 		t.Fatalf("Location = %q, want /settings?apple=linked", got)
 	}
 	if len(h.links.linked) != 1 || !strings.HasPrefix(h.links.linked[0], linkUser.String()+" "+testAppleSub+" ") {
@@ -139,7 +139,7 @@ func TestLinkModeRefusesAnAppleIDOfAnotherAccount(t *testing.T) {
 	h := newAppleHarness(t)
 	h.links.uidBySub[testAppleSub] = uuid.MustParse("00000000-0000-0000-0000-0000000000c9")
 	c, loc := h.beginLink()
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=apple_in_use" {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=apple_in_use#security" {
 		t.Errorf("Location = %q", got)
 	}
 	if len(h.links.linked) != 0 || len(h.outcomes) != 1 || h.outcomes[0] != "in_use" {
@@ -151,7 +151,7 @@ func TestLinkModeRelinksTheSameIdentity(t *testing.T) {
 	h := newAppleHarness(t)
 	h.links.uidBySub[testAppleSub] = linkUser
 	c, loc := h.beginLink()
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=linked" || len(h.links.linked) != 1 {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=linked#security" || len(h.links.linked) != 1 {
 		t.Errorf("Location = %q, linked %v", got, h.links.linked)
 	}
 }
@@ -160,7 +160,7 @@ func TestLinkModeRefusesAnAccountLinkedToAnotherAppleID(t *testing.T) {
 	h := newAppleHarness(t)
 	h.links.linkErr = ErrAppleLinkConflict
 	c, loc := h.beginLink()
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=apple_linked" {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=apple_linked#security" {
 		t.Errorf("Location = %q", got)
 	}
 	if len(h.outcomes) != 1 || h.outcomes[0] != "account_linked" {
@@ -173,7 +173,7 @@ func TestLinkModeRefusesWhenTheStartingSessionHasEnded(t *testing.T) {
 	h := newAppleHarness(t)
 	c, loc := h.beginLink()
 	h.live = false
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=session_expired" {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=session_expired#security" {
 		t.Errorf("Location = %q", got)
 	}
 	if len(h.links.linked) != 0 || len(h.issued) != 0 {
@@ -186,7 +186,7 @@ func TestAnExpiredLinkRequestIsNeverASignIn(t *testing.T) {
 	h := newAppleHarness(t)
 	c, loc := h.beginLink()
 	h.intents.expired = true
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=session_expired" {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=session_expired#security" {
 		t.Errorf("Location = %q, want a refusal back at Settings", got)
 	}
 	if len(h.issued) != 0 || len(h.ensured) != 0 || len(h.links.linked) != 0 {
@@ -200,7 +200,7 @@ func TestLinkModeWithAnotherFlowsCookieIsRefusedAndSpendsTheRequest(t *testing.T
 	h := newAppleHarness(t)
 	goodCookie, loc := h.beginLink()
 	otherCookie, _ := h.start() // an ordinary sign-in's cookie: a different state
-	if got := location(t, h.linkCallback(otherCookie, loc)); got != "/settings?apple=session_expired" {
+	if got := location(t, h.linkCallback(otherCookie, loc)); got != "/settings?apple=session_expired#security" {
 		t.Errorf("Location = %q", got)
 	}
 	if len(h.intents.m) != 0 {
@@ -210,7 +210,7 @@ func TestLinkModeWithAnotherFlowsCookieIsRefusedAndSpendsTheRequest(t *testing.T
 	h.fa.nonce = loc.Query().Get("nonce")
 	h.fa.challenge = loc.Query().Get("code_challenge")
 	h.fa.mu.Unlock()
-	if got := location(t, h.linkCallback(goodCookie, loc)); !strings.HasPrefix(got, "/settings?apple=") || got == "/settings?apple=linked" {
+	if got := location(t, h.linkCallback(goodCookie, loc)); !strings.HasPrefix(got, "/settings?apple=") || got == "/settings?apple=linked#security" {
 		t.Errorf("second try Location = %q, must not link", got)
 	}
 	if len(h.links.linked) != 0 || len(h.issued) != 0 {
@@ -221,7 +221,7 @@ func TestLinkModeWithAnotherFlowsCookieIsRefusedAndSpendsTheRequest(t *testing.T
 func TestLinkModeWithNoCookieIsRefusedAndSpendsTheRequest(t *testing.T) {
 	h := newAppleHarness(t)
 	_, loc := h.beginLink()
-	if got := location(t, h.linkCallback(nil, loc)); got != "/settings?apple=session_expired" {
+	if got := location(t, h.linkCallback(nil, loc)); got != "/settings?apple=session_expired#security" {
 		t.Errorf("Location = %q", got)
 	}
 	if len(h.intents.m) != 0 || len(h.links.linked) != 0 {
@@ -243,7 +243,7 @@ func TestSignInIsUnchangedByLinkMode(t *testing.T) {
 func TestALinkedRelayIdentitySignsIntoTheLinkedAccountNotANewOne(t *testing.T) {
 	h := newAppleHarness(t)
 	c, loc := h.beginLink()
-	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=linked" {
+	if got := location(t, h.linkCallback(c, loc)); got != "/settings?apple=linked#security" {
 		t.Fatalf("link: Location = %q", got)
 	}
 	// The store now answers for the sub (the fake records the link; mirror what the real store does).
@@ -260,5 +260,26 @@ func TestALinkedRelayIdentitySignsIntoTheLinkedAccountNotANewOne(t *testing.T) {
 		if strings.Contains(e.username, "privaterelay") || strings.Contains(e.email, "privaterelay") {
 			t.Errorf("the relay address reached the account: %+v", e)
 		}
+	}
+}
+
+func TestAppleLinkAvailableNeedsTheProviderAndThePlumbing(t *testing.T) {
+	if !newAppleHarness(t).svc.AppleLinkAvailable() {
+		t.Fatal("not available with the Apple provider and the plumbing wired")
+	}
+	for name, off := range map[string]func(*Service){
+		"no request store":  func(s *Service) { s.linkIntents = nil },
+		"no session check":  func(s *Service) { s.sessionLive = nil },
+		"no identity store": func(s *Service) { s.appleLinks = nil },
+	} {
+		svc := newAppleHarness(t).svc
+		off(svc)
+		if svc.AppleLinkAvailable() {
+			t.Errorf("%s: still available", name)
+		}
+	}
+	var nilSvc *Service
+	if nilSvc.AppleLinkAvailable() {
+		t.Error("a nil service is available")
 	}
 }

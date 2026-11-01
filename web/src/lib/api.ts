@@ -1212,6 +1212,10 @@ export const backend = {
     api.post<{ ok: boolean; sessions_revoked: number; passkeys: Passkey[] }>("/api/auth/password", body),
   resetAccountAccess: (body: { current: string; new: string }) =>
     api.post<{ ok: boolean; passkeys_removed: number; sessions_revoked: number }>("/api/auth/secure", body),
+  // Link Apple to my account (Settings → Security). The status is a 404 where linking is off; start and unlink ask for the password again.
+  appleLink: () => api.get<AppleLinkStatus>("/api/auth/apple-link"),
+  appleLinkStart: (password: string) => api.post<{ url: string }>("/api/auth/apple-link/start", { password }),
+  appleUnlink: (password: string) => api.post<{ unlinked: boolean }>("/api/auth/apple-link/unlink", { password }),
   passkeys: () => api.get<{ passkeys: Passkey[]; max: number }>("/api/auth/passkeys"),
   passkeyRegisterBegin: (password: string) =>
     api.post<{ ceremony_id: string; options: { publicKey: unknown } }>("/api/auth/passkeys/register/begin", { password }),
@@ -2288,6 +2292,9 @@ export type ImportProgress = {
 // whether to render the /admin route + nav link.
 // One of the account's passkeys: a name the person gave, when it was added and last used, and whether it can be backed up (iCloud
 // Keychain, a password manager) rather than living on one device.
+// AppleLinkStatus is GET /api/auth/apple-link: linking is on here, this account is linked, and it has a password to link or unlink with.
+export type AppleLinkStatus = { available: boolean; linked: boolean; has_password: boolean };
+
 export type Passkey = { id: string; label: string; created_at: string; last_used_at: string | null; synced: boolean };
 
 export type AuthUser = {

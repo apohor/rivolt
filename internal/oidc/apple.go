@@ -354,8 +354,13 @@ func (s *Service) AppleRevoke(ctx context.Context, refreshToken string) error {
 // first of all (a request is single use whatever follows), checks the session that started it is still signed in, and links; it
 // issues no session.
 
-// appleLinkReturn is where the browser lands after a link attempt: Settings, with ?apple=linked or ?apple=<error code>.
+// appleLinkReturn is where the browser lands after a link attempt: Settings' Security tab (the card lives there), with ?apple=linked or
+// ?apple=<error code>.
 const appleLinkReturn = "/settings"
+
+func appleLinkURL(code string) string {
+	return appleLinkReturn + "?apple=" + url.QueryEscape(code) + "#security"
+}
 
 // AppleLinkIntent is a spent link request: the account that started it and sha256 of the id of the session it started from.
 type AppleLinkIntent struct {
@@ -405,6 +410,22 @@ func (s *Service) BeginAppleLink(w http.ResponseWriter, r *http.Request, uid, se
 	return authURL, nil
 }
 
+// AppleLinkAvailable reports whether linking is on here: an Apple provider is ready and the link plumbing (the request store, the session
+// check, the identity store) is wired. The Settings card is shown only when it is.
+func (s *Service) AppleLinkAvailable() bool {
+	if s == nil || s.linkIntents == nil || s.sessionLive == nil || s.appleLinks == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.providers {
+		if p.cfg.Kind == kindApple && p.apple != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // consumeLinkIntent spends the link request that goes with the OAuth state in Apple's form; nil when there is none (an ordinary
 // sign-in).
 func (s *Service) consumeLinkIntent(ctx context.Context, state string) (*AppleLinkIntent, error) {
@@ -430,7 +451,7 @@ func (s *Service) failLink(w http.ResponseWriter, r *http.Request, code string) 
 		outcome = "account_linked"
 	}
 	s.observeLink(outcome)
-	http.Redirect(w, r, appleLinkReturn+"?apple="+url.QueryEscape(code), http.StatusFound)
+	http.Redirect(w, r, appleLinkURL(code), http.StatusFound)
 }
 
 func (s *Service) observeLink(outcome string) {
@@ -481,5 +502,5 @@ func (s *Service) finishAppleLink(w http.ResponseWriter, r *http.Request, in App
 	}
 	s.log.Info("oidc: apple link", "outcome", "linked")
 	s.observeLink("linked")
-	http.Redirect(w, r, appleLinkReturn+"?apple=linked", http.StatusFound)
+	http.Redirect(w, r, appleLinkURL("linked"), http.StatusFound)
 }

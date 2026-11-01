@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/changelog"
@@ -243,7 +245,16 @@ func matchRoute(call []string, route []string) bool {
 var webCallsOptionalByConfig = map[string]string{
 	"GET /api/settings/rivian-expiry-email": "mounted only where the expiry reminders are sent (Deps.RivianExpiryEmails: RIVOLT_RIVIAN_EXPIRY_EMAILS=true, a mailer, engagement email not off); the Settings switch hides on a 404",
 	"PUT /api/settings/rivian-expiry-email": "as above",
+	"GET /api/auth/apple-link":              "mounted only where Sign in with Apple is configured and its link store is wired (Deps.AppleLinkAccounts with the OIDC service); the Settings card hides on a 404",
+	"POST /api/auth/apple-link/start":       "as above",
+	"POST /api/auth/apple-link/unlink":      "as above",
 }
+
+// appleLinkStub stands in for the identity store behind the Apple link routes: they are mounted in the contract router, never called.
+type appleLinkStub struct{}
+
+func (appleLinkStub) Linked(context.Context, uuid.UUID) (bool, error) { return false, nil }
+func (appleLinkStub) Unlink(context.Context, uuid.UUID) error         { return nil }
 
 // contractRouter is the real router with enough of its dependencies stubbed for the routes the clients call to be mounted,
 // every config-gated feature in webCallsOptionalByConfig on.
@@ -274,7 +285,7 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 		t.Fatal(err)
 	}
 	// Handlers are mounted, never called, so zero values stand in for every dependency a route is gated on.
-	return New(Deps{
+	d := Deps{
 		Passkeys: pk,
 		Auth:     svc, ValhallaProxy: stub, TilesProxy: stub, AuthEnforced: true,
 		DB: dead, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Flags: new(flags.Store), Metrics: nil,
@@ -285,7 +296,11 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
 		// The expiry reminders' Settings routes exist only where the sender runs; the web calls them.
 		RivianExpiryEmails: gates,
-	}).(chi.Routes)
+	}
+	if gates { // the Apple link routes exist only where its identity store is wired
+		d.AppleLinkAccounts = appleLinkStub{}
+	}
+	return New(d).(chi.Routes)
 }
 
 // deadDB is a pool that never connects (nothing listens on port 1): the background jobs New starts fail quietly, the handlers are never called.

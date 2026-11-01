@@ -740,6 +740,7 @@ func New(d Deps) http.Handler {
 				if al := d.appleLinkAPI(); al != nil {
 					// Link Apple to my account: a few starts a minute per signed-in user. (Not under /oidc: that prefix is the OIDC
 					// service's own subrouter.)
+					r.With(ls.user("apple-link-status", 30).Middleware).Get("/apple-link", al.status)
 					r.With(ls.user("apple-link-start", 5).Middleware).Post("/apple-link/start", al.start)
 					r.With(ls.user("apple-link-unlink", 5).Middleware).Post("/apple-link/unlink", al.unlink)
 				}

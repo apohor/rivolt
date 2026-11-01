@@ -27,10 +27,13 @@ const appleLinkMail = "me@example.com"
 // fakeBegin stands in for the OIDC service: it records the request exactly as oidc.BeginAppleLink keys it (sha256 of the state and of
 // the session id's text), so the sign-out hook is tested against the same hashes.
 type fakeBegin struct {
-	intents map[string]uuid.UUID // state hash → user
-	bySess  map[string][]string  // session hash → state hashes
-	err     error
+	intents     map[string]uuid.UUID // state hash → user
+	bySess      map[string][]string  // session hash → state hashes
+	err         error
+	unavailable bool // AppleLinkAvailable answers false
 }
+
+func (f *fakeBegin) AppleLinkAvailable() bool { return !f.unavailable }
 
 func (f *fakeBegin) BeginAppleLink(w http.ResponseWriter, _ *http.Request, uid, sessionID uuid.UUID) (string, error) {
 	if f.err != nil {
@@ -375,5 +378,74 @@ func TestAppleUnlinkGuards(t *testing.T) {
 	r.api.unlink(rec, req)
 	if rec.Code < 400 || r.accounts.unlinked != 0 {
 		t.Errorf("a cross-site unlink: %d, unlinked %d", rec.Code, r.accounts.unlinked)
+	}
+}
+
+// The Settings card's read: whether linking is on here, whether the account is linked, whether it has a password.
+func (r *linkRig) get() *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/apple-link", nil)
+	req = req.WithContext(auth.WithSession(auth.WithUser(req.Context(), r.uid), auth.SessionRef{ID: r.sid, Kind: "web"}))
+	rec := httptest.NewRecorder()
+	r.api.status(rec, req)
+	return rec
+}
+
+func TestAppleLinkStatus(t *testing.T) {
+	type st struct {
+		Available   bool `json:"available"`
+		Linked      bool `json:"linked"`
+		HasPassword bool `json:"has_password"`
+	}
+	read := func(rec *httptest.ResponseRecorder) st {
+		t.Helper()
+		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("status %d, cache-control %q: %s", rec.Code, rec.Header().Get("Cache-Control"), rec.Body)
+		}
+		var out st
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// An email-and-password account, not linked.
+	r := newLinkRig(t, time.Hour, true, appleLinkMail)
+	r.accounts.linked = false
+	if got := read(r.get()); got != (st{Available: true, Linked: false, HasPassword: true}) {
+		t.Errorf("password account, not linked: %+v", got)
+	}
+	// Linked.
+	r.accounts.linked = true
+	if got := read(r.get()); got != (st{Available: true, Linked: true, HasPassword: true}) {
+		t.Errorf("password account, linked: %+v", got)
+	}
+	// Google or GitHub only: no Kratos identity, no email, or both.
+	for name, rr := range map[string]*linkRig{
+		"no identity": newLinkRig(t, time.Hour, false, appleLinkMail),
+		"no email":    newLinkRig(t, time.Hour, true, ""),
+	} {
+		rr.accounts.linked = false
+		if got := read(rr.get()); got != (st{Available: true, Linked: false, HasPassword: false}) {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	// Linking off here (no Apple provider, or the plumbing missing): 404, so the card is not shown.
+	off := newLinkRig(t, time.Hour, true, appleLinkMail)
+	off.begin.unavailable = true
+	if rec := off.get(); rec.Code != http.StatusNotFound || errCode(t, rec) != "apple_not_available" {
+		t.Errorf("unavailable: %d %s", rec.Code, rec.Body)
+	}
+	// Not for an admin viewing as someone, nor the app's token, nor signed out.
+	app := newLinkRig(t, time.Hour, true, appleLinkMail)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/apple-link", nil)
+	req = req.WithContext(auth.WithSession(auth.WithUser(req.Context(), app.uid), auth.SessionRef{ID: app.sid, Kind: "app"}))
+	rec := httptest.NewRecorder()
+	app.api.status(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("the app's token: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	app.api.status(rec, httptest.NewRequest(http.MethodGet, "/api/auth/apple-link", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("signed out: %d", rec.Code)
 	}
 }
