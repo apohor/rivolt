@@ -40,7 +40,7 @@ struct DriveRouteMap: View {
                     .overlay {
                         if routeDrawn, health == .ok, pins.size.width > 0, let times = pillTimes {
                             PinPillsOverlay(size: pins.size, start: pins.start, end: pins.end, startTime: times.start, endTime: times.end,
-                                            legend: drawing.pieces.contains(where: { $0.speed != nil }))
+                                            legend: drawing.pieces.contains(where: { $0.speed != nil }), startLine: pins.startLine, endLine: pins.endLine)
                         }
                     }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
@@ -155,6 +155,9 @@ struct RouteMapView: UIViewRepresentable {
         var size: CGSize = .zero
         var start: CGPoint?
         var end: CGPoint?
+        /// The route's first stretch from each pin, in map points (about 100 pt of it): a pill never lies along it.
+        var startLine: [CGPoint] = []
+        var endLine: [CGPoint] = []
     }
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
@@ -367,7 +370,21 @@ struct RouteMapView: UIViewRepresentable {
         private func reportPins(_ map: MLNMapView) {
             guard let onPins, map.bounds.width > 0 else { return }
             func point(_ c: RouteSnap.Coord?) -> CGPoint? { c.map { map.convert(CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon), toPointTo: map) } }
-            let pins = Pins(size: map.bounds.size, start: point(drawing.start), end: point(drawing.end))
+            // About 100 pt of the line from each pin, followed from the ends of the drawn line.
+            func stretch(_ coords: [RouteSnap.Coord]) -> [CGPoint] {
+                var out: [CGPoint] = []
+                for c in coords {
+                    guard let p = point(c) else { continue }
+                    if let last = out.last, hypot(p.x - last.x, p.y - last.y) < 4 { continue }
+                    out.append(p)
+                    if let first = out.first, hypot(p.x - first.x, p.y - first.y) >= 100 { break }
+                }
+                return out
+            }
+            let first = drawing.pieces.first?.coords ?? []
+            let last = drawing.pieces.last?.coords.reversed() ?? []
+            let pins = Pins(size: map.bounds.size, start: point(drawing.start), end: point(drawing.end),
+                            startLine: stretch(first), endLine: stretch(Array(last)))
             DispatchQueue.main.async { onPins(pins) }
         }
 

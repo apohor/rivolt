@@ -50,4 +50,21 @@ final class PinPillsTests: XCTestCase {
         let wide = PinPills.place(pin: CGPoint(x: 60, y: 30), width: 140, in: tiny, avoiding: [])
         XCTAssertGreaterThanOrEqual(wide.rect.minX, PinPills.margin - 0.001)
     }
+
+    func testAPillNeverLiesAlongTheLine() {
+        // The line leaves the pin to the right; the roomier side is the right, so the pill must go elsewhere.
+        let pin = CGPoint(x: 60, y: 100)
+        let line = [pin, CGPoint(x: 110, y: 98), CGPoint(x: 160, y: 96)]
+        let s = PinPills.place(pin: pin, width: 90, in: size, avoiding: [], line: line)
+        XCTAssertNotEqual(s.side, .right)
+        XCTAssertFalse(PinPills.touches(line, s.rect))
+        XCTAssertTrue(PinPills.touches(line, CGRect(x: 70, y: 88, width: 90, height: 22)))
+    }
+
+    func testARealWidthReplacesTheEstimate() {
+        let wide = PinPillsOverlay.items(size: size, start: CGPoint(x: 40, y: 100), end: nil, startTime: "9:15 PM", endTime: nil, legend: false, widths: [1: 300])
+        let est = PinPillsOverlay.items(size: size, start: CGPoint(x: 40, y: 100), end: nil, startTime: "9:15 PM", endTime: nil, legend: false)
+        XCTAssertEqual(wide.first?.spot.rect.width, 300)
+        XCTAssertLessThan(est.first?.spot.rect.width ?? 999, 300)
+    }
 }

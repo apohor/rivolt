@@ -32,7 +32,7 @@ enum PinPills {
 
     /// Where a pill goes for `pin` in a map of `size`: the side with more room first, then the other, then above, then below; the first
     /// whose rectangle is inside the map (6 pt in) and clear of `avoiding`.
-    static func place(pin: CGPoint, width w: CGFloat, in size: CGSize, avoiding: [CGRect]) -> Spot {
+    static func place(pin: CGPoint, width w: CGFloat, in size: CGSize, avoiding: [CGRect], line: [CGPoint] = []) -> Spot {
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin)
         let h = height
         let rightRoom = size.width - pin.x, leftRoom = pin.x
@@ -54,7 +54,8 @@ enum PinPills {
         }
         let order: [Side] = (rightRoom >= leftRoom ? [.right, .left] : [.left, .right]) + [.above, .below]
         // A side that fits as it is, and is clear of `avoiding`, wins outright.
-        if let fits = order.map(candidate).first(where: { s in bounds.contains(s.rect) && !avoiding.contains { $0.intersects(s.rect) } }) { return fits }
+        func clear(_ r: CGRect) -> Bool { !avoiding.contains { $0.intersects(r) } && !touches(line, r) }
+        if let fits = order.map(candidate).first(where: { s in bounds.contains(s.rect) && clear(s.rect) }) { return fits }
         // Else the first side that is clear once nudged inside the map (a pin near an edge), else the roomier side nudged, rather than no pill.
         func nudged(_ side: Side) -> Spot {
             var s = candidate(side)
@@ -66,7 +67,21 @@ enum PinPills {
             s.anchor = CGPoint(x: s.anchor.x + dx, y: s.anchor.y + dy)
             return s
         }
-        return order.map(nudged).first { s in !avoiding.contains { $0.intersects(s.rect) } } ?? nudged(order[0])
+        return order.map(nudged).first { clear($0.rect) } ?? order.map(nudged).first { s in !avoiding.contains { $0.intersects(s.rect) } } ?? nudged(order[0])
+    }
+
+    /// Whether the polyline `line` (the route's first stretch from a pin, in screen points) runs through `rect` (a 3 pt cushion), so a pill
+    /// is never laid along the line.
+    static func touches(_ line: [CGPoint], _ rect: CGRect) -> Bool {
+        let r = rect.insetBy(dx: -3, dy: -3)
+        for (a, b) in zip(line, line.dropFirst()) {
+            let steps = max(1, Int(hypot(b.x - a.x, b.y - a.y) / 4))
+            for k in 0...steps {
+                let t = CGFloat(k) / CGFloat(steps)
+                if r.contains(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)) { return true }
+            }
+        }
+        return false
     }
 
     /// The corners other things sit in: the legend (bottom left) and the credit (bottom right).
@@ -99,7 +114,7 @@ struct PinPill: View {
     }
 }
 
-/// The pills over a map of `size`, from the pins' positions in it.
+/// The pills over a map of `size`, from the pins' positions in it (and the first stretch of the route from each, so no pill lies along it).
 struct PinPillsOverlay: View {
     let size: CGSize
     let start: CGPoint?
@@ -107,6 +122,10 @@ struct PinPillsOverlay: View {
     let startTime: String?
     let endTime: String?
     let legend: Bool
+    var startLine: [CGPoint] = []
+    var endLine: [CGPoint] = []
+    /// The pills' real widths once drawn (the estimate stands until then, and at any text size): placement uses them.
+    @State private var widths: [Int: CGFloat] = [:]
 
     struct Item: Identifiable {
         let id: Int
@@ -115,35 +134,50 @@ struct PinPillsOverlay: View {
         let spot: PinPills.Spot
     }
 
-    /// The pills to draw: one for a round trip, else a Start and an End placed so that they keep clear of the corners and of each other.
-    static func items(size: CGSize, start: CGPoint?, end: CGPoint?, startTime: String?, endTime: String?, legend: Bool) -> [Item] {
+    /// The pills to draw: one for a round trip, else a Start and an End placed so that they keep clear of the corners, the line and each other.
+    static func items(size: CGSize, start: CGPoint?, end: CGPoint?, startTime: String?, endTime: String?, legend: Bool,
+                      startLine: [CGPoint] = [], endLine: [CGPoint] = [], widths: [Int: CGFloat] = [:]) -> [Item] {
         let shared = start.flatMap { s in end.map { hypot(s.x - $0.x, s.y - $0.y) < PinPills.sharedWithin } } ?? false
         let t = PinPills.text(start: startTime, end: endTime, shared: shared)
         var taken = PinPills.keepClear(size: size, legend: legend)
         var out: [Item] = []
-        func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ dot: Color) {
+        func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ dot: Color, _ line: [CGPoint]) {
             guard let text, let pin else { return }
-            let spot = PinPills.place(pin: pin, width: PinPills.estimatedWidth(text), in: size, avoiding: taken)
+            let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
             taken.append(spot.rect)
             out.append(Item(id: id, text: text, dot: dot, spot: spot))
         }
-        if let both = t.both { add(0, both, start, Theme.routeEnd) } else {
-            add(1, t.start, start, Theme.routeStart)
-            add(2, t.end, end, Theme.routeEnd)
+        if let both = t.both { add(0, both, start, Theme.routeEnd, startLine) } else {
+            add(1, t.start, start, Theme.routeStart, startLine)
+            add(2, t.end, end, Theme.routeEnd, endLine)
         }
         return out
     }
 
     var body: some View {
+        let items = Self.items(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: legend,
+                               startLine: startLine, endLine: endLine, widths: widths)
         ZStack(alignment: .topLeading) {
-            ForEach(Self.items(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: legend)) { item in
+            ForEach(items) { item in
                 let alignment: Alignment = item.spot.side == .right ? .leading : item.spot.side == .left ? .trailing : .center
                 Color.clear.frame(width: 0, height: 0)
-                    .overlay(alignment: alignment) { PinPill(text: item.text, dot: item.dot) }
+                    .overlay(alignment: alignment) {
+                        PinPill(text: item.text, dot: item.dot)
+                            .background(GeometryReader { g in Color.clear.preference(key: PillWidthKey.self, value: [item.id: g.size.width]) })
+                    }
                     .position(x: item.spot.anchor.x, y: item.spot.anchor.y)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .onPreferenceChange(PillWidthKey.self) { new in
+            // Only a real change (a width off by a point or more) re-places the pills, so this settles after one pass.
+            if new.contains(where: { abs((widths[$0.key] ?? 0) - $0.value) >= 1 }) { widths.merge(new) { $1 } }
+        }
         .allowsHitTesting(false)
     }
+}
+
+private struct PillWidthKey: PreferenceKey {
+    static let defaultValue: [Int: CGFloat] = [:]
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) { value.merge(nextValue()) { $1 } }
 }
