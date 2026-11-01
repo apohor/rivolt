@@ -810,12 +810,6 @@ jobs:
           path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
 
-  # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
-  # runs beside `go` and adds nothing to the critical path, and so a lint finding
-  # never hides test results. NOT a required check until it has stayed green; main
-  # is at 0 issues. The linter version is pinned here (never `latest`); Renovate
-  # bumps it through the annotation below (preset customManagers:githubActionsVersions)
-  # and the action through its digest.
   # A change to a policy page's text must also move its "Last updated" date (DA's standing rule; the pages and the exempt frozen
   # Terms are listed in .github/scripts/policy-date-check.sh). Pull requests only; a few seconds, no build.
   policy-dates:
@@ -837,6 +831,12 @@ jobs:
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/policy-date-check.sh "$base" HEAD
 
+  # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
+  # runs beside `go` and adds nothing to the critical path, and so a lint finding
+  # never hides test results. NOT a required check until it has stayed green; main
+  # is at 0 issues. The linter version is pinned here (never `latest`); Renovate
+  # bumps it through the annotation below (preset customManagers:githubActionsVersions)
+  # and the action through its digest.
   lint:
     name: lint
     needs: changes

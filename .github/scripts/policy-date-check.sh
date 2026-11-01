@@ -6,6 +6,7 @@
 # The October 23, 2026 Terms (terms-2026-10-23.md, served at /terms/2026-10-23) are frozen and are not listed: they must never change
 # at all, which web/src/content/terms-frozen.test.ts enforces byte for byte. support.md and the other pages carry no date.
 #
+# A page that gains a "Last updated" line joins the pages list below in the same PR that adds the date, so the rule and its check never drift.
 # A date that is already the day of the change (a second edit the same day) may stay.
 #
 # Exit 0 when every listed page that changed in BASE..HEAD also moved its date forward (or its text did not change), 1 otherwise.
