@@ -149,3 +149,38 @@ for (const [name, vp, theme] of [
     await ctx.close();
   });
 }
+
+// DA's check on the focus-ring change: our own controls inside .maplibregl-ctrl (the colour-mode switch, the D/L toggle) are buttons too, and
+// the rule that removed the library's box-shadow ring must leave them a visible keyboard focus: the accent outline.
+for (const theme of ["dark", "light"] as const) {
+  test(`keyboard focus is visible on the map's own controls · ${theme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
+    const page = await ctx.newPage();
+    await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
+    await setup(page);
+    await page.goto("/drives/drive-1");
+    await expect(drawn(page)).toBeAttached();
+    const legend = page.locator(".rivolt-legend");
+    await expect(legend).toBeVisible();
+    for (const [name, target] of [
+      ["mode", legend.getByRole("group", { name: "Route colour" }).getByRole("button", { name: "Efficiency" })],
+      ["picker", page.locator(".rivolt-flavor-control button").first()],
+    ] as const) {
+      let focused = false;
+      for (let i = 0; i < 120 && !focused; i++) {
+        await page.keyboard.press("Tab");
+        focused = await target.evaluate((el) => el === document.activeElement);
+      }
+      expect(focused, `could not Tab to the ${name} control`).toBe(true);
+      const ring = await target.evaluate((el) => {
+        const c = getComputedStyle(el);
+        return { style: c.outlineStyle, width: c.outlineWidth, shadow: c.boxShadow };
+      });
+      expect(ring.style, `${name}: outline`).toBe("solid");
+      expect(ring.width, `${name}: outline width`).toBe("2px");
+      await page.locator(".maplibregl-map").first().screenshot({ path: path.join(SHOTS, `map-focus-${name}-${theme}.png`) });
+    }
+    await ctx.close();
+  });
+}
+
