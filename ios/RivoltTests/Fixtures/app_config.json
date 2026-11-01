@@ -1,1 +1,1 @@
-{"server":"rivolt","api_version":1,"app_login":true,"min_ios_build":3,"push":{"apns":true,"live":true}}
+{"server":"rivolt","api_version":1,"app_login":true,"min_ios_build":3,"push":{"apns":true,"live":true},"iap":{"environment":"Sandbox","products":["dev.rivolt.test.pro.month","dev.rivolt.test.pro.year"]}}

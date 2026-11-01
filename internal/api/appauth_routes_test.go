@@ -1,15 +1,18 @@
 package api
 
 import (
+	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/entitlements"
 )
 
 // App sign-in exists only when main wired it (a callback configured, OIDC on,
@@ -89,5 +92,37 @@ func TestAppleNotificationsRoute(t *testing.T) {
 	}
 	if limited == 0 {
 		t.Error("40 quick requests from one address were never rate limited")
+	}
+}
+
+// /api/app/config carries the StoreKit products only when the server is selling (billing on) and StoreKit has at least one product: with
+// billing off a Subscribe button would let a user pay Apple for Pro that everyone already has, and the app shows no purchase button when
+// the field is absent.
+func TestAppConfigCarriesTheStoreKitProducts(t *testing.T) {
+	get := func(d Deps) string {
+		w := httptest.NewRecorder()
+		handleAppConfig(d)(w, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+		return w.Body.String()
+	}
+	cfg := func(products map[string]bool) *applebill.Transaction {
+		return &applebill.Transaction{Config: &applebill.Config{BundleID: "dev.rivolt.test", Environment: applebill.EnvSandbox, Products: products}}
+	}
+	both := map[string]bool{"test.pro.year": true, "test.pro.month": true}
+	billingOn := entitlements.New(new(sql.DB), entitlements.Config{Billing: true}) // never queried here: only Billing() is read
+	billingOff := entitlements.New(nil, entitlements.Config{})
+	with := get(Deps{Entitlements: billingOn, AppleIAPTransaction: cfg(both)})
+	if !strings.Contains(with, `"iap":{"environment":"Sandbox","products":["test.pro.month","test.pro.year"]}`) {
+		t.Errorf("billing on, StoreKit configured: %s", with)
+	}
+	for name, d := range map[string]Deps{
+		"no StoreKit":                        {Entitlements: billingOn},
+		"no config":                          {Entitlements: billingOn, AppleIAPTransaction: &applebill.Transaction{}},
+		"billing on, no product ids":         {Entitlements: billingOn, AppleIAPTransaction: cfg(nil)},
+		"billing OFF, products configured":   {Entitlements: billingOff, AppleIAPTransaction: cfg(both)},
+		"no entitlement service, configured": {AppleIAPTransaction: cfg(both)},
+	} {
+		if body := get(d); strings.Contains(body, `"iap"`) {
+			t.Errorf("%s: iap must be absent: %s", name, body)
+		}
 	}
 }
