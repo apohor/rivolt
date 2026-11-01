@@ -207,3 +207,22 @@ func GetNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID) (bool, str
 	}
 	return needs, reason, err
 }
+
+// ReauthRaisedAt is the time the user's current re-auth flag was raised (users.needs_reauth_at), and whether the user is flagged at all. The
+// re-auth email compares it before and after its grace: a flag that was cleared, or cleared and raised again (a new time), is not the raise the
+// email was started for.
+func ReauthRaisedAt(ctx context.Context, d *sql.DB, userID uuid.UUID) (at time.Time, flagged bool, err error) {
+	const q = `SELECT needs_reauth, needs_reauth_at FROM users WHERE id = $1`
+	var needs bool
+	var raised sql.NullTime
+	switch err := d.QueryRowContext(ctx, q, userID).Scan(&needs, &raised); {
+	case err == sql.ErrNoRows:
+		return time.Time{}, false, nil
+	case err != nil:
+		return time.Time{}, false, err
+	}
+	if !needs || !raised.Valid {
+		return time.Time{}, false, nil
+	}
+	return raised.Time.UTC(), true, nil
+}
