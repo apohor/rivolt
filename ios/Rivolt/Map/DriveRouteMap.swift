@@ -100,13 +100,14 @@ struct SpeedLegend: View {
         if !bands.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.title).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize()
-                HStack(spacing: 2) {
+                // Six points between columns and a 24 pt minimum: "50" and "65+" stay apart at the largest size this legend follows.
+                HStack(spacing: 6) {
                     ForEach(bands, id: \.rawValue) { b in
                         VStack(spacing: 1) {
                             RoundedRectangle(cornerRadius: 1.5).fill(RouteMapView.color(b)).frame(height: 3)
                             Text(b.shortLabel).lineLimit(1).fixedSize()
                         }
-                        .frame(minWidth: 22)
+                        .frame(minWidth: 24)
                     }
                 }
             }
