@@ -349,3 +349,36 @@ func TestFallbackIsLoggedOncePerWindowWithoutTheKey(t *testing.T) {
 		t.Fatalf("%d log lines after a second window, want 2", n)
 	}
 }
+
+// A debit lands in the shared bucket even when it holds less than the debit: a client near its cap that pulls a tile bigger than the
+// admission reserve is charged for all of it, on every replica, not just the part that fitted.
+func TestRateLimitDebitIsSharedAndNeverRefused(t *testing.T) {
+	rp := newRatePods(t, 2, 1000) // 1000 bytes a minute
+	if ok, _ := rp.pods[0].allowN("192.0.2.1", 900); !ok {
+		t.Fatal("admission refused")
+	}
+	rp.pods[1].debit("192.0.2.1", 120) // 100 left: the old debit was refused and dropped
+	if ok, _ := rp.pods[0].allowN("192.0.2.1", 16); ok {
+		t.Fatal("admitted after the debit overdrew the bucket")
+	}
+	if ok, _ := rp.pods[1].allowN("192.0.2.1", 16); ok {
+		t.Fatal("the other replica admitted after the debit")
+	}
+	// Debt is bounded: a huge debit leaves the bucket at -burst, so it refills in at most two windows.
+	rp.pods[1].debit("192.0.2.1", 1_000_000)
+	rp.mr.SetTime(time.Unix(1_700_000_000, 0).Add(2*time.Minute + time.Second))
+	ok, _, answered := rp.backends[0].allow("test-route", "192.0.2.1", 1000.0/60, 1000, 16)
+	if !answered || !ok {
+		t.Fatalf("ok=%v answered=%v: debt was not bounded at the burst", ok, answered)
+	}
+}
+
+// With Redis unreachable the per-pod bucket takes the debit.
+func TestRateLimitDebitFallsBackPerPod(t *testing.T) {
+	rp := newRatePods(t, 1, 1000)
+	rp.mr.Close()
+	rp.pods[0].debit("192.0.2.1", 990)
+	if ok, _ := rp.pods[0].allowN("192.0.2.1", 100); ok {
+		t.Fatal("admitted over the per-pod bucket after a debit with Redis down")
+	}
+}

@@ -99,6 +99,43 @@ redis.call('PEXPIRE', KEYS[1], ttl)
 return {allowed, wait}
 `)
 
+// debitScript takes cost tokens from the same bucket without ever refusing: work already done is charged, and the bucket may go negative
+// (down to -burst, so one client's debt is bounded) until it refills. It returns the tokens left.
+var debitScript = redis.NewScript(`
+pcall(redis.replicate_commands)
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local rate = tonumber(ARGV[1])
+local burst = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local h = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+local tokens = tonumber(h[1])
+local ts = tonumber(h[2])
+if tokens == nil or ts == nil then
+  tokens = burst
+  ts = now
+end
+tokens = math.min(burst, tokens + math.max(0, now - ts) * rate)
+tokens = math.max(-burst, tokens - cost)
+redis.call('HSET', KEYS[1], 'tokens', tostring(tokens), 'ts', now)
+redis.call('PEXPIRE', KEYS[1], ttl)
+return math.floor(tokens)
+`)
+
+// debit charges n tokens to key's bucket in limiter whatever it holds. A Redis that cannot answer is left to the caller's own bucket.
+func (s *sharedBuckets) debit(limiter, key string, perSecond float64, burst, n int) {
+	if s == nil || s.rdb == nil || len(s.key) == 0 || !s.usable() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedBucketOpTimeout)
+	defer cancel()
+	ttl := time.Duration(float64(burst)/perSecond*float64(time.Second)) + time.Minute
+	if err := debitScript.Run(ctx, s.rdb, []string{s.redisKey(limiter, key)}, perSecond/1000, burst, n, ttl.Milliseconds()).Err(); err != nil {
+		s.failed(limiter, err)
+	}
+}
+
 func (s *sharedBuckets) usable() bool {
 	return s != nil && s.rdb != nil && len(s.key) > 0 && s.now().UnixNano() >= s.downUntil.Load()
 }

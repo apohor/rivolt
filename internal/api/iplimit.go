@@ -92,13 +92,13 @@ func (l *ipLimiter) MiddlewareN(cost func(*http.Request) int) func(http.Handler)
 }
 
 // debit takes n tokens from ip's bucket after the fact, without refusing: the work is done, so the bucket goes into debt and the
-// client's next request waits for it. (Redis hears of it only if it has the tokens; a refusal there leaves the per-pod bucket to carry it.)
+// client's next request waits for it. Redis is charged unconditionally (down to -burst); the per-pod bucket is charged too, as it is on admission.
 func (l *ipLimiter) debit(ip string, n int) {
 	if n <= 0 {
 		return
 	}
 	if l.name != "" && l.shared != nil {
-		l.shared.allow(l.name, ip, float64(l.rps), l.burst, n)
+		l.shared.debit(l.name, ip, float64(l.rps), l.burst, n)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
