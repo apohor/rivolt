@@ -22,6 +22,8 @@ const mdComponents: Components = {
       },
       p: (p) => <p className="text-neutral-300" {...p} />,
       ul: (p) => <ul className="list-disc space-y-2 pl-5 text-neutral-300 marker:text-neutral-600" {...p} />,
+      // An ordered list shows its numbers (the reset stylesheet strips them): the R2 guide's five-minute checklist reads as steps.
+      ol: (p) => <ol className="list-decimal space-y-2 pl-6 text-neutral-300 marker:font-semibold marker:text-neutral-500" {...p} />,
       li: (p) => <li {...p} />,
       strong: (p) => <strong className="font-semibold text-neutral-100" {...p} />,
       code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-sm text-neutral-200" {...p} />,
