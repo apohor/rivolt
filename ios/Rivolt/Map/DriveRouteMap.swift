@@ -89,32 +89,36 @@ struct DriveRouteMap: View {
     static let noLocationText = "The vehicle didn't report its location during this drive."
 }
 
-/// The speed legend as a small corner chip: "mph" and a bar of the bands this drive uses, each named by its lower bound. It used to
-/// be a wide pill with every band written out across the bottom of the map.
+/// The speed legend as a small corner card, laid out like the web's: a title line that carries the unit ("Speed, mph"), then a bar of the
+/// bands this drive uses with each band's lower bound under its own segment. A column is as wide as its label, so ticks never collide or
+/// wrap whatever the text size (it follows Dynamic Type up to a point: past that the map card would run out of room).
 struct SpeedLegend: View {
     let bands: [RouteSnap.Speed]
-    private let cell: CGFloat = 22
+    static let title = "Speed, mph"
 
     var body: some View {
         if !bands.isEmpty {
-            HStack(alignment: .bottom, spacing: 4) {
-                Text("mph").foregroundStyle(Theme.textTertiary)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 1) {
-                        ForEach(bands, id: \.rawValue) { b in
-                            RoundedRectangle(cornerRadius: 1.5).fill(RouteMapView.color(b)).frame(width: cell, height: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Self.title).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize()
+                // Six points between columns and a 24 pt minimum: "50" and "65+" stay apart at the largest size this legend follows.
+                HStack(spacing: 6) {
+                    ForEach(bands, id: \.rawValue) { b in
+                        VStack(spacing: 1) {
+                            RoundedRectangle(cornerRadius: 1.5).fill(RouteMapView.color(b)).frame(height: 3)
+                            Text(b.shortLabel).lineLimit(1).fixedSize()
                         }
-                    }
-                    HStack(spacing: 1) {
-                        ForEach(bands, id: \.rawValue) { b in Text(b.shortLabel).frame(width: cell) }
+                        .frame(minWidth: 24)
                     }
                 }
             }
             .mapCaption()
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundStyle(Theme.textBody)
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.border, lineWidth: 1))
+            // Its own width (the bars are flexible shapes and would otherwise take the whole map).
+            .fixedSize()
+            .padding(.horizontal, 6).padding(.vertical, 4)
+            .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Route coloured by speed in miles per hour: \(bands.map(\.label).joined(separator: ", "))")
         }
