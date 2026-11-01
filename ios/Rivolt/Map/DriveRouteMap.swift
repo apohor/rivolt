@@ -35,7 +35,11 @@ struct DriveRouteMap: View {
                     .accessibilityLabel("Map of the drive route")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay(alignment: .bottomLeading) {
-                        if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) { SpeedLegend(bands: drawing.usedSpeeds).padding(4) }
+                        if routeDrawn, health == .ok, drawing.usesGradient, let r = drawing.speedRange {
+                            GradientLegend(lo: r.lo, hi: r.hi).padding(4)
+                        } else if routeDrawn, health == .ok, drawing.pieces.contains(where: { $0.speed != nil }) {
+                            SpeedLegend(bands: drawing.usedSpeeds).padding(4)
+                        }
                     }
                     .overlay {
                         if routeDrawn, health == .ok, pins.size.width > 0, let times = pillTimes {
@@ -137,6 +141,41 @@ struct SpeedLegend: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Route coloured by speed in miles per hour: \(bands.map(\.label).joined(separator: ", "))")
         }
+    }
+}
+
+/// The legend of the smooth gradient: the title, a bar in the ramp's colours, and the two ends of the drive's own scale ("32 mph" and "55 mph",
+/// in the account's units), as the web's legend card.
+struct GradientLegend: View {
+    let lo: Double
+    let hi: Double
+    @Environment(\.colorScheme) private var scheme
+    static let title = "Speed"
+
+    private var unit: RouteGradient.DistanceUnit { DisplayUnits.distanceMetric ? .kilometres : .miles }
+    var labels: (min: String, max: String) { RouteGradient.legend(lo: lo, hi: hi, metric: .speed, unit: unit) }
+
+    var body: some View {
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(Self.title).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize()
+            HStack(spacing: 6) {
+                Text(labels.min).lineLimit(1).fixedSize()
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(LinearGradient(gradient: RouteRamp.speed.gradient(traits: traits), startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 56, height: 4)
+                Text(labels.max).lineLimit(1).fixedSize()
+            }
+        }
+        .mapCaption()
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .foregroundStyle(Theme.textBody)
+        .fixedSize()
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(Theme.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Route coloured by speed, from \(labels.min) to \(labels.max)")
     }
 }
 
@@ -280,10 +319,14 @@ struct RouteMapView: UIViewRepresentable {
             dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
             dashed.lineCap = NSExpression(forConstantValue: "butt")
             style.addLayer(dashed)
-            for b in [nil] + RouteSnap.Speed.allCases.map(Optional.some) {
-                let l = lineLayer("speed\(b?.rawValue ?? -1)", "pieces", color: RouteMapView.color(b), width: 3, opacity: 0.95)
-                l.predicate = NSPredicate(format: "b == %d", b?.rawValue ?? -1)
-                style.addLayer(l)
+            if drawing.usesGradient {
+                addGradientRuns(drawing, map: map, style: style)
+            } else {
+                for b in [nil] + RouteSnap.Speed.allCases.map(Optional.some) {
+                    let l = lineLayer("speed\(b?.rawValue ?? -1)", "pieces", color: RouteMapView.color(b), width: 3, opacity: 0.95)
+                    l.predicate = NSPredicate(format: "b == %d", b?.rawValue ?? -1)
+                    style.addLayer(l)
+                }
             }
             for (kind, color) in [("start", Theme.routeStart), ("end", Theme.routeEnd)] {
                 let c = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-pin-\(kind)", source: sources["pins"]!)
@@ -331,6 +374,30 @@ struct RouteMapView: UIViewRepresentable {
             DispatchQueue.main.async { self.onDrawn() }
         }
 
+        /// The line as a smooth gradient of speed: each unbroken run is its own source (the gradient is along one line) and layer, coloured by the
+        /// speed at each vertex on the web's scale (5th to 95th percentile), under the pins.
+        private func addGradientRuns(_ d: RouteSnap.Drawing, map: MLNMapView, style: MLNStyle) {
+            guard let range = d.speedRange else { return }
+            let traits = map.traitCollection
+            let below = style.layer(withIdentifier: "\(RouteMapView.sourceID)-pin-start")
+            for (i, run) in d.runs.enumerated() {
+                var coords = run.coords.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                let line = MLNPolylineFeature(coordinates: &coords, count: UInt(coords.count))
+                let source = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-run-\(i)", shape: line, options: [.lineDistanceMetrics: true])
+                style.addSource(source)
+                let layer = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-run-\(i)", source: source)
+                let stops = RouteGradient.stops(progress: run.progress, values: run.filledSpeeds, lo: range.lo, hi: range.hi)
+                var colours: [NSNumber: UIColor] = [:]
+                for s in stops { colours[NSNumber(value: s.offset)] = RouteRamp.speed.color(at: s.t, traits: traits) }
+                layer.lineGradient = NSExpression(forMLNInterpolating: NSExpression.lineProgressVariable, curveType: .linear, parameters: nil, stops: NSExpression(forConstantValue: colours))
+                layer.lineWidth = NSExpression(forConstantValue: 3.5)
+                layer.lineOpacity = NSExpression(forConstantValue: 0.95)
+                layer.lineCap = NSExpression(forConstantValue: "round")
+                layer.lineJoin = NSExpression(forConstantValue: "round")
+                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
+            }
+        }
+
         /// The stop under a tap, if any (a generous 22 pt box, for a thumb).
         @objc func tapped(_ g: UITapGestureRecognizer) {
             guard let map = g.view as? MLNMapView else { return }
@@ -350,9 +417,12 @@ struct RouteMapView: UIViewRepresentable {
             var sameButFocus = drawing
             sameButFocus.focus = d.focus
             let refit = sameButFocus != d
+            let runsChanged = d.runs != drawing.runs || d.usesGradient != drawing.usesGradient
             drawing = d
             guard !sources.isEmpty else { return }
             for (name, shape) in Self.shapes(d) { sources[name]?.shape = shape }
+            // The snapped line replaced the recorded one: its runs (and so its gradient layers) are different ones. Start the map's layers over.
+            if runsChanged, let style = map.style { styleLoaded(map, style) }
             // Picking a stop only moves the ring: the camera stays where the person left it.
             if refit { fit(map) }
         }

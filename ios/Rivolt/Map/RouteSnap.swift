@@ -180,6 +180,31 @@ enum RouteSnap {
         let speed: Speed?
     }
 
+    /// One unbroken stretch of line with the speed (mph, nil when unknown) at each vertex: what the gradient colours.
+    struct Run: Equatable {
+        let coords: [Coord]
+        let speeds: [Double?]
+
+        /// Metres along the line to each vertex, as a share of the whole (0 at the first, 1 at the last): `line-progress`.
+        var progress: [Double] {
+            var d = [0.0]
+            for i in 1..<max(1, coords.count) { d.append(d[i - 1] + RouteSnap.haversine(Point(lat: coords[i - 1].lat, lon: coords[i - 1].lon), Point(lat: coords[i].lat, lon: coords[i].lon))) }
+            guard let total = d.last, total > 0 else { return d }
+            return d.map { $0 / total }
+        }
+
+        /// The speeds with the gaps filled from the previous known one (else the next), so the colour carries on instead of dropping to the bottom.
+        var filledSpeeds: [Double] {
+            let known = speeds.map { $0.flatMap { $0.isFinite ? $0 : nil } }
+            guard let first = known.compactMap({ $0 }).first else { return [] }
+            var last = first
+            return known.map { v in if let v { last = v }; return last }
+        }
+    }
+
+    /// The most separate runs the gradient is drawn for (each is its own map layer); a drive cut into more than this keeps the speed buckets.
+    static let maxGradientRuns = 12
+
     struct Drawing: Equatable {
         var pieces: [Piece]
         /// Road-routed fills across an unmatched stretch: solid, neutral.
@@ -196,6 +221,14 @@ enum RouteSnap {
         var focus: Int?
         /// Fast chargers along the route the person asked to see, drawn small under the stops. A focus past the stops points here.
         var along: [Stop] = []
+        /// The line again as unbroken runs with a speed at each vertex, for the gradient (empty where there are no speeds, or on a plan).
+        var runs: [Run] = []
+
+        /// The 5th to 95th percentile of the drive's speeds (the web's scale), nil when the drive barely varies: then the buckets stay.
+        var speedRange: (lo: Double, hi: Double)? { RouteGradient.range(values: runs.flatMap(\.filledSpeeds), metric: .speed) }
+
+        /// Whether the line is drawn as a smooth gradient of speed (it needs speeds that vary, and a number of runs one layer each can carry).
+        var usesGradient: Bool { !runs.isEmpty && runs.count <= RouteSnap.maxGradientRuns && speedRange != nil }
 
         struct Stop: Equatable {
             var coord: Coord
@@ -225,11 +258,17 @@ enum RouteSnap {
         return out.filter { $0.coords.count >= 2 }
     }
 
+    /// The coordinates with their speeds as one run (none when there are fewer than two points, or no speeds at all).
+    static func runs(_ coords: [Coord], speeds: [Double?]) -> [Run] {
+        guard coords.count >= 2, speeds.count == coords.count, speeds.contains(where: { $0?.isFinite == true }) else { return [] }
+        return [Run(coords: coords, speeds: speeds)]
+    }
+
     /// The recorded trace as drawn before (or without) snapping.
     static func raw(_ path: Path) -> Drawing {
         let coords = path.points.map { Coord(lat: $0.lat, lon: $0.lon) }
         return Drawing(pieces: pieces(coords, speeds: path.points.map(\.s)), routedGaps: [], gaps: [], start: path.start, end: path.end,
-                       hasSpeed: path.points.contains { $0.s?.isFinite == true })
+                       hasSpeed: path.points.contains { $0.s?.isFinite == true }, runs: runs(coords, speeds: path.points.map(\.s)))
     }
 
     /// The speed at a snapped point: the nearest trace point's.
@@ -268,6 +307,7 @@ extension RouteSnap {
         let (segments, splitGaps) = split(cleaned)
         guard !segments.isEmpty else { return nil }
         var pieces: [Piece] = []
+        var allRuns: [Run] = []
         var gaps = splitGaps
         var snappedAny = false
         for seg in segments {
@@ -275,15 +315,21 @@ extension RouteSnap {
             let rawCoords = seg.map { Coord(lat: $0.lat, lon: $0.lon) }
             if classify(seg) == .trivial {
                 pieces += RouteSnap.pieces(rawCoords, speeds: seg.map(\.s))
+                allRuns += runs(rawCoords, speeds: seg.map(\.s))
                 continue
             }
             guard let matched = await trace(seg, source: source), !matched.chunks.isEmpty else {
                 pieces += RouteSnap.pieces(rawCoords, speeds: seg.map(\.s))
+                allRuns += runs(rawCoords, speeds: seg.map(\.s))
                 continue
             }
             let chunks = matched.chunks, inner = matched.gaps
             snappedAny = true
-            for c in chunks { pieces += RouteSnap.pieces(c, speeds: c.map { nearestSpeed($0, in: recorded) }) }
+            for c in chunks {
+                let speeds = c.map { nearestSpeed($0, in: recorded) }
+                pieces += RouteSnap.pieces(c, speeds: speeds)
+                allRuns += runs(c, speeds: speeds)
+            }
             gaps += inner
             let head = Point(lat: seg[0].lat, lon: seg[0].lon), firstSnap = chunks[0][0]
             if haversine(head, Point(lat: firstSnap.lat, lon: firstSnap.lon)) > tailToleranceM {
@@ -310,7 +356,7 @@ extension RouteSnap {
         }
         if Task.isCancelled { return nil }
         return Drawing(pieces: pieces, routedGaps: routed, gaps: remaining, start: path.start, end: path.end,
-                       hasSpeed: recorded.contains { $0.s?.isFinite == true })
+                       hasSpeed: recorded.contains { $0.s?.isFinite == true }, runs: allRuns)
     }
 
     /// One trace_route call: the matched sub-routes, and the unmatched stretches between them (in input points).
