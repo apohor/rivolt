@@ -363,7 +363,8 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/drives/route-thumbs") {
       const ids = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean);
       const poly = encodeThumb(Array.from({ length: 24 }, (_, i) => [10 + i * 0.002, 10 + 0.01 * Math.sin(i / 3)] as [number, number]));
-      return json(route, Object.fromEntries(ids.map((id) => [id, poly])));
+      // drive-4 has no stored route (a gap, an import): the server leaves it out, and its row shows the quiet empty slot.
+      return json(route, Object.fromEntries(ids.filter((id) => id !== "drive-4").map((id) => [id, poly])));
     }
     if (p === "/api/charges") {
       return json(route, [

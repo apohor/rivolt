@@ -37,6 +37,11 @@ for (const [name, vp] of [
       await expect.poll(async () => await drawn.count()).toBeGreaterThan(0);
       expect(thumbCalls).toHaveLength(1);
       expect(thumbCalls[0].split(",").length).toBeLessThanOrEqual(60);
+      // A drive with no stored route keeps its slot but draws nothing: a quiet dash, no box (the stub's drive-4).
+      const empty = page.locator("[data-route-thumb='empty']");
+      await expect(empty.first()).toBeVisible();
+      await expect(empty.first().locator("svg")).toHaveCount(0);
+      await empty.first().locator("xpath=ancestor::li").screenshot({ path: path.join(SHOTS, `drive-thumbs-noroute-${name}-${theme}.png`) });
       // No map, no tiles, no glyphs: the list draws SVG.
       expect(tileCalls).toEqual([]);
       await expect(page.locator("[data-route-thumb] canvas, .maplibregl-map")).toHaveCount(0);
