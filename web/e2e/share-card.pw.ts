@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { stubApi, VEHICLE_ID } from "./stub";
+import { allTime, stubApi, VEHICLE_ID } from "./stub";
 
 // The share sheet: masked by default (cost off every time it opens), generic file names, and nothing leaves the
 // device: no request is made while opening, painting, saving or copying.
@@ -10,6 +10,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 async function openDemo(page: Page, url: string) {
+  await allTime(page);
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
   await page.goto(url);
 }

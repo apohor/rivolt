@@ -524,3 +524,10 @@ function encodeThumb(pts: [number, number][]): string {
   }
   return out;
 }
+
+// allTime shows every row the stub has, whatever day of the month it is. The default period is this month (the browser's own, UTC on the CI
+// runners), and the stub's rows are a few hours to days old: in the first hours of a month the only rows inside it are the newest few, which the
+// feed folds ("2 short drives"), so a spec that opens a row finds no link. A spec about the period itself sets its own.
+export async function allTime(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
+}
