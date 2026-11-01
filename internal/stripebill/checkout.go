@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,14 @@ var (
 	ErrBillingOff        = errors.New("stripe: billing is not enabled on this server")
 	ErrAlreadySubscribed = errors.New("stripe: the account already has a paid subscription")
 	ErrNoCustomer        = errors.New("stripe: the account has no Stripe customer")
+	// ErrNoPaymentConfig: Checkout is refused when no payment method configuration is set, rather than creating a session that offers
+	// whatever the Dashboard's default configuration says (bank debits, buy-now-pay-later and other methods whose refund and dispute flows do
+	// not match our 14-day refund copy).
+	ErrNoPaymentConfig = errors.New("stripe: RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG is not set to a payment method configuration (pmc_...)")
 )
+
+// pmcID is a Stripe payment method configuration id.
+var pmcID = regexp.MustCompile(`^pmc_[A-Za-z0-9]{6,}$`)
 
 // MinTrialLead is Stripe's floor for a Checkout subscription's trial_end: at least 48 hours ahead.
 const MinTrialLead = 48 * time.Hour
@@ -44,7 +52,11 @@ type Service struct {
 	// AutomaticTax turns on Stripe Tax for the session. Off until the Stripe account has Tax set up (an owner step): Checkout refuses a
 	// session asking for it otherwise.
 	AutomaticTax bool
-	Now          func() time.Time
+	// PaymentMethodConfig is the Stripe payment method configuration (pmc_...) every Checkout session uses, which limits the session to cards,
+	// Link, Apple Pay and Google Pay (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG; an id, not a secret). Stripe no longer accepts payment_method_types
+	// on a Checkout Session: the methods are managed from the Dashboard, and a configuration is how a session is held to a set of them.
+	PaymentMethodConfig string
+	Now                 func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -90,12 +102,6 @@ func currencySymbol(c string) string {
 	return strings.ToUpper(c) + " "
 }
 
-// PinnedPaymentMethods are the payment method types our Checkout sessions carry, whatever the Dashboard's default payment method
-// configuration offers: cards (Apple Pay and Google Pay ride on card in Checkout) and Link. Other methods (bank debits, buy-now-pay-later,
-// delayed or redirect methods) have refund and dispute flows that do not match the 14-day refund copy, so no Dashboard toggle may put them
-// into our sessions. The launch pre-flight reads this same list.
-func PinnedPaymentMethods() []string { return []string{"card", "link"} }
-
 // BillingAddressCollection is what every Checkout session asks Stripe for: the customer's billing address, required. Rivolt Pro is sold in the
 // US only; the address gives the webhook a country to check, and Stripe Tax needs it anyway.
 const BillingAddressCollection = "required"
@@ -117,6 +123,10 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 	}
 	if s.Plans == nil || !s.Plans.Billing() {
 		return out, ErrBillingOff
+	}
+	// Fail closed: without a configuration naming the payment methods, no session is created (never one on the Dashboard default).
+	if !pmcID.MatchString(s.PaymentMethodConfig) {
+		return out, ErrNoPaymentConfig
 	}
 	st, err := s.Plans.State(ctx, uid)
 	if err != nil {
@@ -156,9 +166,7 @@ func (s *Service) BuildCheckout(ctx context.Context, uid uuid.UUID, interval str
 		"custom_text[submit][message]":         {ConsentLine(price, first, now)},
 	}
 	form.Set("billing_address_collection", BillingAddressCollection)
-	for i, m := range PinnedPaymentMethods() {
-		form.Set(fmt.Sprintf("payment_method_types[%d]", i), m)
-	}
+	form.Set("payment_method_configuration", s.PaymentMethodConfig)
 	if !trialEnd.IsZero() {
 		form.Set("subscription_data[trial_end]", strconv.FormatInt(trialEnd.Unix(), 10))
 		form.Set("custom_text[after_submit][message]", FreePeriodLine(price, st.Source, first))

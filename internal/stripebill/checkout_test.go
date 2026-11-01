@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"sort"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -193,8 +193,12 @@ func newService(f *fakeStripe, plans fakePlans, now time.Time) *Service {
 		Prices:  map[string]string{"month": priceMonth, "year": priceYear},
 		BaseURL: "https://rivolt.example",
 		Now:     func() time.Time { return now },
+		// A payment method configuration, as production sets (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG).
+		PaymentMethodConfig: testPMC,
 	}
 }
+
+const testPMC = "pmc_1TestRivoltProCardLink"
 
 var launchDay = time.Date(2026, 12, 1, 15, 0, 0, 0, time.UTC)
 
@@ -576,9 +580,10 @@ func TestCheckoutFreePeriodExplainer(t *testing.T) {
 	}
 }
 
-// Every Checkout session pins the payment method types to card and link, so no Dashboard toggle can put a bank debit, buy-now-pay-later or
-// other delayed method into our sessions; the form carries exactly those two and no other payment method key.
-func TestCheckoutPinsPaymentMethodsToCardAndLink(t *testing.T) {
+// Every Checkout session names the payment method configuration (cards, Link, Apple Pay, Google Pay), which is how it is held to those
+// methods: Stripe no longer accepts payment_method_types on a Checkout Session (the preview rejected it with a 502). The form carries the
+// configuration, the billing address requirement, and never a payment_method_types key.
+func TestCheckoutUsesThePaymentMethodConfiguration(t *testing.T) {
 	for name, plans := range map[string]fakePlans{
 		"a new account":      {billing: true},
 		"during a free year": {billing: true, trial: launchDay.Add(10 * 24 * time.Hour), state: entitlements.State{Pro: true, Source: entitlements.SourceFounding}},
@@ -589,21 +594,55 @@ func TestCheckoutPinsPaymentMethodsToCardAndLink(t *testing.T) {
 			t.Fatal(name, err)
 		}
 		form := f.posts[0]
+		if got := form.Get("payment_method_configuration"); got != testPMC {
+			t.Errorf("%s: payment_method_configuration = %q, want %q", name, got, testPMC)
+		}
 		if got := form.Get("billing_address_collection"); got != "required" {
 			t.Errorf("%s: billing_address_collection = %q, want required (the webhook's US-only check needs the country)", name, got)
 		}
-		var keys []string
 		for k := range form {
-			if strings.HasPrefix(k, "payment_method") {
-				keys = append(keys, k+"="+form.Get(k))
+			if strings.HasPrefix(k, "payment_method_types") {
+				t.Errorf("%s: the form carries %q, which Stripe no longer accepts on a Checkout Session", name, k)
 			}
 		}
-		sort.Strings(keys)
-		if got, want := strings.Join(keys, " "), "payment_method_types[0]=card payment_method_types[1]=link"; got != want {
-			t.Errorf("%s: payment method keys %q, want exactly %q", name, got, want)
+	}
+}
+
+// Without a configuration (billing on) Checkout is refused, not created on the Dashboard's default methods: nothing reaches Stripe.
+func TestCheckoutRefusesWithoutAPaymentMethodConfiguration(t *testing.T) {
+	for _, bad := range []string{"", " ", "card", "pmc_", "pmc_ab", "cs_test_123456", "pmc_1Valid; DROP"} {
+		f := newFakeStripe(t)
+		svc := newService(f, fakePlans{billing: true}, launchDay)
+		svc.PaymentMethodConfig = bad
+		if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); !errors.Is(err, ErrNoPaymentConfig) {
+			t.Errorf("configuration %q: err = %v, want ErrNoPaymentConfig", bad, err)
+		}
+		if len(f.posts) != 0 {
+			t.Errorf("configuration %q: %d requests reached Stripe", bad, len(f.posts))
 		}
 	}
-	if got := strings.Join(PinnedPaymentMethods(), ","); got != "card,link" {
-		t.Errorf("PinnedPaymentMethods = %s", got)
+}
+
+// The lesson of the preview 502: a form test passed while Stripe rejected the parameter. Nothing in this package may send payment_method_types
+// again (a source scan, so a refactor that reintroduces it fails here even if its form test is rewritten).
+func TestNoPaymentMethodTypesInTheSource(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for n, line := range strings.Split(string(b), "\n") {
+			code, _, _ := strings.Cut(line, "//")
+			if strings.Contains(code, "payment_method_types") {
+				t.Errorf("%s:%d sends payment_method_types: %s", e.Name(), n+1, strings.TrimSpace(line))
+			}
+		}
 	}
 }

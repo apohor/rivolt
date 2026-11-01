@@ -49,6 +49,10 @@ func billingAnswer(w http.ResponseWriter, r *http.Request, err error, what strin
 		return true
 	case errors.Is(err, stripebill.ErrBadInterval):
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "bad_interval"})
+	case errors.Is(err, stripebill.ErrNoPaymentConfig):
+		// A deployment problem, not the user's: logged with its cause, answered with a code the clients read as "try later".
+		slog.Error("stripe checkout refused: no payment method configuration", "err", err.Error())
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "payment_methods_not_configured"})
 	case errors.Is(err, stripebill.ErrBillingOff):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "billing_disabled"})
 	case errors.Is(err, stripebill.ErrAlreadySubscribed):

@@ -68,7 +68,7 @@ func newStripeRecorder(t *testing.T) (*stripeRecorder, *httptest.Server) {
 func billingSvc(srv *httptest.Server, plans billingPlans) *stripebill.Service {
 	return &stripebill.Service{
 		Client: &stripebill.Client{BaseURL: srv.URL, SecretKey: "sk_test_x"}, Plans: plans,
-		Prices: map[string]string{"month": "price_x", "year": "price_x"}, BaseURL: "https://rivolt.example",
+		Prices: map[string]string{"month": "price_x", "year": "price_x"}, BaseURL: "https://rivolt.example", PaymentMethodConfig: "pmc_1TestRivoltProCardLink",
 	}
 }
 
@@ -185,5 +185,17 @@ func TestPreDeletersRunInOrderAndStopAtTheFirstError(t *testing.T) {
 	}
 	if got := (Deps{StripeClosure: &stripebill.AccountClosure{}}).preDeletes(); len(got) != 1 {
 		t.Errorf("Deps with a Stripe closure has %d steps, want 1", len(got))
+	}
+}
+
+// A deployment with billing on but no payment method configuration answers 503 payment_methods_not_configured: nothing is created at Stripe.
+func TestCheckoutWithoutAPaymentMethodConfigurationIs503(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Errorf("a request reached Stripe: %s", r.URL.Path) }))
+	t.Cleanup(srv.Close)
+	svc := billingSvc(srv, billingPlans{on: true})
+	svc.PaymentMethodConfig = ""
+	rec := postBilling(handleBillingCheckout(svc), uuid.New(), `{"interval":"year"}`)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"payment_methods_not_configured"`) {
+		t.Errorf("answered %d %s, want 503 payment_methods_not_configured", rec.Code, rec.Body.String())
 	}
 }

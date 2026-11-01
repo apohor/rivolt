@@ -369,8 +369,31 @@ func (c *Client) PriceMode(ctx context.Context, id string) (live, active bool, e
 	return out.Live, out.Active, nil
 }
 
-// EnabledCheckoutMethods reads the default payment method configuration (read-only) and returns the payment method TYPES Checkout offers
-// (display preference on and available), sorted: "card", "apple_pay", "klarna" and so on. found is false when there is no default.
+// enabledMethods are the payment method types a payment method configuration object has on (display preference on and available), sorted.
+func enabledMethods(cfg map[string]json.RawMessage) []string {
+	var methods []string
+	for name, raw := range cfg {
+		var m struct {
+			Available         bool `json:"available"`
+			DisplayPreference struct {
+				Value string `json:"value"`
+			} `json:"display_preference"`
+		}
+		// Scalars (id, object, name, ...) do not unmarshal into an object and are skipped; a method is an object with a display preference.
+		if json.Unmarshal(raw, &m) != nil || m.DisplayPreference.Value == "" {
+			continue
+		}
+		if m.Available && m.DisplayPreference.Value == "on" {
+			methods = append(methods, name)
+		}
+	}
+	sort.Strings(methods)
+	return methods
+}
+
+// EnabledCheckoutMethods reads the account's DEFAULT payment method configuration (read-only) and returns the payment method types it
+// offers, sorted. Our Checkout sessions do not use it (they name their own, see PaymentMethodConfiguration), but the Customer Portal's
+// update-payment-method follows it. found is false when there is no default.
 func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, found bool, err error) {
 	var out struct {
 		Data []map[string]json.RawMessage `json:"data"`
@@ -383,28 +406,38 @@ func (c *Client) EnabledCheckoutMethods(ctx context.Context) (methods []string, 
 		if raw, ok := cfg["is_default"]; ok {
 			_ = json.Unmarshal(raw, &def)
 		}
-		if !def {
-			continue
+		if def {
+			return enabledMethods(cfg), true, nil
 		}
-		for name, raw := range cfg {
-			var m struct {
-				Available         bool `json:"available"`
-				DisplayPreference struct {
-					Value string `json:"value"`
-				} `json:"display_preference"`
-			}
-			// Scalars (id, object, name, ...) do not unmarshal into an object and are skipped; a method is an object with a display preference.
-			if json.Unmarshal(raw, &m) != nil || m.DisplayPreference.Value == "" {
-				continue
-			}
-			if m.Available && m.DisplayPreference.Value == "on" {
-				methods = append(methods, name)
-			}
-		}
-		sort.Strings(methods)
-		return methods, true, nil
 	}
 	return nil, false, nil
+}
+
+// PaymentMethodConfig is what the launch pre-flight reads of a payment method configuration.
+type PaymentMethodConfig struct {
+	Active  bool
+	Live    bool     // livemode: a test configuration cannot serve a live key, nor the reverse
+	Methods []string // the payment method types it has on, sorted
+}
+
+// PaymentMethodConfiguration reads one payment method configuration (read-only). found is false when Stripe has no such configuration.
+func (c *Client) PaymentMethodConfiguration(ctx context.Context, id string) (cfg PaymentMethodConfig, found bool, err error) {
+	var obj map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodGet, "/v1/payment_method_configurations/"+url.PathEscape(id), nil, "", &obj); err != nil {
+		var se *Error
+		if errors.As(err, &se) && se.Status == http.StatusNotFound {
+			return PaymentMethodConfig{}, false, nil
+		}
+		return PaymentMethodConfig{}, false, err
+	}
+	if raw, ok := obj["active"]; ok {
+		_ = json.Unmarshal(raw, &cfg.Active)
+	}
+	if raw, ok := obj["livemode"]; ok {
+		_ = json.Unmarshal(raw, &cfg.Live)
+	}
+	cfg.Methods = enabledMethods(obj)
+	return cfg, true, nil
 }
 
 // TaxActive reads Stripe Tax's settings status (read-only): "active" means the head office address and default tax behaviour are set up and

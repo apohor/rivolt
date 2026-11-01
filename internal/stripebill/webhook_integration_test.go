@@ -358,7 +358,7 @@ func TestPortalAndReturningCustomerAgainstPostgres(t *testing.T) {
 	f := newFakeStripe(t)
 	svc := &Service{
 		Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, DB: r.pool, Plans: fakePlans{billing: true},
-		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example",
+		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example", PaymentMethodConfig: testPMC,
 		Now: func() time.Time { return launchDay },
 	}
 	ctx := context.Background()
@@ -598,7 +598,7 @@ func TestPortalWithBillingOffAgainstPostgres(t *testing.T) {
 	f := newFakeStripe(t)
 	svc := &Service{
 		Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, DB: r.pool, Plans: fakePlans{billing: false},
-		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example",
+		Prices: map[string]string{"month": priceMonth, "year": priceYear}, BaseURL: "https://rivolt.example", PaymentMethodConfig: testPMC,
 		Now: func() time.Time { return launchDay },
 	}
 	ctx := context.Background()

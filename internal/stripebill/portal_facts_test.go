@@ -90,3 +90,35 @@ func TestCustomerCountry(t *testing.T) {
 		}
 	}
 }
+
+// The configuration Checkout names: active and its methods; a missing one is "not found", not an error.
+func TestPaymentMethodConfiguration(t *testing.T) {
+	c := factsServer(t, `{}`, `{"id":"pmc_1X","object":"payment_method_configuration","active":true,"name":"Rivolt Pro","livemode":false,
+	  "card":{"available":true,"display_preference":{"value":"on"}},"link":{"available":true,"display_preference":{"value":"on"}},
+	  "apple_pay":{"available":true,"display_preference":{"value":"on"}},"google_pay":{"available":true,"display_preference":{"value":"on"}},
+	  "klarna":{"available":true,"display_preference":{"value":"off"}},"us_bank_account":{"available":false,"display_preference":{"value":"on"}}}`)
+	cfg, found, err := c.PaymentMethodConfiguration(context.Background(), "pmc_1X")
+	if err != nil || !found || !cfg.Active || cfg.Live || strings.Join(cfg.Methods, ",") != "apple_pay,card,google_pay,link" {
+		t.Errorf("PaymentMethodConfiguration = %+v %v %v, want active, test mode, apple_pay,card,google_pay,link", cfg, found, err)
+	}
+	live := factsServer(t, `{}`, `{"id":"pmc_1Y","active":false,"livemode":true,"card":{"available":true,"display_preference":{"value":"on"}}}`)
+	if cfg, found, err := live.PaymentMethodConfiguration(context.Background(), "pmc_1Y"); err != nil || !found || cfg.Active || !cfg.Live {
+		t.Errorf("a live inactive configuration read as %+v %v %v", cfg, found, err)
+	}
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such payment_method_configuration"}}`))
+	}))
+	t.Cleanup(gone.Close)
+	if _, found, err := (&Client{SecretKey: testKey, BaseURL: gone.URL}).PaymentMethodConfiguration(context.Background(), "pmc_nope"); err != nil || found {
+		t.Errorf("a missing configuration: found=%v err=%v, want not found and no error", found, err)
+	}
+	denied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"permission_denied"}}`))
+	}))
+	t.Cleanup(denied.Close)
+	if _, _, err := (&Client{SecretKey: testKey, BaseURL: denied.URL}).PaymentMethodConfiguration(context.Background(), "pmc_x"); err == nil {
+		t.Error("a key without read access reported no error")
+	}
+}

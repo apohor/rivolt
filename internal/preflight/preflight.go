@@ -33,13 +33,21 @@ type StripeFacts struct {
 	Live                bool // the key and the prices are in live mode
 	PricesActive        bool // both prices exist and are active
 	PortalFound         bool
-	TermsSet            bool     // the Customer Portal's Terms of service URL
-	PrivacySet          bool     // and its Privacy policy URL
-	PaymentMethodUpdate bool     // customers can update their payment method in the portal
-	CheckoutMethods     []string // the payment method types the default configuration offers in Checkout (sorted)
-	CheckoutRead        bool     // that configuration could be read at all
-	TaxRead             bool     // Stripe Tax's settings were read (only asked when automatic tax is on)
-	TaxActive           bool     // and Stripe Tax is active in this mode
+	TermsSet            bool // the Customer Portal's Terms of service URL
+	PrivacySet          bool // and its Privacy policy URL
+	PaymentMethodUpdate bool // customers can update their payment method in the portal
+	// The payment method configuration our Checkout sessions use (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG): read at all, found and active, and the
+	// payment method types it has on (sorted).
+	PMCRead    bool
+	PMCFound   bool
+	PMCActive  bool
+	PMCLive    bool // the configuration's livemode, to compare with the mode of the key (Live)
+	PMCMethods []string
+	// The account's DEFAULT configuration, which our sessions do not use but the Customer Portal's update-payment-method follows.
+	CheckoutMethods []string
+	CheckoutRead    bool
+	TaxRead         bool // Stripe Tax's settings were read (only asked when automatic tax is on)
+	TaxActive       bool // and Stripe Tax is active in this mode
 }
 
 // Input is everything the report reads, so a test drives it without a database, a network or the process environment.
@@ -56,9 +64,6 @@ type Input struct {
 	RedisTime func(ctx context.Context) (denied bool, err error)
 	// Stripe reads the Stripe API with the configured key; nil skips it.
 	Stripe func(ctx context.Context) StripeFacts
-	// Pinned are the payment method types our Checkout sessions carry (stripebill.PinnedPaymentMethods): with them the default configuration
-	// cannot put another method into our sessions. Empty means the sessions do not pin, and then the default configuration decides.
-	Pinned []string
 	// BillingAddress is what our Checkout sessions ask for as the billing address (stripebill.BillingAddressCollection): "required" lets the
 	// webhook check the country (Rivolt Pro is sold in the US only).
 	BillingAddress string
@@ -233,6 +238,7 @@ func Run(ctx context.Context, in Input) *Report {
 	present("RIVOLT_STRIPE_WEBHOOK_SECRET", true)
 	present("RIVOLT_STRIPE_PRICE_MONTHLY", true)
 	present("RIVOLT_STRIPE_PRICE_YEARLY", true)
+	present("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG", true) // the pmc_ id Checkout names (cards, Link, wallets); without it Checkout refuses
 	if baseURL == "" {
 		r.problem("RIVOLT_PUBLIC_BASE_URL (or RIVOLT_BASE_URL) is not set; Stripe Checkout stays off without it")
 	} else {
@@ -322,7 +328,7 @@ func Run(ctx context.Context, in Input) *Report {
 				r.line("  portal: Terms URL set, Privacy URL set, payment-method update on")
 			}
 		}
-		r.checkoutMethods(f, in.Pinned)
+		r.checkoutMethods(f, strings.TrimSpace(get("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG")) != "")
 		if in.BillingAddress != "required" {
 			r.problem("our Checkout sessions do not require the billing address (billing_address_collection): the US-only check would have no country")
 		} else {
@@ -353,43 +359,59 @@ func Run(ctx context.Context, in Input) *Report {
 // redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
 var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true, "link": true}
 
-func (r *Report) checkoutMethods(f StripeFacts, pinned []string) {
-	pinOK := len(pinned) > 0
-	for _, m := range pinned {
-		if !allowedCheckoutMethods[m] {
-			pinOK = false
+func modeName(live bool) string {
+	if live {
+		return "live"
+	}
+	return "test"
+}
+
+func (r *Report) checkoutMethods(f StripeFacts, configured bool) {
+	// Our Checkout sessions name a payment method configuration; Stripe holds a session to the methods that configuration has on. Without one
+	// Checkout refuses (the setting is checked above), and an unread, inactive or too-wide configuration is a launch problem.
+	switch {
+	case !configured:
+		// Already a problem in the settings list; nothing to read.
+	case !f.PMCRead:
+		r.problem("the payment method configuration could not be read, so what Checkout offers is unverified (a restricted key needs read access on Payment method configurations)")
+	case !f.PMCFound:
+		r.problem("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG names no payment method configuration in this Stripe account (a test-mode id with a live key, or the reverse)")
+	case f.PMCLive != f.Live:
+		r.problem("the payment method configuration is in %s mode but the key and prices are in %s mode (RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG is from the other Stripe environment)", modeName(f.PMCLive), modeName(f.Live))
+	case !f.PMCActive:
+		r.problem("the payment method configuration is not active")
+	default:
+		r.line("  Checkout offers (the payment method configuration): %s", strings.Join(f.PMCMethods, ", "))
+		card := false
+		var extra []string
+		for _, m := range f.PMCMethods {
+			if m == "card" {
+				card = true
+			}
+			if !allowedCheckoutMethods[m] {
+				extra = append(extra, m)
+			}
+		}
+		if len(extra) > 0 {
+			r.problem("the payment method configuration also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay, google_pay and link; other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
+		}
+		if !card {
+			r.problem("the payment method configuration does not offer cards")
 		}
 	}
-	if !pinOK {
-		r.problem("our Checkout sessions do not pin payment_method_types to cards and wallets (card, link): the Dashboard's default configuration would decide what Checkout offers")
+	// The default configuration is not ours, but the Customer Portal's update-payment-method follows it.
+	if f.CheckoutRead {
+		var extra []string
+		for _, m := range f.CheckoutMethods {
+			if !allowedCheckoutMethods[m] {
+				extra = append(extra, m)
+			}
+		}
+		if len(extra) > 0 {
+			r.warn("the account's default configuration offers %d method(s) beyond cards and wallets: %s; Checkout does not use it, but the Customer Portal's update-payment-method follows it (see the manual step)", len(extra), strings.Join(extra, ", "))
+		}
 	} else {
-		r.line("  Checkout sessions pin payment methods: %s", strings.Join(pinned, ", "))
-	}
-	if !f.CheckoutRead {
-		r.warn("could not read the default payment method configuration (a restricted key needs read access on Payment method configurations); it does not decide our sessions while they pin")
-		return
-	}
-	r.line("  default configuration offers: %s", strings.Join(f.CheckoutMethods, ", "))
-	card := false
-	var extra []string
-	for _, m := range f.CheckoutMethods {
-		if m == "card" {
-			card = true
-		}
-		if !allowedCheckoutMethods[m] {
-			extra = append(extra, m)
-		}
-	}
-	if len(extra) > 0 {
-		msg := fmt.Sprintf("the default configuration offers %d method(s) beyond cards and wallets: %s; our Checkout sessions pin %s", len(extra), strings.Join(extra, ", "), strings.Join(pinned, ", "))
-		if pinOK {
-			r.warn("%s", msg)
-		} else {
-			r.problem("%s", msg)
-		}
-	}
-	if !card {
-		r.problem("the default configuration does not offer cards, which our Checkout sessions pin")
+		r.warn("could not read the default payment method configuration (a restricted key needs read access on Payment method configurations); the Customer Portal follows it")
 	}
 }
 
@@ -400,7 +422,8 @@ func ManualSteps() []string {
 		"Stripe Dashboard, Customer Portal: configured as above, with cancel, plan switch and payment-method update on",
 		"Stripe Dashboard, Developers: the webhook endpoint is subscribed to checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted and charge.refunded",
 		"Cloudflare: a skip (allow) rule lets Stripe's servers reach /api/billing/stripe/webhook on rivolt.dev (a managed challenge or WAF block there is the 302/403 case above)",
-		"Stripe Dashboard, Payment methods (the live default configuration): only cards and wallets are on. The Customer Portal's update-payment-method follows that configuration, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method that the Checkout pin does not cover",
+		"Stripe Dashboard, Payment methods: a LIVE payment method configuration exists with only cards and wallets (card, Link, Apple Pay, Google Pay) on, and its pmc_ id is RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG (Checkout names it; the report reads it, but the id must be the live one)",
+		"Stripe Dashboard, Payment methods, the account's DEFAULT live configuration: only cards and wallets are on as well. Checkout does not use it, but the Customer Portal's update-payment-method follows it, so a subscriber could otherwise move a renewal onto a bank debit or buy-now-pay-later method",
 		"Stripe Tax is set up in live mode: origin address, and registrations where required (Texas first), since RIVOLT_STRIPE_AUTOMATIC_TAX is on; with no live tax setup, live Checkout fails",
 		"Valkey: ask ops to confirm the app user's rule with ACL DRYRUN <app user> TIME (the TIME line above runs it as the app user, which is the same answer)",
 		"before the flip: the Stripe key is in live mode on prod and the Apple environment is the production one (the mode line above comes from the Stripe API)",
