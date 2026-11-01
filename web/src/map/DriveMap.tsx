@@ -17,7 +17,7 @@ import { snapToRoads, type SnapPoint } from "./snap";
 import { displayTimeZone } from "../lib/format";
 import { localUnits } from "../lib/preferences";
 import { cumulativeMiles, formatValue, gradientStops, percentileRange, RAMPS, seriesFor, type Mode, type Sample } from "./metrics";
-import { placePills, setPills } from "./pills";
+import { placePills, setPills, startPillText } from "./pills";
 import { watchDrawn } from "./drawn";
 import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, tilesNotice } from "./controls";
 
@@ -193,7 +193,7 @@ export function DriveMap({
         const key = JSON.stringify([sides, flavor, firstT, lastT]);
         if (!force && key === pillKey) return;
         pillKey = key;
-        const specs = [{ id: "start", text: `${sameSpot ? "Start" : "Start"} ${timeOf(firstT)}`, lngLat: sLL, ...sides.start }];
+        const specs = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, ...sides.start }];
         if (eLL) specs.push({ id: "end", text: `End ${timeOf(lastT)}`, lngLat: eLL, ...sides.end });
         setPills(map, specs, flavor);
       };
