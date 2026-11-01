@@ -31,7 +31,8 @@ import (
 // What it does: consent-revoked and account-delete sign the user out everywhere and forget the Apple token (the
 // account and its data stay: no deletion on a third party's signal; the inactive-account purge is the only
 // deletion). account-delete also emails the account's verified address that this sign-in method is gone.
-// email-disabled and email-enabled set and clear users.email_undeliverable.
+// email-disabled and email-enabled set and clear users.email_undeliverable, but only for an account whose address is
+// an Apple relay address: they are about that relay, so an account with its own address is left alone.
 //
 // Logged: the event type and the Rivolt user id. Never the `sub`, the relay address or any token.
 
@@ -293,9 +294,15 @@ func (s *Store) PurgeSeen(ctx context.Context) (int64, error) {
 	return res.RowsAffected()
 }
 
-// SetEmailUndeliverable marks (or clears) the account's address as not reachable, for non-essential mail.
+// relayDomain is Apple's private relay: the only address Apple's email-disabled / email-enabled events speak for.
+const relayDomain = "@privaterelay.appleid.com"
+
+// SetEmailUndeliverable marks the account's address as not reachable, for non-essential mail, or clears the mark.
+// Marking only applies to an account whose address IS an Apple relay address: Apple's "forwarding off" event is about
+// that relay, so an account with its own address (a linked account, or one that joined by sharing its email) is left
+// alone. Clearing is always allowed.
 func (s *Store) SetEmailUndeliverable(ctx context.Context, userID uuid.UUID, v bool) error {
-	if _, err := s.db.ExecContext(ctx, `UPDATE users SET email_undeliverable = $2 WHERE id = $1`, userID, v); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET email_undeliverable = $2 WHERE id = $1 AND (NOT $2 OR lower(email) LIKE '%`+relayDomain+`')`, userID, v); err != nil {
 		return fmt.Errorf("appleid: email flag: %w", err)
 	}
 	return nil
