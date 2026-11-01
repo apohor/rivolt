@@ -134,62 +134,58 @@ func errCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return out.Error
 }
 
-func TestAppleLinkStartWithAFreshSessionNeedsNoPassword(t *testing.T) {
-	r := newLinkRig(t, 2*time.Minute, true, appleLinkMail)
-	rec := r.post("{}", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body)
-	}
-	var out struct{ URL string }
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if !strings.HasPrefix(out.URL, "https://appleid.apple.example/authorize") || rec.Header().Get("Cache-Control") != "no-store" {
-		t.Errorf("url %q, cache-control %q", out.URL, rec.Header().Get("Cache-Control"))
-	}
-	if len(r.begin.intents) != 1 || len(rec.Result().Cookies()) != 1 {
-		t.Errorf("intents %d, cookies %d", len(r.begin.intents), len(rec.Result().Cookies()))
-	}
-	if len(r.outcomes) != 1 || r.outcomes[0] != "started" {
-		t.Errorf("outcomes %v", r.outcomes)
-	}
-}
-
-func TestAppleLinkStartWithAnOlderSessionAsksForThePassword(t *testing.T) {
-	r := newLinkRig(t, 3*time.Hour, true, appleLinkMail)
-	if rec := r.post("{}", nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_required" {
-		t.Errorf("no password: %d %s", rec.Code, rec.Body)
-	}
-	if rec := r.post(`{"password":"wrong"}`, nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_incorrect" {
-		t.Errorf("wrong password: %d %s", rec.Code, rec.Body)
-	}
-	if len(r.begin.intents) != 0 {
-		t.Fatal("a request was recorded without a fresh sign-in")
-	}
-	if rec := r.post(`{"password":"right"}`, nil); rec.Code != http.StatusOK || len(r.begin.intents) != 1 {
-		t.Errorf("right password: %d %s", rec.Code, rec.Body)
-	}
-	want := []string{"reauth_refused", "reauth_refused", "started"}
-	if strings.Join(r.outcomes, ",") != strings.Join(want, ",") {
-		t.Errorf("outcomes %v, want %v", r.outcomes, want)
+// A session created a moment ago is no proof of a typed credential (Hydra's remembered login makes one silently), so the password is
+// asked whatever the session's age.
+func TestAppleLinkStartAsksForThePasswordEvenOnAFreshSession(t *testing.T) {
+	for name, age := range map[string]time.Duration{"just created": time.Second, "an hour old": time.Hour, "three days old": 72 * time.Hour} {
+		r := newLinkRig(t, age, true, appleLinkMail)
+		if rec := r.post("{}", nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_required" {
+			t.Errorf("%s, no password: %d %s", name, rec.Code, rec.Body)
+		}
+		if rec := r.post(`{"password":"wrong"}`, nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_incorrect" {
+			t.Errorf("%s, wrong password: %d %s", name, rec.Code, rec.Body)
+		}
+		if len(r.begin.intents) != 0 {
+			t.Fatalf("%s: a request was recorded without the password", name)
+		}
+		rec := r.post(`{"password":"right"}`, nil)
+		if rec.Code != http.StatusOK || len(r.begin.intents) != 1 || len(rec.Result().Cookies()) != 1 || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s, right password: %d %s, intents %d", name, rec.Code, rec.Body, len(r.begin.intents))
+		}
+		var out struct{ URL string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		if !strings.HasPrefix(out.URL, "https://appleid.apple.example/authorize") {
+			t.Errorf("%s: url %q", name, out.URL)
+		}
+		want := []string{"reauth_refused", "reauth_refused", "started"}
+		if strings.Join(r.outcomes, ",") != strings.Join(want, ",") {
+			t.Errorf("%s: outcomes %v, want %v", name, r.outcomes, want)
+		}
 	}
 }
 
-// An account that signs in only with Google or GitHub has no password: an old session is told to sign in again.
-func TestAppleLinkStartOldSessionWithoutAPasswordNeedsAFreshSignIn(t *testing.T) {
+// An account that signs in only with Google or GitHub has no password to type: it cannot link yet, on any session.
+func TestAppleLinkStartWithoutAPasswordIsRefused(t *testing.T) {
 	for name, r := range map[string]*linkRig{
-		"no email":    newLinkRig(t, 3*time.Hour, true, ""),
-		"no identity": newLinkRig(t, 3*time.Hour, false, appleLinkMail),
+		"no email":                   newLinkRig(t, time.Second, true, ""),
+		"no identity":                newLinkRig(t, time.Second, false, appleLinkMail),
+		"no identity, older session": newLinkRig(t, 3*time.Hour, false, appleLinkMail),
 	} {
-		if rec := r.post(`{"password":"right"}`, nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "recent_sign_in_required" {
+		if rec := r.post(`{"password":"right"}`, nil); rec.Code != http.StatusForbidden || errCode(t, rec) != "password_needed_to_link" {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
 		}
 		if len(r.begin.intents) != 0 {
 			t.Errorf("%s: a request was recorded", name)
+		}
+		if len(r.outcomes) != 1 || r.outcomes[0] != "password_needed" {
+			t.Errorf("%s: outcomes %v, want [password_needed]", name, r.outcomes)
 		}
 	}
 }
 
 func TestAppleLinkStartRefusals(t *testing.T) {
 	r := newLinkRig(t, time.Minute, true, appleLinkMail)
+	pw := `{"password":"right"}`
 	cases := map[string]func(*http.Request) *http.Request{
 		"cross-site": func(q *http.Request) *http.Request { q.Header.Set("Sec-Fetch-Site", "cross-site"); return q },
 		"not json":   func(q *http.Request) *http.Request { q.Header.Set("Content-Type", "text/plain"); return q },
@@ -204,17 +200,17 @@ func TestAppleLinkStartRefusals(t *testing.T) {
 		},
 	}
 	for name, mut := range cases {
-		if rec := r.post("{}", mut); rec.Code < 400 || len(r.begin.intents) != 0 {
+		if rec := r.post(pw, mut); rec.Code < 400 || len(r.begin.intents) != 0 {
 			t.Errorf("%s: status %d, intents %d", name, rec.Code, len(r.begin.intents))
 		}
 	}
 	r.api.Sessions = fakeLive{created: time.Now(), live: false}
-	if rec := r.post("{}", nil); rec.Code != http.StatusUnauthorized {
+	if rec := r.post(pw, nil); rec.Code != http.StatusUnauthorized {
 		t.Errorf("an ended session: %d", rec.Code)
 	}
 	r.api.Sessions = fakeLive{created: time.Now(), live: true}
 	r.begin.err = oidc.ErrAppleNotConfigured
-	if rec := r.post("{}", nil); rec.Code != http.StatusNotFound || errCode(t, rec) != "apple_not_available" {
+	if rec := r.post(pw, nil); rec.Code != http.StatusNotFound || errCode(t, rec) != "apple_not_available" {
 		t.Errorf("no Apple provider: %d %s", rec.Code, rec.Body)
 	}
 }
@@ -223,7 +219,7 @@ func TestAppleLinkStartRefusals(t *testing.T) {
 // sign-out handler, and only that session's.
 func TestSigningOutDropsTheLinkRequestsOfThatSession(t *testing.T) {
 	r := newLinkRig(t, time.Minute, true, appleLinkMail)
-	if rec := r.post("{}", nil); rec.Code != http.StatusOK {
+	if rec := r.post(`{"password":"right"}`, nil); rec.Code != http.StatusOK {
 		t.Fatalf("start: %d", rec.Code)
 	}
 	otherUser, otherSession := uuid.New(), uuid.New()
