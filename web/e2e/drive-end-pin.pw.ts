@@ -39,3 +39,37 @@ test("iphone: a drive whose parked frame after it says home still shows its end 
   await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(2);
   await ctx.close();
 });
+
+// A round trip (out, a stop, back to where it began) is one row in the list, and its page is one drive that starts and ends at the same spot: one pin,
+// not two, and not a missing End. Its pill says both times (startPillText, unit-tested; the pill is canvas, so the pin count is what shows here).
+test("iphone: a merged round trip shows one pin where it starts and ends", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  const leg = (id: string, from: number, a: [number, number], b: [number, number]) => ({
+    ID: id, VehicleID: VEHICLE_ID,
+    StartedAt: new Date(from).toISOString(), EndedAt: new Date(from + 20 * MIN).toISOString(),
+    StartSoCPct: 80, EndSoCPct: 74, StartOdometerMi: 5000, EndOdometerMi: 5012, DistanceMi: 12,
+    StartLat: a[0], StartLon: a[1], EndLat: b[0], EndLon: b[1],
+    MaxSpeedMph: 60, AvgSpeedMph: 36, EnergyUsedKWh: 5, Source: "live",
+  });
+  const out = leg("drive-out", START, [10, 10], [10.19, 10.19]);
+  const back = leg("drive-back", START + 50 * MIN, [10.19, 10.19], [10, 10]); // 30 min later, ends where the first began
+  const row = (at: number, lat: number, lon: number, i: number) => ({
+    VehicleID: VEHICLE_ID, At: new Date(at).toISOString(),
+    BatteryLevelPct: 80 - i / 12, RangeMi: 250, OdometerMi: 5000 + i / 6,
+    Lat: lat, Lon: lon, SpeedMph: 30 + (i % 20),
+    ShiftState: "D", ChargingState: "", ChargerPowerKW: 0, ChargeLimitPct: 80,
+    InsideTempC: 21, OutsideTempC: 11, DriveNumber: 1, ChargeNumber: 0, Source: "live",
+  });
+  const samples = [
+    ...Array.from({ length: 81 }, (_, i) => row(START + i * 15_000, 10 + i * 0.00237, 10 + i * 0.00237, i)),
+    ...Array.from({ length: 81 }, (_, i) => row(START + 50 * MIN + i * 15_000, 10.19 - i * 0.00237, 10.19 - i * 0.00237, i)),
+  ];
+  await page.route("**/api/drives?**", (r) => r.fulfill({ json: [back, out] }));
+  await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
+  await page.goto("/drives/drive-out");
+  await expect(page.locator("[data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
+  await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(1);
+  await ctx.close();
+});

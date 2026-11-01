@@ -15,8 +15,8 @@ export function e2eNow(): number {
   return clockPinned ? pinnedAt : Date.now();
 }
 
-// pinClock fixes the page's Date to STUB_NOW (timers still run). A no-op on a
-// normal run. Call it before page.goto; stubApi does.
+// pinClock fixes the page's Date to the e2e clock (DEFAULT_NOW, or STUB_NOW when set; timers still run), on every run.
+// Call it before page.goto; stubApi does.
 export async function pinClock(page: Page): Promise<void> {
   if (clockPinned) await page.clock.setFixedTime(pinnedAt);
 }
