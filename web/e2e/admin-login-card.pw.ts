@@ -63,7 +63,8 @@ test("the public site's login is unchanged", async ({ page }) => {
   await open(page, false);
   await expect(page.getByRole("heading", { name: "Sign in", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByText(/Your Rivian companion/)).toBeVisible();
-  await expect(page.getByText("Beta")).toBeVisible();
+  // The amber "Beta" pill is gone (the owner removed it); the sentence under the heading stays.
+  await expect(page.getByText("Beta", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Create an account" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Privacy policy" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Terms" })).toBeVisible();
