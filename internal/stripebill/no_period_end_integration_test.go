@@ -35,3 +35,28 @@ func TestACancelWithoutAPeriodEndStillEndsPro(t *testing.T) {
 		t.Errorf("a cancel without a period end left Pro on: %+v", st)
 	}
 }
+
+// The stale guard still applies to such a cancel: an older delete (no period end) delivered after a newer renewal must not end the renewed
+// subscription. (Pro 29, DA's check.)
+func TestAnOlderCancelWithoutAPeriodEndCannotEndARenewedSubscription(t *testing.T) {
+	now := time.Unix(1790500000, 0)
+	r := newRig(t, "noperiod-stale")
+	at := func(id string, created int64) func(string) string {
+		return func(s string) string {
+			s = evtID.ReplaceAllString(s, `"id": "`+id+`"`)
+			return noPeriodCreated.ReplaceAllString(s, fmt.Sprintf(`"created": %d`, created))
+		}
+	}
+	if code := r.deliver("subscription_created_active.json", at("evt_renewed", 1790900000)); code != 200 {
+		t.Fatal(code)
+	}
+	code := r.deliver("subscription_deleted.json", func(s string) string {
+		return at("evt_older_cancel", 1790800000)(strings.ReplaceAll(s, `"current_period_end": 1821536000`, `"x_removed_period_end": 0`))
+	})
+	if code != 200 {
+		t.Fatal(code)
+	}
+	if st := r.state(now); !st.Pro {
+		t.Errorf("an older cancel ended a subscription renewed after it: %+v", st)
+	}
+}
