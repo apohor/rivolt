@@ -180,7 +180,7 @@ export function DriveMap({
       if (legend && phone && dock) {
         const node = legend.onAdd(map);
         dock.appendChild(node);
-        cleanups.push(() => { legend.onRemove(); node.remove(); });
+        cleanups.push(() => { legend.onRemove(map); node.remove(); });
       } else if (legend) map.addControl(legend, "bottom-left");
       if (typeof fixAgeSeconds === "number" && Number.isFinite(fixAgeSeconds) && fixAgeSeconds >= 5 * 60) map.addControl(stalenessBadge(fixAgeSeconds), "top-right");
 
