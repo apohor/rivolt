@@ -157,6 +157,12 @@ type State struct {
 	OtaAvailableVersion string  `json:"ota_available_version"`
 	OtaStatus           string  `json:"ota_status"`
 	OtaInstallProgress  float64 `json:"ota_install_progress"`
+	// OtaStep and OtaInstallPercent are derived when GET /api/state serves the state (WithOTADerived), never stored or published: the step
+	// of the update as one of OTASteps' keys (absent when idle, "unknown" for a word we have not seen), and the install's whole percent
+	// only while the step is "installing". The same rules as ota.step and ota.install_progress on /api/vehicles; clients read these two
+	// instead of the raw ota_status and ota_install_progress above, which stay as the truck sent them.
+	OtaStep           string `json:"ota_step,omitempty"`
+	OtaInstallPercent *int   `json:"ota_install_percent,omitempty"`
 	// Tires. Pressures reported in bar (per home-assistant-rivian's
 	// native unit declaration). Status is a string like "Normal" /
 	// "Warning_Soft" / "" (unknown); see tire_status.go for the words that count.

@@ -34,7 +34,10 @@ func iosFixtureTargets() map[string]any {
 		"now_prod_shape.json":   &nowResponse{},
 		"state_prod_shape.json": &rivian.State{},
 		"state_full.json":       &rivian.State{}, // every key the Go type can send, zero values: what the web's VehicleState is checked against
-		"vehicles.json":         &[]rivian.Vehicle{},
+		// GET /api/state while a software update installs: the derived ota_step and ota_install_percent next to the raw ota_status and
+		// ota_install_progress, which the Now card and the Truck page read instead of re-polling /api/vehicles.
+		"state_ota_installing.json": &rivian.State{},
+		"vehicles.json":             &[]rivian.Vehicle{},
 		// Settings → Charging on the phone (settings_fixtures_test.go regenerates these from the same types).
 		"settings_offpeak.json":          &offpeakResponse{},
 		"settings_offpeak_empty.json":    &offpeakResponse{},
