@@ -14,6 +14,10 @@ import (
 // tireLowWords are the words a per-wheel status uses for a low tire, after tireWord.
 var tireLowWords = map[string]bool{
 	"low": true, "low_pressure": true, "very_low": true, "critically_low": true, "critical_low": true, "critical": true,
+	// The Rivian app's own TirePressureStatus enum (3.17.0 strings: NORMAL, WARNING_SOFT, WARNING_HARD, WARNING_PUNCTURE, and
+	// UNSPECIFIED, which makes no claim). Its three warning values are low-pressure states; which spelling the wire uses is
+	// not known, so the words above stay too.
+	"warning_soft": true, "warning_hard": true, "warning_puncture": true,
 }
 
 // tireNotLowWords are the words seen to say a tire is fine. Any other word makes no claim either way.

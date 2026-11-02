@@ -102,7 +102,7 @@ func TestObserveTiresIgnoresFreeTextAndBoundsWhatItKeeps(t *testing.T) {
 // so it is a deliberate edit of this list (and of the web and iPhone copies TestTireLowWordsMatchTheClients keeps in step).
 // Any word not listed is no claim: it never alerts and never clears.
 func TestTheTireWordTableIsPinned(t *testing.T) {
-	wantLow := []string{"critical", "critical_low", "critically_low", "low", "low_pressure", "very_low"}
+	wantLow := []string{"critical", "critical_low", "critically_low", "low", "low_pressure", "very_low", "warning_hard", "warning_puncture", "warning_soft"}
 	if got := TireLowWords(); strings.Join(got, ",") != strings.Join(wantLow, ",") {
 		t.Errorf("low words = %v, want %v", got, wantLow)
 	}
@@ -116,7 +116,7 @@ func TestTheTireWordTableIsPinned(t *testing.T) {
 			t.Errorf("%q: not read as not-low", w)
 		}
 	}
-	for _, w := range []string{"", "unknown", "squishy", "lowish", "Low Pressure!", "no_data"} {
+	for _, w := range []string{"", "unknown", "squishy", "lowish", "Low Pressure!", "no_data", "unspecified", "tire_pressure_status_unspecified"} {
 		if TireStatusLow(w) && w != "" {
 			t.Errorf("%q alerts but is not in the table", w)
 		}

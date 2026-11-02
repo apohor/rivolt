@@ -286,8 +286,8 @@ final class TruckLogicTests: XCTestCase {
     }
 
     func testOnlyAFixedListOfRivianLowWordsCounts() {
-        for v in ["low", "Low", " LOW ", "critically low", "critical-low"] { XCTAssertTrue(TruckLogic.rivianSaysLow(v), v) }
-        for v in ["", "Normal", "unknown", "undefined", "high", "lowish"] { XCTAssertFalse(TruckLogic.rivianSaysLow(v), v) }
+        for v in ["low", "Low", " LOW ", "critically low", "critical-low", "WARNING_SOFT", "Warning Hard", "warning_puncture"] { XCTAssertTrue(TruckLogic.rivianSaysLow(v), v) }
+        for v in ["", "Normal", "unknown", "undefined", "high", "lowish", "UNSPECIFIED", "NORMAL"] { XCTAssertFalse(TruckLogic.rivianSaysLow(v), v) }
         XCTAssertFalse(TruckLogic.rivianSaysLow(nil))
         XCTAssertTrue(TruckLogic.tiresNote.contains("32 psi"))
         XCTAssertFalse(TruckLogic.tiresNote.lowercased().contains("unsafe"))
