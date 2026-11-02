@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -51,5 +52,22 @@ func TestLaunchPreflightIsDispatched(t *testing.T) {
 	}
 	if !strings.Contains(string(src), "rivolt launch-preflight") {
 		t.Error("the usage text does not list launch-preflight")
+	}
+}
+
+// The loaded-alert-rules check fails closed: skipped only when told to (offline, --no-alert-check); with no address it is a problem, not a pass.
+func TestAlertRulesSourceFailsClosed(t *testing.T) {
+	if alertRulesSource("http://prom:9090", "", true) != nil {
+		t.Error("skip=true must skip the check")
+	}
+	f := alertRulesSource("", "", false)
+	if f == nil {
+		t.Fatal("no address and not skipped must not skip the check")
+	}
+	if _, err := f(context.Background()); err == nil || !strings.Contains(err.Error(), "--prometheus-url") {
+		t.Errorf("no address: want an error that says how to fix it, got %v", err)
+	}
+	if alertRulesSource("http://flag:9090", "http://env:9090", false) == nil || alertRulesSource("", "http://env:9090", false) == nil {
+		t.Error("a flag or environment address must give a reader")
 	}
 }
