@@ -133,6 +133,16 @@ func TestAppleBillingAgainstPostgres(t *testing.T) {
 		t.Errorf("a stale event moved the period end back: %v", end)
 	}
 
+	// A report re-signed later than the renewal but carrying an older, shorter transaction must not shorten the period (Pro 30 F2).
+	stale := ti(orig, end1, alice.String())
+	stale.SignedDate = now.Add(time.Second).UnixMilli()
+	if code, _ := report(alice, chain.sign(t, stale)); code != http.StatusOK {
+		t.Errorf("a stale re-signed report: %d", code)
+	}
+	if _, end, _, _ := entitlement(alice); !end.Equal(end2) {
+		t.Errorf("a stale re-signed report moved the period end to %v, want %v", end, end2)
+	}
+
 	// Auto-renew off, then on; a failed renewal in a grace period; the grace ending.
 	step := now
 	next := func() time.Time { step = step.Add(time.Minute); return step }
@@ -199,5 +209,39 @@ func TestAppleBillingAgainstPostgres(t *testing.T) {
 	}
 	if st, _, _, _ := entitlement(alice); st != "active" {
 		t.Errorf("a refunded second transaction changed the entitlement: %s", st)
+	}
+}
+
+// After a refund a report cannot bring back the refunded purchase (even re-signed later), but a new purchase under the same original transaction id
+// (resubscribing keeps it) is an extension and applies without waiting for Apple's notification (Pro 30 F2).
+func TestAppleReportAfterRefund(t *testing.T) {
+	e := newAdvEnv(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	u := e.user(t)
+	orig := "rv-test-adv-" + uuid.NewString()[:8]
+	bought := ti(orig, now.Add(30*24*time.Hour), u.String())
+	bought.PurchaseDate, bought.SignedDate = now.Add(-2*time.Hour).UnixMilli(), now.Add(-2*time.Hour).UnixMilli()
+	if code, body := e.report(u, bought); code != http.StatusOK || !strings.Contains(body, `"pro":true`) {
+		t.Fatalf("first purchase: %d %s", code, body)
+	}
+	refund := bought
+	refund.RevocationDate = now.Add(-30 * time.Minute).UnixMilli()
+	if code, o := e.send("REFUND", "", uuid.NewString(), now.Add(-30*time.Minute), refund); code != http.StatusOK || o != OutcomeApplied {
+		t.Fatalf("refund: %d %s", code, o)
+	}
+
+	resigned := bought // the pre-refund transaction, signed again after the refund
+	resigned.SignedDate = now.Add(-10 * time.Minute).UnixMilli()
+	if _, body := e.report(u, resigned); strings.Contains(body, `"pro":true`) {
+		t.Errorf("a pre-refund transaction re-signed after the refund brought Pro back: %s", body)
+	}
+	if st, _, _, _ := e.entitlement(t, u); st == "active" {
+		t.Errorf("entitlement after the re-signed pre-refund report: %s", st)
+	}
+
+	again := ti(orig, now.Add(60*24*time.Hour), u.String())
+	again.PurchaseDate, again.SignedDate = now.Add(-5*time.Minute).UnixMilli(), now.Add(-5*time.Minute).UnixMilli()
+	if code, body := e.report(u, again); code != http.StatusOK || !strings.Contains(body, `"pro":true`) {
+		t.Errorf("a new purchase after the refund did not grant Pro from the report: %d %s", code, body)
 	}
 }
