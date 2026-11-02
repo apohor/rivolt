@@ -2910,8 +2910,8 @@ func runServer() {
 				}
 				return m.Latest(rivianID)
 			}, demo.UserID()),
-			Deliver: func(ctx context.Context, uid uuid.UUID, model string, wheels []string) error {
-				_, err := pushSvc.DeliverTireLow(ctx, pushFactory.For(uid), model, wheels)
+			Deliver: func(ctx context.Context, uid uuid.UUID, model string, low, puncture []string) error {
+				_, err := pushSvc.DeliverTireLow(ctx, pushFactory.For(uid), model, low, puncture)
 				return err
 			},
 			// Off until DA clears it after the 14-day dry run: until then the job counts what it would send and sends nothing.

@@ -116,10 +116,24 @@ func TestTheTireWordTableIsPinned(t *testing.T) {
 	}
 	// Everything else makes no claim: the enum's UNSPECIFIED, the "unknown" prod sends for no status, and the words an earlier
 	// version guessed (which are not in the app).
-	for _, w := range []string{"", "unspecified", "unknown", "squishy", "low", "very_low", "critical", "critically_low", "low_pressure", "ok", "lowish", "warning", "tire_pressure_status_warning_soft"} {
+	for _, w := range []string{"", "unspecified", "unknown", "squishy", "low", "very_low", "critical", "critically_low", "low_pressure", "ok", "lowish", "warning"} {
 		if TireStatusLow(w) || TireStatusNotLow(w) {
 			t.Errorf("%q makes a claim but is not in the table", w)
 		}
+	}
+	// The four spellings of one word, including the enum's full name.
+	for _, w := range []string{"warning_soft", "Warning_Soft", "WARNING_SOFT", "TIRE_PRESSURE_STATUS_WARNING_SOFT"} {
+		if !TireStatusLow(w) || TireLowWord(w) != "warning_soft" {
+			t.Errorf("%q is not read as warning_soft", w)
+		}
+	}
+	for _, w := range []string{"TIRE_PRESSURE_STATUS_NORMAL"} {
+		if !TireStatusNotLow(w) {
+			t.Errorf("%q is not read as normal", w)
+		}
+	}
+	if TireStatusLow("TIRE_PRESSURE_STATUS_UNSPECIFIED") || TireStatusNotLow("TIRE_PRESSURE_STATUS_UNSPECIFIED") {
+		t.Error("the unspecified enum value makes a claim")
 	}
 	// Spacing, hyphens and case are normalised, so the table lists words and not their spellings.
 	if !TireStatusLow(" Warning-Hard ") || TireLowWord(" Warning-Hard ") != "warning_hard" {

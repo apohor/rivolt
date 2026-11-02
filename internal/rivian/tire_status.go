@@ -22,9 +22,12 @@ var tireNotLowWords = map[string]bool{"normal": true}
 
 var tireSeparators = regexp.MustCompile(`[\s-]+`)
 
-// tireWord trims, lower-cases and turns runs of spaces and hyphens into "_".
+// tireWordPrefix is the enum's own prefix; the wire spelling is not known, so a word may or may not carry it.
+const tireWordPrefix = "tire_pressure_status_"
+
+// tireWord trims, lower-cases, turns runs of spaces and hyphens into "_" and drops the enum's TIRE_PRESSURE_STATUS_ prefix.
 func tireWord(s string) string {
-	return tireSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "_")
+	return strings.TrimPrefix(tireSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "_"), tireWordPrefix)
 }
 
 // TireLowWord is the normalised low word of a per-wheel status ("" when the status is not one of the low words): the

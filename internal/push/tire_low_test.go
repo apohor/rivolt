@@ -28,18 +28,29 @@ func TestJoinWheels(t *testing.T) {
 }
 
 func TestTireLowPayloadRepeatsTheTruckAndNothingElse(t *testing.T) {
-	p := TireLowPayload("R1S", []string{"fl"})
-	if p.Title != "Low tire pressure" || p.Body != "R1S reports low tire pressure: front left." ||
+	const advice = " Check the tire and follow your truck's warning."
+	p := TireLowPayload("R1S", []string{"fl"}, nil)
+	if p.Title != "Low tire pressure" || p.Body != "R1S reports low tire pressure: front left."+advice ||
 		p.Kind != "tire_low" || p.URL != "/" || p.Tag != "rivolt-tire-low" {
 		t.Errorf("payload = %+v", p)
 	}
-	if b := TireLowPayload("", []string{"fl", "rr"}).Body; b != "Your vehicle reports low tire pressure: front left and rear right." {
+	if b := TireLowPayload("", []string{"fl", "rr"}, nil).Body; b != "Your vehicle reports low tire pressure: front left and rear right."+advice {
 		t.Errorf("no model: %q", b)
 	}
-	// No figure, no place, no verdict and no advice, whatever the wheels.
-	for _, w := range [][]string{{"fl"}, {"fl", "fr", "rl", "rr"}, nil} {
-		b := strings.ToLower(TireLowPayload("Truck", w).Body + " " + TireLowPayload("Truck", w).Title)
-		for _, bad := range []string{"safe", "unsafe", "danger", "psi", "bar", "inflate", "check your", "should", "home", "location", "flat"} {
+	// A puncture warning is named as one, saying only what the truck reports.
+	pp := TireLowPayload("R1S", nil, []string{"fl"})
+	if pp.Title != "Possible puncture" || pp.Body != "R1S reports a possible puncture: front left."+advice {
+		t.Errorf("puncture = %+v", pp)
+	}
+	mixed := TireLowPayload("R1S", []string{"rr"}, []string{"fl"})
+	if mixed.Title != "Tire warning" || mixed.Body != "R1S reports low tire pressure: rear right. R1S reports a possible puncture: front left."+advice {
+		t.Errorf("mixed = %+v", mixed)
+	}
+	// No figure, no place, no verdict and no advice beyond the truck's own warning, whatever the wheels.
+	for _, c := range [][2][]string{{{"fl"}, nil}, {{"fl", "fr", "rl", "rr"}, nil}, {nil, {"fr"}}, {{"fl"}, {"rr"}}, {nil, nil}} {
+		pl := TireLowPayload("Truck", c[0], c[1])
+		b := strings.ToLower(pl.Body + " " + pl.Title)
+		for _, bad := range []string{"safe", "unsafe", "danger", "psi", "bar", "inflate", "drive", "immediately", "home", "location", "flat", "fine", "ok"} {
 			if strings.Contains(b, bad) {
 				t.Errorf("%q contains %q", b, bad)
 			}

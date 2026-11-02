@@ -25,6 +25,8 @@ package tirelow
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"sort"
 	"strings"
@@ -117,7 +119,7 @@ type wheel struct {
 type Job struct {
 	Source Source
 	// Deliver sends the push to the account's devices that have the alert on.
-	Deliver func(ctx context.Context, uid uuid.UUID, model string, wheels []string) error
+	Deliver func(ctx context.Context, uid uuid.UUID, model string, low, puncture []string) error
 	// Live turns the real push on (a server flag, off by default). Off, the whole path runs for every account's truck but
 	// no push, no marker and no opt-in is involved: each episode that would have sent one is counted by WouldSend instead
 	// (the class label only: the low word) and logged. Counted per episode, in memory: a restart can count one again.
@@ -249,10 +251,10 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 		if j.WouldSend != nil {
 			j.WouldSend(class)
 		}
-		// One WARN per would-be episode, for checking each against the owner's truck: the internal user id and the wheels, nothing
-		// else. Remove this line when the real push goes live.
+		// One WARN per would-be episode, for checking each against the owner's truck: a short hash of the user id (looked up only
+		// when explaining one) and the wheels, nothing else. Remove this line when the real push goes live.
 		if j.Logger != nil {
-			j.Logger.Warn("tire-low: would send (dry run)", "user_id", v.UserID.String(), "wheels", strings.Join(sustained, ","), "class", class)
+			j.Logger.Warn("tire-low: would send (dry run)", "user", shortID(v.UserID), "wheels", strings.Join(sustained, ","), "class", class)
 		}
 		return
 	}
@@ -267,7 +269,15 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 	if !won {
 		return // another pod, an earlier run, or a recent alert for these wheels already covers it
 	}
-	if err := j.Deliver(ctx, v.UserID, v.Model, sustained); err != nil {
+	var low, puncture []string
+	for _, pos := range sustained {
+		if ws[pos].word == "warning_puncture" {
+			puncture = append(puncture, pos)
+		} else {
+			low = append(low, pos)
+		}
+	}
+	if err := j.Deliver(ctx, v.UserID, v.Model, low, puncture); err != nil {
 		j.log("tire-low: no alert delivered", "user_id", v.UserID.String(), "err", err.Error())
 		return
 	}
@@ -278,4 +288,10 @@ func (j *Job) log(msg string, args ...any) {
 	if j.Logger != nil {
 		j.Logger.Info(msg, args...)
 	}
+}
+
+// shortID is a short hash of the user id for the soak log: enough to look one account up, not the id itself.
+func shortID(id uuid.UUID) string {
+	h := sha256.Sum256([]byte(id.String()))
+	return hex.EncodeToString(h[:4])
 }

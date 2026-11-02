@@ -217,17 +217,32 @@ func JoinWheels(pos []string) string {
 }
 
 // TireLowPayload is the tire-low alert. It repeats what the truck itself reports and no more: the vehicle's model (never
-// the user's own nickname for it: it shows on the lock screen) and which wheels, by position. No pressure figure, no
-// place, no "safe" or "unsafe", no advice: a missing alert is never a promise that the tires are fine. The tap opens the
-// app.
-func TireLowPayload(model string, wheels []string) Payload {
+// the user's own nickname for it: it shows on the lock screen) and which wheels, by position, with a possible puncture named
+// as that and not as low pressure. No pressure figure, no place, no "safe" or "unsafe", no advice beyond the truck's own
+// warning: a missing alert is never a promise that the tires are fine. The tap opens the app.
+func TireLowPayload(model string, low, puncture []string) Payload {
 	truck := "Your vehicle"
 	if m := strings.TrimSpace(model); m != "" {
 		truck = m
 	}
+	var parts []string
+	if len(low) > 0 || len(puncture) == 0 {
+		parts = append(parts, fmt.Sprintf("%s reports low tire pressure: %s.", truck, JoinWheels(low)))
+	}
+	if len(puncture) > 0 {
+		parts = append(parts, fmt.Sprintf("%s reports a possible puncture: %s.", truck, JoinWheels(puncture)))
+	}
+	parts = append(parts, "Check the tire and follow your truck's warning.")
+	title := "Low tire pressure"
+	switch {
+	case len(puncture) > 0 && len(low) == 0:
+		title = "Possible puncture"
+	case len(puncture) > 0:
+		title = "Tire warning"
+	}
 	return Payload{
-		Title: "Low tire pressure",
-		Body:  fmt.Sprintf("%s reports low tire pressure: %s.", truck, JoinWheels(wheels)),
+		Title: title,
+		Body:  strings.Join(parts, " "),
 		Tag:   "rivolt-tire-low",
 		URL:   "/",
 		Kind:  "tire_low",
@@ -236,7 +251,7 @@ func TireLowPayload(model string, wheels []string) Payload {
 
 // DeliverTireLow sends the tire-low alert to every device of the store's user that has it on, and waits. It reports how
 // many sends succeeded; an error means none did.
-func (s *Service) DeliverTireLow(ctx context.Context, store *Store, model string, wheels []string) (int, error) {
+func (s *Service) DeliverTireLow(ctx context.Context, store *Store, model string, low, puncture []string) (int, error) {
 	if s == nil || store == nil {
 		return 0, errors.New("push: not configured")
 	}
@@ -244,7 +259,7 @@ func (s *Service) DeliverTireLow(ctx context.Context, store *Store, model string
 	if err != nil {
 		return 0, err
 	}
-	p := TireLowPayload(model, wheels)
+	p := TireLowPayload(model, low, puncture)
 	var ok int
 	var last error
 	for _, sub := range subs {

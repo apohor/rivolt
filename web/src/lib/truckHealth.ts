@@ -27,7 +27,7 @@ export type Wheel = { pos: TirePos; label: string; bar: number | null; psi: numb
 // Any other word (including "normal") makes no claim: the card shows the pressure only and never calls a wheel OK in our words.
 const RIVIAN_LOW_WORDS = new Set(["warning_soft", "warning_hard", "warning_puncture"]);
 export const rivianSaysLow = (status: string | undefined | null): boolean =>
-  RIVIAN_LOW_WORDS.has((status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_"));
+  RIVIAN_LOW_WORDS.has((status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/^tire_pressure_status_/, ""));
 
 type TireFields = Pick<
   VehicleState,

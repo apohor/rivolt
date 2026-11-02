@@ -2,6 +2,7 @@ package tirelow
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,11 +34,12 @@ func (f *fakeSource) Claim(_ context.Context, _, _ uuid.UUID, _ time.Time, wheel
 func (f *fakeSource) Prune(context.Context, time.Time) (int64, error) { return 0, nil }
 
 type rig struct {
-	t    *testing.T
-	src  *fakeSource
-	job  *Job
-	now  time.Time
-	sent [][]string
+	t     *testing.T
+	src   *fakeSource
+	job   *Job
+	now   time.Time
+	sent  [][]string
+	punct [][]string
 }
 
 func newRig(t *testing.T) *rig {
@@ -47,8 +49,9 @@ func newRig(t *testing.T) *rig {
 		Source: r.src,
 		Live:   true,
 		Now:    func() time.Time { return r.now },
-		Deliver: func(_ context.Context, _ uuid.UUID, _ string, wheels []string) error {
-			r.sent = append(r.sent, wheels)
+		Deliver: func(_ context.Context, _ uuid.UUID, _ string, low, puncture []string) error {
+			r.sent = append(r.sent, append(append([]string{}, low...), puncture...))
+			r.punct = append(r.punct, puncture)
 			return nil
 		},
 	}
@@ -290,5 +293,16 @@ func TestLiveAsksOnlyForTrucksWhoseOwnerTurnedItOn(t *testing.T) {
 		if all {
 			t.Fatal("the live job asked for every account's trucks")
 		}
+	}
+}
+
+// A puncture warning is named as such; a low-pressure wheel in the same episode keeps its own wording.
+func TestAPunctureWarningIsDeliveredSeparatelyFromLowPressure(t *testing.T) {
+	r := newRig(t)
+	both := state("P", "Warning_Soft", "Normal", "Normal", "WARNING_PUNCTURE")
+	r.tick(0, both, false)
+	r.tick(31*time.Minute, both, false)
+	if len(r.sent) != 1 || strings.Join(r.punct[0], ",") != "rr" || strings.Join(r.sent[0], ",") != "fl,rr" {
+		t.Errorf("sent %v, puncture %v; want fl as low pressure and rr as the puncture", r.sent, r.punct)
 	}
 }

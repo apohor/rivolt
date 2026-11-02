@@ -424,7 +424,8 @@ enum TruckLogic {
 
     static func rivianSaysLow(_ status: String?) -> Bool {
         let key = (status ?? "").trimmingCharacters(in: .whitespaces).lowercased().split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).joined(separator: "_")
-        return rivianLowWords.contains(key)
+        let bare = key.hasPrefix("tire_pressure_status_") ? String(key.dropFirst("tire_pressure_status_".count)) : key
+        return rivianLowWords.contains(bare)
     }
 
     /// The four wheels, front row first as on the truck. A wheel that sent no pressure (0) has no number and is never marked low on the

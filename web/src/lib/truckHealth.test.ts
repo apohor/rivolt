@@ -76,8 +76,8 @@ describe("tireWheels", () => {
     expect(tireWheels({ ...base, tire_pressure_fl_bar: 0, tire_pressure_fr_bar: 0, tire_pressure_rl_bar: 0, tire_pressure_rr_bar: 0 })).toBeNull();
   });
   it("reads only a fixed list of Rivian's low words", () => {
-    for (const v of ["warning_soft", "Warning_Soft", " WARNING_HARD ", "warning puncture", "warning-hard"]) expect(rivianSaysLow(v)).toBe(true);
-    for (const v of ["", "Normal", "unknown", "undefined", "high", "lowish", "UNSPECIFIED", "unspecified", "NORMAL", "low", "critical", "very low"]) expect(rivianSaysLow(v)).toBe(false);
+    for (const v of ["warning_soft", "Warning_Soft", " WARNING_HARD ", "warning puncture", "warning-hard", "WARNING_SOFT", "TIRE_PRESSURE_STATUS_WARNING_SOFT", "tire_pressure_status_warning_hard"]) expect(rivianSaysLow(v)).toBe(true);
+    for (const v of ["", "Normal", "unknown", "undefined", "high", "lowish", "UNSPECIFIED", "unspecified", "NORMAL", "low", "critical", "very low", "TIRE_PRESSURE_STATUS_NORMAL", "TIRE_PRESSURE_STATUS_UNSPECIFIED"]) expect(rivianSaysLow(v)).toBe(false);
   });
 });
 
