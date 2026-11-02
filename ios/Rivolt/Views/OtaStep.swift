@@ -17,12 +17,13 @@ struct OtaStep: Equatable {
         "installing": "Installing", "install_success": "Installed", "connection_lost": "Update connection lost",
     ]
 
-    init?(_ ota: Vehicle.OTA?) {
-        guard let ota, let step = ota.step, let word = Self.words[step] else { return nil }
+    /// From the step word, the install percent and the pending version. (Kept free of the app's models: the widget builds a `NowSummary` too.)
+    init?(step: String?, progress: Int?, version available: String?) {
+        guard let step, let word = Self.words[step] else { return nil }
         self.key = step
         self.word = word
-        if step == "installing", let p = ota.installProgress { pct = min(100, max(0, p)) } else { pct = nil }
-        let v = (ota.available?.version ?? "").trimmingCharacters(in: .whitespaces)
+        if step == "installing", let p = progress { pct = min(100, max(0, p)) } else { pct = nil }
+        let v = (available ?? "").trimmingCharacters(in: .whitespaces)
         version = v.isEmpty || v.allSatisfy({ $0 == "0" || $0 == "." }) ? nil : v
     }
 
