@@ -51,43 +51,6 @@ export function tireWheels(s: TireFields): Wheel[] | null {
   return wheels.some((w) => w.bar != null) ? wheels : null;
 }
 
-// Software update state from the live feed's otaStatus and otaInstallProgress. A fixed list of the truck's own words, after trimming,
-// lower-casing and turning spaces and hyphens into "_": idle, empty or any other word means no update state and no claim. An R2 has none.
-export type OtaPhase = "downloading" | "ready" | "installing";
-const OTA_WORDS: Record<string, OtaPhase> = {
-  downloading: "downloading",
-  download: "downloading",
-  download_in_progress: "downloading",
-  ready_to_install: "ready",
-  ready_for_install: "ready",
-  installing: "installing",
-  install: "installing",
-  install_in_progress: "installing",
-};
-// The scale of otaInstallProgress: its maximum value (100 for percent, 1 for a fraction). Null until confirmed from real frames, and while
-// it is null no number is shown, only the state: never "4000%" or "0.4%".
-export const OTA_PROGRESS_MAX: number | null = null;
-
-export type OtaUpdate = { phase: OtaPhase; version: string | null; pct: number | null };
-
-export function otaUpdate(s: Pick<VehicleState, "ota_status" | "ota_install_progress" | "ota_current_version" | "ota_available_version">): OtaUpdate | null {
-  const phase = OTA_WORDS[(s.ota_status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_")];
-  if (!phase) return null;
-  let pct: number | null = null;
-  const p = s.ota_install_progress;
-  if (OTA_PROGRESS_MAX != null && phase !== "ready" && Number.isFinite(p) && p > 0 && p <= OTA_PROGRESS_MAX) pct = Math.round((p / OTA_PROGRESS_MAX) * 100);
-  return { phase, version: softwareInfo(s)?.available ?? null, pct };
-}
-
-// "2026.38 · Downloading 40%", "Ready to install", "Installing software 2026.38 · 40%" (Now). The truck's state in plain words, never
-// an instruction or an estimate.
-export function otaLine(u: OtaUpdate, where: "truck" | "now" = "truck"): string {
-  const num = u.pct != null ? ` ${u.pct}%` : "";
-  if (where === "now") return `Installing software${u.version ? ` ${u.version}` : ""}${u.pct != null ? ` · ${u.pct}%` : ""}`;
-  const word = u.phase === "downloading" ? `Downloading${num}` : u.phase === "ready" ? "Ready to install" : `Installing${num}`;
-  return u.version ? `${u.version} · ${word}` : word;
-}
-
 // The truck's software update step as the server reports it (`ota.step`, `ota.install_progress` on /api/vehicles). Only the ten steps the truck
 // is known to send are named, in plain words; "unknown", any other word and no step at all show nothing (a failed update arrives as "unknown", so
 // "Updating…" would falsely say it is in progress). The bar is for "installing" with a number only; "Installed" is for install_success only,
@@ -102,9 +65,9 @@ const OTA_STEPS: Record<string, string> = {
   awaiting_install: "Waiting to install",
   installing: "Installing",
   install_success: "Installed",
-  connection_lost: "Connection lost",
+  connection_lost: "Update connection lost",
 };
-export type OtaStep = { word: string; pct: number | null; version: string | null };
+export type OtaStep = { key: string; word: string; pct: number | null; version: string | null };
 
 export function otaStep(ota: { step?: string; install_progress?: number; available?: { version?: string } } | undefined | null): OtaStep | null {
   const word = ota?.step ? OTA_STEPS[ota.step] : undefined;
@@ -112,7 +75,12 @@ export function otaStep(ota: { step?: string; install_progress?: number; availab
   const p = ota.install_progress;
   const pct = ota.step === "installing" && typeof p === "number" && Number.isFinite(p) ? Math.min(100, Math.max(0, Math.round(p))) : null;
   const v = (ota.available?.version ?? "").trim();
-  return { word, pct, version: v && !/^0+(\.0+)*$/.test(v) ? v : null };
+  return { key: ota.step!, word, pct, version: v && !/^0+(\.0+)*$/.test(v) ? v : null };
+}
+
+// Now's line while it installs: "Installing software 2026.38 · 37%".
+export function otaNowLine(u: OtaStep): string {
+  return `Installing software${u.version ? ` ${u.version}` : ""}${u.pct != null ? ` · ${u.pct}%` : ""}`;
 }
 
 // "2026.38 · Installing 37%", "Ready to install".
@@ -176,4 +144,11 @@ export function sleepHealthLines(h: SleepHealth): SleepHealthLines {
     return { headline: `Woke ${by} more ${by === 1 ? "time" : "times"} than usual this week.`, detail, basis };
   }
   return { headline: "Nothing unusual this week.", detail, basis };
+}
+
+// The same step from the live-state response (`GET /api/state`: `ota_step`, `ota_install_percent`, read from the monitor, no Rivian call). Absent on a
+// server that does not send them yet: nothing to show, not an error.
+export function otaStepFromState(s: { ota_step?: string; ota_install_percent?: number; ota_available_version?: string } | undefined | null): OtaStep | null {
+  if (!s) return null;
+  return otaStep({ step: s.ota_step, install_progress: s.ota_install_percent, available: { version: s.ota_available_version } });
 }

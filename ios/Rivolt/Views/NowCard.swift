@@ -163,7 +163,7 @@ struct NowCard: View {
                 readout("Cabin", cabin)
             }
             if let install = summary.liveInstall {
-                Text(install.line(onNow: true)).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                Text(install.nowLine).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             if let comfort = summary.liveComfort, !comfort.lineText.isEmpty {
                 Text(comfort.lineText).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
@@ -238,7 +238,7 @@ struct NowCard: View {
         if let temp = summary.outsideTempC {
             parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
         }
-        if let install = summary.liveInstall { parts.append(install.line(onNow: true) + ".") }
+        if let install = summary.liveInstall { parts.append(install.nowLine + ".") }
         if let comfort = summary.liveComfort { parts.append(comfort.spokenText + ".") }
         parts.append(SpokenText.words(footer) + ".")
         return parts.joined(separator: " ")

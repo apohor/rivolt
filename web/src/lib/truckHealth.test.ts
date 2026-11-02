@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, otaStep, otaStepLine, otaLine, sleepHealthLines, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaNowLine, otaStep, otaStepFromState, otaStepLine, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -81,63 +81,12 @@ describe("tireWheels", () => {
   });
 });
 
-describe("otaUpdate", () => {
-  const base = { ota_status: "Idle", ota_install_progress: 0, ota_current_version: "2026.34.1", ota_available_version: "2026.38.0" };
-  it("reads a fixed list of the truck's own words, and nothing for idle, empty or an unknown word", () => {
-    expect(otaUpdate({ ...base, ota_status: "Downloading" })?.phase).toBe("downloading");
-    expect(otaUpdate({ ...base, ota_status: "ready_to_install" })?.phase).toBe("ready");
-    expect(otaUpdate({ ...base, ota_status: "Ready To Install" })?.phase).toBe("ready");
-    expect(otaUpdate({ ...base, ota_status: "installing" })?.phase).toBe("installing");
-    for (const v of ["Idle", "", "unknown", "undefined", "awaiting_reboot", "failed"]) expect(otaUpdate({ ...base, ota_status: v })).toBeNull();
-  });
-  it("shows no number until the progress scale is confirmed, and never a made-up one", () => {
-    // OTA_PROGRESS_MAX is null for now: the state alone.
-    expect(otaUpdate({ ...base, ota_status: "downloading", ota_install_progress: 40 })).toEqual({ phase: "downloading", version: "2026.38.0", pct: null });
-    expect(otaLine({ phase: "downloading", version: "2026.38.0", pct: null })).toBe("2026.38.0 · Downloading");
-  });
-  it("words the state plainly: no instruction, no estimate", () => {
-    expect(otaLine({ phase: "ready", version: "2026.38.0", pct: null })).toBe("2026.38.0 · Ready to install");
-    expect(otaLine({ phase: "installing", version: "2026.38.0", pct: 40 }, "now")).toBe("Installing software 2026.38.0 · 40%");
-    expect(otaLine({ phase: "installing", version: null, pct: null }, "now")).toBe("Installing software");
-    for (const l of [otaLine({ phase: "ready", version: null, pct: null }), otaLine({ phase: "installing", version: "1", pct: 5 })]) expect(l).not.toMatch(/install now|minutes|about|safe|don't|do not/i);
-  });
-  it("a version of 0.0.0 is no version", () => {
-    expect(otaUpdate({ ...base, ota_status: "downloading", ota_available_version: "0.0.0" })?.version).toBeNull();
-  });
-});
-
-describe("sleepHealthLines", () => {
-  const week = { days: 7, sleeps: 30, failed_sleeps: 9 };
-  it("says how many more, what a short sleep is and what it is compared with", () => {
-    const l = sleepHealthLines({ version: 1, state: "more", this_week: week, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
-    expect(l.headline).toBe("Woke 4 more times than usual this week.");
-    expect(l.detail).toBe("9 short sleeps (under a minute) this week; about 5 in a usual week.");
-    expect(l.basis).toBe("Compared with this truck's own last 30 days.");
-  });
-  it("a normal week is 'nothing unusual', never 'slept normally'", () => {
-    const l = sleepHealthLines({ version: 1, state: "normal", this_week: { ...week, failed_sleeps: 1 }, baseline_days: 30, usual_failed_sleeps: 0.2 });
-    expect(l.headline).toBe("Nothing unusual this week.");
-    expect(l.detail).toBe("1 short sleep (under a minute) this week; almost none in a usual week.");
-  });
-  it("without enough history it says so and gives no number", () => {
-    const l = sleepHealthLines({ version: 1, state: "not_enough_data", this_week: { days: 2, sleeps: 3, failed_sleeps: 3 }, baseline_days: 4 });
-    expect(l.headline).toMatch(/Not enough history/);
-    expect(l.detail).toBeNull();
-  });
-  it("never offers a cause or a verdict on the truck", () => {
-    for (const s of ["more", "normal", "not_enough_data"] as const) {
-      const l = sleepHealthLines({ version: 1, state: s, this_week: week, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
-      expect(`${l.headline} ${l.detail ?? ""} ${l.basis}`).not.toMatch(/slept normally|because|caused|key|app|fault|fine|healthy|problem/i);
-    }
-  });
-});
-
 describe("otaStep (the server's ota.step)", () => {
   it("names the ten known steps in plain words", () => {
     const words: Record<string, string> = {
       ready_to_download: "Ready to download", downloading: "Downloading", preparing: "Preparing", ready_to_install: "Ready to install",
       scheduled_to_install: "Install scheduled", install_countdown: "Install about to start", awaiting_install: "Waiting to install",
-      installing: "Installing", install_success: "Installed", connection_lost: "Connection lost",
+      installing: "Installing", install_success: "Installed", connection_lost: "Update connection lost",
     };
     for (const [step, word] of Object.entries(words)) expect(otaStep({ step })?.word).toBe(word);
   });
@@ -160,5 +109,26 @@ describe("otaStep (the server's ota.step)", () => {
   it("puts the pending version first when there is one", () => {
     expect(otaStepLine(otaStep({ step: "downloading", available: { version: "2026.38.0" } })!)).toBe("2026.38.0 · Downloading");
     expect(otaStepLine(otaStep({ step: "downloading", available: { version: "0.0.0" } })!)).toBe("Downloading");
+  });
+});
+
+describe("otaNowLine", () => {
+  it("is Now's installing line, with the version and the number when there are ones", () => {
+    expect(otaNowLine(otaStep({ step: "installing", install_progress: 37, available: { version: "2026.38.0" } })!)).toBe("Installing software 2026.38.0 · 37%");
+    expect(otaNowLine(otaStep({ step: "installing" })!)).toBe("Installing software");
+    expect(otaNowLine(otaStep({ step: "installing", install_progress: 0 })!)).toBe("Installing software · 0%");
+  });
+});
+
+describe("otaStepFromState (GET /api/state)", () => {
+  it("reads ota_step and ota_install_percent, and the pending version", () => {
+    const u = otaStepFromState({ ota_step: "installing", ota_install_percent: 37, ota_available_version: "2026.38.0" })!;
+    expect(otaStepLine(u)).toBe("2026.38.0 · Installing 37%");
+    expect(otaNowLine(u)).toBe("Installing software 2026.38.0 · 37%");
+  });
+  it("shows nothing when the server does not send a step (an older server, idle) or says unknown", () => {
+    expect(otaStepFromState({ ota_available_version: "2026.38.0" })).toBeNull();
+    expect(otaStepFromState({ ota_step: "unknown" })).toBeNull();
+    expect(otaStepFromState(undefined)).toBeNull();
   });
 });

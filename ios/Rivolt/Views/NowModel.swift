@@ -54,13 +54,13 @@ struct NowSummary: Equatable {
     var holdOffline = false
     /// Cabin temperature, preconditioning, pet mode and climate hold as the newest frame reports them.
     let comfort: NowComfort?
-    let update: NowUpdate?
+    let update: OtaStep?
 
     /// The comfort line to show: only while the frame is live. A stale, offline, paused or to-be-reconnected truck shows
     /// none, so an old "Pet mode on" is never read as current.
     /// The software update, only while the truck says it is installing and the frame is live: it explains why the truck may stop answering.
-    var liveInstall: NowUpdate? {
-        presence == .live && freshness != .needsReconnect && freshness != .paused && update?.phase == .installing ? update : nil
+    var liveInstall: OtaStep? {
+        presence == .live && freshness != .needsReconnect && freshness != .paused && update?.key == "installing" ? update : nil
     }
 
     var liveComfort: NowComfort? {
@@ -82,13 +82,13 @@ struct NowSummary: Equatable {
         var packKwh: Double?
         var speedKph: Double?
         var comfort: NowComfort?
-        var update: NowUpdate?
+        var update: OtaStep?
         var timeToEndMins: Double?
         var timeToEndValidity: String?
 
         init(socPct: Double?, rangeKm: Double?, chargeTargetPct: Double?, gear: String?, powerState: String?,
              chargerState: String?, chargerPowerKw: Double?, at: Date?, packKwh: Double? = nil, speedKph: Double? = nil,
-             comfort: NowComfort? = nil, update: NowUpdate? = nil, timeToEndMins: Double? = nil, timeToEndValidity: String? = nil) {
+             comfort: NowComfort? = nil, update: OtaStep? = nil, timeToEndMins: Double? = nil, timeToEndValidity: String? = nil) {
             self.socPct = socPct
             self.rangeKm = rangeKm
             self.chargeTargetPct = chargeTargetPct
@@ -110,7 +110,7 @@ struct NowSummary: Equatable {
                       gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
                       chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh, speedKph: s.speedKph,
                       comfort: NowComfort(cabinTempC: s.cabinTempC, preconditioning: s.cabinPreconditioningStatus, petMode: s.petModeStatus, cabinHold: s.cabinHoldStatus),
-                      update: NowUpdate(s), timeToEndMins: s.timeToEndMins, timeToEndValidity: s.chargingTimeEstimationValidity)
+                      update: OtaStep(s), timeToEndMins: s.timeToEndMins, timeToEndValidity: s.chargingTimeEstimationValidity)
         }
     }
 

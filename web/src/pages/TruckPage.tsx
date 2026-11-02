@@ -18,7 +18,7 @@ import { LeaseCard } from "../components/LeaseCard";
 import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { otaStep, otaStepLine, sleepHealthLines, sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
+import { otaStepFromState, otaStepLine, sleepHealthLines, sleepSummary, softwareInfo, tireWheels, type Wheel } from "../lib/truckHealth";
 import { formatAgo } from "../lib/nowState";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
@@ -87,10 +87,9 @@ export default function TruckPage() {
   const s = stateQ.data;
   const wheels = s ? tireWheels(s) : null;
   const software = s ? softwareInfo(s) : null;
-  // The truck's own update step, from the vehicle list (the server's `ota.step`): none when idle or unknown.
-  const update = otaStep(vehicle?.ota);
-  const fetchedAt = vehicle?.ota?.fetched_at ? Date.parse(vehicle.ota.fetched_at) : NaN;
-  const updateAgeSec = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : 0;
+  // The truck's own update step, from the live state the page already polls (`ota_step`): none when idle or unknown.
+  const update = otaStepFromState(s);
+  const updateAgeSec = s ? Math.max(0, (Date.now() - Date.parse(s.at)) / 1000) : 0;
   const name = vehicle?.name || "Your truck";
 
   if (!selectedID) {

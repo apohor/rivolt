@@ -155,6 +155,8 @@ targets:
         buildPhase: resources
       - path: Rivolt/Views/NowModel.swift
       - path: Rivolt/Views/NowComfort.swift
+      - path: Rivolt/Views/OtaStep.swift
+      - path: Rivolt/Views/OtaStep+Vehicle.swift
       - path: Rivolt/Views/NowInk.swift
       # The charge time left (the truck's own figure, else ours), which NowModel reads.
       - path: Rivolt/Views/ChargeETA.swift

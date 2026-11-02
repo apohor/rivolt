@@ -54,7 +54,7 @@ final class NowCardSnapshotTests: XCTestCase {
         let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         let input = NowSummary.Input(socPct: 72, rangeKm: 330, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: "charger_disconnected",
-                                     chargerPowerKw: 0, at: at, update: NowUpdate(status: "installing", progress: 40, current: "2026.34.1", available: "2026.38.0"))
+                                     chargerPowerKw: 0, at: at, update: OtaStep(step: "installing", progress: 37, version: "2026.38.0"))
         try snapshot("now-installing", NowCard(vehicle: vehicle, summary: NowSummary(input: input, now: nil, clock: at.addingTimeInterval(15)), clock: at.addingTimeInterval(15)))
     }
 
