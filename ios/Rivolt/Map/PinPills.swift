@@ -4,7 +4,7 @@ import SwiftUI
 /// clear of the legend, the credit and each other; one pill for a round trip (the two pins on the same spot). Placement is plain geometry
 /// so it can be tested; the pins' screen positions come from the map after it has fitted the route.
 enum PinPills {
-    static let height: CGFloat = 22
+    static let height: CGFloat = 16
     /// The gap between a pin's centre and the pill's near edge (the pin is 6 pt in radius, 2 pt of ring).
     static let gap: CGFloat = 12
     static let margin: CGFloat = 6
@@ -22,7 +22,7 @@ enum PinPills {
     }
 
     /// A rough width for a one-line pill at the map caption size: enough to test collisions, never used to draw.
-    static func estimatedWidth(_ text: String) -> CGFloat { CGFloat(text.count) * 6.4 + 22 }
+    static func estimatedWidth(_ text: String) -> CGFloat { CGFloat(text.count) * 5.6 + 10 }
 
     /// One end of the drive in a pill: its name ("Start", "End") and its time.
     struct Part: Equatable {
@@ -38,8 +38,9 @@ enum PinPills {
         }
     }
 
-    /// The pill with no times: "Start", "End", or "Start · End".
-    static func shortText(_ text: String) -> String { parts(of: text).map(\.name).joined(separator: " · ") }
+    /// What the pill shows: just the time ("12:46 AM"), or "12:46 AM → 12:55 AM" for a round trip. The pin's colour says which end it is, and the
+    /// legend card under the map says both again; VoiceOver reads the full "Start 12:46 AM".
+    static func timeOnly(_ text: String) -> String { parts(of: text).map(\.time).filter { !$0.isEmpty }.joined(separator: " → ") }
 
     static func text(start: String?, end: String?, shared: Bool) -> (start: String?, end: String?, both: String?) {
         let s = start.map { "Start \($0)" }, e = end.map { "End \($0)" }
@@ -116,31 +117,22 @@ enum PinPills {
     }
 }
 
-/// A pill as quiet as the map's other captions: the end's name in the secondary colour, its time in the primary one with digits that keep
-/// their width, medium weight, no dot (the pin beside it already has the colour). It stops growing with Dynamic Type at xxxLarge.
+/// A pill as small and light as the map's other captions: just the time, 10 pt, medium weight, digits that keep their width, a faint background
+/// and no outline (the pin beside it has the colour). It stops growing with Dynamic Type at xxxLarge.
 struct PinPill: View {
-    let parts: [PinPills.Part]
+    let text: String
     let label: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
-                if i > 0 { Text("·").foregroundStyle(Theme.textTertiary) }
-                HStack(spacing: 3) {
-                    Text(part.name).foregroundStyle(part.time.isEmpty ? Theme.textPrimary : Theme.textSecondary)
-                    if !part.time.isEmpty { Text(part.time).monospacedDigit().foregroundStyle(Theme.textPrimary) }
-                }
-            }
-        }
-        .lineLimit(1).fixedSize()
-        .font(Theme.sans(ThemeTokens.typeMapCaption, .medium, relativeTo: .caption2))
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .padding(.horizontal, 8).frame(height: PinPills.height)
-        .background(Theme.background.opacity(0.72), in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.border.opacity(0.7), lineWidth: 1))
-        .fixedSize()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
+        Text(text).monospacedDigit().lineLimit(1).fixedSize()
+            .font(Theme.sans(10, .medium, relativeTo: .caption2))
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 5).frame(height: PinPills.height)
+            .background(Theme.background.opacity(0.6), in: Capsule())
+            .fixedSize()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
     }
 }
 
@@ -182,23 +174,17 @@ struct PinPillsOverlay: View {
         var out: [Item] = []
         func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ line: [CGPoint]) {
             guard let text, let pin else { return }
-            // The name and time where a side of the pin is free; else just the name ("Start", "End") where that fits; else where it overlaps least.
-            let full = PinPills.placeOpt(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line, onlyClear: true)
-            let short = PinPills.shortText(text)
-            if let full {
-                taken.append(full.rect)
-                out.append(Item(id: id, text: text, spoken: text, spot: full))
-            } else if let s = PinPills.placeOpt(pin: pin, width: PinPills.estimatedWidth(short), in: size, avoiding: taken, line: line, onlyClear: true) {
-                taken.append(s.rect)
-                out.append(Item(id: id, text: short, spoken: text, spot: s))
-            } else if obstacles != nil {
-                // Measured, and not even the name fits clear of the legend, the credit and the line: no pill (the pin and the page's own time say it),
-                // rather than one drawn over something.
-                return
-            } else {
-                let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
+            // The time where a side of the pin is free (inside the map, clear of the credit, the expand mark and the line); no pill where none is.
+            let shown = PinPills.timeOnly(text)
+            guard !shown.isEmpty else { return }
+            if let spot = PinPills.placeOpt(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(shown), in: size, avoiding: taken, line: line, onlyClear: true) {
                 taken.append(spot.rect)
-                out.append(Item(id: id, text: text, spoken: text, spot: spot))
+                out.append(Item(id: id, text: shown, spoken: text.replacingOccurrences(of: " · ", with: ", "), spot: spot))
+            } else if obstacles == nil {
+                // Not measured yet: the old least-overlap placement, until the first measurement.
+                let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(shown), in: size, avoiding: taken, line: line)
+                taken.append(spot.rect)
+                out.append(Item(id: id, text: shown, spoken: text, spot: spot))
             }
         }
         if let both = t.both { add(0, both, start, startLine) } else {
@@ -216,7 +202,7 @@ struct PinPillsOverlay: View {
                 let alignment: Alignment = item.spot.side == .right ? .leading : item.spot.side == .left ? .trailing : .center
                 Color.clear.frame(width: 0, height: 0)
                     .overlay(alignment: alignment) {
-                        PinPill(parts: item.parts, label: item.spoken.isEmpty ? item.text : item.spoken)
+                        PinPill(text: item.text, label: item.spoken.isEmpty ? item.text : item.spoken)
                             .background(GeometryReader { g in Color.clear.preference(key: PillWidthKey.self, value: [item.id: g.size.width]) })
                     }
                     .position(x: item.spot.anchor.x, y: item.spot.anchor.y)
