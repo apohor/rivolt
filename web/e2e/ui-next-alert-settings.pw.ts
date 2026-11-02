@@ -187,7 +187,7 @@ test("Low tire pressure is off until the user turns it on, goes through its own 
   const { offs, optins, puts, subscribes } = await open(page, { off: 200, home: true });
   await expect(tireLow(page)).not.toBeChecked();
   // The help says it repeats the truck, is no replacement for the truck's own warning, and can be missed.
-  await expect(page.getByText(/doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep/)).toBeVisible();
+  await expect(page.getByText(/doesn't replace the truck's own warning, which you should always follow, and it can be missed if the truck is offline or asleep/)).toBeVisible();
   await tireLow(page).check();
   await expect.poll(() => optins.at(-1)).toEqual({ endpoint: "https://push.test/device-1", on_tire_low: true });
   // No time zone is saved for it (it is not scheduled), and the subscribe call never carries it.

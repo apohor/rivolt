@@ -2459,7 +2459,7 @@ export function NotificationsPanel() {
             ["on_plug_in_reminder", "Plug-in reminder", "One notification in the evening if the truck is parked at home, unplugged, and below the level you set."],
             ["on_milestones", "Milestones", "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."],
             ["on_left_open", "Left open", "A notification if a door, the frunk, the liftgate, the tailgate or the tonneau stays open for 15 minutes after the truck is parked and left. Not windows. It can be missed if the truck is offline, so never count on it to tell you the truck is closed. Off until you turn it on."],
-            ["on_tire_low", "Low tire pressure", "A notification when the truck itself has reported a tire low for 30 minutes, sent only while it is in Park. It repeats what the truck reports and doesn't replace the truck's own warning, and it can be missed if the truck is offline or asleep. Off until you turn it on."],
+            ["on_tire_low", "Low tire pressure", "A notification that repeats the truck's own low-pressure warning (or a possible puncture) when Rivolt sees it, after 30 minutes and only while the truck is in Park. It doesn't replace the truck's own warning, which you should always follow, and it can be missed if the truck is offline or asleep. Off until you turn it on."],
           ] as const
         ).map(([key, label, help]) => (
           <label key={key} className="flex items-start gap-2">
