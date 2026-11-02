@@ -94,7 +94,8 @@ for (const theme of ["dark", "light"] as const) {
     await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Tab");
     await expect(zoomIn).toBeFocused();
-    expect(await zoomIn.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    // The ring is a 2 px box inside the button (its ::after), drawn above the icon and the neighbouring button.
+    expect(await zoomIn.evaluate((el) => { const c = getComputedStyle(el, "::after"); return `${c.borderBottomStyle} ${c.borderBottomWidth}`; })).toBe("solid 2px");
     // The ring is closed on all four sides: the button below it does not cover its bottom edge (the point just inside the bottom edge hits
     // the focused button itself, not the next one).
     for (const zoom of [zoomIn, map.locator(".maplibregl-ctrl-zoom-out")]) {
@@ -110,6 +111,31 @@ for (const theme of ["dark", "light"] as const) {
       });
       expect(hit, "a neighbouring button covers the focused one's top or bottom edge").toBe(true);
       expect(await zoom.evaluate((el) => getComputedStyle(el).zIndex)).toBe("1");
+      // What is on screen, not only what is hit: the row of pixels just inside the bottom edge (and the top one) is the accent colour across the
+      // button's width (the corners are rounded, so the outer 4 px are left out).
+      const accent = await zoom.evaluate((el) => getComputedStyle(el, "::after").borderBottomColor);
+      const m = accent.match(/\d+/g)!.map(Number);
+      const box = (await zoom.boundingBox())!;
+      for (const [edge, y] of [["bottom", box.y + box.height - 1], ["top", box.y]] as const) {
+        const png = await page.screenshot({ clip: { x: box.x, y, width: box.width, height: 1 } });
+        const share = await page.evaluate(async ([b64, rgb]) => {
+          const img = new Image();
+          img.src = `data:image/png;base64,${b64}`;
+          await img.decode();
+          const c = document.createElement("canvas");
+          c.width = img.width;
+          c.height = img.height;
+          const ctx = c.getContext("2d")!;
+          ctx.drawImage(img, 0, 0);
+          const edge = Math.round(4 * (img.width / (img.naturalWidth || img.width)));
+          const px = ctx.getImageData(edge, 0, img.width - 2 * edge, 1).data;
+          let hit = 0;
+          const n = px.length / 4;
+          for (let i = 0; i < n; i++) if (Math.abs(px[i * 4] - rgb[0]) < 40 && Math.abs(px[i * 4 + 1] - rgb[1]) < 40 && Math.abs(px[i * 4 + 2] - rgb[2]) < 40) hit++;
+          return hit / n;
+        }, [png.toString("base64"), m] as const);
+        expect(share, `the ${edge} edge of the focused zoom button is drawn in the accent colour`).toBeGreaterThan(0.8);
+      }
     }
     expect(await zoomIn.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
     await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-zoom-${theme}.png`) });

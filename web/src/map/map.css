@@ -77,11 +77,20 @@
    invert filter on the (i) turns the default blue around). The (i) rings its whole credits box, because a filter would invert a ring drawn on
    the button itself. The accent is the theme's own variable, so light and dark each get their token. */
 .maplibregl-ctrl button:focus-visible {
-  outline: 2px solid var(--color-emerald-300, #5ee9b5);
-  outline-offset: -2px;
+  outline: none;
   /* The zoom buttons are stacked: the one below paints over the focused one's bottom edge unless the focused one is raised. */
   position: relative;
   z-index: 1;
+}
+/* The ring is a box of its own inside the button (not an outline, which the stacked neighbour's border and the group's clipping can cut on
+   the bottom edge), above the icon, so all four sides are drawn whatever sits next to it. */
+.maplibregl-ctrl button:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-emerald-300, #5ee9b5);
+  border-radius: inherit;
+  pointer-events: none;
 }
 .maplibregl-ctrl-attrib-button:focus-visible {
   outline: none;
