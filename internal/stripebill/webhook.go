@@ -195,6 +195,10 @@ func (h *Handler) checkoutCompleted(ctx context.Context, tx *sql.Tx, ev Event) (
 		return OutcomeIgnored, nil
 	}
 	ok, err := linkCustomer(ctx, tx, uid, cs.Customer)
+	if errors.Is(err, errCustomerOwned) {
+		h.warnCustomerOwned(ev)
+		return OutcomeIgnored, nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -204,8 +208,25 @@ func (h *Handler) checkoutCompleted(ctx context.Context, tx *sql.Tx, ev Event) (
 	return OutcomeApplied, nil
 }
 
+// errCustomerOwned: the Stripe customer is already another account's. Retrying cannot change that, so the event is acknowledged, not 500ed.
+var errCustomerOwned = errors.New("stripe: customer belongs to another account")
+
+func (h *Handler) warnCustomerOwned(ev Event) {
+	if h.Log != nil {
+		h.Log.Warn("stripe webhook: event names a customer that belongs to another account; ignored", "event", ev.ID, "type", ev.Type)
+	}
+}
+
 // linkCustomer records uid's Stripe customer. false: no such account (a deleted one), nothing recorded.
 func linkCustomer(ctx context.Context, tx *sql.Tx, uid uuid.UUID, customer string) (bool, error) {
+	// stripe_customer_id is UNIQUE: a customer that is another account's would fail the insert with a violation, a 500 Stripe retries for days.
+	var other uuid.UUID
+	switch err := tx.QueryRowContext(ctx, `SELECT user_id FROM billing_customers WHERE stripe_customer_id = $1 AND user_id <> $2`, customer, uid).Scan(&other); {
+	case err == nil:
+		return false, errCustomerOwned
+	case !errors.Is(err, sql.ErrNoRows):
+		return false, err
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO billing_customers (user_id, stripe_customer_id)
 		SELECT id, $2 FROM users WHERE id = $1
@@ -288,7 +309,10 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		return "", uuid.Nil, ErrUnmapped
 	}
 	if sub.Customer != "" {
-		if _, err := linkCustomer(ctx, tx, uid, sub.Customer); err != nil {
+		if _, err := linkCustomer(ctx, tx, uid, sub.Customer); errors.Is(err, errCustomerOwned) {
+			h.warnCustomerOwned(ev)
+			return OutcomeIgnored, uuid.Nil, nil
+		} else if err != nil {
 			return "", uuid.Nil, err
 		}
 	}
