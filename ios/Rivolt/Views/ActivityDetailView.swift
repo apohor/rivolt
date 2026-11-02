@@ -15,6 +15,13 @@ struct ActivityDetailView: View {
     /// A charge's row, read once for its map and its session card.
     @State private var chargeRow = ChargeRowModel()
     @State private var sharing: ActivityDrive?
+    /// The moment the timeline's cursor is on (drag or a moment button): the route map shows where the truck was, with the readout.
+    @State private var scrub: Date?
+
+    private var scrubReadout: String? {
+        guard let scrub, let data = driveDetail.timeline else { return nil }
+        return DriveTimelineCard.readout(data, at: scrub, calendar: calendar, metric: NowFormat.usesMetric)
+    }
 
     private var title: String {
         switch item {
@@ -49,7 +56,7 @@ struct ActivityDetailView: View {
                 if case .drive(let d) = item, d.hasTrailer {
                     Text("Trailer connected. This drive is left out of the efficiency figures.").themeText(.subline, color: Theme.textTertiary)
                 }
-                if case .drive = item { DriveRouteMap(phase: driveDetail.phase) }
+                if case .drive = item { DriveRouteMap(phase: driveDetail.phase, cursor: scrub, cursorReadout: scrubReadout) }
                 if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, row: chargeRow.phase, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
@@ -58,7 +65,7 @@ struct ActivityDetailView: View {
                     ForEach(tiles) { KpiTileView(tile: $0) }
                 }
                 if case .drive(let d) = item {
-                    DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar)
+                    DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar, onCursor: { scrub = $0 })
                 }
                 if case .charge(let c) = item { ChargeDetailSections(charge: c, row: chargeRow.phase.row, calendar: calendar) }
             }

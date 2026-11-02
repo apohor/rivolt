@@ -68,6 +68,8 @@ struct DriveTimelineCard: View {
     let data: DriveTimelineData?
     var calendar: Calendar = .current
     var metric: Bool = NowFormat.usesMetric
+    /// Told each time the cursor moves or clears (the route map draws a dot where the truck was).
+    var onCursor: (Date?) -> Void = { _ in }
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var cursor: Date?
@@ -77,6 +79,10 @@ struct DriveTimelineCard: View {
     private var speedUnit: String { metric ? "km/h" : "mph" }
 
     var body: some View {
+        timeline.onChange(of: cursor) { _, new in onCursor(new) }
+    }
+
+    private var timeline: some View {
         ThemeSection(title: "Drive timeline") {
             switch phase {
             case .loading:
@@ -95,16 +101,22 @@ struct DriveTimelineCard: View {
         return d.formatted(f)
     }
 
+    /// The moment under the cursor: its time, speed, modelled power and battery (the timeline's readout, and the map's chip).
+    static func readout(_ data: DriveTimelineData, at c: Date, calendar: Calendar, metric: Bool) -> String {
+        let k = metric ? 1.609344 : 1
+        var f = Date.FormatStyle(timeZone: calendar.timeZone).hour().minute()
+        f.calendar = calendar
+        let v = data.values(at: c)
+        var parts = [c.formatted(f)]
+        if let s = v.speed { parts.append("\(NumberText.fixed(s * k, 0)) \(metric ? "km/h" : "mph")") }
+        if let p = v.power { parts.append("\(NumberText.fixed(p, 0)) kW") }
+        if let b = v.soc { parts.append("battery \(NumberText.fixed(b, 0))%") }
+        return parts.joined(separator: " · ")
+    }
+
     /// The whole drive, or the moment under the cursor.
     private func summary(_ data: DriveTimelineData) -> String {
-        if let c = cursor {
-            let v = data.values(at: c)
-            var parts = [time(c)]
-            if let s = v.speed { parts.append("\(NumberText.fixed(s * k, 0)) \(speedUnit)") }
-            if let p = v.power { parts.append("\(NumberText.fixed(p, 0)) kW") }
-            if let b = v.soc { parts.append("battery \(NumberText.fixed(b, 0))%") }
-            return parts.joined(separator: " · ")
-        }
+        if let c = cursor { return Self.readout(data, at: c, calendar: calendar, metric: metric) }
         var parts = ["Whole drive", "max \(NumberText.fixed(drive.maxSpeedMph * k, 0)) \(speedUnit)", "avg \(NumberText.fixed(drive.avgSpeedMph * k, 0)) \(speedUnit)"]
         if drive.energyUsedKwh > 0 { parts.append("used \(NumberText.fixed(drive.energyUsedKwh, 1)) kWh") }
         parts.append("battery \(NumberText.fixed(drive.startSocPct, 0)) → \(NumberText.fixed(drive.endSocPct, 0))%")

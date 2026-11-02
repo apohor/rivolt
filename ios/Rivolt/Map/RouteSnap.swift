@@ -345,6 +345,27 @@ enum RouteSnap {
         return extras(of: coords.compactMap { nearestPoint($0, in: trace) })
     }
 
+    /// Where the truck was at `date`, from the drive's samples: between the two fixes either side (in proportion to the time), or the nearer
+    /// fix when they are further apart than a gap (so the dot never glides across a stretch with no recording). Nil with no usable fix.
+    static func cursorCoord(at date: Date, samples: [DriveSample]) -> Coord? {
+        let fixes = samples.filter { $0.lat.isFinite && $0.lon.isFinite && !($0.lat == 0 && $0.lon == 0) && abs($0.lat) <= 90 && abs($0.lon) <= 180 }
+            .sorted { $0.at < $1.at }
+        guard let first = fixes.first, let last = fixes.last else { return nil }
+        if date <= first.at { return Coord(lat: first.lat, lon: first.lon) }
+        if date >= last.at { return Coord(lat: last.lat, lon: last.lon) }
+        // The first fix after `date` (binary search).
+        var lo = 0, hi = fixes.count - 1
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if fixes[mid].at > date { hi = mid } else { lo = mid + 1 }
+        }
+        let a = fixes[lo - 1], b = fixes[lo]
+        let span = b.at.timeIntervalSince(a.at)
+        if span > gapTimeS { return date.timeIntervalSince(a.at) <= span / 2 ? Coord(lat: a.lat, lon: a.lon) : Coord(lat: b.lat, lon: b.lon) }
+        let f = span > 0 ? date.timeIntervalSince(a.at) / span : 0
+        return Coord(lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f)
+    }
+
     /// The recorded trace as drawn before (or without) snapping.
     static func raw(_ path: Path) -> Drawing {
         let coords = path.points.map { Coord(lat: $0.lat, lon: $0.lon) }
