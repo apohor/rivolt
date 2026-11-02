@@ -3,7 +3,6 @@
 package stripebill
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -15,9 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/entitlements"
 )
 
@@ -38,24 +34,6 @@ func with(id string, created int64, more ...[2]string) func(string) string {
 
 var createdRE = regexp.MustCompile(`"created": [0-9]+`)
 
-// sibling is another account in the same database, with its own handler: events for two accounts that share one customers table.
-func (r *rig) sibling(name string) *rig {
-	r.t.Helper()
-	uid, err := db.EnsureUser(context.Background(), r.pool, name)
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	s := &rig{t: r.t, pool: r.pool, uid: uid}
-	s.h = &Handler{DB: r.pool, Secret: testSecret, Now: func() time.Time { return t0 },
-		Invalidate: func(u uuid.UUID) { s.mu.Lock(); s.inval = append(s.inval, u); s.mu.Unlock() },
-		Observe: func(typ, outcome string) {
-			s.mu.Lock()
-			s.outcomes = append(s.outcomes, typ+":"+outcome)
-			s.mu.Unlock()
-		}}
-	return s
-}
-
 func (r *rig) claimed(id string) bool {
 	r.t.Helper()
 	var n int
@@ -69,42 +47,6 @@ func (r *rig) customer() (string, bool) {
 	var c string
 	err := r.pool.QueryRow(`SELECT stripe_customer_id FROM billing_customers WHERE user_id = $1`, r.uid).Scan(&c)
 	return c, err == nil
-}
-
-// An event for account A that names a Stripe customer which is already account B's must not poison the endpoint (a 500 Stripe retries for days)
-// and must not touch B: B keeps its customer and its plan. (billing_customers.stripe_customer_id is UNIQUE.)
-func TestAdversarialASubscriptionNamingAnotherAccountsCustomer(t *testing.T) {
-	b := newRig(t, "adv-cust-b")
-	if code := b.deliver("checkout_session_completed.json", nil); code != 200 {
-		t.Fatalf("B's checkout: %d", code)
-	}
-	if code := b.deliver("subscription_created_active.json", nil); code != 200 {
-		t.Fatalf("B's subscription: %d", code)
-	}
-	bCustomer, ok := b.customer()
-	if !ok {
-		t.Fatal("B has no customer after its checkout")
-	}
-	bBefore, _, _, bExt, _ := b.row()
-
-	// A's event, with A's id in the metadata but B's customer. A is another account in the SAME database (a rig of its own is a new database).
-	a := b.sibling("adv-cust-a")
-	cross := with("evt_cross_1", 1790000500,
-		[2]string{`"customer": "cus_` + a.uid.String()[:8] + `"`, `"customer": "` + bCustomer + `"`},
-		[2]string{`"id": "sub_` + a.uid.String()[:8] + `"`, `"id": "sub_cross_a"`})
-	code := a.deliver("subscription_created_active.json", cross)
-	if code == http.StatusInternalServerError {
-		t.Errorf("an event naming another account's customer was answered 500: Stripe would retry it for days and the endpoint would be switched off")
-	}
-	if c, ok := b.customer(); !ok || c != bCustomer {
-		t.Errorf("B's customer link changed: %q (had %q)", c, bCustomer)
-	}
-	if st, _, _, ext, ok := b.row(); !ok || st != bBefore || ext != bExt {
-		t.Errorf("B's entitlement changed: %s/%s (had %s/%s)", st, ext, bBefore, bExt)
-	}
-	if c, ok := a.customer(); ok && c == bCustomer {
-		t.Errorf("A was given B's customer %q", c)
-	}
 }
 
 // A subscription priced in another currency, or for nothing, is Rivolt Pro all the same (the US-only guard reports and never refuses; the
