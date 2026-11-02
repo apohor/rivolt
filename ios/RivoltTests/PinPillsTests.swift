@@ -72,7 +72,7 @@ final class PinPillsTests: XCTestCase {
     func testAPinBesideAMeasuredLegendNeverGetsAPillOnIt() {
         let legend = CGRect(x: 0, y: 140, width: 215, height: 80).insetBy(dx: -4, dy: -4)
         let credit = CGRect(x: 230, y: 190, width: 113, height: 30).insetBy(dx: -4, dy: -4)
-        for pin in [CGPoint(x: 205, y: 190), CGPoint(x: 120, y: 150), CGPoint(x: 225, y: 175), CGPoint(x: 260, y: 160)] {
+        for pin in [CGPoint(x: 222, y: 200), CGPoint(x: 120, y: 130), CGPoint(x: 225, y: 175), CGPoint(x: 260, y: 160)] {
             let items = PinPillsOverlay.items(size: size, start: pin, end: nil, startTime: "5:54 PM", endTime: nil, legend: true, obstacles: [legend, credit])
             XCTAssertEqual(items.count, 1)
             XCTAssertFalse(items[0].spot.rect.intersects(legend), "\(pin): \(items[0].spot.rect) is on the legend")
@@ -82,8 +82,9 @@ final class PinPillsTests: XCTestCase {
 
     // A pin with no free side for the full pill gets the short one ("Start") where that fits, and it still says the time aloud.
     func testWhereTheTimeHasNoRoomThePillIsJustTheName() {
-        let tight = CGSize(width: 150, height: 60)
-        let wall = [CGRect(x: 0, y: 0, width: 150, height: 17), CGRect(x: 0, y: 43, width: 150, height: 17)]
+        // Everything right of x = 60 is taken: "Start 5:54 PM" fits nowhere, "Start" fits against the left edge.
+        let tight = CGSize(width: 200, height: 60)
+        let wall = [CGRect(x: 60, y: 0, width: 140, height: 60)]
         let items = PinPillsOverlay.items(size: tight, start: CGPoint(x: 30, y: 30), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: wall)
         XCTAssertEqual(items.map(\.text), ["Start"])
         XCTAssertEqual(items.map(\.spoken), ["Start 5:54 PM"])
