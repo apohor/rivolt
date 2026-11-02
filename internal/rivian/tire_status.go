@@ -11,17 +11,14 @@ import (
 // web (RIVIAN_LOW_WORDS in web/src/lib/truckHealth.ts) and in the app (rivianLowWords in ios/Rivolt/Views/TruckLogic.swift)
 // carry the same list, and TestTireLowWordsMatchTheClients keeps the three together.
 
-// tireLowWords are the words a per-wheel status uses for a low tire, after tireWord.
-var tireLowWords = map[string]bool{
-	"low": true, "low_pressure": true, "very_low": true, "critically_low": true, "critical_low": true, "critical": true,
-	// The Rivian app's own TirePressureStatus enum (3.17.0 strings: NORMAL, WARNING_SOFT, WARNING_HARD, WARNING_PUNCTURE, and
-	// UNSPECIFIED, which makes no claim). Its three warning values are low-pressure states; which spelling the wire uses is
-	// not known, so the words above stay too.
-	"warning_soft": true, "warning_hard": true, "warning_puncture": true,
-}
+// tireLowWords are the words a per-wheel status uses for a low tire, after tireWord. They are the low-pressure values of the Rivian
+// app's own TirePressureStatus enum (3.17.0 string table: NORMAL, WARNING_SOFT, WARNING_HARD, WARNING_PUNCTURE, UNSPECIFIED); the
+// words an earlier version of this list guessed (low, very_low, critical, ...) are not in the app and were removed.
+var tireLowWords = map[string]bool{"warning_soft": true, "warning_hard": true, "warning_puncture": true}
 
-// tireNotLowWords are the words seen to say a tire is fine. Any other word makes no claim either way.
-var tireNotLowWords = map[string]bool{"normal": true, "ok": true}
+// tireNotLowWords: the one word the app's enum uses for a fine tire. Any other word, including "unspecified" and the "unknown" that
+// prod sends when there is no status, makes no claim either way.
+var tireNotLowWords = map[string]bool{"normal": true}
 
 var tireSeparators = regexp.MustCompile(`[\s-]+`)
 

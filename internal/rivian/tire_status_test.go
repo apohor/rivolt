@@ -18,15 +18,15 @@ func (c tireCount) OnTireStatus(class string)                { c[class]++ }
 
 func TestTireStatusClassIsBounded(t *testing.T) {
 	for in, want := range map[string]string{
-		"Low": "low", " LOW ": "low", "critically low": "low", "critical-low": "low", "Very Low": "low", "low_pressure": "low",
-		"Normal": "not_low", "ok": "not_low", "": "missing", "  ": "missing",
-		"lowish": "other", "unknown": "other", "undefined": "other", "<script>": "other",
+		"Warning_Soft": "low", " WARNING_HARD ": "low", "warning puncture": "low", "Warning-Soft": "low",
+		"Normal": "not_low", "NORMAL": "not_low", "": "missing", "  ": "missing",
+		"low": "other", "ok": "other", "unspecified": "other", "unknown": "other", "undefined": "other", "<script>": "other",
 	} {
 		if got := tireStatusClass(in); got != want {
 			t.Errorf("tireStatusClass(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if TireStatusLow("Normal") || !TireStatusLow("Critically Low") || TireStatusLow("") {
+	if TireStatusLow("Normal") || !TireStatusLow("Warning Hard") || TireStatusLow("") {
 		t.Error("TireStatusLow disagrees with the classes")
 	}
 }
@@ -69,7 +69,7 @@ func TestObserveTiresCountsPerWheelAndLogsAnOddWordOnce(t *testing.T) {
 	m := &StateMonitor{logger: slog.New(slog.NewTextHandler(&logs, nil)), sleepObserver: counts}
 	m.observeTires(&State{}) // no tire information: nothing
 	m.observeTires(&State{OtaStatus: "Idle"})
-	m.observeTires(&State{TirePressureStatusFL: "Normal", TirePressureStatusFR: "Normal", TirePressureStatusRL: "Low", TirePressureStatusRR: "Mystery"})
+	m.observeTires(&State{TirePressureStatusFL: "Normal", TirePressureStatusFR: "Normal", TirePressureStatusRL: "Warning_Soft", TirePressureStatusRR: "Mystery"})
 	m.observeTires(&State{TirePressureFLBar: 2.9, TirePressureStatusRR: "Mystery"}) // FL has a pressure and no status: missing
 	if counts["not_low"] != 2 || counts["low"] != 1 || counts["other"] != 2 || counts["missing"] != 1 {
 		t.Errorf("counts = %v", counts)
@@ -102,7 +102,7 @@ func TestObserveTiresIgnoresFreeTextAndBoundsWhatItKeeps(t *testing.T) {
 // so it is a deliberate edit of this list (and of the web and iPhone copies TestTireLowWordsMatchTheClients keeps in step).
 // Any word not listed is no claim: it never alerts and never clears.
 func TestTheTireWordTableIsPinned(t *testing.T) {
-	wantLow := []string{"critical", "critical_low", "critically_low", "low", "low_pressure", "very_low", "warning_hard", "warning_puncture", "warning_soft"}
+	wantLow := []string{"warning_hard", "warning_puncture", "warning_soft"}
 	if got := TireLowWords(); strings.Join(got, ",") != strings.Join(wantLow, ",") {
 		t.Errorf("low words = %v, want %v", got, wantLow)
 	}
@@ -111,18 +111,18 @@ func TestTheTireWordTableIsPinned(t *testing.T) {
 			t.Errorf("%q: not read as low", w)
 		}
 	}
-	for _, w := range []string{"normal", "ok"} {
-		if TireStatusLow(w) || !TireStatusNotLow(w) {
-			t.Errorf("%q: not read as not-low", w)
+	if TireStatusLow("normal") || !TireStatusNotLow("normal") {
+		t.Error("normal is not read as not-low")
+	}
+	// Everything else makes no claim: the enum's UNSPECIFIED, the "unknown" prod sends for no status, and the words an earlier
+	// version guessed (which are not in the app).
+	for _, w := range []string{"", "unspecified", "unknown", "squishy", "low", "very_low", "critical", "critically_low", "low_pressure", "ok", "lowish", "warning", "tire_pressure_status_warning_soft"} {
+		if TireStatusLow(w) || TireStatusNotLow(w) {
+			t.Errorf("%q makes a claim but is not in the table", w)
 		}
 	}
-	for _, w := range []string{"", "unknown", "squishy", "lowish", "Low Pressure!", "no_data", "unspecified", "tire_pressure_status_unspecified"} {
-		if TireStatusLow(w) && w != "" {
-			t.Errorf("%q alerts but is not in the table", w)
-		}
-	}
-	// Spacing and case are normalised, so the table lists words and not their spellings.
-	if !TireStatusLow(" Very-Low ") || TireLowWord(" Very-Low ") != "very_low" {
+	// Spacing, hyphens and case are normalised, so the table lists words and not their spellings.
+	if !TireStatusLow(" Warning-Hard ") || TireLowWord(" Warning-Hard ") != "warning_hard" {
 		t.Error("spacing, hyphens and case are not normalised")
 	}
 }

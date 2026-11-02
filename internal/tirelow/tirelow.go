@@ -249,7 +249,11 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 		if j.WouldSend != nil {
 			j.WouldSend(class)
 		}
-		j.log("tire-low: would send (dry run)", "user_id", v.UserID.String(), "wheels", strings.Join(sustained, ","), "class", class)
+		// One WARN per would-be episode, for checking each against the owner's truck: the internal user id and the wheels, nothing
+		// else. Remove this line when the real push goes live.
+		if j.Logger != nil {
+			j.Logger.Warn("tire-low: would send (dry run)", "user_id", v.UserID.String(), "wheels", strings.Join(sustained, ","), "class", class)
+		}
 		return
 	}
 	won, err := j.Source.Claim(ctx, v.UserID, v.VehicleID, newest, sustained)

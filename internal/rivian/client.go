@@ -159,7 +159,7 @@ type State struct {
 	OtaInstallProgress  float64 `json:"ota_install_progress"`
 	// Tires. Pressures reported in bar (per home-assistant-rivian's
 	// native unit declaration). Status is a string like "Normal" /
-	// "Low" / "" (unknown).
+	// "Warning_Soft" / "" (unknown); see tire_status.go for the words that count.
 	TirePressureFLBar    float64 `json:"tire_pressure_fl_bar"`
 	TirePressureFRBar    float64 `json:"tire_pressure_fr_bar"`
 	TirePressureRLBar    float64 `json:"tire_pressure_rl_bar"`
