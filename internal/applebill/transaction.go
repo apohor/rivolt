@@ -119,8 +119,8 @@ func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInf
 		d = Decision{} // a refunded transaction grants nothing; the notification path records the revoke
 	}
 	// A report is the app's word, and its signedDate is when the blob was signed, not how fresh its content is: an older or shorter transaction can
-	// be signed later than a renewal Apple pushed. So a report may only extend the entitlement (or create it), never shorten it, and never touch a
-	// refunded subscription: Apple's notifications are what move it back.
+	// be signed later than a renewal Apple pushed. So a report may only extend the entitlement (or create it), never shorten it, and never revive a
+	// purchase made before a refund: Apple's notifications are what move it back.
 	if d.Change {
 		var revoked sql.NullInt64
 		if err := tx.QueryRowContext(ctx, `SELECT revoked_at FROM billing_apple_subs WHERE original_transaction_id = $1`, ti.OriginalTransactionID).Scan(&revoked); err != nil {
@@ -130,7 +130,9 @@ func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInf
 		if err := tx.QueryRowContext(ctx, `SELECT current_period_end FROM entitlements WHERE user_id = $1 AND source = 'apple'`, uid).Scan(&cur); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return transactionResponse{}, 0, err
 		}
-		if revoked.Valid || (cur.Valid && !ti.Expires().After(cur.Time)) {
+		// Refused after a refund only if it was bought at or before it: purchaseDate is Apple-signed content, unlike signedDate it is not
+		// re-stamped when a blob is re-signed, and a person who buys again after a refund keeps the same original transaction id.
+		if (revoked.Valid && ti.PurchaseDate <= revoked.Int64) || (cur.Valid && !ti.Expires().After(cur.Time)) {
 			d = Decision{}
 		}
 	}
