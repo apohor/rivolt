@@ -160,7 +160,7 @@ export function SubNav({
   if (!tab || tab.subs.length < 2) return null;
   return (
     <nav aria-label={`${tab.label} sections`} className="mb-4">
-      <ul className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5">
+      <ul className="inline-flex max-w-full flex-wrap rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5">
         {tab.subs.map((s) => (
           <li key={s.to}>
             <NavLink

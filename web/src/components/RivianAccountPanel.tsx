@@ -172,10 +172,10 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
             </p>
           </div>
         )}
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 text-sm">
             <div className="text-neutral-200">Connected as</div>
-            <div className="text-xs text-neutral-500">{s.email || "unknown"}</div>
+            <div className="break-all text-xs text-neutral-500">{s.email || "unknown"}</div>
             {expiryDate(s.session_expires_at) && (
               <div data-rivian-expires className="text-xs text-neutral-500">Connected · expires {expiryDate(s.session_expires_at)}</div>
             )}

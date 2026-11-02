@@ -2822,7 +2822,7 @@ export function AppearanceCard() {
   ];
   return (
     <Card title="Appearance">
-      <div role="radiogroup" aria-label="Theme" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+      <div role="radiogroup" aria-label="Theme" className="inline-flex max-w-full flex-wrap rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
         {opts.map((o) => (
           <button
             key={o.key}
