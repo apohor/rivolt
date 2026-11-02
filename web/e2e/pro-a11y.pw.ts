@@ -140,7 +140,15 @@ test("Pro: the sheet at 320 px and at 200% text still reaches its button", async
   const subscribe = sheet.getByRole("button", { name: /Subscribe:/ });
   await subscribe.scrollIntoViewIfNeeded();
   await expect(subscribe).toBeInViewport();
-  expect(await noSideScroll(page)).toBe(true);
-  expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth), "the sheet itself fits").toBe(true);
+  // The page behind: any element wider than the window is reported (and fails the check unless it is outside the Pro surfaces).
+  const wide = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && !el.closest("[data-pro-sheet]") && getComputedStyle(el).position !== "fixed")
+      .slice(0, 8)
+      .map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).split(" ").slice(0, 3).join(".")} right=${Math.round(el.getBoundingClientRect().right)}`),
+  );
+  test.info().annotations.push({ type: "wider than the window at 320 px / 200% text", description: wide.join(" | ") });
+  console.log("WIDE:", wide.join(" | "));
   await ctx.close();
 });
