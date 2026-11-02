@@ -183,3 +183,37 @@ for (const scheme of ["dark", "light"] as const) {
     });
   }
 }
+
+// Safari (and WebKit on macOS) does not treat links as Tab stops by default, so "the last Tab stop" is not the last link. The sheet keeps focus
+// in whichever way the browser tabs: here the links are taken out of the Tab order, as Safari does, and focus is pushed past both ends.
+for (const [state, me] of [["free", FREE], ["subscribed (Apple)", APPLE], ["subscribed (Stripe)", STRIPE]] as const) {
+  test(`Pro: the sheet keeps Tab and Shift+Tab inside when links are not Tab stops @webkit · ${state}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await as(page, me);
+    await page.goto("/settings#plan");
+    await page.locator("[data-plan-card]").getByRole("button").first().click();
+    const sheet = page.locator("[data-pro-sheet]");
+    await expect(sheet).toBeVisible();
+    await sheet.evaluate((el) => el.querySelectorAll("a[href]").forEach((a) => a.setAttribute("tabindex", "-1")));
+    const inside = () => sheet.evaluate((el) => el.contains(document.activeElement));
+    // From the first stop backwards, and from the last forwards, many times.
+    await sheet.getByRole("button", { name: "Close" }).focus();
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press("Shift+Tab");
+      expect(await inside(), `Shift+Tab ${i + 1} left the sheet`).toBe(true);
+    }
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press("Tab");
+      expect(await inside(), `Tab ${i + 1} left the sheet`).toBe(true);
+    }
+    // Close shows the accent ring when it has keyboard focus, as the plan choices do.
+    await sheet.getByRole("button", { name: "Close" }).focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await expect(sheet.getByRole("button", { name: "Close" })).toBeFocused();
+    const ringShadow = await sheet.getByRole("button", { name: "Close" }).evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(ringShadow, "Close has the accent focus ring").toMatch(/rgb/);
+    await ctx.close();
+  });
+}

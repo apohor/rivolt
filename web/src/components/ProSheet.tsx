@@ -7,8 +7,21 @@ import { DEMO_HISTORY, DEMO_PLANNER, DEMO_TRENDS } from "../lib/demoLinks";
 import { PRO, checkoutLabel, consentText, type Interval } from "../lib/proCopy";
 import { planDate, type PlanState } from "../lib/plan";
 
-const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
-const solid = "rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50";
+const ring = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
+const btn = `rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50 ${ring}`;
+const solid = `rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50 ${ring}`;
+
+// What the sheet's Tab key can reach: links, enabled buttons and inputs, a group of radios as one stop (the checked one, else the first), and
+// not the two focus sentinels.
+function tabStops(box: HTMLElement): HTMLElement[] {
+  return [...box.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1']):not([data-trap])")]
+    .filter((el) => el.offsetParent !== null || el === document.activeElement)
+    .filter((el) => {
+      if (!(el instanceof HTMLInputElement) || el.type !== "radio") return true;
+      const group = [...box.querySelectorAll<HTMLInputElement>(`input[type=radio][name="${el.name}"]`)];
+      return el === (group.find((r) => r.checked) ?? group[0]);
+    });
+}
 
 // The Pro sheet on the web: what is included and the price before the button, two plan choices with nothing pre-selected, the renewal
 // terms and an unticked consent directly above the button, links to Terms and Privacy, and "Manage subscription" for someone already
@@ -21,7 +34,9 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   const [msg, setMsg] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  // Focus goes into the sheet when it opens, stays inside while it is open (Tab and Shift+Tab wrap), and goes back to what opened it.
+  // Focus goes into the sheet when it opens, stays inside while it is open, and goes back to what opened it. Two ways keep it in: the Tab key is
+  // wrapped at the first and last stop, and a sentinel at each end catches a browser that tabs past them anyway (Safari does not treat links as
+  // Tab stops by default, so "the last stop" is not always the last link: whatever lands on a sentinel is sent to the other end).
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
@@ -30,13 +45,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
       if (e.key !== "Tab") return;
       const box = dialogRef.current;
       if (!box) return;
-      const items = [...box.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null || el === document.activeElement)
-        // A group of radios is one Tab stop: the checked one, else the first.
-        .filter((el) => {
-          if (!(el instanceof HTMLInputElement) || el.type !== "radio") return true;
-          const group = [...box.querySelectorAll<HTMLInputElement>(`input[type=radio][name="${el.name}"]`)];
-          return el === (group.find((r) => r.checked) ?? group[0]);
-        });
+      const items = tabStops(box);
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
@@ -58,6 +67,10 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
       if (opener?.isConnected) opener.focus();
     };
   }, [onClose]);
+  const wrapTo = (end: "first" | "last") => {
+    const items = dialogRef.current ? tabStops(dialogRef.current) : [];
+    (end === "first" ? items[0] : items[items.length - 1])?.focus();
+  };
 
   async function open(fn: () => Promise<{ url: string }>) {
     setBusy(true);
@@ -79,6 +92,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={onClose}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="pro-title" data-pro-sheet className="max-h-[92vh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-xl border border-neutral-800 bg-neutral-950 p-5 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
+        <div tabIndex={0} data-trap="start" className="sr-only" onFocus={() => wrapTo("last")} />
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="pro-title" className="text-lg font-semibold text-neutral-50">{PRO.title}</h2>
@@ -154,6 +168,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
           {stripe || apple ? (<><Link to="/terms" className="underline underline-offset-2">Terms</Link> · <Link to="/privacy" className="underline underline-offset-2">Privacy</Link> · </>) : null}
           {PRO.unofficial}
         </p>
+        <div tabIndex={0} data-trap="end" className="sr-only" onFocus={() => wrapTo("first")} />
       </div>
     </div>,
     document.body,
