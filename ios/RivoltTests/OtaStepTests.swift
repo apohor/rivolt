@@ -11,7 +11,7 @@ final class OtaStepTests: XCTestCase {
     func testTheTenKnownStepsAreNamedInPlainWords() throws {
         let words = ["ready_to_download": "Ready to download", "downloading": "Downloading", "preparing": "Preparing", "ready_to_install": "Ready to install",
                      "scheduled_to_install": "Install scheduled", "install_countdown": "Install about to start", "awaiting_install": "Waiting to install",
-                     "installing": "Installing", "install_success": "Installed", "connection_lost": "Connection lost"]
+                     "installing": "Installing", "install_success": "Installed", "connection_lost": "Update connection lost"]
         for (step, word) in words { XCTAssertEqual(OtaStep(try ota(#""step":"\#(step)","#))?.word, word, step) }
     }
 

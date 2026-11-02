@@ -5,6 +5,8 @@ import Foundation
 /// update arrives as `unknown`, so "Updating…" would falsely say it is in progress). A number only while installing; "Installed" only for
 /// `install_success`, never inferred from 100% or from the step disappearing.
 struct OtaStep: Equatable {
+    /// The server's step word (`installing`, `install_success`, …).
+    let key: String
     let word: String
     let pct: Int?
     let version: String?
@@ -12,16 +14,20 @@ struct OtaStep: Equatable {
     private static let words: [String: String] = [
         "ready_to_download": "Ready to download", "downloading": "Downloading", "preparing": "Preparing", "ready_to_install": "Ready to install",
         "scheduled_to_install": "Install scheduled", "install_countdown": "Install about to start", "awaiting_install": "Waiting to install",
-        "installing": "Installing", "install_success": "Installed", "connection_lost": "Connection lost",
+        "installing": "Installing", "install_success": "Installed", "connection_lost": "Update connection lost",
     ]
 
     init?(_ ota: Vehicle.OTA?) {
         guard let ota, let step = ota.step, let word = Self.words[step] else { return nil }
+        self.key = step
         self.word = word
         if step == "installing", let p = ota.installProgress { pct = min(100, max(0, p)) } else { pct = nil }
         let v = (ota.available?.version ?? "").trimmingCharacters(in: .whitespaces)
         version = v.isEmpty || v.allSatisfy({ $0 == "0" || $0 == "." }) ? nil : v
     }
+
+    /// Now's line while it installs: "Installing software 2026.38 · 37%".
+    var nowLine: String { "Installing software" + (version.map { " \($0)" } ?? "") + (pct.map { " · \($0)%" } ?? "") }
 
     /// "2026.38 · Installing 37%", "Ready to install".
     var line: String {

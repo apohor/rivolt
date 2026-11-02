@@ -39,6 +39,8 @@ export default function TruckPage() {
     // The signed-out demo has no Rivian login; its sample truck is listed anyway.
     enabled: !!rivianStatus.data?.authenticated || inDemo(),
     staleTime: 5 * 60_000,
+    // While the truck reports an update step its progress moves.
+    refetchInterval: (q) => (q.state.data?.some((v) => v.ota?.step) ? 30_000 : false),
     retry: 1,
   });
   const { selectedID, select } = useSelectedVehicle(vehicles.data);

@@ -23,7 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import { cabinValue, comfortParts } from "../lib/comfort";
-import { otaLine, otaUpdate } from "../lib/truckHealth";
+import { otaNowLine, otaStep } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -242,8 +242,17 @@ export default function NowCard({
   const comfort = offline || view.stale ? [] : comfortParts(state);
   const cabin = offline || view.stale ? null : cabinValue(state, temperatureUnit);
   // While the truck says it is installing a software update and the frame is live: it explains why the truck may stop answering.
-  const update = offline || view.stale ? null : otaUpdate(state);
-  const installing = update?.phase === "installing" ? update : null;
+  // The truck's own update step, from the vehicle list (`ota.step`): the one source Now and the Truck page share.
+  const vehiclesQ = useQuery({
+    queryKey: ["rivian", "vehicles"],
+    queryFn: () => backend.vehicles(),
+    staleTime: 60_000,
+    // While the truck reports an update step its progress moves: read the list again so Now says what the Truck page does.
+    refetchInterval: (q) => (q.state.data?.some((v) => v.id === vehicleID && v.ota?.step) ? 30_000 : false),
+    retry: 1,
+  });
+  const update = offline || view.stale ? null : otaStep(vehiclesQ.data?.find((v) => v.id === vehicleID)?.ota);
+  const installing = update?.key === "installing" ? update : null;
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
@@ -362,7 +371,7 @@ export default function NowCard({
         <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />
         {installing && (
           <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
-            {otaLine(installing, "now")}
+            {otaNowLine(installing)}
           </p>
         )}
         {comfort.length > 0 && (

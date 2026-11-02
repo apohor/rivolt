@@ -55,7 +55,7 @@ struct HomeView: View {
                         // The history of a free account's other vehicle is Pro; it keeps recording. One note, not a screen of refused reads.
                         ProLimitNote(limit: .proRequired, message: ProCopy.vehicleLimit)
                     } else if let vehicle = selected, vehicleState != nil || now != nil || !isLoading {
-                        let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+                        let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now, update: OtaStep(selected?.ota)), clock: .now)
                         let haveData = vehicleState != nil || now != nil
                         VStack(spacing: 16) {
                             // The live reads (cost so far, the trip) only on fresh data: a stale "Charging" would claim a
@@ -284,7 +284,7 @@ struct HomeView: View {
 
     /// What the Connection details screen shows about the newest frame and the presence limits, from what this screen holds.
     private func publishConnection() {
-        state.connection.update(summary: NowSummary(state: vehicleState, now: now, clock: .now), freshness: freshness)
+        state.connection.update(summary: NowSummary(state: vehicleState, now: now, clock: .now, update: OtaStep(selected?.ota)), freshness: freshness)
     }
 
     /// The state and the live reads, from the server now. True when it answered.
@@ -309,7 +309,7 @@ struct HomeView: View {
     /// The newest frame's time when "Offline" is being held back for a re-read; nil when there is nothing to settle.
     private var recheckKey: Date? {
         guard selected != nil, vehicleState != nil || now != nil || !isLoading else { return nil }
-        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+        let summary = NowSummary(state: vehicleState, now: now, clock: .now, update: OtaStep(selected?.ota))
         _ = clockTick
         return freshness.holdsOffline(summary, clock: .now) ? (summary.lastSeen ?? .distantPast) : nil
     }
@@ -322,6 +322,8 @@ struct HomeView: View {
             try? await Task.sleep(for: .seconds(NowRefresh.pollInterval(kind)))
             guard !Task.isCancelled, selected?.id != nil else { continue }
             await refreshNow()
+            // While the truck reports an update step, its progress moves: read the vehicle list again so Now says what the Truck tab does.
+            if OtaStep(selected?.ota) != nil, let fresh = try? await state.client.vehicles() { vehicles = fresh }
         }
     }
 
@@ -346,7 +348,7 @@ struct HomeView: View {
     /// per-iPhone switch on (and notifications on for this phone).
     private func syncLiveActivity() async {
         let switchOn = state.notifications.isOn && state.notifications.liveOffered && state.notifications.preferences?.onChargingLive == true
-        let summary = NowSummary(state: vehicleState, now: now, clock: .now)
+        let summary = NowSummary(state: vehicleState, now: now, clock: .now, update: OtaStep(selected?.ota))
         await state.liveActivity.sync(summary: summary, switchOn: switchOn, vehicleID: selected?.id, deviceToken: state.notifications.deviceToken)
     }
 }
