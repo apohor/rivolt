@@ -13,7 +13,7 @@ func TestMetricType(t *testing.T) {
 			t.Errorf("MetricType(%q) = %q, want %q", in, got, want)
 		}
 	}
-	for _, o := range []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeStale, OutcomeRejected} {
+	for _, o := range []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeUnmappedExpired, OutcomeStale, OutcomeRejected} {
 		found := false
 		for _, m := range MetricOutcomes {
 			found = found || m == o
