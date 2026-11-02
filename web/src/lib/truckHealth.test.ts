@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, otaNowLine, otaStep, otaStepLine, sleepHealthLines, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaNowLine, otaStep, otaStepLine, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {

@@ -102,6 +102,15 @@ export default function NowCard({
     refetchInterval: 15_000,
     retry: 1,
   });
+  // The truck's own update step, from the vehicle list (`ota.step`): the one source Now and the Truck page share.
+  const vehiclesQ = useQuery({
+    queryKey: ["rivian", "vehicles"],
+    queryFn: () => backend.vehicles(),
+    staleTime: 60_000,
+    // While the truck reports an update step its progress moves: read the list again so Now says what the Truck page does.
+    refetchInterval: (q) => (q.state.data?.some((v) => v.id === vehicleID && v.ota?.step) ? 30_000 : false),
+    retry: 1,
+  });
   const homeQ = useQuery({
     queryKey: ["settings", "home-location"],
     queryFn: () => backend.homeLocationGet(),
@@ -242,15 +251,6 @@ export default function NowCard({
   const comfort = offline || view.stale ? [] : comfortParts(state);
   const cabin = offline || view.stale ? null : cabinValue(state, temperatureUnit);
   // While the truck says it is installing a software update and the frame is live: it explains why the truck may stop answering.
-  // The truck's own update step, from the vehicle list (`ota.step`): the one source Now and the Truck page share.
-  const vehiclesQ = useQuery({
-    queryKey: ["rivian", "vehicles"],
-    queryFn: () => backend.vehicles(),
-    staleTime: 60_000,
-    // While the truck reports an update step its progress moves: read the list again so Now says what the Truck page does.
-    refetchInterval: (q) => (q.state.data?.some((v) => v.id === vehicleID && v.ota?.step) ? 30_000 : false),
-    retry: 1,
-  });
   const update = offline || view.stale ? null : otaStep(vehiclesQ.data?.find((v) => v.id === vehicleID)?.ota);
   const installing = update?.key === "installing" ? update : null;
   const critical = view.critical && !offline;
