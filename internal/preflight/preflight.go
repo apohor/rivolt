@@ -62,6 +62,10 @@ type Input struct {
 	// RedisTime runs TIME as the app's Redis user, which is what the shared rate-limit script needs; nil skips it. It reports a denial
 	// (the ACL) apart from the other failures.
 	RedisTime func(ctx context.Context) (denied bool, err error)
+	// AlertRules lists the alerting rules Prometheus has loaded; nil skips the check. An error is a problem: the rules are unverified.
+	AlertRules func(ctx context.Context) ([]AlertRule, error)
+	// RequiredAlertRules overrides RequiredAlertRules (tests).
+	RequiredAlertRules []RequiredRule
 	// Stripe reads the Stripe API with the configured key; nil skips it.
 	Stripe func(ctx context.Context) StripeFacts
 	// BillingAddress is what our Checkout sessions ask for as the billing address (stripebill.BillingAddressCollection): "required" lets the
@@ -294,6 +298,8 @@ func Run(ctx context.Context, in Input) *Report {
 			r.line("  TIME as the app user: allowed")
 		}
 	}
+
+	r.alertRulesSection(ctx, in)
 
 	r.line("== Stripe account (read through the API with the configured key)")
 	switch {

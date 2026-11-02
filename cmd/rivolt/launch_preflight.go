@@ -18,14 +18,16 @@ import (
 )
 
 // runLaunchPreflight prints the read-only report an operator reads before the Rivolt Pro flip (the launch runbook: rivolt-infra docs/launch-flip.md): the launch-readiness
-// list, the founding grant's dry-run counts, whether the Terms and notice pages answer, and which billing settings are present (names and
-// state only, never a value). It reads the process environment, so run it where the server's settings are (the app pod). It writes nothing
+// list, the founding grant's dry-run counts, whether the Terms and notice pages answer, which billing settings are present (names and
+// state only, never a value) and whether the billing alert rules are loaded in Prometheus (rule names only; a missing, stale or failing one is a problem). It reads the process environment, so run it where the server's settings are (the app pod). It writes nothing
 // and switches nothing on; exit 0 when nothing stops the flip, 1 otherwise, 2 for usage.
 func runLaunchPreflight(args []string) int {
 	fs := flag.NewFlagSet("launch-preflight", flag.ContinueOnError)
 	launchFlag := fs.String("launch", "", "launch instant, RFC3339 (default: now): the founding grant counts accounts created at or before it")
 	offline := fs.Bool("offline", false, "skip the URL checks (no network)")
 	noDB := fs.Bool("no-db", false, "skip the founding dry run (no database)")
+	promURL := fs.String("prometheus-url", "", "Prometheus base URL, to check the billing alert rules are loaded (default: RIVOLT_PROMETHEUS_URL)")
+	noAlerts := fs.Bool("no-alert-check", false, "skip the loaded-alert-rules check (a deployment without Prometheus)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -59,6 +61,7 @@ func runLaunchPreflight(args []string) int {
 		in.Stripe = preflightStripe(os.Getenv)
 		in.BillingAddress = stripebill.BillingAddressCollection
 	}
+	in.AlertRules = alertRulesSource(*promURL, os.Getenv("RIVOLT_PROMETHEUS_URL"), *offline || *noAlerts)
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
 		rdb := redis.NewClient(redisOptions(addr, os.Getenv))
 		defer func() { _ = rdb.Close() }()
@@ -135,4 +138,22 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 		}
 		return f
 	}
+}
+
+// alertRulesSource picks where the loaded alert rules are read from: nil to skip the check (offline, or told to), the flag's address, else
+// the environment's. With neither it fails closed: the rules are unverified, which the report counts as a problem, not a skip.
+func alertRulesSource(flagAddr, envAddr string, skip bool) func(context.Context) ([]preflight.AlertRule, error) {
+	if skip {
+		return nil
+	}
+	addr := strings.TrimSpace(flagAddr)
+	if addr == "" {
+		addr = strings.TrimSpace(envAddr)
+	}
+	if addr == "" {
+		return func(context.Context) ([]preflight.AlertRule, error) {
+			return nil, fmt.Errorf("no Prometheus address (pass --prometheus-url, or --no-alert-check where there is no Prometheus)")
+		}
+	}
+	return preflight.HTTPAlertRules(addr)
 }
