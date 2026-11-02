@@ -269,7 +269,7 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(w.map(\.label), ["Front left", "Front right", "Rear left", "Rear right"])
         XCTAssertEqual(TruckLogic.fixed(try XCTUnwrap(w[0].psi), 0), "42")
         XCTAssertTrue(w.allSatisfy { TruckLogic.wheelFlag($0) == nil }, "above the floor and with no Rivian word, only the number")
-        let low = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_fl_bar"] = 2.1; $0["tire_pressure_rr_bar"] = 2.7; $0["tire_pressure_status_rr"] = "Low" }))
+        let low = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_fl_bar"] = 2.1; $0["tire_pressure_rr_bar"] = 2.7; $0["tire_pressure_status_rr"] = "Warning_Soft" }))
         XCTAssertEqual(low.map { TruckLogic.wheelFlag($0) }, ["Low", nil, nil, "Low (Rivian)"])
         // 38 psi is under a placard but above the floor: no claim either way, and never "OK" or "Normal".
         let mid = try XCTUnwrap(TruckLogic.wheels(try state { $0["tire_pressure_fl_bar"] = 2.62; $0["tire_pressure_status_fl"] = "Normal" }))
@@ -286,8 +286,8 @@ final class TruckLogicTests: XCTestCase {
     }
 
     func testOnlyAFixedListOfRivianLowWordsCounts() {
-        for v in ["low", "Low", " LOW ", "critically low", "critical-low"] { XCTAssertTrue(TruckLogic.rivianSaysLow(v), v) }
-        for v in ["", "Normal", "unknown", "undefined", "high", "lowish"] { XCTAssertFalse(TruckLogic.rivianSaysLow(v), v) }
+        for v in ["warning_soft", "Warning_Soft", " WARNING_HARD ", "warning puncture", "warning-hard", "WARNING_SOFT", "TIRE_PRESSURE_STATUS_WARNING_SOFT", "tire_pressure_status_warning_hard"] { XCTAssertTrue(TruckLogic.rivianSaysLow(v), v) }
+        for v in ["", "Normal", "unknown", "undefined", "high", "lowish", "UNSPECIFIED", "unspecified", "NORMAL", "low", "critical", "very low", "TIRE_PRESSURE_STATUS_NORMAL", "TIRE_PRESSURE_STATUS_UNSPECIFIED"] { XCTAssertFalse(TruckLogic.rivianSaysLow(v), v) }
         XCTAssertFalse(TruckLogic.rivianSaysLow(nil))
         XCTAssertTrue(TruckLogic.tiresNote.contains("32 psi"))
         XCTAssertFalse(TruckLogic.tiresNote.lowercased().contains("unsafe"))

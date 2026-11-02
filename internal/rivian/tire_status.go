@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -10,23 +11,49 @@ import (
 // web (RIVIAN_LOW_WORDS in web/src/lib/truckHealth.ts) and in the app (rivianLowWords in ios/Rivolt/Views/TruckLogic.swift)
 // carry the same list, and TestTireLowWordsMatchTheClients keeps the three together.
 
-// tireLowWords are the words a per-wheel status uses for a low tire, after tireWord.
-var tireLowWords = map[string]bool{
-	"low": true, "low_pressure": true, "very_low": true, "critically_low": true, "critical_low": true, "critical": true,
-}
+// tireLowWords are the words a per-wheel status uses for a low tire, after tireWord. They are the low-pressure values of the Rivian
+// app's own TirePressureStatus enum (3.17.0 string table: NORMAL, WARNING_SOFT, WARNING_HARD, WARNING_PUNCTURE, UNSPECIFIED); the
+// words an earlier version of this list guessed (low, very_low, critical, ...) are not in the app and were removed.
+var tireLowWords = map[string]bool{"warning_soft": true, "warning_hard": true, "warning_puncture": true}
 
-// tireNotLowWords are the words seen to say a tire is fine. Any other word makes no claim either way.
-var tireNotLowWords = map[string]bool{"normal": true, "ok": true}
+// tireNotLowWords: the one word the app's enum uses for a fine tire. Any other word, including "unspecified" and the "unknown" that
+// prod sends when there is no status, makes no claim either way.
+var tireNotLowWords = map[string]bool{"normal": true}
 
 var tireSeparators = regexp.MustCompile(`[\s-]+`)
 
-// tireWord trims, lower-cases and turns runs of spaces and hyphens into "_".
+// tireWordPrefix is the enum's own prefix; the wire spelling is not known, so a word may or may not carry it.
+const tireWordPrefix = "tire_pressure_status_"
+
+// tireWord trims, lower-cases, turns runs of spaces and hyphens into "_" and drops the enum's TIRE_PRESSURE_STATUS_ prefix.
 func tireWord(s string) string {
-	return tireSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "_")
+	return strings.TrimPrefix(tireSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "_"), tireWordPrefix)
+}
+
+// TireLowWord is the normalised low word of a per-wheel status ("" when the status is not one of the low words): the
+// label vocabulary of the alert's dry-run counter.
+func TireLowWord(status string) string {
+	if w := tireWord(status); tireLowWords[w] {
+		return w
+	}
+	return ""
+}
+
+// TireLowWords lists the low words, sorted: the fixed set that bounds that label.
+func TireLowWords() []string {
+	out := make([]string, 0, len(tireLowWords))
+	for w := range tireLowWords {
+		out = append(out, w)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TireStatusLow reports whether Rivian's own per-wheel status is one of its low words.
 func TireStatusLow(status string) bool { return tireLowWords[tireWord(status)] }
+
+// TireStatusNotLow reports whether Rivian's own per-wheel status is one of the words seen to say the tire is fine.
+func TireStatusNotLow(status string) bool { return tireNotLowWords[tireWord(status)] }
 
 // Tire status classes, the whole label vocabulary of rivolt_tire_status_total.
 const (

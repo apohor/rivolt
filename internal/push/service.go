@@ -188,6 +188,100 @@ func LeftOpenPayload(model string, kinds []string, minutes int) Payload {
 	}
 }
 
+// wheelWords are the wheel positions the tire-low alert names, in the order they are listed.
+var wheelWords = []struct{ pos, words string }{
+	{"fl", "front left"}, {"fr", "front right"}, {"rl", "rear left"}, {"rr", "rear right"},
+}
+
+// JoinWheels names the wheels by position: "front left", "front left and rear right", "front left, front right and
+// rear right" (in the order of wheelWords). Unknown positions are ignored; with none left it is "a tire".
+func JoinWheels(pos []string) string {
+	have := map[string]bool{}
+	for _, k := range pos {
+		have[k] = true
+	}
+	var parts []string
+	for _, w := range wheelWords {
+		if have[w.pos] {
+			parts = append(parts, w.words)
+		}
+	}
+	switch len(parts) {
+	case 0:
+		return "a tire"
+	case 1:
+		return parts[0]
+	default:
+		return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+}
+
+// TireLowPayload is the tire-low alert. It repeats what the truck itself reports and no more: the vehicle's model (never
+// the user's own nickname for it: it shows on the lock screen) and which wheels, by position, with a possible puncture named
+// as that and not as low pressure. No pressure figure, no place, no "safe" or "unsafe", no advice beyond the truck's own
+// warning: a missing alert is never a promise that the tires are fine. The tap opens the app.
+func TireLowPayload(model string, low, puncture []string) Payload {
+	truck := "Your vehicle"
+	if m := strings.TrimSpace(model); m != "" {
+		truck = m
+	}
+	var parts []string
+	if len(low) > 0 || len(puncture) == 0 {
+		parts = append(parts, fmt.Sprintf("%s reports low tire pressure: %s.", truck, JoinWheels(low)))
+	}
+	if len(puncture) > 0 {
+		parts = append(parts, fmt.Sprintf("%s reports a possible puncture: %s.", truck, JoinWheels(puncture)))
+	}
+	parts = append(parts, "Check the tire and follow your truck's warning.")
+	title := "Low tire pressure"
+	switch {
+	case len(puncture) > 0 && len(low) == 0:
+		title = "Possible puncture"
+	case len(puncture) > 0:
+		title = "Tire warning"
+	}
+	return Payload{
+		Title: title,
+		Body:  strings.Join(parts, " "),
+		Tag:   "rivolt-tire-low",
+		URL:   "/",
+		Kind:  "tire_low",
+	}
+}
+
+// DeliverTireLow sends the tire-low alert to every device of the store's user that has it on, and waits. It reports how
+// many sends succeeded; an error means none did.
+func (s *Service) DeliverTireLow(ctx context.Context, store *Store, model string, low, puncture []string) (int, error) {
+	if s == nil || store == nil {
+		return 0, errors.New("push: not configured")
+	}
+	subs, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	p := TireLowPayload(model, low, puncture)
+	var ok int
+	var last error
+	for _, sub := range subs {
+		if !selectTireLow(sub) {
+			continue
+		}
+		if err := s.sendOne(ctx, store, sub, p); err != nil {
+			last = err
+			continue
+		}
+		ok++
+	}
+	ok += s.fanAPNs(ctx, store, p)
+	if ok == 0 {
+		if last == nil {
+			last = errors.New("push: no device has the tire-low alert on")
+		}
+		return 0, last
+	}
+	return ok, nil
+}
+
 // closureWords are the closures the alert names, in the order they are listed.
 var closureWords = []struct{ kind, words string }{
 	{"frunk", "the frunk"}, {"door", "a door"}, {"liftgate", "the liftgate"}, {"tailgate", "the tailgate"}, {"tonneau", "the tonneau"},
@@ -425,6 +519,7 @@ func selectPlugInReminder(s Subscription) bool { return s.OnPlugInReminder }
 func selectAnomaly(s Subscription) bool        { return s.OnAnomaly }
 func selectSoftwareUpdate(s Subscription) bool { return s.OnSoftwareUpdate }
 func selectLeftOpen(s Subscription) bool       { return s.OnLeftOpen }
+func selectTireLow(s Subscription) bool        { return s.OnTireLow }
 
 // broadcast fans a payload out to every stored subscription matching
 // the selector. Each send is independent: one bad subscription can't

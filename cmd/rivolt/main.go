@@ -91,6 +91,7 @@ import (
 	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/syntheticplan"
+	"github.com/apohor/rivolt/internal/tirelow"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -2895,6 +2896,33 @@ func runServer() {
 			Logger: logger,
 		}
 		go leftOpen.Run(ctx)
+	}
+
+	// The tire-low alert (internal/tirelow): an opt-in push when the truck itself reports a tire low, in P, for 30
+	// minutes; the push stays off (RIVOLT_TIRE_LOW_PUSH, a dry run counting would-be pushes) until DA clears it. The same shape as the left-open job above: a timer reads the monitor's latest state, nothing here calls
+	// Rivian, and it never runs in admin-only or demo-only mode or for the demo account.
+	if pgPool != nil && pushSvc != nil && monitorRegistry != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+		tireLow := &tirelow.Job{
+			Source: tirelow.NewSource(pgPool, func(uid uuid.UUID, rivianID string) (*rivian.State, time.Time) {
+				m := monitorRegistry.For(uid)
+				if m == nil {
+					return nil, time.Time{}
+				}
+				return m.Latest(rivianID)
+			}, demo.UserID()),
+			Deliver: func(ctx context.Context, uid uuid.UUID, model string, low, puncture []string) error {
+				_, err := pushSvc.DeliverTireLow(ctx, pushFactory.For(uid), model, low, puncture)
+				return err
+			},
+			// Off until DA clears it after the 14-day dry run: until then the job counts what it would send and sends nothing.
+			Live:      os.Getenv("RIVOLT_TIRE_LOW_PUSH") == "1",
+			WouldSend: func(class string) { appMetrics.TireLowWouldSendTotal.WithLabelValues(class).Inc() },
+			Logger:    logger,
+		}
+		for _, w := range rivian.TireLowWords() {
+			appMetrics.TireLowWouldSendTotal.WithLabelValues(w).Add(0) // from boot at 0, so the first would-be push is an increase
+		}
+		go tireLow.Run(ctx)
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.

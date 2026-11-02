@@ -420,11 +420,12 @@ enum TruckLogic {
 
     /// The words Rivian's per-wheel status uses for a low tire, after trimming, lower-casing and turning spaces and hyphens into "_".
     /// Any other word (including "normal") makes no claim: the card shows the pressure only and never calls a wheel OK in our words.
-    private static let rivianLowWords: Set<String> = ["low", "low_pressure", "very_low", "critically_low", "critical_low", "critical"]
+    private static let rivianLowWords: Set<String> = ["warning_soft", "warning_hard", "warning_puncture"]
 
     static func rivianSaysLow(_ status: String?) -> Bool {
         let key = (status ?? "").trimmingCharacters(in: .whitespaces).lowercased().split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).joined(separator: "_")
-        return rivianLowWords.contains(key)
+        let bare = key.hasPrefix("tire_pressure_status_") ? String(key.dropFirst("tire_pressure_status_".count)) : key
+        return rivianLowWords.contains(bare)
     }
 
     /// The four wheels, front row first as on the truck. A wheel that sent no pressure (0) has no number and is never marked low on the

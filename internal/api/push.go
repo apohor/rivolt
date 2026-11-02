@@ -85,7 +85,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 		// here, whatever the client posts (an old Settings tab or pod would
 		// post its stale local defaults): the stored values stay as they are
 		// and only POST /api/push/optin changes them.
-		prefs.OnPlugInReminder, prefs.OnMilestones, prefs.OnLeftOpen = false, false, false
+		prefs.OnPlugInReminder, prefs.OnMilestones, prefs.OnLeftOpen, prefs.OnTireLow = false, false, false, false
 		sub := push.Subscription{
 			Endpoint:         body.Endpoint,
 			P256dh:           body.Keys.P256dh,
@@ -120,6 +120,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			"on_software_update", prefs.OnSoftwareUpdate,
 			"on_milestones", prefs.OnMilestones,
 			"on_left_open", prefs.OnLeftOpen,
+			"on_tire_low", prefs.OnTireLow,
 		)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":          true,
@@ -232,11 +233,12 @@ func handlePushDevice(store *push.Store) http.HandlerFunc {
 			OnSoftwareUpdate: sub.OnSoftwareUpdate,
 			OnMilestones:     sub.OnMilestones,
 			OnLeftOpen:       sub.OnLeftOpen,
+			OnTireLow:        sub.OnTireLow,
 		}})
 	}
 }
 
-// handlePushOff: POST /api/push/off {"kind":"plug_in_reminder"|"milestones"|"left_open"} is
+// handlePushOff: POST /api/push/off {"kind":"plug_in_reminder"|"milestones"|"left_open"|"tire_low"} is
 // the one-tap stop: it turns that switch off on every device of the account, not
 // only the one in hand. Never an admin's act while viewing as the user.
 func handlePushOff(store *push.Store) http.HandlerFunc {
@@ -253,8 +255,8 @@ func handlePushOff(store *push.Store) http.HandlerFunc {
 			Kind string `json:"kind"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil ||
-			(body.Kind != "plug_in_reminder" && body.Kind != "milestones" && body.Kind != "left_open") {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind must be plug_in_reminder, milestones or left_open"})
+			(body.Kind != "plug_in_reminder" && body.Kind != "milestones" && body.Kind != "left_open" && body.Kind != "tire_low") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind must be plug_in_reminder, milestones, left_open or tire_low"})
 			return
 		}
 		n, err := store.SwitchOffAll(r.Context(), body.Kind)
@@ -287,9 +289,10 @@ func handlePushOptIn(store *push.Store) http.HandlerFunc {
 			OnPlugInReminder *bool  `json:"on_plug_in_reminder"`
 			OnMilestones     *bool  `json:"on_milestones"`
 			OnLeftOpen       *bool  `json:"on_left_open"`
+			OnTireLow        *bool  `json:"on_tire_low"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Endpoint == "" ||
-			(body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnLeftOpen == nil) {
+			(body.OnPlugInReminder == nil && body.OnMilestones == nil && body.OnLeftOpen == nil && body.OnTireLow == nil) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "endpoint and at least one switch required"})
 			return
 		}
@@ -302,6 +305,11 @@ func handlePushOptIn(store *push.Store) http.HandlerFunc {
 			var f2 bool
 			f2, err = store.SetLeftOpen(r.Context(), body.Endpoint, *body.OnLeftOpen)
 			found = found || f2
+		}
+		if err == nil && body.OnTireLow != nil {
+			var f3 bool
+			f3, err = store.SetTireLow(r.Context(), body.Endpoint, *body.OnTireLow)
+			found = found || f3
 		}
 		if err != nil {
 			slog.ErrorContext(r.Context(), "push optin", "err", err.Error())
