@@ -300,7 +300,8 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 	if revoked.Valid && ev.Created <= revoked.Int64 {
 		return OutcomeStale, uuid.Nil, nil
 	}
-	// Events can arrive out of order: only the newest one per subscription moves the entitlement.
+	// Events can arrive out of order: only the newest one per subscription moves the entitlement. Stripe's created has one-second resolution,
+	// so on a tie an ending wins: whichever of the two was sent last, a subscription that ended must not come back.
 	interval, amount, currency := sub.Terms()
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO billing_stripe_subs (subscription_id, user_id, last_event_created, price_interval, unit_amount, currency, trialing)
@@ -310,8 +311,9 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		    unit_amount    = COALESCE(EXCLUDED.unit_amount, billing_stripe_subs.unit_amount),
 		    currency       = COALESCE(EXCLUDED.currency, billing_stripe_subs.currency),
 		    trialing       = EXCLUDED.trialing
-		 WHERE billing_stripe_subs.last_event_created <= EXCLUDED.last_event_created`,
-		sub.ID, uid, ev.Created, interval, amount, currency, sub.Status == "trialing")
+		 WHERE billing_stripe_subs.last_event_created < EXCLUDED.last_event_created
+		    OR (billing_stripe_subs.last_event_created = EXCLUDED.last_event_created AND $8)`,
+		sub.ID, uid, ev.Created, interval, amount, currency, sub.Status == "trialing", status == entitlements.StatusEnded)
 	if err != nil {
 		return "", uuid.Nil, err
 	}
