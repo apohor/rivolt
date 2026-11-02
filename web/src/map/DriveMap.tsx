@@ -49,6 +49,8 @@ export function DriveMap({
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
+  // Where the legend card goes on a phone: directly under the map.
+  const dockRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   // The timestamped samples (with their index into the drive's samples), and the readout text for sample i in the active mode.
   const timedRef = useRef<(Required<Pick<Point, "lat" | "lon" | "t">> & { i: number })[]>([]);
@@ -173,7 +175,13 @@ export function DriveMap({
       };
       if (!(phone && legend)) map.addControl(picker, "top-right");
       cleanups.push(onAppMapFlavor((f) => { setFlavor(f); }));
-      if (legend) map.addControl(legend, "bottom-left");
+      // On a phone the legend card sits under the map, not over it (the route keeps the whole map); on a wide map it stays a corner control.
+      const dock = dockRef.current;
+      if (legend && phone && dock) {
+        const node = legend.onAdd(map);
+        dock.appendChild(node);
+        cleanups.push(() => { legend.onRemove(); node.remove(); });
+      } else if (legend) map.addControl(legend, "bottom-left");
       if (typeof fixAgeSeconds === "number" && Number.isFinite(fixAgeSeconds) && fixAgeSeconds >= 5 * 60) map.addControl(stalenessBadge(fixAgeSeconds), "top-right");
 
       // What to keep framed: the raw trace first, the snapped route once it arrives; every resize refits to it.
@@ -193,8 +201,8 @@ export function DriveMap({
         const key = JSON.stringify([sides, flavor, firstT, lastT]);
         if (!force && key === pillKey) return;
         pillKey = key;
-        const specs = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, ...sides.start }];
-        if (eLL) specs.push({ id: "end", text: `End ${timeOf(lastT)}`, lngLat: eLL, ...sides.end });
+        const specs = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, small: true, ...sides.start }];
+        if (eLL) specs.push({ id: "end", text: timeOf(lastT), lngLat: eLL, small: true, ...sides.end });
         setPills(map, specs, flavor);
       };
       const fit = () => {
@@ -346,7 +354,12 @@ export function DriveMap({
   }, [cursorTime, points]);
 
   if (!supported) return <MapUnavailable height={height} />;
-  return <div ref={ref} className="rounded-lg overflow-hidden border border-neutral-800" style={{ height }} />;
+  return (
+    <>
+      <div ref={ref} className="rounded-lg overflow-hidden border border-neutral-800" style={{ height }} />
+      <div ref={dockRef} data-legend-dock className="rivolt-legend-dock" />
+    </>
+  );
 }
 
 // nearestIndex is the index of the recorded sample nearest a snapped coordinate (flat-earth distance), so the snapped line takes that sample's value.

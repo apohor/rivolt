@@ -113,3 +113,13 @@
   outline: 2px solid var(--color-emerald-300, #5ee9b5);
   outline-offset: 1px;
 }
+
+/* On a phone the legend card is under the map, full width, in the page's flow (not a floating map control). */
+.rivolt-legend-dock .rivolt-legend {
+  float: none !important;
+  clear: none !important;
+  max-width: none !important;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 0 !important;
+}
