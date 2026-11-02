@@ -2901,8 +2901,16 @@ func runServer() {
 	// The tire-low alert (internal/tirelow): an opt-in push when the truck itself reports a tire low, in P, for 30
 	// minutes. The same shape as the left-open job above: a timer reads the monitor's latest state, nothing here calls
 	// Rivian, and it never runs in admin-only or demo-only mode or for the demo account.
-	if pgPool != nil && pushSvc != nil && monitorRegistry != nil && !adminOnlyMode && !demo.OnlyEnabled() {
+	// OFF by default (DA, Nov 2): RIVOLT_TIRE_LOW=dry runs the whole path and counts rivolt_tire_low_would_send_total instead of sending
+	// (the 14-day soak); =on sends. Anything else, or unset, runs nothing.
+	tireLowMode := strings.ToLower(strings.TrimSpace(os.Getenv("RIVOLT_TIRE_LOW")))
+	if tireLowMode != "" && tireLowMode != "off" && tireLowMode != "dry" && tireLowMode != "on" {
+		logger.Warn("RIVOLT_TIRE_LOW is not off, dry or on; the tire-low alert stays off", "value", tireLowMode)
+	}
+	if (tireLowMode == "dry" || tireLowMode == "on") && pgPool != nil && pushSvc != nil && monitorRegistry != nil && !adminOnlyMode && !demo.OnlyEnabled() {
 		tireLow := &tirelow.Job{
+			DryRun:    tireLowMode == "dry",
+			WouldSend: func(class string) { appMetrics.TireLowWouldSendTotal.WithLabelValues(class).Inc() },
 			Source: tirelow.NewSource(pgPool, func(uid uuid.UUID, rivianID string) (*rivian.State, time.Time) {
 				m := monitorRegistry.For(uid)
 				if m == nil {

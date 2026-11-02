@@ -220,6 +220,9 @@ type Metrics struct {
 	// not_low (normal or ok), other (any other word) or missing (a pressure with no status). A fixed list; no vehicle,
 	// user or raw word. It tells whether prod trucks ever say low before any alert relies on it.
 	TireStatusTotal *prometheus.CounterVec
+	// TireLowWouldSendTotal counts the tire-low alerts the dry run would have sent, by which low word (soft, hard, puncture). While
+	// RIVOLT_TIRE_LOW=dry the push is replaced by this count; every one is explained before the alert goes live.
+	TireLowWouldSendTotal *prometheus.CounterVec
 	// RequestAcquiresWithoutUser counts request-pool connections handed out for a context with no user, by route pattern.
 	RequestAcquiresWithoutUser *prometheus.CounterVec
 
@@ -726,6 +729,13 @@ func New() *Metrics {
 			},
 			[]string{"status"},
 		),
+		TireLowWouldSendTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_tire_low_would_send_total",
+				Help: "Tire-low alerts the dry run would have sent (RIVOLT_TIRE_LOW=dry), by which low word (soft|hard|puncture). Nothing is sent.",
+			},
+			[]string{"class"},
+		),
 		RequestAcquiresWithoutUser: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_request_acquires_without_user_total",
@@ -814,6 +824,7 @@ func New() *Metrics {
 		m.LogoutForgetFailuresTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
+		m.TireLowWouldSendTotal,
 		m.RequestAcquiresWithoutUser,
 	)
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
@@ -827,6 +838,9 @@ func New() *Metrics {
 	}
 	for _, outcome := range AppleLinkOutcomes {
 		m.AppleLinkTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, class := range []string{"soft", "hard", "puncture"} { // the dry run's would-send counts, so the first one is an increase
+		m.TireLowWouldSendTotal.WithLabelValues(class).Add(0)
 	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
 	for _, kind := range launchnotice.MetricKinds {

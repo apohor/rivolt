@@ -1,4 +1,4 @@
--- 0085_tire_low.sql: the tire-low alert (an opt-in push when the truck itself reports a tire low).
+-- 0106_tire_low.sql: the tire-low alert (an opt-in push when the truck itself reports a tire low).
 --
 --   push_subscriptions.on_tire_low   the web switch, OFF until the user's own control turns it on
 --   push_apns_devices.on_tire_low    the iPhone switch, likewise OFF

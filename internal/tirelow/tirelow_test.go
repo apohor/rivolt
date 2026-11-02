@@ -67,7 +67,7 @@ func state(gear string, fl, fr, rl, rr string) rivian.State {
 
 func TestAlertsOnlyAfterTheTruckHasSaidLowForThirtyMinutesInPark(t *testing.T) {
 	r := newRig(t)
-	low := state("P", "Low", "Normal", "Normal", "Normal")
+	low := state("P", "Warning_Soft", "Normal", "Normal", "Normal")
 	r.tick(0, low, false)
 	r.tick(29*time.Minute, low, false)
 	if len(r.sent) != 0 {
@@ -87,13 +87,13 @@ func TestAlertsOnlyAfterTheTruckHasSaidLowForThirtyMinutesInPark(t *testing.T) {
 
 func TestNeverWhileNotInParkAndNeverOnOurOwnFloor(t *testing.T) {
 	r := newRig(t)
-	r.tick(0, state("D", "Low", "Normal", "Normal", "Normal"), false)
-	r.tick(time.Hour, state("D", "Low", "Normal", "Normal", "Normal"), false)
+	r.tick(0, state("D", "Warning_Soft", "Normal", "Normal", "Normal"), false)
+	r.tick(time.Hour, state("D", "Warning_Soft", "Normal", "Normal", "Normal"), false)
 	if len(r.sent) != 0 {
 		t.Fatalf("alerted in D: %v", r.sent)
 	}
 	// Parked now, the clock has run in the meantime: it alerts at once.
-	r.tick(time.Minute, state("P", "Low", "Normal", "Normal", "Normal"), false)
+	r.tick(time.Minute, state("P", "Warning_Soft", "Normal", "Normal", "Normal"), false)
 	if len(r.sent) != 1 {
 		t.Fatalf("a long-low wheel parked at last did not alert: %v", r.sent)
 	}
@@ -117,9 +117,9 @@ func TestUnknownAndMissingWordsNeverAlertAndNeverClear(t *testing.T) {
 	}
 	// A wheel low, then a frame that says nothing about it: the clock keeps running.
 	r = newRig(t)
-	r.tick(0, state("P", "Low", "", "", ""), false)
+	r.tick(0, state("P", "Warning_Soft", "", "", ""), false)
 	r.tick(20*time.Minute, state("P", "Mystery", "", "", ""), false)
-	r.tick(11*time.Minute, state("P", "Low", "", "", ""), false)
+	r.tick(11*time.Minute, state("P", "Warning_Soft", "", "", ""), false)
 	if len(r.sent) != 1 {
 		t.Errorf("an unfamiliar word reset the clock: %v", r.sent)
 	}
@@ -127,7 +127,7 @@ func TestUnknownAndMissingWordsNeverAlertAndNeverClear(t *testing.T) {
 
 func TestAStaleStateSaysNothingAndTheClockSurvivesAGap(t *testing.T) {
 	r := newRig(t)
-	low := state("P", "Low", "Normal", "Normal", "Normal")
+	low := state("P", "Warning_Soft", "Normal", "Normal", "Normal")
 	r.tick(0, low, false)
 	// The truck sleeps for hours: stale states count as neither low nor fine, and trigger nothing.
 	r.tick(2*time.Hour, low, true)
@@ -143,7 +143,7 @@ func TestAStaleStateSaysNothingAndTheClockSurvivesAGap(t *testing.T) {
 
 func TestAFreshNormalResetsTheThirtyMinutes(t *testing.T) {
 	r := newRig(t)
-	low, ok := state("P", "Low", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
+	low, ok := state("P", "Warning_Soft", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
 	r.tick(0, low, false)
 	r.tick(25*time.Minute, ok, false)
 	r.tick(time.Minute, low, false) // low again: the clock starts over
@@ -159,7 +159,7 @@ func TestAFreshNormalResetsTheThirtyMinutes(t *testing.T) {
 
 func TestAFlickerDoesNotMakeANewAlertButTwelveHoursOfNormalEndsTheEpisode(t *testing.T) {
 	r := newRig(t)
-	low, ok := state("P", "Low", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
+	low, ok := state("P", "Warning_Soft", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
 	r.tick(0, low, false)
 	r.tick(31*time.Minute, low, false)
 	if len(r.sent) != 1 {
@@ -188,7 +188,7 @@ func TestAFlickerDoesNotMakeANewAlertButTwelveHoursOfNormalEndsTheEpisode(t *tes
 
 func TestAGapWithNoFramesNeverCountsAsNormal(t *testing.T) {
 	r := newRig(t)
-	low, ok := state("P", "Low", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
+	low, ok := state("P", "Warning_Soft", "Normal", "Normal", "Normal"), state("P", "Normal", "Normal", "Normal", "Normal")
 	r.tick(0, low, false)
 	r.tick(31*time.Minute, low, false)
 	// One fresh Normal, then 13 hours with no fresh frame, then Normal again: only the two instants count, not the gap.
@@ -204,10 +204,10 @@ func TestAGapWithNoFramesNeverCountsAsNormal(t *testing.T) {
 
 func TestASecondWheelAlertsAgainAndAlreadyCoveredWheelsDoNot(t *testing.T) {
 	r := newRig(t)
-	r.tick(0, state("P", "Low", "Normal", "Normal", "Normal"), false)
-	r.tick(31*time.Minute, state("P", "Low", "Normal", "Normal", "Normal"), false)
+	r.tick(0, state("P", "Warning_Soft", "Normal", "Normal", "Normal"), false)
+	r.tick(31*time.Minute, state("P", "Warning_Soft", "Normal", "Normal", "Normal"), false)
 	// Another wheel goes low inside the cooldown: after its own 30 minutes, an alert naming both.
-	both := state("P", "Low", "Normal", "Normal", "Low")
+	both := state("P", "Warning_Soft", "Normal", "Normal", "Warning_Soft")
 	r.tick(time.Minute, both, false)
 	r.tick(31*time.Minute, both, false)
 	if len(r.sent) != 2 || len(r.sent[1]) != 2 || r.sent[1][0] != "fl" || r.sent[1][1] != "rr" {
@@ -217,7 +217,7 @@ func TestASecondWheelAlertsAgainAndAlreadyCoveredWheelsDoNot(t *testing.T) {
 	// claimed again every tick.
 	r2 := newRig(t)
 	r2.src.claimOK = false
-	low := state("P", "Low", "Normal", "Normal", "Normal")
+	low := state("P", "Warning_Soft", "Normal", "Normal", "Normal")
 	r2.tick(0, low, false)
 	r2.tick(31*time.Minute, low, false)
 	r2.tick(time.Minute, low, false)
@@ -230,10 +230,65 @@ func TestASecondWheelAlertsAgainAndAlreadyCoveredWheelsDoNot(t *testing.T) {
 func TestThisPodNotRunningTheVehicleDoesNothing(t *testing.T) {
 	r := newRig(t)
 	r.job.Tick(context.Background()) // Latest is nil
-	r.tick(time.Hour, state("P", "Low", "", "", ""), false)
+	r.tick(time.Hour, state("P", "Warning_Soft", "", "", ""), false)
 	r.src.st = nil
 	r.job.Tick(context.Background())
 	if len(r.sent) != 0 {
 		t.Errorf("sent = %v", r.sent)
+	}
+}
+
+// DA's dry run: the whole path runs (clocks, park, the sustained rule), but the claim and the push are replaced by one would-send per wheel per
+// episode, counted by which low word it was. Nothing is written and nothing is sent.
+func TestDryRunCountsWhatItWouldSendAndSendsNothing(t *testing.T) {
+	r := newRig(t)
+	var would []string
+	r.job.DryRun = true
+	r.job.WouldSend = func(class string) { would = append(would, class) }
+	low := state("P", "Warning_Soft", "Normal", "Warning_Puncture", "Normal")
+	r.tick(0, low, false)
+	r.tick(29*time.Minute, low, false)
+	if len(would) != 0 {
+		t.Fatalf("a would-send before the wheels had been low for 30 minutes: %v", would)
+	}
+	r.tick(2*time.Minute, low, false)
+	r.tick(time.Minute, low, false) // later ticks of the same episode add nothing
+	r.tick(10*time.Minute, low, false)
+	if len(would) != 2 || would[0] == would[1] {
+		t.Errorf("would-send = %v, want one soft and one puncture", would)
+	}
+	if len(r.sent) != 0 || len(r.src.claims) != 0 {
+		t.Errorf("the dry run sent %v or claimed %v", r.sent, r.src.claims)
+	}
+}
+
+// Only the words of the table make a claim: the guessed words of the old list (low, very_low, critical, ...) and the enum's unspecified/unknown never
+// alert and never clear.
+func TestWordsOutsideTheTableNeverAlert(t *testing.T) {
+	for _, word := range []string{"low", "Low", "very_low", "critical", "low_pressure", "unspecified", "unknown", "TIRE_PRESSURE_STATUS_WARNING_SOFT", "mystery"} {
+		r := newRig(t)
+		low := state("P", word, "Normal", "Normal", "Normal")
+		r.tick(0, low, false)
+		r.tick(31*time.Minute, low, false)
+		r.tick(31*time.Minute, low, false)
+		if len(r.sent) != 0 || len(r.src.claims) != 0 {
+			t.Errorf("%q alerted: sent %v claims %v", word, r.sent, r.src.claims)
+		}
+	}
+}
+
+// Going offline never raises or clears anything: a state that stopped arriving leaves the clocks alone, and one stale read cannot start an alert.
+func TestOfflineNeitherRaisesNorClears(t *testing.T) {
+	r := newRig(t)
+	low := state("P", "Warning_Hard", "Normal", "Normal", "Normal")
+	r.tick(0, low, false)
+	r.tick(20*time.Minute, low, true) // offline: the latest state is an hour old
+	r.tick(20*time.Minute, low, true)
+	if len(r.sent) != 0 {
+		t.Fatalf("a stale state raised an alert: %v", r.sent)
+	}
+	r.tick(time.Minute, low, false) // back: low since the first read, more than 30 minutes ago, still low on a fresh read
+	if len(r.sent) != 1 {
+		t.Errorf("after coming back still low on a fresh read: sent %v, want one alert", r.sent)
 	}
 }

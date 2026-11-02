@@ -78,6 +78,19 @@ func Statuses(st *rivian.State) map[string]Status {
 	return out
 }
 
+// Kinds reads which low word each low wheel has (soft, hard or puncture), for the dry-run counter.
+func Kinds(st *rivian.State) map[string]string {
+	out := map[string]string{}
+	for pos, word := range map[string]string{
+		"fl": st.TirePressureStatusFL, "fr": st.TirePressureStatusFR, "rl": st.TirePressureStatusRL, "rr": st.TirePressureStatusRR,
+	} {
+		if k := rivian.TireLowKind(word); k != "" {
+			out[pos] = k
+		}
+	}
+	return out
+}
+
 // Parked says the state states park. Unknown gear is not park.
 func Parked(st *rivian.State) bool { return st != nil && st.Gear == "P" }
 
@@ -118,6 +131,11 @@ type Job struct {
 	Deliver func(ctx context.Context, uid uuid.UUID, model string, wheels []string) error
 	Now     func() time.Time
 	Logger  *slog.Logger
+	// DryRun runs the whole path (the clocks, park, the sustained rule) and replaces the claim and the push with WouldSend, once per wheel
+	// per episode: DA's soak (Nov 2). Nothing is written and nothing is sent.
+	DryRun bool
+	// WouldSend counts one would-be alert for a wheel, by which low word it is (soft, hard, puncture).
+	WouldSend func(class string)
 
 	// wheels: each vehicle's wheel clocks. In memory: a restart starts the count again (a late alert, never a duplicate
 	// one: the marker stops that).
@@ -232,6 +250,17 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 		return // everything sustained was already alerted (or covered by a recent alert) in this episode
 	}
 	sort.Strings(sustained)
+	if j.DryRun {
+		kinds := Kinds(st)
+		for _, pos := range sustained {
+			if !ws[pos].alerted && j.WouldSend != nil {
+				j.WouldSend(kinds[pos])
+			}
+			ws[pos].alerted = true
+		}
+		j.log("tire-low: would send (dry run)", "user_id", v.UserID.String(), "wheels", strings.Join(sustained, ","))
+		return
+	}
 	for _, pos := range sustained {
 		ws[pos].alerted = true // won or not, do not claim again every tick
 	}

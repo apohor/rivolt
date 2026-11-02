@@ -65,7 +65,7 @@ describe("tireWheels", () => {
     expect(Math.round(w[0].psi!)).toBe(42);
   });
   it("marks low only below the 32 psi floor or when Rivian says so, never calls a wheel OK", () => {
-    const w = tireWheels({ ...base, tire_pressure_fl_bar: 2.1, tire_pressure_rr_bar: 2.7, tire_pressure_status_rr: "Low" })!;
+    const w = tireWheels({ ...base, tire_pressure_fl_bar: 2.1, tire_pressure_rr_bar: 2.7, tire_pressure_status_rr: "Warning_Soft" })!;
     expect(w.map((x) => [x.low, x.rivianLow])).toEqual([[true, false], [false, false], [false, false], [false, true]]);
     // 38 psi is under a placard but above the floor: the number only, no claim either way.
     expect(tireWheels({ ...base, tire_pressure_fl_bar: 2.62 })![0]).toMatchObject({ low: false, rivianLow: false });
@@ -76,8 +76,8 @@ describe("tireWheels", () => {
     expect(tireWheels({ ...base, tire_pressure_fl_bar: 0, tire_pressure_fr_bar: 0, tire_pressure_rl_bar: 0, tire_pressure_rr_bar: 0 })).toBeNull();
   });
   it("reads only a fixed list of Rivian's low words", () => {
-    for (const v of ["low", "Low", " LOW ", "critically low", "critical-low"]) expect(rivianSaysLow(v)).toBe(true);
-    for (const v of ["", "Normal", "unknown", "undefined", "high", "lowish"]) expect(rivianSaysLow(v)).toBe(false);
+    for (const v of ["warning_soft", "Warning_Soft", " WARNING_HARD ", "warning puncture", "warning-puncture"]) expect(rivianSaysLow(v)).toBe(true);
+    for (const v of ["", "Normal", "unknown", "unspecified", "undefined", "high", "lowish", "low", "critical", "tire_pressure_status_warning_soft"]) expect(rivianSaysLow(v)).toBe(false);
   });
 });
 
