@@ -23,6 +23,9 @@ type OTAObserver interface {
 var otaKnownStatuses = map[string]bool{
 	"idle": true, "downloading": true, "download_complete": true, "ready_to_install": true, "installing": true,
 	"installed": true, "scheduled": true, "waiting": true, "paused": true, "failed": true, "cancelled": true,
+	// seen on prod trucks and in Rivian's app (Nov 2): the counter's "other" bucket held these
+	"preparing": true, "ready_to_download": true, "scheduled_to_install": true, "install_countdown": true, "awaiting_install": true,
+	"install_success": true, "connection_lost": true,
 }
 
 // otaWordOK limits what is logged as a status word: a short plain word, never free text.
@@ -31,10 +34,15 @@ var otaWordOK = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_ -]{0,31}$`)
 // otaMaxWords bounds the set of distinct words remembered (and so logged) per process.
 const otaMaxWords = 32
 
+// otaStatusKey is a status word in lower case with spaces and dashes as underscores ("Install_Success" -> "install_success").
+func otaStatusKey(s string) string {
+	k := strings.ToLower(strings.TrimSpace(s))
+	return strings.NewReplacer(" ", "_", "-", "_").Replace(k)
+}
+
 // otaStatusClass normalises a status word to a counter label: the known word, or "other".
 func otaStatusClass(s string) string {
-	k := strings.ToLower(strings.TrimSpace(s))
-	k = strings.NewReplacer(" ", "_", "-", "_").Replace(k)
+	k := otaStatusKey(s)
 	if otaKnownStatuses[k] {
 		return k
 	}
