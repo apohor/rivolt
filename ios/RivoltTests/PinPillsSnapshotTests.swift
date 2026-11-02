@@ -56,7 +56,7 @@ final class PinPillsSnapshotTests: XCTestCase {
                 func sized<V: View>(_ v: V) -> CGSize {
                     UIHostingController(rootView: v.environment(\.dynamicTypeSize, type).environment(\.colorScheme, scheme)).sizeThatFits(in: CGSize(width: size.width, height: 400))
                 }
-                let legend = GradientLegend(lo: 11, hi: 58, metric: .speed, metrics: [.speed, .elevation], selection: .constant(.speed))
+                let legend = GradientLegend(lo: 11, hi: 58, metric: .speed, metrics: RouteGradient.Metric.allCases, selection: .constant(.speed))
                 let ls = sized(legend.padding(4)), cs = sized(MapAttribution())
                 let legendFrame = CGRect(x: 0, y: size.height - ls.height, width: ls.width, height: ls.height).insetBy(dx: -4, dy: -4)
                 let creditFrame = CGRect(x: size.width - cs.width, y: size.height - cs.height, width: cs.width, height: cs.height).insetBy(dx: -4, dy: -4)
