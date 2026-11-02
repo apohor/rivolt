@@ -62,6 +62,14 @@ func TestMergeStateEndsTheInstallProgressWithTheInstall(t *testing.T) {
 	if next.OtaInstallProgress != 0 {
 		t.Errorf("a new install started at %v", next.OtaInstallProgress)
 	}
+	// the frame that ends an install can carry a final progress; it must not survive into the next install either
+	ended := mergeState(installing, &State{OtaStatus: "install_success", OtaInstallProgress: 100})
+	if ended.OtaInstallProgress != 0 {
+		t.Errorf("an ending frame with progress 100 left %v behind", ended.OtaInstallProgress)
+	}
+	if again := mergeState(ended, &State{OtaStatus: "installing"}); again.OtaInstallProgress != 0 {
+		t.Errorf("the next install started at %v", again.OtaInstallProgress)
+	}
 	// a frame that names a status and a progress together keeps the progress
 	if got := mergeState(installing, &State{OtaStatus: "installing", OtaInstallProgress: 90}); got.OtaInstallProgress != 90 {
 		t.Errorf("status and progress together: %v", got.OtaInstallProgress)
