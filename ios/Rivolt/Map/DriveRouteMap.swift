@@ -797,6 +797,7 @@ struct MapAttribution: View {
     var body: some View {
         Text(Self.text)
             .mapCaption()
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 3).padding(.vertical, 1)
             .background(Theme.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
