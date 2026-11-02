@@ -74,9 +74,10 @@ final class PinPillsTests: XCTestCase {
         let credit = CGRect(x: 230, y: 190, width: 113, height: 30).insetBy(dx: -4, dy: -4)
         for pin in [CGPoint(x: 222, y: 200), CGPoint(x: 120, y: 130), CGPoint(x: 225, y: 175), CGPoint(x: 260, y: 160)] {
             let items = PinPillsOverlay.items(size: size, start: pin, end: nil, startTime: "5:54 PM", endTime: nil, legend: true, obstacles: [legend, credit])
-            XCTAssertEqual(items.count, 1)
-            XCTAssertFalse(items[0].spot.rect.intersects(legend), "\(pin): \(items[0].spot.rect) is on the legend")
-            XCTAssertFalse(items[0].spot.rect.intersects(credit), "\(pin): \(items[0].spot.rect) is on the credit")
+            // Either clear of both, or no pill at all: never on top of one.
+            guard let item = items.first else { continue }
+            XCTAssertFalse(item.spot.rect.intersects(legend), "\(pin): \(item.spot.rect) is on the legend")
+            XCTAssertFalse(item.spot.rect.intersects(credit), "\(pin): \(item.spot.rect) is on the credit")
         }
     }
 

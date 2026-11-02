@@ -191,6 +191,10 @@ struct PinPillsOverlay: View {
             } else if let s = PinPills.placeOpt(pin: pin, width: PinPills.estimatedWidth(short), in: size, avoiding: taken, line: line, onlyClear: true) {
                 taken.append(s.rect)
                 out.append(Item(id: id, text: short, spoken: text, spot: s))
+            } else if obstacles != nil {
+                // Measured, and not even the name fits clear of the legend, the credit and the line: no pill (the pin and the page's own time say it),
+                // rather than one drawn over something.
+                return
             } else {
                 let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
                 taken.append(spot.rect)
