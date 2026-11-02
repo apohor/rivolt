@@ -264,6 +264,10 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		status, ok = entitlements.StatusEnded, true
 	}
 	end := sub.PeriodEnd()
+	if status == entitlements.StatusEnded && end.IsZero() {
+		// An ending is the one fact the event exists to say; without a period end it ends now (the time Stripe stamped it).
+		end = time.Unix(ev.Created, 0)
+	}
 	if sub.ID == "" || !ok || end.IsZero() {
 		return OutcomeIgnored, uuid.Nil, nil
 	}
