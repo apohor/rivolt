@@ -83,6 +83,21 @@
   position: relative;
   z-index: 1;
 }
+/* The zoom buttons' ring is a box of its own inside the button (not an outline, which the stacked neighbour's border cut on the bottom
+   edge), above the icon, so all four sides are drawn whatever sits next to it. */
+.maplibregl-ctrl .maplibregl-ctrl-zoom-in:focus-visible,
+.maplibregl-ctrl .maplibregl-ctrl-zoom-out:focus-visible {
+  outline: none;
+}
+.maplibregl-ctrl .maplibregl-ctrl-zoom-in:focus-visible::after,
+.maplibregl-ctrl .maplibregl-ctrl-zoom-out:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-emerald-300, #5ee9b5);
+  border-radius: inherit;
+  pointer-events: none;
+}
 .maplibregl-ctrl-attrib-button:focus-visible {
   outline: none;
 }
