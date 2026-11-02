@@ -40,6 +40,25 @@ func PurgeEvents(ctx context.Context, d *sql.DB) (int64, error) {
 // its events, and a subscription event can arrive before the checkout.session.completed that links its customer.
 var ErrUnmapped = errors.New("stripe: no account for the event yet")
 
+// UnmappedMaxAge is how long an unmapped event keeps being retried. The race it exists for (a subscription event before the checkout event
+// that links the customer) resolves in seconds to minutes; a subscription that is not Rivolt's would only retry for days.
+const UnmappedMaxAge = 24 * time.Hour
+
+// unmapped is the answer for an event with no account: ErrUnmapped (a 500, Stripe retries) while the event is younger than UnmappedMaxAge,
+// else OutcomeUnmappedExpired (acknowledged, with a WARN carrying the event id, type and age only).
+func (h *Handler) unmapped(ev Event) (string, error) {
+	if ev.Created > 0 {
+		if age := h.now().Sub(time.Unix(ev.Created, 0)); age > UnmappedMaxAge {
+			if h.Log != nil {
+				h.Log.Warn("stripe webhook: unmapped event is too old to retry; acknowledged", "event", ev.ID, "type", ev.Type, "age", age.Round(time.Minute).String())
+			}
+			return OutcomeUnmappedExpired, nil
+		}
+	}
+	h.observe(ev.Type, OutcomeUnmapped)
+	return "", ErrUnmapped
+}
+
 // Handler is POST /api/billing/stripe/webhook. It verifies the signature, then applies the event in ONE transaction that also records the
 // event id, so a retried or replayed delivery changes nothing, and a delivery that fails halfway is rolled back whole (claim included) and
 // answered 500 so Stripe retries it. Entitlements are written only here (and by the founding grant, the trial and admin grants).
@@ -75,15 +94,18 @@ const (
 	OutcomeDuplicate = "duplicate"
 	OutcomeIgnored   = "ignored"
 	OutcomeUnmapped  = "unmapped"
-	OutcomeStale     = "stale"
-	OutcomeRejected  = "rejected"
+	// OutcomeUnmappedExpired: an unmapped event older than UnmappedMaxAge, acknowledged. Nothing repairs a dropped event (no reconcile job), so
+	// any of these is alerted on.
+	OutcomeUnmappedExpired = "unmapped_expired"
+	OutcomeStale           = "stale"
+	OutcomeRejected        = "rejected"
 )
 
 // MetricTypes are the event types the endpoint handles, as the metric labels them; any other type is "other", and a delivery rejected before
 // its type is known is "none". MetricOutcomes are the outcomes. Both are fixed sets, so the label cardinality is bounded by this package.
 var (
 	MetricTypes    = []string{"checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "charge.refunded", "other", "none"}
-	MetricOutcomes = []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeStale, OutcomeRejected}
+	MetricOutcomes = []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeUnmappedExpired, OutcomeStale, OutcomeRejected}
 )
 
 // MetricType is the label for an event type.
@@ -284,8 +306,8 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		if h.Log != nil {
 			h.Log.Warn("stripe webhook: subscription event for no known account yet; Stripe will retry", "event", ev.ID, "subscription", sub.ID)
 		}
-		h.observe(ev.Type, OutcomeUnmapped)
-		return "", uuid.Nil, ErrUnmapped
+		outcome, err := h.unmapped(ev)
+		return outcome, uuid.Nil, err
 	}
 	if sub.Customer != "" {
 		if _, err := linkCustomer(ctx, tx, uid, sub.Customer); err != nil {
@@ -359,8 +381,8 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 		} else if closed {
 			return OutcomeIgnored, uuid.Nil, nil
 		}
-		h.observe(ev.Type, OutcomeUnmapped)
-		return "", uuid.Nil, ErrUnmapped
+		outcome, err := h.unmapped(ev)
+		return outcome, uuid.Nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE billing_customers SET revoked_at = GREATEST(COALESCE(revoked_at, 0), $2), updated_at = now() WHERE user_id = $1`, uid, ev.Created); err != nil {
 		return "", uuid.Nil, err
