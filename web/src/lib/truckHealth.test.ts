@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, otaNowLine, otaStep, otaStepLine, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaNowLine, otaStep, otaStepFromState, otaStepLine, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -117,5 +117,18 @@ describe("otaNowLine", () => {
     expect(otaNowLine(otaStep({ step: "installing", install_progress: 37, available: { version: "2026.38.0" } })!)).toBe("Installing software 2026.38.0 · 37%");
     expect(otaNowLine(otaStep({ step: "installing" })!)).toBe("Installing software");
     expect(otaNowLine(otaStep({ step: "installing", install_progress: 0 })!)).toBe("Installing software · 0%");
+  });
+});
+
+describe("otaStepFromState (GET /api/state)", () => {
+  it("reads ota_step and ota_install_percent, and the pending version", () => {
+    const u = otaStepFromState({ ota_step: "installing", ota_install_percent: 37, ota_available_version: "2026.38.0" })!;
+    expect(otaStepLine(u)).toBe("2026.38.0 · Installing 37%");
+    expect(otaNowLine(u)).toBe("Installing software 2026.38.0 · 37%");
+  });
+  it("shows nothing when the server does not send a step (an older server, idle) or says unknown", () => {
+    expect(otaStepFromState({ ota_available_version: "2026.38.0" })).toBeNull();
+    expect(otaStepFromState({ ota_step: "unknown" })).toBeNull();
+    expect(otaStepFromState(undefined)).toBeNull();
   });
 });

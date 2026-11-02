@@ -69,11 +69,7 @@ final class NowComfortTests: XCTestCase {
     // MARK: Software update (the server's ota.step, the one source Now and the Truck tab share; see OtaStepTests)
 
     private func update(_ step: String?, progress: Int? = 37, available: String? = "2026.38.0") -> OtaStep? {
-        var fields = ["\"available\":{\"version\":\"\(available ?? "")\"}"]
-        if let step { fields.append("\"step\":\"\(step)\"") }
-        if let progress { fields.append("\"install_progress\":\(progress)") }
-        let json = "{" + fields.joined(separator: ",") + "}"
-        return (try? JSON.decoder().decode(Vehicle.OTA.self, from: Data(json.utf8))).flatMap { OtaStep($0) }
+        OtaStep(step: step, progress: progress, version: available)
     }
 
     func testNowSaysInstallingWithTheVersionAndTheNumber() {

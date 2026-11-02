@@ -145,3 +145,10 @@ export function sleepHealthLines(h: SleepHealth): SleepHealthLines {
   }
   return { headline: "Nothing unusual this week.", detail, basis };
 }
+
+// The same step from the live-state response (`GET /api/state`: `ota_step`, `ota_install_percent`, read from the monitor, no Rivian call). Absent on a
+// server that does not send them yet: nothing to show, not an error.
+export function otaStepFromState(s: { ota_step?: string; ota_install_percent?: number; ota_available_version?: string } | undefined | null): OtaStep | null {
+  if (!s) return null;
+  return otaStep({ step: s.ota_step, install_progress: s.ota_install_percent, available: { version: s.ota_available_version } });
+}

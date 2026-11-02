@@ -75,11 +75,6 @@ struct Vehicle: Decodable, Identifiable, Equatable {
 
         let current: Version?
         let available: Version?
-        /// The truck's own update step (`ready_to_download` … `install_success`, or `unknown`); absent when idle. The raw `status` word is not read.
-        var step: String? = nil
-        /// Percent 0...100, present only while the step is `installing`.
-        var installProgress: Int? = nil
-        var fetchedAt: Date? = nil
     }
 }
 
@@ -115,6 +110,10 @@ struct VehicleState: Decodable, Equatable {
     /// The live feed's own update words: no longer shown (Now and the Truck tab read the server's `ota.step` on the vehicle).
     let otaStatus: String?
     let otaInstallProgress: Double?
+    /// The server's derived update step (`ota_step`, one of ten named keys or `unknown`; absent when idle or on an older server) and the install
+    /// percent (`ota_install_percent`, only while installing): read from the monitor, no Rivian call. These, not the raw words above.
+    var otaStep: String? = nil
+    var otaInstallPercent: Int? = nil
     /// Rivian's own word for each wheel ("Normal", ...), shown only as theirs and only when it is one of the known low words.
     let tirePressureStatusFl: String?
     let tirePressureStatusFr: String?

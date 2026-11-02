@@ -110,15 +110,12 @@ struct NowSummary: Equatable {
                       gear: s.gear, powerState: s.powerState, chargerState: s.chargerState,
                       chargerPowerKw: s.chargerPowerKw, at: s.at, packKwh: s.batteryCapacityKwh, speedKph: s.speedKph,
                       comfort: NowComfort(cabinTempC: s.cabinTempC, preconditioning: s.cabinPreconditioningStatus, petMode: s.petModeStatus, cabinHold: s.cabinHoldStatus),
-                      timeToEndMins: s.timeToEndMins, timeToEndValidity: s.chargingTimeEstimationValidity)
+                      update: OtaStep(s), timeToEndMins: s.timeToEndMins, timeToEndValidity: s.chargingTimeEstimationValidity)
         }
     }
 
-    /// `update`: the truck's software update step from the vehicle list (`ota.step`), the one source Now and the Truck tab share.
-    init(state: VehicleState?, now: NowSnapshot?, clock: Date, update: OtaStep? = nil) {
-        var input = state.map(Input.init)
-        input?.update = update
-        self.init(input: input, now: now, clock: clock)
+    init(state: VehicleState?, now: NowSnapshot?, clock: Date) {
+        self.init(input: state.map(Input.init), now: now, clock: clock)
     }
 
     init(input: Input?, now: NowSnapshot?, clock: Date) {

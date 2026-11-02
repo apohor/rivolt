@@ -644,8 +644,8 @@ struct TruckContent: View {
     @ViewBuilder
     private var vehicleCard: some View {
         let sw = model.state.flatMap(TruckLogic.software)
-        // The truck's own update step, from the vehicle list (`ota.step`): none when idle or unknown.
-        let update = OtaStep(vehicle.ota)
+        // The truck's own update step, from the live state (`ota_step`): none when idle, unknown, or on a server that does not send it yet.
+        let update = OtaStep(model.state)
         if sw != nil || update != nil {
             ThemeSection(title: "Vehicle") {
                 if stacked {
@@ -687,7 +687,7 @@ struct TruckContent: View {
     /// The update step in plain words, with a bar while it installs; when the reading is more than two minutes old, its age under it so
     /// "Installing" isn't read as current.
     private func updateCell(_ u: OtaStep) -> some View {
-        let age = vehicle.ota?.fetchedAt.map { max(0, now.timeIntervalSince($0)) }
+        let age = model.state?.at.map { max(0, now.timeIntervalSince($0)) }
         return VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
             Text(u.line).themeText(.value, color: Theme.textPrimary)
             if let pct = u.pct {
