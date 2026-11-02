@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: November 1, 2026
+Last updated: November 2, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **ZeroDowntime LLC, a Texas limited liability company** ("we"). Contact: support@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
