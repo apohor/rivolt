@@ -26,8 +26,6 @@ async function axeClean(page: Page, scope?: string) {
   expect(res.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
 }
 
-const noSideScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-
 for (const scheme of ["dark", "light"] as const) {
   for (const v of [
     { n: "iphone", vp: { width: 390, height: 844 } },
@@ -148,7 +146,6 @@ test("Pro: the sheet at 320 px and at 200% text still reaches its button", async
       .slice(0, 8)
       .map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).split(" ").slice(0, 3).join(".")} right=${Math.round(el.getBoundingClientRect().right)}`),
   );
-  test.info().annotations.push({ type: "wider than the window at 320 px / 200% text", description: wide.join(" | ") });
-  console.log("WIDE:", wide.join(" | "));
+  expect(wide, "elements wider than the window at 320 px and 200% text").toEqual([]);
   await ctx.close();
 });
