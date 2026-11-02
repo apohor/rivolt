@@ -116,7 +116,8 @@ for (const theme of ["dark", "light"] as const) {
       const accent = await zoom.evaluate((el) => getComputedStyle(el, "::after").borderBottomColor);
       const m = accent.match(/\d+/g)!.map(Number);
       const box = (await zoom.boundingBox())!;
-      for (const [edge, y] of [["bottom", box.y + box.height - 1], ["top", box.y]] as const) {
+      // The second pixel row of the 2 px band on each side (a button on a half pixel blurs the outermost row).
+      for (const [edge, y] of [["bottom", box.y + box.height - 2], ["top", box.y + 1]] as const) {
         const png = await page.screenshot({ clip: { x: box.x, y, width: box.width, height: 1 } });
         const share = await page.evaluate(async ([b64, rgb]) => {
           const img = new Image();
