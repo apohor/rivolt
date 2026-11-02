@@ -28,7 +28,7 @@ async function open(page: Page, theme: "dark" | "light") {
 }
 
 for (const theme of ["dark", "light"] as const) {
-  test(`map credits and popup keep their look after the CSS prune · ${theme}`, async ({ browser }) => {
+  test(`map credits and popup keep their look after the CSS prune @webkit · ${theme}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
     const page = await ctx.newPage();
     const map = await open(page, theme);
