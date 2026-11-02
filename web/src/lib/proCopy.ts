@@ -70,8 +70,8 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
       // A subscription set to not renew must not say it renews.
       if (state.cancelsAt && (state.source === "stripe" || state.source === "apple"))
         return {
-          title: `Rivolt Pro until ${planDate(state.cancelsAt) || planDate(state.periodEnd) || "the end of the period"}`,
-          line: "Cancelled; Pro stays on until then. Nothing is deleted after.",
+          title: "Rivolt Pro",
+          line: `Won't renew; ends ${planDate(state.cancelsAt) || planDate(state.periodEnd) || "at the end of the period"}. Nothing is deleted after.`,
           action: state.source === "stripe" ? "Resubscribe" : "Manage subscription",
         };
       if (state.source === "apple") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Apple.", action: "Manage subscription" };
