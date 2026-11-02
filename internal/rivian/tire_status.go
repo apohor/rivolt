@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -23,6 +24,25 @@ var tireSeparators = regexp.MustCompile(`[\s-]+`)
 // tireWord trims, lower-cases and turns runs of spaces and hyphens into "_".
 func tireWord(s string) string {
 	return tireSeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(s)), "_")
+}
+
+// TireLowWord is the normalised low word of a per-wheel status ("" when the status is not one of the low words): the
+// label vocabulary of the alert's dry-run counter.
+func TireLowWord(status string) string {
+	if w := tireWord(status); tireLowWords[w] {
+		return w
+	}
+	return ""
+}
+
+// TireLowWords lists the low words, sorted: the fixed set that bounds that label.
+func TireLowWords() []string {
+	out := make([]string, 0, len(tireLowWords))
+	for w := range tireLowWords {
+		out = append(out, w)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TireStatusLow reports whether Rivian's own per-wheel status is one of its low words.

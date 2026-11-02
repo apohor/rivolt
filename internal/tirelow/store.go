@@ -25,15 +25,15 @@ func NewSource(db *sql.DB, latest LatestFunc, skip uuid.UUID) Source {
 	return &pgSource{db: db, latest: latest, skip: skip}
 }
 
-func (s *pgSource) Vehicles(ctx context.Context) ([]Vehicle, error) {
+func (s *pgSource) Vehicles(ctx context.Context, all bool) ([]Vehicle, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.user_id, v.id, v.rivian_vehicle_id, COALESCE(v.model, '')
 		  FROM vehicles v
 		  JOIN users u ON u.id = v.user_id AND NOT u.disabled
 		 WHERE v.user_id <> $1
 		   AND v.rivian_vehicle_id <> ''
-		   AND (EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.user_id = v.user_id AND p.on_tire_low)
-		     OR EXISTS (SELECT 1 FROM push_apns_devices d WHERE d.user_id = v.user_id AND d.on_tire_low))`, s.skip)
+		   AND ($2 OR EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.user_id = v.user_id AND p.on_tire_low)
+		     OR EXISTS (SELECT 1 FROM push_apns_devices d WHERE d.user_id = v.user_id AND d.on_tire_low))`, s.skip, all)
 	if err != nil {
 		return nil, err
 	}

@@ -91,8 +91,9 @@ type Vehicle struct {
 
 // Source reads what the job needs.
 type Source interface {
-	// Vehicles are the trucks of accounts with the alert on for some device.
-	Vehicles(ctx context.Context) ([]Vehicle, error)
+	// Vehicles are the trucks of accounts with the alert on for some device; with all set (the dry run), every enabled
+	// account's truck.
+	Vehicles(ctx context.Context, all bool) ([]Vehicle, error)
 	// Latest is the monitor's newest state for the vehicle and when it was last updated; nil when this pod does not run
 	// that vehicle's monitor.
 	Latest(uid uuid.UUID, rivianID string) (*rivian.State, time.Time)
@@ -108,6 +109,7 @@ type wheel struct {
 	lowSince  time.Time     // first seen low on a fresh frame, since the last fresh "not low"; zero when not low
 	notLowFor time.Duration // fresh "not low" time accumulated since it was last low (gaps add nothing and do not reset it)
 	lastObs   time.Time     // the last tick that saw this wheel's status on a fresh frame
+	word      string        // the low word it was last seen with (for the dry-run counter's label)
 	alerted   bool          // named in an alert (or a recent one covered it) in this episode
 }
 
@@ -116,8 +118,13 @@ type Job struct {
 	Source Source
 	// Deliver sends the push to the account's devices that have the alert on.
 	Deliver func(ctx context.Context, uid uuid.UUID, model string, wheels []string) error
-	Now     func() time.Time
-	Logger  *slog.Logger
+	// Live turns the real push on (a server flag, off by default). Off, the whole path runs for every account's truck but
+	// no push, no marker and no opt-in is involved: each episode that would have sent one is counted by WouldSend instead
+	// (the class label only: the low word) and logged. Counted per episode, in memory: a restart can count one again.
+	Live      bool
+	WouldSend func(class string)
+	Now       func() time.Time
+	Logger    *slog.Logger
 
 	// wheels: each vehicle's wheel clocks. In memory: a restart starts the count again (a late alert, never a duplicate
 	// one: the marker stops that).
@@ -152,7 +159,7 @@ func (j *Job) Tick(ctx context.Context) {
 		j.wheels = map[uuid.UUID]map[string]*wheel{}
 	}
 	now := j.now()
-	vs, err := j.Source.Vehicles(ctx)
+	vs, err := j.Source.Vehicles(ctx, !j.Live)
 	if err != nil {
 		j.log("tire-low: candidates failed", "err", err.Error())
 		return
@@ -185,6 +192,7 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 		ws = map[string]*wheel{}
 		j.wheels[v.VehicleID] = ws
 	}
+	words := map[string]string{"fl": st.TirePressureStatusFL, "fr": st.TirePressureStatusFR, "rl": st.TirePressureStatusRL, "rr": st.TirePressureStatusRR}
 	for pos, s := range Statuses(st) {
 		w := ws[pos]
 		if w == nil {
@@ -195,6 +203,7 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 		w.lastObs = now
 		switch s {
 		case Low:
+			w.word = rivian.TireLowWord(words[pos])
 			if w.lowSince.IsZero() {
 				w.lowSince = now
 			}
@@ -234,6 +243,14 @@ func (j *Job) check(ctx context.Context, v Vehicle, now time.Time) {
 	sort.Strings(sustained)
 	for _, pos := range sustained {
 		ws[pos].alerted = true // won or not, do not claim again every tick
+	}
+	if !j.Live {
+		class := ws[sustained[0]].word
+		if j.WouldSend != nil {
+			j.WouldSend(class)
+		}
+		j.log("tire-low: would send (dry run)", "user_id", v.UserID.String(), "wheels", strings.Join(sustained, ","), "class", class)
+		return
 	}
 	won, err := j.Source.Claim(ctx, v.UserID, v.VehicleID, newest, sustained)
 	if err != nil {

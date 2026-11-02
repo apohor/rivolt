@@ -220,6 +220,8 @@ type Metrics struct {
 	// not_low (normal or ok), other (any other word) or missing (a pressure with no status). A fixed list; no vehicle,
 	// user or raw word. It tells whether prod trucks ever say low before any alert relies on it.
 	TireStatusTotal *prometheus.CounterVec
+	// TireLowWouldSendTotal counts tire-low episodes that would have sent a push (the dry run), by the low word only.
+	TireLowWouldSendTotal *prometheus.CounterVec
 	// RequestAcquiresWithoutUser counts request-pool connections handed out for a context with no user, by route pattern.
 	RequestAcquiresWithoutUser *prometheus.CounterVec
 
@@ -726,6 +728,13 @@ func New() *Metrics {
 			},
 			[]string{"status"},
 		),
+		TireLowWouldSendTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_tire_low_would_send_total",
+				Help: "Tire-low episodes that would have sent a push while the real push is off (the dry run), by class (the truck's low word). Never a user, vehicle or wheel.",
+			},
+			[]string{"class"},
+		),
 		RequestAcquiresWithoutUser: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_request_acquires_without_user_total",
@@ -814,6 +823,7 @@ func New() *Metrics {
 		m.LogoutForgetFailuresTotal,
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
+		m.TireLowWouldSendTotal,
 		m.RequestAcquiresWithoutUser,
 	)
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source

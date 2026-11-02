@@ -2899,7 +2899,7 @@ func runServer() {
 	}
 
 	// The tire-low alert (internal/tirelow): an opt-in push when the truck itself reports a tire low, in P, for 30
-	// minutes. The same shape as the left-open job above: a timer reads the monitor's latest state, nothing here calls
+	// minutes; the push stays off (RIVOLT_TIRE_LOW_PUSH, a dry run counting would-be pushes) until DA clears it. The same shape as the left-open job above: a timer reads the monitor's latest state, nothing here calls
 	// Rivian, and it never runs in admin-only or demo-only mode or for the demo account.
 	if pgPool != nil && pushSvc != nil && monitorRegistry != nil && !adminOnlyMode && !demo.OnlyEnabled() {
 		tireLow := &tirelow.Job{
@@ -2914,7 +2914,13 @@ func runServer() {
 				_, err := pushSvc.DeliverTireLow(ctx, pushFactory.For(uid), model, wheels)
 				return err
 			},
-			Logger: logger,
+			// Off until DA clears it after the 14-day dry run: until then the job counts what it would send and sends nothing.
+			Live:      os.Getenv("RIVOLT_TIRE_LOW_PUSH") == "1",
+			WouldSend: func(class string) { appMetrics.TireLowWouldSendTotal.WithLabelValues(class).Inc() },
+			Logger:    logger,
+		}
+		for _, w := range rivian.TireLowWords() {
+			appMetrics.TireLowWouldSendTotal.WithLabelValues(w).Add(0) // from boot at 0, so the first would-be push is an increase
 		}
 		go tireLow.Run(ctx)
 	}

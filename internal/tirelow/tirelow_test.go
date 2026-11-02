@@ -11,14 +11,18 @@ import (
 )
 
 type fakeSource struct {
-	vs      []Vehicle
-	st      *rivian.State
-	at      time.Time
-	claims  [][]string
-	claimOK bool
+	vs       []Vehicle
+	st       *rivian.State
+	at       time.Time
+	claims   [][]string
+	claimOK  bool
+	allAsked []bool
 }
 
-func (f *fakeSource) Vehicles(context.Context) ([]Vehicle, error) { return f.vs, nil }
+func (f *fakeSource) Vehicles(_ context.Context, all bool) ([]Vehicle, error) {
+	f.allAsked = append(f.allAsked, all)
+	return f.vs, nil
+}
 func (f *fakeSource) Latest(uuid.UUID, string) (*rivian.State, time.Time) {
 	return f.st, f.at
 }
@@ -41,6 +45,7 @@ func newRig(t *testing.T) *rig {
 	r.src = &fakeSource{vs: []Vehicle{{UserID: uuid.New(), VehicleID: uuid.New(), RivianID: "r", Model: "R1S"}}, claimOK: true}
 	r.job = &Job{
 		Source: r.src,
+		Live:   true,
 		Now:    func() time.Time { return r.now },
 		Deliver: func(_ context.Context, _ uuid.UUID, _ string, wheels []string) error {
 			r.sent = append(r.sent, wheels)
@@ -235,5 +240,55 @@ func TestThisPodNotRunningTheVehicleDoesNothing(t *testing.T) {
 	r.job.Tick(context.Background())
 	if len(r.sent) != 0 {
 		t.Errorf("sent = %v", r.sent)
+	}
+}
+
+// The dry run: the whole path for every account's truck, but no marker and no push; each would-be push is counted once, by the low
+// word only. Switching Live on afterwards sends for real.
+func TestTheDryRunCountsEachEpisodeOnceAndSendsNothing(t *testing.T) {
+	r := newRig(t)
+	r.job.Live = false
+	var classes []string
+	r.job.WouldSend = func(c string) { classes = append(classes, c) }
+	low := state("P", "Critical", "Normal", "Normal", "Normal")
+	r.tick(0, low, false)
+	r.tick(29*time.Minute, low, false)
+	if len(classes) != 0 {
+		t.Fatalf("counted before 30 minutes: %v", classes)
+	}
+	r.tick(time.Minute, low, false)
+	r.tick(time.Minute, low, false)
+	r.tick(time.Hour, low, false)
+	if len(classes) != 1 || classes[0] != "critical" {
+		t.Errorf("would_send classes = %v, want exactly [critical]", classes)
+	}
+	if len(r.sent) != 0 || len(r.src.claims) != 0 {
+		t.Errorf("the dry run pushed %v or wrote a marker %v", r.sent, r.src.claims)
+	}
+	for _, all := range r.src.allAsked {
+		if !all {
+			t.Fatal("the dry run asked only for opted-in trucks; it must see every account's")
+		}
+	}
+	// An unknown word never counts either.
+	r2 := newRig(t)
+	r2.job.Live = false
+	n := 0
+	r2.job.WouldSend = func(string) { n++ }
+	odd := state("P", "Squishy", "Normal", "Normal", "Normal")
+	r2.tick(0, odd, false)
+	r2.tick(time.Hour, odd, false)
+	if n != 0 {
+		t.Errorf("an unknown word counted %d times", n)
+	}
+}
+
+func TestLiveAsksOnlyForTrucksWhoseOwnerTurnedItOn(t *testing.T) {
+	r := newRig(t)
+	r.tick(0, state("P", "Normal", "Normal", "Normal", "Normal"), false)
+	for _, all := range r.src.allAsked {
+		if all {
+			t.Fatal("the live job asked for every account's trucks")
+		}
 	}
 }

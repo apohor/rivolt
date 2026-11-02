@@ -97,3 +97,32 @@ func TestObserveTiresIgnoresFreeTextAndBoundsWhatItKeeps(t *testing.T) {
 	}
 	(*StateMonitor)(nil).observeTires(&State{TirePressureStatusFL: "x"}) // never panics
 }
+
+// The word table, pinned: every low word and every not-low word the alert knows. A change here is a change to what can alert,
+// so it is a deliberate edit of this list (and of the web and iPhone copies TestTireLowWordsMatchTheClients keeps in step).
+// Any word not listed is no claim: it never alerts and never clears.
+func TestTheTireWordTableIsPinned(t *testing.T) {
+	wantLow := []string{"critical", "critical_low", "critically_low", "low", "low_pressure", "very_low"}
+	if got := TireLowWords(); strings.Join(got, ",") != strings.Join(wantLow, ",") {
+		t.Errorf("low words = %v, want %v", got, wantLow)
+	}
+	for _, w := range wantLow {
+		if !TireStatusLow(w) || TireStatusNotLow(w) || TireLowWord(w) != w {
+			t.Errorf("%q: not read as low", w)
+		}
+	}
+	for _, w := range []string{"normal", "ok"} {
+		if TireStatusLow(w) || !TireStatusNotLow(w) {
+			t.Errorf("%q: not read as not-low", w)
+		}
+	}
+	for _, w := range []string{"", "unknown", "squishy", "lowish", "Low Pressure!", "no_data"} {
+		if TireStatusLow(w) && w != "" {
+			t.Errorf("%q alerts but is not in the table", w)
+		}
+	}
+	// Spacing and case are normalised, so the table lists words and not their spellings.
+	if !TireStatusLow(" Very-Low ") || TireLowWord(" Very-Low ") != "very_low" {
+		t.Error("spacing, hyphens and case are not normalised")
+	}
+}

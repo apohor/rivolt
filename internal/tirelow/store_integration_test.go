@@ -41,12 +41,16 @@ func TestMarkerAndCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := NewSource(pool, nil, uuid.Nil)
-	vs, err := src.Vehicles(ctx)
+	vs, err := src.Vehicles(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(vs) != 1 || vs[0].VehicleID != vOn || vs[0].Model != "R1S" || vs[0].RivianID != "tl-veh-on" {
 		t.Fatalf("candidates = %+v, want only the opted-in account's truck %s (not %s)", vs, vOn, vOff)
+	}
+	// The dry run looks at every enabled account's truck, opted in or not.
+	if all, err := src.Vehicles(ctx, true); err != nil || len(all) != 2 {
+		t.Fatalf("dry-run candidates = %+v, %v; want both trucks", all, err)
 	}
 
 	start := time.Now().UTC().Truncate(time.Second)
