@@ -37,6 +37,18 @@ struct DriveRouteMap: View {
     }
 
     var body: some View {
+        // The map, and under it the legend card (the switch, the range, the two times): the map stays clean and the route gets its whole height.
+        VStack(spacing: 8) {
+            mapCard
+            if let drawing {
+                RouteLegendCard(drawing: drawing, ready: routeDrawn && health == .ok, metric: metric, metrics: drawing.availableMetrics,
+                                selection: Binding(get: { metric }, set: { picked = $0 }), times: pillTimes)
+            }
+        }
+        .task(id: phase) { await load() }
+    }
+
+    private var mapCard: some View {
         ZStack {
             if empty {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
@@ -47,7 +59,7 @@ struct DriveRouteMap: View {
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }), showsExpand: openable, obstacles: $obstacles)
+                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, showsExpand: openable, obstacles: $obstacles)
                     .overlay(alignment: .topLeading) {
                         if let cursorReadout, cursorCoord != nil {
                             // The timeline below says it aloud; this is the sighted reader's.
@@ -69,7 +81,7 @@ struct DriveRouteMap: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 220)
+        .frame(height: 250)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
@@ -78,7 +90,6 @@ struct DriveRouteMap: View {
                 DriveRouteFullMap(styleJSON: style, drawing: drawing, times: pillTimes, recenter: recenter, initial: metric)
             }
         }
-        .task(id: phase) { await load() }
     }
 
     /// Where the dot goes: the samples' fix at the cursor's moment.
@@ -155,13 +166,6 @@ private struct RouteDecor: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottomTrailing) { MapAttribution().measured() }
-            .overlay(alignment: .bottomLeading) {
-                if ready, let r = drawing.range(for: metric), metric != .speed || drawing.usesGradient {
-                    GradientLegend(lo: r.lo, hi: r.hi, metric: metric, metrics: metrics, selection: selection).padding(4).measured()
-                } else if ready, drawing.pieces.contains(where: { $0.speed != nil }) {
-                    SpeedLegend(bands: drawing.usedSpeeds).padding(4).measured()
-                }
-            }
             .overlay(alignment: .topTrailing) {
                 if showsExpand { ExpandMark().measured() }
             }
@@ -172,7 +176,7 @@ private struct RouteDecor: ViewModifier {
                     PinPillsOverlay(size: pins.size, start: pins.start.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     end: pins.end.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     startTime: times.start, endTime: times.end,
-                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), legendHeight: metrics.count > 1 ? 76 : 52,
+                                    legend: false,
                                     obstacles: obstacles, startLine: pins.startLine, endLine: pins.endLine)
                 }
             }
@@ -247,15 +251,19 @@ struct DriveRouteFullMap: View {
     }
 
     var body: some View {
-        RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
-                     interactive: true, recenter: recenter, metric: metric,
-                     bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
-            .accessibilityElement()
-            .accessibilityLabel("Map of the drive route, full screen")
-            .accessibilityHint("Pinch to zoom, drag to move")
-            .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true, metric: metric,
-                        selection: Binding(get: { metric }, set: { picked = $0 }), obstacles: $obstacles)
-            .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+        VStack(spacing: 8) {
+            RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
+                         interactive: true, recenter: recenter, metric: metric,
+                         bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
+                .accessibilityElement()
+                .accessibilityLabel("Map of the drive route, full screen")
+                .accessibilityHint("Pinch to zoom, drag to move")
+                .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true, metric: metric, obstacles: $obstacles)
+                .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+            RouteLegendCard(drawing: drawing, ready: routeDrawn && health == .ok, metric: metric, metrics: drawing.availableMetrics,
+                            selection: Binding(get: { metric }, set: { picked = $0 }), times: times)
+                .padding(.horizontal, 12).padding(.bottom, 8)
+        }
     }
 }
 
@@ -789,6 +797,7 @@ struct MapAttribution: View {
     var body: some View {
         Text(Self.text)
             .mapCaption()
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 3).padding(.vertical, 1)
             .background(Theme.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))

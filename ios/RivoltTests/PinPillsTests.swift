@@ -30,7 +30,8 @@ final class PinPillsTests: XCTestCase {
 
     func testARoundTripGetsOnePill() {
         let items = PinPillsOverlay.items(size: size, start: CGPoint(x: 150, y: 100), end: CGPoint(x: 155, y: 104), startTime: "9:15 PM", endTime: "11:28 PM", legend: false)
-        XCTAssertEqual(items.map(\.text), ["Start 9:15 PM · End 11:28 PM"])
+        XCTAssertEqual(items.map(\.text), ["9:15 PM → 11:28 PM"])
+        XCTAssertEqual(items.map(\.spoken), ["Start 9:15 PM, End 11:28 PM"])
     }
 
     func testTheWordsAreStartAndEndWithTheTime() {
@@ -81,20 +82,19 @@ final class PinPillsTests: XCTestCase {
         }
     }
 
-    // A pin with no free side for the full pill gets the short one ("Start") where that fits, and it still says the time aloud.
-    func testWhereTheTimeHasNoRoomThePillIsJustTheName() {
-        // Everything right of x = 60 is taken: "Start 5:54 PM" fits nowhere, "Start" fits against the left edge.
+    // The map shows only the time, so a pin with no free side gets no pill (the legend card under the map says both times).
+    func testWhereThereIsNoRoomThereIsNoPill() {
         let tight = CGSize(width: 200, height: 60)
-        let wall = [CGRect(x: 60, y: 0, width: 140, height: 60)]
-        let items = PinPillsOverlay.items(size: tight, start: CGPoint(x: 30, y: 30), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: wall)
-        XCTAssertEqual(items.map(\.text), ["Start"])
-        XCTAssertEqual(items.map(\.spoken), ["Start 5:54 PM"])
-        XCTAssertEqual(PinPills.shortText("Start 9:15 PM · End 11:28 PM"), "Start · End")
+        let wall = [CGRect(x: 0, y: 0, width: 200, height: 60)]
+        XCTAssertTrue(PinPillsOverlay.items(size: tight, start: CGPoint(x: 30, y: 30), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: wall).isEmpty)
+        XCTAssertEqual(PinPills.timeOnly("Start 9:15 PM · End 11:28 PM"), "9:15 PM → 11:28 PM")
         XCTAssertEqual(PinPills.parts(of: "Start"), [PinPills.Part(name: "Start", time: "")])
+        XCTAssertEqual(PinPills.timeOnly("Start"), "")
     }
 
     func testWithRoomItKeepsTheTime() {
         let items = PinPillsOverlay.items(size: size, start: CGPoint(x: 60, y: 60), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: [])
-        XCTAssertEqual(items.map(\.text), ["Start 5:54 PM"])
+        XCTAssertEqual(items.map(\.text), ["5:54 PM"])
+        XCTAssertEqual(items.map(\.spoken), ["Start 5:54 PM"], "VoiceOver still says which end it is")
     }
 }
