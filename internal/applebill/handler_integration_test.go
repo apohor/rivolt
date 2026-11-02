@@ -133,6 +133,16 @@ func TestAppleBillingAgainstPostgres(t *testing.T) {
 		t.Errorf("a stale event moved the period end back: %v", end)
 	}
 
+	// A report re-signed later than the renewal but carrying an older, shorter transaction must not shorten the period (Pro 30 F2).
+	stale := ti(orig, end1, alice.String())
+	stale.SignedDate = now.Add(time.Second).UnixMilli()
+	if code, _ := report(alice, chain.sign(t, stale)); code != http.StatusOK {
+		t.Errorf("a stale re-signed report: %d", code)
+	}
+	if _, end, _, _ := entitlement(alice); !end.Equal(end2) {
+		t.Errorf("a stale re-signed report moved the period end to %v, want %v", end, end2)
+	}
+
 	// Auto-renew off, then on; a failed renewal in a grace period; the grace ending.
 	step := now
 	next := func() time.Time { step = step.Add(time.Minute); return step }

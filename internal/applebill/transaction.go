@@ -118,6 +118,22 @@ func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInf
 	if ti.Revoked() {
 		d = Decision{} // a refunded transaction grants nothing; the notification path records the revoke
 	}
+	// A report is the app's word, and its signedDate is when the blob was signed, not how fresh its content is: an older or shorter transaction can
+	// be signed later than a renewal Apple pushed. So a report may only extend the entitlement (or create it), never shorten it, and never touch a
+	// refunded subscription: Apple's notifications are what move it back.
+	if d.Change {
+		var revoked sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT revoked_at FROM billing_apple_subs WHERE original_transaction_id = $1`, ti.OriginalTransactionID).Scan(&revoked); err != nil {
+			return transactionResponse{}, 0, err
+		}
+		var cur sql.NullTime
+		if err := tx.QueryRowContext(ctx, `SELECT current_period_end FROM entitlements WHERE user_id = $1 AND source = 'apple'`, uid).Scan(&cur); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return transactionResponse{}, 0, err
+		}
+		if revoked.Valid || (cur.Valid && !ti.Expires().After(cur.Time)) {
+			d = Decision{}
+		}
+	}
 	resp := transactionResponse{}
 	if d.Change {
 		signed := ti.SignedDate
