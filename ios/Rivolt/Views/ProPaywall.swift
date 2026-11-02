@@ -283,6 +283,7 @@ struct UnavailablePurchasing: ProPurchasing {
 struct ProPaywallView: View {
     @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var typeSize
     let plan: PlanState
     var purchasing: ProPurchasing = UnavailablePurchasing()
     /// What the server sets up, found when the sheet opens; `purchasing` stands until then, and always when it was given.
@@ -333,20 +334,25 @@ struct ProPaywallView: View {
                     status
                     VStack(alignment: .leading, spacing: 6) {
                         Text("What's included").themeText(.label, color: Theme.textTertiary).accessibilityAddTraits(.isHeader)
-                        ForEach(ProCopy.included, id: \.self) { Text("• \($0)").themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true) }
+                        ForEach(ProCopy.included, id: \.self) {
+                            // The bullet is for the eye; VoiceOver reads the sentence.
+                            Text("• \($0)").themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true).accessibilityLabel($0)
+                        }
                     }
                     if !subscribed && !state.isDemo { DemoLinksView(items: DemoLinks.all) }
                     if !subscribed {
-                        HStack(spacing: 8) {
+                        // Side by side, or one above the other at accessibility text sizes, where two columns would squeeze the price.
+                        let choices = Group {
                             choice(ProCopy.yearly.label, ProCopy.yearly.price, ProCopy.yearly.unit, ProCopy.yearly.extra, selected: yearly == true) { yearly = true }
                             choice(ProCopy.monthly.label, ProCopy.monthly.price, ProCopy.monthly.unit, ProCopy.monthly.extra, selected: yearly == false) { yearly = false }
                         }
+                        if typeSize.isAccessibilitySize { VStack(spacing: 8) { choices } } else { HStack(spacing: 8) { choices } }
                         Text(ProCopy.terms).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                         Button { Task { await buy() } } label: { Text(yearly.map(ProCopy.choiceLabel) ?? "Choose a plan").frame(maxWidth: .infinity) }
                             .buttonStyle(ThemeButtonStyle()).disabled(busy || yearly == nil)
                         HStack(spacing: 8) {
                             Link("Terms", destination: state.serverURL.appending(path: "terms"))
-                            Text("·").foregroundStyle(Theme.textTertiary)
+                            Text("·").foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
                             Link("Privacy", destination: state.serverURL.appending(path: "privacy"))
                         }
                         .themeText(.subline, color: Theme.accent)
@@ -360,11 +366,15 @@ struct ProPaywallView: View {
                             .buttonStyle(ThemeSecondaryButtonStyle())
                         Text(ProCopy.manageHelp).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                     }
-                    if let message { Text(message).themeText(.subline, color: Theme.estimate).accessibilityAddTraits(.updatesFrequently) }
+                    if let message {
+                        Text(message).themeText(.subline, color: Theme.estimate).accessibilityAddTraits(.updatesFrequently)
+                            // A result that appears below the button is said aloud, not left for a screen reader to find.
+                            .onAppear { UIAccessibility.post(notification: .announcement, argument: message) }
+                    }
                     if subscribed {
                         HStack(spacing: 8) {
                             Link("Terms", destination: state.serverURL.appending(path: "terms"))
-                            Text("·").foregroundStyle(Theme.textTertiary)
+                            Text("·").foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
                             Link("Privacy", destination: state.serverURL.appending(path: "privacy"))
                         }
                         .themeText(.subline, color: Theme.accent)
@@ -440,9 +450,16 @@ struct PlanNoticeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(card.title). \(card.line)")
                         .themeText(.subline, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 12) {
-                        Button("Keep Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
-                        Button("Dismiss") { dismissedOn = id }.buttonStyle(ThemeSecondaryButtonStyle())
+                    // Side by side where they fit, stacked at large text sizes.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) {
+                            Button("Keep Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
+                            Button("Dismiss") { dismissedOn = id }.buttonStyle(ThemeSecondaryButtonStyle())
+                        }
+                        VStack(spacing: 8) {
+                            Button("Keep Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
+                            Button("Dismiss") { dismissedOn = id }.buttonStyle(ThemeSecondaryButtonStyle())
+                        }
                     }
                 }
                 .padding(4 * Theme.unit)

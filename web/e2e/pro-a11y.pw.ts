@@ -150,3 +150,36 @@ test("Pro: the sheet at 320 px and at 200% text still reaches its button", async
   expect(wide, "Plan card elements wider than the window at 320 px and 200% text").toEqual([]);
   await ctx.close();
 });
+
+// The Connect Apple card, in each state it has (the words are growth's; the states are what GET /api/auth/apple-link says).
+for (const scheme of ["dark", "light"] as const) {
+  for (const status of [
+    { n: "not connected", s: { available: true, linked: false, has_password: true } },
+    { n: "connected", s: { available: true, linked: true, has_password: true } },
+    { n: "connected, no password", s: { available: true, linked: true, has_password: false } },
+    { n: "no password", s: { available: true, linked: false, has_password: false } },
+  ] as const) {
+    test(`Connect Apple card: ${status.n} through a keyboard and axe · ${scheme}`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+      const page = await ctx.newPage();
+      await as(page, FREE);
+      await page.route("**/api/auth/apple-link", (r) => r.fulfill(json(status.s)));
+      await page.goto("/settings#security");
+      const card = page.locator("#apple");
+      await expect(card).toBeVisible();
+      await axeClean(page, "#apple");
+      const open = card.locator("button:not([disabled])").first();
+      if (await open.count()) {
+        await open.focus();
+        await page.keyboard.press("Enter");
+        const field = card.getByLabel(/password/i);
+        await expect(field).toBeFocused();
+        await axeClean(page, "#apple");
+        // Cancel / Keep gives focus back to the button that opened the prompt.
+        await card.getByRole("button", { name: /^(Cancel|Keep)/ }).click();
+        await expect(open).toBeFocused();
+      }
+      await ctx.close();
+    });
+  }
+}
