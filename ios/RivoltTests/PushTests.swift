@@ -331,7 +331,7 @@ final class PushPreferencesTests: XCTestCase {
         // The help states the boundary: it repeats the truck, is no replacement for the truck's own warning, can be
         // missed, and is off until turned on. It promises nothing and gives no number or advice.
         let help = try XCTUnwrap(PushKind.tireLow.help)
-        XCTAssertTrue(help.contains("repeats what the truck reports") && help.contains("doesn't replace the truck's own warning")
+        XCTAssertTrue(help.contains("repeats the truck's own low-pressure warning") && help.contains("doesn't replace the truck's own warning, which you should always follow")
                       && help.contains("can be missed if the truck is offline or asleep") && help.contains("Off until you turn it on"), help)
         XCTAssertEqual(PushKind.tireLow.title, "Low tire pressure")
         XCTAssertEqual(PushKind.tireLow.wireKey, "on_tire_low")
