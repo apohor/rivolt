@@ -107,7 +107,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "invalid signature", http.StatusBadRequest)
 				return
 			}
-			if err := h.Config.Check(ti.BundleID, ti.Environment, ti.ProductID); err != nil || !ti.Subscription() {
+			if err := h.Config.Check(ti.BundleID, ti.Environment, ti.ProductID); err != nil || ti.ProductID == "" || !ti.Subscription() {
 				h.observe(OutcomeRejected)
 				h.warn("apple notification: transaction not for this deployment", "type", p.NotificationType)
 				http.Error(w, "rejected", http.StatusBadRequest)
