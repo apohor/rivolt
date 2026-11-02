@@ -3272,6 +3272,11 @@ func mergeState(prev, next *State) *State {
 	mergeFloat(&out.CabinTempC, next.CabinTempC)
 	mergeFloat(&out.OutsideTempC, next.OutsideTempC)
 	mergeFloat(&out.OtaInstallProgress, next.OtaInstallProgress)
+	// A frame that names a status other than "installing" ends the install: drop the last progress, or the next install's first frames
+	// (status installing, progress not yet sent) would show the previous install's value.
+	if next.OtaStatus != "" && next.OtaInstallProgress == 0 && otaStatusClass(next.OtaStatus) != "installing" {
+		out.OtaInstallProgress = 0
+	}
 	mergeFloat(&out.TirePressureFLBar, next.TirePressureFLBar)
 	mergeFloat(&out.TirePressureFRBar, next.TirePressureFRBar)
 	mergeFloat(&out.TirePressureRLBar, next.TirePressureRLBar)

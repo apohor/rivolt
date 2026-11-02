@@ -634,6 +634,7 @@ func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, live func
 				}
 			}
 			info.Status = st.OtaStatus
+			info.InstallProgress = rivian.OTAInstallPercent(st.OtaStatus, st.OtaInstallProgress)
 		}
 		if !have {
 			continue

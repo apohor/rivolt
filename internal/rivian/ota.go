@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -42,6 +43,9 @@ type OTAInfo struct {
 	// Status is the live otaStatus from the vehicle state (idle,
 	// downloading, ready_to_install, ...), filled when served, never stored.
 	Status string `json:"status,omitempty"`
+	// InstallProgress is the install's percent done, 0 to 100 (prod's otaInstallProgress is on that scale), present only while Status is
+	// "installing" and never stored. It says nothing about how an install ends or what any other status word means.
+	InstallProgress *int `json:"install_progress,omitempty"`
 	// FetchedAt is when Rivian was last asked.
 	FetchedAt time.Time `json:"fetched_at"`
 }
@@ -119,4 +123,14 @@ func safeHTTPSURL(raw string) string {
 		return ""
 	}
 	return raw
+}
+
+// OTAInstallPercent is the install progress to show: the vehicle's otaInstallProgress as a whole percent clamped to 0..100, and only while
+// otaStatus is "installing" (nil for any other word, including ones we do not know, and for a value that is not a number).
+func OTAInstallPercent(status string, progress float64) *int {
+	if otaStatusClass(status) != "installing" || math.IsNaN(progress) || math.IsInf(progress, 0) {
+		return nil
+	}
+	p := int(math.Round(math.Min(math.Max(progress, 0), 100)))
+	return &p
 }
