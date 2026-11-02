@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/statement"
+	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/trips"
 )
 
@@ -56,8 +57,6 @@ type clientCall struct {
 var ignoredClientCalls = map[string]string{
 	"swift GET /api": "WidgetFetch.request checks that a path the widget was handed starts with \"/api/\"; it is a prefix test, not a call",
 	"swift POST /api/billing/apple/transaction": "mounted only where StoreKit is configured (Deps.AppleIAPTransaction: RIVOLT_APPLE_IAP_BUNDLE_ID); the app sends it only when /api/app/config carries iap, which the server shows on the same condition",
-	"web POST /api/billing/checkout":            "Pro 9 web mock: the billing API is not built yet (paid-tier-plan.md section 3); delete this entry when item 1 mounts the route, so the contract check covers it",
-	"web POST /api/billing/portal":              "as above",
 	"web GET /api/auth/hydra":                   "api.ts's 401 handler checks url.startsWith(\"/api/auth/hydra/\") to leave the signed-out Hydra sign-in alone; it is a prefix test, not a call",
 }
 
@@ -249,6 +248,8 @@ var webCallsOptionalByConfig = map[string]string{
 	"GET /api/auth/apple-link":              "mounted only where Sign in with Apple is configured and its link store is wired (Deps.AppleLinkAccounts with the OIDC service); the Settings card hides on a 404",
 	"POST /api/auth/apple-link/start":       "as above",
 	"POST /api/auth/apple-link/unlink":      "as above",
+	"POST /api/billing/checkout":            "mounted only where Stripe billing is configured (Deps.StripeBilling, and not on the admin-only host); the Plan card hides the buttons when it is off",
+	"POST /api/billing/portal":              "as above",
 }
 
 // appleLinkStub stands in for the identity store behind the Apple link routes: they are mounted in the contract router, never called.
@@ -300,6 +301,7 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 	}
 	if gates { // the Apple link routes exist only where its identity store is wired
 		d.AppleLinkAccounts = appleLinkStub{}
+		d.StripeBilling = new(stripebill.Service) // the billing routes exist only where Stripe is configured; mounted here, never called
 	}
 	return New(d).(chi.Routes)
 }
