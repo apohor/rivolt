@@ -8,6 +8,9 @@ import SwiftUI
 /// screen (DriveDetailModel, shared with the timeline), held in memory while it is open. No location services.
 struct DriveRouteMap: View {
     let phase: DriveDetailModel.Phase
+    /// The timeline's cursor: a dot where the truck was at that moment, and its readout in a chip (the web's map cursor).
+    var cursor: Date?
+    var cursorReadout: String?
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -37,11 +40,23 @@ struct DriveRouteMap: View {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric, cursor: cursorCoord)
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
                     .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }))
+                    .overlay(alignment: .topLeading) {
+                        if let cursorReadout, cursorCoord != nil {
+                            // The timeline below says it aloud; this is the sighted reader's.
+                            Text(cursorReadout).mapCaption().foregroundStyle(Theme.textPrimary).lineLimit(1).fixedSize()
+                                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                                .padding(.horizontal, 6).padding(.vertical, 3)
+                                .background(Theme.background.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border, lineWidth: 1))
+                                .padding(6)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else if failed || health == .failed || drawing != nil {
                 // The drive or the basemap couldn't load, or the bundled style is missing: never an endless spinner.
@@ -61,6 +76,12 @@ struct DriveRouteMap: View {
             }
         }
         .task(id: phase) { await load() }
+    }
+
+    /// Where the dot goes: the samples' fix at the cursor's moment.
+    private var cursorCoord: RouteSnap.Coord? {
+        guard let cursor, case .loaded(_, let samples?) = phase else { return nil }
+        return RouteSnap.cursorCoord(at: cursor, samples: samples)
     }
 
     /// The inline map is drawn and the basemap is up: it can open full screen.
@@ -341,6 +362,8 @@ struct RouteMapView: UIViewRepresentable {
     var recenter = 0
     /// What the gradient is coloured by.
     var metric: RouteGradient.Metric = .speed
+    /// Where the timeline's cursor is: a dot over the route (nil: none).
+    var cursor: RouteSnap.Coord?
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
 
@@ -372,6 +395,7 @@ struct RouteMapView: UIViewRepresentable {
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
         context.coordinator.setStyle(styleJSON, on: map)
+        context.coordinator.setCursor(cursor)
         context.coordinator.setMetric(metric, on: map)
         context.coordinator.update(drawing, on: map)
         context.coordinator.recenter(recenter, on: map)
@@ -517,6 +541,17 @@ struct RouteMapView: UIViewRepresentable {
                 ring.circleStrokeWidth = NSExpression(forConstantValue: 3)
                 style.addLayer(ring)
             }
+            // The timeline's cursor dot, over everything but nothing it covers matters (6 pt, white ring).
+            let cursorSource = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-cursor", shape: nil, options: nil)
+            style.addSource(cursorSource)
+            let dot = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-cursor", source: cursorSource)
+            dot.circleRadius = NSExpression(forConstantValue: 6)
+            dot.circleColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
+            dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.background))
+            dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
+            style.addLayer(dot)
+            self.cursorSource = cursorSource
+            setCursor(cursorAt)
             if !keepCamera { fit(map) }
             DispatchQueue.main.async { self.onDrawn() }
         }
@@ -591,6 +626,19 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         override func resized(_ map: MLNMapView) { fit(map) }
+
+        private var cursorSource: MLNShapeSource?
+        private var cursorAt: RouteSnap.Coord?
+
+        /// The dot for the timeline's cursor, moved in place (no layer rebuild, the camera stays).
+        func setCursor(_ c: RouteSnap.Coord?) {
+            cursorAt = c
+            cursorSource?.shape = c.map { c in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon)
+                return f
+            }
+        }
 
         private var metric = RouteGradient.Metric.speed
         private var keepCamera = false
