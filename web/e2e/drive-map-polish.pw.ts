@@ -59,7 +59,13 @@ for (const [vpName, vp] of [
       // Speed, Efficiency and Elevation all qualify for this drive.
       await expect(legend.getByRole("group", { name: "Route colour" }).getByRole("button")).toHaveText(["Speed", "Efficiency", "Elevation"]);
       await legend.scrollIntoViewIfNeeded();
-      await page.locator("[data-map-drawn]").first().screenshot({ path: path.join(SHOTS, `drive-map-polish-${vpName}-${theme}.png`) });
+      // On a phone the legend card is directly under the map (the route keeps the whole map); on a wide map it stays a corner control inside it.
+      const mapBox = (await page.locator("[data-map-drawn]").first().boundingBox())!;
+      const legendBox = (await legend.boundingBox())!;
+      if (vpName === "iphone") expect(legendBox.y, "the legend is under the map").toBeGreaterThanOrEqual(mapBox.y + mapBox.height - 1);
+      else expect(legendBox.y + legendBox.height, "the legend is inside the map").toBeLessThanOrEqual(mapBox.y + mapBox.height + 1);
+      // The map and, on a phone, the card under it.
+      await page.locator("[data-map-drawn]").first().locator("xpath=..").screenshot({ path: path.join(SHOTS, `drive-map-polish-${vpName}-${theme}.png`) });
       await ctx.close();
     });
   }

@@ -99,8 +99,8 @@ describe("placeStopPill", () => {
 
 describe("startPillText", () => {
   it("says both times on a loop (one pin), the start alone otherwise", () => {
-    expect(startPillText(true, "9:23 PM", "11:28 PM")).toBe("Start 9:23 PM · End 11:28 PM");
-    expect(startPillText(false, "9:23 PM", "11:28 PM")).toBe("Start 9:23 PM");
-    expect(startPillText(true, "9:23 PM", "")).toBe("Start 9:23 PM");
+    expect(startPillText(true, "9:23 PM", "11:28 PM")).toBe("9:23 PM → 11:28 PM");
+    expect(startPillText(false, "9:23 PM", "11:28 PM")).toBe("9:23 PM");
+    expect(startPillText(true, "9:23 PM", "")).toBe("9:23 PM");
   });
 });

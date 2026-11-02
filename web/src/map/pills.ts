@@ -1,4 +1,4 @@
-// The drive map's "Start 8:13 PM" / "End 11:28 PM" pills. They are map symbols (an image each, from a canvas), not DOM markers, so the basemap's
+// The drive map's time pills ("8:13 PM", "11:28 PM"). They are map symbols (an image each, from a canvas), not DOM markers, so the basemap's
 // own place labels yield to them: MapLibre places the topmost symbol layer first, and `icon-ignore-placement: false` makes it block what is
 // under it. A transparent 22 px symbol at each pin reserves the pin's own room the same way. Without a 2D canvas (jsdom) there are no pills.
 import type { GeoJSONSource, Map as MLMap } from "maplibre-gl";
@@ -18,19 +18,20 @@ const RESERVE_IMAGE = "rivolt-pin-reserve";
 export type PillImage = { width: number; height: number; data: Uint8ClampedArray; pixelRatio: number };
 
 // pillImage draws a rounded pill with `text` on a canvas; null when there is no canvas to draw on.
-export function pillImage(text: string, flavor: MapFlavor, ratio = 2, dot?: string): PillImage | null {
+export function pillImage(text: string, flavor: MapFlavor, ratio = 2, dot?: string, small = false): PillImage | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext?.("2d");
   if (!ctx) return null;
   const c = CARD[flavor];
-  const font = `600 ${MAP_CAPTION_PX + 1}px ui-sans-serif, system-ui, sans-serif`;
+  // The drive map's pills are just a time: smaller, lighter, a fainter card (the pin's colour says which end it is).
+  const font = small ? `500 ${MAP_CAPTION_PX - 1}px ui-sans-serif, system-ui, sans-serif` : `600 ${MAP_CAPTION_PX + 1}px ui-sans-serif, system-ui, sans-serif`;
   ctx.font = font;
   const textW = Math.ceil(ctx.measureText(text).width);
   // A coloured dot at the left (a place's pill: the colour of its end of the route) takes 11 px.
   const lead = dot ? 11 : 0;
-  const w = textW + 18 + lead;
-  const h = MAP_CAPTION_PX + 12;
+  const w = textW + (small ? 12 : 18) + lead;
+  const h = MAP_CAPTION_PX + (small ? 6 : 12);
   canvas.width = w * ratio;
   canvas.height = h * ratio;
   ctx.scale(ratio, ratio);
@@ -60,13 +61,13 @@ export function pillImage(text: string, flavor: MapFlavor, ratio = 2, dot?: stri
     ctx.fill();
   }
   ctx.fillStyle = c.text;
-  ctx.fillText(text, 9 + lead, h / 2 + 0.5);
+  ctx.fillText(text, (small ? 6 : 9) + lead, h / 2 + 0.5);
   const img = ctx.getImageData(0, 0, w * ratio, h * ratio);
   return { width: img.width, height: img.height, data: img.data, pixelRatio: ratio };
 }
 
 // priority: lower is placed first when pills may not overlap (collide); dot: the colour of a leading dot.
-export type PillSpec = { id: string; text: string; lngLat: [number, number]; anchor: string; offset: [number, number]; dot?: string; priority?: number };
+export type PillSpec = { id: string; text: string; lngLat: [number, number]; anchor: string; offset: [number, number]; dot?: string; priority?: number; small?: boolean };
 
 // setPills (re)creates the pill images and layers; safe to call after every style load. Specs with no image (no canvas) are skipped.
 // With `collide`, pills that would overlap another pill or each other's room are dropped in priority order (the plan map, where stops can
@@ -75,7 +76,7 @@ export function setPills(map: MLMap, specs: PillSpec[], flavor: MapFlavor, colli
   for (const id of [...specs.map((s) => `pill-${s.id}`), RESERVE_IMAGE]) if (map.hasImage(id)) map.removeImage(id);
   const features = [];
   for (const s of specs) {
-    const img = pillImage(s.text, flavor, Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 2))), s.dot);
+    const img = pillImage(s.text, flavor, Math.min(3, Math.max(1, Math.round(window.devicePixelRatio || 2))), s.dot, s.small);
     if (!img) continue;
     map.addImage(`pill-${s.id}`, { width: img.width, height: img.height, data: img.data }, { pixelRatio: img.pixelRatio });
     features.push({
@@ -228,8 +229,8 @@ export function placeStopPill(
   return null;
 }
 
-// startPillText is the drive map's start pill. A drive that ends where it began (a loop, or a merged round trip) has one pin, so the one pill says
-// both times: "Start 9:23 PM · End 11:28 PM". Without an end time it says only the start.
+// startPillText is the drive map's start pill: just the time ("9:23 PM"); the pin's colour says which end it is. A drive that ends where it began (a
+// loop, or a merged round trip) has one pin, so the one pill says both times: "9:23 PM → 11:28 PM". Without an end time it says only the start.
 export function startPillText(loop: boolean, startTime: string, endTime: string): string {
-  return loop && endTime ? `Start ${startTime} · End ${endTime}` : `Start ${startTime}`;
+  return loop && endTime ? `${startTime} → ${endTime}` : startTime;
 }
