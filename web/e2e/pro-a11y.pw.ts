@@ -135,7 +135,7 @@ test("Pro: the sheet at 320 px and at 200% text still reaches its button", async
   await page.getByRole("button", { name: "See Pro" }).first().click();
   const sheet = page.locator("[data-pro-sheet]");
   await expect(sheet).toBeVisible();
-  await sheet.getByLabel(/Yearly/).check({ force: true });
+  await sheet.getByText("Yearly").click();
   await sheet.getByRole("checkbox").check();
   const subscribe = sheet.getByRole("button", { name: /Subscribe:/ });
   await subscribe.scrollIntoViewIfNeeded();

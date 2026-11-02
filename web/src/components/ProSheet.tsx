@@ -30,7 +30,13 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
       if (e.key !== "Tab") return;
       const box = dialogRef.current;
       if (!box) return;
-      const items = [...box.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null || el === document.activeElement);
+      const items = [...box.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null || el === document.activeElement)
+        // A group of radios is one Tab stop: the checked one, else the first.
+        .filter((el) => {
+          if (!(el instanceof HTMLInputElement) || el.type !== "radio") return true;
+          const group = [...box.querySelectorAll<HTMLInputElement>(`input[type=radio][name="${el.name}"]`)];
+          return el === (group.find((r) => r.checked) ?? group[0]);
+        });
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
