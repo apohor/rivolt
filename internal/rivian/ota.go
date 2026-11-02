@@ -159,3 +159,15 @@ func OTAStep(status string) string {
 	}
 	return "unknown"
 }
+
+// WithOTADerived is a copy of the state with OtaStep and OtaInstallPercent filled from the truck's own status and progress; nil stays nil.
+// The copy is for the response: the cached state itself is never changed.
+func WithOTADerived(s *State) *State {
+	if s == nil {
+		return nil
+	}
+	c := *s
+	c.OtaStep = OTAStep(c.OtaStatus)
+	c.OtaInstallPercent = OTAInstallPercent(c.OtaStatus, c.OtaInstallProgress)
+	return &c
+}

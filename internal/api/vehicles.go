@@ -508,7 +508,7 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession fu
 					http.Error(w, "vehicle state not available yet", http.StatusServiceUnavailable)
 					return
 				}
-				writeJSON(w, http.StatusOK, cached)
+				writeJSON(w, http.StatusOK, rivian.WithOTADerived(cached))
 				return
 			}
 			have = cached
@@ -516,7 +516,7 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession fu
 		st, err := c.State(r.Context(), id)
 		if err != nil {
 			if have != nil {
-				writeJSON(w, http.StatusOK, have)
+				writeJSON(w, http.StatusOK, rivian.WithOTADerived(have))
 				return
 			}
 			if errors.Is(err, rivian.ErrNotImplemented) {
@@ -529,7 +529,7 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession fu
 		if mon != nil {
 			mon.Prime(id, st)
 		}
-		writeJSON(w, http.StatusOK, st)
+		writeJSON(w, http.StatusOK, rivian.WithOTADerived(st))
 	}
 }
 

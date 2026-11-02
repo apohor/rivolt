@@ -316,6 +316,10 @@ export type VehicleState = {
   ota_available_version: string;
   ota_status: string;
   ota_install_progress: number;
+  // Derived by the server (the same rules as ota.step / ota.install_progress on /api/vehicles): the update's step as one of ten named
+  // keys or "unknown" (absent when idle), and the install percent only while the step is "installing". Read these, not the raw fields.
+  ota_step?: string;
+  ota_install_percent?: number;
   // The truck's scheduled charging windows (omitted until read).
   charging_schedules?: ChargingSchedule[];
   tire_pressure_fl_bar: number;

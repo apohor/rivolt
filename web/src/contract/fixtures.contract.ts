@@ -19,6 +19,7 @@ import settingsHomeLocation from "../../../ios/RivoltTests/Fixtures/settings_hom
 import settingsUnits from "../../../ios/RivoltTests/Fixtures/settings_units.json";
 import sleepHealth from "../../../ios/RivoltTests/Fixtures/sleep_health.json";
 import stateFull from "../../../ios/RivoltTests/Fixtures/state_full.json";
+import stateOtaInstalling from "../../../ios/RivoltTests/Fixtures/state_ota_installing.json";
 import statementEmail from "../../../ios/RivoltTests/Fixtures/statement_email.json";
 import trends from "../../../ios/RivoltTests/Fixtures/trends.json";
 import vehicles from "../../../ios/RivoltTests/Fixtures/vehicles.json";
@@ -91,6 +92,7 @@ export const _settingsHome: Wide<HomeLocation> = settingsHomeLocation;
 export const _settingsUnits: Wide<AccountUnits> = settingsUnits;
 export const _sleepHealth: Wide<SleepHealth> = sleepHealth;
 export const _state: Wide<VehicleState> = stateFull;
+export const _stateOtaInstalling: Wide<VehicleState> = stateOtaInstalling;
 export const _statementEmail: Wide<StatementEmailSettings> = statementEmail;
 export const _trends: Wide<TruckTrends> = trends;
 export const _vehicles: Wide<Vehicle[]> = vehicles;
