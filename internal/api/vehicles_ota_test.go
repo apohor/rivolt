@@ -63,3 +63,66 @@ func TestAttachOTAFallsBackToLiveVersions(t *testing.T) {
 		t.Errorf("no stored row and no live version: want no ota, got %+v", vs[3].OTA)
 	}
 }
+
+// install_progress is served only while the live status is "installing", on the 0 to 100 scale prod's otaInstallProgress uses; any other
+// status, known or not, serves none, so the clients never show a bar for a state we cannot name.
+func TestAttachOTAServesInstallProgressOnlyWhileInstalling(t *testing.T) {
+	stored := map[string]json.RawMessage{}
+	for _, id := range []string{"a", "b", "c", "d"} {
+		stored[id] = json.RawMessage(`{"current":{"version":"2026.30.0"},"fetched_at":"2026-10-17T10:00:00Z"}`)
+	}
+	vs := []rivian.Vehicle{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	live := map[string]*rivian.State{
+		"a": {OtaStatus: "installing", OtaInstallProgress: 37},
+		"b": {OtaStatus: "ready_to_install", OtaInstallProgress: 100},
+		"c": {OtaStatus: "verifying", OtaInstallProgress: 90},
+		"d": {OtaStatus: "installing"}, // just started: 0, still served
+	}
+	attachOTA(vs, stored, func(id string) *rivian.State { return live[id] })
+	if p := vs[0].OTA.InstallProgress; p == nil || *p != 37 {
+		t.Errorf("installing: %v", p)
+	}
+	if vs[1].OTA.InstallProgress != nil || vs[2].OTA.InstallProgress != nil {
+		t.Errorf("a status other than installing served progress: %v %v", vs[1].OTA.InstallProgress, vs[2].OTA.InstallProgress)
+	}
+	if p := vs[3].OTA.InstallProgress; p == nil || *p != 0 {
+		t.Errorf("just started: %v", p)
+	}
+	out, _ := json.Marshal(vs[0].OTA)
+	if !strings.Contains(string(out), `"install_progress":37`) {
+		t.Errorf("wire name: %s", out)
+	}
+	out, _ = json.Marshal(vs[1].OTA)
+	if strings.Contains(string(out), "install_progress") {
+		t.Errorf("the key must be absent when there is none: %s", out)
+	}
+}
+
+// The wire carries ota.step for each stage, the bar only while installing, and nothing about idle.
+func TestAttachOTAServesTheStepForEachStatus(t *testing.T) {
+	stored := json.RawMessage(`{"current":{"version":"2026.30.0"},"fetched_at":"2026-10-17T10:00:00Z"}`)
+	for status, want := range map[string]string{
+		"Ready_To_Download": "ready_to_download", "Downloading": "downloading", "Preparing": "preparing", "Ready_To_Install": "ready_to_install",
+		"Scheduled_To_Install": "scheduled_to_install", "Install_Countdown": "install_countdown", "Awaiting_Install": "awaiting_install",
+		"Installing": "installing", "Install_Success": "install_success", "Connection_Lost": "connection_lost", "Idle": "", "Mystery": "unknown",
+	} {
+		vs := []rivian.Vehicle{{ID: "v"}}
+		attachOTA(vs, map[string]json.RawMessage{"v": stored}, func(string) *rivian.State {
+			return &rivian.State{OtaStatus: status, OtaInstallProgress: 64}
+		})
+		o := vs[0].OTA
+		if o.Step != want {
+			t.Errorf("%s: step %q, want %q", status, o.Step, want)
+		}
+		if (o.InstallProgress != nil) != (want == "installing") {
+			t.Errorf("%s: install_progress %v (only while installing)", status, o.InstallProgress)
+		}
+		out, _ := json.Marshal(o)
+		if want == "" && strings.Contains(string(out), `"step"`) {
+			t.Errorf("%s: the step key must be absent: %s", status, out)
+		}
+		if want != "" && !strings.Contains(string(out), `"step":"`+want+`"`) {
+			t.Errorf("%s: wire has no step %q: %s", status, want, out)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -42,6 +43,13 @@ type OTAInfo struct {
 	// Status is the live otaStatus from the vehicle state (idle,
 	// downloading, ready_to_install, ...), filled when served, never stored.
 	Status string `json:"status,omitempty"`
+	// Step is where the update is, as one of OTASteps' keys, derived from Status (never stored): a word that is both in Rivian's own app and
+	// seen on prod trucks gets its key; any other non-idle word is "unknown" (clients show no step line and no bar: no claim at all, since
+	// a failed update must not read as in progress); idle or no status is absent. "install_success" is the only done state, and only for the truck's own Install_Success.
+	Step string `json:"step,omitempty"`
+	// InstallProgress is the install's percent done, 0 to 100 (prod's otaInstallProgress is on that scale), present only while Status is
+	// "installing" and never stored. It says nothing about how an install ends or what any other status word means.
+	InstallProgress *int `json:"install_progress,omitempty"`
 	// FetchedAt is when Rivian was last asked.
 	FetchedAt time.Time `json:"fetched_at"`
 }
@@ -119,4 +127,35 @@ func safeHTTPSURL(raw string) string {
 		return ""
 	}
 	return raw
+}
+
+// OTAInstallPercent is the install progress to show: the vehicle's otaInstallProgress as a whole percent clamped to 0..100, and only while
+// otaStatus is "installing" (nil for any other word, including ones we do not know, and for a value that is not a number).
+func OTAInstallPercent(status string, progress float64) *int {
+	if otaStatusClass(status) != "installing" || math.IsNaN(progress) || math.IsInf(progress, 0) {
+		return nil
+	}
+	p := int(math.Round(math.Min(math.Max(progress, 0), 100)))
+	return &p
+}
+
+// OTASteps maps the otaStatus words to the step keys the clients show. A word is here only if it is in Rivian's own app (its status enum)
+// AND has been seen on prod trucks; the app's Download_Failed and Install_Failed have not been seen, so they are not named (they read as
+// "unknown" and the clients show nothing: no step line, no bar). Keys are the status word, lower case with underscores.
+var OTASteps = map[string]bool{
+	"ready_to_download": true, "downloading": true, "preparing": true, "ready_to_install": true, "scheduled_to_install": true,
+	"install_countdown": true, "awaiting_install": true, "installing": true, "install_success": true, "connection_lost": true,
+}
+
+// OTAStep is the step key for a status word: "" for no status or idle (nothing is happening), the word's key if it is in OTASteps, else
+// "unknown". It never infers a step from the progress, and never says "install_success" for anything but that word.
+func OTAStep(status string) string {
+	k := otaStatusKey(status)
+	switch {
+	case k == "" || k == "idle":
+		return ""
+	case OTASteps[k]:
+		return k
+	}
+	return "unknown"
 }
