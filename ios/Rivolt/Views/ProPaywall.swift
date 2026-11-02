@@ -143,7 +143,7 @@ enum ProCopy {
             default: return ("Rivolt Pro", "Granted to this account.")
             }
         case .cancelled(_, let until):
-            return ("Rivolt Pro until \(PlanLogic.date(until) ?? "the end of the period")", "Cancelled; Pro stays on until then. Nothing is deleted after.")
+            return ("Rivolt Pro", "Won't renew; ends \(PlanLogic.date(until) ?? "at the end of the period"). Nothing is deleted after.")
         case .paymentFailed(_, let until):
             return ("Rivolt Pro, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
         case .lapsed(let on, _):

@@ -92,8 +92,7 @@ describe("a cancelled subscription and a failed payment", () => {
 
   it("a cancelled but paid-up plan says so and never says it renews", async () => {
     renderWith(cancelled, <PlanCard />);
-    expect(await screen.findByText(/Rivolt Pro until .*2026/)).toBeInTheDocument();
-    expect(screen.getByText("Cancelled; Pro stays on until then. Nothing is deleted after.")).toBeInTheDocument();
+    expect(await screen.findByText(/Won't renew; ends .*2026\. Nothing is deleted after\./)).toBeInTheDocument();
     expect(screen.queryByText(/renews/)).toBeNull();
     expect(screen.getByRole("button", { name: "Resubscribe" })).toBeInTheDocument();
   });
