@@ -33,10 +33,13 @@ enum PinPills {
     /// "Start 9:15 PM · End 11:28 PM" as its parts (each end's name is the first word).
     static func parts(of text: String) -> [Part] {
         text.components(separatedBy: " · ").compactMap { piece in
-            guard let space = piece.firstIndex(of: " ") else { return nil }
+            guard let space = piece.firstIndex(of: " ") else { return piece.isEmpty ? nil : Part(name: piece, time: "") }
             return Part(name: String(piece[..<space]), time: String(piece[piece.index(after: space)...]))
         }
     }
+
+    /// The pill with no times: "Start", "End", or "Start · End".
+    static func shortText(_ text: String) -> String { parts(of: text).map(\.name).joined(separator: " · ") }
 
     static func text(start: String?, end: String?, shared: Bool) -> (start: String?, end: String?, both: String?) {
         let s = start.map { "Start \($0)" }, e = end.map { "End \($0)" }
@@ -47,6 +50,11 @@ enum PinPills {
     /// Where a pill goes for `pin` in a map of `size`: the side with more room first, then the other, then above, then below; the first
     /// whose rectangle is inside the map (6 pt in) and clear of `avoiding`.
     static func place(pin: CGPoint, width w: CGFloat, in size: CGSize, avoiding: [CGRect], line: [CGPoint] = []) -> Spot {
+        placeOpt(pin: pin, width: w, in: size, avoiding: avoiding, line: line, onlyClear: false)!
+    }
+
+    /// `place`, or nil when `onlyClear` and no side of the pin is inside the map and clear of `avoiding` and the line (even nudged in).
+    static func placeOpt(pin: CGPoint, width w: CGFloat, in size: CGSize, avoiding: [CGRect], line: [CGPoint] = [], onlyClear: Bool) -> Spot? {
         let bounds = CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin)
         let h = height
         let rightRoom = size.width - pin.x, leftRoom = pin.x
@@ -81,7 +89,9 @@ enum PinPills {
             s.anchor = CGPoint(x: s.anchor.x + dx, y: s.anchor.y + dy)
             return s
         }
-        return order.map(nudged).first { clear($0.rect) } ?? order.map(nudged).first { s in !avoiding.contains { $0.intersects(s.rect) } } ?? nudged(order[0])
+        if let s = order.map(nudged).first(where: { clear($0.rect) }) { return s }
+        if onlyClear { return nil }
+        return order.map(nudged).first { s in !avoiding.contains { $0.intersects(s.rect) } } ?? nudged(order[0])
     }
 
     /// Whether the polyline `line` (the route's first stretch from a pin, in screen points) runs through `rect` (a 3 pt cushion), so a pill
@@ -117,8 +127,8 @@ struct PinPill: View {
             ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                 if i > 0 { Text("·").foregroundStyle(Theme.textTertiary) }
                 HStack(spacing: 3) {
-                    Text(part.name).foregroundStyle(Theme.textSecondary)
-                    Text(part.time).monospacedDigit().foregroundStyle(Theme.textPrimary)
+                    Text(part.name).foregroundStyle(part.time.isEmpty ? Theme.textPrimary : Theme.textSecondary)
+                    if !part.time.isEmpty { Text(part.time).monospacedDigit().foregroundStyle(Theme.textPrimary) }
                 }
             }
         }
@@ -143,6 +153,8 @@ struct PinPillsOverlay: View {
     let endTime: String?
     let legend: Bool
     var legendHeight: CGFloat = 52
+    /// The measured frames of what else sits on the map (map coordinates); nil until measured.
+    var obstacles: [CGRect]?
     var startLine: [CGPoint] = []
     var endLine: [CGPoint] = []
     /// The pills' real widths once drawn (the estimate stands until then, and at any text size): placement uses them.
@@ -150,7 +162,10 @@ struct PinPillsOverlay: View {
 
     struct Item: Identifiable {
         let id: Int
+        /// What is drawn: the name and time, or just the name where there is no room for the time.
         let text: String
+        /// What is said aloud: always the name and time.
+        var spoken: String = ""
         let spot: PinPills.Spot
         /// The pill's words: "Start" or "End" (quiet) and its time (the loud part), one pair per end shown.
         var parts: [PinPills.Part] { PinPills.parts(of: text) }
@@ -158,16 +173,29 @@ struct PinPillsOverlay: View {
 
     /// The pills to draw: one for a round trip, else a Start and an End placed so that they keep clear of the corners, the line and each other.
     static func items(size: CGSize, start: CGPoint?, end: CGPoint?, startTime: String?, endTime: String?, legend: Bool, legendHeight: CGFloat = 52,
-                      startLine: [CGPoint] = [], endLine: [CGPoint] = [], widths: [Int: CGFloat] = [:]) -> [Item] {
+                      startLine: [CGPoint] = [], endLine: [CGPoint] = [], widths: [Int: CGFloat] = [:], obstacles: [CGRect]? = nil) -> [Item] {
         let shared = start.flatMap { s in end.map { hypot(s.x - $0.x, s.y - $0.y) < PinPills.sharedWithin } } ?? false
         let t = PinPills.text(start: startTime, end: endTime, shared: shared)
-        var taken = PinPills.keepClear(size: size, legendHeight: legendHeight, legend: legend)
+        // The things that sit on the map (the legend card and its switch, the credit, the expand mark) as they were measured; the old corner
+        // estimates only until the first measurement.
+        var taken = obstacles ?? PinPills.keepClear(size: size, legendHeight: legendHeight, legend: legend)
         var out: [Item] = []
         func add(_ id: Int, _ text: String?, _ pin: CGPoint?, _ line: [CGPoint]) {
             guard let text, let pin else { return }
-            let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
-            taken.append(spot.rect)
-            out.append(Item(id: id, text: text, spot: spot))
+            // The name and time where a side of the pin is free; else just the name ("Start", "End") where that fits; else where it overlaps least.
+            let full = PinPills.placeOpt(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line, onlyClear: true)
+            let short = PinPills.shortText(text)
+            if let full {
+                taken.append(full.rect)
+                out.append(Item(id: id, text: text, spoken: text, spot: full))
+            } else if let s = PinPills.placeOpt(pin: pin, width: PinPills.estimatedWidth(short), in: size, avoiding: taken, line: line, onlyClear: true) {
+                taken.append(s.rect)
+                out.append(Item(id: id, text: short, spoken: text, spot: s))
+            } else {
+                let spot = PinPills.place(pin: pin, width: widths[id] ?? PinPills.estimatedWidth(text), in: size, avoiding: taken, line: line)
+                taken.append(spot.rect)
+                out.append(Item(id: id, text: text, spoken: text, spot: spot))
+            }
         }
         if let both = t.both { add(0, both, start, startLine) } else {
             add(1, t.start, start, startLine)
@@ -178,13 +206,13 @@ struct PinPillsOverlay: View {
 
     var body: some View {
         let items = Self.items(size: size, start: start, end: end, startTime: startTime, endTime: endTime, legend: legend, legendHeight: legendHeight,
-                               startLine: startLine, endLine: endLine, widths: widths)
+                               startLine: startLine, endLine: endLine, widths: widths, obstacles: obstacles)
         ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let alignment: Alignment = item.spot.side == .right ? .leading : item.spot.side == .left ? .trailing : .center
                 Color.clear.frame(width: 0, height: 0)
                     .overlay(alignment: alignment) {
-                        PinPill(parts: item.parts, label: item.text)
+                        PinPill(parts: item.parts, label: item.spoken.isEmpty ? item.text : item.spoken)
                             .background(GeometryReader { g in Color.clear.preference(key: PillWidthKey.self, value: [item.id: g.size.width]) })
                     }
                     .position(x: item.spot.anchor.x, y: item.spot.anchor.y)

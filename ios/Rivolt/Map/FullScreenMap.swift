@@ -45,6 +45,8 @@ struct FullScreenMapScreen<Content: View>: View {
 /// its corner and an accessibility action "Open map".
 struct OpensFullScreenMap<Full: View>: ViewModifier {
     let enabled: Bool
+    /// Draw the expand mark here (a map that measures its own overlays draws it itself).
+    var mark = true
     let title: String
     let recenterLabel: String
     @ViewBuilder var full: (_ recenter: Int) -> Full
@@ -52,18 +54,7 @@ struct OpensFullScreenMap<Full: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .topTrailing) {
-                if enabled {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.background.opacity(0.8), in: Circle())
-                        .padding(6)
-                        .accessibilityHidden(true)
-                        .allowsHitTesting(false)
-                }
-            }
+            .overlay(alignment: .topTrailing) { if enabled && mark { ExpandMark() } }
             .contentShape(Rectangle())
             .onTapGesture { if enabled { open = true } }
             .accessibilityAction(named: "Open map") { if enabled { open = true } }
@@ -74,7 +65,7 @@ struct OpensFullScreenMap<Full: View>: ViewModifier {
 }
 
 extension View {
-    func opensFullScreenMap<Full: View>(enabled: Bool, title: String, recenterLabel: String, @ViewBuilder full: @escaping (_ recenter: Int) -> Full) -> some View {
-        modifier(OpensFullScreenMap(enabled: enabled, title: title, recenterLabel: recenterLabel, full: full))
+    func opensFullScreenMap<Full: View>(enabled: Bool, mark: Bool = true, title: String, recenterLabel: String, @ViewBuilder full: @escaping (_ recenter: Int) -> Full) -> some View {
+        modifier(OpensFullScreenMap(enabled: enabled, mark: mark, title: title, recenterLabel: recenterLabel, full: full))
     }
 }
