@@ -975,7 +975,9 @@ jobs:
       - name: go test (re-auth pods, 20 times)
         # The cross-pod re-auth tests have flaked before (a stale pod flagging a fresh sign-in, found by the diagnostics of #1385). Twenty runs
         # on every PR keep a regression of the stale-pod fix, or a new flake in these tests, from reaching main.
-        run: RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=20 -timeout=15m -run 'TestStalePodRejection|TestInFlightCallOfAReplacedSession|TestSessionVersionNeverGoesBackwards|TestFastPodLearns|TestRivianAccountIsConsistentAcrossThreePods' ./internal/api
+        # The two barrier tests of #1508 (a stale raise racing a sign-in's row lock; the flag between Login's clear and the session save) are in the
+        # pattern too: before, they ran once per PR, so the 20x claim for them rested on one temporary validation run.
+        run: RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=20 -timeout=15m -run 'TestStalePodRejection|TestInFlightCallOfAReplacedSession|TestSessionVersionNeverGoesBackwards|TestFastPodLearns|TestRivianAccountIsConsistentAcrossThreePods|TestStaleRaiseRacingASignInOrOutCommitCannotFlagTheUser|TestAFlagRaisedBetweenLoginsClearAndTheSaveIsClearedByTheSave' ./internal/api
 
       - name: Save Go build cache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gocache.outputs.cache-hit != 'true'
