@@ -88,6 +88,39 @@ export function otaLine(u: OtaUpdate, where: "truck" | "now" = "truck"): string 
   return u.version ? `${u.version} · ${word}` : word;
 }
 
+// The truck's software update step as the server reports it (`ota.step`, `ota.install_progress` on /api/vehicles). Only the ten steps the truck
+// is known to send are named, in plain words; "unknown", any other word and no step at all show nothing (a failed update arrives as "unknown", so
+// "Updating…" would falsely say it is in progress). The bar is for "installing" with a number only; "Installed" is for install_success only,
+// never inferred from 100% or from the step disappearing.
+const OTA_STEPS: Record<string, string> = {
+  ready_to_download: "Ready to download",
+  downloading: "Downloading",
+  preparing: "Preparing",
+  ready_to_install: "Ready to install",
+  scheduled_to_install: "Install scheduled",
+  install_countdown: "Install about to start",
+  awaiting_install: "Waiting to install",
+  installing: "Installing",
+  install_success: "Installed",
+  connection_lost: "Connection lost",
+};
+export type OtaStep = { word: string; pct: number | null; version: string | null };
+
+export function otaStep(ota: { step?: string; install_progress?: number; available?: { version?: string } } | undefined | null): OtaStep | null {
+  const word = ota?.step ? OTA_STEPS[ota.step] : undefined;
+  if (!ota || !word) return null;
+  const p = ota.install_progress;
+  const pct = ota.step === "installing" && typeof p === "number" && Number.isFinite(p) ? Math.min(100, Math.max(0, Math.round(p))) : null;
+  const v = (ota.available?.version ?? "").trim();
+  return { word, pct, version: v && !/^0+(\.0+)*$/.test(v) ? v : null };
+}
+
+// "2026.38 · Installing 37%", "Ready to install".
+export function otaStepLine(u: OtaStep): string {
+  const w = u.pct != null ? `${u.word} ${u.pct}%` : u.word;
+  return u.version ? `${u.version} · ${w}` : w;
+}
+
 export type SoftwareInfo = { current: string; available: string | null };
 
 export function softwareInfo(s: Pick<VehicleState, "ota_current_version" | "ota_available_version">): SoftwareInfo | null {

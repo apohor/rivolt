@@ -222,6 +222,10 @@ export type Vehicle = {
     current?: { version?: string; has_notes?: boolean; locale?: string };
     available?: { version?: string; has_notes?: boolean; locale?: string };
     status?: string;
+    // The truck's own update step (ready_to_download … install_success, or "unknown"), absent when idle; the raw `status` word is not shown.
+    step?: string;
+    // Percent 0..100, present only while step is "installing".
+    install_progress?: number;
     fetched_at?: string;
   };
 };

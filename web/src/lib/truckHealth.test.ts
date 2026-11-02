@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, otaLine, sleepHealthLines, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
+import { lowestTire, otaStep, otaStepLine, otaLine, sleepHealthLines, otaUpdate, rivianSaysLow, sleepSummary, softwareInfo, tireWheels } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -129,5 +129,36 @@ describe("sleepHealthLines", () => {
       const l = sleepHealthLines({ version: 1, state: s, this_week: week, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
       expect(`${l.headline} ${l.detail ?? ""} ${l.basis}`).not.toMatch(/slept normally|because|caused|key|app|fault|fine|healthy|problem/i);
     }
+  });
+});
+
+describe("otaStep (the server's ota.step)", () => {
+  it("names the ten known steps in plain words", () => {
+    const words: Record<string, string> = {
+      ready_to_download: "Ready to download", downloading: "Downloading", preparing: "Preparing", ready_to_install: "Ready to install",
+      scheduled_to_install: "Install scheduled", install_countdown: "Install about to start", awaiting_install: "Waiting to install",
+      installing: "Installing", install_success: "Installed", connection_lost: "Connection lost",
+    };
+    for (const [step, word] of Object.entries(words)) expect(otaStep({ step })?.word).toBe(word);
+  });
+  it("shows nothing for unknown, an unrecognised word, or no step", () => {
+    for (const step of ["unknown", "download_failed", "Installing", "", undefined]) expect(otaStep({ step })).toBeNull();
+    expect(otaStep(undefined)).toBeNull();
+    expect(otaStep({ install_progress: 50 })).toBeNull();
+  });
+  it("shows a number only while installing, and 0 is a start, not nothing", () => {
+    expect(otaStepLine(otaStep({ step: "installing", install_progress: 37 })!)).toBe("Installing 37%");
+    expect(otaStep({ step: "installing", install_progress: 0 })?.pct).toBe(0);
+    expect(otaStep({ step: "installing" })?.pct).toBeNull();
+    expect(otaStep({ step: "downloading", install_progress: 40 })?.pct).toBeNull();
+    expect(otaStep({ step: "installing", install_progress: 140 })?.pct).toBe(100);
+  });
+  it("is never inferred: 100% is not Installed, and install_success is", () => {
+    expect(otaStep({ step: "installing", install_progress: 100 })?.word).toBe("Installing");
+    expect(otaStep({ step: "install_success" })?.word).toBe("Installed");
+  });
+  it("puts the pending version first when there is one", () => {
+    expect(otaStepLine(otaStep({ step: "downloading", available: { version: "2026.38.0" } })!)).toBe("2026.38.0 · Downloading");
+    expect(otaStepLine(otaStep({ step: "downloading", available: { version: "0.0.0" } })!)).toBe("Downloading");
   });
 });

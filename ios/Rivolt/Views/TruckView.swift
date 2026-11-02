@@ -644,7 +644,8 @@ struct TruckContent: View {
     @ViewBuilder
     private var vehicleCard: some View {
         let sw = model.state.flatMap(TruckLogic.software)
-        let update = model.state.flatMap { NowUpdate($0) }
+        // The truck's own update step, from the vehicle list (`ota.step`): none when idle or unknown.
+        let update = OtaStep(vehicle.ota)
         if sw != nil || update != nil {
             ThemeSection(title: "Vehicle") {
                 if stacked {
@@ -683,11 +684,19 @@ struct TruckContent: View {
         }
     }
 
-    /// The update state in plain words; when the frame is more than two minutes old, its age under it so "Installing" isn't read as current.
-    private func updateCell(_ u: NowUpdate) -> some View {
-        let age = model.state?.at.map { max(0, now.timeIntervalSince($0)) }
+    /// The update step in plain words, with a bar while it installs; when the reading is more than two minutes old, its age under it so
+    /// "Installing" isn't read as current.
+    private func updateCell(_ u: OtaStep) -> some View {
+        let age = vehicle.ota?.fetchedAt.map { max(0, now.timeIntervalSince($0)) }
         return VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
-            Text(u.line()).themeText(.value, color: Theme.textPrimary)
+            Text(u.line).themeText(.value, color: Theme.textPrimary)
+            if let pct = u.pct {
+                ProgressView(value: Double(pct), total: 100)
+                    .tint(Theme.accent)
+                    .frame(maxWidth: 160)
+                    .accessibilityLabel("Software install progress")
+                    .accessibilityValue("\(pct) percent")
+            }
             if let age, age > 120 { Text("As of \(NowFormat.ago(age))").themeText(.caption, color: Theme.textTertiary) }
         }
         .accessibilityElement(children: .combine)

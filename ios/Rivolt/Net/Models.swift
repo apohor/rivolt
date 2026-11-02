@@ -75,6 +75,11 @@ struct Vehicle: Decodable, Identifiable, Equatable {
 
         let current: Version?
         let available: Version?
+        /// The truck's own update step (`ready_to_download` … `install_success`, or `unknown`); absent when idle. The raw `status` word is not read.
+        var step: String? = nil
+        /// Percent 0...100, present only while the step is `installing`.
+        var installProgress: Int? = nil
+        var fetchedAt: Date? = nil
     }
 }
 
