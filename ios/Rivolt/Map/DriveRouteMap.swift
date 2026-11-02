@@ -44,7 +44,7 @@ struct DriveRouteMap: View {
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }))
+                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }), showsExpand: openable)
                     .overlay(alignment: .topLeading) {
                         if let cursorReadout, cursorCoord != nil {
                             // The timeline below says it aloud; this is the sighted reader's.
@@ -70,7 +70,7 @@ struct DriveRouteMap: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
-        .opensFullScreenMap(enabled: openable, title: "Drive route", recenterLabel: "Recenter on the route") { recenter in
+        .opensFullScreenMap(enabled: openable, mark: false, title: "Drive route", recenterLabel: "Recenter on the route") { recenter in
             if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 DriveRouteFullMap(styleJSON: style, drawing: drawing, times: pillTimes, recenter: recenter, initial: metric)
             }
@@ -143,15 +143,25 @@ private struct RouteDecor: ViewModifier {
     var metrics: [RouteGradient.Metric] = []
     var selection: Binding<RouteGradient.Metric>?
 
+    /// The expand mark in the corner (the inline map opens full screen on a tap); not on the full-screen map itself.
+    var showsExpand = false
+    /// The frames of what sits on the map, as drawn (the legend card with its switch, the credit, the expand mark), in the map's own space:
+    /// the Start and End pills keep clear of exactly these, at any text size.
+    @State private var obstacles: [CGRect]?
+
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .bottomTrailing) { MapAttribution() }
+            .coordinateSpace(name: MapObstacles.space)
+            .overlay(alignment: .bottomTrailing) { MapAttribution().measured() }
             .overlay(alignment: .bottomLeading) {
                 if ready, let r = drawing.range(for: metric), metric != .speed || drawing.usesGradient {
-                    GradientLegend(lo: r.lo, hi: r.hi, metric: metric, metrics: metrics, selection: selection).padding(4)
+                    GradientLegend(lo: r.lo, hi: r.hi, metric: metric, metrics: metrics, selection: selection).padding(4).measured()
                 } else if ready, drawing.pieces.contains(where: { $0.speed != nil }) {
-                    SpeedLegend(bands: drawing.usedSpeeds).padding(4)
+                    SpeedLegend(bands: drawing.usedSpeeds).padding(4).measured()
                 }
+            }
+            .overlay(alignment: .topTrailing) {
+                if showsExpand { ExpandMark().measured() }
             }
             .overlay {
                 if ready, pins.size.width > 0, let times {
@@ -160,17 +170,54 @@ private struct RouteDecor: ViewModifier {
                     PinPillsOverlay(size: pins.size, start: pins.start.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     end: pins.end.flatMap { clipPins && !bounds.contains($0) ? nil : $0 },
                                     startTime: times.start, endTime: times.end,
-                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), legendHeight: metrics.count > 1 ? 76 : 52, startLine: pins.startLine, endLine: pins.endLine)
+                                    legend: drawing.pieces.contains(where: { $0.speed != nil }), legendHeight: metrics.count > 1 ? 76 : 52,
+                                    obstacles: obstacles, startLine: pins.startLine, endLine: pins.endLine)
                 }
             }
+            .onPreferenceChange(MapObstacles.Key.self) { frames in
+                // A few points of air around each, so a pill never touches a card; only a real change re-places the pills.
+                let padded = frames.map { $0.insetBy(dx: -4, dy: -4) }
+                if padded != obstacles { obstacles = padded }
+            }
+    }
+}
+
+/// The frames of the things drawn over a map, measured where they are (never assumed): each reports its rectangle in the map's coordinate space.
+enum MapObstacles {
+    static let space = "routeMap"
+
+    struct Key: PreferenceKey {
+        static let defaultValue: [CGRect] = []
+        static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
+    }
+}
+
+extension View {
+    /// Reports this view's frame in the map's space as something the pills must avoid.
+    func measured() -> some View {
+        background(GeometryReader { g in Color.clear.preference(key: MapObstacles.Key.self, value: [g.frame(in: .named(MapObstacles.space))]) })
+    }
+}
+
+/// The small mark that says the inline map opens full screen.
+struct ExpandMark: View {
+    var body: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Theme.textSecondary)
+            .frame(width: 28, height: 28)
+            .background(Theme.background.opacity(0.8), in: Circle())
+            .padding(6)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
 extension View {
     fileprivate func routeDecor(drawing: RouteSnap.Drawing, ready: Bool, pins: RouteMapView.Pins, times: (start: String?, end: String?)?, clipPins: Bool = false,
-                                metric: RouteGradient.Metric = .speed, selection: Binding<RouteGradient.Metric>? = nil) -> some View {
+                                metric: RouteGradient.Metric = .speed, selection: Binding<RouteGradient.Metric>? = nil, showsExpand: Bool = false) -> some View {
         modifier(RouteDecor(drawing: drawing, ready: ready, pins: pins, times: times, clipPins: clipPins, metric: metric,
-                            metrics: drawing.availableMetrics, selection: selection))
+                            metrics: drawing.availableMetrics, selection: selection, showsExpand: showsExpand))
     }
 }
 

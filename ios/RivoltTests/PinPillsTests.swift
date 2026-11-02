@@ -67,4 +67,34 @@ final class PinPillsTests: XCTestCase {
         XCTAssertEqual(wide.first?.spot.rect.width, 300)
         XCTAssertLessThan(est.first?.spot.rect.width ?? 999, 300)
     }
+
+    // The owner's bug: a Start pin right beside the legend card (with its mode switch), the pill drawn on top of it.
+    func testAPinBesideAMeasuredLegendNeverGetsAPillOnIt() {
+        let legend = CGRect(x: 0, y: 140, width: 215, height: 80).insetBy(dx: -4, dy: -4)
+        let credit = CGRect(x: 230, y: 190, width: 113, height: 30).insetBy(dx: -4, dy: -4)
+        for pin in [CGPoint(x: 222, y: 200), CGPoint(x: 120, y: 130), CGPoint(x: 225, y: 175), CGPoint(x: 260, y: 160)] {
+            let items = PinPillsOverlay.items(size: size, start: pin, end: nil, startTime: "5:54 PM", endTime: nil, legend: true, obstacles: [legend, credit])
+            // Either clear of both, or no pill at all: never on top of one.
+            guard let item = items.first else { continue }
+            XCTAssertFalse(item.spot.rect.intersects(legend), "\(pin): \(item.spot.rect) is on the legend")
+            XCTAssertFalse(item.spot.rect.intersects(credit), "\(pin): \(item.spot.rect) is on the credit")
+        }
+    }
+
+    // A pin with no free side for the full pill gets the short one ("Start") where that fits, and it still says the time aloud.
+    func testWhereTheTimeHasNoRoomThePillIsJustTheName() {
+        // Everything right of x = 60 is taken: "Start 5:54 PM" fits nowhere, "Start" fits against the left edge.
+        let tight = CGSize(width: 200, height: 60)
+        let wall = [CGRect(x: 60, y: 0, width: 140, height: 60)]
+        let items = PinPillsOverlay.items(size: tight, start: CGPoint(x: 30, y: 30), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: wall)
+        XCTAssertEqual(items.map(\.text), ["Start"])
+        XCTAssertEqual(items.map(\.spoken), ["Start 5:54 PM"])
+        XCTAssertEqual(PinPills.shortText("Start 9:15 PM · End 11:28 PM"), "Start · End")
+        XCTAssertEqual(PinPills.parts(of: "Start"), [PinPills.Part(name: "Start", time: "")])
+    }
+
+    func testWithRoomItKeepsTheTime() {
+        let items = PinPillsOverlay.items(size: size, start: CGPoint(x: 60, y: 60), end: nil, startTime: "5:54 PM", endTime: nil, legend: false, obstacles: [])
+        XCTAssertEqual(items.map(\.text), ["Start 5:54 PM"])
+    }
 }
