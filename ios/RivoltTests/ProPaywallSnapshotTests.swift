@@ -6,9 +6,19 @@ import XCTest
 @MainActor
 final class ProPaywallSnapshotTests: XCTestCase {
     func testRenderTheFreeAccountsSheet() throws {
+        try render(size: .large, suffix: "")
+    }
+
+    /// At an accessibility text size the two plan choices stack, one above the other, instead of squeezing the price into half a row.
+    func testRenderTheSheetAtAnAccessibilityTextSize() throws {
+        try render(size: .accessibility3, suffix: "-ax3")
+    }
+
+    private func render(size: DynamicTypeSize, suffix: String) throws {
         Theme.registerFonts()
         let page = ProPaywallView(plan: .free, snapshotOnly: true)
             .environment(AppState())
+            .environment(\.dynamicTypeSize, size)
             .frame(width: 390)
             .fixedSize(horizontal: false, vertical: true)
             .background(ThemePageBackground())
@@ -17,7 +27,7 @@ final class ProPaywallSnapshotTests: XCTestCase {
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.uiImage, "the sheet did not render")
             let png = try XCTUnwrap(image.pngData())
-            let file = "pro-sheet-free-\(scheme == .dark ? "dark" : "light").png"
+            let file = "pro-sheet-free-\(scheme == .dark ? "dark" : "light")\(suffix).png"
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             attachment.name = file
             attachment.lifetime = .keepAlways
