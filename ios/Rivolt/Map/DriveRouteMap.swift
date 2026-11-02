@@ -25,6 +25,8 @@ struct DriveRouteMap: View {
     @State private var routeDrawn = false
     /// The pins' positions in the map once it has fitted the route (for the Start and End pills), with the map's size.
     @State private var pins = RouteMapView.Pins()
+    /// The measured frames of the legend card, the credit and the expand mark (the pills keep clear of them; the camera fits above them).
+    @State private var obstacles: [CGRect]?
     /// What the line is coloured by (the web's legend switch); the first the drive supports until a person picks.
     @State private var picked: RouteGradient.Metric?
 
@@ -40,11 +42,12 @@ struct DriveRouteMap: View {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric, cursor: cursorCoord)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric, cursor: cursorCoord,
+                             bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
                     .allowsHitTesting(false)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the drive route")
-                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }), showsExpand: openable)
+                    .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: pillTimes, metric: metric, selection: Binding(get: { metric }, set: { picked = $0 }), showsExpand: openable, obstacles: $obstacles)
                     .overlay(alignment: .topLeading) {
                         if let cursorReadout, cursorCoord != nil {
                             // The timeline below says it aloud; this is the sighted reader's.
@@ -147,11 +150,10 @@ private struct RouteDecor: ViewModifier {
     var showsExpand = false
     /// The frames of what sits on the map, as drawn (the legend card with its switch, the credit, the expand mark), in the map's own space:
     /// the Start and End pills keep clear of exactly these, at any text size.
-    @State private var obstacles: [CGRect]?
+    @Binding var obstacles: [CGRect]?
 
     func body(content: Content) -> some View {
         content
-            .coordinateSpace(name: MapObstacles.space)
             .overlay(alignment: .bottomTrailing) { MapAttribution().measured() }
             .overlay(alignment: .bottomLeading) {
                 if ready, let r = drawing.range(for: metric), metric != .speed || drawing.usesGradient {
@@ -174,6 +176,8 @@ private struct RouteDecor: ViewModifier {
                                     obstacles: obstacles, startLine: pins.startLine, endLine: pins.endLine)
                 }
             }
+            // The named space is declared outside the overlays: they are measured in it, so it must contain them.
+            .coordinateSpace(name: MapObstacles.space)
             .onPreferenceChange(MapObstacles.Key.self) { frames in
                 // A few points of air around each, so a pill never touches a card; only a real change re-places the pills.
                 let padded = frames.map { $0.insetBy(dx: -4, dy: -4) }
@@ -215,9 +219,10 @@ struct ExpandMark: View {
 
 extension View {
     fileprivate func routeDecor(drawing: RouteSnap.Drawing, ready: Bool, pins: RouteMapView.Pins, times: (start: String?, end: String?)?, clipPins: Bool = false,
-                                metric: RouteGradient.Metric = .speed, selection: Binding<RouteGradient.Metric>? = nil, showsExpand: Bool = false) -> some View {
+                                metric: RouteGradient.Metric = .speed, selection: Binding<RouteGradient.Metric>? = nil, showsExpand: Bool = false,
+                                obstacles: Binding<[CGRect]?>) -> some View {
         modifier(RouteDecor(drawing: drawing, ready: ready, pins: pins, times: times, clipPins: clipPins, metric: metric,
-                            metrics: drawing.availableMetrics, selection: selection, showsExpand: showsExpand))
+                            metrics: drawing.availableMetrics, selection: selection, showsExpand: showsExpand, obstacles: obstacles))
     }
 }
 
@@ -233,6 +238,7 @@ struct DriveRouteFullMap: View {
     @State private var health = MapHealth.ok
     @State private var routeDrawn = false
     @State private var pins = RouteMapView.Pins()
+    @State private var obstacles: [CGRect]?
 
     private var metric: RouteGradient.Metric {
         let available = drawing.availableMetrics
@@ -242,12 +248,13 @@ struct DriveRouteFullMap: View {
 
     var body: some View {
         RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
-                     interactive: true, recenter: recenter, metric: metric)
+                     interactive: true, recenter: recenter, metric: metric,
+                     bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
             .accessibilityElement()
             .accessibilityLabel("Map of the drive route, full screen")
             .accessibilityHint("Pinch to zoom, drag to move")
             .routeDecor(drawing: drawing, ready: routeDrawn && health == .ok, pins: pins, times: times, clipPins: true, metric: metric,
-                        selection: Binding(get: { metric }, set: { picked = $0 }))
+                        selection: Binding(get: { metric }, set: { picked = $0 }), obstacles: $obstacles)
             .overlay { if health == .noTiles { MapUnavailableOverlay() } }
     }
 }
@@ -411,6 +418,16 @@ struct RouteMapView: UIViewRepresentable {
     var metric: RouteGradient.Metric = .speed
     /// Where the timeline's cursor is: a dot over the route (nil: none).
     var cursor: RouteSnap.Coord?
+    /// Space at the bottom the camera keeps clear for what is drawn over the map there (the legend card and the credit), from their measured
+    /// frames: the route and its pins fit above them, never under.
+    var bottomInset: CGFloat = 0
+
+    /// The bottom inset for `obstacles` (frames in the map's space) on a map `mapHeight` tall: the tallest of those in the lower half, plus air.
+    static func bottomInset(obstacles: [CGRect]?, mapHeight: CGFloat) -> CGFloat {
+        guard let obstacles, mapHeight > 0 else { return 0 }
+        let low = obstacles.filter { $0.midY > mapHeight / 2 }.map { mapHeight - $0.minY }
+        return (low.max() ?? 0) + 8
+    }
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
 
@@ -443,6 +460,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.onStop = onStop
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.setCursor(cursor)
+        context.coordinator.setBottomInset(bottomInset, on: map)
         context.coordinator.setMetric(metric, on: map)
         context.coordinator.update(drawing, on: map)
         context.coordinator.recenter(recenter, on: map)
@@ -687,6 +705,14 @@ struct RouteMapView: UIViewRepresentable {
             }
         }
 
+        private var bottomInset: CGFloat = 0
+        /// The legend card was measured (or changed, as its switch row appears): fit the route above it.
+        func setBottomInset(_ inset: CGFloat, on map: MLNMapView) {
+            guard abs(inset - bottomInset) >= 1 else { return }
+            bottomInset = inset
+            if map.bounds.height > 0, !sources.isEmpty { fit(map) }
+        }
+
         private var metric = RouteGradient.Metric.speed
         private var keepCamera = false
         /// A colour mode was picked: the gradient layers start over in the new colours, the camera stays where it is.
@@ -750,7 +776,7 @@ struct RouteMapView: UIViewRepresentable {
                 map.setCenter(coords[0], zoomLevel: 15, animated: animated)
                 return
             }
-            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 32, right: 24), animated: animated)
+            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: max(32, bottomInset), right: 24), animated: animated)
         }
     }
 }
