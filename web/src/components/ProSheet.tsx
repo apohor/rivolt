@@ -20,11 +20,37 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Focus goes into the sheet when it opens, stays inside while it is open (Tab and Shift+Tab wrap), and goes back to what opened it.
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return onClose();
+      if (e.key !== "Tab") return;
+      const box = dialogRef.current;
+      if (!box) return;
+      const items = [...box.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!box.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener?.isConnected) opener.focus();
+    };
   }, [onClose]);
 
   async function open(fn: () => Promise<{ url: string }>) {
@@ -46,7 +72,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   const apple = state.kind === "pro" && state.source === "apple";
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="pro-title" data-pro-sheet className="max-h-[92vh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-xl border border-neutral-800 bg-neutral-950 p-5 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="pro-title" data-pro-sheet className="max-h-[92vh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-xl border border-neutral-800 bg-neutral-950 p-5 sm:rounded-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="pro-title" className="text-lg font-semibold text-neutral-50">{PRO.title}</h2>
@@ -89,7 +115,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
               {(["year", "month"] as const).map((v) => {
                 const o = PRO.options[v];
                 return (
-                  <label key={v} className={`cursor-pointer rounded-lg border p-3 text-sm ${interval === v ? "border-emerald-500 bg-emerald-950/30" : "border-neutral-700"}`}>
+                  <label key={v} className={`cursor-pointer rounded-lg border p-3 text-sm focus-within:ring-2 focus-within:ring-emerald-300 ${interval === v ? "border-emerald-500 bg-emerald-950/30" : "border-neutral-700"}`}>
                     <input type="radio" name="pro-interval" className="sr-only" checked={interval === v} onChange={() => {
                       // The consent names the price and period of the choice, so a new choice needs a new tick.
                       setInterval(v);
