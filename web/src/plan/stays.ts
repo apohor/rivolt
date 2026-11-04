@@ -1,6 +1,7 @@
 // Campgrounds from Recreation.gov (RIDB): what to say about one, and the only links we draw from the data.
 import type { HookupId } from "./hookups";
 import type { POI } from "../lib/poi";
+import { drivingHoursLabel } from "./drivingBudget";
 
 export const CAMP_WARNING = "Reservation required. Listed, not guaranteed. Some parks don't allow EV charging; ask first.";
 
@@ -78,7 +79,7 @@ export function searchedLine(
   const before = windowM(t.window_before_min, route);
   const after = windowM(t.window_after_min, route);
   if (before === null || after === null) return "No hotels or campgrounds with Level 2 or a hookup found near here. Try a wider distance, or pick a stop by hand.";
-  return `No hotel or campground with Level 2 or a hookup within about ${fmt(before / 1000)} before or ${fmt(after / 1000)} after your ${hours} h point. Pick a stop by hand.`;
+  return `No hotel or campground with Level 2 or a hookup within about ${fmt(before / 1000)} before or ${fmt(after / 1000)} after your ${drivingHoursLabel(hours)} point. Pick a stop by hand.`;
 }
 
 // A stay that sits well away from the point the budget runs out says so: "about 40 mi before your 8 h point".
@@ -87,7 +88,7 @@ export function offTargetLine(targetAlongM: number, stayAlongM: number | undefin
   if (stayAlongM === undefined) return "";
   const d = targetAlongM - stayAlongM;
   if (Math.abs(d) < NEAR_TARGET_M) return "";
-  return `about ${fmt(Math.abs(d) / 1000)} ${d > 0 ? "before" : "after"} your ${hours} h point`;
+  return `about ${fmt(Math.abs(d) / 1000)} ${d > 0 ? "before" : "after"} your ${drivingHoursLabel(hours)} point`;
 }
 
 // "Nearest listed stay: Name, about 3.3 h short of the day (about 5.0 h in)." for each side the server found one, before first.
