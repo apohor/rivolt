@@ -21,32 +21,31 @@ final class DrivingBudgetTests: XCTestCase {
         UserDefaults.standard.set(10.0, forKey: DrivingBudget.key)
         XCTAssertFalse(TripPlanLogic.isLongDrive(r), "9 h fits a 10 h day")
         XCTAssertEqual(TripPlanLogic.overnightRequest(r).budgetHours, 10)
-        UserDefaults.standard.set(6.5, forKey: DrivingBudget.key)
+        UserDefaults.standard.set(6.0, forKey: DrivingBudget.key)
         XCTAssertTrue(TripPlanLogic.isLongDrive(r))
-        XCTAssertEqual(TripPlanLogic.overnightRequest(r).budgetHours, 6.5)
-        XCTAssertEqual(TripPlanLogic.longDriveSeconds, 6.5 * 3600)
+        XCTAssertEqual(TripPlanLogic.overnightRequest(r).budgetHours, 6)
+        XCTAssertEqual(TripPlanLogic.longDriveSeconds, 6 * 3600)
     }
 
-    func testTheLimitStaysInRangeOnHalfHours() {
-        XCTAssertEqual(DrivingBudget.clamped(1), 3)
-        XCTAssertEqual(DrivingBudget.clamped(20), 12)
-        XCTAssertEqual(DrivingBudget.clamped(7.3), 7.5)
+    func testTheLimitStaysInRangeOnWholeHours() {
+        XCTAssertEqual(DrivingBudget.clamped(1), 4)
+        XCTAssertEqual(DrivingBudget.clamped(20), 14)
+        XCTAssertEqual(DrivingBudget.clamped(7.3), 7)
         XCTAssertEqual(DrivingBudget.clamped(.nan), 8)
         UserDefaults.standard.set(99.0, forKey: DrivingBudget.key)
-        XCTAssertEqual(DrivingBudget.hours, 12, "a bad stored value is kept in range")
+        XCTAssertEqual(DrivingBudget.hours, 14, "a bad stored value is kept in range")
         XCTAssertEqual(DrivingBudget.label(8), "8 h")
-        XCTAssertEqual(DrivingBudget.label(7.5), "7.5 h")
     }
 
     func testTheNoStaysMessageNamesTheSameLimit() throws {
-        UserDefaults.standard.set(6.5, forKey: DrivingBudget.key)
+        UserDefaults.standard.set(6.0, forKey: DrivingBudget.key)
         let found = try JSON.decoder().decode(OvernightCandidates.self, from: Data(#"{"candidates":[],"target":{"along_m":300000,"window_before_min":30,"window_after_min":30},"route_m":600000}"#.utf8))
-        XCTAssertTrue(TripPlanLogic.noStaysLine(found, driveSec: 36_000, metric: false).contains("your 6.5 h point"))
+        XCTAssertTrue(TripPlanLogic.noStaysLine(found, driveSec: 36_000, metric: false).contains("your 6 h point"))
     }
 
     func testOnlyADriveLongerThanTheShortestLimitAsks() throws {
-        XCTAssertFalse(TripPlanLogic.offersDrivingPerDay(try route(driveSec: 2 * 3600)))
-        XCTAssertTrue(TripPlanLogic.offersDrivingPerDay(try route(driveSec: 4 * 3600)))
+        XCTAssertFalse(TripPlanLogic.offersDrivingPerDay(try route(driveSec: 3 * 3600)))
+        XCTAssertTrue(TripPlanLogic.offersDrivingPerDay(try route(driveSec: 5 * 3600)))
     }
 
     func testRenderTheRowAtALargeTextSize() throws {

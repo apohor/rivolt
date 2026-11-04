@@ -365,12 +365,12 @@ enum TripPlanLogic {
     }
 }
 
-/// How long the person is willing to drive in a day, for the trip planner: 3 to 12 h in half-hour steps, 8 h until changed, kept on this device.
+/// How long the person is willing to drive in a day, for the trip planner: 4 to 14 h in whole-hour steps, 8 h until changed, kept on this device.
 /// The server's overnight search takes it as `budget_hours`.
 enum DrivingBudget {
     static let key = "rivolt.drivingHoursPerDay"
-    static let range = 3.0...12.0
-    static let step = 0.5
+    static let range = 4.0...14.0
+    static let step = 1.0
     static let standard = 8.0
 
     static func clamped(_ v: Double) -> Double {
@@ -380,6 +380,6 @@ enum DrivingBudget {
 
     static var hours: Double { clamped(UserDefaults.standard.object(forKey: key) as? Double ?? standard) }
 
-    /// "8 h", "7.5 h".
-    static func label(_ h: Double) -> String { "\(h == h.rounded() ? String(Int(h)) : String(format: "%.1f", h)) h" }
+    /// "8 h".
+    static func label(_ h: Double) -> String { "\(Int(h.rounded())) h" }
 }
