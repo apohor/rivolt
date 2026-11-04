@@ -9,6 +9,8 @@ struct TripPlanView: View {
     @State private var saved = SavedTripsModel()
     @State private var demoTrips = DemoTripsModel()
     @State private var picking: Picking?
+    /// The daily driving limit: a change redraws the plan (whether the drive is offered over two days depends on it).
+    @AppStorage(DrivingBudget.key) private var drivingHours = DrivingBudget.standard
 
     enum Picking: Identifiable {
         case origin, destination
@@ -161,6 +163,7 @@ struct TripPlanResult: View {
                     Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
             if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }
             ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
                 StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric) { model.focusedStop = $0 }
@@ -229,7 +232,28 @@ struct PlaceSearchSheet: View {
     }
 }
 
-/// A drive of more than eight hours: offer the same trip over two days, with a night at a stay the person picks.
+/// "Driving per day": how many hours the person will drive in a day (4 to 14, whole-hour steps, 8 by default, kept on this device). A drive longer
+/// than it is offered over two days, and the search for somewhere to sleep looks where it runs out.
+struct DrivingPerDayRow: View {
+    let model: TripPlanModel
+    @AppStorage(DrivingBudget.key) private var hours = DrivingBudget.standard
+
+    var body: some View {
+        ThemeSection(title: "Driving per day") {
+            Stepper(value: Binding(get: { DrivingBudget.clamped(hours) }, set: { hours = DrivingBudget.clamped($0) }),
+                    in: DrivingBudget.range, step: DrivingBudget.step) {
+                Text(DrivingBudget.label(DrivingBudget.clamped(hours))).themeText(.value, color: Theme.textPrimary).monospacedDigit()
+            }
+            .accessibilityLabel("Driving per day")
+            .accessibilityValue(DrivingBudget.label(DrivingBudget.clamped(hours)))
+            Text("A longer drive is offered over two days, with a night at a stay near where this runs out.")
+                .themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: hours) { _, _ in model.drivingLimitChanged() }
+    }
+}
+
+/// A drive of more than the daily limit (eight hours unless changed): offer the same trip over two days, with a night at a stay the person picks.
 struct LongDriveSection: View {
     @Environment(AppState.self) private var state
     let model: TripPlanModel

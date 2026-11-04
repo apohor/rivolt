@@ -209,6 +209,11 @@ final class TripPlanModel {
         }
     }
 
+    /// The daily limit changed: a list of stays found for the old one no longer fits.
+    func drivingLimitChanged() {
+        if night != .looking { night = .none }
+    }
+
     /// Looks for stays near where a day's driving runs out, for the person to choose from.
     func findNight(source: some TripSource) async {
         guard let route = plan?.best, night == .none || isFailedNight else { return }

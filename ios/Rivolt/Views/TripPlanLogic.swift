@@ -70,11 +70,17 @@ enum TripPlanLogic {
         return "That is below the \(Int(target))% arrival target. Add a charging stop or start with more charge."
     }
 
-    /// Driving longer than this in a day is offered as two (the web's sleep-after hours).
-    static let longDriveSeconds = 8.0 * 3600
+    /// Driving longer than this in a day is offered as two: the person's "Driving per day" (8 h until they change it), the one number the
+    /// planner splits days by, searches for a stay by, and names in its messages.
+    static var longDriveSeconds: Double { DrivingBudget.hours * 3600 }
 
     static func isLongDrive(_ route: TripRoute) -> Bool {
         (route.totalDriveDurationSec ?? 0) > longDriveSeconds && route.destinationReached != false
+    }
+
+    /// A drive worth asking about the daily limit for: longer than the shortest limit on offer.
+    static func offersDrivingPerDay(_ route: TripRoute) -> Bool {
+        (route.totalDriveDurationSec ?? 0) > DrivingBudget.range.lowerBound * 3600 && route.destinationReached != false
     }
 
     /// Where the route goes, for finding a place to sleep: the waypoints in order.
@@ -86,7 +92,7 @@ enum TripPlanLogic {
     /// sparse waypoints a straight line can leave the road by tens of kilometres, and the search area with it.
     static func overnightRequest(_ route: TripRoute, roadLine: [RouteSnap.Coord] = []) -> OvernightCandidatesRequest {
         let line = thin(roadLine, to: 600).map { [$0.lat, $0.lon] }
-        return OvernightCandidatesRequest(path: line.count >= 2 ? line : path(route), driveSec: route.totalDriveDurationSec, budgetHours: longDriveSeconds / 3600, kinds: ["hotel", "campground"])
+        return OvernightCandidatesRequest(path: line.count >= 2 ? line : path(route), driveSec: route.totalDriveDurationSec, budgetHours: DrivingBudget.hours, kinds: ["hotel", "campground"])
     }
 
     /// At most `limit` points, evenly spread, keeping both ends.
@@ -103,7 +109,7 @@ enum TripPlanLogic {
         guard let t = found.target, let route = found.routeM, route > 0, let drive = driveSec, drive > 0,
               let before = t.windowBeforeMin, before > 0, let after = t.windowAfterMin, after > 0 else { return generic }
         func metres(_ min: Double) -> String { distance(meters: min * 60 * route / drive, metric: metric) }
-        var line = "No hotel or campground with a listed charger within about \(metres(before)) before or \(metres(after)) after your \(Int(longDriveSeconds / 3600)) h point"
+        var line = "No hotel or campground with a listed charger within about \(metres(before)) before or \(metres(after)) after your \(DrivingBudget.label(DrivingBudget.hours)) point"
         if let along = t.alongM, along > 0 { line += " (about \(distance(meters: along, metric: metric)) in)" }
         return line + ". Pick a stop by hand on the web."
     }
@@ -357,4 +363,23 @@ enum TripPlanLogic {
         }
         return UserFacingError.words(error)
     }
+}
+
+/// How long the person is willing to drive in a day, for the trip planner: 4 to 14 h in whole-hour steps, 8 h until changed, kept on this device.
+/// The server's overnight search takes it as `budget_hours`.
+enum DrivingBudget {
+    static let key = "rivolt.drivingHoursPerDay"
+    static let range = 4.0...14.0
+    static let step = 1.0
+    static let standard = 8.0
+
+    static func clamped(_ v: Double) -> Double {
+        guard v.isFinite else { return standard }
+        return min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step))
+    }
+
+    static var hours: Double { clamped(UserDefaults.standard.object(forKey: key) as? Double ?? standard) }
+
+    /// "8 h".
+    static func label(_ h: Double) -> String { "\(Int(h.rounded())) h" }
 }
