@@ -232,7 +232,7 @@ struct PlaceSearchSheet: View {
     }
 }
 
-/// "Driving per day": how many hours the person will drive in a day (3 to 12, half-hour steps, 8 by default, kept on this device). A drive longer
+/// "Driving per day": how many hours the person will drive in a day (4 to 14, whole-hour steps, 8 by default, kept on this device). A drive longer
 /// than it is offered over two days, and the search for somewhere to sleep looks where it runs out.
 struct DrivingPerDayRow: View {
     let model: TripPlanModel
