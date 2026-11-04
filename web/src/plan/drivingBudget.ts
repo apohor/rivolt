@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from "react";
 
-// "Driving per day": how many hours the person will drive in a day, for the trip planner. 3 to 12 h in half-hour steps, 8 h until changed, kept
+// "Driving per day": how many hours the person will drive in a day, for the trip planner. 4 to 14 h in whole-hour steps, 8 h until changed, kept
 // on this device. A drive longer than it is offered over more than one day, and the search for somewhere to sleep (`budget_hours`) looks where it
 // runs out, so every use of the limit reads this one number.
 export const DRIVING_DEFAULT_HOURS = 8;
-export const DRIVING_MIN_HOURS = 3;
-export const DRIVING_MAX_HOURS = 12;
-export const DRIVING_STEP_HOURS = 0.5;
+export const DRIVING_MIN_HOURS = 4;
+export const DRIVING_MAX_HOURS = 14;
+export const DRIVING_STEP_HOURS = 1;
 const KEY = "rivolt.drivingHoursPerDay";
 
 export function clampDrivingHours(v: number): number {
@@ -14,7 +14,7 @@ export function clampDrivingHours(v: number): number {
   return Math.min(DRIVING_MAX_HOURS, Math.max(DRIVING_MIN_HOURS, Math.round(v / DRIVING_STEP_HOURS) * DRIVING_STEP_HOURS));
 }
 
-// "8 h", "7.5 h".
+// "8 h".
 export function drivingHoursLabel(h: number): string {
   return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
 }

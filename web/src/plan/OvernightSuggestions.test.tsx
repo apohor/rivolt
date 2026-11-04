@@ -76,27 +76,27 @@ describe("Driving per day", () => {
     expect(overnightCandidates.mock.calls[0][0].budget_hours).toBe(8);
     expect(await screen.findByText(/after your 8 h point/)).toBeInTheDocument();
     overnightCandidates.mockClear();
-    fireEvent.change(select, { target: { value: "6.5" } });
+    fireEvent.change(select, { target: { value: "6" } });
     await waitFor(() => expect(overnightCandidates).toHaveBeenCalled());
-    expect(overnightCandidates.mock.calls[0][0].budget_hours).toBe(6.5);
-    expect(await screen.findByText(/after your 6\.5 h point/)).toBeInTheDocument();
-    expect(window.localStorage.getItem("rivolt.drivingHoursPerDay")).toBe("6.5");
+    expect(overnightCandidates.mock.calls[0][0].budget_hours).toBe(6);
+    expect(await screen.findByText(/after your 6 h point/)).toBeInTheDocument();
+    expect(window.localStorage.getItem("rivolt.drivingHoursPerDay")).toBe("6");
   });
 
   it("a bad stored value is kept in range", async () => {
     window.localStorage.setItem("rivolt.drivingHoursPerDay", "99");
     show({});
     const select = (await screen.findByLabelText("Driving per day")) as HTMLSelectElement;
-    expect(select.value).toBe("12");
+    expect(select.value).toBe("14");
   });
 
-  it("offers 3 to 12 h in half hours", async () => {
+  it("offers 4 to 14 h in whole hours", async () => {
     show({});
     const select = (await screen.findByLabelText("Driving per day")) as HTMLSelectElement;
     const values = [...select.options].map((o) => o.value);
-    expect(values[0]).toBe("3");
-    expect(values[values.length - 1]).toBe("12");
-    expect(values).toContain("7.5");
-    expect(values).toHaveLength(19);
+    expect(values[0]).toBe("4");
+    expect(values[values.length - 1]).toBe("14");
+    expect(values).toContain("9");
+    expect(values).toHaveLength(11);
   });
 });
