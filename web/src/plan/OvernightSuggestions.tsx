@@ -8,22 +8,33 @@ import { formatDistance, usePreferences } from "../lib/preferences";
 import { rangePerHour } from "../lib/chargeRange";
 import type { OvernightAdder } from "./tripTypes";
 import { StayCard, RidbCredit, OsmCredit } from "./StayCard";
+import { DrivingPerDay } from "./DrivingPerDay";
+import { DRIVING_MIN_HOURS, useDrivingHours } from "./drivingBudget";
 import { CAMP_WARNING, campgroundPageUrl, campPowerLine, fastChargerLine, hookupForConnector, nearestLines, offTargetLine, outletLabel, searchedLine, sitesLine } from "./stays";
 
-// A day that drives longer than this gets a suggestion of where to sleep.
-export const SLEEP_AFTER_HOURS = 8;
-
-// OvernightSuggestions: for a long day, hotels with a listed Level 2 charger and campgrounds with a hookup near where the
+// OvernightSuggestions: the "Driving per day" control (on the first day), then, for a day that drives longer than that limit, hotels with a listed Level 2 charger and campgrounds with a hookup near where the
 // driving budget runs out. Listings only: nothing here says a charger is free or working.
 export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; day: number; onUse?: OvernightAdder }) {
+  const [hours] = useDrivingHours();
+  // Asked once, on the first day, for a drive worth asking about (longer than the shortest limit on offer).
+  const asks = day === 1 && !!onUse && !inDemo() && route.TotalDriveDurationSec > DRIVING_MIN_HOURS * 3600;
+  return (
+    <>
+      {asks && <DrivingPerDay />}
+      <Suggestions route={route} day={day} onUse={onUse} hours={hours} />
+    </>
+  );
+}
+
+function Suggestions({ route, day, onUse, hours }: { route: TripRoute; day: number; onUse?: OvernightAdder; hours: number }) {
   const { distanceUnit } = usePreferences();
-  const long = route.TotalDriveDurationSec > SLEEP_AFTER_HOURS * 3600;
+  const long = route.TotalDriveDurationSec > hours * 3600;
   const path = route.route_polyline
     ? decodePolyline6(route.route_polyline)
     : route.Waypoints.map((w) => [w.Latitude, w.Longitude] as [number, number]);
   const q = useQuery({
-    queryKey: ["overnight-candidates", route.route_polyline ?? path.length, route.TotalDriveDurationSec],
-    queryFn: () => backend.overnightCandidates({ path, drive_sec: route.TotalDriveDurationSec, budget_hours: SLEEP_AFTER_HOURS, kinds: ["hotel", "campground"] }),
+    queryKey: ["overnight-candidates", route.route_polyline ?? path.length, route.TotalDriveDurationSec, hours],
+    queryFn: () => backend.overnightCandidates({ path, drive_sec: route.TotalDriveDurationSec, budget_hours: hours, kinds: ["hotel", "campground"] }),
     enabled: long && !inDemo() && !!onUse && path.length >= 2,
     retry: 0,
     staleTime: 10 * 60_000,
@@ -89,7 +100,7 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
       <section data-overnight-suggestions className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3 text-sm" aria-label={`Where to sleep on day ${day}`}>
         <h3 className="font-medium text-neutral-100">Where to sleep on day {day}</h3>
         <p className="mt-0.5 text-xs text-neutral-400">
-          About {aboutIn} in. {searchedLine(d.target, { route_m: d.route_m, drive_sec: route.TotalDriveDurationSec }, SLEEP_AFTER_HOURS, (km) => formatDistance(km, distanceUnit))}
+          About {aboutIn} in. {searchedLine(d.target, { route_m: d.route_m, drive_sec: route.TotalDriveDurationSec }, hours, (km) => formatDistance(km, distanceUnit))}
         </p>
         {nearestLines(d.nearest).map((l) => (
           <p key={l} className="mt-0.5 text-xs text-neutral-400">{l}</p>
@@ -112,7 +123,7 @@ export function OvernightSuggestions({ route, day, onUse }: { route: TripRoute; 
           const hookup = hookupForConnector(c.connector);
           const kw = c.planned_kw ?? c.l2_kw;
           const away = `${formatDistance(c.detour_m / 2000, distanceUnit, { fine: true })} off route`;
-          const offTarget = offTargetLine(d.target.along_m, c.along_m, SLEEP_AFTER_HOURS, fmtKm);
+          const offTarget = offTargetLine(d.target.along_m, c.along_m, hours, fmtKm);
           const label = camp ? `${c.name} (campground)` : c.name;
           return (
             <StayCard
