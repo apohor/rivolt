@@ -29,9 +29,20 @@ echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak 's/^Last updated: .*/Last updated: November 2, 2026/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "privacy text and date both changed forward" 0
 echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak 's/^Last updated: .*/Last updated: October 1, 2026/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "privacy date moved backwards" 1
-today=$(date -u '+%B %-d, %Y' 2>/dev/null || date -u '+%B %d, %Y')
-sed -i.bak "s/^Last updated: .*/Last updated: $today/" web/src/content/privacy.md && rm web/src/content/privacy.md.bak; git add -A; git commit -qm "dated today"; base=$(git rev-parse HEAD)
+# The "day of the change" is the head commit's date, so these cases pin it: the commits are made at a fixed instant (GIT_COMMITTER_DATE) and the
+# page says that day, so the result never depends on the calendar the test runs on. 9 is a single-digit day on purpose: the 4th to the 9th were once
+# unreadable (awk compared the day as text, "9" <= "31" is false). 12:00 UTC is the 9th in Pacific time too.
+export GIT_COMMITTER_DATE="2026-11-09T12:00:00Z"
+sed -i.bak "s/^Last updated: .*/Last updated: November 9, 2026/" web/src/content/privacy.md && rm web/src/content/privacy.md.bak; git add -A; git commit -qm "dated that day"; base=$(git rev-parse HEAD)
 echo "We keep C." >> web/src/content/privacy.md;                              check "second edit on the day the date already says" 0
+export GIT_COMMITTER_DATE="2026-11-10T12:00:00Z"
+echo "We keep D." >> web/src/content/privacy.md;                              check "an edit the next day with the old date" 1
+unset GIT_COMMITTER_DATE
+sed -i.bak 's/^Last updated: .*/Last updated: October 31, 2026/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; git add -A; git commit -qm "back to Oct 31"; base=$(git rev-parse HEAD)
+for day in 4 5 6 7 8 9; do # every single-digit day reads as a date, and moves forward from the 3rd
+  echo "We keep E." >> web/src/content/privacy.md
+  sed -i.bak "s/^Last updated: .*/Last updated: November $day, 2026/" web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "privacy text and a date on November $day" 0
+done
 sed -i.bak 's/^Last updated: .*/Last updated: October 31, 2026/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; git add -A; git commit -qm "back to old"; base=$(git rev-parse HEAD)
 sed -i.bak 's/^Last updated: .*/Last updated: November 2, 2026/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "date alone changed" 0
 printf '\n' >> web/src/content/privacy.md;                                      check "blank line only" 0

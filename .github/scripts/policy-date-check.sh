@@ -25,8 +25,8 @@ datekey() {
   echo "${1#Last updated: }" | awk '{
     split("January February March April May June July August September October November December", M, " ")
     for (i = 1; i <= 12; i++) if ($1 == M[i]) m = i
-    d = $2; sub(/,$/, "", d)
-    if (m && d ~ /^[0-9]+$/ && $3 ~ /^[0-9][0-9][0-9][0-9]$/ && d >= 1 && d <= 31) printf "%04d%02d%02d", $3, m, d
+    d = $2; sub(/,$/, "", d); n = d + 0   # n is numeric: d is a string after sub(), and "4" <= "31" is false as text (the 4th to the 9th read as unreadable)
+    if (m && d ~ /^[0-9]+$/ && $3 ~ /^[0-9][0-9][0-9][0-9]$/ && n >= 1 && n <= 31) printf "%04d%02d%02d", $3, m, n
   }'
 }
 
