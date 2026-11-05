@@ -13,12 +13,12 @@ require (
 	github.com/fxamacker/cbor/v2 v2.10.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-chi/cors v1.2.2
-	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/moby/moby/api v1.56.1
-	github.com/paulmach/orb v0.13.0
+	github.com/paulmach/orb v0.14.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/protomaps/go-pmtiles v1.31.2
 	github.com/redis/go-redis/v9 v9.23.0
@@ -97,7 +97,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/jonas-p/go-shp v0.1.1 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
