@@ -48,6 +48,7 @@ type Archive struct {
 	leafDirs sync.Map // map[uint64][]pm.EntryV3, key = leaf offset
 
 	loadedAt time.Time
+	builtAt  time.Time // the file's Last-Modified at its source
 	// etag is the validator of the loaded file, sent as If-None-Match by Refresh.
 	etag string
 	// stations is the loaded copy's feature count (the shrink guard's baseline);
@@ -71,6 +72,17 @@ func New(url string) *Archive {
 
 // LoadedAt returns the timestamp of the last successful Reload, or
 // the zero Time if the archive has not yet been loaded.
+// BuiltAt is when the archive file was last modified at its source (the Last-Modified the server sent with it): the nearest thing the file
+// has to a build date. Zero when the server sent none, or nothing is loaded.
+func (a *Archive) BuiltAt() time.Time {
+	if a == nil {
+		return time.Time{}
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.builtAt
+}
+
 func (a *Archive) LoadedAt() time.Time {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -167,6 +179,10 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	a.leafDirs = sync.Map{}
 	a.loadedAt = time.Now()
 	a.etag = resp.Header.Get("ETag")
+	a.builtAt = time.Time{}
+	if lm, err := http.ParseTime(resp.Header.Get("Last-Modified")); err == nil {
+		a.builtAt = lm.UTC()
+	}
 	a.stations = n
 	a.rejectedETag = ""
 	a.tiles = tiles

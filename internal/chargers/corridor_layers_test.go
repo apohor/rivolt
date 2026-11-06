@@ -218,3 +218,43 @@ func TestAcceptFiltersBeforePagingAndCounting(t *testing.T) {
 		t.Errorf("accepted %v total %d, %v", ids(r), r.Total, err)
 	}
 }
+
+// A layer whose stations carry no export date (plain NREL chargers) still reports one: the archive file's Last-Modified. With neither,
+// it is empty (the client says nothing about age) and never a guess.
+func TestAsOfFallsBackToTheArchivesOwnDate(t *testing.T) {
+	file := archiveAt(t, []station{{x: 1000, y: 6000, props: map[string]any{"@id": "d1", "dcfc_count": 2}}, {x: 1010, y: 6000, props: map[string]any{"@id": "d2", "dcfc_count": 2}}})
+	path := [][2]float64{}
+	for i := 0; i < 20; i++ {
+		c := maptile.New(uint32(1000+i), 6000, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	serve := func(lastModified string) *Archive {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if lastModified != "" {
+				w.Header().Set("Last-Modified", lastModified)
+			}
+			_, _ = w.Write(file)
+		}))
+		t.Cleanup(srv.Close)
+		a := New(srv.URL)
+		if err := a.Reload(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	opts := LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 10}}
+	r, err := serve("Tue, 20 Oct 2026 04:00:00 GMT").QueryLayers(path, []string{"dcfc"}, opts)
+	if err != nil || len(r.POIs) != 2 || r.AsOf != "2026-10-20" {
+		t.Errorf("with Last-Modified: %d stations, asof %q, %v", len(r.POIs), r.AsOf, err)
+	}
+	r, _ = serve("").QueryLayers(path, []string{"dcfc"}, opts)
+	if len(r.POIs) != 2 || r.AsOf != "" {
+		t.Errorf("with no date anywhere: %d stations, asof %q, want empty", len(r.POIs), r.AsOf)
+	}
+	// A station's own export date wins over the file's.
+	a, p2 := layerFixture(t)
+	r, _ = a.QueryLayers(p2, []string{"dcfc", "camp"}, opts)
+	if r.AsOf != "2026-10-21" {
+		t.Errorf("a station's date should win: %q", r.AsOf)
+	}
+}

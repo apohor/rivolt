@@ -89,3 +89,15 @@ func TestCorridorLayersRefusesAnUnknownNetwork(t *testing.T) {
 		t.Errorf("known networks: %d", rec.Code)
 	}
 }
+
+// The asof key is always in the answer, even when it is empty (a client that labels the data with its build date must be able to tell
+// "unknown" from "missing"), for any kinds.
+func TestCorridorLayersAlwaysHasTheAsOfKey(t *testing.T) {
+	h := handleCorridorLayers(emptyArchive(t))
+	for _, kinds := range [][]string{{"dcfc"}, {"dcfc", "hotels", "camp"}, {"l2"}} {
+		rec := postLayers(h, map[string]any{"path": longRoute(100), "kinds": kinds, "limit": 50})
+		if !strings.Contains(rec.Body.String(), `"asof":`) {
+			t.Errorf("%v: no asof key in %s", kinds, rec.Body.String())
+		}
+	}
+}

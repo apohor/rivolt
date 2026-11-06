@@ -47,8 +47,9 @@ type corridorLayersResponse struct {
 	Count       int        `json:"count"`
 	Total       int        `json:"total"`
 	NextAfterKm *float64   `json:"next_after_km,omitempty"`
-	// AsOf is the newest export date among the stations: when the archive was built, not live data. The map says so.
-	AsOf    string  `json:"asof,omitempty"`
+	// AsOf is the newest export date among the stations, else the archive file's own date: when the data was built, not live. The key is always
+	// present; it is "" only when neither is known, and the client then says nothing about the age.
+	AsOf    string  `json:"asof"`
 	RouteKm float64 `json:"route_km"`
 }
 
