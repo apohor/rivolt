@@ -655,3 +655,54 @@ func TestWebhookLagAndPaymentFailedHooks(t *testing.T) {
 		t.Errorf("billing events %v, want exactly [payment_failed]: the second update of the same past-due subscription is not another failure", kinds)
 	}
 }
+
+// A failed renewal: Stripe has already moved the subscription to the next period when it reports past_due, so the grace must run from the
+// new period's START (the instant the paid period ended), on the access check and on the stored value the notice and the plan card read.
+func TestPastDueGraceRunsFromTheFailedRenewal(t *testing.T) {
+	r := newRig(t, "stripe-grace-anchor")
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatalf("checkout.session.completed: %d", code)
+	}
+	if code := r.deliver("subscription_created_active.json", nil); code != 200 {
+		t.Fatalf("subscription.created: %d", code)
+	}
+	failedAt := time.Unix(1821536000, 0) // T: the renewal's period start, the end of the paid period
+	nextEnd := time.Unix(1824128000, 0)  // what Stripe moved the period end to
+	if code := r.deliver("subscription_updated_past_due_renewal.json", nil); code != 200 {
+		t.Fatalf("past_due: %d", code)
+	}
+	if status, end, _, _, _ := r.row(); status != entitlements.StatusPastDue || !end.Equal(failedAt) {
+		t.Fatalf("a failed renewal stored %s until %v, want past_due anchored at the period start %v", status, end, failedAt)
+	}
+	grace := failedAt.Add(entitlements.Grace) // T + 7 d, not nextEnd + 7 d
+	if st := r.state(failedAt.Add(24 * time.Hour)); !st.Pro || st.GraceEnds == nil || !st.GraceEnds.Equal(grace) {
+		t.Errorf("inside the grace: %+v, want Pro with GraceEnds %v", st, grace)
+	}
+	// Stripe is still retrying (its dunning runs for two weeks), but the app has ended Pro at T + 7 d.
+	if st := r.state(grace.Add(time.Second)); st.Pro {
+		t.Errorf("past the grace, with Stripe still retrying: %+v, want not Pro", st)
+	}
+	// Another update of the same failure (a retry that failed) keeps the anchor.
+	again := func(b string) string {
+		b = strings.Replace(b, "evt_sub_pastdue_renewal", "evt_sub_pastdue_renewal_2", 1)
+		return strings.Replace(b, `"created": 1821600000`, `"created": 1821700000`, 1)
+	}
+	if code := r.deliver("subscription_updated_past_due_renewal.json", again); code != 200 {
+		t.Fatalf("second past_due: %d", code)
+	}
+	if _, end, _, _, _ := r.row(); !end.Equal(failedAt) {
+		t.Errorf("a retry moved the anchor to %v, want %v", end, failedAt)
+	}
+	// A late successful retry makes it active again, until the real end of the period.
+	paid := func(b string) string {
+		b = strings.Replace(b, "evt_sub_created_1", "evt_sub_paid_late", 1)
+		b = strings.Replace(b, `"created": 1790000001`, `"created": 1821800000`, 1)
+		return strings.Replace(b, `"current_period_end": 1821536000`, `"current_period_end": 1824128000`, 1)
+	}
+	if code := r.deliver("subscription_created_active.json", paid); code != 200 {
+		t.Fatalf("late success: %d", code)
+	}
+	if st := r.state(grace.Add(24 * time.Hour)); !st.Pro || st.PeriodEnd == nil || !st.PeriodEnd.Equal(nextEnd) || st.GraceEnds != nil {
+		t.Errorf("after a late success: %+v, want Pro until %v with no grace", st, nextEnd)
+	}
+}
