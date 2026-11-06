@@ -129,8 +129,9 @@
   margin: 8px 0 0 !important;
 }
 
-/* The planner's floating chips (z-index 500) sit over the map; a popup opened under them must be above them, or they take its clicks. The planner map's
-   wrapper is its own stacking context (isolate), so these values count only inside it, never against the Pro sheet, dialogs or the tab bar. */
+/* The planner's floating chips (z-index 500) sit over the map and stay clickable; a popup that opens under them is panned clear (see clearOfChips),
+   and sits above the markers. The planner map's wrapper is its own stacking context (isolate), so these values count only inside it, never
+   against the Pro sheet, dialogs or the tab bar. */
 [data-trip-map] .maplibregl-popup {
-  z-index: 600;
+  z-index: 400;
 }

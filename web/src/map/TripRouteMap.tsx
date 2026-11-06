@@ -94,6 +94,21 @@ function usePreferredSlugs(): string[] {
   return slugs;
 }
 
+// The floating chips stay on top and clickable, so a popup that opens under them is moved clear: the map pans down by the overlap. Measured after
+// layout; nothing happens when they don't overlap.
+function clearOfChips(map: MLMap, popup: Popup) {
+  requestAnimationFrame(() => {
+    const el = popup.getElement();
+    const chips = map.getContainer().parentElement?.querySelector<HTMLElement>("[data-map-chips]");
+    if (!el || !chips) return;
+    const p = el.getBoundingClientRect();
+    const c = chips.getBoundingClientRect();
+    const overlapsAcross = p.left < c.right && p.right > c.left;
+    const dy = c.bottom + 8 - p.top;
+    if (overlapsAcross && dy > 0 && p.top < c.bottom) map.panBy([0, -dy], { duration: 150 });
+  });
+}
+
 export function TripRouteMap({
   route,
   height = 320,
@@ -363,7 +378,7 @@ export function TripRouteMap({
           tip.remove(); // a touch tap also fires mouseenter: one popup, the callout with its close button
           callout.remove();
           // WebKit's tap also reaches the map as a click, which would close a popup opened in the same turn: open it just after.
-          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); }, 40);
+          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); clearOfChips(map, callout); }, 40);
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
@@ -404,6 +419,7 @@ export function TripRouteMap({
         if (!onAddStopRef.current) return;
         drop.remove();
         drop.setLngLat(ll).setHTML(droppedPinPopupHTML()).addTo(map);
+        clearOfChips(map, drop);
         previewAdd(ll, drop.getElement()?.querySelector<HTMLElement>(".drop-preview") ?? null);
         drop.getElement()?.querySelector<HTMLButtonElement>(".drop-add-btn")?.addEventListener("click", () => {
           onAddStopRef.current?.({ lat: ll.lat, lon: ll.lng, label: DROPPED_PIN_LABEL });
@@ -530,6 +546,7 @@ export function TripRouteMap({
           : chargerPopupHTML(poi, !!onAddStopRef.current, !!onPreviewStopRef.current, isHotel ? bookingDeepLink(poi, departureAtRef.current) : "", isHotel && !!onAddOvernightRef.current);
         const popup = new ml.Popup({ closeButton: true, offset: 8, maxWidth: "280px", className: "rivolt-popup" }).setLngLat([poi.lon, poi.lat]).setHTML(html).addTo(map);
         popupRef.current = popup;
+        clearOfChips(map, popup);
         wirePopup(popup, poi, camp);
       };
       const enter = () => { map.getCanvas().style.cursor = "pointer"; };
