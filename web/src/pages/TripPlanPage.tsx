@@ -286,9 +286,13 @@ export default function TripPlanPage() {
                 </>
               }
               submit={
-                <div className="flex items-center gap-3" data-plan-submit>
-                  {planButtonEl}
-                  {planSpinnerEl}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3" data-plan-submit>
+                    {planButtonEl}
+                    {planSpinnerEl}
+                  </div>
+                  {/* Right under the button that was pressed, not under the result area far below it. */}
+                  {(planMutation.error || multidayMutation.isError) && <PlanError error={planMutation.error ?? multidayMutation.error} />}
                 </div>
               }
             />
@@ -348,9 +352,6 @@ export default function TripPlanPage() {
   const resultEl = (
     <>
       {saveBarEl}
-      {(planMutation.error || multidayMutation.isError) && (
-        <PlanError error={planMutation.error ?? multidayMutation.error} />
-      )}
 
       {multiday && (
         <div data-plan-wide data-plan-beside={inDemo() ? "" : undefined} className="space-y-3">
@@ -1262,8 +1263,8 @@ function LocationField({
       <span data-plan-dot aria-hidden />
       <div data-plan-field-main>
         {value ? (
-          <div className="flex items-center justify-between gap-2">
-            <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+            <span className="pt-value min-w-0 max-w-full truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
             <span className="flex shrink-0 items-center gap-3 text-xs">
               {onSaveAsFavorite && value.label !== "Home" && (
                 <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>

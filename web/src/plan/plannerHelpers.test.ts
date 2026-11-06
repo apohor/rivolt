@@ -13,6 +13,12 @@ describe("planErrorCopy", () => {
       "We don't know your truck's current charge.",
     );
   });
+  it("says a truck must be connected when none is linked, even with a starting charge typed", () => {
+    const c = planErrorCopy(new ApiError(400, { error: "vehicle_id required (no vehicle linked to this user)" }));
+    expect(c.title).toBe("Connect your Rivian to plan a trip.");
+    expect(c.detail).toContain("needs a connected truck");
+    expect(c.detail).not.toMatch(/enter a starting charge/i);
+  });
   it("tells too many days from too many stops", () => {
     expect(planErrorCopy(new ApiError(400, { error: "at most 10 days" })).title).toBe("Trips are limited to 10 days.");
     expect(planErrorCopy(new ApiError(400, { error: "day 2 has more than 10 waypoints" })).detail).toContain("remove a via");

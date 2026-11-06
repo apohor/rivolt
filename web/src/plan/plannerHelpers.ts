@@ -160,6 +160,13 @@ export function planErrorCopy(err: unknown): { title: string; detail: string } {
         detail: `Planning is limited to protect the shared Rivian connection. Try again in ${min ? `about ${min} minute${min === 1 ? "" : "s"}` : "a little while"}.`,
       };
     }
+    // No truck linked to the account: the server cannot plan with Rivian, whatever starting charge was typed.
+    if (err.status === 400 && /vehicle_id required|no vehicle linked/i.test(err.message)) {
+      return {
+        title: "Connect your Rivian to plan a trip.",
+        detail: "Rivolt plans with Rivian's planner, which needs a connected truck. Connect it in Settings, then plan again.",
+      };
+    }
     if (err.status === 400 && /starting soc|vehicle|pack/i.test(err.message)) {
       return {
         title: "We don't know your truck's current charge.",
