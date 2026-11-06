@@ -28,6 +28,10 @@ describe("what-if preview", () => {
     expect(l[l.length - 1]).toBe(WHAT_IF_NOTICE);
     expect(l.join(" ")).not.toMatch(/free|working|stall/i);
   });
+  it("says 1 point, not 1 points", () => {
+    const l = whatIfLines({ ...base, next_charge: { index: 2, is_destination: true, soc_drop_pts: 1.2 } }, "mi");
+    expect(l).toContain("About 1 point lower at the destination");
+  });
   it("says rough when the router was unavailable, and nothing without numbers", () => {
     expect(whatIfLines({ ...base, estimated: true }, "km").some((x) => x.startsWith("Rough estimate"))).toBe(true);
     expect(whatIfLines({ ...base, added_sec: NaN, added_m: NaN }, "km")).toEqual([]);
