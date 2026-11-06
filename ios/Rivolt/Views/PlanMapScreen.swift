@@ -9,7 +9,7 @@ struct PlanMapScreen: View {
     let saved: SavedTripsModel
     let onEdit: () -> Void
 
-    @State private var detent = DetentSheet<EmptyView, EmptyView>.Detent.half
+    @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
 
     private var metric: Bool { NowFormat.usesMetric }
@@ -17,7 +17,7 @@ struct PlanMapScreen: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(.half, in: geo.size.height))
+                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height))
                 DetentSheet(detent: $detent, container: geo.size.height) {
                     header
                 } content: {
@@ -88,6 +88,8 @@ struct PlanMapScreen: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
+
+typealias PlanSheetDetent = DetentSheet<EmptyView, EmptyView>.Detent
 
 enum PlanSheetLogic {
     /// "Seattle → Spokane": the sheet's title (the start is the truck's own place when none was picked).
