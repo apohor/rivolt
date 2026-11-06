@@ -45,15 +45,7 @@ final class PlanSheetTests: XCTestCase {
                         Circle().fill(Theme.chargePin).frame(width: 22, height: 22).overlay(Circle().strokeBorder(Theme.accent, lineWidth: 2).frame(width: 30, height: 30)).position(x: 200, y: 200)
                         Circle().fill(Theme.routeEnd).frame(width: 14, height: 14).position(x: 320, y: 90)
                         DetentSheet(detent: .constant(d), container: size.height, scrolls: false) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Seattle → Spokane").themeText(.title, color: Theme.textPrimary)
-                                        Text("270 mi · 4 h 5 min driving · 25 min charging").themeText(.subline, color: Theme.textSecondary)
-                                    }
-                                    Spacer(minLength: 8)
-                                    Text("Edit").themeText(.value, color: Theme.accent).frame(minWidth: 44, minHeight: 44)
-                                }
+                            PlanSheetHeader(title: "Seattle → Spokane", summary: "270 mi · 4 h 5 min driving · 25 min charging", onEdit: {}) {
                                 HStack(spacing: 8) {
                                     ForEach(["Whole trip", "Day 1", "Day 2"], id: \.self) { t in
                                         Text(t).themeText(.subline, color: t == "Day 1" ? Theme.textPrimary : Theme.textSecondary).padding(.horizontal, 12).frame(minHeight: 36)
@@ -63,7 +55,8 @@ final class PlanSheetTests: XCTestCase {
                             }
                         } content: {
                             VStack(alignment: .leading, spacing: 10) {
-                                DrivingPerDayRow(model: TripPlanModel())
+                                // (The real row is a Stepper, which a snapshot cannot draw.)
+                                ThemeSection(title: "Driving per day") { Text("8 h").themeText(.value, color: Theme.textPrimary) }
                                 ThemeSection(title: "2 charging stops") {
                                     Text("1 · Electrify America, Ellensburg").themeText(.value, color: Theme.accent)
                                     Text("Charge 25 min · 24% → 80%").themeText(.subline, color: Theme.textSecondary)

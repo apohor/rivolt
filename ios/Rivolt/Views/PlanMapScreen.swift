@@ -50,20 +50,8 @@ struct PlanMapScreen: View {
 
     @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line)).themeText(.title, color: Theme.textPrimary)
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    if let route = model.plan?.best {
-                        Text(TripPlanLogic.summary(route, metric: metric)).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 8)
-                Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityHint("Change the trip or open a saved one")
-            }
+        PlanSheetHeader(title: PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line),
+                        summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit) {
             if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
         }
     }
@@ -86,6 +74,35 @@ struct PlanMapScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The sheet's title, the trip's one-line summary, Edit, and what goes under them (the day chips). At accessibility text sizes Edit drops under the
+/// title instead of squeezing it.
+struct PlanSheetHeader<Extra: View>: View {
+    let title: String
+    let summary: String?
+    let onEdit: () -> Void
+    @ViewBuilder var extra: () -> Extra
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let titles = VStack(alignment: .leading, spacing: 2) {
+                Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                if let summary { Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            let edit = Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityHint("Change the trip or open a saved one")
+            if typeSize.isAccessibilitySize {
+                titles
+                edit
+            } else {
+                HStack(alignment: .firstTextBaseline) { titles; Spacer(minLength: 8); edit }
+            }
+            extra()
+        }
     }
 }
 
