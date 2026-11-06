@@ -42,6 +42,12 @@ describe("PlannerNetworks", () => {
     expect(setChargingNetworks.mock.calls[0][0].map((r: ChargingNetwork) => [r.slug, !!r.preferred])).toEqual([["a", true], ["b", false]]);
   });
 
+  it("says Save when there is no truck to plan with", async () => {
+    getChargingNetworks.mockResolvedValue([net("Alpha", "a")]);
+    render(<QueryClientProvider client={new QueryClient()}><PlannerNetworks canPlan={false} /></QueryClientProvider>);
+    expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
   it("promises nothing", () => {
     expect(NETWORKS_HONESTY).toContain("not guaranteed");
     expect(NETWORKS_HONESTY).not.toMatch(/will use|always|guarantee[ds]? (to|you)/i);
