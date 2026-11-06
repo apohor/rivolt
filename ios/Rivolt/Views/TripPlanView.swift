@@ -176,7 +176,7 @@ struct TripPlanResult: View {
             LongDriveSection(model: model, metric: metric, showsMap: showsMap, onlyDay: onlyDay)
         } else {
             if showsMap { PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 }) }
-            if !state.isDemo { AlongToggle(model: model) }
+            if showsMap, !state.isDemo { AlongToggle(model: model) }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
                     Text("Arrive \(arrive)").themeText(.title, color: Theme.textPrimary)
@@ -197,6 +197,7 @@ struct TripPlanResult: View {
                 StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
+            if !model.vias.isEmpty { YourStopsSection(model: model) }
             if let cost = TripPlanLogic.costLine(plan.costs?.first) {
                 ThemeSection(title: "Cost") {
                     Text(cost).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
@@ -727,6 +728,32 @@ struct DemoTripsList: View {
                 }
             }
             if let m = model.message { Text(m).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+}
+
+/// The places the person added for the route to pass through, each with a way to take it out again.
+struct YourStopsSection: View {
+    @Environment(AppState.self) private var state
+    let model: TripPlanModel
+
+    var body: some View {
+        ThemeSection(title: "Your stops") {
+            ForEach(Array(model.vias.enumerated()), id: \.element.id) { i, v in
+                if i > 0 { Divider().overlay(Theme.border) }
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(v.name).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                        Text(PlanSheetLogic.passThrough).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Remove") { Task { await model.removeVia(v.id, source: state.client) } }
+                        .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .disabled(model.updating)
+                        .accessibilityLabel("Remove \(v.name) from the route")
+                }
+            }
         }
     }
 }

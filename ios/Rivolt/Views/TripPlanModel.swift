@@ -84,6 +84,13 @@ final class TripPlanModel {
         case unavailable
     }
 
+    /// The places the person added for the route to pass through (a charger picked on the map). New trips start with none.
+    private(set) var vias: [PlanVia] = []
+    /// A re-plan with a changed set of stops is under way: the old route stays on the map until the new one arrives.
+    private(set) var updating = false
+    /// Said when the last change could not be planned (the route is unchanged).
+    private(set) var updateProblem: String?
+
     private(set) var along = AlongState.off
     var chargers: [AlongCharger] { if case .shown(let c) = along { return c } else { return [] } }
 
@@ -96,6 +103,42 @@ final class TripPlanModel {
         } catch {
             if Task.isCancelled { along = .off; return }
             if case APIError.server(404, _) = error { along = .unavailable } else { along = .failed(TripPlanLogic.failure(error)) }
+        }
+    }
+
+    /// Adds a charger picked on the map as a stop on the route, and plans again. The route on screen stays until the new one comes.
+    func addVia(_ c: AlongCharger, source: some TripSource) async {
+        let v = PlanVia(lat: c.lat, lon: c.lon, name: c.name ?? "Fast charger", entityID: nil)
+        guard !vias.contains(where: { $0.id == v.id }) else { return }
+        focusedStop = nil
+        await replan(adding: vias + [v], source: source)
+    }
+
+    func removeVia(_ id: String, source: some TripSource) async {
+        await replan(adding: vias.filter { $0.id != id }, source: source)
+    }
+
+    /// Plans the same trip with another set of stops, keeping the plan on screen until the answer is in; if it cannot be planned, the plan and
+    /// the stops stay as they were and the problem is said.
+    private func replan(adding next: [PlanVia], source: some TripSource) async {
+        guard let destination, let start = lastStart, !updating, plan != nil else { return }
+        updating = true
+        updateProblem = nil
+        defer { updating = false }
+        let ordered = TripPlanLogic.orderedVias(next, along: roadLine)
+        let body = TripPlanLogic.request(
+            vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
+            startingSoc: useTruckCharge ? nil : startingSoc, departAt: lastLeave > Date() ? lastLeave : nil, packKwh: packKwh, target: plannedTarget, vias: ordered)
+        do {
+            let answer = try await source.planTrip(body)
+            guard answer.best != nil else { updateProblem = "The planner found no route with that stop. The route is unchanged."; return }
+            vias = ordered
+            night = .none
+            roadLine = []
+            state = .planned(answer)
+        } catch {
+            if Task.isCancelled { return }
+            updateProblem = "That stop couldn't be planned: \(TripPlanLogic.failure(error)) The route is unchanged."
         }
     }
 
@@ -184,6 +227,8 @@ final class TripPlanModel {
         focusedStop = nil
         roadLine = []
         along = .off
+        vias = []
+        updateProblem = nil
         let start: (lat: Double, lon: Double)
         if let origin {
             start = (origin.latitude, origin.longitude)

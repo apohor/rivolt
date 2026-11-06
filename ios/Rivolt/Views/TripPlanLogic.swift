@@ -325,12 +325,43 @@ enum TripPlanLogic {
 
     /// The request for a trip: the truck's charge only when the person set one, the departure only when it is not now.
     static func request(vehicleID: String?, origin: (lat: Double, lon: Double), destination: (lat: Double, lon: Double),
-                        startingSoc: Double?, departAt: Date?, packKwh: Double?, target: Double = arrivalTargetPercent) -> TripPlanRequest {
-        TripPlanRequest(
+                        startingSoc: Double?, departAt: Date?, packKwh: Double?, target: Double = arrivalTargetPercent,
+                        vias: [PlanVia] = []) -> TripPlanRequest {
+        // The person's own stops go between the two ends, as waypoints the route passes through.
+        let between = vias.map { TripPlanWaypoint(latitude: $0.lat, longitude: $0.lon, waypointType: "waypoint", entityId: $0.entityID) }
+        return TripPlanRequest(
             vehicleId: vehicleID, startingSoc: startingSoc, originBearing: 0, departAt: departAt.map(rfc3339),
-            waypoints: [TripPlanWaypoint(latitude: origin.lat, longitude: origin.lon, waypointType: "origin"),
-                        TripPlanWaypoint(latitude: destination.lat, longitude: destination.lon, waypointType: "destination")],
+            waypoints: [TripPlanWaypoint(latitude: origin.lat, longitude: origin.lon, waypointType: "origin")] + between
+                + [TripPlanWaypoint(latitude: destination.lat, longitude: destination.lon, waypointType: "destination")],
             targetArrivalSocPercent: target, packKwh: packKwh)
+    }
+
+    /// The vias in the order the route reaches them: by the nearest point of the road line (the order they were added when there is no line).
+    static func orderedVias(_ vias: [PlanVia], along line: [RouteSnap.Coord]) -> [PlanVia] {
+        guard line.count >= 2, vias.count > 1 else { return vias }
+        func index(_ v: PlanVia) -> Int {
+            line.indices.min { a, b in near(line[a], v) < near(line[b], v) } ?? 0
+        }
+        return vias.sorted { index($0) < index($1) }
+    }
+
+    private static func near(_ c: RouteSnap.Coord, _ v: PlanVia) -> Double {
+        RouteSnap.haversine(RouteSnap.Point(lat: c.lat, lon: c.lon), RouteSnap.Point(lat: v.lat, lon: v.lon))
+    }
+
+    /// How far a place is from the road line, in metres (to its nearest vertex: a thinned line makes this a little long, never short by much); nil
+    /// without a line.
+    static func offRouteMeters(lat: Double, lon: Double, line: [RouteSnap.Coord]) -> Double? {
+        guard line.count >= 2 else { return nil }
+        let p = RouteSnap.Point(lat: lat, lon: lon)
+        return line.map { RouteSnap.haversine(RouteSnap.Point(lat: $0.lat, lon: $0.lon), p) }.min()
+    }
+
+    /// "about 3 mi off the route" (under 400 m: "right on the route").
+    static func offRouteLine(_ meters: Double?, metric: Bool) -> String? {
+        guard let meters else { return nil }
+        if meters < 400 { return "right on the route" }
+        return "about \(distance(meters: meters, metric: metric)) off the route"
     }
 
     /// What to say under the place field when a search failed: the geocoder allows 20 a minute per person, so a 429 is a quiet
@@ -382,4 +413,14 @@ enum DrivingBudget {
 
     /// "8 h".
     static func label(_ h: Double) -> String { "\(Int(h.rounded())) h" }
+}
+
+/// A place the person added for the route to pass through (a charger picked on the map). The planner passes through it and decides where to charge;
+/// it is a stop on the route, not a promise of a charge there.
+struct PlanVia: Equatable, Identifiable {
+    var lat: Double
+    var lon: Double
+    var name: String
+    var entityID: String?
+    var id: String { "\(lat),\(lon)" }
 }
