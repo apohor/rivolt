@@ -747,6 +747,12 @@ struct YourStopsSection: View {
                         Text(PlanSheetLogic.passThrough).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
+                    Button("Move") { model.startMove(v) }
+                        .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .disabled(model.updating)
+                        .accessibilityLabel("Move \(v.name)")
+                        .accessibilityHint("Pan the map to the new place, then tap Done")
                     Button("Remove") { Task { await model.removeVia(v.id, source: state.client) } }
                         .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
                         .frame(minWidth: 44, minHeight: 44)

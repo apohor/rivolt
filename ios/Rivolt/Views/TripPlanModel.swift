@@ -185,10 +185,14 @@ final class TripPlanModel {
     /// A pin or charger was picked: after a pause of 300 ms, ask what adding it as a stop would do (one request in flight, the last one wins). No
     /// call to Rivian; the plan itself is only asked for when the stop is added.
     func schedulePreview(for c: AlongCharger, source: some WhatIfSource) {
+        guard let route = plan?.best,
+              let body = WhatIfLogic.addRequest(route, point: RouteSnap.Coord(lat: c.lat, lon: c.lon), line: roadLine, target: plannedTarget) else { clearPreview(); return }
+        schedulePreview(body, source: source)
+    }
+
+    private func schedulePreview(_ body: WhatIfRequest, source: some WhatIfSource) {
         previewTask?.cancel()
         previewLine = []
-        guard let route = plan?.best,
-              let body = WhatIfLogic.addRequest(route, point: RouteSnap.Coord(lat: c.lat, lon: c.lon), line: roadLine, target: plannedTarget) else { preview = .idle; return }
         preview = .loading
         previewTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -205,6 +209,42 @@ final class TripPlanModel {
                 else { self?.preview = .failed }
             }
         }
+    }
+
+    // MARK: Moving one of the person's own stops
+
+    /// The stop being moved, and where the crosshair at the middle of the map has it now. The plan is asked for only on Done.
+    private(set) var moving: PlanVia?
+    private(set) var moveTo: RouteSnap.Coord?
+
+    func startMove(_ v: PlanVia) {
+        guard plan != nil, !updating else { return }
+        closeCallout()
+        moving = v
+        moveTo = nil
+    }
+
+    func cancelMove() {
+        moving = nil
+        moveTo = nil
+        clearPreview()
+    }
+
+    /// The map's middle moved: the stop follows it, and after a pause the preview says what that would add.
+    func moveCenter(_ c: RouteSnap.Coord, source: some WhatIfSource) {
+        guard let v = moving else { return }
+        moveTo = c
+        guard let route = plan?.best, let body = WhatIfLogic.moveRequest(route, via: v, to: c, target: plannedTarget) else { clearPreview(); return }
+        schedulePreview(body, source: source)
+    }
+
+    /// Done: plan the trip again with the stop at the crosshair (the one call to the planner; the preview was only an estimate).
+    func confirmMove(source: some TripSource) async {
+        guard let m = moving, let to = moveTo else { cancelMove(); return }
+        let next = vias.map { $0.id == m.id ? PlanVia(lat: to.lat, lon: to.lon, name: m.name, entityID: nil) : $0 }
+        moving = nil
+        moveTo = nil
+        await replan(adding: next, source: source)
     }
 
     func clearPreview() {

@@ -20,6 +20,15 @@ struct PlanMapScreen: View {
             ZStack(alignment: .bottom) {
                 map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height))
                     .overlay(alignment: .topLeading) { overlays }
+                if let v = model.moving {
+                    // The stop follows the middle of the map: a crosshair there, and a bar to say what it does and to finish.
+                    Image(systemName: "plus.circle").font(.system(size: 30, weight: .light)).foregroundStyle(Theme.accent)
+                        .frame(maxHeight: .infinity, alignment: .center).allowsHitTesting(false).accessibilityHidden(true)
+                    PlanMoveBar(name: v.name, lines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
+                                onCancel: { model.cancelMove() }, onDone: { Task { await model.confirmMove(source: state.client) } })
+                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
                 if let c = model.pickedCharger {
                     PlanPinCallout(charger: c, offRoute: TripPlanLogic.offRouteLine(c.offKm.map { $0 * 1000 } ?? TripPlanLogic.offRouteMeters(lat: c.lat, lon: c.lon, line: model.roadLine), metric: metric),
                                    previewLines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
@@ -46,6 +55,7 @@ struct PlanMapScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        .onChange(of: model.moving?.id) { _, new in if new != nil { detent = .peek } }
         .onChange(of: model.pickedCharger?.id) { _, new in
             if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }
         }
@@ -80,7 +90,8 @@ struct PlanMapScreen: View {
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
-                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine)
+                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
+                         onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
     }
 
@@ -301,6 +312,42 @@ struct PlanPinCallout: View {
                 .buttonStyle(ThemeButtonStyle()).disabled(adding)
                 .accessibilityLabel("Add \(charger.name ?? "this charger") as a stop")
             Text(PlanSheetLogic.passThrough).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 2)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// "Move a stop": the stop follows the crosshair at the middle of the map; this says what the move would add (an estimate) and has Cancel and Done.
+/// Done is the only thing that asks the planner.
+struct PlanMoveBar: View {
+    let name: String
+    let lines: [String]
+    let previewing: Bool
+    let onCancel: () -> Void
+    let onDone: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Move \(name)").themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+            Text("Pan the map: the stop follows the cross.").themeText(.caption, color: Theme.textSecondary)
+            if previewing { HStack(spacing: 6) { ProgressView().controlSize(.small).tint(Theme.textSecondary); Text("Working out what it adds…").themeText(.caption, color: Theme.textSecondary) } }
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                        Text(line).themeText(i == 0 ? .value : .caption, color: i == 0 ? Theme.textPrimary : (i == lines.count - 1 ? Theme.textTertiary : Theme.textSecondary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+            HStack(spacing: 8) {
+                Button("Cancel", action: onCancel).buttonStyle(ThemeSecondaryButtonStyle())
+                Button("Done", action: onDone).buttonStyle(ThemeButtonStyle())
+            }
         }
         .padding(12)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))

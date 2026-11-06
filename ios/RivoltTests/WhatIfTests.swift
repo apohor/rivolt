@@ -54,3 +54,20 @@ final class WhatIfTests: XCTestCase {
         XCTAssertEqual(req.edit.via, WhatIfPoint(lat: 47.3, lon: -120.0))
     }
 }
+
+extension WhatIfTests {
+    func testMovingAStopMatchesItByPlaceAndSendsAMoveEdit() throws {
+        let route = try XCTUnwrap(try Fixture.decode(TripPlan.self, "trip_plan").best)
+        var r = route
+        // A plan that has one of the person's own stops between the ends.
+        let mid = try JSON.decoder().decode(TripWaypoint.self, from: Data(#"{"WaypointType":"WAYPOINT","Name":"Mine","Latitude":47.3,"Longitude":-120.0,"Source":"via"}"#.utf8))
+        r.waypoints.insert(mid, at: 1)
+        let via = PlanVia(lat: 47.3004, lon: -120.0002, name: "Mine")
+        let req = try XCTUnwrap(WhatIfLogic.moveRequest(r, via: via, to: RouteSnap.Coord(lat: 47.4, lon: -119.8), target: 80))
+        XCTAssertEqual(req.edit.kind, "move")
+        XCTAssertEqual(req.edit.index, 1)
+        XCTAssertEqual(req.edit.via, WhatIfPoint(lat: 47.4, lon: -119.8))
+        // A stop that is not in the plan (or too far from every via) has no preview, but still moves.
+        XCTAssertNil(WhatIfLogic.moveRequest(r, via: PlanVia(lat: 10, lon: 10, name: "Elsewhere"), to: RouteSnap.Coord(lat: 1, lon: 1), target: nil))
+    }
+}
