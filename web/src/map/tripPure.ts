@@ -56,6 +56,12 @@ export function waypointTooltip(w: PlannedWaypoint, i: number, total: number): s
     if (w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name)) {
       lines.push(`<div style="color:#fbbf24">Tesla adapter required</div>`);
     }
+    // Where the stop came from: a place the person asked the route to pass is a stop on the route, not a promise of a charge there.
+    if (w.Source === "via") {
+      lines.push(`<div style="color:#a3a3a3;margin-top:3px">Your stop. The route passes through it; the planner decides where to charge.</div>`);
+    } else if (w.Source === "planner") {
+      lines.push(`<div style="color:#a3a3a3;margin-top:3px">Chosen by the planner.</div>`);
+    }
   } else if (isLast) {
     lines.push(`<div>Arrive at ${w.ArrivalSoC.toFixed(0)}%</div>`);
   } else {
@@ -242,7 +248,8 @@ export function chargerPopupHTML(
     out.push(
       `<button class="charger-add-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
       `background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
-      `Add as waypoint</button>`,
+      `Add as a stop</button>`,
+      `<div style="color:#a3a3a3;font-size:${MAP_CAPTION_PX}px;margin-top:3px">The route passes through it. This doesn't promise a charge there.</div>`,
     );
   }
   out.push(`</div>`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, decodePolyline6, tripCardText } from "./tripPure";
+import { campPopupHTML, chargerPopupHTML, decodePolyline6, tripCardText, waypointTooltip } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 
@@ -76,5 +76,25 @@ describe("tripCardText", () => {
   it("leaves out what the plan lacks", () => {
     expect(tripCardText({ meters: 0, stops: 1, seconds: 0, unit: "mi" })).toBe("1 charging stop");
     expect(tripCardText({ meters: 0, stops: 0, seconds: 0, unit: "mi" })).toBe("");
+  });
+});
+
+describe("a stop's callout says where the stop came from", () => {
+  const w = { Name: "Sample Fast Charge", MaxPowerKW: 250, ChargeDurationSec: 1500, ArrivalSoC: 24, DepartureSoC: 80, Latitude: 1, Longitude: 2, AdapterRequired: false } as unknown as Parameters<typeof waypointTooltip>[0];
+  it("a stop the person asked for is a stop on the route, not a promise of a charge", () => {
+    const html = waypointTooltip({ ...w, Source: "via" }, 1, 3);
+    expect(html).toContain("Your stop. The route passes through it; the planner decides where to charge.");
+    expect(html).toContain("Up to 250 kW");
+  });
+  it("a planner stop says so, and an older plan with no source says nothing about it", () => {
+    expect(waypointTooltip({ ...w, Source: "planner" }, 1, 3)).toContain("Chosen by the planner.");
+    const old = waypointTooltip(w, 1, 3);
+    expect(old).not.toContain("Your stop");
+    expect(old).not.toContain("Chosen by");
+  });
+  it("the charger callout's add button is a stop, with the pass-through caveat", () => {
+    const html = chargerPopupHTML({ name: "X", lat: 1, lon: 2, maxPowerKW: 150 } as never, true, false, "", false);
+    expect(html).toContain("Add as a stop");
+    expect(html).toContain("This doesn&#39;t promise a charge there.".replace("&#39;", "'"));
   });
 });
