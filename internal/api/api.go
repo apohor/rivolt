@@ -529,6 +529,7 @@ func New(d Deps) http.Handler {
 	if d.SystemDB == nil {
 		d.SystemDB = d.DB
 	}
+	preinitBillingSeries(d.Metrics) // the billing routes' error series exist at 0 from boot (billing_series.go)
 	// ls builds every per-IP and per-user rate limiter: counted across replicas in Redis where the install has it, per pod otherwise
 	// (and per pod whenever Redis cannot answer, never unlimited).
 	ls := d.limiterSet()

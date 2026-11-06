@@ -344,8 +344,9 @@ func New() *Metrics {
 			},
 			// `route` is the chi route pattern (e.g. /api/state/{vehicleID}),
 			// NOT the raw URL — keeps cardinality bounded as vehicles
-			// scale up. Status is bucketed by family (2xx/3xx/4xx/5xx)
-			// for the same reason.
+			// scale up. `status` is the numeric code ("200", "502"), NOT a
+			// family: match it with status=~"5.." (an earlier note here said
+			// "5xx", and alerts written to it never fired).
 			[]string{"method", "route", "status"},
 		),
 		HTTPRequestDuration: prometheus.NewHistogramVec(
