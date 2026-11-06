@@ -49,7 +49,7 @@ for (const v of [
     await expect.poll(() => plans.length).toBe(before + 1);
     // The new request carries the stop between the origin and the destination, and the page lists it as a stop of the person's.
     expect(plans[plans.length - 1].waypoints).toHaveLength(3);
-    await expect(page.getByText("A place you chose").first()).toBeVisible();
+    await expect(page.getByText("A place you chose").first()).toBeAttached(); // listed under Via (inside the collapsed form on a phone)
     await ctx.close();
   });
 }
