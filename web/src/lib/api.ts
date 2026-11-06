@@ -2730,6 +2730,12 @@ export type PlannedWaypoint = {
   // "180 mi from prev / 360 mi total" columns in the stops table.
   // 0 on legacy responses; we treat 0 as "missing".
   DistanceFromOriginMeters?: number;
+  // Where the stop came from, set by the server: "origin", "destination", "via" (a place the request asked to pass), "planner" (a charging stop
+  // the planner chose) or "overnight" (a multi-day day's end that stays the night). A via also carries its 0-based index among the request's vias
+  // and the entity id the request attached (echoed back; Rivian never sees it). Absent on plans stored before this existed.
+  Source?: "origin" | "destination" | "via" | "planner" | "overnight";
+  ViaIndex?: number;
+  ViaEntityID?: string;
 };
 
 // TripPlanMultidayRequest is the body for POST /api/trips/plan-multiday: an origin and a list of days;

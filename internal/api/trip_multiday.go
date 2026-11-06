@@ -385,6 +385,11 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				}
 				day.WeatherAdjustment, day.Costs = enr.enrich(r.Context(), d.Plan, d.DepartureSoC, target)
 			}
+			var vias []rivian.ViaPoint
+			for _, v := range d.Vias {
+				vias = append(vias, rivian.ViaPoint{Lat: v.Latitude, Lon: v.Longitude, EntityID: v.EntityID})
+			}
+			day.Day.Plan = rivian.LabelStops(d.Plan, vias, d.Overnight != nil)
 			resp.Days = append(resp.Days, day)
 		}
 		if out.FailedDay > 0 {
