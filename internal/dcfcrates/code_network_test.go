@@ -69,3 +69,49 @@ func TestAUserRowStillWinsOverTheCodeNetwork(t *testing.T) {
 		t.Errorf("another network's row changed the answer: %+v", rr)
 	}
 }
+
+// Walmart has its own row, last in the table: "Walmart 3381 (Town, ST)" has no bracketed code, and a stop of another network at a Walmart keeps
+// that network because the other rows are tried first.
+func TestWalmartIsABuiltInNetworkAfterTheOthers(t *testing.T) {
+	for name, slug := range map[string]string{
+		"Walmart 0001 (Sample Town, ST)":                     "walmart",
+		"WALMART SUPERCENTER 0002":                           "walmart",
+		"Electrify America - Walmart 0003 (Sample Town, ST)": "ea",
+		"Walmart 0004 (Sample Town, ST) [EVGO]":              "evgo",
+		"Sample Plaza Tesla Supercharger Walmart":            "tesla_sc",
+		"Walmart 0005 (Sample Town, ST) [ZZ_NEW_NET]":        "walmart", // the name says Walmart before the code is read
+	} {
+		if got := ResolveStop(name, nil).Slug; got != slug {
+			t.Errorf("%q: %q, want %q", name, got, slug)
+		}
+	}
+	rr := ResolveRate("Walmart 0001 (Sample Town, ST)", nil)
+	if rr.DisplayName != "Walmart" || rr.GuestRate != 0 || rr.UserRate != 0 {
+		t.Errorf("Walmart came priced or misnamed: %+v", rr)
+	}
+	n, ok := networkBySlug("walmart")
+	if !ok || len(n.RivianIDs) != 0 {
+		t.Errorf("the walmart row: %+v (no Rivian network id is known, none may be guessed)", n)
+	}
+	// It is the last row, so no earlier pattern is shadowed by it.
+	if last := Networks[len(Networks)-1]; last.Slug != "walmart" {
+		t.Errorf("the last row is %q, want walmart", last.Slug)
+	}
+}
+
+// A bracketed NREL code the table knows under another spelling resolves to that network: underscores read as spaces, and TESLA through the same
+// map StationQuery uses.
+func TestABracketedNRELCodeResolvesThroughTheTable(t *testing.T) {
+	for name, slug := range map[string]string{
+		"Sample Plaza [ELECTRIFY_AMERICA]": "ea",
+		"Sample Plaza [Electrify America]": "ea",
+		"Sample Plaza [TESLA]":             "tesla_sc",
+		"Sample Plaza [RIVIAN_ADVENTURE]":  "ran",
+		"Sample Plaza [SHELL_RECHARGE]":    "shell_recharge",
+		"Sample Plaza [RED_E]":             "code_red_e", // not in the table: named from the code
+	} {
+		if got := NetworkForStop(name).Slug; got != slug {
+			t.Errorf("%q: %q, want %q", name, got, slug)
+		}
+	}
+}
