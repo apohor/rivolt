@@ -1666,6 +1666,8 @@ func New(d Deps) http.Handler {
 			if d.ChargersArchive != nil {
 				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements), ls.user("trips-overnight", tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
 			}
+			// The no-commit "what if" preview of a via edit: our own Valhalla only, no Rivian call, nothing stored (trip_whatif.go).
+			r.With(requireTripPlannerEnabledMW(d.Flags), ls.user("trips-what-if", tripsWhatIfPerMin).Middleware).Post("/trips/what-if", handleTripWhatIf(d.geometryRouter(), d.Metrics))
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics)))
 			}))

@@ -130,6 +130,7 @@ var routeClasses = map[string]windowClass{
 	"PUT /api/trips/saved/{id}":                   {"exempt", "saved trips are capped by count, not by date: a trip past the free cap is read-only, 402 pro_required (handler-level)"},
 	"DELETE /api/trips/saved/{id}":                {"exempt", always + ": deleting the user's own trip"},
 	"POST /api/trips/plan":                        {"exempt", "the single-day planner is free"},
+	"POST /api/trips/what-if":                     {"exempt", "the no-commit preview of a via edit: computes from the request alone with our own router, reads and stores nothing"},
 	"POST /api/trips/plan-multiday":               {"exempt", "gated by what the request asks for (more than one day, an overnight, re-plan from here are Pro): multidayProMiddleware"},
 	"POST /api/trips/plan/advice":                 {"exempt", "advice on a plan (a single-day plan is free); the AI consent and budget gate it"},
 	"GET /api/trips/plan/diag":                    {"exempt", "operator planner diagnostics, no user plan"},
