@@ -38,6 +38,14 @@ func withPlanGeometry(ctx context.Context, r geometryRouter, m *metrics.Metrics)
 // maxGeometryRoutes is how many of a plan's candidate routes get a line: the recommended first, and a couple of alternatives.
 const maxGeometryRoutes = 3
 
+// geometryToleranceM is how far the served line may sit from the road's own shape (meters): Douglas-Peucker thins the shape to it. 10 m
+// is invisible on a phone map at the closest zoom a route is read at; ux can tune it.
+const geometryToleranceM = 10.0
+
+// maxGeometryPoints caps the points of one route's line (one route of one day): about 24 KB as polyline6. The tolerance doubles until a
+// long day fits, and past eight doublings the line is thinned evenly, the stops kept.
+const maxGeometryPoints = 4000
+
 // geometryBudget bounds all the routing of one plan (a multi-day plan has one per day, each bounded again by the handler's own timeout).
 const geometryBudget = 8 * time.Second
 
@@ -75,14 +83,24 @@ func withGeometry(ctx context.Context, in *rivian.TripPlan, opts maps.RouteOpts)
 			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", geometryErrClass(err)) // no coordinates, no gateway text
 			continue
 		}
-		var line [][2]float64
+		// The road's own shape has a vertex every few meters: thin it to a tolerance the map cannot show, keep the stops, cap the points,
+		// and check the thinned legs again with the same guard as the raw ones.
+		shapes := make([][][2]float64, len(rt.Legs))
 		for k, leg := range rt.Legs {
-			shape := leg.Shape
-			if k > 0 && len(shape) > 0 {
-				shape = shape[1:] // the previous leg already ends at this vertex
-			}
-			line = append(line, shape...)
+			shapes[k] = leg.Shape
 		}
+		thin := maps.SimplifyLegs(shapes, geometryToleranceM, maxGeometryPoints)
+		bad := false
+		for k, shape := range thin {
+			if k+1 < len(locs) && maps.CheckShape(shape, locs[k], locs[k+1]) != nil {
+				bad = true
+			}
+		}
+		if bad {
+			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "bad_shape_simplified")
+			continue
+		}
+		line := maps.JoinLegs(thin)
 		if len(line) < 2 {
 			continue
 		}

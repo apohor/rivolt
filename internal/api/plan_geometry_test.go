@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,8 +62,8 @@ func TestPlanGeometryIsPolyline6ThroughTheStopsOnACopy(t *testing.T) {
 		t.Fatalf("no line: %+v", rt)
 	}
 	pts := maps.DecodePolyline6(rt.Geometry)
-	// two legs of three vertices each, the shared stop once: 5 vertices, from the origin to the destination
-	if len(pts) != 5 || pts[0] != [2]float64{34, -118} || pts[len(pts)-1] != [2]float64{36, -116} {
+	// two straight legs: the midpoints are on the line and thin away; the origin, the stop and the destination stay
+	if len(pts) != 3 || pts[0] != [2]float64{34, -118} || pts[1] != [2]float64{35, -117} || pts[len(pts)-1] != [2]float64{36, -116} {
 		t.Errorf("line = %v", pts)
 	}
 	if len(r.locs) != 1 || len(r.locs[0]) != 3 {
@@ -167,4 +168,75 @@ func TestMultidayHandlerServesALinePerDay(t *testing.T) {
 	if r.calls < 2 {
 		t.Errorf("%d routing calls for 2 days", r.calls)
 	}
+}
+
+// A long synthetic day: the line is thinned well under the cap, the stops stay in it, and the bytes drop.
+func TestPlanGeometryIsThinnedCappedAndKeepsTheStops(t *testing.T) {
+	r := &longGeoRouter{fakeGeoRouter: fakeGeoRouter{enabled: true}, pts: 60_000}
+	ctx := withPlanGeometry(context.Background(), r, nil)
+	out := withGeometry(ctx, geoPlan(1), maps.RouteOpts{})
+	rt := out.Routes[0]
+	pts := maps.DecodePolyline6(rt.Geometry)
+	if len(pts) < 3 || len(pts) > maxGeometryPoints {
+		t.Fatalf("%d points, want between 3 and %d", len(pts), maxGeometryPoints)
+	}
+	raw := len(maps.EncodePolyline6(r.last))
+	t.Logf("raw %d points / %d bytes -> %d points / %d bytes", len(r.last), raw, len(pts), len(rt.Geometry))
+	if len(rt.Geometry) > raw/5 {
+		t.Errorf("only %d of %d bytes saved", raw-len(rt.Geometry), raw)
+	}
+	has := func(p [2]float64) bool {
+		for _, q := range pts {
+			if math.Abs(q[0]-p[0]) < 2e-6 && math.Abs(q[1]-p[1]) < 2e-6 {
+				return true
+			}
+		}
+		return false
+	}
+	for _, stop := range [][2]float64{{34, -118}, {35, -117}, {36, -116}} {
+		if !has(stop) {
+			t.Errorf("stop %v is not on the served line", stop)
+		}
+	}
+}
+
+// The guard still runs on the thinned line: a leg that wanders far from its ends, which thinning keeps (it sticks out), is refused.
+func TestPlanGeometryGuardStillRefusesAStrayingLineAfterThinning(t *testing.T) {
+	r := &longGeoRouter{fakeGeoRouter: fakeGeoRouter{enabled: true}, pts: 2000, stray: true}
+	ctx := withPlanGeometry(context.Background(), r, nil)
+	out := withGeometry(ctx, geoPlan(1), maps.RouteOpts{})
+	if out.Routes[0].Geometry != "" {
+		t.Error("a line that strays thousands of km from its ends was served")
+	}
+}
+
+// longGeoRouter answers each leg with a many-vertex synthetic road between its two ends: a gentle wobble, optionally one far-off vertex.
+type longGeoRouter struct {
+	fakeGeoRouter
+	pts   int
+	stray bool
+	last  [][2]float64
+}
+
+func (f *longGeoRouter) RouteChecked(ctx context.Context, locs [][2]float64, o maps.RouteOpts) (maps.Route, error) {
+	var rt maps.Route
+	f.last = nil
+	for i := 0; i+1 < len(locs); i++ {
+		a, b := locs[i], locs[i+1]
+		shape := make([][2]float64, f.pts)
+		for k := range shape {
+			t := float64(k) / float64(f.pts-1)
+			shape[k] = [2]float64{a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t + 0.002*math.Sin(t*200)}
+		}
+		shape[0], shape[len(shape)-1] = a, b
+		if f.stray {
+			shape[len(shape)/2] = [2]float64{a[0] + 30, a[1] + 40}
+		}
+		rt.Legs = append(rt.Legs, maps.RouteLeg{Shape: shape})
+		if i > 0 {
+			shape = shape[1:]
+		}
+		f.last = append(f.last, shape...)
+	}
+	return rt, nil
 }
