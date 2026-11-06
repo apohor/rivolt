@@ -37,6 +37,9 @@ import (
 // failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line).
 var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip"}
 
+// TripPlanLegResults are the rivolt_trip_plan_legs_total results, all created at 0 at boot.
+var TripPlanLegResults = []string{"hit", "miss", "quota", "error"}
+
 // AppleLinkOutcomes are the rivolt_apple_link_total outcomes, all created at 0 at boot: started (a link began), linked,
 // in_use (that Apple ID belongs to another account), account_linked (this account has another Apple ID), expired (no
 // open request, a spent one, or the session ended), reauth_refused (start without the right password), password_needed (the account has no password to link with: Google or GitHub only), unlinked, unlink_refused (the password check refused an unlink),
@@ -222,6 +225,12 @@ type Metrics struct {
 	TireStatusTotal *prometheus.CounterVec
 	// TireLowWouldSendTotal counts tire-low episodes that would have sent a push (the dry run), by the low word only.
 	TireLowWouldSendTotal *prometheus.CounterVec
+	// TripPlanUpstreamSeconds is how long a trip-planner call that reached the planner took (a leg-cache miss: the gateway on a live install,
+	// the synthetic planner on a replay one), by outcome (ok|error). TripPlanLegsTotal counts every planner leg asked for by what happened:
+	// hit (answered from the 15-minute leg cache), miss (sent to the planner), quota (refused: 60 an hour per user) or error. A multi-day
+	// plan is one leg per day. Neither has a user, vehicle or place in a label.
+	TripPlanUpstreamSeconds *prometheus.HistogramVec
+	TripPlanLegsTotal       *prometheus.CounterVec
 	// RequestAcquiresWithoutUser counts request-pool connections handed out for a context with no user, by route pattern.
 	RequestAcquiresWithoutUser *prometheus.CounterVec
 
@@ -735,6 +744,21 @@ func New() *Metrics {
 			},
 			[]string{"class"},
 		),
+		TripPlanUpstreamSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "rivolt_trip_plan_upstream_seconds",
+				Help:    "Trip-planner calls that reached the planner (leg-cache misses), by outcome (ok|error).",
+				Buckets: []float64{0.25, 0.5, 1, 2, 4, 6, 8, 10, 15, 20, 30, 45, 60},
+			},
+			[]string{"outcome"},
+		),
+		TripPlanLegsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_trip_plan_legs_total",
+				Help: "Trip-planner legs asked for, by result (hit: leg cache; miss: sent to the planner; quota: refused; error).",
+			},
+			[]string{"result"},
+		),
 		RequestAcquiresWithoutUser: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_request_acquires_without_user_total",
@@ -824,6 +848,8 @@ func New() *Metrics {
 		m.OTAStatusFramesTotal,
 		m.TireStatusTotal,
 		m.TireLowWouldSendTotal,
+		m.TripPlanUpstreamSeconds,
+		m.TripPlanLegsTotal,
 		m.RequestAcquiresWithoutUser,
 	)
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
@@ -837,6 +863,9 @@ func New() *Metrics {
 	}
 	for _, outcome := range AppleLinkOutcomes {
 		m.AppleLinkTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, result := range TripPlanLegResults { // the first quota refusal or error is an increase
+		m.TripPlanLegsTotal.WithLabelValues(result).Add(0)
 	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
 	for _, kind := range launchnotice.MetricKinds {
