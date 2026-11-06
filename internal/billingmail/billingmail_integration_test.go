@@ -16,8 +16,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/billingdates"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/launchnotice"
 	"github.com/apohor/rivolt/internal/stripebill"
 	"github.com/apohor/rivolt/internal/testpg"
@@ -342,5 +344,67 @@ func TestRealStripeSubscriptionIdsAndTheNoticeList(t *testing.T) {
 	}
 	if !sawProbe {
 		t.Error("the filter hid an ordinary notice too")
+	}
+}
+
+// The deadline a customer is given: a renewal that fails at T (Stripe has already moved the subscription to the next period) puts ONE date
+// in the payment-failed email, the stored notice and the plan state /me reads (plan_grace_ends_date): the UTC date of T + 7 days, not of the
+// advanced period end + 7 days.
+func TestPaymentFailedEmailCarriesTheGraceDateOfTheFailedRenewal(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "bm-failed-anchor", true)
+	r.deliver("subscription_created_active.json", nil)
+	r.deliver("subscription_updated_past_due_renewal.json", nil) // T = 1821536000 (2027-09-21), Stripe's new period end 1824128000 (2027-10-21)
+	failedAt := time.Unix(1821536000, 0)
+	now := failedAt.Add(24 * time.Hour)
+	r.job.Now = func() time.Time { return now }
+	if _, err := r.job.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var failed []email.Message
+	for _, m := range r.mail.to(r.addr) {
+		if strings.Contains(m.Subject, "payment didn't go through") {
+			failed = append(failed, m)
+		}
+	}
+	if len(failed) != 1 {
+		t.Fatalf("%d payment-failed emails, want 1", len(failed))
+	}
+	if !strings.Contains(failed[0].Text, "stays on until September 28, 2027") || strings.Contains(failed[0].Text, "October") {
+		t.Errorf("the email names the wrong deadline (want T + 7 d = September 28, 2027):\n%s", failed[0].Text)
+	}
+
+	wantDate := failedAt.Add(entitlements.Grace).UTC().Format("2006-01-02") // 2027-09-28
+	var kind, params string
+	if err := r.pool.QueryRow(`SELECT kind, params::text FROM account_notices WHERE user_id = $1 AND kind LIKE 'billing_failed_%'`, r.uid).Scan(&kind, &params); err != nil {
+		t.Fatal(err)
+	}
+	hasDate := strings.Contains(params, `"grace_ends":"`+wantDate+`"`) || strings.Contains(params, `"grace_ends": "`+wantDate+`"`)
+	if kind != "billing_failed_20270921" || !hasDate {
+		t.Errorf("stored notice %s %s, want billing_failed_20270921 with grace_ends %s", kind, params, wantDate)
+	}
+
+	// The date /me reports for the same row (the entitlement state and the B8 date helper, as signup.go builds plan_grace_ends_date).
+	rows, err := r.pool.Query(`SELECT source, status, current_period_end, updated_at, cancel_at_period_end FROM entitlements WHERE user_id = $1`, r.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var rs []entitlements.Row
+	for rows.Next() {
+		var x entitlements.Row
+		var end sql.NullTime
+		if err := rows.Scan(&x.Source, &x.Status, &end, &x.UpdatedAt, &x.CancelAtPeriodEnd); err != nil {
+			t.Fatal(err)
+		}
+		if end.Valid {
+			e := end.Time
+			x.PeriodEnd = &e
+		}
+		rs = append(rs, x)
+	}
+	st := entitlements.Compute(rs, now)
+	if d := billingdates.Date(st.GraceEnds); !st.Pro || d == nil || *d != wantDate {
+		t.Errorf("/me would say Pro=%v plan_grace_ends_date=%v, want %s (the same date as the email)", st.Pro, d, wantDate)
 	}
 }
