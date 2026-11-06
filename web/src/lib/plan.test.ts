@@ -24,14 +24,14 @@ describe("planState from the server's fixtures", () => {
     expect(planState(free)).toEqual({ kind: "free" });
     // No new account gets a trial; an old trial row reads as Pro granted to the account, with nothing about a trial.
     expect(planState(trial)).toMatchObject({ kind: "pro", source: "grant" });
-    expect(planState(stripe)).toMatchObject({ kind: "pro", source: "stripe", periodEnd: "2026-12-01T00:00:00Z" });
+    expect(planState(stripe)).toMatchObject({ kind: "pro", source: "stripe", periodEnd: "2026-12-01" });
     expect(planState(apple)).toMatchObject({ kind: "pro", source: "apple", periodEnd: "2026-12-01T00:00:00Z" });
-    expect(planState(founding)).toMatchObject({ kind: "pro", source: "founding", periodEnd: "2027-11-01T00:00:00Z" });
+    expect(planState(founding)).toMatchObject({ kind: "pro", source: "founding", periodEnd: "2027-11-01" });
     expect(planState({ ...stripe, plan_source: "something-new" })).toMatchObject({ kind: "pro", source: "grant" });
   });
 
   it("takes a lapse from plan_ended_at, not from a date in the past", () => {
-    expect(planState(lapsed)).toEqual({ kind: "lapsed", endedOn: "2026-10-01T00:00:00Z", endedSource: "stripe" });
+    expect(planState(lapsed)).toEqual({ kind: "lapsed", endedOn: "2026-10-01", endedSource: "stripe" });
     expect(planState({ ...free, plan_period_end: "2020-01-01T00:00:00Z" })).toEqual({ kind: "free" });
   });
 
@@ -46,7 +46,29 @@ describe("planState from the server's fixtures", () => {
   });
 
   it("carries a cancellation and a failed payment on the plan", () => {
-    expect(planState(cancelled)).toMatchObject({ kind: "pro", source: "stripe", cancelsAt: "2026-12-01T00:00:00Z", graceEnds: null });
-    expect(planState(grace)).toMatchObject({ kind: "pro", source: "stripe", cancelsAt: null, graceEnds: "2026-12-08T00:00:00Z" });
+    expect(planState(cancelled)).toMatchObject({ kind: "pro", source: "stripe", cancelsAt: "2026-12-01", graceEnds: null });
+    expect(planState(grace)).toMatchObject({ kind: "pro", source: "stripe", cancelsAt: null, graceEnds: "2026-12-08" });
+  });
+});
+
+describe("B8: one billing instant, one date everywhere", () => {
+  const base = { plan: "pro", plan_source: "stripe", billing_enabled: true, history_days: null } as const;
+  it("shows the UTC calendar date for a utc_date plan, in any zone", () => {
+    // 2026-12-01T00:00:00Z is Nov 30 in Pacific: the card must still say December 1 (what Stripe's Portal says).
+    const st = planState({ ...base, plan_date_basis: "utc_date", plan_period_end: "2026-12-01T00:00:00Z", plan_period_end_date: "2026-12-01", plan_cancels_at: "2026-12-01T00:00:00Z", plan_cancels_date: "2026-12-01" } as never);
+    expect(st).toMatchObject({ kind: "pro", periodEnd: "2026-12-01", cancelsAt: "2026-12-01" });
+    expect(planDate("2026-12-01")).toBe(new Date("2026-12-01T12:00:00Z").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }));
+    expect(planDate("2026-12-01")).toContain("1");
+    expect(planDate("2026-12-01")).not.toContain("30");
+  });
+  it("keeps the instant for an instant (Apple) plan and for a server that sends no dates", () => {
+    const apple = planState({ ...base, plan_source: "apple", plan_date_basis: "instant", plan_period_end: "2026-12-01T00:00:00Z" } as never);
+    expect(apple).toMatchObject({ periodEnd: "2026-12-01T00:00:00Z" });
+    const old = planState({ ...base, plan_period_end: "2026-12-01T00:00:00Z" } as never);
+    expect(old).toMatchObject({ periodEnd: "2026-12-01T00:00:00Z" });
+  });
+  it("a lapse reads the ended date", () => {
+    const st = planState({ plan: "free", billing_enabled: true, history_days: 90, plan_date_basis: "utc_date", plan_ended_at: "2026-11-06T02:52:00Z", plan_ended_date: "2026-11-06", plan_ended_source: "stripe" } as never);
+    expect(st).toMatchObject({ kind: "lapsed", endedOn: "2026-11-06" });
   });
 });
