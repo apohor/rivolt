@@ -11,6 +11,7 @@ struct PlanMapScreen: View {
 
     @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
+    @State private var showingNetworks = false
 
     private var metric: Bool { NowFormat.usesMetric }
 
@@ -44,6 +45,9 @@ struct PlanMapScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        .sheet(isPresented: $showingNetworks) {
+            PlannerNetworksSheet { Task { await model.replanKeepingStops(source: state.client) } }.followsAppearance()
+        }
     }
 
     /// The layer chip over the map, and the state of a re-plan.
@@ -81,6 +85,16 @@ struct PlanMapScreen: View {
         PlanSheetHeader(title: PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line),
                         summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit) {
             if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
+            if !state.isDemo {
+                Button { showingNetworks = true } label: {
+                    Text("Networks").themeText(.subline, color: Theme.textPrimary)
+                        .padding(.horizontal, 12).frame(minHeight: 36)
+                        .background(Theme.background, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Pick the charging networks to prefer, then plan again")
+            }
         }
     }
 

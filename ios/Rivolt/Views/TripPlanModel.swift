@@ -118,6 +118,11 @@ final class TripPlanModel {
         await replan(adding: vias + [v], source: source)
     }
 
+    /// Plans the same trip again with the same stops (after a setting the planner reads changed, such as the preferred networks).
+    func replanKeepingStops(source: some TripSource) async {
+        await replan(adding: vias, source: source)
+    }
+
     func removeVia(_ id: String, source: some TripSource) async {
         await replan(adding: vias.filter { $0.id != id }, source: source)
     }
