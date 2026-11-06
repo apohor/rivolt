@@ -457,6 +457,7 @@ struct RouteMapView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
+        context.coordinator.interactive = interactive
         if interactive, onPins != nil { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
         if onStop != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
@@ -694,8 +695,9 @@ struct RouteMapView: UIViewRepresentable {
             for (name, shape) in Self.shapes(d) { sources[name]?.shape = shape }
             // The snapped line replaced the recorded one: its runs (and so its gradient layers) are different ones. Start the map's layers over.
             if runsChanged, let style = map.style { styleLoaded(map, style) }
-            // Picking a stop only moves the ring: the camera stays where the person left it.
-            if refit { fit(map) }
+            // Picking a stop only moves the ring: the camera stays where the person left it, except that on a map that can be panned a stop
+            // picked in the list is brought into view when it is not (above whatever covers the map's bottom).
+            if refit { fit(map) } else if interactive, d.focus != nil { easeToFocus(d, on: map) }
         }
 
         override func resized(_ map: MLNMapView) { fit(map) }
@@ -711,6 +713,18 @@ struct RouteMapView: UIViewRepresentable {
                 f.coordinate = CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon)
                 return f
             }
+        }
+
+        var interactive = false
+
+        /// Eases the camera to the focused pin when it is outside the part of the map that can be seen.
+        private func easeToFocus(_ d: RouteSnap.Drawing, on map: MLNMapView) {
+            guard let i = d.focus, map.bounds.width > 0 else { return }
+            let all = d.stops + d.along
+            guard all.indices.contains(i) else { return }
+            let c = CLLocationCoordinate2D(latitude: all[i].coord.lat, longitude: all[i].coord.lon)
+            let seen = map.bounds.inset(by: UIEdgeInsets(top: 60, left: 40, bottom: max(60, bottomInset + 20), right: 40))
+            if !seen.contains(map.convert(c, toPointTo: map)) { map.setCenter(c, animated: true) }
         }
 
         private var bottomInset: CGFloat = 0
@@ -775,7 +789,7 @@ struct RouteMapView: UIViewRepresentable {
 
         private func fitCamera(_ map: MLNMapView, animated: Bool = false) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
-            var coords = (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 })
+            var coords = (drawing.fitTo.flatMap { $0.count >= 2 ? $0 : nil } ?? (drawing.allCoords + [drawing.start, drawing.end].compactMap { $0 }))
                 .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
             guard !coords.isEmpty else { return }
             let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
