@@ -42,8 +42,14 @@ for (const v of [
     await expect(add).toBeVisible();
     // The button is what is under its own centre, not the chips or the map canvas.
     const c = (await add.boundingBox())!;
-    const hit = await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.className ?? "", [c.x + c.width / 2, c.y + c.height / 2]);
-    expect(hit).toContain("drop-add-btn");
+    // (A popup opened under the chip row is panned clear first, so wait for the button to be the element at its own centre.)
+    await expect
+      .poll(async () => {
+        const b = (await add.boundingBox())!;
+        return page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.className ?? "", [b.x + b.width / 2, b.y + b.height / 2]);
+      })
+      .toContain("drop-add-btn");
+    void c;
     const before = plans.length;
     await add.click();
     await expect.poll(() => plans.length).toBe(before + 1);
@@ -65,8 +71,10 @@ for (const v of [
     const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
     await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
     const box = (await map.boundingBox())!;
-    // Right under the chips (top left of the map).
-    await page.mouse.click(box.x + 90, box.y + 24, { button: "right" });
+    // Just below the chip row (top left of the map), so the popup opens up under the chips.
+    const row = (await page.locator("[data-map-chips]").boundingBox())!;
+    await page.mouse.click(row.x + 60, row.y + row.height + 10, { button: "right" });
+    void box;
     await expect(page.getByRole("button", { name: "Add as a stop" })).toBeVisible();
     const chip = page.locator("[data-map-chips]").getByRole("button", { name: "Level 2" });
     // Once the map has panned the popup clear, the chip is the element at its own centre and the popup does not overlap the chip row.
