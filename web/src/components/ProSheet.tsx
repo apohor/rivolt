@@ -47,19 +47,16 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
       if (!box) return;
       const items = tabStops(box);
       if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      if (!box.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      // The Tab order is ours, in every browser: Safari does not Tab to links, buttons or radios by default, so leaving the next stop to the
+      // browser stranded focus on the first one it did reach (Close). A radio that has focus counts as its group's one stop.
+      const active = document.activeElement as HTMLElement | null;
+      const here = active && box.contains(active) ? active : null;
+      const stop = here instanceof HTMLInputElement && here.type === "radio" ? items.find((el) => el instanceof HTMLInputElement && el.type === "radio" && el.name === here.name) ?? here : here;
+      const at = stop ? items.indexOf(stop) : -1;
+      const n = items.length;
+      const next = at === -1 ? (e.shiftKey ? items[n - 1] : items[0]) : items[(at + (e.shiftKey ? -1 : 1) + n) % n];
+      e.preventDefault();
+      next.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => {
