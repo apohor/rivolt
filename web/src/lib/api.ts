@@ -2331,6 +2331,15 @@ export type AuthUser = {
   // A lapse: the account is free now and had Pro until this instant, from this source; null when it never had Pro.
   plan_ended_at?: string | null;
   plan_ended_source?: string | null;
+  // B8: how to show the plan's dates. "utc_date": the plan_*_date fields are the UTC calendar dates ("YYYY-MM-DD") of the instants of the same name:
+  // show them as plain dates with NO zone conversion (timeZone "UTC", never new Date("2027-11-06") in local time) and no "UTC" suffix; they match
+  // Stripe's Portal and our emails. "instant" (Apple): format the instants on the device, no *_date field. null: never had Pro.
+  plan_date_basis?: "utc_date" | "instant" | null;
+  plan_period_end_date?: string | null;
+  plan_trial_ends_date?: string | null;
+  plan_cancels_date?: string | null;
+  plan_grace_ends_date?: string | null;
+  plan_ended_date?: string | null;
   // False on a self-hosted or billing-off server (and its plan is "pro", source "billing_off"): no paywall, price or Manage control.
   billing_enabled?: boolean;
   // true only with billing off while the account holds a Stripe subscription that is not over: show Manage subscription (the portal).
