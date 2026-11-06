@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/launch"
 	"github.com/apohor/rivolt/internal/launchnotice"
+	"github.com/apohor/rivolt/internal/stripebill"
 )
 
 // Founding is what the founding grant would do at the launch instant, counts only.
@@ -488,6 +489,8 @@ func HTTPPostUnsigned(ctx context.Context, url string) (int, error) {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Name the probe, so the handler counts it as outcome "probe" and a few pre-flights an hour do not page as refused deliveries.
+	req.Header.Set(stripebill.ProbeHeader, stripebill.ProbeValue)
 	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := c.Do(req)
 	if err != nil {
