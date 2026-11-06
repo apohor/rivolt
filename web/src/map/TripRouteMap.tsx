@@ -25,7 +25,7 @@ import { localUnits } from "../lib/preferences";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
-  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
+  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
   decodePolyline6, tripCardText, type PreviewResult,
 } from "./tripPure";
 
@@ -338,6 +338,28 @@ export function TripRouteMap({
         element.addEventListener("mouseleave", () => tip.remove());
         wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
       }
+      // A long press (touch) or a right click (mouse) drops a pin with an "Add as a stop" callout. Only where stops can be added (the signed-in planner).
+      const drop = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 8, className: "rivolt-tip", maxWidth: "240px" });
+      const openDrop = (ll: { lng: number; lat: number }) => {
+        if (!onAddStopRef.current) return;
+        drop.remove();
+        drop.setLngLat(ll).setHTML(droppedPinPopupHTML()).addTo(map);
+        drop.getElement()?.querySelector<HTMLButtonElement>(".drop-add-btn")?.addEventListener("click", () => {
+          onAddStopRef.current?.({ lat: ll.lat, lon: ll.lng, label: DROPPED_PIN_LABEL });
+          drop.remove();
+        });
+      };
+      let pressTimer: number | undefined;
+      const cancelPress = () => { if (pressTimer !== undefined) { window.clearTimeout(pressTimer); pressTimer = undefined; } };
+      map.on("contextmenu", (e) => openDrop(e.lngLat));
+      map.on("touchstart", (e) => {
+        cancelPress();
+        if (e.points && e.points.length > 1) return;
+        const ll = e.lngLat;
+        pressTimer = window.setTimeout(() => openDrop(ll), 550);
+      });
+      for (const ev of ["touchmove", "touchend", "touchcancel", "dragstart", "zoomstart"] as const) map.on(ev, cancelPress);
+      cleanups.push(() => { cancelPress(); drop.remove(); });
       cleanups.push(() => { tip.remove(); callout.remove(); wpMarkersRef.current.forEach((m) => m.marker.remove()); wpMarkersRef.current.clear(); });
 
       // The basemap follows the app theme live (Settings, or the OS under System).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, chargerPopupHTML, decodePolyline6, tripCardText, waypointTooltip } from "./tripPure";
+import { campPopupHTML, chargerPopupHTML, decodePolyline6, DROPPED_PIN_LABEL, droppedPinPopupHTML, tripCardText, waypointTooltip } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 
@@ -96,5 +96,15 @@ describe("a stop's callout says where the stop came from", () => {
     const html = chargerPopupHTML({ name: "X", lat: 1, lon: 2, maxPowerKW: 150 } as never, true, false, "", false);
     expect(html).toContain("Add as a stop");
     expect(html).toContain("This doesn&#39;t promise a charge there.".replace("&#39;", "'"));
+  });
+});
+
+describe("a pin dropped with a long press", () => {
+  it("offers Add as a stop, says the route only passes through, and claims nothing about a charge", () => {
+    const html = droppedPinPopupHTML();
+    expect(html).toContain(DROPPED_PIN_LABEL);
+    expect(html).toContain("Add as a stop");
+    expect(html).toContain("This doesn't promise a charge there.");
+    expect(html).not.toMatch(/free|working|available/i);
   });
 });

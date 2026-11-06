@@ -24,6 +24,19 @@ export type PreviewResult = {
   substituted_for?: string;
 };
 
+// The callout for a pin dropped with a long press (touch) or a right click: nothing is planned until "Add as a stop" is pressed, because a plan asks
+// Rivian and takes several seconds.
+export const DROPPED_PIN_LABEL = "A place you chose";
+export function droppedPinPopupHTML(): string {
+  return [
+    `<div class="drop-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px">`,
+    `<div style="font-weight:600;margin-bottom:3px">${DROPPED_PIN_LABEL}</div>`,
+    `<button class="drop-add-btn" style="margin-top:6px;width:100%;padding:3px 8px;background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Add as a stop</button>`,
+    `<div style="color:#a3a3a3;font-size:${MAP_CAPTION_PX}px;margin-top:3px">The route passes through it. This doesn't promise a charge there.</div>`,
+    `</div>`,
+  ].join("");
+}
+
 export function waypointTooltip(w: PlannedWaypoint, i: number, total: number): string {
   const isFirst = i === 0;
   const isLast = i === total - 1;
