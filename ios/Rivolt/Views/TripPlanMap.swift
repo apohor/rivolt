@@ -100,6 +100,10 @@ enum PlanRouteLogic {
 struct PlanMapCanvas: View {
     let drawing: RouteSnap.Drawing?
     var onStop: ((Int) -> Void)?
+    /// A map to explore: pinch and pan (never rotate or tilt), filling the room it is given (the plan's full-height map), with the camera
+    /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
+    var fills = false
+    var bottomInset: CGFloat = 0
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -110,7 +114,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onStop: onStop)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
@@ -119,11 +123,11 @@ struct PlanMapCanvas: View {
                 ProgressView()
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 240)
+        .frame(maxWidth: .infinity, maxHeight: fills ? .infinity : nil)
+        .frame(height: fills ? nil : 240)
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: fills ? 0 : Theme.radiusCard, style: .continuous))
+        .overlay { if !fills { RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1) } }
     }
 }
 
@@ -138,12 +142,15 @@ struct PlanRouteMap: View {
     var along: [AlongCharger] = []
     /// The road line once it is known (for finding a place to sleep along it).
     var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
+    var fills = false
+    var bottomInset: CGFloat = 0
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }; return d }, onStop: onStop)
+        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }; return d },
+                      onStop: onStop, fills: fills, bottomInset: bottomInset)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.
@@ -159,19 +166,25 @@ struct PlanDaysMap: View {
     let days: [TripMultiday.Day]
     var focus: Int?
     var onStop: ((Int) -> Void)?
+    var fills = false
+    var bottomInset: CGFloat = 0
+    /// Frame only this day (1-based), or the whole trip when nil.
+    var day: Int?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
+    @State private var lines: [[RouteSnap.Coord]] = []
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; return d }, onStop: onStop)
+        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }; return d },
+                      onStop: onStop, fills: fills, bottomInset: bottomInset)
             .task(id: days) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 let routes = days.compactMap(\.plan.best)
                 drawing = PlanRouteLogic.drawing(days: days, lines: routes.map { PlanRouteLogic.places($0) })
-                var lines: [[RouteSnap.Coord]] = []
-                for r in routes { lines.append(await PlanRouteLogic.line(route: r, source: state.client)) }
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(days: days, lines: lines) { drawing = d }
+                var found: [[RouteSnap.Coord]] = []
+                for r in routes { found.append(await PlanRouteLogic.line(route: r, source: state.client)) }
+                if !Task.isCancelled, let d = PlanRouteLogic.drawing(days: days, lines: found) { drawing = d; lines = found }
             }
     }
 }

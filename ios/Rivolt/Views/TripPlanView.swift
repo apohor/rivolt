@@ -17,28 +17,22 @@ struct TripPlanView: View {
         var id: Int { self == .origin ? 0 : 1 }
     }
 
+    /// The person asked to edit the trip: the form and the saved trips, in place of the map screen.
+    @State private var editing = false
+
+    /// A signed-in plan to look at: the full-height map and the itinerary sheet.
+    private var showsMapScreen: Bool {
+        if case .planned(let plan) = model.state, plan.best != nil, !state.isDemo, !editing { return true }
+        return false
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4 * Theme.unit) {
-                        if state.isDemo {
-                            // The demo plans nothing and saves nothing: it shows the sample trips, as the web's /sample-trips does.
-                            DemoTripsList(model: demoTrips, plan: model)
-                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
-                        } else {
-                            TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { Task { await model.plan(source: state.client) } })
-                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
-                            if model.plan != nil { SaveTripSection(model: model, saved: saved) }
-                            if let active = saved.active { PlanVsActualSection(saved: active) }
-                            SavedTripsList(model: model, saved: saved)
-                        }
-                    }
-                    .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
-                }
-                .onChange(of: model.focusedStop) { _, i in
-                    guard let i else { return }
-                    withAnimation { proxy.scrollTo("stop-\(i)", anchor: .center) }
+            Group {
+                if showsMapScreen {
+                    PlanMapScreen(model: model, saved: saved, onEdit: { editing = true })
+                } else {
+                    planScroll
                 }
             }
             .background(ThemePageBackground().ignoresSafeArea())
@@ -62,6 +56,36 @@ struct TripPlanView: View {
                 await saved.load(source: state.client)
             }
         }
+    }
+
+    private var planScroll: some View {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4 * Theme.unit) {
+                        if state.isDemo {
+                            // The demo plans nothing and saves nothing: it shows the sample trips, as the web's /sample-trips does.
+                            DemoTripsList(model: demoTrips, plan: model)
+                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                        } else {
+                            if editing, model.plan != nil {
+                                Button { editing = false } label: { Label("Back to the map", systemImage: "map") }.buttonStyle(ThemeSecondaryButtonStyle())
+                            }
+                            TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { editing = false; Task { await model.plan(source: state.client) } })
+                            TripPlanResult(model: model, metric: NowFormat.usesMetric)
+                            if model.plan != nil { SaveTripSection(model: model, saved: saved) }
+                            if let active = saved.active { PlanVsActualSection(saved: active) }
+                            SavedTripsList(model: model, saved: saved)
+                        }
+                    }
+                    .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
+                }
+                .onChange(of: model.focusedStop) { _, i in
+                    guard let i else { return }
+                    withAnimation { proxy.scrollTo("stop-\(i)", anchor: .center) }
+                }
+                // A plan that arrives (planned, or a saved trip opened) goes back to the map.
+                .onChange(of: model.state) { _, new in if case .planned = new { editing = false } }
+            }
     }
 }
 
@@ -128,6 +152,10 @@ struct TripPlanResult: View {
     @Environment(AppState.self) private var state
     let model: TripPlanModel
     let metric: Bool
+    /// The map is drawn here (the scrolling page) or by the full-height map screen the itinerary sheet sits on.
+    var showsMap = true
+    /// The day the sheet shows (1-based), or both when nil.
+    var onlyDay: Int?
 
     var body: some View {
         switch model.state {
@@ -145,9 +173,9 @@ struct TripPlanResult: View {
     @ViewBuilder
     private func content(_ route: TripRoute, plan: TripPlan) -> some View {
         if case .planned = model.night {
-            LongDriveSection(model: model, metric: metric)
+            LongDriveSection(model: model, metric: metric, showsMap: showsMap, onlyDay: onlyDay)
         } else {
-            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 })
+            if showsMap { PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 }) }
             if !state.isDemo { AlongToggle(model: model) }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
@@ -258,6 +286,8 @@ struct LongDriveSection: View {
     @Environment(AppState.self) private var state
     let model: TripPlanModel
     let metric: Bool
+    var showsMap = true
+    var onlyDay: Int?
 
     var body: some View {
         switch model.night {
@@ -314,7 +344,7 @@ struct LongDriveSection: View {
                 Button("Try again") { Task { await model.findNight(source: state.client) } }.buttonStyle(ThemeSecondaryButtonStyle())
             }
         case .planned(let trip):
-            MultidaySections(trip: trip, metric: metric, model: model)
+            MultidaySections(trip: trip, metric: metric, model: model, showsMap: showsMap, onlyDay: onlyDay)
             if !state.isDemo { Button("Back to one day") { model.clearNight() }.buttonStyle(ThemeSecondaryButtonStyle()) }
         }
     }
@@ -324,11 +354,13 @@ struct MultidaySections: View {
     let trip: TripMultiday
     let metric: Bool
     let model: TripPlanModel
+    var showsMap = true
+    var onlyDay: Int?
 
     var body: some View {
-        PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 })
+        if showsMap { PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }) }
         let offsets = PlanRouteLogic.pinOffsets(trip.days)
-        ForEach(Array(trip.days.enumerated()), id: \.element.id) { n, day in
+        ForEach(Array(trip.days.enumerated()).filter { onlyDay == nil || $0.element.index == onlyDay }, id: \.element.id) { n, day in
             ThemeSection(title: "Day \(day.index)") {
                 let previous = trip.days.first { $0.index == day.index - 1 }
                 let line = TripPlanLogic.dayLine(

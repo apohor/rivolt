@@ -272,6 +272,8 @@ enum RouteSnap {
         var stops: [Stop] = []
         /// The pin (index in `stops`) the person picked in the list, drawn larger in the accent colour.
         var focus: Int?
+        /// Frame these places instead of the whole drawing (the day the person picked); nil: everything.
+        var fitTo: [Coord]?
         /// Fast chargers along the route the person asked to see, drawn small under the stops. A focus past the stops points here.
         var along: [Stop] = []
         /// The line again as unbroken runs with a speed at each vertex, for the gradient (empty where there are no speeds, or on a plan).
