@@ -51,11 +51,19 @@ const geometryBudget = 8 * time.Second
 
 // withGeometry is a copy of the plan whose routes carry Geometry (polyline6) and GeometryPrecision. The input is never changed (a plan can be
 // shared). It is best effort: with no router, or on any failure, the route has no line and the plan is served as it was.
+// observePlanStage records how long one of our own stages around a planner call took, when the request carries the metrics.
+func observePlanStage(ctx context.Context, stage string, start time.Time) {
+	if pg, ok := ctx.Value(planGeometryKey{}).(planGeometry); ok && pg.metrics != nil {
+		pg.metrics.TripPlanStageSeconds.WithLabelValues(stage).Observe(time.Since(start).Seconds())
+	}
+}
+
 func withGeometry(ctx context.Context, in *rivian.TripPlan, opts maps.RouteOpts) *rivian.TripPlan {
 	pg, ok := ctx.Value(planGeometryKey{}).(planGeometry)
 	if !ok || pg.router == nil || in == nil || !pg.router.Enabled() {
 		return in
 	}
+	defer observePlanStage(ctx, "geometry", time.Now())
 	plan := *in
 	plan.Routes = append([]rivian.TripRoute(nil), in.Routes...)
 	ctx, cancel := context.WithTimeout(ctx, geometryBudget)
