@@ -21,7 +21,7 @@ type corridorLayersRequest struct {
 	Limit      int          `json:"limit,omitempty"`
 	AfterKm    float64      `json:"after_km,omitempty"`
 	// Networks keeps only stations of these networks (slugs of the user's price book: ea, tesla_sc, ran, evgo, shell_recharge,
-	// chargepoint, ionna, flo, ev_connect). Empty: every network.
+	// chargepoint, ionna, flo, ev_connect, walmart). Empty: every network.
 	Networks []string `json:"networks,omitempty"`
 }
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/apohor/rivolt/internal/chargers"
@@ -343,7 +344,7 @@ func markPreferred(sts []station, prefs []rivian.NetworkPreference) {
 		return
 	}
 	for i := range sts {
-		n := dcfcrates.MatchNetwork(sts[i].poi.Name + " " + sts[i].poi.EVNetwork)
+		n := dcfcrates.NetworkForStop(stopName(sts[i].poi))
 		for _, id := range n.RivianIDs {
 			if want[id] {
 				sts[i].preferred = true
@@ -544,10 +545,7 @@ func (p *Planner) assemble(in rivian.PlanTripInput, pt *path, stops []plannedSto
 			soc, lastDist = arr, it.dist
 		case 1:
 			st := it.stop
-			name := st.st.poi.Name
-			if name == "" {
-				name = "DC fast charger"
-			}
+			name := stopName(st.st.poi)
 			wps = append(wps, rivian.PlannedWaypoint{
 				WaypointType: "DC_CHARGE_STATION", EntityID: st.st.poi.EntityID, Name: name,
 				Latitude: st.st.poi.Lat, Longitude: st.st.poi.Lon, MaxPowerKW: st.st.kw,
@@ -600,4 +598,18 @@ func (p *Planner) assemble(in rivian.PlanTripInput, pt *path, stops []plannedSto
 		Status: "OK", ChargeStationsAvailable: stationsAvailable, SoCBelowLimit: belowLimit,
 		Routes: []rivian.TripRoute{route}, Simulated: true,
 	}
+}
+
+// stopName is the name a synthetic stop carries. Rivian's own planner names a stop "<place> [<network code>]" and the cost and preference
+// code reads the network off that name; the archive station's bare name ("Walmart 3381 (Sweetwater, TX)") carries none, so the replay
+// planner appends the archive's network code in the same bracket form.
+func stopName(poi chargers.POI) string {
+	name := poi.Name
+	if name == "" {
+		name = "DC fast charger"
+	}
+	if code := strings.TrimSpace(poi.EVNetwork); code != "" {
+		name += " [" + code + "]"
+	}
+	return name
 }

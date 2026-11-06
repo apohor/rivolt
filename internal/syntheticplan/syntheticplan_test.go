@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/chargers"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -235,11 +236,11 @@ func TestPreferredNetworkWinsAmongNearTies(t *testing.T) {
 		stationAt(34, 250, 350, "Faster but far behind", "Electrify America"),      // 80 km before: not a tie
 	}
 	in := input(80, 2)
-	if st := stopsOf(mustPlan(t, newPlanner(r, fakeChargers{pois: poi}), in)); st[0].Name != "Other" {
+	if st := stopsOf(mustPlan(t, newPlanner(r, fakeChargers{pois: poi}), in)); st[0].Name != "Other [Blink]" {
 		t.Errorf("without preferences the furthest wins, got %q", st[0].Name)
 	}
 	in.NetworkPreferences = []rivian.NetworkPreference{{NetworkID: "10027", Preference: 1}} // Electrify America
-	if st := stopsOf(mustPlan(t, newPlanner(r, fakeChargers{pois: poi}), in)); st[0].Name != "Electrify America Pit Stop" {
+	if st := stopsOf(mustPlan(t, newPlanner(r, fakeChargers{pois: poi}), in)); st[0].Name != "Electrify America Pit Stop [Electrify America]" {
 		t.Errorf("a preferred network within 10 km of the best should win, got %q", st[0].Name)
 	}
 }
@@ -469,5 +470,42 @@ func TestStartingBelowTheReserveChargesFirst(t *testing.T) {
 		fakeChargers{pois: []chargers.POI{stationAt(34, 300, 150, "Far", "")}})
 	if rt := mustPlan(t, far, input(8, 2)).Routes[0]; rt.DestinationReached {
 		t.Errorf("destination reached with nothing in range: %+v", rt)
+	}
+}
+
+// A synthetic stop is named the way Rivian names one, "<place> [<network code>]", so the cost and preference code reads its network. Before,
+// the bare archive name ("Some Store 1234 (Town, ST)") carried none and every replay stop was "Unknown DCFC".
+func TestSyntheticStopsResolveToTheirNetworks(t *testing.T) {
+	for _, c := range []struct {
+		name, code, display string
+	}{
+		{"Fake Plaza One", "Electrify America", "Electrify America"},
+		{"Fake Plaza Two", "ELECTRIFY_AMERICA", "Electrify America"}, // an NREL code with underscores
+		{"Fake Plaza Three", "TESLA", "Tesla Supercharger"},
+		{"Walmart 0001 (Sample Town, ST)", "", "Walmart"},
+		{"Fake Plaza Four", "RED_E", "Red E"},
+		{"Fake Plaza Five", "ZZ_NEW_NET", "Zz New Net"},
+		{"Fake Plaza Six", "", "Unknown DCFC"},
+		{"Electrify America - Walmart 0002 (Sample Town, ST)", "", "Electrify America"}, // another network at a Walmart
+	} {
+		got := dcfcrates.NetworkForStop(stopName(chargers.POI{Name: c.name, EVNetwork: c.code}))
+		if got.DisplayName != c.display {
+			t.Errorf("%q [%s]: %q, want %q", c.name, c.code, got.DisplayName, c.display)
+		}
+	}
+	if got := stopName(chargers.POI{}); got != "DC fast charger" {
+		t.Errorf("empty station: %q", got)
+	}
+	// And through a plan: the served stop's name carries the code, and a preference for a network the archive writes with underscores is
+	// honoured (markPreferred reads the same name).
+	r := &fakeRouter{lat0: 34, legKm: []float64{500}, speedKmh: 100}
+	poi := []chargers.POI{
+		stationAt(34, 330, 150, "Other", "Blink"),
+		stationAt(34, 325, 150, "Fake Pit Stop", "ELECTRIFY_AMERICA"),
+	}
+	in := input(80, 2)
+	in.NetworkPreferences = []rivian.NetworkPreference{{NetworkID: "10027", Preference: 1}}
+	if st := stopsOf(mustPlan(t, newPlanner(r, fakeChargers{pois: poi}), in)); st[0].Name != "Fake Pit Stop [ELECTRIFY_AMERICA]" {
+		t.Errorf("an underscore NREL code was not read as Electrify America for the preference: %q", st[0].Name)
 	}
 }

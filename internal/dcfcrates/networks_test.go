@@ -108,6 +108,9 @@ func TestMemberRateOrGuest(t *testing.T) {
 // positive and < $2/kWh (anything outside that range is a typo).
 func TestRateTableSanity(t *testing.T) {
 	for _, n := range Networks {
+		if n.GuestRate == 0 && n.MemberRate == nil {
+			continue // an unpriced network (Walmart): the table holds no estimate for it, and none is shown
+		}
 		if n.GuestRate <= 0 || n.GuestRate >= 2 {
 			t.Errorf("%s guest rate out of plausible range: %v", n.Slug, n.GuestRate)
 		}

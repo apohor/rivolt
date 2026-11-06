@@ -174,6 +174,14 @@ var Networks = []Network{
 		MemberPlan:    "",
 		RivianIDs:     []string{"10030"},
 	},
+	// Walmart's own fast-charging network: stations are named "Walmart 3381 (Town, ST)", with no bracketed code. Last, so a stop of another
+	// network at a Walmart ("Electrify America - Walmart ...", "... Walmart [EVGO]") matches that network first. No rate (unpriced until the
+	// user sets one) and no RivianIDs: Rivian's network-preference enum is not known to list Walmart, and none is guessed.
+	{
+		Slug:          "walmart",
+		DisplayName:   "Walmart",
+		MatchPatterns: []string{"walmart"},
+	},
 }
 
 // nrelNetworkNames maps NREL AFDC ev_network codes that no
@@ -250,15 +258,8 @@ var codeNames = map[string]string{
 // result has a stable slug ("code_red_e") and NO rate: it stays unpriced until the user sets one, like any network outside the table.
 // ok is false when the name has no such code.
 func CodeNetwork(name string) (Network, bool) {
-	m := codeSuffix.FindStringSubmatch(strings.TrimSpace(name))
-	if m == nil {
-		return Network{}, false
-	}
-	key := strings.ToUpper(strings.Trim(strings.NewReplacer(" ", "_", "-", "_").Replace(strings.TrimSpace(m[1])), "_"))
-	for strings.Contains(key, "__") {
-		key = strings.ReplaceAll(key, "__", "_")
-	}
-	if key == "" {
+	key, ok := codeKey(name)
+	if !ok {
 		return Network{}, false
 	}
 	display, known := codeNames[key]
@@ -274,18 +275,46 @@ func CodeNetwork(name string) (Network, bool) {
 	return Network{Slug: "code_" + strings.ToLower(key), DisplayName: display}, true
 }
 
+// codeKey is the bracketed code at the end of a name, upper-cased with spaces and hyphens read as underscores.
+func codeKey(name string) (string, bool) {
+	m := codeSuffix.FindStringSubmatch(strings.TrimSpace(name))
+	if m == nil {
+		return "", false
+	}
+	key := strings.ToUpper(strings.Trim(strings.NewReplacer(" ", "_", "-", "_").Replace(strings.TrimSpace(m[1])), "_"))
+	for strings.Contains(key, "__") {
+		key = strings.ReplaceAll(key, "__", "_")
+	}
+	return key, key != ""
+}
+
 // networkForStop is the network a planned stop is shown and attributed under: the built-in table first (by name), then the code Rivian puts
 // in brackets after the name, and only when there is neither, UnmatchedNetwork. MatchNetwork itself is unchanged: callers that ask "is this a
 // network we have a row for" (receipts, the ledger, the corridor layers) keep their answer.
 func networkForStop(name string) Network {
 	n := MatchNetwork(name)
-	if n.Slug == UnmatchedNetwork.Slug {
-		if c, ok := CodeNetwork(name); ok {
-			return c
-		}
+	if n.Slug != UnmatchedNetwork.Slug {
+		return n
 	}
-	return n
+	key, ok := codeKey(name)
+	if !ok {
+		return n
+	}
+	// The code may be an NREL code the table knows under another spelling ("[ELECTRIFY_AMERICA]", "[TESLA]"): read it the way StationQuery does.
+	spelled, mapped := nrelNetworkNames[key]
+	if !mapped {
+		spelled = strings.ReplaceAll(key, "_", " ")
+	}
+	if m := MatchNetwork(spelled); m.Slug != UnmatchedNetwork.Slug {
+		return m
+	}
+	c, _ := CodeNetwork(name)
+	return c
 }
+
+// NetworkForStop is the network a planned stop is shown under (the same as ResolveStop's, without a user's price book): the table by name, then the
+// table by the bracketed code read as an NREL code, then a network named from the code, and only then UnmatchedNetwork.
+func NetworkForStop(name string) Network { return networkForStop(name) }
 
 // MemberRateOrGuest returns the network's MemberRate when set,
 // otherwise its GuestRate. Used by the cost estimator's
