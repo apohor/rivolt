@@ -74,7 +74,7 @@ export function whatIfLines(r: WhatIfResponse, unit: DistanceUnit, zone?: string
     out.push(`About ${at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: zone })} at the destination (estimate)`);
   }
   const drop = r.next_charge?.soc_drop_pts;
-  if (drop != null && drop >= 1) out.push(`About ${Math.round(drop)} points lower at ${r.next_charge?.is_destination ? "the destination" : "the next charger"}`);
+  if (drop != null && drop >= 1) out.push(`About ${Math.round(drop)} ${Math.round(drop) === 1 ? "point" : "points"} lower at ${r.next_charge?.is_destination ? "the destination" : "the next charger"}`);
   for (const w of r.warnings ?? []) {
     if (w === "may_not_reach_next_charge") out.push("May not reach the next charger (estimate)");
     else if (w === "may_not_reach_destination") out.push("May not reach the destination (estimate)");

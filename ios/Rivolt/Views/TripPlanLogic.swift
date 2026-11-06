@@ -517,7 +517,8 @@ enum WhatIfLogic {
         }
         if let drop = r.nextCharge?.socDropPts, drop >= 1 {
             let target = r.nextCharge?.isDestination == true ? "the destination" : "the next charger"
-            out.append("About \(Int(drop.rounded())) points lower at \(target)")
+            let pts = Int(drop.rounded())
+            out.append("About \(pts) \(pts == 1 ? "point" : "points") lower at \(target)")
         }
         for w in r.warnings ?? [] {
             switch w {

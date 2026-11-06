@@ -17,6 +17,11 @@ final class WhatIfTests: XCTestCase {
         XCTAssertNil(lines.joined().range(of: "%|reachable|will reach", options: .regularExpression))
     }
 
+    func testOnePointIsNotOnePoints() throws {
+        let r = try decode(#"{"estimate":true,"estimated":false,"notice":"estimate_replan","segment":{"from":1,"to":2},"added_m":1000,"added_sec":60,"next_charge":{"index":2,"is_destination":true,"soc_drop_pts":1.2}}"#)
+        XCTAssertTrue(WhatIfLogic.lines(r, metric: false, zone: TimeZone(identifier: "UTC")!).contains("About 1 point lower at the destination"))
+    }
+
     func testNoClaimWhenTheAnswerHasNone() throws {
         let r = try decode(#"{"added_sec":-300,"added_m":-2000}"#)
         let lines = WhatIfLogic.lines(r, metric: true, zone: .current)
