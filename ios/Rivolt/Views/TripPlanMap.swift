@@ -167,7 +167,7 @@ struct PlanRouteMap: View {
     private var shown: RouteSnap.Drawing? {
         guard var d = drawing else { return nil }
         d.focus = focus
-        d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }
+        d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "", emphasis: $0.preferred, kind: $0.kind == "hotel" ? 1 : $0.kind == "camp" ? 2 : 0) }
         if let provisional, provisional.count >= 2 {
             d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
             d.start = provisional.first

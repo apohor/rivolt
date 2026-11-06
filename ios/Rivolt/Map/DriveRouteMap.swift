@@ -524,7 +524,7 @@ struct RouteMapView: UIViewRepresentable {
             let along: [MLNPointFeature] = d.along.enumerated().map { i, s in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: s.coord.lat, longitude: s.coord.lon)
-                f.attributes = ["i": i, "label": s.label]
+                f.attributes = ["i": i, "label": s.label, "p": s.emphasis ? 1 : 0, "k": s.kind]
                 return f
             }
             // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.
@@ -593,11 +593,13 @@ struct RouteMapView: UIViewRepresentable {
             }
             do {
                 let small = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-along", source: sources["along"]!)
-                small.circleColor = NSExpression(forConstantValue: UIColor(Theme.chargePin))
-                small.circleOpacity = NSExpression(forConstantValue: 0.75)
-                small.circleRadius = NSExpression(forConstantValue: 5)
-                small.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.chargePinInk))
-                small.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
+                // A charger is the amber pin; a hotel violet, a campground green; one of a preferred network is larger with an accent ring.
+                let hotel = UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1), camp = UIColor(red: 0.13, green: 0.77, blue: 0.37, alpha: 1)
+                small.circleColor = NSExpression(format: "TERNARY(k == 1, %@, TERNARY(k == 2, %@, %@))", hotel, camp, UIColor(Theme.chargePin))
+                small.circleOpacity = NSExpression(forConstantValue: 0.85)
+                small.circleRadius = NSExpression(format: "TERNARY(p == 1, 8, 5)")
+                small.circleStrokeColor = NSExpression(format: "TERNARY(p == 1, %@, %@)", UIColor(Theme.accent), UIColor(Theme.chargePinInk))
+                small.circleStrokeWidth = NSExpression(format: "TERNARY(p == 1, 3, 1.5)")
                 style.addLayer(small)
             }
             do {

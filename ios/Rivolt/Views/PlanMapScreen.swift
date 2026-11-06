@@ -20,7 +20,7 @@ struct PlanMapScreen: View {
                 map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height))
                     .overlay(alignment: .topLeading) { overlays }
                 if let c = model.pickedCharger {
-                    PlanPinCallout(charger: c, offRoute: TripPlanLogic.offRouteLine(TripPlanLogic.offRouteMeters(lat: c.lat, lon: c.lon, line: model.roadLine), metric: metric),
+                    PlanPinCallout(charger: c, offRoute: TripPlanLogic.offRouteLine(c.offKm.map { $0 * 1000 } ?? TripPlanLogic.offRouteMeters(lat: c.lat, lon: c.lon, line: model.roadLine), metric: metric),
                                    adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
                         .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
@@ -137,6 +137,20 @@ struct PlanSheetHeader<Extra: View>: View {
 typealias PlanSheetDetent = SheetDetent
 
 enum PlanSheetLogic {
+    /// The line under the chips: what is loading, how many are shown, when the listing was built (never live), or what went wrong.
+    static func layerNote(_ model: TripPlanModel) -> String? {
+        switch model.layerState {
+        case .idle, .unavailable: return nil
+        case .loading: return "Looking along the route…"
+        case .failed(let words): return words
+        case .shown:
+            var parts = [model.layerPOIs.count < model.layerTotal ? "Showing \(model.layerPOIs.count) of \(model.layerTotal)" : "\(model.layerMarkers.count) along the route"]
+            if !model.layerAsOf.isEmpty { parts.append("listing from \(model.layerAsOf)") }
+            parts.append("not live")
+            return parts.joined(separator: " · ")
+        }
+    }
+
     /// What a long press on the map drops.
     static let droppedName = "A place you chose"
 
@@ -146,8 +160,14 @@ enum PlanSheetLogic {
     /// "250 kW · Example Network · about 3 mi off the route": power and the detour, never whether the charger is free.
     static func chargerDetail(_ c: AlongCharger, offRoute: String?) -> String {
         var parts: [String] = []
+        switch c.kind {
+        case "hotel": parts.append("Hotel with a listed Level 2 charger")
+        case "camp": parts.append("Campground with an electric hookup")
+        default: break
+        }
         if let kw = c.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
-        if let n = c.evNetwork, !n.isEmpty { parts.append(n) }
+        if let n = c.networkName ?? c.evNetwork, !n.isEmpty { parts.append(n) }
+        if c.preferred { parts.append("a preferred network") }
         if let offRoute { parts.append(offRoute) }
         return parts.isEmpty ? (c.name == droppedName ? "A pin you dropped" : "Fast charger") : parts.joined(separator: " · ")
     }
@@ -165,38 +185,53 @@ enum PlanSheetLogic {
     }
 }
 
-/// The map's layer chips. "Fast chargers" (100 kW and up, near the route) shows them on the map; tapping one opens its callout. Hotels and
-/// campgrounds join when the server can list them along a route.
+/// The map's layer chips: Chargers, Hotels and Campgrounds along the route (from the server's listing, not live), and, when the person has preferred
+/// networks, Preferred only for the chargers. A tap on a pin opens its callout.
 struct PlanLayerChips: View {
     @Environment(AppState.self) private var state
     let model: TripPlanModel
 
     var body: some View {
-        if model.along != .unavailable {
-            let on = model.along != .off
-            Button { Task { await model.toggleAlong(on: !on, source: state.client) } } label: {
-                HStack(spacing: 6) {
-                    if model.along == .loading { ProgressView().controlSize(.small).tint(Theme.textSecondary) }
-                    Text(label).themeText(.subline, color: on ? Theme.textPrimary : Theme.textSecondary)
+        if model.layerState != .unavailable {
+            VStack(alignment: .leading, spacing: 6) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(MapLayer.allCases, id: \.self) { layer in
+                            chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
+                        }
+                        if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
+                            chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
+                        }
+                    }
                 }
-                .padding(.horizontal, 12).frame(minHeight: 36)
-                .background(on ? Theme.borderStrong : Theme.card.opacity(0.92), in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
+                if let note = PlanSheetLogic.layerNote(model) {
+                    Text(note).themeText(.caption, color: model.layerState == .loading ? Theme.textSecondary : Theme.textTertiary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Theme.card.opacity(0.9), in: Capsule())
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(model.along == .loading)
-            .accessibilityLabel("Fast chargers along the route")
-            .accessibilityValue(on ? "shown" : "hidden")
-            .accessibilityAddTraits(on ? .isSelected : [])
+            .task { await loadPreferred() }
         }
     }
 
-    private var label: String {
-        switch model.along {
-        case .shown(let c): return "Fast chargers · \(c.count)"
-        case .failed: return "Fast chargers (try again)"
-        default: return "Fast chargers"
+    private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).themeText(.subline, color: on ? Theme.textPrimary : Theme.textSecondary)
+                .padding(.horizontal, 12).frame(minHeight: 36)
+                .background(on ? Theme.borderStrong : Theme.card.opacity(0.92), in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .disabled(model.layerState == .loading)
+        .accessibilityLabel(title)
+        .accessibilityValue(on ? "shown" : "hidden")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// The networks marked Prefer in planner, from the same list as Settings (read once; nothing if it can't be read).
+    private func loadPreferred() async {
+        guard model.preferredSlugs.isEmpty, let rows = try? await state.client.chargingNetworks() else { return }
+        model.setPreferred(Set(rows.filter { $0.preferred == true }.compactMap { ($0.slug ?? "").isEmpty ? nil : $0.slug }))
     }
 }
 

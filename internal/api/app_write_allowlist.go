@@ -69,6 +69,7 @@ var appWrites = map[string]bool{
 	"POST /api/trips/plan-multiday":        true,
 	"POST /api/trips/overnight-candidates": true,
 	"POST /api/maps/chargers-along":        true,
+	"POST /api/maps/corridor-layers":       true, // the planner map's charger, hotel and campground layers: an archive query, nothing stored
 	"POST /api/maps/valhalla/trace_route":  true,
 }
 

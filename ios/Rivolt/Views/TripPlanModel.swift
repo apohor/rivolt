@@ -9,6 +9,20 @@ protocol ChargersAlongSource: Sendable {
 
 extension APIClient: ChargersAlongSource {}
 
+protocol CorridorLayersSource: Sendable {
+    func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers
+}
+
+extension APIClient: CorridorLayersSource {}
+
+/// The layers the planner map can show along the route.
+enum MapLayer: String, CaseIterable, Equatable {
+    case chargers, hotels, camps
+
+    var kind: String { self == .chargers ? "dcfc" : self == .hotels ? "hotels" : "camp" }
+    var title: String { self == .chargers ? "Chargers" : self == .hotels ? "Hotels" : "Campgrounds" }
+}
+
 protocol TripSource: Sendable {
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan
     func geocode(_ q: String, count: Int) async throws -> [PlaceMatch]
@@ -148,11 +162,64 @@ final class TripPlanModel {
         }
     }
 
+    // MARK: Map layers (corridor layers)
+
+    private(set) var layers: Set<MapLayer> = []
+    /// Show only the fast chargers of the networks the person prefers (hotels and campgrounds are unaffected).
+    private(set) var preferredOnly = false
+    /// The slugs of the networks marked "Prefer in planner" in Settings.
+    private(set) var preferredSlugs: Set<String> = []
+    enum LayerState: Equatable { case idle, loading, shown, failed(String), unavailable }
+    private(set) var layerState = LayerState.idle
+    private(set) var layerPOIs: [CorridorPOI] = []
+    private(set) var layerTotal = 0
+    /// When the listing was built (the archive's date), not live; empty when unknown.
+    private(set) var layerAsOf = ""
+
+    func setPreferred(_ slugs: Set<String>) { preferredSlugs = slugs }
+
+    func setPreferredOnly(_ on: Bool) { preferredOnly = on && !preferredSlugs.isEmpty }
+
+    func setLayer(_ layer: MapLayer, on: Bool, source: some CorridorLayersSource) async {
+        if on { layers.insert(layer) } else { layers.remove(layer) }
+        if layer == .chargers, !on { preferredOnly = false }
+        if let f = focusedStop, f >= pinCount { focusedStop = nil; dropped = nil }
+        guard !layers.isEmpty else { layerPOIs = []; layerState = .idle; return }
+        guard let route = plan?.best, layerState != .loading else { return }
+        layerState = .loading
+        let line = TripPlanLogic.thin(roadLine, to: 1500).map { [$0.lat, $0.lon] }
+        let body = CorridorLayersRequest(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), limit: nil)
+        do {
+            let answer = try await source.corridorLayers(body)
+            layerPOIs = answer.pois
+            layerTotal = answer.total
+            layerAsOf = answer.asof ?? ""
+            layerState = .shown
+        } catch {
+            if Task.isCancelled { layerState = .idle; return }
+            if case APIError.server(404, _) = error { layerState = .unavailable } else { layerState = .failed(TripPlanLogic.failure(error)) }
+        }
+    }
+
+    /// The layer's stations as map pins: a fast charger of a preferred network drawn prominent; with "Preferred only" the other fast chargers
+    /// are left out.
+    var layerMarkers: [AlongCharger] {
+        layerPOIs.compactMap { p in
+            let kinds = p.kinds ?? []
+            let isCharger = kinds.contains("dcfc") || kinds.contains("l2")
+            let isPreferred = p.networkSlug.map { preferredSlugs.contains($0) } ?? false
+            if preferredOnly, isCharger, !kinds.contains("hotels"), !kinds.contains("camp"), !isPreferred { return nil }
+            let kind = kinds.contains("camp") ? "camp" : kinds.contains("hotels") ? "hotel" : "dcfc"
+            return AlongCharger(lat: p.lat, lon: p.lon, name: p.name, isDCFC: p.isDCFC, maxPowerKW: p.maxPowerKW, evNetwork: p.evNetwork,
+                                kind: kind, preferred: isPreferred, offKm: p.offKm, networkName: p.networkName)
+        }
+    }
+
     /// How many pins the map draws for stops: the charging stops, then the person's own (the markers are numbered after them).
     private var pinCount: Int { (plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0) + vias.count }
 
     /// The chargers along the route, then a dropped pin: the pins the map draws after the stops.
-    var markers: [AlongCharger] { chargers + (dropped.map { [$0] } ?? []) }
+    var markers: [AlongCharger] { (layers.isEmpty ? chargers : layerMarkers) + (dropped.map { [$0] } ?? []) }
 
     /// The charger (or dropped pin) a tap on the map picked, if the focus is past the stops.
     var pickedCharger: AlongCharger? {
@@ -165,7 +232,7 @@ final class TripPlanModel {
     func dropPin(lat: Double, lon: Double) {
         guard plan != nil, !updating else { return }
         dropped = AlongCharger(lat: lat, lon: lon, name: PlanSheetLogic.droppedName)
-        focusedStop = pinCount + chargers.count
+        focusedStop = pinCount + (layers.isEmpty ? chargers.count : layerMarkers.count)
     }
 
     func closeCallout() {
