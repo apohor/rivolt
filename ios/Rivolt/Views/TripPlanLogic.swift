@@ -345,6 +345,16 @@ enum TripPlanLogic {
         return vias.sorted { index($0) < index($1) }
     }
 
+    /// The stops with one moved a place earlier (-1) or later (1); nil at the ends or when it is not there.
+    static func moved(_ vias: [PlanVia], id: String, by step: Int) -> [PlanVia]? {
+        guard let i = vias.firstIndex(where: { $0.id == id }), step == -1 || step == 1 else { return nil }
+        let j = i + step
+        guard vias.indices.contains(j) else { return nil }
+        var out = vias
+        out.swapAt(i, j)
+        return out
+    }
+
     private static func near(_ c: RouteSnap.Coord, _ v: PlanVia) -> Double {
         RouteSnap.haversine(RouteSnap.Point(lat: c.lat, lon: c.lon), RouteSnap.Point(lat: v.lat, lon: v.lon))
     }

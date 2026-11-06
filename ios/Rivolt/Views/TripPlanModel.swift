@@ -147,13 +147,22 @@ final class TripPlanModel {
         await replan(adding: vias.filter { $0.id != id }, source: source)
     }
 
+    /// The person put their stops in an order of their own: the route visits them as listed instead of by where they fall along the road.
+    private(set) var customOrder = false
+
+    /// Moves one of the person's stops a place earlier (-1) or later (1) in the order the route visits them, and plans again.
+    func reorderVia(_ id: String, by step: Int, source: some TripSource) async {
+        guard let next = TripPlanLogic.moved(vias, id: id, by: step) else { return }
+        await replan(adding: next, keepOrder: true, source: source)
+    }
+
     /// Plans the same trip with another set of stops, keeping the plan on screen until the answer is in; if it cannot be planned, the plan and
     /// the stops stay as they were and the problem is said.
-    private func replan(adding next: [PlanVia], source: some TripSource) async {
+    private func replan(adding next: [PlanVia], keepOrder: Bool = false, source: some TripSource) async {
         guard let destination, let start = lastStart, !updating, plan != nil else { return }
         updating = true
         updateProblem = nil
-        let ordered = TripPlanLogic.orderedVias(next, along: roadLine)
+        let ordered = keepOrder || customOrder ? next : TripPlanLogic.orderedVias(next, along: roadLine)
         pendingVias = ordered
         defer { updating = false; pendingVias = nil }
         let body = TripPlanLogic.request(
@@ -163,6 +172,7 @@ final class TripPlanModel {
             let answer = try await source.planTrip(body)
             guard answer.best != nil else { updateProblem = "The planner found no route with that stop. The route is unchanged."; return }
             vias = ordered
+            if keepOrder { customOrder = true }
             night = .none
             roadLine = []
             dropped = nil
@@ -408,6 +418,7 @@ final class TripPlanModel {
         roadLine = []
         along = .off
         vias = []
+        customOrder = false
         updateProblem = nil
         let start: (lat: Double, lon: Double)
         if let origin {
