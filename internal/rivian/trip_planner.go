@@ -139,6 +139,10 @@ type TripRoute struct {
 	// metadata); we forward it as-is.
 	RouteResponseRaw any
 	Waypoints        []PlannedWaypoint
+	// Geometry is the road line through the stops, an encoded polyline at GeometryPrecision (6), built by our own Valhalla when the plan is
+	// served (never by Rivian, whose RouteResponseRaw is empty). Absent when there is no router, or its line failed the shape guard.
+	Geometry          string `json:"Geometry,omitempty"`
+	GeometryPrecision int    `json:"GeometryPrecision,omitempty"`
 }
 
 // PlannedWaypoint is one stop on the planned route. Origin and

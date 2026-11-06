@@ -2708,6 +2708,11 @@ export type TripRoute = {
   BatteryEmptyLon: number;
   RouteResponseRaw: unknown;
   Waypoints: PlannedWaypoint[];
+  // The road line through the stops, built by our own Valhalla when the plan is served: an encoded polyline at GeometryPrecision (6, so decode
+  // with a factor of 1e6). Absent when the server has no router or the line failed its shape check: then draw the stops (or route them yourself).
+  // The first few candidate routes get one; Rivian's RouteResponseRaw above is empty and unused.
+  Geometry?: string;
+  GeometryPrecision?: number;
 };
 
 export type PlannedWaypoint = {
