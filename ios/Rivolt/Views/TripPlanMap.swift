@@ -114,6 +114,7 @@ struct PlanMapCanvas: View {
     var bottomInset: CGFloat = 0
     /// A long press on the map (only on the full-height map).
     var onLongPress: ((RouteSnap.Coord) -> Void)?
+    var onCenter: ((RouteSnap.Coord) -> Void)?
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -124,7 +125,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress, onCenter: onCenter)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
@@ -155,6 +156,7 @@ struct PlanRouteMap: View {
     var fills = false
     var bottomInset: CGFloat = 0
     var onLongPress: ((RouteSnap.Coord) -> Void)?
+    var onCenter: ((RouteSnap.Coord) -> Void)?
     /// The person's own stops on this route (pins; the route passes through them).
     var vias: [PlanVia] = []
     /// The stops of a re-plan under way: our own roads line through them is drawn at once, until the planner's answer replaces it.
@@ -180,7 +182,7 @@ struct PlanRouteMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress)
+        PlanMapCanvas(drawing: shown, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.

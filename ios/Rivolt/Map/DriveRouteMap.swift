@@ -440,6 +440,8 @@ struct RouteMapView: UIViewRepresentable {
     var onStop: ((Int) -> Void)?
     /// A long press on the map (the place under the finger): the planner's "drop a pin here". Only on a map that can be explored.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
+    /// The middle of the map each time it moves (the planner's "move a stop" mode, where the stop follows the crosshair).
+    var onCenter: ((RouteSnap.Coord) -> Void)?
 
     static let sourceID = "rivolt-route"
 
@@ -460,7 +462,7 @@ struct RouteMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
         context.coordinator.interactive = interactive
-        if interactive, onPins != nil { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
+        if interactive { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
         if onStop != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
@@ -475,6 +477,7 @@ struct RouteMapView: UIViewRepresentable {
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
         context.coordinator.onLongPress = onLongPress
+        context.coordinator.onCenter = onCenter
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.setCursor(cursor)
         context.coordinator.setBottomInset(bottomInset, on: map)
@@ -490,6 +493,7 @@ struct RouteMapView: UIViewRepresentable {
         private let onPins: ((Pins) -> Void)?
         var onStop: ((Int) -> Void)?
         var onLongPress: ((RouteSnap.Coord) -> Void)?
+        var onCenter: ((RouteSnap.Coord) -> Void)?
 
         init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}, onPins: ((Pins) -> Void)? = nil) {
             self.drawing = drawing
@@ -781,7 +785,13 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         /// A pan or zoom: the pins' places moved, and the pills with them.
-        func cameraMoved(_ map: MLNMapView) { reportPins(map) }
+        func cameraMoved(_ map: MLNMapView) {
+            reportPins(map)
+            if let onCenter {
+                let c = map.centerCoordinate
+                DispatchQueue.main.async { onCenter(RouteSnap.Coord(lat: c.latitude, lon: c.longitude)) }
+            }
+        }
 
         /// The camera on the whole drawing. MapLibre ignores a fit while the view has no size, so it's made again
         /// when the view gets one (`resized`).

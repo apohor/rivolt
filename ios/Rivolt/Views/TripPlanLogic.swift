@@ -471,6 +471,19 @@ enum WhatIfLogic {
                              targetArrivalSocPercent: t)
     }
 
+    /// The request for moving one of the person's own stops to `point`; nil when the stop is not among the plan's (a stop is matched by place, within
+    /// 300 m, because Rivian never sees our ids).
+    static func moveRequest(_ route: TripRoute, via: PlanVia, to point: RouteSnap.Coord, target: Double?) -> WhatIfRequest? {
+        let s = stops(route)
+        let here = RouteSnap.Point(lat: via.lat, lon: via.lon)
+        let candidates = s.indices.filter { s[$0].source == "via" }
+        guard let i = candidates.min(by: { a, b in
+            RouteSnap.haversine(RouteSnap.Point(lat: s[a].lat, lon: s[a].lon), here) < RouteSnap.haversine(RouteSnap.Point(lat: s[b].lat, lon: s[b].lon), here)
+        }), RouteSnap.haversine(RouteSnap.Point(lat: s[i].lat, lon: s[i].lon), here) < 300 else { return nil }
+        return WhatIfRequest(stops: s, edit: WhatIfEdit(kind: "move", index: i, via: WhatIfPoint(lat: point.lat, lon: point.lon)),
+                             targetArrivalSocPercent: target.map { min(100, max(0, $0)) })
+    }
+
     /// "+12 min", "−5 min", "+1 h 5 min" (nil when the answer has no time).
     static func signedDuration(_ sec: Double?) -> String? {
         guard let sec, sec.isFinite else { return nil }
