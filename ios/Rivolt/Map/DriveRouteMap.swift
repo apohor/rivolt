@@ -438,6 +438,8 @@ struct RouteMapView: UIViewRepresentable {
     }
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
+    /// A long press on the map (the place under the finger): the planner's "drop a pin here". Only on a map that can be explored.
+    var onLongPress: ((RouteSnap.Coord) -> Void)?
 
     static let sourceID = "rivolt-route"
 
@@ -462,11 +464,17 @@ struct RouteMapView: UIViewRepresentable {
         if onStop != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
+        if interactive, onLongPress != nil {
+            let press = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
+            press.minimumPressDuration = 0.5
+            map.addGestureRecognizer(press)
+        }
         return map
     }
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
+        context.coordinator.onLongPress = onLongPress
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.setCursor(cursor)
         context.coordinator.setBottomInset(bottomInset, on: map)
@@ -481,6 +489,7 @@ struct RouteMapView: UIViewRepresentable {
         private let onDrawn: () -> Void
         private let onPins: ((Pins) -> Void)?
         var onStop: ((Int) -> Void)?
+        var onLongPress: ((RouteSnap.Coord) -> Void)?
 
         init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}, onPins: ((Pins) -> Void)? = nil) {
             self.drawing = drawing
@@ -668,6 +677,14 @@ struct RouteMapView: UIViewRepresentable {
                 layers.append(layer)
                 for l in layers { if let below { style.insertLayer(l, below: below) } else { style.addLayer(l) } }
             }
+        }
+
+        /// A long press: where the finger is, as a place on the map (with a tap of haptic feedback).
+        @objc func pressed(_ g: UILongPressGestureRecognizer) {
+            guard g.state == .began, let map = g.view as? MLNMapView else { return }
+            let c = map.convert(g.location(in: map), toCoordinateFrom: map)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onLongPress?(RouteSnap.Coord(lat: c.latitude, lon: c.longitude))
         }
 
         /// The stop under a tap, if any (a generous 22 pt box, for a thumb).

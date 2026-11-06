@@ -487,3 +487,60 @@ final class TripPlanModelTests: XCTestCase {
         guard case .planned = m.night else { return XCTFail("\(m.night)") }
     }
 }
+
+extension TripPlanModelTests {
+    func testALongPressDropsAPinWithACalloutAndPlansNothingUntilItIsAdded() async throws {
+        let src = FakeTrips()
+        src.plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        let m = TripPlanModel()
+        await planned(src, m)
+        XCTAssertNil(m.pickedCharger)
+        m.dropPin(lat: 47.1, lon: -121.2)
+        let picked = try XCTUnwrap(m.pickedCharger)
+        XCTAssertEqual(picked.lat, 47.1)
+        XCTAssertEqual(picked.name, PlanSheetLogic.droppedName)
+        XCTAssertEqual(m.markers.last, picked)
+        XCTAssertEqual(src.requests.count, 1, "no planner call for a pin")
+        m.closeCallout()
+        XCTAssertNil(m.pickedCharger)
+        XCTAssertNil(m.dropped)
+    }
+
+    func testAddingAStopPlansAgainWithItBetweenTheEndsAndKeepsThePlanIfItFails() async throws {
+        let src = FakeTrips()
+        src.plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        let m = TripPlanModel()
+        await planned(src, m)
+        let charger = AlongCharger(lat: 47.3, lon: -120.0, name: "Sample Fast Charge", isDCFC: true, maxPowerKW: 250)
+        await m.addVia(charger, source: src)
+        XCTAssertEqual(m.vias.map(\.name), ["Sample Fast Charge"])
+        let req = try XCTUnwrap(src.requests.last)
+        XCTAssertEqual(req.waypoints.map(\.waypointType), ["origin", "waypoint", "destination"])
+        XCTAssertFalse(m.updating)
+        XCTAssertNil(m.pendingVias)
+        // A second add the planner refuses: the stops and the plan stay as they were, and the problem is said.
+        src.planError = APIError.server(status: 502, message: "upstream")
+        let before = m.plan
+        await m.addVia(AlongCharger(lat: 47.5, lon: -119.0, name: "Another"), source: src)
+        XCTAssertEqual(m.vias.map(\.name), ["Sample Fast Charge"])
+        XCTAssertEqual(m.plan?.best?.waypoints.count, before?.best?.waypoints.count)
+        XCTAssertNotNil(m.updateProblem)
+        XCTAssertTrue(m.updateProblem?.contains("The route is unchanged") == true)
+        // Taking the stop out plans again without it.
+        src.planError = nil
+        await m.removeVia(m.vias[0].id, source: src)
+        XCTAssertTrue(m.vias.isEmpty)
+        XCTAssertEqual(src.requests.last?.waypoints.count, 2)
+    }
+
+    func testANewTripStartsWithNoStops() async throws {
+        let src = FakeTrips()
+        src.plan = try Fixture.decode(TripPlan.self, "trip_plan")
+        let m = TripPlanModel()
+        await planned(src, m)
+        await m.addVia(AlongCharger(lat: 47.3, lon: -120.0, name: "X"), source: src)
+        XCTAssertEqual(m.vias.count, 1)
+        await m.plan(source: src)
+        XCTAssertTrue(m.vias.isEmpty)
+    }
+}

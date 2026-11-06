@@ -15,6 +15,13 @@ enum PlanRouteLogic {
         route.waypoints.compactMap { w in w.latitude.flatMap { la in w.longitude.map { RouteSnap.Coord(lat: la, lon: $0) } } }
     }
 
+    /// The places with a different set of the person's own stops: the route's two ends and the stops between them, in the order they were given.
+    static func places(_ route: TripRoute, vias: [PlanVia]) -> [RouteSnap.Coord] {
+        let all = places(route)
+        guard let first = all.first, let last = all.last, all.count >= 2 else { return all }
+        return [first] + vias.map { RouteSnap.Coord(lat: $0.lat, lon: $0.lon) } + [last]
+    }
+
     /// Valhalla's route through the places: the start and the destination are hard stops, the chargers are passed through so
     /// a charger the roads can't snap to doesn't fail the route (as the web does).
     static func routeRequest(_ places: [RouteSnap.Coord]) -> ValhallaRouteRequest {
@@ -24,12 +31,13 @@ enum PlanRouteLogic {
     }
 
     /// The drawing for a line: no speeds, the first and last points as the start and end, a pin for every charging stop.
-    static func drawing(route: TripRoute, line: [RouteSnap.Coord]) -> RouteSnap.Drawing? {
+    static func drawing(route: TripRoute, line: [RouteSnap.Coord], vias: [PlanVia] = []) -> RouteSnap.Drawing? {
         guard line.count >= 2 else { return nil }
+        // The charging stops, then the person's own stops (numbered after them).
         let stops = route.chargingStops.compactMap { s -> RouteSnap.Drawing.Stop? in
             guard let la = s.latitude, let lo = s.longitude else { return nil }
             return .init(coord: RouteSnap.Coord(lat: la, lon: lo), label: stopLabel(s))
-        }
+        } + vias.map { RouteSnap.Drawing.Stop(coord: RouteSnap.Coord(lat: $0.lat, lon: $0.lon), label: "Your stop") }
         return RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: line, speed: nil)], routedGaps: [], gaps: [],
                                  start: line.first, end: line.last, hasSpeed: false, stops: stops)
     }
@@ -104,6 +112,8 @@ struct PlanMapCanvas: View {
     /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
     var fills = false
     var bottomInset: CGFloat = 0
+    /// A long press on the map (only on the full-height map).
+    var onLongPress: ((RouteSnap.Coord) -> Void)?
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -114,7 +124,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
@@ -144,19 +154,50 @@ struct PlanRouteMap: View {
     var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
     var fills = false
     var bottomInset: CGFloat = 0
+    var onLongPress: ((RouteSnap.Coord) -> Void)?
+    /// The person's own stops on this route (pins; the route passes through them).
+    var vias: [PlanVia] = []
+    /// The stops of a re-plan under way: our own roads line through them is drawn at once, until the planner's answer replaces it.
+    var pendingVias: [PlanVia]?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
+    @State private var provisional: [RouteSnap.Coord]?
+
+    private var shown: RouteSnap.Drawing? {
+        guard var d = drawing else { return nil }
+        d.focus = focus
+        d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }
+        if let provisional, provisional.count >= 2 {
+            d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
+            d.start = provisional.first
+            d.end = provisional.last
+        }
+        return d
+    }
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "") }; return d },
-                      onStop: onStop, fills: fills, bottomInset: bottomInset)
+        PlanMapCanvas(drawing: shown, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.
-                drawing = PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route))
+                drawing = PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route), vias: vias)
                 let line = await PlanRouteLogic.line(route: route, source: state.client)
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: route, line: line) { drawing = d; onLine(line) }
+                if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: route, line: line, vias: vias) { drawing = d; onLine(line); provisional = nil }
+            }
+            // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
+            .task(id: pendingVias) {
+                guard let pendingVias else { provisional = nil; return }
+                let places = PlanRouteLogic.places(route, vias: pendingVias)
+                if let r = try? await state.client.valhallaRoute(PlanRouteLogic.routeRequest(places)), let legs = r.trip?.legs, !legs.isEmpty {
+                    var out: [RouteSnap.Coord] = []
+                    for (i, leg) in legs.enumerated() {
+                        var seg = leg.shape.map { DriveRoute.decode($0, precision: 6) } ?? []
+                        if i > 0, !seg.isEmpty { seg.removeFirst() }
+                        out += seg
+                    }
+                    if !Task.isCancelled, out.count > 1 { provisional = out }
+                }
             }
     }
 }

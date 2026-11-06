@@ -86,6 +86,10 @@ final class TripPlanModel {
 
     /// The places the person added for the route to pass through (a charger picked on the map). New trips start with none.
     private(set) var vias: [PlanVia] = []
+    /// The stops of a re-plan under way, so the map can draw its own line through them at once.
+    private(set) var pendingVias: [PlanVia]?
+    /// A place the person dropped a pin on (a long press): a pin and a callout with Add as a stop, until they add it or close it.
+    private(set) var dropped: AlongCharger?
     /// A re-plan with a changed set of stops is under way: the old route stays on the map until the new one arrives.
     private(set) var updating = false
     /// Said when the last change could not be planned (the route is unchanged).
@@ -95,7 +99,7 @@ final class TripPlanModel {
     var chargers: [AlongCharger] { if case .shown(let c) = along { return c } else { return [] } }
 
     func toggleAlong(on: Bool, source: some ChargersAlongSource) async {
-        guard on else { along = .off; if let f = focusedStop, f >= pinCount { focusedStop = nil }; return }
+        guard on else { along = .off; if let f = focusedStop, f >= pinCount { focusedStop = nil; dropped = nil }; return }
         guard let route = plan?.best, along != .loading else { return }
         along = .loading
         do {
@@ -110,7 +114,7 @@ final class TripPlanModel {
     func addVia(_ c: AlongCharger, source: some TripSource) async {
         let v = PlanVia(lat: c.lat, lon: c.lon, name: c.name ?? "Fast charger", entityID: nil)
         guard !vias.contains(where: { $0.id == v.id }) else { return }
-        focusedStop = nil
+        closeCallout()
         await replan(adding: vias + [v], source: source)
     }
 
@@ -124,8 +128,9 @@ final class TripPlanModel {
         guard let destination, let start = lastStart, !updating, plan != nil else { return }
         updating = true
         updateProblem = nil
-        defer { updating = false }
         let ordered = TripPlanLogic.orderedVias(next, along: roadLine)
+        pendingVias = ordered
+        defer { updating = false; pendingVias = nil }
         let body = TripPlanLogic.request(
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
             startingSoc: useTruckCharge ? nil : startingSoc, departAt: lastLeave > Date() ? lastLeave : nil, packKwh: packKwh, target: plannedTarget, vias: ordered)
@@ -135,6 +140,7 @@ final class TripPlanModel {
             vias = ordered
             night = .none
             roadLine = []
+            dropped = nil
             state = .planned(answer)
         } catch {
             if Task.isCancelled { return }
@@ -142,14 +148,29 @@ final class TripPlanModel {
         }
     }
 
-    /// How many charging-stop pins the map draws (the chargers along the route are numbered after them).
-    private var pinCount: Int { plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0 }
+    /// How many pins the map draws for stops: the charging stops, then the person's own (the markers are numbered after them).
+    private var pinCount: Int { (plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0) + vias.count }
 
-    /// The charger a tap on the map picked, if the focus is past the stops.
+    /// The chargers along the route, then a dropped pin: the pins the map draws after the stops.
+    var markers: [AlongCharger] { chargers + (dropped.map { [$0] } ?? []) }
+
+    /// The charger (or dropped pin) a tap on the map picked, if the focus is past the stops.
     var pickedCharger: AlongCharger? {
         guard let f = focusedStop else { return nil }
         let j = f - pinCount
-        return chargers.indices.contains(j) && j >= 0 ? chargers[j] : nil
+        return markers.indices.contains(j) && j >= 0 ? markers[j] : nil
+    }
+
+    /// A long press on the map: a pin there, picked, with its callout. Nothing is planned until the person adds it.
+    func dropPin(lat: Double, lon: Double) {
+        guard plan != nil, !updating else { return }
+        dropped = AlongCharger(lat: lat, lon: lon, name: PlanSheetLogic.droppedName)
+        focusedStop = pinCount + chargers.count
+    }
+
+    func closeCallout() {
+        focusedStop = nil
+        dropped = nil
     }
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
