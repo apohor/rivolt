@@ -99,13 +99,24 @@ const (
 	OutcomeUnmappedExpired = "unmapped_expired"
 	OutcomeStale           = "stale"
 	OutcomeRejected        = "rejected"
+	// OutcomeProbe: the launch pre-flight's own unsigned POST (it must see a 400). It names itself with ProbeHeader and carries no Stripe-Signature,
+	// so it can never be a real delivery; counted apart so a few pre-flights an hour do not trip RivoltStripeWebhookRejected (three refused in an
+	// hour with none applied, which is what a mismatched signing secret looks like). A request with a Stripe-Signature that fails to verify, or one
+	// with no signature and no probe header (a scanner, or a proxy that strips the header), is still "rejected".
+	OutcomeProbe = "probe"
+)
+
+// ProbeHeader and ProbeValue mark the launch pre-flight's unsigned POST (internal/preflight sends them).
+const (
+	ProbeHeader = "X-Rivolt-Probe"
+	ProbeValue  = "preflight"
 )
 
 // MetricTypes are the event types the endpoint handles, as the metric labels them; any other type is "other", and a delivery rejected before
 // its type is known is "none". MetricOutcomes are the outcomes. Both are fixed sets, so the label cardinality is bounded by this package.
 var (
 	MetricTypes    = []string{"checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "charge.refunded", "other", "none"}
-	MetricOutcomes = []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeUnmappedExpired, OutcomeStale, OutcomeRejected}
+	MetricOutcomes = []string{OutcomeApplied, OutcomeDuplicate, OutcomeIgnored, OutcomeUnmapped, OutcomeUnmappedExpired, OutcomeStale, OutcomeRejected, OutcomeProbe}
 )
 
 // MetricType is the label for an event type.
@@ -139,6 +150,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err != nil {
 		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	if r.Header.Get(ProbeHeader) == ProbeValue && r.Header.Get("Stripe-Signature") == "" {
+		h.observe("", OutcomeProbe) // the pre-flight's own probe: still refused, counted apart
+		http.Error(w, "invalid signature", http.StatusBadRequest)
 		return
 	}
 	if err := VerifySignature(body, r.Header.Get("Stripe-Signature"), h.Secret, h.now(), SignatureTolerance); err != nil {

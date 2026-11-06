@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/apohor/rivolt/internal/stripebill"
 )
 
 func allLoaded() []AlertRule {
@@ -136,5 +138,22 @@ func TestHTTPAlertRulesRefusesWhatIsNotAListing(t *testing.T) {
 		if _, err := HTTPAlertRules(bad)(context.Background()); err == nil {
 			t.Errorf("address %q was accepted", bad)
 		}
+	}
+}
+
+// The unsigned webhook probe names itself, so the handler counts it as a probe and not as a refused delivery.
+func TestHTTPPostUnsignedNamesItselfAsTheProbe(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	code, err := HTTPPostUnsigned(context.Background(), srv.URL)
+	if err != nil || code != http.StatusBadRequest {
+		t.Fatalf("%d %v", code, err)
+	}
+	if got.Get(stripebill.ProbeHeader) != stripebill.ProbeValue || got.Get("Stripe-Signature") != "" {
+		t.Errorf("headers = %v: want the probe header and no signature", got)
 	}
 }
