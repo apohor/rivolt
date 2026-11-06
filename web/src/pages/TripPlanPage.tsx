@@ -1,3 +1,4 @@
+import { movableVia, moveVia } from "../plan/reorderVias";
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
@@ -156,6 +157,11 @@ export default function TripPlanPage() {
             onRemove={(i) => {
               setExtraStops((prev) => prev.filter((_, j) => j !== i));
               setOvernightFlags((prev) => prev.filter((_, j) => j !== i));
+            }}
+            onMove={(i, dir) => {
+              const m = moveVia(extraStops, overnightFlags, i, dir);
+              setExtraStops(m.stops);
+              setOvernightFlags(m.flags);
             }}
             onAdd={(stop) => {
               const labeled = relabelIfHome(stop, home);
@@ -1562,11 +1568,13 @@ function ViaStopList({
   stops,
   overnightFlags,
   onRemove,
+  onMove,
   onAdd,
 }: {
   stops: NonNullable<Selection>[];
   overnightFlags: boolean[];
   onRemove: (i: number) => void;
+  onMove: (i: number, dir: -1 | 1) => void;
   onAdd: StopAdder;
 }) {
   const [adding, setAdding] = useState(false);
@@ -1579,6 +1587,18 @@ function ViaStopList({
         >
           <span className="shrink-0 text-neutral-500">Via:</span>
           <span className="flex-1 text-neutral-100">{stop.label}</span>
+          {([-1, 1] as const).map((dir) => (
+            <button
+              key={dir}
+              type="button"
+              disabled={movableVia(overnightFlags, i, dir) < 0}
+              onClick={() => onMove(i, dir)}
+              aria-label={`Move ${stop.label} ${dir < 0 ? "earlier" : "later"}`}
+              className="shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-30"
+            >
+              {dir < 0 ? "↑" : "↓"}
+            </button>
+          ))}
           <button
             type="button"
             onClick={() => onRemove(i)}
