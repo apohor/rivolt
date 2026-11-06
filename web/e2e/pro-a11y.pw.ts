@@ -217,3 +217,35 @@ for (const [state, me] of [["free", FREE], ["subscribed (Apple)", APPLE], ["subs
     await ctx.close();
   });
 }
+
+// Forward Tab reaches every control of the sheet in order and wraps (qa: on WebKit it stuck on Close). Our own Tab order, so it holds in every browser.
+test("Pro: forward and backward Tab visit every stop of the sheet in order", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await as(page, FREE);
+  await page.goto("/settings#plan");
+  await page.getByRole("button", { name: "See Pro" }).first().click();
+  const sheet = page.locator("[data-pro-sheet]");
+  await sheet.getByText("Yearly").click();
+  await sheet.getByRole("checkbox").check();
+  await sheet.getByRole("button", { name: "Close" }).focus();
+  const name = () => page.evaluate(() => {
+    const a = document.activeElement as HTMLElement | null;
+    return a ? `${a.tagName}:${(a.getAttribute("aria-label") || a.textContent || (a as HTMLInputElement).type || "").trim().slice(0, 24)}` : "none";
+  });
+  const forward: string[] = [await name()];
+  for (let i = 0; i < 14; i++) {
+    await page.keyboard.press("Tab");
+    expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+    forward.push(await name());
+  }
+  const distinct = new Set(forward);
+  expect(distinct.size, `Tab keeps moving: ${forward.join(" > ")}`).toBeGreaterThanOrEqual(6);
+  expect([...distinct].some((x) => x.startsWith("INPUT:checkbox") || x.includes("checkbox")), "the consent box is reachable").toBe(true);
+  expect([...distinct].some((x) => x.includes("Subscribe")), "Subscribe is reachable").toBe(true);
+  // And backwards from Close lands on the last stop, not outside.
+  await sheet.getByRole("button", { name: "Close" }).focus();
+  await page.keyboard.press("Shift+Tab");
+  expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await ctx.close();
+});
