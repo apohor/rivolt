@@ -281,7 +281,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				vias = append(vias, rivian.ViaPoint{Lat: wp.Latitude, Lon: wp.Longitude, EntityID: wp.EntityID})
 			}
 		}
-		resp := tripPlanResponse{TripPlan: rivian.LabelStops(plan, vias, false), FromPosition: fromPos, FarFuture: farFuture}
+		resp := tripPlanResponse{TripPlan: withGeometry(r.Context(), rivian.LabelStops(plan, vias, false), routeOptsOf(req.RoutePreferences.toRivian())), FromPosition: fromPos, FarFuture: farFuture}
 		if n := len(in.Waypoints); n > 0 {
 			resp.DestinationTZ = zonelookup.For(in.Waypoints[n-1].Latitude, in.Waypoints[n-1].Longitude) // the last waypoint is the destination
 		}

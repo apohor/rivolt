@@ -34,8 +34,8 @@ import (
 
 // RoutePointRefusals are the rivolt_route_point_refused_total "where" values, all created at 0 at boot: fix_offglobe (a position off the
 // globe), fill_globe (a route-fill with such a vertex, caught by the recorder), fill_offglobe and fill_detour (the routing engine's shape
-// failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line).
-var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip"}
+// failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line), plan_offglobe and plan_detour (a served plan's line failed the same checks and was left out).
+var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip", "plan_offglobe", "plan_detour"}
 
 // TripPlanLegResults are the rivolt_trip_plan_legs_total results, all created at 0 at boot.
 var TripPlanLegResults = []string{"hit", "miss", "quota", "error"}

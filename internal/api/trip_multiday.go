@@ -389,7 +389,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			for _, v := range d.Vias {
 				vias = append(vias, rivian.ViaPoint{Lat: v.Latitude, Lon: v.Longitude, EntityID: v.EntityID})
 			}
-			day.Day.Plan = rivian.LabelStops(d.Plan, vias, d.Overnight != nil)
+			day.Day.Plan = withGeometry(r.Context(), rivian.LabelStops(d.Plan, vias, d.Overnight != nil), routeOptsOf(req.RoutePreferences.toRivian()))
 			resp.Days = append(resp.Days, day)
 		}
 		if out.FailedDay > 0 {

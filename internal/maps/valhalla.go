@@ -223,6 +223,51 @@ func decodePolyline(s string, scale float64) [][2]float64 {
 	return out
 }
 
+// RouteChecked is Route with the shape guard applied to every leg: a leg whose shape is off the globe or nowhere near its two ends (a polyline
+// decoded at the wrong precision, or garbled) is refused with a *BadShapeError instead of being drawn. Use it where the line is shown or kept.
+func (v *Valhalla) RouteChecked(ctx context.Context, locs [][2]float64, opts RouteOpts) (Route, error) {
+	r, err := v.Route(ctx, locs, opts)
+	if err != nil {
+		return Route{}, err
+	}
+	for i, leg := range r.Legs {
+		if err := checkShape(leg.Shape, locs[i], locs[i+1]); err != nil {
+			return Route{}, err
+		}
+	}
+	return r, nil
+}
+
+// EncodePolyline6 encodes (lat, lon) pairs as a Google-format polyline at precision 6 (1e-6 degrees), the format Valhalla speaks and
+// DecodePolyline6 reads. Nothing is dropped or rounded beyond the precision.
+func EncodePolyline6(pts [][2]float64) string { return encodePolyline(pts, 1e6) }
+
+// DecodePolyline6 decodes a precision-6 polyline.
+func DecodePolyline6(s string) [][2]float64 { return decodePolyline(s, 1e6) }
+
+func encodePolyline(pts [][2]float64, scale float64) string {
+	var b []byte
+	var pLat, pLon int64
+	put := func(v int64) {
+		v <<= 1
+		if v < 0 {
+			v = ^v
+		}
+		for v >= 0x20 {
+			b = append(b, byte((0x20|(v&0x1f))+63))
+			v >>= 5
+		}
+		b = append(b, byte(v+63))
+	}
+	for _, p := range pts {
+		lat, lon := int64(math.Round(p[0]*scale)), int64(math.Round(p[1]*scale))
+		put(lat - pLat)
+		put(lon - pLon)
+		pLat, pLon = lat, lon
+	}
+	return string(b)
+}
+
 // RouteOpts are the routing preferences Route honours.
 type RouteOpts struct {
 	AvoidTolls    bool
