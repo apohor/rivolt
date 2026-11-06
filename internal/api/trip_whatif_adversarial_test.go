@@ -99,17 +99,18 @@ func TestWhatIfAdvAnEndlessBodyIsCutAtTheCap(t *testing.T) {
 	}
 }
 
-// 1 (trailing garbage) and 10 (unknown fields): pinned as they are, so a change is deliberate.
-func TestWhatIfAdvTrailingGarbageAndUnknownFieldsArePinned(t *testing.T) {
+// 1 (trailing data) and 10 (unknown fields): a second JSON value after the request is refused; an unknown field is ignored.
+func TestWhatIfAdvTrailingDataIsRefusedAndUnknownFieldsAreIgnored(t *testing.T) {
 	h := handleTripWhatIf(&whatIfFake{}, nil)
 	good, _ := json.Marshal(map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 34.5, -118), "surprise": 1})
 	if rec := advPost(h, string(good)); rec.Code != http.StatusOK {
 		t.Errorf("an unknown field: %d", rec.Code)
 	}
-	if rec := advPost(h, string(good)+` {"x":1}`); rec.Code != http.StatusOK {
-		t.Logf("FINDING (low): a second JSON value after the request is now refused (%d)", rec.Code)
-	} else {
-		t.Log("FINDING (low): trailing data after the JSON request is ignored, not refused")
+	if rec := advPost(h, string(good)+` {"x":1}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("trailing data after the request: %d, want 400", rec.Code)
+	}
+	if rec := advPost(h, string(good)+"  \n"); rec.Code != http.StatusOK {
+		t.Errorf("trailing whitespace: %d, want 200", rec.Code)
 	}
 }
 
@@ -126,7 +127,7 @@ func TestWhatIfAdvSourceValues(t *testing.T) {
 	plan[0].Source, plan[4].Source = "destination", "origin" // swapped ends
 	b, _ = json.Marshal(map[string]any{"stops": plan, "edit": addEdit(1, 34.5, -118)})
 	if rec := advPost(h, string(b)); rec.Code == http.StatusOK {
-		t.Log("FINDING (low): the first and last stops' sources are not checked; swapped origin and destination are answered")
+		t.Log("pinned (DA accepted): the first and last stops' sources are not checked; the endpoint is stateless and nothing is stored")
 	}
 }
 
@@ -186,13 +187,19 @@ func TestWhatIfAdvAbsurdTimesAndNumbersDoNotBreakTheAnswer(t *testing.T) {
 	}
 }
 
-// 9: target_arrival_soc_percent is not validated here (the planner endpoint refuses it outside 0 to 100). Pin it.
-func TestWhatIfAdvTargetArrivalSoCIsUnvalidated(t *testing.T) {
+// 9: target_arrival_soc_percent is validated to 0 to 100 like the plan endpoint's: a negative target must never silently suppress a warning.
+func TestWhatIfAdvTargetArrivalSoCIsValidated(t *testing.T) {
 	h := handleTripWhatIf(&whatIfFake{}, nil)
-	for _, v := range []float64{-50, 500} {
+	for _, v := range []float64{-50, -0.1, 100.1, 500} {
 		b, _ := json.Marshal(map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 36.5, -119.5), "target_arrival_soc_percent": v})
-		if rec := advPost(h, string(b)); rec.Code == http.StatusOK {
-			t.Logf("FINDING (low): target_arrival_soc_percent %v is accepted; the plan endpoint refuses it outside 0 to 100", v)
+		if rec := advPost(h, string(b)); rec.Code != http.StatusBadRequest {
+			t.Errorf("target %v: %d, want 400", v, rec.Code)
+		}
+	}
+	for _, v := range []float64{0, 10, 100} {
+		b, _ := json.Marshal(map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 36.5, -119.5), "target_arrival_soc_percent": v})
+		if rec := advPost(h, string(b)); rec.Code != http.StatusOK {
+			t.Errorf("target %v: %d, want 200", v, rec.Code)
 		}
 	}
 }
@@ -350,24 +357,35 @@ func TestWhatIfAdvRouterOddities(t *testing.T) {
 	}
 }
 
-// 16 / 27: a very long edited stretch (a far via on a long route) has a bounded line. FINDING if not: #1569 thins and caps the plan's lines, but
-// this answer encodes the raw shape.
+// 16 / 27: a very long edited stretch (a far via on a long route) has a bounded line, thinned like the plan's (it was the raw shape: 240,000
+// points, about 900 KB, before the fix).
 func TestWhatIfAdvTheServedLineIsBounded(t *testing.T) {
-	n := 120_000
-	shape := make([][2]float64, n)
-	for i := range shape {
-		f := float64(i) / float64(n-1)
-		shape[i] = [2]float64{34 + 5*f, -118 + 0.01*math.Sin(f*500)}
-	}
-	code, out := runWhatIf(t, advShapeRouter{shape: shape}, nil, map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 34.5, -118)})
+	// 120,000 vertices a leg between the real ends of each leg (a wobbling synthetic road), two legs on the new side.
+	r := &longGeoRouter{fakeGeoRouter: fakeGeoRouter{enabled: true}, pts: 120_000}
+	code, out := runWhatIf(t, r, nil, map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 34.5, -118)})
 	if code != http.StatusOK {
 		t.Fatal(code)
 	}
 	g, _ := out["geometry"].(string)
 	pts := maps.DecodePolyline6(g)
-	t.Logf("served %d points / %d bytes for a %d-point shape", len(pts), len(g), 2*n)
-	if len(pts) > advGeometryCap {
-		t.Errorf("FINDING: the what-if line has %d points (%d bytes), the plan's cap is %d", len(pts), len(g), advGeometryCap)
+	t.Logf("served %d points / %d bytes for two legs of %d points", len(pts), len(g), r.pts)
+	if len(pts) < 3 {
+		t.Fatalf("no line served: %v", out["estimated"])
+	}
+	if len(pts) > maxGeometryPoints {
+		t.Errorf("the what-if line has %d points (%d bytes), the plan's cap is %d", len(pts), len(g), maxGeometryPoints)
+	}
+	if pts[0] != [2]float64{34, -118} {
+		t.Errorf("the line does not start at the stop before the edit: %v", pts[0])
+	}
+}
+
+// The guard runs on the thinned legs: a leg that wanders far from its ends is refused and the answer is the flagged estimate.
+func TestWhatIfAdvAStrayingLineIsRefusedAfterThinning(t *testing.T) {
+	r := &longGeoRouter{fakeGeoRouter: fakeGeoRouter{enabled: true}, pts: 2000, stray: true}
+	_, out := runWhatIf(t, r, nil, map[string]any{"stops": whatIfPlan(), "edit": addEdit(1, 34.5, -118)})
+	if out["estimated"] != true || out["geometry"] != nil {
+		t.Errorf("a straying line was served: %v", out)
 	}
 }
 
@@ -379,6 +397,3 @@ func TestWhatIfAdvErrorsAreNotEchoed(t *testing.T) {
 		t.Errorf("a router error leaked into the answer: %s", s)
 	}
 }
-
-// advGeometryCap is the plan geometry's per-route cap from #1569 (4,000 points); the same cap is the yardstick for this answer's line.
-const advGeometryCap = 4000

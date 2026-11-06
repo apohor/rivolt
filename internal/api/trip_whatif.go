@@ -102,7 +102,8 @@ type whatIfRoute struct {
 func handleTripWhatIf(router geometryRouter, m *metrics.Metrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req whatIfRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, whatIfBodyMax)).Decode(&req); err != nil {
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, whatIfBodyMax))
+		if err := dec.Decode(&req); err != nil || dec.More() {
 			badRequest(w, "invalid body")
 			return
 		}
@@ -136,6 +137,9 @@ func (q *whatIfRequest) sides() (old, nw [][2]float64, p, n int, err error) {
 		if s.Source == "" && i == 0 {
 			q.Stops[i].Source = "origin"
 		}
+	}
+	if q.TargetArrivalSocPercent != nil && !validTargetPct(*q.TargetArrivalSocPercent) {
+		return nil, nil, 0, 0, errors.New("target_arrival_soc_percent must be between 0 and 100")
 	}
 	e := q.Edit
 	pt := func(i int) [2]float64 { return [2]float64{q.Stops[i].Lat, q.Stops[i].Lon} }
@@ -205,15 +209,23 @@ func routeOne(ctx context.Context, router geometryRouter, locs [][2]float64, opt
 	if len(rt.Legs) > 0 {
 		out.firstSec = rt.Legs[0].TimeSec
 	}
+	shapes := make([][][2]float64, len(rt.Legs))
 	for k, leg := range rt.Legs {
 		out.m += leg.LengthMeters
 		out.sec += leg.TimeSec
-		shape := leg.Shape
-		if k > 0 && len(shape) > 0 {
-			shape = shape[1:]
-		}
-		out.line = append(out.line, shape...)
+		shapes[k] = leg.Shape
 	}
+	// The served line is thinned and capped like a plan's (the same tolerance and cap), and checked again with the same guard: an edit with
+	// a far via is a long road, and this answer is asked for on every pause of a drag.
+	thin := maps.SimplifyLegs(shapes, geometryToleranceM, maxGeometryPoints)
+	for k, shape := range thin {
+		if k+1 < len(locs) {
+			if err := maps.CheckShape(shape, locs[k], locs[k+1]); err != nil {
+				return whatIfRoute{}, err
+			}
+		}
+	}
+	out.line = maps.JoinLegs(thin)
 	return out, nil
 }
 
