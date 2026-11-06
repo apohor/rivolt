@@ -4,6 +4,8 @@ import XCTest
 /// Against the server's own fixtures (backend's #1367 and #1369), so a drift in the plan fields or the 402 bodies fails the build.
 final class ProPaywallTests: XCTestCase {
     private func d(_ s: String) -> Date { JSON.parseDate(s)! }
+    /// The calendar date the server names (B8), as the card holds it: local noon of that date, which formats to that date in any zone.
+    private func cal(_ s: String) -> Date { PlanLogic.calendarDate(s)! }
     private func me(_ name: String) throws -> AuthUser { try Fixture.decode(AuthUser.self, name) }
 
     func testBillingOffTheDemoAndAnAbsentPlanMeanNoPlanScreens() throws {
@@ -26,19 +28,19 @@ final class ProPaywallTests: XCTestCase {
     func testTheStatesAreToldApartFromTheFixtures() throws {
         XCTAssertEqual(PlanLogic.state(try me("me_plan_free")), .free)
         // No trial any more: an old trial row reads as Pro granted to the account.
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_trial")), .pro(source: "grant", periodEnd: d("2026-11-14T12:00:00Z")))
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: d("2026-12-01T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_trial")), .pro(source: "grant", periodEnd: cal("2026-11-14")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: cal("2026-12-01")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_apple")), .pro(source: "apple", periodEnd: d("2026-12-01T00:00:00Z")))
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_founding")), .pro(source: "founding", periodEnd: d("2027-11-01T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_founding")), .pro(source: "founding", periodEnd: cal("2027-11-01")))
         XCTAssertEqual(try me("me_plan_free").historyDays, 90)
         XCTAssertNil(try me("me_plan_founding").historyDays)
     }
 
     func testACancelledPlanAndAFailedPaymentAreTheirOwnStates() throws {
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_cancelled")), .cancelled(source: "stripe", until: d("2026-12-01T00:00:00Z")))
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_grace")), .paymentFailed(source: "stripe", until: d("2026-12-08T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_cancelled")), .cancelled(source: "stripe", until: cal("2026-12-01")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_grace")), .paymentFailed(source: "stripe", until: cal("2026-12-08")))
         // Healthy plans carry neither key as a value.
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: d("2026-12-01T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: cal("2026-12-01")))
         // A founding or granted plan is never "cancelled", whatever the field says.
         let founding = try JSON.decoder().decode(AuthUser.self, from: Data(#"{"username":"a","plan":"pro","plan_source":"founding","plan_cancels_at":"2027-01-01T00:00:00Z","billing_enabled":true}"#.utf8))
         XCTAssertEqual(PlanLogic.state(founding), .pro(source: "founding", periodEnd: nil))
@@ -54,7 +56,7 @@ final class ProPaywallTests: XCTestCase {
     }
 
     func testALapseComesFromPlanEndedAt() throws {
-        XCTAssertEqual(PlanLogic.state(try me("me_plan_lapsed")), .lapsed(endedOn: d("2026-10-01T00:00:00Z"), source: "stripe"))
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_lapsed")), .lapsed(endedOn: cal("2026-10-01"), source: "stripe"))
     }
 
     func testThePaywallStatesThePriceAndTheRenewalBeforeTheButtonAndPromisesNoTrial() {
@@ -145,5 +147,20 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertEqual(DemoLinks.forNote(limit: .proRequired, message: ProCopy.savedTripsLimit()), [DemoLinks.planner])
         XCTAssertEqual(DemoLinks.forNote(limit: .outsideFreeWindow, message: nil), [DemoLinks.history, DemoLinks.trends])
         XCTAssertTrue(DemoLinks.forNote(limit: .proRequired, message: ProCopy.vehicleLimit).isEmpty)
+    }
+
+    /// B8: 2026-12-01T00:00:00Z is Nov 30 in Pacific; Stripe's Portal says December 1, and so must the card, in any zone.
+    func testTheCardShowsTheServersUTCDateNotTheInstantInTheDevicesZone() throws {
+        let cancelled = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_cancelled"))))
+        XCTAssertTrue(cancelled.line.contains("December 1, 2026"), cancelled.line)
+        XCTAssertFalse(cancelled.line.contains("November 30"), cancelled.line)
+        // Apple's date is the device's own: the instant, formatted on the device.
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_apple")), .pro(source: "apple", periodEnd: d("2026-12-01T00:00:00Z")))
+        // An older server that sends no dates keeps working from the instants.
+        var old = try me("me_plan_subscriber")
+        old.planDateBasis = nil
+        old.planPeriodEndDate = nil
+        XCTAssertEqual(PlanLogic.state(old), .pro(source: "stripe", periodEnd: d("2026-12-01T00:00:00Z")))
+        XCTAssertEqual(PlanLogic.date(cal("2026-12-01")), "December 1, 2026")
     }
 }
