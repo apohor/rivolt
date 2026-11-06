@@ -42,6 +42,19 @@ var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe",
 // enrich_load reads the user's vehicle profile, charging settings, networks and own rates; enrich is the weather adjustment and the costs.
 var TripPlanStages = []string{"geometry", "enrich_load", "enrich"}
 
+// BillingRouteStatuses are the (route, statuses) of rivolt_http_requests_total created at 0 at boot, POST only: the billing routes whose first error
+// must not go unseen. A counter series is born at its first request, at 1, and increase() or rate() over a series that starts at 1 sees no change:
+// the first 4xx or 5xx on a freshly started pod was invisible to the Stripe webhook panel and to RivoltStripeWebhook5xx / RivoltBillingStartFailing
+// (found in flip rehearsal 2). With the series at 0 from boot the first error is an increase. A status not listed here is still counted, but its
+// first request per pod is not visible to increase(); keep the list in step with the statuses those alerts and panels watch (4.. and 5..).
+var BillingRouteStatuses = map[string][]string{
+	"/api/billing/stripe/webhook":      {"400", "401", "403", "500", "502", "503", "504"},
+	"/api/billing/apple/notifications": {"400", "500", "503"},
+	"/api/billing/checkout":            {"400", "402", "403", "409", "500", "502", "503"},
+	"/api/billing/portal":              {"400", "403", "409", "500", "502", "503"},
+	"/api/billing/apple/transaction":   {"400", "403", "409", "500", "503"},
+}
+
 // TripPlanLegResults are the rivolt_trip_plan_legs_total results, all created at 0 at boot.
 var TripPlanLegResults = []string{"hit", "miss", "quota", "error"}
 
@@ -883,6 +896,11 @@ func New() *Metrics {
 	}
 	for _, stage := range TripPlanStages { // the series exist from boot
 		m.TripPlanStageSeconds.WithLabelValues(stage)
+	}
+	for route, statuses := range BillingRouteStatuses { // the first error on a fresh pod is an increase (see BillingRouteStatuses)
+		for _, status := range statuses {
+			m.HTTPRequestsTotal.WithLabelValues("POST", route, status).Add(0)
+		}
 	}
 	for _, result := range TripPlanLegResults { // the first quota refusal or error is an increase
 		m.TripPlanLegsTotal.WithLabelValues(result).Add(0)
