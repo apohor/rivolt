@@ -86,12 +86,10 @@ struct DetentSheet<Header: View, Content: View>: View {
             .gesture(dragGesture, including: detent == .full ? .subviews : .all)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: full, alignment: .top)
+        .frame(height: shown, alignment: .top)
         .background(Theme.card, in: UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20, style: .continuous))
         .overlay(UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .shadow(color: .black.opacity(0.25), radius: 12, y: -2)
-        .offset(y: full - shown)
-        .frame(height: shown, alignment: .top)
         .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
