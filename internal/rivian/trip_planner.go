@@ -166,6 +166,13 @@ type PlannedWaypoint struct {
 	// origin · +120 mi from prev" columns in the SPA stops table.
 	// Zero on legacy response shapes that don't include the field.
 	DistanceFromOriginMeters float64
+	// Source says where this stop came from: "origin", "destination", "via" (a place the request asked to pass), "planner" (a charging stop the
+	// planner chose) or "overnight" (the end of a multi-day day that stays the night). Set by LabelStops when the plan is served. For a via,
+	// ViaIndex is its 0-based index among the request's vias and ViaEntityID the entity id the request attached to it (echoed; Rivian never
+	// sees it: only coordinates go upstream).
+	Source      string `json:"Source,omitempty"`
+	ViaIndex    *int   `json:"ViaIndex,omitempty"`
+	ViaEntityID string `json:"ViaEntityID,omitempty"`
 }
 
 // PlanTrip runs the gateway's planTripWithMultiStop operation and

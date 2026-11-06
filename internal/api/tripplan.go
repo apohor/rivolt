@@ -275,7 +275,13 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			writeUpstreamError(w, err)
 			return
 		}
-		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos, FarFuture: farFuture}
+		var vias []rivian.ViaPoint
+		if n := len(in.Waypoints); n > 2 {
+			for _, wp := range in.Waypoints[1 : n-1] {
+				vias = append(vias, rivian.ViaPoint{Lat: wp.Latitude, Lon: wp.Longitude, EntityID: wp.EntityID})
+			}
+		}
+		resp := tripPlanResponse{TripPlan: rivian.LabelStops(plan, vias, false), FromPosition: fromPos, FarFuture: farFuture}
 		if n := len(in.Waypoints); n > 0 {
 			resp.DestinationTZ = zonelookup.For(in.Waypoints[n-1].Latitude, in.Waypoints[n-1].Longitude) // the last waypoint is the destination
 		}
