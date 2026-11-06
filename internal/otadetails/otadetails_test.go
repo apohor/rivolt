@@ -15,10 +15,11 @@ import (
 )
 
 type fakeStore struct {
-	ids     []string
-	due     map[string]bool // claim result per vehicle
-	claimed []string
-	saved   []string
+	ids      []string
+	due      map[string]bool // claim result per vehicle
+	claimed  []string
+	saved    []string
+	released []string
 	// unavailable records MarkUnavailable calls.
 	unavailable []string
 	notices     map[string]bool
@@ -30,6 +31,10 @@ func (f *fakeStore) Claim(_ context.Context, _ uuid.UUID, id string, _ time.Dura
 }
 func (f *fakeStore) Save(_ context.Context, _ uuid.UUID, id string, _ *rivian.OTAInfo) error {
 	f.saved = append(f.saved, id)
+	return nil
+}
+func (f *fakeStore) Release(_ context.Context, _ uuid.UUID, id string) error {
+	f.released = append(f.released, id)
 	return nil
 }
 func (f *fakeStore) MarkUnavailable(_ context.Context, _ uuid.UUID, id string) error {
@@ -226,5 +231,33 @@ func TestAnnounceWithoutNotifierOrInfoIsNoOp(t *testing.T) {
 	s.announce(context.Background(), uuid.New(), "v1", nil)
 	if len(st.notices) != 0 {
 		t.Errorf("recorded %v", st.notices)
+	}
+}
+
+// A fetch refused by the shared budget never reached Rivian: the claim goes back, so the vehicle is due at the next sweep. A real Rivian
+// error keeps the claim (the 23-hour gap, so we don't hammer), and a success is unchanged.
+func TestSyncUserGivesTheClaimBackOnlyWhenTheBudgetRefused(t *testing.T) {
+	st := &fakeStore{ids: []string{"a"}, due: map[string]bool{"a": true}}
+	acct := &fakeAcct{errOn: "a", err: &rivian.ErrRateLimited{RetryAfter: time.Second}}
+	s, _ := newTest(st, acct)
+	if _, err := s.SyncUser(context.Background(), uuid.New()); err == nil {
+		t.Fatal("a refused fetch should still be reported")
+	}
+	if strings.Join(st.released, ",") != "a" {
+		t.Errorf("released = %v, want the refused vehicle", st.released)
+	}
+
+	st = &fakeStore{ids: []string{"a"}, due: map[string]bool{"a": true}}
+	acct = &fakeAcct{errOn: "a", err: errors.New("upstream paused")}
+	s, _ = newTest(st, acct)
+	_, _ = s.SyncUser(context.Background(), uuid.New())
+	if len(st.released) != 0 {
+		t.Errorf("a real Rivian error released the claim: %v", st.released)
+	}
+
+	st = &fakeStore{ids: []string{"a"}, due: map[string]bool{"a": true}}
+	s, _ = newTest(st, &fakeAcct{})
+	if n, err := s.SyncUser(context.Background(), uuid.New()); err != nil || n != 1 || len(st.released) != 0 || strings.Join(st.saved, ",") != "a" {
+		t.Errorf("success: n %d err %v released %v saved %v", n, err, st.released, st.saved)
 	}
 }

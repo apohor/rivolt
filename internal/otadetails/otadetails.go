@@ -40,6 +40,8 @@ type store interface {
 	Claim(ctx context.Context, uid uuid.UUID, rivianID string, minInterval time.Duration) (bool, error)
 	Save(ctx context.Context, uid uuid.UUID, rivianID string, info *rivian.OTAInfo) error
 	MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID string) error
+	// Release gives the claim back when the fetch was refused before it reached Rivian (the shared budget): the vehicle is due at the next sweep.
+	Release(ctx context.Context, uid uuid.UUID, rivianID string) error
 	Vehicles(ctx context.Context, uid uuid.UUID) ([]string, error)
 	// Seed records a vehicle's first-seen versions as the silent baseline
 	// (true only the first time); ClaimNotice reports whether an alert for
@@ -74,6 +76,10 @@ func (p *pgStore) Save(ctx context.Context, uid uuid.UUID, rivianID string, info
 		return err
 	}
 	return db.SetVehicleOTA(ctx, p.d, uid, rivianID, raw)
+}
+
+func (p *pgStore) Release(ctx context.Context, uid uuid.UUID, rivianID string) error {
+	return db.ReleaseOTAFetch(ctx, p.d, uid, rivianID)
 }
 
 func (p *pgStore) MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID string) error {
@@ -255,6 +261,14 @@ func (s *Syncer) SyncUser(ctx context.Context, uid uuid.UUID) (int, error) {
 				s.logger.Info("ota details: not available for this vehicle, backing off a week",
 					"user_id", uid.String(), "code", rivian.ErrCode(err), "err", describe(err))
 				continue
+			}
+			// Refused by the shared budget before the call reached Rivian (every vehicle seeds at a handover): that is not an attempt, so
+			// the claim goes back and the next sweep tries again, not a day later. A real Rivian error keeps the claim, so we don't hammer.
+			var rl *rivian.ErrRateLimited
+			if errors.As(err, &rl) {
+				if rerr := s.st.Release(ctx, uid, id); rerr != nil {
+					s.logger.Warn("ota details: could not give the claim back", "user_id", uid.String(), "err", rerr.Error())
+				}
 			}
 			return fetched, err
 		}

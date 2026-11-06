@@ -49,6 +49,23 @@ func TestVehicleOTAStoreAndClaim(t *testing.T) {
 	if ok, _ := db.ClaimOTAFetch(ctx, pool, uid, "rv-missing", 0); ok {
 		t.Error("claimed a vehicle that does not exist")
 	}
+	// A claim whose Rivian call never happened is given back: the vehicle is due again at once, inside the window; another user's release
+	// does nothing; releasing twice is harmless.
+	if ok, _ := db.ClaimOTAFetch(ctx, pool, uid, "rv-1", time.Hour); ok {
+		t.Fatal("setup: the claim above should still be inside its window")
+	}
+	if err := db.ReleaseOTAFetch(ctx, pool, other, "rv-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReleaseOTAFetch(ctx, pool, uid, "rv-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReleaseOTAFetch(ctx, pool, uid, "rv-1"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.ClaimOTAFetch(ctx, pool, uid, "rv-1", time.Hour); err != nil || !ok {
+		t.Errorf("after a release the vehicle should be due: ok=%v err=%v", ok, err)
+	}
 
 	ota := json.RawMessage(`{"current":{"version":"2026.30.0","has_notes":true},"available":{"version":"2026.38.1"},"fetched_at":"2026-10-17T10:00:00Z"}`)
 	if err := db.SetVehicleOTA(ctx, pool, uid, "rv-1", ota); err != nil {
