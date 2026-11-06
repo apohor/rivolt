@@ -499,16 +499,46 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	if len(path) < 2 {
 		return nil, nil
 	}
+	if filter == "" {
+		filter = FilterDCFC
+	}
+	hits, _, err := a.corridorHits(path, func(p POI) bool { return p.matches(filter) }, opts)
+	if err != nil {
+		return nil, err
+	}
+	pois := make([]POI, len(hits))
+	for i, h := range hits {
+		pois[i] = h.POI
+	}
+	// Sort by lon then lat so the output is deterministic for
+	// caching and easier to diff in tests.
+	sort.SliceStable(pois, func(i, j int) bool {
+		if pois[i].Lon != pois[j].Lon {
+			return pois[i].Lon < pois[j].Lon
+		}
+		return pois[i].Lat < pois[j].Lat
+	})
+	return pois, nil
+}
+
+// corridorHit is a station inside the corridor with where it sits against the route.
+type corridorHit struct {
+	POI
+	alongM float64 // meters from the route's start to the closest point on it
+	offM   float64 // meters from the route to the station
+}
+
+func (a *Archive) corridorHits(path [][2]float64, match func(POI) bool, opts QueryCorridorOptions) ([]corridorHit, projectedPath, error) {
+	if len(path) < 2 {
+		return nil, projectedPath{}, nil
+	}
 	trimM := opts.EndpointTrimMeter
 	if trimM <= 0 {
 		trimM = endpointTrimMeters
 	}
-	if filter == "" {
-		filter = FilterDCFC
-	}
 	path, box, err := planCorridor(path, opts.CorridorKm)
 	if err != nil {
-		return nil, err
+		return nil, projectedPath{}, err
 	}
 	corridorKM := box.corridorKM
 	ctx := opts.Context
@@ -524,7 +554,7 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	// hundreds of thousands of tiles and the route a few thousand near it: decoding every station in the box and testing
 	// each against every route segment is what made a coast-to-coast query cost seconds of CPU.
 	if err := ctx.Err(); err != nil {
-		return nil, err // a done context wins before the archive is touched
+		return nil, projectedPath{}, err // a done context wins before the archive is touched
 	}
 	idx := newPathIndex(proj)
 	a.mu.RLock()
@@ -560,7 +590,7 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	var (
 		wg     sync.WaitGroup
 		mu     sync.Mutex
-		chunks [][]POI
+		chunks [][]corridorHit
 		next   atomic.Int64
 	)
 	for w := 0; w < workers; w++ {
@@ -572,7 +602,7 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 				if i >= len(todo) {
 					return
 				}
-				pois, err := a.featuresInTile(chargersZoom, todo[i].x, todo[i].y, filter, proj, idx, trimM, corridorKM*1000, opts)
+				pois, err := a.featuresInTile(chargersZoom, todo[i].x, todo[i].y, match, proj, idx, trimM, corridorKM*1000, opts)
 				if err != nil || len(pois) == 0 {
 					continue
 				}
@@ -584,51 +614,43 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, projectedPath{}, err
 	}
 
 	// Dedup by EntityID; preserve first-seen.
 	seen := make(map[string]struct{}, 256)
-	pois := make([]POI, 0, 64)
+	hits := make([]corridorHit, 0, 64)
 	for _, chunk := range chunks {
-		for _, p := range chunk {
-			key := p.EntityID
+		for _, h := range chunk {
+			key := h.EntityID
 			if key == "" {
 				// Fall back to coordinate-rounded key.
-				key = fmt.Sprintf("%.5f,%.5f", p.Lat, p.Lon)
+				key = fmt.Sprintf("%.5f,%.5f", h.Lat, h.Lon)
 			}
 			if _, dup := seen[key]; dup {
 				continue
 			}
 			seen[key] = struct{}{}
-			pois = append(pois, p)
+			hits = append(hits, h)
 		}
 	}
-	// Sort by lon then lat so the output is deterministic for
-	// caching and easier to diff in tests.
-	sort.SliceStable(pois, func(i, j int) bool {
-		if pois[i].Lon != pois[j].Lon {
-			return pois[i].Lon < pois[j].Lon
-		}
-		return pois[i].Lat < pois[j].Lat
-	})
-	return pois, nil
+	return hits, proj, nil
 }
 
 // featuresInTile decodes one MVT tile, projects each feature back
 // to WGS84, and returns the subset that passes the filter + corridor
 // distance check.
-func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, idx pathIndex, trimM, corridorM float64, opts QueryCorridorOptions) ([]POI, error) {
+func (a *Archive) featuresInTile(z uint8, x, y uint32, match func(POI) bool, proj projectedPath, idx pathIndex, trimM, corridorM float64, opts QueryCorridorOptions) ([]corridorHit, error) {
 	all, err := a.tilePOIs(z, x, y)
 	if err != nil {
 		return nil, err
 	}
-	pois := make([]POI, 0, 8)
+	pois := make([]corridorHit, 0, 8)
 	for _, poi := range all {
 		if opts.MinPowerKW > 0 && poi.MaxPowerKW > 0 && poi.MaxPowerKW < opts.MinPowerKW {
 			continue
 		}
-		if !poi.matches(filter) {
+		if !match(poi) {
 			continue
 		}
 		// Corridor distance + endpoint trim. +Inf = endpoint-
@@ -639,11 +661,11 @@ func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj proje
 		if !idx.near(proj, poi.Lat, poi.Lon, corridorM) {
 			continue // farther than the corridor from every segment: the exact test below would reject it
 		}
-		perp := proj.perpDistanceM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
+		perp, along := proj.projectM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
 		if perp == math.Inf(1) || perp > corridorM {
 			continue
 		}
-		pois = append(pois, poi)
+		pois = append(pois, corridorHit{POI: poi, alongM: along, offM: perp})
 	}
 	return pois, nil
 }
@@ -948,8 +970,14 @@ func projectPath(path [][2]float64) projectedPath {
 // projection falls within `trimM` of either endpoint and trim is
 // enabled.
 func (pp projectedPath) perpDistanceM(lat, lon, trimM float64, applyTrim bool) float64 {
+	d, _ := pp.projectM(lat, lon, trimM, applyTrim)
+	return d
+}
+
+// projectM is perpDistanceM and also the distance along the route (meters from its start) of the closest point.
+func (pp projectedPath) projectM(lat, lon, trimM float64, applyTrim bool) (perp, along float64) {
 	if len(pp.xs) < 2 {
-		return math.Inf(1)
+		return math.Inf(1), 0
 	}
 	// Project the candidate point with the SAME flat-earth scale the
 	// path used (pp.cosRef = cos of path-centroid lat). Using the
@@ -1000,17 +1028,17 @@ func (pp projectedPath) perpDistanceM(lat, lon, trimM float64, applyTrim bool) f
 		}
 	}
 	if bestEndpoint {
-		return math.Inf(1)
+		return math.Inf(1), bestAlong
 	}
 	if applyTrim {
 		if bestAlong < trimM {
-			return math.Inf(1)
+			return math.Inf(1), bestAlong
 		}
 		if pp.totalLn-bestAlong < trimM {
-			return math.Inf(1)
+			return math.Inf(1), bestAlong
 		}
 	}
-	return math.Sqrt(best)
+	return math.Sqrt(best), bestAlong
 }
 
 // lonToTileX / latToTileY: standard slippy-map TMS conversion.

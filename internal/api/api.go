@@ -934,6 +934,8 @@ func New(d Deps) http.Handler {
 			// the decoded POI list.
 			if d.ChargersArchive != nil {
 				r.With(ls.user("chargers-along", mapsChargersAlongPerMin).Middleware).Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
+				// The planner map's layers (chargers, hotels, campgrounds) along the whole route in one call, in route order.
+				r.With(ls.user("corridor-layers", mapsChargersAlongPerMin).Middleware).Post("/maps/corridor-layers", handleCorridorLayers(d.ChargersArchive))
 			}
 			// Onboarding — marks the first-run stepper as done for the
 			// current user. Called by the frontend when the user

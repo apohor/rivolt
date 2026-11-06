@@ -39,5 +39,6 @@ const routeBodyMax = 8 << 20
 // routes routeBodyMax instead.
 var routeBodyPaths = map[string]bool{
 	"/api/maps/chargers-along":        true,
+	"/api/maps/corridor-layers":       true,
 	"/api/trips/overnight-candidates": true,
 }
