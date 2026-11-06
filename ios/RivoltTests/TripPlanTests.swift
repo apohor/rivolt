@@ -542,6 +542,9 @@ extension TripPlanModelTests {
         XCTAssertEqual(m.vias.count, 1)
         await m.plan(source: src)
         XCTAssertTrue(m.vias.isEmpty)
+    }
+}
+
 final class TripPlanNoTruckTests: XCTestCase {
     func testNoTruckLinkedSaysToConnectRivianNotToEnterACharge() {
         let said = TripPlanLogic.failure(APIError.server(status: 400, message: "vehicle_id required (no vehicle linked to this user)"))
