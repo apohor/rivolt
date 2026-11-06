@@ -26,7 +26,7 @@ export function StopCard({
   onSelect,
   showLeg,
 }: {
-  kind: "start" | "stop" | "end";
+  kind: "start" | "stop" | "via" | "end";
   name: string;
   waypoint: Waypoint;
   prev?: Waypoint;
@@ -85,6 +85,13 @@ export function StopCard({
               {arr && <span>{arr}</span>}
               <span className="text-neutral-200">{Math.round(w.ChargeDurationSec / 60)}<Unit>min</Unit></span>
               {costText != null && <span className="text-neutral-200">{costText}</span>}
+            </>
+          )}
+          {kind === "via" && (
+            <>
+              <span className="rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-neutral-300">Your stop</span>
+              {arr && <span>{arr}</span>}
+              <span>The route passes through it</span>
             </>
           )}
           {kind === "end" && (
