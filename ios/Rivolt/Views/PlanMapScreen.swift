@@ -22,6 +22,7 @@ struct PlanMapScreen: View {
                     .overlay(alignment: .topLeading) { overlays }
                 if let c = model.pickedCharger {
                     PlanPinCallout(charger: c, offRoute: TripPlanLogic.offRouteLine(c.offKm.map { $0 * 1000 } ?? TripPlanLogic.offRouteMeters(lat: c.lat, lon: c.lon, line: model.roadLine), metric: metric),
+                                   previewLines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                    adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
                         .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
@@ -45,6 +46,9 @@ struct PlanMapScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        .onChange(of: model.pickedCharger?.id) { _, new in
+            if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }
+        }
         .sheet(isPresented: $showingNetworks) {
             PlannerNetworksSheet { Task { await model.replanKeepingStops(source: state.client) } }.followsAppearance()
         }
@@ -76,7 +80,7 @@ struct PlanMapScreen: View {
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
-                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias)
+                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine)
         }
     }
 
@@ -162,6 +166,16 @@ enum PlanSheetLogic {
             if !model.layerAsOf.isEmpty { parts.append("listing from \(model.layerAsOf)") }
             parts.append("not live")
             return parts.joined(separator: " · ")
+        }
+    }
+
+    /// The preview's lines for the picked pin (empty when it has not come, is not available, or the server is busy).
+    @MainActor static func previewLines(_ model: TripPlanModel, metric: Bool) -> [String] {
+        switch model.preview {
+        case .shown(let r):
+            return WhatIfLogic.lines(r, metric: metric, zone: TripPlanLogic.zone(model.plan?.destinationTz) ?? .current)
+        case .limited: return ["Too many previews just now. Adding the stop still works."]
+        default: return []
         }
     }
 
@@ -254,6 +268,9 @@ struct PlanLayerChips: View {
 struct PlanPinCallout: View {
     let charger: AlongCharger
     let offRoute: String?
+    /// What adding it would do (the what-if preview), as lines; empty until it arrives or where it is not available.
+    var previewLines: [String] = []
+    var previewing = false
     let adding: Bool
     let onAdd: () -> Void
     let onClose: () -> Void
@@ -269,6 +286,16 @@ struct PlanPinCallout: View {
                 Button(action: onClose) { Image(systemName: "xmark").frame(width: 44, height: 44) }
                     .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
                     .accessibilityLabel("Close")
+            }
+            if previewing { HStack(spacing: 6) { ProgressView().controlSize(.small).tint(Theme.textSecondary); Text("Working out what it adds…").themeText(.caption, color: Theme.textSecondary) } }
+            if !previewLines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(previewLines.enumerated()), id: \.offset) { i, line in
+                        Text(line).themeText(i == 0 ? .value : .caption, color: i == 0 ? Theme.textPrimary : (i == previewLines.count - 1 ? Theme.textTertiary : Theme.textSecondary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
             }
             Button(action: onAdd) { Text(adding ? "Adding…" : "Add as a stop").frame(maxWidth: .infinity) }
                 .buttonStyle(ThemeButtonStyle()).disabled(adding)

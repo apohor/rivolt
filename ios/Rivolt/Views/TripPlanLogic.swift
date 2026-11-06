@@ -427,3 +427,83 @@ struct PlanVia: Equatable, Identifiable {
     var entityID: String?
     var id: String { "\(lat),\(lon)" }
 }
+
+/// The what-if preview: building the request from the plan on screen, and the words for its answer (DA's rules: the change in time leads, a clock time is
+/// secondary and an estimate, charge is only a change, warnings are one-way, and the estimate is always said to be one).
+enum WhatIfLogic {
+    static let notice = "Estimate. Rivian will re-plan and may change charging stops and times."
+    static let roughNote = "Rough estimate: the routing was unavailable, so this is a straight-line guess."
+
+    /// The plan's stops as the preview takes them.
+    static func stops(_ route: TripRoute) -> [WhatIfStop] {
+        let n = route.waypoints.count
+        return route.waypoints.enumerated().compactMap { i, w in
+            guard let la = w.latitude, let lo = w.longitude else { return nil }
+            let source = w.source ?? (i == 0 ? "origin" : i == n - 1 ? "destination" : (w.isCharger ? "planner" : "via"))
+            return WhatIfStop(lat: la, lon: lo, source: source,
+                              arrivalAt: w.arrivalTimeUTC?.date.map { TripPlanLogic.rfc3339($0) }, arrivalSoc: w.arrivalSoC,
+                              departureAt: w.departureTimeUTC?.date.map { TripPlanLogic.rfc3339($0) }, departureSoc: w.departureSoC,
+                              distanceFromOriginM: w.distanceFromOriginMeters)
+        }
+    }
+
+    /// Where a new stop goes: before the first stop that the road line reaches after the point (never before the origin, always before the destination).
+    static func insertionIndex(stops: [WhatIfStop], point: RouteSnap.Coord, line: [RouteSnap.Coord]) -> Int {
+        guard stops.count >= 2 else { return 1 }
+        guard line.count >= 2 else { return stops.count - 1 }
+        func vertex(_ lat: Double, _ lon: Double) -> Int {
+            let p = RouteSnap.Point(lat: lat, lon: lon)
+            return line.indices.min { a, b in
+                RouteSnap.haversine(RouteSnap.Point(lat: line[a].lat, lon: line[a].lon), p) < RouteSnap.haversine(RouteSnap.Point(lat: line[b].lat, lon: line[b].lon), p)
+            } ?? 0
+        }
+        let at = vertex(point.lat, point.lon)
+        for i in 1..<stops.count where vertex(stops[i].lat, stops[i].lon) > at { return i }
+        return stops.count - 1
+    }
+
+    /// The request for adding a stop at `point` (nil when the plan has no usable stops).
+    static func addRequest(_ route: TripRoute, point: RouteSnap.Coord, line: [RouteSnap.Coord], target: Double?) -> WhatIfRequest? {
+        let s = stops(route)
+        guard s.count >= 2 else { return nil }
+        let t = target.map { min(100, max(0, $0)) }
+        return WhatIfRequest(stops: s, edit: WhatIfEdit(kind: "add", index: insertionIndex(stops: s, point: point, line: line), via: WhatIfPoint(lat: point.lat, lon: point.lon)),
+                             targetArrivalSocPercent: t)
+    }
+
+    /// "+12 min", "−5 min", "+1 h 5 min" (nil when the answer has no time).
+    static func signedDuration(_ sec: Double?) -> String? {
+        guard let sec, sec.isFinite else { return nil }
+        let minutes = Int((abs(sec) / 60).rounded())
+        let body = minutes >= 60 ? "\(minutes / 60) h \(minutes % 60 == 0 ? "" : "\(minutes % 60) min")".trimmingCharacters(in: .whitespaces) : "\(minutes) min"
+        return (sec < 0 ? "−" : "+") + body
+    }
+
+    /// The lines under a preview, in the order DA ruled: the change leads; then an optional clock time; then the charge as a change; then one-way warnings.
+    static func lines(_ r: WhatIfResponse, metric: Bool, zone: TimeZone) -> [String] {
+        var out: [String] = []
+        var lead: [String] = []
+        if let d = signedDuration(r.addedSec) { lead.append(d) }
+        if let m = r.addedM, m.isFinite { lead.append((m < 0 ? "−" : "+") + TripPlanLogic.distance(meters: abs(m), metric: metric)) }
+        if !lead.isEmpty { out.append(lead.joined(separator: " · ")) }
+        if r.estimated == true { out.append(roughNote) }
+        if let at = r.destination?.arrivalAt.flatMap({ JSON.parseDate($0) }) {
+            var f = Date.FormatStyle(timeZone: zone).hour().minute()
+            f.locale = .current
+            out.append("About \(at.formatted(f)) at the destination (estimate)")
+        }
+        if let drop = r.nextCharge?.socDropPts, drop >= 1 {
+            let target = r.nextCharge?.isDestination == true ? "the destination" : "the next charger"
+            out.append("About \(Int(drop.rounded())) points lower at \(target)")
+        }
+        for w in r.warnings ?? [] {
+            switch w {
+            case "may_not_reach_next_charge": out.append("May not reach the next charger (estimate)")
+            case "may_not_reach_destination": out.append("May not reach the destination (estimate)")
+            default: break
+            }
+        }
+        if !out.isEmpty { out.append(notice) }
+        return out
+    }
+}

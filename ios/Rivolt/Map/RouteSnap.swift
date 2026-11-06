@@ -272,6 +272,8 @@ enum RouteSnap {
         var stops: [Stop] = []
         /// The pin (index in `stops`) the person picked in the list, drawn larger in the accent colour.
         var focus: Int?
+        /// The edited stretch of a what-if preview, drawn dashed over the plan's line.
+        var preview: [Coord]?
         /// Frame these places instead of the whole drawing (the day the person picked); nil: everything.
         var fitTo: [Coord]?
         /// Fast chargers along the route the person asked to see, drawn small under the stops. A focus past the stops points here.

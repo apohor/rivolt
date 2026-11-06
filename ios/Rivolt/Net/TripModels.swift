@@ -60,7 +60,7 @@ struct TripRoute: Decodable, Equatable {
     var routePolyline: String?
 
     enum CodingKeys: String, CodingKey {
-        case routePolyline, destinationReached = "DestinationReached", totalChargingDurationSec = "TotalChargingDurationSec", totalDriveDurationSec = "TotalDriveDurationSec"
+        case routePolyline, geometry = "Geometry", destinationReached = "DestinationReached", totalChargingDurationSec = "TotalChargingDurationSec", totalDriveDurationSec = "TotalDriveDurationSec"
         case totalTripDurationSec = "TotalTripDurationSec", totalDriveDistanceMeters = "TotalDriveDistanceMeters", arrivalSoC = "ArrivalSoC"
         case energyConsumptionKWh = "EnergyConsumptionKWh", batteryEmptyToDestMeters = "BatteryEmptyToDestMeters", waypoints = "Waypoints"
     }
@@ -76,7 +76,9 @@ struct TripRoute: Decodable, Equatable {
         energyConsumptionKWh = try? c.decode(Double.self, forKey: .energyConsumptionKWh)
         batteryEmptyToDestMeters = try? c.decode(Double.self, forKey: .batteryEmptyToDestMeters)
         waypoints = (try? c.decode([TripWaypoint].self, forKey: .waypoints)) ?? []
-        routePolyline = try? c.decode(String.self, forKey: .routePolyline)
+        // The server's own line through every stop (polyline6) when it sent one; else the stored shape (the demo's).
+        let geometry = try? c.decode(String.self, forKey: .geometry)
+        routePolyline = (try? c.decode(String.self, forKey: .routePolyline)) ?? geometry
     }
 
     /// The charging stops, in order.
@@ -98,9 +100,12 @@ struct TripWaypoint: Decodable, Equatable, Identifiable {
     var arrivalTimeUTC: LenientDate?
     var departureTimeUTC: LenientDate?
     var distanceFromOriginMeters: Double?
+    /// Where the stop came from, set by the server: "origin", "destination", "via" (a place the request asked to pass), "planner" (a charging stop the
+    /// planner chose) or "overnight". Absent on plans stored before it existed.
+    var source: String?
 
     enum CodingKeys: String, CodingKey {
-        case waypointType = "WaypointType", entityID = "EntityID", name = "Name", latitude = "Latitude", longitude = "Longitude"
+        case source = "Source", waypointType = "WaypointType", entityID = "EntityID", name = "Name", latitude = "Latitude", longitude = "Longitude"
         case maxPowerKW = "MaxPowerKW", chargeDurationSec = "ChargeDurationSec", arrivalSoC = "ArrivalSoC", departureSoC = "DepartureSoC"
         case adapterRequired = "AdapterRequired", arrivalTimeUTC = "ArrivalTimeUTC", departureTimeUTC = "DepartureTimeUTC"
         case distanceFromOriginMeters = "DistanceFromOriginMeters"
@@ -121,6 +126,7 @@ struct TripWaypoint: Decodable, Equatable, Identifiable {
         arrivalTimeUTC = try? c.decode(LenientDate.self, forKey: .arrivalTimeUTC)
         departureTimeUTC = try? c.decode(LenientDate.self, forKey: .departureTimeUTC)
         distanceFromOriginMeters = try? c.decode(Double.self, forKey: .distanceFromOriginMeters)
+        source = try? c.decode(String.self, forKey: .source)
     }
 
     var id: String { "\(waypointType ?? "")|\(entityID ?? "")|\(latitude ?? 0)|\(longitude ?? 0)|\(distanceFromOriginMeters ?? 0)" }
@@ -611,4 +617,55 @@ struct DemoTrips: Decodable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey { case trips }
+}
+
+/// `POST /api/trips/what-if`: the preview of one edit to the plan on screen (a stop added, moved or removed), worked out from our own routing with no
+/// call to Rivian. Numbers are estimates: the time and distance the edit adds, the points of charge lost by the next charging stop, and one-way
+/// warnings. Rivian re-plans on confirm and may change the stops.
+struct WhatIfStop: Encodable, Equatable {
+    var lat: Double
+    var lon: Double
+    /// "origin" | "via" | "planner" | "overnight" | "destination".
+    var source: String
+    var arrivalAt: String?
+    var arrivalSoc: Double?
+    var departureAt: String?
+    var departureSoc: Double?
+    var distanceFromOriginM: Double?
+}
+
+struct WhatIfPoint: Encodable, Equatable {
+    var lat: Double
+    var lon: Double
+}
+
+struct WhatIfEdit: Encodable, Equatable {
+    /// "add" (before `stops[index]`), "move" or "remove" (the via at `index`).
+    var kind: String
+    var index: Int
+    var via: WhatIfPoint?
+}
+
+struct WhatIfRequest: Encodable, Equatable {
+    var stops: [WhatIfStop]
+    var edit: WhatIfEdit
+    var targetArrivalSocPercent: Double?
+}
+
+struct WhatIfResponse: Decodable, Equatable {
+    struct Segment: Decodable, Equatable { var from: Int; var to: Int }
+    struct At: Decodable, Equatable { var arrivalAt: String? }
+    struct NextCharge: Decodable, Equatable { var index: Int?; var isDestination: Bool?; var socDropPts: Double? }
+
+    var estimated: Bool?
+    var notice: String?
+    var segment: Segment?
+    /// The edited stretch only (polyline6), to draw between `segment.from` and `segment.to`; absent when the routing failed.
+    var geometry: String?
+    var addedM: Double?
+    var addedSec: Double?
+    var atEdit: At?
+    var destination: At?
+    var nextCharge: NextCharge?
+    var warnings: [String]?
 }

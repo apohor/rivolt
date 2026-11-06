@@ -189,6 +189,7 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"POST", "/api/trips/overnight-candidates", 204},
 		{"POST", "/api/maps/chargers-along", 204},
 		{"POST", "/api/maps/corridor-layers", 204},
+		{"POST", "/api/trips/what-if", 204},
 		{"POST", "/api/trips/plan/", 403},
 		{"POST", "/api/trips/plan/advice", 403}, // the LLM route stays web-only
 		{"PUT", "/api/trips/plan", 403},
