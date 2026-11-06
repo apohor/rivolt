@@ -542,5 +542,11 @@ extension TripPlanModelTests {
         XCTAssertEqual(m.vias.count, 1)
         await m.plan(source: src)
         XCTAssertTrue(m.vias.isEmpty)
+final class TripPlanNoTruckTests: XCTestCase {
+    func testNoTruckLinkedSaysToConnectRivianNotToEnterACharge() {
+        let said = TripPlanLogic.failure(APIError.server(status: 400, message: "vehicle_id required (no vehicle linked to this user)"))
+        XCTAssertTrue(said.hasPrefix("Connect your Rivian to plan a trip."))
+        XCTAssertNil(said.range(of: "starting charge", options: .caseInsensitive))
+        XCTAssertEqual(TripPlanLogic.failure(APIError.server(status: 400, message: "bad time")), "That trip couldn't be planned. Check the places and the time.")
     }
 }

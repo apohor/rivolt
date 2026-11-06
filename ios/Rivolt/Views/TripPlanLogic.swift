@@ -379,9 +379,12 @@ enum TripPlanLogic {
         case APIError.planQuota(let after):
             if let after, after > 0 { return "You've used this hour's planning allowance. Try again in about \(max(1, Int((Double(after) / 60).rounded(.up)))) min." }
             return "You've used this hour's planning allowance. Try again in a while."
-        case APIError.server(let status, _):
+        case APIError.server(let status, let message):
             switch status {
             case 402: return ProCopy.plannerLimit
+            // No truck linked to the account: the server cannot plan with Rivian, whatever starting charge was set.
+            case 400 where message.range(of: "vehicle_id required|no vehicle linked", options: [.regularExpression, .caseInsensitive]) != nil:
+                return "Connect your Rivian to plan a trip. Rivolt plans with Rivian's planner, which needs a connected truck. Connect it on the web, then plan again."
             case 400: return "That trip couldn't be planned. Check the places and the time."
             case 403: return "This server doesn't allow trip planning from the app."
             case 404: return "Trip planning isn't turned on for this server."
