@@ -21,7 +21,7 @@ struct PlanMapScreen: View {
                     .overlay(alignment: .topLeading) { overlays }
                 if let c = model.pickedCharger {
                     PlanPinCallout(charger: c, offRoute: TripPlanLogic.offRouteLine(TripPlanLogic.offRouteMeters(lat: c.lat, lon: c.lon, line: model.roadLine), metric: metric),
-                                   adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.focusedStop = nil })
+                                   adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
                         .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
@@ -70,8 +70,9 @@ struct PlanMapScreen: View {
         if case .planned(let trip) = model.night {
             PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
-            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers,
-                         onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight)
+            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
+                         onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
+                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias)
         }
     }
 
@@ -136,6 +137,9 @@ struct PlanSheetHeader<Extra: View>: View {
 typealias PlanSheetDetent = SheetDetent
 
 enum PlanSheetLogic {
+    /// What a long press on the map drops.
+    static let droppedName = "A place you chose"
+
     /// What adding a charger as a stop does, and does not, mean.
     static let passThrough = "The route passes through it. This doesn't promise a charge there."
 
@@ -145,7 +149,7 @@ enum PlanSheetLogic {
         if let kw = c.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
         if let n = c.evNetwork, !n.isEmpty { parts.append(n) }
         if let offRoute { parts.append(offRoute) }
-        return parts.isEmpty ? "Fast charger" : parts.joined(separator: " · ")
+        return parts.isEmpty ? (c.name == droppedName ? "A pin you dropped" : "Fast charger") : parts.joined(separator: " · ")
     }
 
     /// "Seattle → Spokane": the sheet's title (the start is the truck's own place when none was picked).
