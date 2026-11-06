@@ -858,8 +858,10 @@ func runServer() {
 				os.Exit(1)
 			}
 		}
-		// The corpus is a real vehicle's history, and preview shares
-		// sign-in with prod: demo vehicles go only to listed usernames.
+		// A db-backed corpus is a real vehicle's history; the generated
+		// "sample" corpus is synthetic. The allowlist guards both, and
+		// preview shares sign-in with prod: demo vehicles go only to
+		// listed usernames.
 		// Fails closed: unset means nobody; "*" opts everyone in.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_ALLOWED_USERS")); v != "*" {
 			allowed := map[uuid.UUID]bool{}
