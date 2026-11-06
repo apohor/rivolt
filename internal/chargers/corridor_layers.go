@@ -32,6 +32,8 @@ type LayerOptions struct {
 	QueryCorridorOptions
 	AfterKm float64
 	Limit   int
+	// Accept, when set, keeps only stations it returns true for (applied before paging, so Total and the pages agree).
+	Accept func(POI) bool
 }
 
 // LayerResult is one page. Total counts every station in the corridor for the requested kinds, so a client can say
@@ -73,6 +75,9 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 		limit = MaxLayerLimit
 	}
 	hits, proj, err := a.corridorHits(path, func(p POI) bool {
+		if opts.Accept != nil && !opts.Accept(p) {
+			return false
+		}
 		for _, k := range want {
 			if p.matches(filters[k]) {
 				return true

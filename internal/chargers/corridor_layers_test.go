@@ -206,3 +206,15 @@ func TestPagingAlongTheRouteLosesAndRepeatsNothing(t *testing.T) {
 		}
 	}
 }
+
+// Accept narrows the result before paging, so Total counts only what passes.
+func TestAcceptFiltersBeforePagingAndCounting(t *testing.T) {
+	a, path := layerFixture(t)
+	r, err := a.QueryLayers(path, []string{"dcfc", "hotels", "camp"}, LayerOptions{
+		QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 10},
+		Accept:               func(p POI) bool { return p.EntityID == "h35" || p.EntityID == "d5" },
+	})
+	if err != nil || r.Total != 2 || len(r.POIs) != 2 {
+		t.Errorf("accepted %v total %d, %v", ids(r), r.Total, err)
+	}
+}
