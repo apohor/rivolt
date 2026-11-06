@@ -186,6 +186,14 @@ func TestLaunchNoticeRefusals(t *testing.T) {
 	if code := launchNoticeRun(context.Background(), noticeDeps(f, m, &out, true, now)); code != 1 || len(m.sent) != 0 || !strings.Contains(out.String(), "REFUSED") {
 		t.Errorf("different dates: exit %d, %d sent:\n%s", code, len(m.sent), out.String())
 	}
+	// the refusal says which dates the existing notice states (so a retry can use them) and names no account or address
+	stated := launchnotice.NewParams(time.Date(2026, 12, 8, 0, 0, 0, 0, time.UTC))
+	if want := "1 existing notice(s) state: launch " + stated.Launch + ", free Pro year ends " + stated.FoundingEnd + ", new Terms take effect " + stated.TermsEffective + "; to retry that send pass --launch-date " + stated.Launch; !strings.Contains(out.String(), want) {
+		t.Errorf("the refusal does not name the stored dates:\n%s", out.String())
+	}
+	if idOrAddr.MatchString(out.String()) {
+		t.Errorf("the refusal names an account or address:\n%s", out.String())
+	}
 	// An unsent email on a row more than a week old: refuse.
 	f = newFakeNotices()
 	f.rows[uVerified] = &launchnotice.State{Exists: true, Params: launchnotice.NewParams(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)), CreatedAt: now.AddDate(0, 0, -8)}

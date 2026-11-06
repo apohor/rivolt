@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -203,6 +204,7 @@ func launchNoticeRun(ctx context.Context, d launchNoticeDeps) int {
 
 	// Classify.
 	var c noticeCounts
+	stored := map[launchnotice.Params]int{} // the dates other existing notices state, by how many (dates and counts only)
 	var targets []noticeTarget
 	for _, u := range d.Rows {
 		if d.Only != uuid.Nil && u.ID != d.Only {
@@ -232,6 +234,7 @@ func launchNoticeRun(ctx context.Context, d launchNoticeDeps) int {
 			c.InAppAlready++
 			if st.Params != p {
 				c.DatesMismatch++
+				stored[st.Params]++
 			}
 		} else {
 			c.InAppToCreate++
@@ -266,6 +269,16 @@ func launchNoticeRun(ctx context.Context, d launchNoticeDeps) int {
 	if c.DatesMismatch > 0 || c.StaleRetry > 0 {
 		fmt.Fprintf(d.Out, "REFUSED: %d existing notice(s) state different dates than --launch-date gives; %d unsent email(s) are on rows more than %d days old. A retry must state the dates the first attempt did, and soon after it.\n",
 			c.DatesMismatch, c.StaleRetry, int(staleRetry.Hours()/24))
+		// Say which dates those notices state, so the retry can use them: dates and counts only, never an account.
+		other := make([]launchnotice.Params, 0, len(stored))
+		for sp := range stored {
+			other = append(other, sp)
+		}
+		sort.Slice(other, func(i, j int) bool { return other[i].Launch < other[j].Launch })
+		for _, sp := range other {
+			fmt.Fprintf(d.Out, "  %d existing notice(s) state: launch %s, free Pro year ends %s, new Terms take effect %s; to retry that send pass --launch-date %s\n",
+				stored[sp], sp.Launch, sp.FoundingEnd, sp.TermsEffective, sp.Launch)
+		}
 		return 1
 	}
 	if !d.Apply {
