@@ -568,6 +568,10 @@ actor APIClient {
         try await request("POST", "/api/maps/chargers-along", body: body)
     }
 
+    func whatIf(_ body: WhatIfRequest) async throws -> WhatIfResponse {
+        try await request("POST", "/api/trips/what-if", body: body)
+    }
+
     func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
         try await request("POST", "/api/maps/corridor-layers", body: body)
     }

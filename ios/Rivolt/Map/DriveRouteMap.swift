@@ -542,6 +542,7 @@ struct RouteMapView: UIViewRepresentable {
                     return copy
                 }),
                 "pieces": MLNShapeCollectionFeature(shapes: pieces),
+                "preview": MLNShapeCollectionFeature(shapes: (d.preview.map { $0.count >= 2 ? [line($0)] : [] } ?? [])),
                 "routed": MLNShapeCollectionFeature(shapes: d.routedGaps.map { line($0) }),
                 "gaps": MLNShapeCollectionFeature(shapes: d.gaps.map { line([$0.from, $0.to]) }),
                 "pins": MLNShapeCollectionFeature(shapes: pins),
@@ -573,6 +574,11 @@ struct RouteMapView: UIViewRepresentable {
             dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
             dashed.lineCap = NSExpression(forConstantValue: "butt")
             style.addLayer(dashed)
+            // The what-if preview: the edited stretch, dashed in the accent colour over the plan's own line.
+            let previewLayer = lineLayer("preview", "preview", color: Theme.accent, width: 4, opacity: 0.95)
+            previewLayer.lineDashPattern = NSExpression(forConstantValue: [2, 2])
+            previewLayer.lineCap = NSExpression(forConstantValue: "butt")
+            style.addLayer(previewLayer)
             if gradientOn {
                 addGradientRuns(drawing, map: map, style: style)
             } else {

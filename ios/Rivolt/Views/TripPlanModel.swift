@@ -9,6 +9,12 @@ protocol ChargersAlongSource: Sendable {
 
 extension APIClient: ChargersAlongSource {}
 
+protocol WhatIfSource: Sendable {
+    func whatIf(_ body: WhatIfRequest) async throws -> WhatIfResponse
+}
+
+extension APIClient: WhatIfSource {}
+
 protocol CorridorLayersSource: Sendable {
     func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers
 }
@@ -160,11 +166,51 @@ final class TripPlanModel {
             night = .none
             roadLine = []
             dropped = nil
+            clearPreview()
             state = .planned(answer)
         } catch {
             if Task.isCancelled { return }
             updateProblem = "That stop couldn't be planned: \(TripPlanLogic.failure(error)) The route is unchanged."
         }
+    }
+
+    // MARK: What-if preview of adding a stop
+
+    enum PreviewState: Equatable { case idle, loading, shown(WhatIfResponse), unavailable, limited, failed }
+    private(set) var preview = PreviewState.idle
+    /// The edited stretch of the preview (our own routing), drawn on the map in place of nothing until the planner's route replaces the plan.
+    private(set) var previewLine: [RouteSnap.Coord] = []
+    private var previewTask: Task<Void, Never>?
+
+    /// A pin or charger was picked: after a pause of 300 ms, ask what adding it as a stop would do (one request in flight, the last one wins). No
+    /// call to Rivian; the plan itself is only asked for when the stop is added.
+    func schedulePreview(for c: AlongCharger, source: some WhatIfSource) {
+        previewTask?.cancel()
+        previewLine = []
+        guard let route = plan?.best,
+              let body = WhatIfLogic.addRequest(route, point: RouteSnap.Coord(lat: c.lat, lon: c.lon), line: roadLine, target: plannedTarget) else { preview = .idle; return }
+        preview = .loading
+        previewTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            do {
+                let r = try await source.whatIf(body)
+                guard !Task.isCancelled else { return }
+                self?.preview = .shown(r)
+                self?.previewLine = r.geometry.map { DriveRoute.decode($0, precision: 6) } ?? []
+            } catch {
+                guard !Task.isCancelled else { return }
+                if case APIError.server(404, _) = error { self?.preview = .unavailable }
+                else if case APIError.server(429, _) = error { self?.preview = .limited }
+                else { self?.preview = .failed }
+            }
+        }
+    }
+
+    func clearPreview() {
+        previewTask?.cancel()
+        preview = .idle
+        previewLine = []
     }
 
     // MARK: Map layers (corridor layers)
@@ -243,6 +289,7 @@ final class TripPlanModel {
     func closeCallout() {
         focusedStop = nil
         dropped = nil
+        clearPreview()
     }
     /// Where the last plan started and left, kept so the two-day version is planned from the same place at the same time.
     private var lastStart: (lat: Double, lon: Double)?
