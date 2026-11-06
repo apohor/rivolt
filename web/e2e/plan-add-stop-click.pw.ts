@@ -34,7 +34,7 @@ for (const v of [
     const page = await ctx.newPage();
     const plans = await planned(page);
     const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
-    await expect(map.locator("[data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
+    await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
     const box = (await map.boundingBox())!;
     // Away from the chips (top left) and the sheet (bottom on a phone).
     await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.3, { button: "right" });
