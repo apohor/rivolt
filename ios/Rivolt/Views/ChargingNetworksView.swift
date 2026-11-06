@@ -130,7 +130,7 @@ struct ChargingNetworksEditor: View {
             HStack(alignment: .bottom, spacing: 12) {
                 LabeledBox(title: "Guest") {
                     HStack(spacing: 4) {
-                        TextField("0.42", text: bind.guest).keyboardType(.decimalPad).focused($focused).settingsFieldBox()
+                        TextField("Not set", text: bind.guest).keyboardType(.decimalPad).focused($focused).settingsFieldBox()
                             .accessibilityLabel("Guest rate per kilowatt hour")
                         Text("/kWh").themeText(.caption, color: Theme.textTertiary)
                     }
@@ -138,7 +138,7 @@ struct ChargingNetworksEditor: View {
                 if hasMembership {
                     LabeledBox(title: "Member") {
                         HStack(spacing: 4) {
-                            TextField("0.36", text: bind.member).keyboardType(.decimalPad).focused($focused).settingsFieldBox()
+                            TextField("Not set", text: bind.member).keyboardType(.decimalPad).focused($focused).settingsFieldBox()
                                 .accessibilityLabel("Member rate per kilowatt hour")
                             Text("/kWh").themeText(.caption, color: Theme.textTertiary)
                         }
