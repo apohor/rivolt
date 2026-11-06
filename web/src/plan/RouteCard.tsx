@@ -85,6 +85,17 @@ export function RouteCard({
     .map((w, i) => ({ w, i }))
     .filter(({ w }) => isChargingWaypoint(w));
   const charging = chargingWithIdx.map(({ w }) => w);
+  // Between the start and the end, in route order: the planner's charging stops (n = their place among the charging stops, for the cost lines)
+  // and the person's own stops the route passes through (n unset).
+  const between = (() => {
+    let n = 0;
+    const out: { w: typeof route.Waypoints[number]; i: number; n?: number }[] = [];
+    route.Waypoints.forEach((w, i) => {
+      if (isChargingWaypoint(w)) out.push({ w, i, n: n++ });
+      else if (w.Source === "via") out.push({ w, i });
+    });
+    return out;
+  })();
   const originIdx = route.Waypoints.findIndex((w) => wpType(w) === "origin");
   const destIdx = (() => {
     // Avoid findLastIndex - target lib predates ES2023. Walk in
@@ -202,7 +213,7 @@ export function RouteCard({
       compact={next || stacked}
     />
   );
-  const row = (idx: number, kind: "start" | "stop" | "end", name: string, n?: number) => (
+  const row = (idx: number, kind: "start" | "stop" | "via" | "end", name: string, n?: number) => (
     <StopCard
       key={idx}
       kind={kind}
@@ -220,7 +231,9 @@ export function RouteCard({
   const timeline = showTable && (
     <ol data-plan-timeline aria-label="Route and charging stops" className="mt-4">
       {origin && row(originIdx, "start", originLabel || origin.Name || "Origin")}
-      {chargingWithIdx.map(({ w, i: wpIdx }, j) => row(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, j))}
+      {between.map(({ w, i: wpIdx, n }) =>
+        n == null ? row(wpIdx, "via", w.Name || "Your stop") : row(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, n),
+      )}
       {dest && row(destIdx, "end", destLabel || dest.Name || "Destination")}
     </ol>
   );
