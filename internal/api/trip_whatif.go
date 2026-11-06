@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http"
 	"sync"
@@ -103,7 +104,11 @@ func handleTripWhatIf(router geometryRouter, m *metrics.Metrics) http.HandlerFun
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req whatIfRequest
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, whatIfBodyMax))
-		if err := dec.Decode(&req); err != nil || dec.More() {
+		if err := dec.Decode(&req); err != nil {
+			badRequest(w, "invalid body")
+			return
+		}
+		if _, err := dec.Token(); err != io.EOF { // anything after the request, a stray } or ] included; whitespace is fine
 			badRequest(w, "invalid body")
 			return
 		}
@@ -184,8 +189,8 @@ func routeBothSides(ctx context.Context, router geometryRouter, m *metrics.Metri
 		var errOld, errNew error
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); oldRt, errOld = routeOne(ctx, router, old, opts) }()
-		go func() { defer wg.Done(); newRt, errNew = routeOne(ctx, router, nw, opts) }()
+		go func() { defer wg.Done(); oldRt, errOld = routeOne(ctx, router, old, opts, false) }()
+		go func() { defer wg.Done(); newRt, errNew = routeOne(ctx, router, nw, opts, true) }()
 		wg.Wait()
 		if errOld == nil && errNew == nil {
 			return oldRt, newRt, false
@@ -200,7 +205,7 @@ func routeBothSides(ctx context.Context, router geometryRouter, m *metrics.Metri
 	return whatIfStraight(old), whatIfStraight(nw), true
 }
 
-func routeOne(ctx context.Context, router geometryRouter, locs [][2]float64, opts maps.RouteOpts) (whatIfRoute, error) {
+func routeOne(ctx context.Context, router geometryRouter, locs [][2]float64, opts maps.RouteOpts, wantLine bool) (whatIfRoute, error) {
 	rt, err := router.RouteChecked(ctx, locs, opts)
 	if err != nil {
 		return whatIfRoute{}, err
@@ -214,6 +219,9 @@ func routeOne(ctx context.Context, router geometryRouter, locs [][2]float64, opt
 		out.m += leg.LengthMeters
 		out.sec += leg.TimeSec
 		shapes[k] = leg.Shape
+	}
+	if !wantLine {
+		return out, nil // the old side is for its length and time only
 	}
 	// The served line is thinned and capped like a plan's (the same tolerance and cap), and checked again with the same guard: an edit with
 	// a far via is a long road, and this answer is asked for on every pause of a drag.
