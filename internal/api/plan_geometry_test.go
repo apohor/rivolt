@@ -10,10 +10,13 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -243,4 +246,43 @@ func (f *longGeoRouter) RouteChecked(ctx context.Context, locs [][2]float64, o m
 		f.last = append(f.last, shape...)
 	}
 	return rt, nil
+}
+
+// Our own stages around the planner are timed apart from Rivian's: the geometry stage records one observation per call that has a router,
+// with the stage as the only label.
+func TestPlanStagesAreTimedWithoutAnyUserLabel(t *testing.T) {
+	m := metrics.New()
+	r := &fakeGeoRouter{enabled: true}
+	ctx := withPlanGeometry(context.Background(), r, m)
+	_ = withGeometry(ctx, geoPlan(1), maps.RouteOpts{})
+	_ = withGeometry(ctx, geoPlan(2), maps.RouteOpts{})
+	if got := testutil.CollectAndCount(m.TripPlanStageSeconds); got != len(metrics.TripPlanStages) {
+		t.Errorf("%d series, want %d (one per stage, no other label)", got, len(metrics.TripPlanStages))
+	}
+	// A plan without a router does no geometry and records no geometry time.
+	m2 := metrics.New()
+	_ = withGeometry(withPlanGeometry(context.Background(), nil, m2), geoPlan(1), maps.RouteOpts{})
+	observePlanStage(withPlanGeometry(context.Background(), nil, m2), "enrich", time.Now())
+	if n := histCount(t, m, "geometry"); n != 2 {
+		t.Errorf("geometry observations = %d, want 2", n)
+	}
+	if n := histCount(t, m2, "geometry"); n != 0 {
+		t.Errorf("a plan with no router recorded geometry time: %d", n)
+	}
+	if n := histCount(t, m2, "enrich"); n != 1 {
+		t.Errorf("enrich observations = %d, want 1", n)
+	}
+}
+
+func histCount(t *testing.T, m *metrics.Metrics, stage string) uint64 {
+	t.Helper()
+	var d dto.Metric
+	obs, err := m.TripPlanStageSeconds.GetMetricWithLabelValues(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := obs.(prometheus.Metric).Write(&d); err != nil {
+		t.Fatal(err)
+	}
+	return d.GetHistogram().GetSampleCount()
 }

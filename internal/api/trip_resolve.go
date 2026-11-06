@@ -172,6 +172,7 @@ type planEnricher struct {
 // load reads the vehicle profile and the charging settings once, so a request
 // of several days does not repeat them.
 func (e *planEnricher) load(ctx context.Context) {
+	defer observePlanStage(ctx, "enrich_load", time.Now())
 	e.profileMult = 1.0
 	if e.pool != nil && e.vehicleID != "" {
 		var vid uuid.UUID
@@ -213,6 +214,7 @@ func (e *planEnricher) load(ctx context.Context) {
 // enrich returns the weather/profile adjustment for the plan (nil when
 // neither has signal) and the per-route costs (nil without a pack size).
 func (e *planEnricher) enrich(ctx context.Context, plan *rivian.TripPlan, startingSoC float64, targetArrival *float64) (*tripWeatherAdjustmentDTO, []tripadvice.CostEstimate) {
+	defer observePlanStage(ctx, "enrich", time.Now())
 	var adj *tripWeatherAdjustmentDTO
 	weatherOn := e.mgr != nil && e.mgr.RecapWeatherEnabled() && e.wc != nil && !e.noWeather
 	if weatherOn || e.profileMult != 1.0 {

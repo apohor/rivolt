@@ -37,6 +37,11 @@ import (
 // failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line), plan_offglobe and plan_detour (a served plan's line failed the same checks and was left out).
 var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip", "plan_offglobe", "plan_detour"}
 
+// TripPlanStages are the rivolt_trip_plan_stage_seconds stages: our own work around the planner call, so Rivian's time (the upstream
+// histogram) can be told from ours. geometry is the road line through the stops (up to three Valhalla routes, one after another);
+// enrich_load reads the user's vehicle profile, charging settings, networks and own rates; enrich is the weather adjustment and the costs.
+var TripPlanStages = []string{"geometry", "enrich_load", "enrich"}
+
 // TripPlanLegResults are the rivolt_trip_plan_legs_total results, all created at 0 at boot.
 var TripPlanLegResults = []string{"hit", "miss", "quota", "error"}
 
@@ -231,6 +236,9 @@ type Metrics struct {
 	// plan is one leg per day. Neither has a user, vehicle or place in a label.
 	TripPlanUpstreamSeconds *prometheus.HistogramVec
 	TripPlanLegsTotal       *prometheus.CounterVec
+	// TripPlanStageSeconds times our own stages around a trip-planner call (a plan, or a day of a multi-day plan), by stage. No user, vehicle
+	// or place in a label.
+	TripPlanStageSeconds *prometheus.HistogramVec
 	// RequestAcquiresWithoutUser counts request-pool connections handed out for a context with no user, by route pattern.
 	RequestAcquiresWithoutUser *prometheus.CounterVec
 
@@ -752,6 +760,14 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		TripPlanStageSeconds: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "rivolt_trip_plan_stage_seconds",
+				Help:    "Our own stages around a trip-planner call, by stage (geometry|enrich_load|enrich).",
+				Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8},
+			},
+			[]string{"stage"},
+		),
 		TripPlanLegsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_trip_plan_legs_total",
@@ -850,6 +866,7 @@ func New() *Metrics {
 		m.TireLowWouldSendTotal,
 		m.TripPlanUpstreamSeconds,
 		m.TripPlanLegsTotal,
+		m.TripPlanStageSeconds,
 		m.RequestAcquiresWithoutUser,
 	)
 	// The lease counters exist from boot at 0, so the first fenced write or the first unmatched source
@@ -863,6 +880,9 @@ func New() *Metrics {
 	}
 	for _, outcome := range AppleLinkOutcomes {
 		m.AppleLinkTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, stage := range TripPlanStages { // the series exist from boot
+		m.TripPlanStageSeconds.WithLabelValues(stage)
 	}
 	for _, result := range TripPlanLegResults { // the first quota refusal or error is an increase
 		m.TripPlanLegsTotal.WithLabelValues(result).Add(0)
