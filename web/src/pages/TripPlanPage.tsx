@@ -6,6 +6,7 @@ import { useLocation } from "react-router-dom";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
 import { planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
+import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
 import { countNonDefaultOptions, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
@@ -282,6 +283,7 @@ export default function TripPlanPage() {
                     {adapterEl}
                   </div>
                   <AvoidToggles value={routePrefs} onChange={setRoutePrefs} />
+                  {!inDemo() && <PlannerNetworks onSaved={() => { if (origin && destination && hasResult && !multiday) planMutation.mutate(); }} />}
                   {planTipEl}
                 </>
               }
