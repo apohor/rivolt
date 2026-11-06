@@ -1490,6 +1490,7 @@ export const backend = {
   // current list (possibly empty); PUT replaces it wholesale.
   getChargingNetworks: () =>
     api.get<ChargingNetwork[]>("/api/settings/charging/networks"),
+  whatIf: (req: WhatIfRequest, signal?: AbortSignal) => api.post<WhatIfResponse>("/api/trips/what-if", req, signal),
   setChargingNetworks: (networks: ChargingNetwork[]) =>
     api.put<ChargingNetwork[]>("/api/settings/charging/networks", networks),
   resetChargingNetworks: () =>

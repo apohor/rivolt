@@ -11,7 +11,8 @@ import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { campgroundOfPoi } from "../plan/stays";
-import type { PlannedWaypoint, TripRoute } from "../lib/api";
+import { backend, type PlannedWaypoint, type TripRoute } from "../lib/api";
+import { addRequest, whatIfFailureLine, whatIfLines, WHAT_IF_NOTICE, WHAT_IF_ROUGH } from "../plan/whatIf";
 import { styleFor } from "./base";
 import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
@@ -21,7 +22,8 @@ import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
 import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPills, type Box, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
-import { localUnits } from "../lib/preferences";
+import { localUnits, usePreferences } from "../lib/preferences";
+import { MAP_CAPTION_PX } from "../lib/mapCaption";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
@@ -139,6 +141,9 @@ export function TripRouteMap({
   useEffect(() => { onAddOvernightRef.current = onAddOvernight; }, [onAddOvernight]);
   const onSelectStopRef = useRef(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
+  const { distanceUnit } = usePreferences();
+  const distanceUnitRef = useRef(distanceUnit);
+  distanceUnitRef.current = distanceUnit;
   const onPreviewStopRef = useRef(onPreviewStop);
   useEffect(() => { onPreviewStopRef.current = onPreviewStop; }, [onPreviewStop]);
 
@@ -345,10 +350,40 @@ export function TripRouteMap({
       }
       // A long press (touch) or a right click (mouse) drops a pin with an "Add as a stop" callout. Only where stops can be added (the signed-in planner).
       const drop = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 8, className: "rivolt-tip", maxWidth: "240px" });
+      // What adding the stop here would do, from our own router: the change, an estimate, nothing committed. The latest drop wins; a failure shows nothing
+      // (busy says so).
+      let previewCtl: AbortController | null = null;
+      const previewAdd = (ll: { lng: number; lat: number }, into: HTMLElement | null) => {
+        previewCtl?.abort();
+        previewCtl = null;
+        if (!into || inDemo()) return;
+        const req = addRequest(route, { lat: ll.lat, lon: ll.lng });
+        if (!req) return;
+        const ctl = new AbortController();
+        previewCtl = ctl;
+        backend.whatIf(req, ctl.signal).then(
+          (r) => {
+            if (ctl.signal.aborted || !into.isConnected) return;
+            const lines = whatIfLines(r, distanceUnitRef.current);
+            into.replaceChildren(...lines.map((t, k) => {
+              const d = document.createElement("div");
+              d.textContent = t;
+              if (k === 0) d.style.fontWeight = "600";
+              else if (t === WHAT_IF_NOTICE || t === WHAT_IF_ROUGH) { d.style.color = "#a3a3a3"; d.style.fontSize = `${MAP_CAPTION_PX}px`; }
+              return d;
+            }));
+          },
+          (e: unknown) => {
+            const line = ctl.signal.aborted || !into.isConnected ? null : whatIfFailureLine((e as { status?: number })?.status);
+            if (line) into.textContent = line;
+          },
+        );
+      };
       const openDrop = (ll: { lng: number; lat: number }) => {
         if (!onAddStopRef.current) return;
         drop.remove();
         drop.setLngLat(ll).setHTML(droppedPinPopupHTML()).addTo(map);
+        previewAdd(ll, drop.getElement()?.querySelector<HTMLElement>(".drop-preview") ?? null);
         drop.getElement()?.querySelector<HTMLButtonElement>(".drop-add-btn")?.addEventListener("click", () => {
           onAddStopRef.current?.({ lat: ll.lat, lon: ll.lng, label: DROPPED_PIN_LABEL });
           drop.remove();
@@ -364,7 +399,7 @@ export function TripRouteMap({
         pressTimer = window.setTimeout(() => openDrop(ll), 550);
       });
       for (const ev of ["touchmove", "touchend", "touchcancel", "dragstart", "zoomstart"] as const) map.on(ev, cancelPress);
-      cleanups.push(() => { cancelPress(); drop.remove(); });
+      cleanups.push(() => { cancelPress(); previewCtl?.abort(); drop.remove(); });
       cleanups.push(() => { tip.remove(); callout.remove(); wpMarkersRef.current.forEach((m) => m.marker.remove()); wpMarkersRef.current.clear(); });
 
       // The basemap follows the app theme live (Settings, or the OS under System).
