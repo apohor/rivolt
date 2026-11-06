@@ -157,6 +157,11 @@ func TestMultidayHandlerServesALinePerDay(t *testing.T) {
 	for i, d := range out.Days {
 		if len(d.Plan.Routes) == 0 || d.Plan.Routes[0].Geometry == "" {
 			t.Errorf("day %d has no line: %+v", i+1, d.Plan.Routes)
+			continue
+		}
+		// the stop labels (#1563) and the line compose: neither replaces the other
+		if ws := d.Plan.Routes[0].Waypoints; len(ws) == 0 || ws[0].Source != "origin" {
+			t.Errorf("day %d lost its stop labels next to the line: %+v", i+1, ws)
 		}
 	}
 	if r.calls < 2 {
