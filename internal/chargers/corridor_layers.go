@@ -38,7 +38,7 @@ type LayerOptions struct {
 
 // LayerResult is one page. Total counts every station in the corridor for the requested kinds, so a client can say
 // "showing 300 of 1,240". NextAfterKm is set when more follow: ask again with it as AfterKm. AsOf is the newest export
-// date among the stations found (the archive's build date, not live data); RouteKm is the length of the route as searched.
+// date among the stations found, else the archive file's own date (the build date, not live data); RouteKm is the length of the route as searched.
 type LayerResult struct {
 	POIs        []CorridorPOI
 	Total       int
@@ -114,6 +114,13 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 		}
 		return all[i].Lon < all[j].Lon
 	})
+	// The newest export date a station carries; stations of the plain NREL layer carry none, so fall back to the archive file's own date
+	// (its Last-Modified). Empty only when neither is known: the client then says nothing about the age rather than guess.
+	if asof == "" {
+		if b := a.BuiltAt(); !b.IsZero() {
+			asof = b.Format("2006-01-02")
+		}
+	}
 	res := LayerResult{Total: len(all), AsOf: asof, RouteKm: round3(proj.totalLn / 1000)}
 	// Page: past AfterKm, up to limit, and never split stations that share a distance (a page boundary there would lose or
 	// repeat them, since the cursor is the distance).
