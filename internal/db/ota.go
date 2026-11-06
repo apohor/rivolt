@@ -94,6 +94,19 @@ func ClaimOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehic
 	return n > 0, nil
 }
 
+// ReleaseOTAFetch undoes a claim whose Rivian call never happened (the shared budget refused it): the vehicle is due again at the next
+// sweep instead of after minInterval. Guarded by the same fence as the claim. It does nothing for a vehicle that is not the user's.
+func ReleaseOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string) error {
+	_, err := fence.Exec(ctx, d, `
+		UPDATE vehicles
+		   SET metadata = metadata - 'ota_attempt_at'
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2
+		   AND metadata ? 'ota_attempt_at'
+		   AND `+fence.OK,
+		userID, rivianVehicleID)
+	return err
+}
+
 // SetVehicleOTA stores the OTA details (a JSON object) for the user's
 // vehicle, keeping every other metadata key.
 func SetVehicleOTA(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, ota json.RawMessage) error {
