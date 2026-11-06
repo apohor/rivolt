@@ -27,7 +27,7 @@ import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
 import { tilesPMTilesURL, chargersPMTilesURL, ensureConfig } from "./config";
-import { ApiError, backend } from "./api";
+import { ApiError, backend, type AlongCharger } from "./api";
 import { thinPath } from "./thinPath";
 
 export type POI = {
@@ -377,7 +377,7 @@ export async function findChargersAlongPath(
   // The corridor query is a server-side POST: not available to the
   // signed-out demo, which draws no charger overlay.
   if (inDemo()) return null;
-  let resp: { chargers: ServerCharger[]; count: number };
+  let resp: { chargers: AlongCharger[]; count: number };
   try {
     resp = await backend.chargersAlongPath({ path: thinPath(path), filter });
   } catch (e: unknown) {
@@ -387,7 +387,11 @@ export async function findChargersAlongPath(
     if (e instanceof ApiError && e.status === 404) return null;
     throw e;
   }
-  return resp.chargers.map((c) => ({
+  return resp.chargers.map(serverChargerToPOI);
+}
+
+function serverChargerToPOI(c: AlongCharger): POI {
+  return {
     lat: c.lat,
     lon: c.lon,
     name: c.name,
@@ -411,12 +415,21 @@ export async function findChargersAlongPath(
       c.socketType1Combo ? "type1_combo" : "",
       c.socketChademo ? "chademo" : "",
     ].filter(Boolean),
-  }));
+  };
 }
 
-type ServerCharger = Awaited<
-  ReturnType<typeof backend.chargersAlongPath>
->["chargers"][number];
+// The fast chargers along a route that belong to the given networks (slugs), from the corridor query. Null when the install has no archive.
+export async function findChargersOfNetworks(path: [number, number][], slugs: string[]): Promise<POI[] | null> {
+  if (path.length < 2 || slugs.length === 0) return [];
+  if (inDemo()) return null;
+  try {
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds: ["dcfc"], networks: slugs });
+    return r.pois.map(serverChargerToPOI);
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
 
 // findNearestCharger queries the chargers archive first; on miss
 // (no archive configured, or no feature within radius), falls back

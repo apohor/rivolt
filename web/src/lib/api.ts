@@ -1961,6 +1961,10 @@ export const backend = {
     api.post<TripPlan>("/api/trips/plan", req),
   planTripMultiday: (req: TripPlanMultidayRequest) =>
     api.post<TripPlanMultidayResponse>("/api/trips/plan-multiday", req),
+  // The planner map's layers along a whole route in one archive query (nothing stored). `networks` keeps only stations of those network slugs
+  // (the Settings → Charging networks slugs). 404: no archive on this install.
+  corridorLayers: (req: { path: [number, number][]; kinds: ("dcfc" | "l2" | "hotels" | "camp")[]; networks?: string[]; limit?: number }, signal?: AbortSignal) =>
+    api.post<{ pois: (AlongCharger & { networkSlug?: string; networkName?: string; offKm?: number })[]; total: number; asof?: string }>("/api/maps/corridor-layers", req, signal),
   chargersAlongPath: (req: {
     path: [number, number][];
     filter?: "dcfc" | "l2" | "hotels" | "camp" | "all";
@@ -1968,31 +1972,7 @@ export const backend = {
     min_power_kw?: number;
   }) =>
     api.post<{
-      chargers: {
-        lat: number;
-        lon: number;
-        name?: string;
-        isDCFC: boolean;
-        isL2: boolean;
-        maxPowerKW?: number;
-        facilityType?: string;
-        evNetwork?: string;
-        evPricing?: string;
-        entityID?: string;
-        dcfcCount?: number;
-        l2Count?: number;
-        socketTeslaSupercharger?: boolean;
-        socketType1Combo?: boolean;
-        socketChademo?: boolean;
-        // Recreation.gov (RIDB) campgrounds only.
-        hookupAmps?: number;
-        electricSites?: number;
-        sites?: number;
-        reservable?: boolean;
-        ridbID?: string;
-        asof?: string;
-        source?: string;
-      }[];
+      chargers: AlongCharger[];
       count: number;
     }>("/api/maps/chargers-along", req),
   // Hotels with a listed Level 2 charger near where the day's driving budget runs out. Archive
@@ -2751,6 +2731,32 @@ export type PlannedWaypoint = {
   Source?: "origin" | "destination" | "via" | "planner" | "overnight";
   ViaIndex?: number;
   ViaEntityID?: string;
+};
+
+export type AlongCharger = {
+        lat: number;
+        lon: number;
+        name?: string;
+        isDCFC: boolean;
+        isL2: boolean;
+        maxPowerKW?: number;
+        facilityType?: string;
+        evNetwork?: string;
+        evPricing?: string;
+        entityID?: string;
+        dcfcCount?: number;
+        l2Count?: number;
+        socketTeslaSupercharger?: boolean;
+        socketType1Combo?: boolean;
+        socketChademo?: boolean;
+        // Recreation.gov (RIDB) campgrounds only.
+        hookupAmps?: number;
+        electricSites?: number;
+        sites?: number;
+        reservable?: boolean;
+        ridbID?: string;
+        asof?: string;
+        source?: string;
 };
 
 // POST /api/trips/what-if: the no-commit preview of one via edit (our own router, no Rivian call, nothing stored). Lead with added_sec / added_m;
