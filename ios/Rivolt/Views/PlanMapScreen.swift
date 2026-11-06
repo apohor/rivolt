@@ -90,8 +90,9 @@ struct PlanMapScreen: View {
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
-                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) }, vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
-                         onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
+                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
+                         onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
+                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine)
         }
     }
 
