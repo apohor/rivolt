@@ -6,7 +6,10 @@
 // layout produced.
 package dcfcrates
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Network is one DCFC operator with a guest rate and, where it
 // exists, a member rate. The "is the user a member?" question is
@@ -228,6 +231,62 @@ func MatchNetwork(name string) Network {
 	return UnmatchedNetwork
 }
 
+// codeSuffix matches the network code Rivian ends a charger name with: "Some Plaza [RED_E]".
+var codeSuffix = regexp.MustCompile(`\[\s*([A-Za-z0-9][A-Za-z0-9_ \-]{0,31})\s*\]\s*$`)
+
+// codeNames are display names for common network codes that the title-cased code would spell badly. The key is the code upper-cased with
+// spaces and hyphens read as underscores.
+var codeNames = map[string]string{
+	"RED_E":         "Red E",
+	"ELECTRIC_ERA":  "Electric Era",
+	"FRANCIS":       "Francis Energy",
+	"BP_PULSE":      "bp pulse",
+	"MERCEDES_BENZ": "Mercedes-Benz",
+	"WALMART":       "Walmart",
+	"CIRCLE_K":      "Circle K",
+}
+
+// CodeNetwork reads the network off a bracketed code at the end of a charger name, for a network the built-in table does not know. The
+// result has a stable slug ("code_red_e") and NO rate: it stays unpriced until the user sets one, like any network outside the table.
+// ok is false when the name has no such code.
+func CodeNetwork(name string) (Network, bool) {
+	m := codeSuffix.FindStringSubmatch(strings.TrimSpace(name))
+	if m == nil {
+		return Network{}, false
+	}
+	key := strings.ToUpper(strings.Trim(strings.NewReplacer(" ", "_", "-", "_").Replace(strings.TrimSpace(m[1])), "_"))
+	for strings.Contains(key, "__") {
+		key = strings.ReplaceAll(key, "__", "_")
+	}
+	if key == "" {
+		return Network{}, false
+	}
+	display, known := codeNames[key]
+	if !known {
+		words := strings.Split(strings.ToLower(key), "_")
+		for i, w := range words {
+			if w != "" {
+				words[i] = strings.ToUpper(w[:1]) + w[1:]
+			}
+		}
+		display = strings.Join(words, " ")
+	}
+	return Network{Slug: "code_" + strings.ToLower(key), DisplayName: display}, true
+}
+
+// networkForStop is the network a planned stop is shown and attributed under: the built-in table first (by name), then the code Rivian puts
+// in brackets after the name, and only when there is neither, UnmatchedNetwork. MatchNetwork itself is unchanged: callers that ask "is this a
+// network we have a row for" (receipts, the ledger, the corridor layers) keep their answer.
+func networkForStop(name string) Network {
+	n := MatchNetwork(name)
+	if n.Slug == UnmatchedNetwork.Slug {
+		if c, ok := CodeNetwork(name); ok {
+			return c
+		}
+	}
+	return n
+}
+
 // MemberRateOrGuest returns the network's MemberRate when set,
 // otherwise its GuestRate. Used by the cost estimator's
 // "with-all-memberships" total - networks that don't have a
@@ -281,7 +340,7 @@ func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
 	// price, so it must not be stamped onto a recorded session or offered as "your
 	// rate". Callers price only when the rates are positive, so an unset network
 	// stays unpriced until the user enters what they pay.
-	n := MatchNetwork(stopName)
+	n := networkForStop(stopName)
 	return ResolvedRate{Slug: n.Slug, DisplayName: n.DisplayName, MemberPlan: n.MemberPlan}
 }
 
@@ -291,6 +350,8 @@ func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
 // built-in network's for a slugged row, the row's own for a custom one.
 func matchOverride(stopName string, overrides []NetworkOverride) (NetworkOverride, string, bool) {
 	hay := " " + strings.ToLower(strings.TrimSpace(stopName)) + " "
+	// A name's bracketed code reads with underscores ("[RED_E]"): a custom row named "Red E" must still win over the code's own network.
+	hayCode := strings.ReplaceAll(hay, "_", " ")
 	// User overrides win. The lookup walks the override list, checks
 	// each row's slug against the built-in match patterns, and
 	// returns on first hit. Slugless custom rows match by substring
@@ -313,7 +374,7 @@ func matchOverride(stopName string, overrides []NetworkOverride) (NetworkOverrid
 		// a substring. Lower-cased to match hay; padded so a single-
 		// word name like "EA" doesn't accidentally match "TESLA".
 		needle := " " + strings.ToLower(strings.TrimSpace(ov.Name)) + " "
-		if needle != "  " && strings.Contains(hay, strings.TrimSpace(needle)) {
+		if needle != "  " && (strings.Contains(hay, strings.TrimSpace(needle)) || strings.Contains(hayCode, strings.TrimSpace(needle))) {
 			return ov, ov.Name, true
 		}
 	}
@@ -357,7 +418,7 @@ func ResolveStop(stopName string, overrides []NetworkOverride) StopNetwork {
 		}
 		return sn
 	}
-	n := MatchNetwork(stopName)
+	n := networkForStop(stopName)
 	return StopNetwork{Slug: n.Slug, DisplayName: n.DisplayName, MemberPlan: n.MemberPlan}
 }
 
