@@ -932,7 +932,7 @@ function ChargingNetworksPanel() {
                         inputMode="decimal"
                         value={r.price_per_kwh || ""}
                         onChange={(e) => update(i, { price_per_kwh: Number(e.target.value) || 0 })}
-                        placeholder="0.42"
+                        placeholder="Not set"
                         className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100 tabular-nums"
                       />
                       <span className="text-xs text-neutral-500">/kWh</span>
@@ -951,7 +951,7 @@ function ChargingNetworksPanel() {
                           onChange={(e) =>
                             update(i, { member_price_per_kwh: Number(e.target.value) || 0 })
                           }
-                          placeholder="0.36"
+                          placeholder="Not set"
                           className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-emerald-300 tabular-nums"
                         />
                         <span className="text-xs text-neutral-500">/kWh</span>
