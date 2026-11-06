@@ -3,20 +3,21 @@ import SwiftUI
 /// A sheet over the bottom of a full-height map with three resting heights: a peek (just its header), half the screen, and almost all of it.
 /// Drag the handle or the header to move between them; the content scrolls only when it is fully open (below that, a drag moves the sheet).
 /// For VoiceOver the handle is one adjustable control (swipe up or down), and Reduce Motion turns the springs into plain moves.
-struct DetentSheet<Header: View, Content: View>: View {
-    enum Detent: Int, CaseIterable, Equatable {
-        case peek, half, full
+/// The three resting heights of the itinerary sheet.
+enum SheetDetent: Int, CaseIterable, Equatable {
+    case peek, half, full
 
-        var spoken: String {
-            switch self {
-            case .peek: return "collapsed"
-            case .half: return "half open"
-            case .full: return "fully open"
-            }
+    var spoken: String {
+        switch self {
+        case .peek: return "collapsed"
+        case .half: return "half open"
+        case .full: return "fully open"
         }
     }
+}
 
-    @Binding var detent: Detent
+struct DetentSheet<Header: View, Content: View>: View {
+    @Binding var detent: SheetDetent
     /// The height the sheet's detents are fractions of (the map area).
     let container: CGFloat
     /// Whether the content scrolls (false renders it flat, for a snapshot).
@@ -27,7 +28,7 @@ struct DetentSheet<Header: View, Content: View>: View {
     @GestureState private var drag: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static func height(_ d: Detent, in container: CGFloat) -> CGFloat {
+    static func height(_ d: SheetDetent, in container: CGFloat) -> CGFloat {
         switch d {
         case .peek: return min(150, container * 0.3)
         case .half: return container * 0.46
@@ -37,13 +38,13 @@ struct DetentSheet<Header: View, Content: View>: View {
 
     /// The detent a released drag settles on: the nearest height to where the drag was heading (the release point plus a share of its velocity).
     /// `raised` is how far up the drag went (negative: down); `velocity` the upward speed at release (points per second).
-    static func settle(from: Detent, raised: CGFloat, velocity: CGFloat, container: CGFloat) -> Detent {
+    static func settle(from: SheetDetent, raised: CGFloat, velocity: CGFloat, container: CGFloat) -> SheetDetent {
         let start = height(from, in: container)
         let aimed = start + raised + velocity * 0.12
-        return Detent.allCases.min { abs(height($0, in: container) - aimed) < abs(height($1, in: container) - aimed) } ?? from
+        return SheetDetent.allCases.min { abs(height($0, in: container) - aimed) < abs(height($1, in: container) - aimed) } ?? from
     }
 
-    private func move(_ d: Detent) {
+    private func move(_ d: SheetDetent) {
         if reduceMotion { detent = d } else { withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { detent = d } }
     }
 
@@ -60,7 +61,7 @@ struct DetentSheet<Header: View, Content: View>: View {
                 .accessibilityValue(detent.spoken)
                 .accessibilityHint("Swipe up or down to open or close")
                 .accessibilityAdjustableAction { direction in
-                    let all = Detent.allCases
+                    let all = SheetDetent.allCases
                     guard let i = all.firstIndex(of: detent) else { return }
                     switch direction {
                     case .increment: if i + 1 < all.count { move(all[i + 1]) }

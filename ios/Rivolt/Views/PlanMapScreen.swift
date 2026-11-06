@@ -89,7 +89,7 @@ struct PlanMapScreen: View {
     }
 }
 
-typealias PlanSheetDetent = DetentSheet<EmptyView, EmptyView>.Detent
+typealias PlanSheetDetent = SheetDetent
 
 enum PlanSheetLogic {
     /// "Seattle → Spokane": the sheet's title (the start is the truck's own place when none was picked).
