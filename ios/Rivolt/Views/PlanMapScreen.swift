@@ -138,7 +138,7 @@ typealias PlanSheetDetent = SheetDetent
 
 enum PlanSheetLogic {
     /// The line under the chips: what is loading, how many are shown, when the listing was built (never live), or what went wrong.
-    static func layerNote(_ model: TripPlanModel) -> String? {
+    @MainActor static func layerNote(_ model: TripPlanModel) -> String? {
         switch model.layerState {
         case .idle, .unavailable: return nil
         case .loading: return "Looking along the route…"
