@@ -18,7 +18,8 @@ export function preferredChanged(rows: ChargingNetwork[], saved: ChargingNetwork
   return rows.length !== saved.length || rows.some((r, i) => !!r.preferred !== !!saved[i]?.preferred);
 }
 
-export function PlannerNetworks({ onSaved }: { onSaved?: () => void }) {
+// Without a truck there is no plan to redo, so the button just says "Save".
+export function PlannerNetworks({ onSaved, canPlan = true }: { onSaved?: () => void; canPlan?: boolean }) {
   const qc = useQueryClient();
   const nets = useQuery({ queryKey: ["charging", "networks"], queryFn: () => backend.getChargingNetworks(), staleTime: 60_000 });
   const [rows, setRows] = useState<ChargingNetwork[]>([]);
@@ -63,7 +64,7 @@ export function PlannerNetworks({ onSaved }: { onSaved?: () => void }) {
             onClick={() => save.mutate()}
             className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50"
           >
-            {save.isPending ? "Saving…" : "Save and plan again"}
+            {save.isPending ? "Saving…" : canPlan ? "Save and plan again" : "Save"}
           </button>
           {save.isError && <span role="status" className="text-xs text-amber-300">Couldn&apos;t save your networks. Nothing was changed.</span>}
           {save.isSuccess && !changed && <span role="status" className="text-xs text-neutral-400">Saved.</span>}
