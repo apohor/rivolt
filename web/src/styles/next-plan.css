@@ -689,3 +689,11 @@
     height: max(260px, calc(100dvh - 376px));
   }
 }
+
+/* The From/To rows never push past their card at 390 px: the grid cell may shrink and the row wraps its actions under the place. */
+:root [data-plan-endpoints] {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root [data-plan-field] {
+  min-width: 0;
+}
