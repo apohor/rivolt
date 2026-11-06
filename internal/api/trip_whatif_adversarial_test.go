@@ -109,6 +109,11 @@ func TestWhatIfAdvTrailingDataIsRefusedAndUnknownFieldsAreIgnored(t *testing.T) 
 	if rec := advPost(h, string(good)+` {"x":1}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("trailing data after the request: %d, want 400", rec.Code)
 	}
+	for _, tail := range []string{"}", "]", "}}", " 7"} {
+		if rec := advPost(h, string(good)+tail); rec.Code != http.StatusBadRequest {
+			t.Errorf("a stray %q after the request: %d, want 400", tail, rec.Code)
+		}
+	}
 	if rec := advPost(h, string(good)+"  \n"); rec.Code != http.StatusOK {
 		t.Errorf("trailing whitespace: %d, want 200", rec.Code)
 	}
