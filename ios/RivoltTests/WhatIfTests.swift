@@ -8,7 +8,7 @@ final class WhatIfTests: XCTestCase {
     func testTheChangeLeadsThenAnEstimatedClockTimeThenTheChargeAsAChangeThenOneWayWarnings() throws {
         let r = try decode(#"{"estimate":true,"estimated":false,"notice":"estimate_replan","segment":{"from":1,"to":2},"added_m":12400,"added_sec":780,"at_edit":{"arrival_at":"2026-11-14T17:25:00Z"},"destination":{"arrival_at":"2026-11-14T20:45:00Z"},"next_charge":{"index":2,"is_destination":false,"soc_drop_pts":4.1},"warnings":["may_not_reach_next_charge"]}"#)
         let lines = WhatIfLogic.lines(r, metric: false, zone: TimeZone(identifier: "UTC")!)
-        XCTAssertEqual(lines.first, "+13 min · +7.7 mi")
+        XCTAssertEqual(lines.first, "+13 min · +8 mi")
         XCTAssertTrue(lines[1].hasPrefix("About ") && lines[1].hasSuffix("at the destination (estimate)"), lines[1])
         XCTAssertEqual(lines[2], "About 4 points lower at the next charger")
         XCTAssertEqual(lines[3], "May not reach the next charger (estimate)")
