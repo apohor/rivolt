@@ -314,6 +314,7 @@ export function TripRouteMap({
       // Waypoint markers: click selects the stops-table row; hovering shows the tooltip.
       wpMarkersRef.current.clear();
       const tip = new ml.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "rivolt-tip", maxWidth: "260px" });
+      const callout = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 14, className: "rivolt-tip", maxWidth: "260px" });
       for (let i = 0; i < ws.length; i++) {
         const w = ws[i];
         const origIdx = wsWithIdx[i].i;
@@ -326,12 +327,18 @@ export function TripRouteMap({
         element.appendChild(dotElement(color, size, false, !isEnd && isChargingWaypoint(w)));
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
-        element.addEventListener("click", (ev) => { ev.stopPropagation(); onSelectStopRef.current?.(origIdx); });
-        element.addEventListener("mouseenter", () => tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map));
+        // A tap or click selects the stops-table row and opens the stop's callout (a touch screen has no hover); hovering shows the same words.
+        element.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          onSelectStopRef.current?.(origIdx);
+          callout.remove();
+          callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map);
+        });
+        element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
         wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
       }
-      cleanups.push(() => { tip.remove(); wpMarkersRef.current.forEach((m) => m.marker.remove()); wpMarkersRef.current.clear(); });
+      cleanups.push(() => { tip.remove(); callout.remove(); wpMarkersRef.current.forEach((m) => m.marker.remove()); wpMarkersRef.current.clear(); });
 
       // The basemap follows the app theme live (Settings, or the OS under System).
       cleanups.push(onAppMapFlavor((f) => {
