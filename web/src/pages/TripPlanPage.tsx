@@ -289,7 +289,7 @@ export default function TripPlanPage() {
                     {adapterEl}
                   </div>
                   <AvoidToggles value={routePrefs} onChange={setRoutePrefs} />
-                  {!inDemo() && <PlannerNetworks canPlan={!!firstVehicle} onSaved={() => { if (origin && destination && hasResult && !multiday) planMutation.mutate(); }} />}
+                  {!inDemo() && <PlannerNetworks action={!firstVehicle || !origin || !destination || multiday ? "save" : hasResult ? "again" : "plan"} onSaved={() => { if (firstVehicle && origin && destination && !multiday) planMutation.mutate(); }} />}
                   {planTipEl}
                 </>
               }

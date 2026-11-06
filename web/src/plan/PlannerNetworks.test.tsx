@@ -44,8 +44,14 @@ describe("PlannerNetworks", () => {
 
   it("says Save when there is no truck to plan with", async () => {
     getChargingNetworks.mockResolvedValue([net("Alpha", "a")]);
-    render(<QueryClientProvider client={new QueryClient()}><PlannerNetworks canPlan={false} /></QueryClientProvider>);
+    render(<QueryClientProvider client={new QueryClient()}><PlannerNetworks action="save" /></QueryClientProvider>);
     expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("says what saving does next", async () => {
+    getChargingNetworks.mockResolvedValue([net("Alpha", "a")]);
+    render(<QueryClientProvider client={new QueryClient()}><PlannerNetworks action="plan" /></QueryClientProvider>);
+    expect(await screen.findByRole("button", { name: "Save and plan" })).toBeInTheDocument();
   });
 
   it("promises nothing", () => {
