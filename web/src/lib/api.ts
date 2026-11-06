@@ -2743,6 +2743,41 @@ export type PlannedWaypoint = {
   ViaEntityID?: string;
 };
 
+// POST /api/trips/what-if: the no-commit preview of one via edit (our own router, no Rivian call, nothing stored). Lead with added_sec / added_m;
+// clock times are secondary estimates rounded to 5 minutes; battery is a change only (never an absolute SoC); warnings are one-way (absent means
+// no claim, not "fine"). Show "Estimate. Rivian will re-plan and may change charging stops and times." wherever these numbers appear.
+export type WhatIfStop = {
+  lat: number;
+  lon: number;
+  source: "origin" | "via" | "planner" | "overnight" | "destination";
+  arrival_soc?: number;
+  departure_soc?: number;
+  arrival_at?: string;
+  departure_at?: string;
+  distance_from_origin_m?: number;
+};
+export type WhatIfRequest = {
+  stops: WhatIfStop[];
+  edit: { kind: "add" | "move" | "remove"; index: number; via?: { lat: number; lon: number } };
+  route_preferences?: { avoid_tolls: boolean; avoid_ferries: boolean; avoid_highways: boolean };
+  target_arrival_soc_percent?: number;
+};
+export type WhatIfResponse = {
+  estimate: true;
+  estimated: boolean; // true: our router was unavailable, the numbers are rough and there is no geometry
+  notice: "estimate_replan";
+  segment: { from: number; to: number }; // indexes into the request's stops: the stretch geometry replaces
+  geometry?: string; // polyline6 of the edited stretch (decode with 1e6)
+  geometry_precision?: number;
+  added_m: number;
+  added_sec: number;
+  arrival_shift_sec: number;
+  at_edit?: { arrival_at: string };
+  destination?: { arrival_at: string };
+  next_charge?: { index: number; is_destination: boolean; soc_drop_pts: number };
+  warnings?: ("may_not_reach_next_charge" | "may_not_reach_destination")[];
+};
+
 // TripPlanMultidayRequest is the body for POST /api/trips/plan-multiday: an origin and a list of days;
 // day k starts where day k-1 ended, so each day's `end` is an overnight or, for the last day, the trip's
 // destination. Vehicle, starting SoC and pack size are filled in by the server when omitted. See
