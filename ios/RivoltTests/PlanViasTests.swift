@@ -67,4 +67,15 @@ final class PlanViasTests: XCTestCase {
             }
         }
     }
+
+    func testMovedSwapsWithTheNeighbourAndStopsAtTheEnds() {
+        let a = PlanVia(lat: 1, lon: 1, name: "a", entityID: nil)
+        let b = PlanVia(lat: 2, lon: 2, name: "b", entityID: nil)
+        let c = PlanVia(lat: 3, lon: 3, name: "c", entityID: nil)
+        XCTAssertEqual(TripPlanLogic.moved([a, b, c], id: b.id, by: 1)?.map(\.name), ["a", "c", "b"])
+        XCTAssertEqual(TripPlanLogic.moved([a, b, c], id: b.id, by: -1)?.map(\.name), ["b", "a", "c"])
+        XCTAssertNil(TripPlanLogic.moved([a, b, c], id: a.id, by: -1))
+        XCTAssertNil(TripPlanLogic.moved([a, b, c], id: c.id, by: 1))
+        XCTAssertNil(TripPlanLogic.moved([a, b, c], id: "nope", by: 1))
+    }
 }

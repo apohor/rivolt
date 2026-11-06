@@ -747,6 +747,17 @@ struct YourStopsSection: View {
                         Text(PlanSheetLogic.passThrough).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
+                    if model.vias.count > 1 {
+                        VStack(spacing: 0) {
+                            Button { Task { await model.reorderVia(v.id, by: -1, source: state.client) } } label: { Image(systemName: "chevron.up").frame(minWidth: 44, minHeight: 22) }
+                                .disabled(i == 0 || model.updating)
+                                .accessibilityLabel("Visit \(v.name) earlier")
+                            Button { Task { await model.reorderVia(v.id, by: 1, source: state.client) } } label: { Image(systemName: "chevron.down").frame(minWidth: 44, minHeight: 22) }
+                                .disabled(i == model.vias.count - 1 || model.updating)
+                                .accessibilityLabel("Visit \(v.name) later")
+                        }
+                        .tint(Theme.accent)
+                    }
                     Button("Move") { model.startMove(v) }
                         .font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
                         .frame(minWidth: 44, minHeight: 44)
