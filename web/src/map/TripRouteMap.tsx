@@ -25,7 +25,7 @@ import { localUnits } from "../lib/preferences";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
-  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, valhallaMultiRoute, waypointTooltip,
+  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, sameSpot, valhallaMultiRoute, waypointTooltip,
   decodePolyline6, tripCardText, type PreviewResult,
 } from "./tripPure";
 
@@ -272,7 +272,7 @@ export function TripRouteMap({
         });
         const taken: Box[] = [...pinBoxes];
         const specs: PillSpec[] = [];
-        const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k);
+        const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
           const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
@@ -318,6 +318,9 @@ export function TripRouteMap({
       for (let i = 0; i < ws.length; i++) {
         const w = ws[i];
         const origIdx = wsWithIdx[i].i;
+        const roundTrip = ws.length > 1 && sameSpot(ws[0], ws[ws.length - 1]);
+        if (roundTrip && i === ws.length - 1) continue; // one marker for start and end
+        const endWp = roundTrip && i === 0 ? ws[ws.length - 1] : undefined;
         const isEnd = i === 0 || i === ws.length - 1;
         const color = i === 0 ? "#10b981" : i === ws.length - 1 ? "#f43f5e" : "#f59e0b";
         const size = isEnd ? 12 : 10;
@@ -331,10 +334,12 @@ export function TripRouteMap({
         element.addEventListener("click", (ev) => {
           ev.stopPropagation();
           onSelectStopRef.current?.(origIdx);
+          tip.remove(); // a touch tap also fires mouseenter: one popup, the callout with its close button
           callout.remove();
-          callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map);
+          // WebKit's tap also reaches the map as a click, which would close a popup opened in the same turn: open it just after.
+          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); }, 40);
         });
-        element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map); });
+        element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
         wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
       }

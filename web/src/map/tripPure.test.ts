@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, chargerPopupHTML, decodePolyline6, DROPPED_PIN_LABEL, droppedPinPopupHTML, tripCardText, waypointTooltip } from "./tripPure";
+import { campPopupHTML, chargerPopupHTML, decodePolyline6, DROPPED_PIN_LABEL, droppedPinPopupHTML, sameSpot, tripCardText, waypointTooltip } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 
@@ -106,5 +106,17 @@ describe("a pin dropped with a long press", () => {
     expect(html).toContain("Add as a stop");
     expect(html).toContain("This doesn't promise a charge there.");
     expect(html).not.toMatch(/free|working|available/i);
+  });
+});
+
+describe("round trip callout", () => {
+  const a = { Name: "", MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 0, DepartureSoC: 80, Latitude: 1, Longitude: 2 } as unknown as Parameters<typeof waypointTooltip>[0];
+  const b = { ...a, ArrivalSoC: 31 } as typeof a;
+  it("is one callout when start and end share a spot", () => {
+    expect(sameSpot(a, b)).toBe(true);
+    expect(sameSpot(a, { ...b, Latitude: 1.01 } as typeof a)).toBe(false);
+    const html = waypointTooltip(a, 0, 3, b);
+    expect(html).toContain("Start and end");
+    expect(html).toContain("31%");
   });
 });

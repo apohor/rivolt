@@ -37,11 +37,16 @@ export function droppedPinPopupHTML(): string {
   ].join("");
 }
 
-export function waypointTooltip(w: PlannedWaypoint, i: number, total: number): string {
+// A round trip starts and ends at one spot (within a few metres): one marker, one callout for both.
+export function sameSpot(a: PlannedWaypoint, b: PlannedWaypoint): boolean {
+  return Math.abs(a.Latitude - b.Latitude) < 0.0002 && Math.abs(a.Longitude - b.Longitude) < 0.0002;
+}
+
+export function waypointTooltip(w: PlannedWaypoint, i: number, total: number, end?: PlannedWaypoint): string {
   const isFirst = i === 0;
   const isLast = i === total - 1;
   const heading = isFirst
-    ? "Origin"
+    ? end ? "Start and end" : "Origin"
     : isLast
       ? "Destination"
       : w.Name || "Charging stop";
@@ -49,6 +54,7 @@ export function waypointTooltip(w: PlannedWaypoint, i: number, total: number): s
     `<div style="font:12px/1.35 ui-sans-serif,system-ui;color:#fafafa">`,
     `<div style="color:#34d399;font-weight:600">${escapeHTML(heading)}</div>`,
   ];
+  if (end && end.ArrivalSoC > 0) lines.push(`<div>Back here with about ${end.ArrivalSoC.toFixed(0)}%</div>`);
   if (!isFirst && !isLast) {
     if (w.MaxPowerKW > 0) {
       lines.push(`<div>Up to ${w.MaxPowerKW.toFixed(0)} kW</div>`);
