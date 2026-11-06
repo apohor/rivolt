@@ -326,13 +326,16 @@ export function TripRouteMap({
         element.style.cssText = "display:flex;align-items:center;justify-content:center;width:28px;height:28px;";
         element.appendChild(dotElement(color, size, false, !isEnd && isChargingWaypoint(w)));
         element.style.cursor = "pointer";
+        element.style.zIndex = String(i === 0 ? 3 : i === ws.length - 1 ? 2 : 1); // a round trip stacks origin and destination: the origin is on top, deterministically
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
         // A tap or click selects the stops-table row and opens the stop's callout (a touch screen has no hover); hovering shows the same words.
         element.addEventListener("click", (ev) => {
           ev.stopPropagation();
           onSelectStopRef.current?.(origIdx);
+          tip.remove(); // a touch tap also fires mouseenter: one popup, the callout with its close button
           callout.remove();
-          callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map);
+          // WebKit's tap also reaches the map as a click, which would close a popup opened in the same turn: open it just after.
+          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map); }, 40);
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
