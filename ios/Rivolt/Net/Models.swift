@@ -23,6 +23,14 @@ struct AuthUser: Decodable, Equatable {
     /// A lapse: free now, had Pro until this instant, from this source.
     var planEndedAt: Date? = nil
     var planEndedSource: String? = nil
+    /// B8: how to show those dates. "utc_date": the `plan_*_date` fields are the UTC calendar dates ("YYYY-MM-DD") of the instants of the same name, shown
+    /// as that date in any zone (Stripe's Portal says the same); "instant" (Apple): the device formats the instant; nil on an older server.
+    var planDateBasis: String? = nil
+    var planPeriodEndDate: String? = nil
+    var planTrialEndsDate: String? = nil
+    var planCancelsDate: String? = nil
+    var planGraceEndsDate: String? = nil
+    var planEndedDate: String? = nil
     /// False on a self-hosted or billing-off server: no paywall, price or Manage control.
     var billingEnabled: Bool? = nil
     /// 90 on free, nil (unlimited) otherwise.

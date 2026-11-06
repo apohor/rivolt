@@ -14,6 +14,20 @@ enum PlanState: Equatable {
 }
 
 enum PlanLogic {
+    /// The date to show for one billing instant (B8). With the "utc_date" basis it is the server's UTC calendar date, as a `Date` that formats to that
+    /// same calendar date in the device's own zone (local noon of it), so no zone conversion can move it; otherwise the instant itself.
+    static func shown(_ me: AuthUser, instant: Date?, date: String?) -> Date? {
+        guard me.planDateBasis == "utc_date", let date, let d = calendarDate(date) else { return instant }
+        return d
+    }
+
+    /// Local noon of the calendar date "YYYY-MM-DD" (nil for anything else).
+    static func calendarDate(_ s: String) -> Date? {
+        let p = s.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        return Calendar.current.date(from: DateComponents(year: p[0], month: p[1], day: p[2], hour: 12))
+    }
+
     /// Billing off (a self-hosted server, `billingEnabled` false or absent), the demo account, or no plan fields at all mean no plan screen.
     static func state(_ me: AuthUser?) -> PlanState {
         guard let me, let plan = me.plan, me.billingEnabled == true else { return .off }
@@ -23,11 +37,11 @@ enum PlanLogic {
             let known = ["apple", "stripe", "founding", "grant"]
             let source = known.contains(me.planSource ?? "") ? (me.planSource ?? "grant") : "grant"
             // A failed payment first (it needs the person), then a cancellation: a cancelled plan must never say it renews.
-            if source == "stripe", let g = me.planGraceEnds { return .paymentFailed(source: source, until: g) }
-            if source == "stripe" || source == "apple", let c = me.planCancelsAt { return .cancelled(source: source, until: c) }
-            return .pro(source: source, periodEnd: me.planPeriodEnd)
+            if source == "stripe", let g = shown(me, instant: me.planGraceEnds, date: me.planGraceEndsDate) { return .paymentFailed(source: source, until: g) }
+            if source == "stripe" || source == "apple", let c = shown(me, instant: me.planCancelsAt, date: me.planCancelsDate) { return .cancelled(source: source, until: c) }
+            return .pro(source: source, periodEnd: shown(me, instant: me.planPeriodEnd, date: me.planPeriodEndDate))
         }
-        if let ended = me.planEndedAt { return .lapsed(endedOn: ended, source: me.planEndedSource) }
+        if let ended = shown(me, instant: me.planEndedAt, date: me.planEndedDate) ?? me.planEndedAt { return .lapsed(endedOn: ended, source: me.planEndedSource) }
         return .free
     }
 
