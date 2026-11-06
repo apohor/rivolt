@@ -5,9 +5,12 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -36,7 +39,59 @@ func withLegCache(d Deps, uid uuid.UUID, c rivian.Client) rivian.Client {
 	if !ok {
 		return c
 	}
-	return legCachedClient{Client: c, planner: d.PlanLegs.Wrap(tp, uid)}
+	return legCachedClient{Client: c, planner: &countedPlanner{inner: d.PlanLegs.Wrap(&timedPlanner{inner: tp, m: d.Metrics}, uid), m: d.Metrics}}
+}
+
+// legTrace tells the counting wrapper whether the leg reached the planner: the timing wrapper, which sits inside the leg cache, sets it, so a
+// leg it never saw was answered by the cache or refused by the quota.
+type legTrace struct{ upstream atomic.Bool }
+
+type legTraceKey struct{}
+
+// timedPlanner times the calls that reach the planner (leg-cache misses) in rivolt_trip_plan_upstream_seconds.
+type timedPlanner struct {
+	inner rivian.TripPlanner
+	m     *metrics.Metrics
+}
+
+func (p *timedPlanner) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+	if t, ok := ctx.Value(legTraceKey{}).(*legTrace); ok {
+		t.upstream.Store(true)
+	}
+	start := time.Now()
+	plan, err := p.inner.PlanTrip(ctx, in)
+	if p.m != nil {
+		outcome := "ok"
+		if err != nil {
+			outcome = "error"
+		}
+		p.m.TripPlanUpstreamSeconds.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
+	}
+	return plan, err
+}
+
+// countedPlanner counts every leg asked for in rivolt_trip_plan_legs_total by what happened to it.
+type countedPlanner struct {
+	inner rivian.TripPlanner
+	m     *metrics.Metrics
+}
+
+func (p *countedPlanner) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+	tr := &legTrace{}
+	plan, err := p.inner.PlanTrip(context.WithValue(ctx, legTraceKey{}, tr), in)
+	if p.m != nil {
+		result := "hit"
+		switch _, quota := planleg.IsQuota(err); {
+		case quota:
+			result = "quota"
+		case err != nil:
+			result = "error"
+		case tr.upstream.Load():
+			result = "miss"
+		}
+		p.m.TripPlanLegsTotal.WithLabelValues(result).Inc()
+	}
+	return plan, err
 }
 
 // writeQuotaError answers 429 with Retry-After when err is a planner quota
