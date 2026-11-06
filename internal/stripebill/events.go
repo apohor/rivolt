@@ -20,16 +20,18 @@ type Event struct {
 // Subscription is the part of a Stripe Subscription object Rivolt reads. current_period_end is on the subscription in older API versions
 // and on its items in newer ones; both are read, the subscription's first.
 type Subscription struct {
-	ID                string `json:"id"`
-	Customer          string `json:"customer"`
-	Status            string `json:"status"`
-	CancelAtPeriodEnd bool   `json:"cancel_at_period_end"`
-	CancelAt          int64  `json:"cancel_at"`
-	CurrentPeriodEnd  int64  `json:"current_period_end"`
-	Items             struct {
+	ID                 string `json:"id"`
+	Customer           string `json:"customer"`
+	Status             string `json:"status"`
+	CancelAtPeriodEnd  bool   `json:"cancel_at_period_end"`
+	CancelAt           int64  `json:"cancel_at"`
+	CurrentPeriodEnd   int64  `json:"current_period_end"`
+	CurrentPeriodStart int64  `json:"current_period_start"`
+	Items              struct {
 		Data []struct {
-			CurrentPeriodEnd int64 `json:"current_period_end"`
-			Price            struct {
+			CurrentPeriodEnd   int64 `json:"current_period_end"`
+			CurrentPeriodStart int64 `json:"current_period_start"`
+			Price              struct {
 				UnitAmount int64  `json:"unit_amount"`
 				Currency   string `json:"currency"`
 				Recurring  struct {
@@ -55,6 +57,23 @@ func (s Subscription) PeriodEnd() time.Time {
 		return time.Time{}
 	}
 	return time.Unix(end, 0).UTC()
+}
+
+// PeriodStart is the start of the current period (zero: unknown). When a renewal fails Stripe has already moved the subscription to the
+// new period, so this is the instant the paid period ended: the anchor of the grace.
+func (s Subscription) PeriodStart() time.Time {
+	start := s.CurrentPeriodStart
+	if start == 0 {
+		for _, it := range s.Items.Data {
+			if it.CurrentPeriodStart > start {
+				start = it.CurrentPeriodStart
+			}
+		}
+	}
+	if start == 0 {
+		return time.Time{}
+	}
+	return time.Unix(start, 0).UTC()
 }
 
 // Terms is what the subscription costs and how often it renews, from its first item's price (empty and zero when the event carries none).

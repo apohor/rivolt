@@ -323,6 +323,14 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 		status, ok = entitlements.StatusEnded, true
 	}
 	end := sub.PeriodEnd()
+	if status == entitlements.StatusPastDue {
+		// A failed renewal: Stripe has already moved the subscription to the new period, so its end is a month (or a year) after the failure.
+		// The grace runs from the instant the paid period ended, which is the new period's start. Every past-due event of the failure carries
+		// the same start, so storing it each time is steady; a later success stores the real end again.
+		if start := sub.PeriodStart(); !start.IsZero() {
+			end = start
+		}
+	}
 	if status == entitlements.StatusEnded && end.IsZero() {
 		// An ending is the one fact the event exists to say; without a period end it ends now (the time Stripe stamped it).
 		end = time.Unix(ev.Created, 0)
