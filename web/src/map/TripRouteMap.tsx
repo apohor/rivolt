@@ -340,7 +340,7 @@ export function TripRouteMap({
       // Waypoint markers: click selects the stops-table row; hovering shows the tooltip.
       wpMarkersRef.current.clear();
       const tip = new ml.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "rivolt-tip", maxWidth: "260px" });
-      const callout = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 14, className: "rivolt-tip", maxWidth: "260px" });
+      const callout = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 14, className: "rivolt-tip rivolt-live", maxWidth: "260px" });
       for (let i = 0; i < ws.length; i++) {
         const w = ws[i];
         const origIdx = wsWithIdx[i].i;
@@ -370,7 +370,7 @@ export function TripRouteMap({
         wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
       }
       // A long press (touch) or a right click (mouse) drops a pin with an "Add as a stop" callout. Only where stops can be added (the signed-in planner).
-      const drop = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 8, className: "rivolt-tip", maxWidth: "240px" });
+      const drop = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 8, className: "rivolt-tip rivolt-live", maxWidth: "240px" });
       // What adding the stop here would do, from our own router: the change, an estimate, nothing committed. The latest drop wins; a failure shows nothing
       // (busy says so).
       let previewCtl: AbortController | null = null;

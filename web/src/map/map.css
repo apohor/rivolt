@@ -23,6 +23,11 @@
   padding: 6px 8px;
   pointer-events: none;
 }
+/* A tip is only words that follow the pointer, so it takes no clicks. A callout opened by a tap or a right click has a button or a close mark,
+   and must: otherwise the click lands on the map under it. */
+.rivolt-tip.rivolt-live .maplibregl-popup-content {
+  pointer-events: auto;
+}
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
 .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
