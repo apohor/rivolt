@@ -7,7 +7,7 @@ import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
-import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
+import { findChargersAlongPath, findChargersOfNetworks, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { campgroundOfPoi } from "../plan/stays";
@@ -79,6 +79,21 @@ function boundsOfPath(path: LatLng[]): [[number, number], [number, number]] {
   return [[w, s], [e, n]];
 }
 
+// The slugs of the networks marked "Prefer in planner" in Settings (read once; the signed-out demo has none). A failed read means no chip.
+function usePreferredSlugs(): string[] {
+  const [slugs, setSlugs] = useState<string[]>([]);
+  useEffect(() => {
+    if (inDemo()) return;
+    let live = true;
+    void Promise.resolve()
+      .then(() => backend.getChargingNetworks())
+      .then((rows) => { if (live) setSlugs((rows ?? []).filter((n) => n.preferred && n.slug).map((n) => n.slug as string)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return slugs;
+}
+
 export function TripRouteMap({
   route,
   height = 320,
@@ -130,6 +145,12 @@ export function TripRouteMap({
   const [routePath, setRoutePath] = useState<LatLng[]>([]);
   const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "hotels" | "camp" | "all">("dcfc");
   const [campCount, setCampCount] = useState(0);
+  // "Preferred only": just the fast chargers of the networks marked "Prefer in planner" in Settings (the same list). It narrows the map; the planner
+  // still only favours them.
+  const [preferredOnly, setPreferredOnly] = useState(false);
+  const preferredSlugs = usePreferredSlugs();
+  const preferredKey = preferredSlugs.join(",");
+  const onlyPreferred = preferredOnly && preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all");
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
@@ -581,7 +602,7 @@ export function TripRouteMap({
     const ac = new AbortController();
     setChargersLoading(true);
     void (async () => {
-      const found = await findChargersAlongPath(routePath, chargerFilter);
+      const found = onlyPreferred ? await findChargersOfNetworks(routePath, preferredKey.split(",")) : await findChargersAlongPath(routePath, chargerFilter);
       if (ac.signal.aborted || mapRef.current !== map) return;
       setNoChargerSource(found === null);
       const chargers = found ?? [];
@@ -608,7 +629,7 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, chargerFilter, mapReady]);
+  }, [routePath, chargerFilter, mapReady, onlyPreferred, preferredKey]);
 
   // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
   useEffect(() => {
@@ -652,6 +673,16 @@ export function TripRouteMap({
               {filterLabels[f]}
             </button>
           ))}
+          {preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all") && (
+            <button
+              aria-pressed={preferredOnly}
+              onClick={() => setPreferredOnly((v) => !v)}
+              title="Only the networks you prefer in Settings. The planner favours them; it doesn't promise one."
+              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${preferredOnly ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
+            >
+              Preferred only
+            </button>
+          )}
           {!chargersLoading && chargerCount === 0 ? (
             <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
