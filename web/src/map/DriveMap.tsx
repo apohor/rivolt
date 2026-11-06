@@ -211,7 +211,7 @@ export function DriveMap({
         const card = el.querySelector<HTMLElement>(".rivolt-legend");
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
         const bottom = Math.max(el.clientWidth < 520 ? 64 : 44, lift);
-        map.fitBounds(fitBox, { padding: { top: 44, left: 20, right: 72, bottom }, animate: false, maxZoom: 17 });
+        map.fitBounds(fitBox, { padding: { top: 44, left: 56, right: 72, bottom }, animate: false, maxZoom: 17 });
         updatePills();
       };
 
