@@ -31,6 +31,7 @@ export function droppedPinPopupHTML(): string {
   return [
     `<div class="drop-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px">`,
     `<div style="font-weight:600;margin-bottom:3px">${DROPPED_PIN_LABEL}</div>`,
+    `<div class="drop-preview" aria-live="polite" style="color:#d4d4d4"></div>`,
     `<button class="drop-add-btn" style="margin-top:6px;width:100%;padding:3px 8px;background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Add as a stop</button>`,
     `<div style="color:#a3a3a3;font-size:${MAP_CAPTION_PX}px;margin-top:3px">The route passes through it. This doesn't promise a charge there.</div>`,
     `</div>`,
