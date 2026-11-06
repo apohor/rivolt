@@ -513,7 +513,60 @@ struct AlongCharger: Decodable, Equatable, Identifiable {
     var isDCFC: Bool?
     var maxPowerKW: Double?
     var evNetwork: String?
+    /// What a layer pin is ("dcfc", "hotel", "camp"), whether its network is one the person prefers, and how far off the route it is (km, exact
+    /// from the corridor layers); nil on the plain fast-charger list.
+    var kind: String? = nil
+    var preferred = false
+    var offKm: Double? = nil
+    var networkName: String? = nil
     var id: String { "\(lat),\(lon),\(name ?? "")" }
+
+    private enum CodingKeys: String, CodingKey { case lat, lon, name, isDCFC, maxPowerKW, evNetwork }
+}
+
+/// `POST /api/maps/corridor-layers`: the charger, hotel and campground layers along a whole route, in route order, from the server's archive. Nothing
+/// is live: `asof` is when the archive was built.
+struct CorridorLayersRequest: Encodable, Equatable {
+    var path: [[Double]]
+    /// Any of "dcfc", "l2", "hotels", "camp".
+    var kinds: [String]
+    var limit: Int?
+}
+
+struct CorridorPOI: Decodable, Equatable, Identifiable {
+    var lat: Double
+    var lon: Double
+    var name: String?
+    var isDCFC: Bool?
+    var maxPowerKW: Double?
+    var evNetwork: String?
+    var networkSlug: String?
+    var networkName: String?
+    var alongKm: Double?
+    var offKm: Double?
+    var kinds: [String]?
+    var id: String { "\(lat),\(lon),\(name ?? "")" }
+}
+
+struct CorridorLayers: Decodable, Equatable {
+    var pois: [CorridorPOI] = []
+    var total: Int = 0
+    var asof: String?
+    var nextAfterKm: Double?
+
+    init(pois: [CorridorPOI] = [], total: Int = 0, asof: String? = nil, nextAfterKm: Double? = nil) {
+        self.pois = pois; self.total = total; self.asof = asof; self.nextAfterKm = nextAfterKm
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pois = (try? c.decode([CorridorPOI].self, forKey: .pois)) ?? []
+        total = (try? c.decode(Int.self, forKey: .total)) ?? pois.count
+        asof = try? c.decode(String.self, forKey: .asof)
+        nextAfterKm = try? c.decode(Double.self, forKey: .nextAfterKm)
+    }
+
+    private enum CodingKeys: String, CodingKey { case pois, total, asof, nextAfterKm }
 }
 
 struct ChargersAlong: Decodable, Equatable {

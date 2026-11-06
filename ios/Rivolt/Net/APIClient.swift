@@ -568,6 +568,10 @@ actor APIClient {
         try await request("POST", "/api/maps/chargers-along", body: body)
     }
 
+    func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
+        try await request("POST", "/api/maps/corridor-layers", body: body)
+    }
+
     /// The trip as days with a night between: each day planned from where the last ended.
     func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday {
         try await request("POST", "/api/trips/plan-multiday", body: body)

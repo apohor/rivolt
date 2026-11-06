@@ -302,6 +302,10 @@ enum RouteSnap {
         struct Stop: Equatable {
             var coord: Coord
             var label: String
+            /// A layer pin the person prefers (its network is marked Prefer in planner): drawn larger, ringed.
+            var emphasis = false
+            /// What a layer pin is: 0 a charger, 1 a hotel, 2 a campground.
+            var kind = 0
         }
 
         var allCoords: [Coord] { pieces.flatMap(\.coords) + routedGaps.flatMap { $0 } }
