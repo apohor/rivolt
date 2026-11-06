@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/billingdates"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/histwin"
@@ -269,7 +270,18 @@ type PlanFields struct {
 	// source it was (stripe, apple, trial, founding, grant), for "Your Pro ended on ...". Null on an account that never had Pro.
 	PlanEndedAt     *time.Time `json:"plan_ended_at"`
 	PlanEndedSource *string    `json:"plan_ended_source"`
-	BillingEnabled  bool       `json:"billing_enabled"`
+	// PlanDateBasis says how to show the plan's dates (B8; internal/billingdates): "utc_date" for a Stripe, founding, trial, grant or billing-off
+	// plan, whose dates are the UTC calendar dates in the plan_*_date fields below (show them as plain dates, no zone conversion, no "UTC" suffix:
+	// they match Stripe's Portal and our emails); "instant" for an Apple plan, whose dates the client formats on the device as Apple does (no
+	// *_date field is set); null when the account has never had Pro. The *_date fields are the UTC calendar date of the instant of the same name
+	// ("YYYY-MM-DD"), null when that instant is null or the basis is not utc_date. The instants stay as they were, for ordering and countdowns.
+	PlanDateBasis     *string `json:"plan_date_basis"`
+	PlanPeriodEndDate *string `json:"plan_period_end_date"`
+	PlanTrialEndsDate *string `json:"plan_trial_ends_date"`
+	PlanCancelsDate   *string `json:"plan_cancels_date"`
+	PlanGraceEndsDate *string `json:"plan_grace_ends_date"`
+	PlanEndedDate     *string `json:"plan_ended_date"`
+	BillingEnabled    bool    `json:"billing_enabled"`
 	// ManageSubscription is true only when billing is off but the account holds a Stripe subscription that is not over: it keeps renewing,
 	// so the client shows "Manage subscription" (POST /api/billing/portal, which works with billing off) and nothing else about plans.
 	// Absent otherwise.
@@ -305,6 +317,19 @@ func planFromState(st entitlements.State, billing bool) *PlanFields {
 		pf.Plan = "pro"
 		src := st.Source
 		pf.PlanSource = &src
+	}
+	// B8: which calendar date each instant is shown as. The basis follows the source that defines the dates: the plan's own while Pro, the lapsed
+	// one on a free account that once had Pro.
+	basisSource := st.EndedSource
+	if st.Pro {
+		basisSource = st.Source
+	}
+	if basis := billingdates.BasisFor(basisSource); basis != "" {
+		pf.PlanDateBasis = &basis
+		if basis == billingdates.UTCDate {
+			pf.PlanPeriodEndDate, pf.PlanTrialEndsDate = billingdates.Date(st.PeriodEnd), billingdates.Date(st.TrialEnds)
+			pf.PlanCancelsDate, pf.PlanGraceEndsDate, pf.PlanEndedDate = billingdates.Date(st.CancelsAt), billingdates.Date(st.GraceEnds), billingdates.Date(st.EndedAt)
+		}
 	}
 	return pf
 }
