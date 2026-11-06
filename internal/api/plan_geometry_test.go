@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -215,10 +216,13 @@ type longGeoRouter struct {
 	fakeGeoRouter
 	pts   int
 	stray bool
+	mu    sync.Mutex // the what-if route both sides of an edit at once
 	last  [][2]float64
 }
 
 func (f *longGeoRouter) RouteChecked(ctx context.Context, locs [][2]float64, o maps.RouteOpts) (maps.Route, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var rt maps.Route
 	f.last = nil
 	for i := 0; i+1 < len(locs); i++ {
