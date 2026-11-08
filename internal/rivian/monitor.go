@@ -65,6 +65,7 @@ type StateMonitor struct {
 	remoteMu     sync.Mutex
 	remoteLatest map[string]remoteLatestEntry
 	peerCharge   map[string]peerChargeEntry
+	peerDrives   map[string]peerDriveEntry
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -3748,6 +3749,54 @@ func (m *StateMonitor) peerChargeNow(vehicleID string) ChargeNow {
 	return now
 }
 
+// peerDrive is the owner's open drive for a vehicle this pod does not stream, read from the live-state snapshot the owner publishes (the
+// way peerChargeNow reads the charge). ok is false when there is no shared store, this pod streams the vehicle, the snapshot has no drive,
+// or its drive is stale (the same age limit the restore uses). Cached for remoteLatestTTL per vehicle; no side effects.
+func (m *StateMonitor) peerDrive(vehicleID string) (liveDrive, bool) {
+	if m.liveStateStore == nil {
+		return liveDrive{}, false
+	}
+	m.mu.RLock()
+	_, streaming := m.active[vehicleID]
+	m.mu.RUnlock()
+	if streaming {
+		return liveDrive{}, false
+	}
+	m.remoteMu.Lock()
+	if e, ok := m.peerDrives[vehicleID]; ok && m.since(e.at) < remoteLatestTTL {
+		m.remoteMu.Unlock()
+		return e.drive, e.ok
+	}
+	m.remoteMu.Unlock()
+	var d liveDrive
+	found := false
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	snap, ok, err := m.liveStateStore.Load(ctx, vehicleID)
+	if err != nil {
+		m.logger.Debug("peer drive snapshot get failed", "vehicle", vehicleID, "err", err.Error())
+		return liveDrive{}, false
+	}
+	if ok && snap.Drive != nil && m.clock().Sub(snap.Drive.EndAt) <= liveDriveMaxGap {
+		if ld := liveSessionsFromSnapshot(snap).drive; ld != nil {
+			d, found = *ld, true
+		}
+	}
+	m.remoteMu.Lock()
+	if m.peerDrives == nil {
+		m.peerDrives = make(map[string]peerDriveEntry)
+	}
+	m.peerDrives[vehicleID] = peerDriveEntry{drive: d, ok: found, at: m.clock()}
+	m.remoteMu.Unlock()
+	return d, found
+}
+
+type peerDriveEntry struct {
+	drive liveDrive
+	ok    bool
+	at    time.Time
+}
+
 type peerChargeEntry struct {
 	now ChargeNow
 	at  time.Time
@@ -3802,11 +3851,21 @@ func (m *StateMonitor) ActiveDrive(vehicleID string) *LiveDrive {
 	sess := m.sessions[vehicleID]
 	if sess == nil || sess.drive == nil {
 		m.sessMu.Unlock()
+		// No session of its own: a pod that does not stream the vehicle reads the owner's published accumulator, so the answer is the
+		// same on every pod (it used to be "no drive" on all but the lease holder).
+		if d, ok := m.peerDrive(vehicleID); ok {
+			return m.driveView(vehicleID, &d)
+		}
 		return nil
 	}
 	d := *sess.drive // shallow copy so we can release the lock before math
 	m.sessMu.Unlock()
+	return m.driveView(vehicleID, &d)
+}
 
+// driveView is the wire view of a drive accumulator (shared by the owner's own and the one read from the snapshot).
+func (m *StateMonitor) driveView(vehicleID string, dp *liveDrive) *LiveDrive {
+	d := *dp
 	pack := m.PackKWhFor(vehicleID)
 	elapsed := d.endAt.Sub(d.startedAt).Seconds()
 	if elapsed < 0 {
