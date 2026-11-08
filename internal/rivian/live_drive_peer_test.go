@@ -2,7 +2,9 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -81,5 +83,38 @@ func TestPeerPodWithNoOpenDrive(t *testing.T) {
 	r.peer.mu.Unlock()
 	if d := r.peer.ActiveDrive(chargeTestVehicle); d != nil {
 		t.Errorf("a streaming pod with no drive: %+v", d)
+	}
+}
+
+// failingLoadStore is a live-state store whose snapshot read fails, counting the reads.
+type failingLoadStore struct {
+	*memLiveStateStore
+	loads atomic.Int32
+}
+
+func (f *failingLoadStore) Load(context.Context, string) (LiveStateSnapshot, bool, error) {
+	f.loads.Add(1)
+	return LiveStateSnapshot{}, false, errors.New("store down")
+}
+
+// During a store outage a non-owner does not wait for the store on every poll: the failed read is remembered as "no drive" for the same short
+// TTL as a good one, then the store is tried again.
+func TestPeerDriveRemembersAStoreFailureBriefly(t *testing.T) {
+	store := &failingLoadStore{memLiveStateStore: newMemLiveStateStore()}
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	m := NewStateMonitor(nil, nil)
+	m.SetLiveStateStore(store)
+	m.now = func() time.Time { return now }
+	for i := 0; i < 5; i++ {
+		if d := m.ActiveDrive(chargeTestVehicle); d != nil {
+			t.Fatalf("a failing store gave a drive: %+v", d)
+		}
+	}
+	if n := store.loads.Load(); n != 1 {
+		t.Errorf("%d store reads for 5 polls inside the TTL, want 1", n)
+	}
+	now = now.Add(remoteLatestTTL + time.Second)
+	if d := m.ActiveDrive(chargeTestVehicle); d != nil || store.loads.Load() != 2 {
+		t.Errorf("after the TTL: drive %v, %d reads; want none and one more read", d, store.loads.Load())
 	}
 }
