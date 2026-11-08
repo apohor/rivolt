@@ -55,6 +55,7 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
@@ -879,6 +880,12 @@ func runServer() {
 	}
 	// Single-owner M4-1b: the call permit. off (default) checks nothing; observe counts requests to Rivian that carry neither a fence token nor
 	// a holder marker (rivolt_rivian_unpermitted_total); enforce also refuses them.
+	// Single-owner M4-3: a needs_reauth raise is the group owner's alone. Off by default; on, a raise from a pod that does not hold the user's group is refused
+	// (counted in rivolt_reauth_raise_refused_total). With a token the raise always carries the epoch, flag or not.
+	if os.Getenv("RIVOLT_SINGLE_OWNER") == "1" {
+		db.SetReauthRequiresOwner(true)
+		logger.Info("RIVOLT_SINGLE_OWNER is on: needs_reauth is raised by the group's owner only")
+	}
 	rivian.SetWSReconnectObserver(func(reason string) { appMetrics.RivianWSReconnects.WithLabelValues(reason).Inc() })
 	if mode := rivian.ParsePermitMode(os.Getenv("RIVOLT_RIVIAN_PERMIT")); mode != rivian.PermitOff {
 		rivian.SetPermitMode(mode)
@@ -1113,6 +1120,7 @@ func runServer() {
 				// user, nor send the email, right after they signed in.
 				var transitioned bool
 				var err error
+				sinkCtx = reauthOwnerCtx(sinkCtx, &liveFence, boundUID.String()) // M4-3: the raise carries the group's epoch when this pod owns the user
 				if accountSyncer.Load() != nil {
 					loaded := rivian.SessionVersionFrom(sinkCtx)
 					if loaded.IsZero() {
@@ -1127,6 +1135,11 @@ func runServer() {
 					// No account sync (no secrets store): there is no stored session to be
 					// stale against.
 					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				}
+				if errors.Is(err, db.ErrNotOwner) || errors.Is(err, fence.ErrFenced) {
+					// This pod does not hold the user's group (or has just lost it): its rejection says nothing the owner has not seen. Not a failure.
+					appMetrics.ReauthRaiseRefused.WithLabelValues(reauthRefusedReason(err)).Inc()
+					return
 				}
 				if err != nil {
 					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())

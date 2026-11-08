@@ -55,7 +55,7 @@ func TestRivianExpiryNoticesAreSentOnceAcrossReplicas(t *testing.T) {
 			t.Fatal(err)
 		}
 		if flagged {
-			if err := db.SetNeedsReauth(ctx, pool, uid, "session expired"); err != nil {
+			if _, err := db.RaiseNeedsReauth(ctx, pool, uid, "session expired"); err != nil {
 				t.Fatal(err)
 			}
 		}
