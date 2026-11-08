@@ -233,6 +233,19 @@ func TestResumedChargeEnergyAcrossPlugIns(t *testing.T) {
 	if got := energy(m, c, sess(lastWrite.Add(40*time.Minute), 6)); got != 77 {
 		t.Errorf("a third plug-in: %.1f kWh, want 71 + 6 = 77", got)
 	}
+	// The feeds disagree during the lag: the old session reappears between builds of the new one. Its base is remembered, not
+	// decided again from the grown energy, and the energy never goes down: old(30) → new(5) → old(30) → new(6) = 30, 35, 35, 36.
+	m, c = resume(30)
+	oldS, newS := t0, lastWrite.Add(10*time.Minute)
+	for i, step := range []struct {
+		start time.Time
+		total float64
+		want  float64
+	}{{oldS, 30, 30}, {newS, 5, 35}, {oldS, 30, 35}, {newS, 6, 36}, {newS, 9, 39}} {
+		if got := energy(m, c, sess(step.start, step.total)); got != step.want {
+			t.Errorf("flip-flop step %d: %.1f kWh, want %.1f", i, got, step.want)
+		}
+	}
 
 	// A fresh charge (not resumed) keeps today's rule: the total is the energy.
 	fresh := &liveCharge{id: "live_v_c_9", startedAt: t0, endAt: t0.Add(4 * time.Hour), startSoC: 40, endSoC: 50, maxPower: 7, finalState: "charging_active"}
@@ -244,15 +257,15 @@ func TestResumedChargeEnergyAcrossPlugIns(t *testing.T) {
 // A handoff keeps a resumed charge's energy baseline: without it the peer would drop back to "the session total is the energy".
 func TestChargeSnapshotCarriesTheResumeBaseline(t *testing.T) {
 	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
-	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour), baselineKWh: 30, baselineAt: t0.Add(time.Hour), sessionBase: 30, sessionBaseSet: true,
-		sessionStartSeen: "2026-11-06T23:10:00Z", lastResumed: 35}}
+	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour), baselineKWh: 30, baselineAt: t0.Add(time.Hour),
+		sessionBases: []sessionBaseEntry{{Key: "2026-11-06T23:10:00Z", Base: 30}}, lastResumed: 35}}
 	got := liveSessionsFromSnapshot(s.snapshot()).charge
-	if got.baselineKWh != 30 || !got.baselineAt.Equal(t0.Add(time.Hour)) || got.sessionBase != 30 || !got.sessionBaseSet || got.sessionStartSeen != "2026-11-06T23:10:00Z" || got.lastResumed != 35 {
-		t.Errorf("baseline %.1f at %v, session base %.1f set %v after a round trip", got.baselineKWh, got.baselineAt, got.sessionBase, got.sessionBaseSet)
+	if got.baselineKWh != 30 || !got.baselineAt.Equal(t0.Add(time.Hour)) || len(got.sessionBases) != 1 || got.sessionBases[0].Key != "2026-11-06T23:10:00Z" || got.sessionBases[0].Base != 30 || got.lastResumed != 35 {
+		t.Errorf("baseline %.1f at %v, session bases %v last %.1f after a round trip", got.baselineKWh, got.baselineAt, got.sessionBases, got.lastResumed)
 	}
 	old := s.snapshot()
-	old.Charge.BaselineKWh, old.Charge.SessionBaseSet = 0, false // a snapshot an older pod wrote
-	if got := liveSessionsFromSnapshot(old).charge; got.baselineKWh != 0 || got.sessionBaseSet {
+	old.Charge.BaselineKWh, old.Charge.SessionBases = 0, nil // a snapshot an older pod wrote
+	if got := liveSessionsFromSnapshot(old).charge; got.baselineKWh != 0 || len(got.sessionBases) != 0 {
 		t.Errorf("an older snapshot loaded as a resumed charge")
 	}
 }
