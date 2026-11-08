@@ -79,6 +79,8 @@ test("sample requests always carry an explicit until", async ({ browser }) => {
     await page.goto(href);
     await expect.poll(() => urls.length, { timeout: 15_000 }).toBeGreaterThan(i);
   }
+  // A later fetch (a second /api/samples) must also carry an until, so let the pages finish before the check.
+  await page.waitForLoadState("networkidle");
   for (const u of urls) {
     const q = new URL(u).searchParams;
     expect(q.get("since")).toBeTruthy();
