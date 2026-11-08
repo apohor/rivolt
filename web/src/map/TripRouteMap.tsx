@@ -763,7 +763,6 @@ export function TripRouteMap({
             </button>
           ))}
           <ChargerTypeInfo
-            floating={fill}
             kinds={["fast", "medium", "hotel", ...(campCount > 0 || chargerFilter === "camp" ? (["camping"] as ChargerKind[]) : [])]}
           />
           {preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all") && (
