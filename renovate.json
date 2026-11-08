@@ -61,10 +61,10 @@
       "groupName": "tile stack"
     },
     {
-      "description": "TypeScript 7 is held back: typescript-eslint 8 peers on typescript <6.1, so a 7.x bump cannot install cleanly (#1212). Drop this rule once typescript-eslint supports TypeScript 7.",
+      "description": "TypeScript 6.1+ is held back: typescript-eslint 8 peers on typescript >=4.8.4 <6.1.0, so a 6.1 or 7.x bump cannot install cleanly (#1212). Drop this rule once typescript-eslint supports TypeScript 6.1+.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["typescript"],
-      "allowedVersions": "<7"
+      "allowedVersions": "<6.1.0"
     },
     {
       "description": "GitHub Actions: one PR for all bumps (low-risk CI glue)",
