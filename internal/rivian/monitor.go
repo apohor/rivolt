@@ -919,6 +919,25 @@ func (m *StateMonitor) redisCtx(ctx context.Context, vehicleID string) (context.
 	return ctx, true
 }
 
+// fenceCtxQuiet is fenceCtx for a pass that only looks: the janitor lists every stale row of its user on every pod and
+// writes only for the groups the pod holds. A group that is not ours is skipped without a count or a log line, because
+// nothing was attempted; counting it made rivolt_lease_fenced_total{kind="charges"} fire once per sweep that saw another
+// pod's stuck row (the 70-minute pattern of #1619). A real write the database refuses is still counted by its caller.
+func (m *StateMonitor) fenceCtxQuiet(ctx context.Context, vehicleID string) (context.Context, bool) {
+	if m.fenceSrc == nil {
+		return ctx, true
+	}
+	tok, st := m.fenceSrc.Fence(vehicleID)
+	switch st {
+	case fence.Held:
+		m.noteHeld(vehicleID, tok)
+		return fence.With(ctx, tok), true
+	case fence.Off:
+		return ctx, true
+	}
+	return ctx, false // Lost, or Warming after a steal: not ours to act on yet; the next sweep looks again
+}
+
 // fenceCtx returns the context a guarded write uses for vehicleID and whether to write at all. A
 // pod that does not hold the vehicle's group (or is still in its post-steal warm-up) writes
 // nothing; the sample is dropped, not queued: the next frame carries the state.
@@ -1175,7 +1194,7 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 		}
 		// The janitor acts for the vehicle's owner only: no REST call and no write for a group this pod
 		// does not hold (or is still warming up for).
-		fctx, owner := m.fenceCtx(ctx, c.RivianVehicleID, "charges")
+		fctx, owner := m.fenceCtxQuiet(ctx, c.RivianVehicleID)
 		if !owner {
 			continue
 		}
