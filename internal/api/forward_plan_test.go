@@ -9,14 +9,18 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/apohor/rivolt/internal/forward"
+	"github.com/apohor/rivolt/internal/forward/forwardtest"
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -256,5 +260,85 @@ func TestOwnerSilentPlanIs503RetryAfter5(t *testing.T) {
 	_, err := (&forwardPlanner{inner: inner, sf: sf}).PlanTrip(context.Background(), sampleInput())
 	if got := plainPlanReason(err); got != "the planner is busy, try again in a moment" {
 		t.Errorf("multi-day reason %q", got)
+	}
+}
+
+// gatedRunner holds every call until released, so an owner can be kept at its per-user cap.
+type gatedRunner struct {
+	gate chan struct{}
+	n    atomic.Int32
+}
+
+func (g *gatedRunner) Run(ctx context.Context, _ forward.Kind, _, _ string, _ any) (forward.Result, error) {
+	g.n.Add(1)
+	select {
+	case <-g.gate:
+	case <-ctx.Done():
+	}
+	return ServePlanLegs(ctx, plannerClient{Client: rivian.NewStub(), TripPlanner: planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) { return samplePlan(), nil })}, sampleInput()), nil
+}
+
+// The soft cases plan on this pod and are counted by why: an owner still busy after its one retry is `local_busy`, Redis down is `local`.
+// Neither is the 503 path (only a timeout is).
+func TestPlanLegsSoftCasesPlanLocally(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), ContextTimeoutEnabled: true})
+	t.Cleanup(func() { _ = rdb.Close() })
+	signer, _ := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	m := forward.NewMetrics(prometheus.NewRegistry())
+	keys := forward.Keys{}
+	const group = "g"
+	ownerView := &forwardtest.LeaseView{Owners: map[string]forward.LeaseOwner{group: {Found: true, Pod: "pod-a", Epoch: 3}}, HeldAt: map[string]int64{group: 3}}
+	runner := &gatedRunner{gate: make(chan struct{})}
+	o, err := forward.NewOwner(forward.OwnerConfig{Pod: "pod-a", Keys: keys, Signer: signer, Redis: rdb, Leases: ownerView, Runner: runner, Metrics: m, BlockFor: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); o.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for dl := time.Now().Add(2 * time.Second); !mr.Exists(keys.Ready("pod-a")) && time.Now().Before(dl); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	fw, err := forward.NewForwarder(forward.RequesterConfig{Pod: "pod-b", Keys: keys, Signer: signer, Redis: rdb, Metrics: m,
+		Leases: &forwardtest.LeaseView{Owners: map[string]forward.LeaseOwner{group: {Found: true, Pod: "pod-a", Epoch: 3}}},
+		Jitter: func() time.Duration { return 10 * time.Millisecond }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := uuid.New()
+	local := atomic.Int32{}
+	inner := planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		local.Add(1)
+		return &rivian.TripPlan{Status: "LOCAL"}, nil
+	})
+	p := &forwardPlanner{inner: inner, sf: &stateForward{fw: fw, user: user, groupOf: func(string) (string, bool) { return group, true }}}
+	count := func(outcome string) float64 {
+		return testutil.ToFloat64(m.Total.WithLabelValues(string(forward.KindPlanLegs), outcome))
+	}
+
+	// Two legs fill the user's cap at the owner; the third is told busy twice and plans here.
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, _ = p.PlanTrip(context.Background(), sampleInput()) }()
+	}
+	for dl := time.Now().Add(3 * time.Second); runner.n.Load() < 2 && time.Now().Before(dl); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	plan, err := p.PlanTrip(context.Background(), sampleInput())
+	if err != nil || plan.Status != "LOCAL" || local.Load() != 1 || count("local_busy") != 1 || count("timeout") != 0 {
+		t.Errorf("busy twice: plan %+v err %v, %d local plans, local_busy=%v timeout=%v", plan, err, local.Load(), count("local_busy"), count("timeout"))
+	}
+	close(runner.gate)
+	wg.Wait()
+
+	// Redis down: the plan is made here and counted local.
+	mr.Close()
+	local.Store(0)
+	plan, err = p.PlanTrip(context.Background(), sampleInput())
+	if err != nil || plan.Status != "LOCAL" || local.Load() != 1 || count("local") != 1 {
+		t.Errorf("redis down: plan %+v err %v, %d local plans, local=%v", plan, err, local.Load(), count("local"))
 	}
 }

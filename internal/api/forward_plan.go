@@ -93,9 +93,13 @@ func planFailureOf(err error) planFailure {
 	return f
 }
 
-// errOwnerUnavailable marks a forward that got no answer (the owner timed out, was busy past the retry, or could not be reached). The
-// handlers answer it 503 with Retry-After 5 and, in a multi-day plan, "the planner is busy"; it is never retried on this pod, because the
-// owner is probably still inside a slow Rivian call and a local retry would double the load (DA ruling on #1687).
+// errOwnerUnavailable marks a forward that came back with no answer and no local run: the owner timed out (after the one retry on a lease
+// change), the lease moved with nobody new to ask, its queue was full, or the message was refused. The handlers answer it 503 with
+// Retry-After 5 and, in a multi-day plan, "the planner is busy". It is never retried on this pod, because the owner is probably still
+// inside a slow Rivian call and a local retry would double the load (DA ruling on #1687).
+//
+// Everything else that goes wrong before an answer is a local plan, not this error: the owner busy past its one retry (local_busy), Redis
+// down, the owner not ready, no owner or this pod being the owner (local), and an unknown group (no_group).
 var errOwnerUnavailable = errors.New("the vehicle's owner did not answer")
 
 // forwardedPlanError is a planner error that crossed the wire: its text is the owner's, and it matches the same sentinels and types.
