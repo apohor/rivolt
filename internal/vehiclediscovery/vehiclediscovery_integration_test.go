@@ -161,6 +161,8 @@ func TestDiscoveryBacksOffByOutcome(t *testing.T) {
 	}{
 		"error": {func() ([]rivian.Vehicle, error) { return nil, errors.New("rivian down") }, vehiclediscovery.ErrorBackoff, vehiclediscovery.OutcomeError},
 		"empty": {func() ([]rivian.Vehicle, error) { return nil, nil }, vehiclediscovery.EmptyBackoff, vehiclediscovery.OutcomeEmpty},
+		// Vehicles came back but none has an id to store: an error (retried after the error backoff), logged with counts only.
+		"no usable id": {func() ([]rivian.Vehicle, error) { return []rivian.Vehicle{{Name: "x"}}, nil }, vehiclediscovery.ErrorBackoff, vehiclediscovery.OutcomeError},
 	} {
 		bo.held = nil
 		var calls atomic.Int32
