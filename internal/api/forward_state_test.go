@@ -18,6 +18,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/forward/forwardtest"
+	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -63,8 +64,10 @@ func (c *restStateClient) count() int {
 
 func newStateForward(fw StateForwarder) *stateForward {
 	return &stateForward{fw: fw, user: uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		groupOf: func(string) (string, bool) { return fwdGroup, true }}
+		groupOf: func(string) (string, bool) { return fwdGroup, true }, forwardClient: anyClient}
 }
+
+func anyClient(any) bool { return true }
 
 func TestForwardedStateServedByOwner(t *testing.T) {
 	client := &restStateClient{}
@@ -103,8 +106,8 @@ func TestForwardedStateNoRouteKeepsDirectPath(t *testing.T) {
 		noGroup int
 	}{
 		"nil":      {nil, 0},
-		"no group": {&stateForward{fw: fw, groupOf: func(string) (string, bool) { return "", false }}, 1},
-		"no fw":    {&stateForward{groupOf: func(string) (string, bool) { return fwdGroup, true }}, 0},
+		"no group": {&stateForward{fw: fw, groupOf: func(string) (string, bool) { return "", false }, forwardClient: anyClient}, 1},
+		"no fw":    {&stateForward{groupOf: func(string) (string, bool) { return fwdGroup, true }, forwardClient: anyClient}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fw.noGroup = nil
@@ -264,5 +267,51 @@ func TestForwardedStateEndToEnd(t *testing.T) {
 	}
 	if reqClient.count() != 0 || ownerClient.count() != 1 {
 		t.Errorf("Rivian calls: requester %d, owner %d; want 0 and 1", reqClient.count(), ownerClient.count())
+	}
+}
+
+// The client-type check is the only thing the replay test switch changes: the live client is forwarded, the replay client only with the
+// switch, and every other client (stub, mock, fixture, fakes) never is.
+func TestForwardableClients(t *testing.T) {
+	replay := &rivian.ReplayClient{}
+	var nilLive *rivian.LiveClient
+	for name, tc := range map[string]struct {
+		sf   *stateForward
+		c    any
+		want bool
+	}{
+		"live":                 {&stateForward{}, rivian.NewLive(), true},
+		"nil live":             {&stateForward{}, nilLive, false},
+		"replay, no switch":    {&stateForward{}, replay, false},
+		"replay, switch":       {&stateForward{replayTest: true}, replay, true},
+		"live, switch":         {&stateForward{replayTest: true}, rivian.NewLive(), true},
+		"stub, switch":         {&stateForward{replayTest: true}, rivian.NewStub(), false},
+		"mock, switch":         {&stateForward{replayTest: true}, rivian.NewMock(), false},
+		"nil requester":        {nil, replay, false},
+		"deps wiring, switch":  {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }, ForwardReplayTest: true}.stateForward(uuid.New()), replay, true},
+		"deps wiring, no flag": {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }}.stateForward(uuid.New()), replay, false},
+	} {
+		if got := tc.sf.forwardable(tc.c); got != tc.want {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// With the switch, a replay client's planner leg is forwarded (the preview evidence path); without it, it is planned here.
+func TestReplayPlannerForwardsOnlyWithTheSwitch(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		fw := &planForwarder{res: ServePlanLegs(context.Background(), plannerClient{Client: rivian.NewStub(), TripPlanner: planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) { return samplePlan(), nil })}, sampleInput())}
+		mr := miniredis.RunT(t)
+		d := Deps{PlanLegs: planleg.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), "t", nil), StateForward: fw,
+			GroupOfVehicle: func(string) (string, bool) { return "g", true }, ForwardReplayTest: on}
+		rc := &rivian.ReplayClient{}
+		planner, ok := tripPlannerOf(withLegCache(d, uuid.New(), rc))
+		if !ok {
+			t.Fatal("no planner")
+		}
+		_, _ = planner.PlanTrip(context.Background(), sampleInput()) // the replay planner has no feed here: its own answer is not under test
+		if want := map[bool]int{false: 0, true: 1}[on]; fw.count() != want {
+			t.Errorf("switch %v: %d forwards, want %d", on, fw.count(), want)
+		}
 	}
 }

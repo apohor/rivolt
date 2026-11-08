@@ -102,6 +102,8 @@ type Deps struct {
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
 	GroupOfVehicle func(vehicleID string) (group string, ok bool)
+	// ForwardReplayTest is RIVOLT_FORWARD_REPLAY_TEST: also forward the replay client's calls (see stateForward.replayTest).
+	ForwardReplayTest bool
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
 	// samples forever). A restore skips samples older than the cutoff, which
 	// the next retention sweep would delete anyway.
