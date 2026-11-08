@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,6 +46,16 @@ type fakeGateway struct {
 	srv *httptest.Server
 	mu  sync.Mutex
 	ops map[string]int
+	// hold, when set, makes every GetVehicleState wait for it to be closed (or for the request to end): a call in flight at a pod that dies.
+	hold chan struct{}
+}
+
+func (g *fakeGateway) holdState() (release func()) {
+	g.mu.Lock()
+	g.hold = make(chan struct{})
+	ch := g.hold
+	g.mu.Unlock()
+	return func() { close(ch) }
 }
 
 func newFakeGateway(t *testing.T) *fakeGateway {
@@ -57,7 +68,15 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		_ = json.Unmarshal(b, &req)
 		g.mu.Lock()
 		g.ops[req.OperationName]++
+		hold := g.hold
 		g.mu.Unlock()
+		if hold != nil && req.OperationName == "GetVehicleState" {
+			select {
+			case <-hold:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if req.OperationName == "planTripWithMultiStopV2" {
 			_, _ = io.WriteString(w, `{"data":{"planTrip2":{"status":"OK","plans":[{"summary":{"destinationReachable":true,"totalTripDurationSeconds":3600,"totalDriveDistanceMeters":123456,"arrivalSOCPercent":21.5},"waypoints":[{"waypointType":"origin","latitude":34.1,"longitude":-118.2},{"waypointType":"destination","latitude":35.1,"longitude":-117.2,"arrivalTimeUTC":"2026-11-08T10:00:00Z"}]}]}}}`)
@@ -91,12 +110,22 @@ type e2ePod struct {
 	reg     *prometheus.Registry
 	stop    context.CancelFunc
 	user    uuid.UUID
+	view    *forward.PGLeaseView
+
+	// stall, when set, makes the owner side wait on it before running a kind, ignoring the request deadline: a pod that has hung or died with
+	// the request in hand (a dead process sends no reply). entered counts the kinds that reached it.
+	stall   chan struct{}
+	entered atomic.Int32
 }
 
 type e2eRunner struct{ p *e2ePod }
 
 // Run is the owner side of fresh_state and plan_legs, as cmd/rivolt's forwardRunner does it.
 func (r e2eRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	r.p.entered.Add(1)
+	if r.p.stall != nil {
+		<-r.p.stall
+	}
 	if pa, ok := args.(*forward.PlanLegsArgs); ok && kind == forward.KindPlanLegs {
 		if g, known := r.p.store.GroupOfVehicle(pa.VehicleID); !known || g != group {
 			return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
@@ -116,6 +145,7 @@ func (r e2eRunner) Run(ctx context.Context, kind forward.Kind, user, group strin
 
 type e2eEnv struct {
 	pool  *sql.DB
+	uid   uuid.UUID
 	rdb   *redis.Client
 	mr    *miniredis.Miniredis
 	key   []byte
@@ -152,7 +182,7 @@ func newE2EEnv(t *testing.T, opts ...e2eOpts) *e2eEnv {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	env := &e2eEnv{pool: pool, rdb: rdb, mr: mr, key: []byte(strings.Repeat("k", 32))}
+	env := &e2eEnv{uid: uid, pool: pool, rdb: rdb, mr: mr, key: []byte(strings.Repeat("k", 32))}
 	if len(opts) > 0 {
 		env.timeouts = opts[0].Timeouts
 	}
@@ -189,6 +219,7 @@ func (e *e2eEnv) pod(t *testing.T, name string, uid uuid.UUID) *e2ePod {
 	reg := prometheus.NewRegistry()
 	p := &e2ePod{name: name, store: store, gw: gw, client: cl, mon: rivian.NewStateMonitor(nil, nil), reg: reg, user: uid, metrics: forward.NewMetrics(reg)}
 	view := forward.NewPGLeaseView(e.pool, store)
+	p.view = view
 	keys := forward.Keys{Prefix: "e2e"}
 	owner, err := forward.NewOwner(forward.OwnerConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view,
 		Runner: e2eRunner{p}, Metrics: p.metrics, BlockFor: 200 * time.Millisecond})
