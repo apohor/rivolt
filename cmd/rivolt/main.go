@@ -857,7 +857,7 @@ func runServer() {
 	// a holder marker (rivolt_rivian_unpermitted_total); enforce also refuses them.
 	if mode := rivian.ParsePermitMode(os.Getenv("RIVOLT_RIVIAN_PERMIT")); mode != rivian.PermitOff {
 		rivian.SetPermitMode(mode)
-		rivian.SetUnpermittedObserver(func(string) { appMetrics.RivianUnpermitted.Inc() })
+		rivian.SetUnpermittedObserver(func(op string) { appMetrics.RivianUnpermitted.WithLabelValues(rivian.PermitOp(op)).Inc() })
 		logger.Info("rivian call permit is on", "mode", mode.String())
 	}
 	// Single-owner M3 test switch: forward the replay client's calls too (preview only; refused anywhere that could reach Rivian).

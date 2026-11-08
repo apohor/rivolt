@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -56,6 +57,30 @@ func TestCheckPermitByMode(t *testing.T) {
 	n = withMode(t, PermitEnforce)
 	if err := checkPermit(bare, "X"); !errors.Is(err, ErrNoPermit) || n.Load() != 1 {
 		t.Errorf("enforce: err=%v counted=%d, want ErrNoPermit and counted once", err, n.Load())
+	}
+}
+
+// Every operation name in the source is in PermitOps, so the counter's label set is complete (a new operation fails here until it is listed).
+func TestPermitOpsCoverEveryOperation(t *testing.T) {
+	entries, _ := os.ReadDir(".")
+	re := regexp.MustCompile(`OperationName: *"([A-Za-z0-9_]+)"`)
+	known := map[string]bool{}
+	for _, o := range PermitOps {
+		known[o] = true
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		b, _ := os.ReadFile(e.Name())
+		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+			if !known[m[1]] {
+				t.Errorf("%s: operation %q is not in PermitOps (and metrics.RivianPermitOps)", e.Name(), m[1])
+			}
+		}
+	}
+	if PermitOp("not_an_operation") != "other" || PermitOp("Login") != "Login" {
+		t.Error("PermitOp must map unknown names to other and keep known ones")
 	}
 }
 

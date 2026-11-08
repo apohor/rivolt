@@ -99,7 +99,7 @@ type Metrics struct {
 	RivianCallRefused *prometheus.CounterVec
 	// RivianUnpermitted counts requests to Rivian that carried neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT=observe or
 	// enforce); in enforce mode each was refused. Created at 0. Non-zero is a bug finding (single-owner M4-1b).
-	RivianUnpermitted prometheus.Counter
+	RivianUnpermitted *prometheus.CounterVec
 	// RivianScheduleReadTotal counts charging-schedule reads by outcome: ok, retried_ok, dropped (refused
 	// by the shared budget on every try) and error. Pre-created at 0; no other labels.
 	RivianScheduleReadTotal *prometheus.CounterVec
@@ -527,10 +527,10 @@ func New() *Metrics {
 			},
 			[]string{"site"},
 		),
-		RivianUnpermitted: prometheus.NewCounter(prometheus.CounterOpts{
+		RivianUnpermitted: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_rivian_unpermitted_total",
-			Help: "Requests to Rivian with neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT observe or enforce). Non-zero is a bug finding.",
-		}),
+			Help: "Requests to Rivian with neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT observe or enforce), by GraphQL operation. Non-zero is a bug finding.",
+		}, []string{"op"}),
 		LeaseFenced: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_fenced_total",
@@ -982,6 +982,9 @@ func New() *Metrics {
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
+	for _, op := range RivianPermitOps {
+		m.RivianUnpermitted.WithLabelValues(op).Add(0)
+	}
 	for _, site := range RivianCallSites {
 		m.RivianCallRefused.WithLabelValues(site).Add(0) // exported at 0 so the first refusal is an increase
 	}
@@ -1015,6 +1018,11 @@ var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 // RivianCallSites are the label values of rivolt_rivian_call_refused_total; rivian.CallSites must list the same (a test in cmd/rivolt).
 var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_safety", "ws_dial", "live_session"}
+
+// RivianPermitOps are the label values of rivolt_rivian_unpermitted_total; rivian.PermitOps must list the same (a test in cmd/rivolt).
+var RivianPermitOps = []string{"__Introspect", "CreateCSRFToken", "GetChargingSchedule", "GetCompletedSessionSummaries", "GetDetailedSessionInfoByTxnId",
+	"getLiveSessionHistory", "getOTAUpdateDetails", "getUserInfo", "getVehicleImages", "GetVehicleState", "IntrospectEnum", "IntrospectInput", "Login",
+	"LoginWithOTP", "planTripWithMultiStop", "planTripWithMultiStopV2", "Probe", "SupportedFeatures", "ws_dial", "other"}
 
 var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian", "vehicle_info"}
 

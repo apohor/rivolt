@@ -51,7 +51,7 @@ const (
 	HolderLogout       = "logout"        // sign-out
 	HolderDeleteRevoke = "delete_revoke" // the account-delete revoke
 	HolderForwardRun   = "forward_run"   // the owner's forward runner, admitted on a held lease
-	HolderMonitor      = "monitor"       // a monitor goroutine for a vehicle whose group the pod holds; each REST call still asks the owner guard
+	HolderMonitor      = "monitor"       // set per call, only by rivianCtx (and the subscription gate) when the owner guard allows that call; never run-wide
 )
 
 type permitKey struct{}
@@ -70,6 +70,22 @@ var (
 
 // SetPermitMode sets the process-wide mode (main, once, at boot; tests).
 func SetPermitMode(m PermitMode) { permitMode.Store(int32(m)) }
+
+// PermitOps are the operation names a permit check can report: every GraphQL operation the client sends, the WebSocket dial and "other" for a
+// name not in this list (so the counter's label set stays closed). TestPermitOpsCoverEveryOperation keeps it complete.
+var PermitOps = []string{"__Introspect", "CreateCSRFToken", "GetChargingSchedule", "GetCompletedSessionSummaries", "GetDetailedSessionInfoByTxnId",
+	"getLiveSessionHistory", "getOTAUpdateDetails", "getUserInfo", "getVehicleImages", "GetVehicleState", "IntrospectEnum", "IntrospectInput", "Login",
+	"LoginWithOTP", "planTripWithMultiStop", "planTripWithMultiStopV2", "Probe", "SupportedFeatures", "ws_dial", "other"}
+
+// PermitOp maps an operation name to its label value.
+func PermitOp(op string) string {
+	for _, k := range PermitOps {
+		if k == op {
+			return op
+		}
+	}
+	return "other"
+}
 
 // SetUnpermittedObserver installs the counter hook; op is the GraphQL operation name or "ws_dial".
 func SetUnpermittedObserver(fn func(op string)) {

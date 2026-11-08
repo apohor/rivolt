@@ -1498,9 +1498,6 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		m.releaseActive(ctx, vehicleID)
 		return
 	}
-	// The monitor goroutine of a vehicle this pod was given: its Rivian calls carry the monitor's permit (the owner guard, rivianCtx, still
-	// decides each REST call and each dial).
-	ctx = WithCallPermit(ctx, HolderMonitor)
 	if m.source != nil {
 		m.runSource(ctx, vehicleID)
 		return
@@ -1696,7 +1693,9 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// killed the WS" (= the symptom we want to escalate on) from
 		// "TCP RST / network error" (= retry quietly), since both
 		// surface as `err = context canceled` once cancelSub fires.
-		subCtx, cancelSub := context.WithCancelCause(ctx)
+		// The gate just allowed this dial, so this subscription (and only it) carries the monitor's permit. The monitor's other calls (the
+		// extra subscriptions, RefreshVehicleInfo, the schedule read) are not marked, so observe mode counts them (DA, M4-1b).
+		subCtx, cancelSub := context.WithCancelCause(WithCallPermit(ctx, HolderMonitor))
 		// Publish the cancel handle so periodicRefresh can poke us
 		// when REST detects the car just woke up (otherwise we'd
 		// wait up to wsStaleThreshold for the watchdog). Cleared

@@ -36,19 +36,29 @@ func TestCallRefusedSitesMatchTheMetric(t *testing.T) {
 	t.Fatal("rivolt_rivian_call_refused_total is not registered")
 }
 
-// The permit's counter exists at 0 from boot, so the first unpermitted request is an increase.
-func TestUnpermittedCounterStartsAtZero(t *testing.T) {
+// The permit's counter exists at 0 for every operation from boot, so the first unpermitted request is an increase; the label list is the
+// client's.
+func TestUnpermittedCounterStartsAtZeroPerOp(t *testing.T) {
+	if !reflect.DeepEqual(rivian.PermitOps, metrics.RivianPermitOps) {
+		t.Fatalf("rivian.PermitOps %v differs from metrics.RivianPermitOps %v", rivian.PermitOps, metrics.RivianPermitOps)
+	}
 	mfs, err := metrics.New().Registry().Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, mf := range mfs {
-		if mf.GetName() == "rivolt_rivian_unpermitted_total" {
-			if len(mf.GetMetric()) != 1 || mf.GetMetric()[0].GetCounter().GetValue() != 0 {
-				t.Errorf("unexpected series: %v", mf.GetMetric())
-			}
-			return
+		if mf.GetName() != "rivolt_rivian_unpermitted_total" {
+			continue
 		}
+		if len(mf.GetMetric()) != len(rivian.PermitOps) {
+			t.Errorf("%d series, want one per operation (%d)", len(mf.GetMetric()), len(rivian.PermitOps))
+		}
+		for _, s := range mf.GetMetric() {
+			if s.GetCounter().GetValue() != 0 {
+				t.Errorf("a series starts non-zero: %v", s)
+			}
+		}
+		return
 	}
 	t.Fatal("rivolt_rivian_unpermitted_total is not registered")
 }
