@@ -479,6 +479,8 @@ func plainPlanReason(err error) string {
 		return "reconnect your Rivian account and try again"
 	case errors.Is(err, rivian.ErrNoFixture):
 		return "no sample plan for this trip"
+	case errors.Is(err, errOwnerUnavailable):
+		return "the planner is busy, try again in a moment"
 	}
 	return "the planner could not plan this day"
 }
