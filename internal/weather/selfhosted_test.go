@@ -30,9 +30,9 @@ func (o *obsLog) list() string {
 
 // A self-hosted client sends recent times to its own server's forecast API, with the usual variables, and counts the call.
 func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
-	var path, vars string
+	var path, vars, models string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path, vars = r.URL.Path, r.URL.Query().Get("hourly")
+		path, vars, models = r.URL.Path, r.URL.Query().Get("hourly"), r.URL.Query().Get("models")
 		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m":[11.5]}}`))
 	}))
 	defer srv.Close()
@@ -45,6 +45,9 @@ func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
 	}
 	if path != "/v1/forecast" {
 		t.Errorf("path %q, want /v1/forecast", path)
+	}
+	if models != "gem_seamless" {
+		t.Errorf("models %q, want gem_seamless (without it the server answers all-null)", models)
 	}
 	for _, v := range []string{"temperature_2m", "apparent_temperature", "wind_speed_10m", "wind_direction_10m", "precipitation", "relative_humidity_2m", "weather_code"} {
 		if !strings.Contains(vars, v) {
@@ -120,5 +123,25 @@ func TestSnapshotSnowing(t *testing.T) {
 	}
 	if (&Snapshot{TempC: -20, HasTemp: true}).Snowing() {
 		t.Error("a cold snapshot with no weather code reads as snow")
+	}
+}
+
+// The series request carries the same model, and the public client sends none (its own best_match is right for the public API).
+func TestModelsParameterOnlyOnTheSelfHostedClient(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query().Get("models"))
+		_, _ = w.Write([]byte(`{"minutely_15":{"time":["2026-01-01T00:00"],"temperature_2m":[1]}}`))
+	}))
+	defer srv.Close()
+	self := NewSelfHostedClient(srv.URL)
+	now := time.Now()
+	_, _ = self.FetchRange(context.Background(), 30, -97, now.Add(-time.Hour), now, 0, false)
+	pub := NewClient()
+	pub.ForecastURL = srv.URL
+	pub.HTTP = srv.Client()
+	_, _ = pub.FetchRange(context.Background(), 30, -97, now.Add(-time.Hour), now, 0, false)
+	if len(got) != 2 || got[0] != "gem_seamless" || got[1] != "" {
+		t.Errorf("models sent: %q, want [gem_seamless \"\"]", got)
 	}
 }

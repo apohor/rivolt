@@ -388,12 +388,20 @@ type Client struct {
 	// SelfHosted marks a client pointed at our own Open-Meteo (NewSelfHostedClient): the server keeps only a few days of past hours and has
 	// no archive, so a request older than selfHostedWindowDays is skipped (ErrTooOld) instead of sent.
 	SelfHosted bool
+	// Models is sent as the forecast API's `models` parameter when set. A self-hosted server holds only the models we sync, and without the
+	// parameter its default model choice picks ones it lacks and answers all-null; NewSelfHostedClient sets selfHostedModels.
+	Models string
 	// Observe is told the outcome of every upstream call ("forecast" or "archive"; "ok", "error", "skipped_old"); nil is fine.
 	Observe func(endpoint, outcome string)
 }
 
 // ErrTooOld is returned, without a request, by a self-hosted client for a time older than its server keeps.
 var ErrTooOld = errors.New("weather: older than the self-hosted window")
+
+// selfHostedModels is the one model id our server answers completely: ECCC GEM seamless, built from the synced regional (RDPS 10 km, about 3.5
+// days) and global (GDPS 15 km, 10 days) models, so every point on Earth has a value and weather_code is derived. Checked against the public
+// API at 12 points (rounds 2 and 3 of the preview diff).
+const selfHostedModels = "gem_seamless"
 
 // selfHostedWindowDays is how many past days our Open-Meteo keeps (sync --past-days 7) less a day of margin.
 const selfHostedWindowDays = 6
@@ -438,6 +446,7 @@ func NewSelfHostedClient(base string) *Client {
 	c.ForecastURL = base
 	c.BaseURL = base
 	c.SelfHosted = true
+	c.Models = selfHostedModels
 	return c
 }
 
@@ -547,6 +556,9 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	q.Set("temperature_unit", "celsius")
 	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
+	if c.Models != "" {
+		q.Set("models", c.Models)
+	}
 	var endpoint string
 	if useForecast {
 		endpoint = c.forecastBase() + "/v1/forecast?" + q.Encode()
@@ -676,6 +688,9 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 	q.Set("temperature_unit", "celsius")
 	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
+	if c.Models != "" {
+		q.Set("models", c.Models)
+	}
 	vars := []string{
 		"temperature_2m", "apparent_temperature",
 		"wind_speed_10m", "wind_direction_10m",
