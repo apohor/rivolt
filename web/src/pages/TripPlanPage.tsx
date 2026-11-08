@@ -578,7 +578,8 @@ export default function TripPlanPage() {
                   return null;
                 }
               }}
-              onAddStop={(stop) => {
+              // The signed-out demo can't re-plan (that is a Rivian call), so it offers no way to add a stop.
+              onAddStop={inDemo() ? undefined : (stop) => {
                 const labeled = relabelIfHome(stop, home);
                 setExtraStops((prev) => {
                   const dup = prev.some(
