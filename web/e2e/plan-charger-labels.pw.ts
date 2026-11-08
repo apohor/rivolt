@@ -46,7 +46,8 @@ for (const v of [
 // The (i) popover on a phone: it is drawn in the page, inside the window, never cut off by the map it opened over (the Hotel sentence was clipped at the
 // map's bottom edge), and a tap anywhere outside closes it, including a tap on the map itself.
 async function planned(browser: import("@playwright/test").Browser, vp: { width: number; height: number }, touch = false) {
-  const ctx = await browser.newContext({ viewport: vp, colorScheme: "dark", hasTouch: touch });
+  // Reduced motion: the planner's reveal scroll (TripPlanPage) is then instant, not an animation a click can interrupt.
+  const ctx = await browser.newContext({ viewport: vp, colorScheme: "dark", hasTouch: touch, reducedMotion: "reduce" });
   const page = await ctx.newPage();
   await stubApi(page);
   await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
@@ -58,6 +59,18 @@ async function planned(browser: import("@playwright/test").Browser, vp: { width:
   await page.getByRole("button", { name: "Plan trip" }).click();
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
   await expect(page.locator("[data-map-chips]").first()).toBeVisible();
+  // The planner brings the new plan's map into view after two frames (TripPlanPage). A scroll the test makes itself (Playwright scrolling a button
+  // into view before a click) must not race it, or the chips can be left under the header or the sheet: wait until the page has stopped scrolling.
+  await page.waitForFunction(() => new Promise<boolean>((done) => {
+    let last = -1, still = 0;
+    const tick = () => {
+      still = window.scrollY === last ? still + 1 : 0;
+      last = window.scrollY;
+      if (still >= 15) done(true);
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  }));
   return { ctx, page };
 }
 
