@@ -1,6 +1,6 @@
 // Pure helpers of the planner's trip map, kept free of any map library: the waypoint tooltip, the charger and campground popup HTML (all
 // data escaped), the Booking.com deep link, the Valhalla multi-stop route and the polyline6 decoder.
-import { chargerKindOfKw, chargerLabel, stationLine } from "../lib/chargerLabels";
+import { chargerKindOfKw, chargerLabel, stationIsDc, stationLine } from "../lib/chargerLabels";
 import { escapeHTML } from "../lib/escapeHtml";
 import { bookingAffiliateID, valhallaBase } from "../lib/config";
 import type { POI } from "../lib/poi";
@@ -222,7 +222,7 @@ export function chargerPopupHTML(
       `<div style="color:#fbbf24;margin-top:3px">Listed, not guaranteed. Chargers can be in use, broken or guests-only; check with the hotel before you rely on it.</div>`,
     );
   } else if (poi.maxPowerKW && poi.maxPowerKW > 0) {
-    out.push(`<div>${escapeHTML(stationLine(chargerKindOfKw(poi.maxPowerKW) ?? "medium", poi.maxPowerKW))}</div>`);
+    out.push(`<div>${escapeHTML(stationLine(chargerKindOfKw(poi.maxPowerKW, stationIsDc(poi.socketTypes)) ?? "medium", poi.maxPowerKW))}</div>`);
   }
   if (poi.network && poi.network !== name) {
     out.push(`<div style="color:#a3a3a3">${escapeHTML(poi.network)}</div>`);

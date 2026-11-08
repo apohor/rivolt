@@ -4,23 +4,27 @@
   "types": {
     "fast": {
       "label": "Fast",
-      "sentence": "DC fast charging, 50 kW and up. About 100 miles in 15 to 30 minutes at 150 kW or faster, closer to an hour at 50 kW."
+      "sentence": "DC, 50 kW and up. About 100 miles in 15 to 30 minutes at 150 kW or faster, closer to an hour at 50 kW."
+    },
+    "slowdc": {
+      "label": "Slow DC",
+      "sentence": "DC under 50 kW: an older or low-power station, or a session the vehicle held back (cold or nearly full battery). About 100 miles takes an hour or more."
     },
     "medium": {
       "label": "Medium",
-      "sentence": "Level 2 (AC). Adds roughly 15 to 30 miles per hour, depending on the charger and vehicle."
+      "sentence": "Level 2 (AC), 7 to 11 kWh per hour. About 15 to 30 miles per hour."
     },
     "hotel": {
       "label": "Hotel",
-      "sentence": "A hotel with a listed Level 2 charger, which may be taken or out of date: check with the hotel. A free, working night usually adds 100 miles or more."
+      "sentence": "Lists a Level 2 charger, which may be taken or out of date, so check with the hotel. If it's free and working, a night adds 100+ miles."
     },
     "camping": {
       "label": "Camping",
-      "sentence": "A campground RV hookup. A 50-amp (14-50) site charges at Level 2 speed with a 240 V portable charger; a 30-amp site is much slower."
+      "sentence": "RV hookup. A 50-amp (14-50) site charges at Level 2 speed with a 240 V portable charger; a 30-amp site is much slower."
     },
     "outlet": {
       "label": "Outlet",
-      "sentence": "A household outlet (120 V). About 3 to 4 miles per hour."
+      "sentence": "Household outlet (120 V). About 3 to 4 miles per hour."
     }
   },
   "all": "All",

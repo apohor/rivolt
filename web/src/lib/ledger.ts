@@ -583,6 +583,9 @@ export function dataQualityNotes(m: LedgerMonth, auto = false): string[] {
 // ---- fixtures -------------------------------------------------------
 
 export const DCFC_MIN_KW = 50;
+// The most a Rivian takes on AC (Level 2) is about 11.5 kW, so a power above about 12 kW and below DCFC_MIN_KW is a DC charge that stayed under the
+// fast threshold (an older or low-power station, or a session the vehicle held back), never Level 2.
+export const AC_MAX_KW = 12;
 
 // A typed month shaped like the replay corpus, covering every price
 // state: home rate, folded top-ups, a legacy DCFC stamped at the home
