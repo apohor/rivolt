@@ -78,14 +78,15 @@ func (c *Client) base() string {
 	return DefaultAPIBase
 }
 
+// APIVersion is the one Stripe API version every outbound call pins. It is the version the preview Stripe account's default was on when billing
+// was exercised end to end (Checkout, the webhooks, the portal, the cancel and void paths), so the shapes read below match it. Responses of a
+// webhook delivery use the webhook ENDPOINT's version, not this header: that endpoint must be on the same version (the structs in events.go
+// read both the pre-basil and basil+ subscription period fields, and only id/customer/refunded of a Charge). To move versions, change this
+// constant and re-run the sandbox replay (sandbox_test.go) and the webhook fixtures.
+const APIVersion = "2026-10-28.endive"
+
 // do sends one request. form is the url-encoded body of a POST (nil for GET); idem, when set, is the Idempotency-Key.
 func (c *Client) do(ctx context.Context, method, path string, form url.Values, idem string, out any) error {
-	return c.doVersion(ctx, "", method, path, form, idem, out)
-}
-
-// doVersion is do with a Stripe-Version pinned for this one request ("" keeps the account's default). The default is whatever the account was
-// created on or upgraded to, so a request whose response shape matters pins it.
-func (c *Client) doVersion(ctx context.Context, version, method, path string, form url.Values, idem string, out any) error {
 	if c == nil || c.SecretKey == "" {
 		return ErrNotConfigured
 	}
@@ -98,9 +99,9 @@ func (c *Client) doVersion(ctx context.Context, version, method, path string, fo
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.SecretKey)
-	if version != "" {
-		req.Header.Set("Stripe-Version", version)
-	}
+	// Every call pins the same API version, never the account's default: the owner can change that in the dashboard, and the shapes read here
+	// (see APIVersion) were verified against this one.
+	req.Header.Set("Stripe-Version", APIVersion)
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -324,10 +325,38 @@ func treatMissing(err error) error {
 	return err
 }
 
-// invoiceListVersion is the Stripe API version the open-invoice list is read with. From 2025-03-31 (basil) invoice.payment_intent is gone (the
-// payments moved to invoice.payments), and without it the in-flight check below would silently stop working, so this one request pins the last
-// version that has it, whatever the account's default is.
-const invoiceListVersion = "2025-02-24.acacia"
+// inFlightCheck reports whether a payment against the invoice may be moving money: one of its PaymentIntents is processing or awaiting capture.
+// Since API version 2025-03-31 an invoice no longer carries its payment_intent: its payments are InvoicePayment objects, each naming a
+// PaymentIntent. Any failure to find out counts as in flight (the invoice is left open and retried), never as clear.
+func inFlightCheck(ctx context.Context, c *Client, invoice string) bool {
+	var pays struct {
+		Data []struct {
+			Status  string `json:"status"`
+			Payment struct {
+				Type          string `json:"type"`
+				PaymentIntent string `json:"payment_intent"`
+			} `json:"payment"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/invoice_payments?limit=100&invoice="+url.QueryEscape(invoice), nil, "", &pays); err != nil {
+		return true
+	}
+	for _, p := range pays.Data {
+		if p.Payment.Type != "payment_intent" || p.Payment.PaymentIntent == "" {
+			continue
+		}
+		var pi struct {
+			Status string `json:"status"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/v1/payment_intents/"+url.PathEscape(p.Payment.PaymentIntent), nil, "", &pi); err != nil {
+			return true
+		}
+		if pi.Status == "processing" || pi.Status == "requires_capture" {
+			return true
+		}
+	}
+	return false
+}
 
 // VoidedInvoice is one invoice voided for a deleted account: the audit record (ids and amounts only, nothing that names a person).
 type VoidedInvoice struct {
@@ -358,7 +387,7 @@ type VoidCap struct {
 // VoidOpenInvoices voids the invoices still open on a customer whose account is deleted. A deleted account will not pay, and an open invoice
 // would hold the customer record (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so
 // nothing new accrues. Only an invoice Stripe reports as status=open that nothing has been paid on (amount_paid 0), with no payment in flight
-// (a PaymentIntent processing or awaiting capture),
+// (a PaymentIntent processing or awaiting capture, read from the invoice's InvoicePayments),
 // whose subtotal before tax is within cap (same currency), is voided; every other open invoice is returned in Left and stays open, which holds
 // the customer record back (DeleteCustomerIfClear, ErrOpenItems) and so keeps the cancel queued for a person. A refund is never made. Idempotent:
 // an invoice that is already void is fine. At most one page (100) per call; a leftover is handled by the next retry.
@@ -371,13 +400,10 @@ func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit Vo
 			AmountPaid int64  `json:"amount_paid"`
 			Subtotal   int64  `json:"subtotal"`
 			Currency   string `json:"currency"`
-			Payment    *struct {
-				Status string `json:"status"`
-			} `json:"payment_intent"`
 		} `json:"data"`
 	}
-	path := "/v1/invoices?limit=100&status=open&expand[]=data.payment_intent&customer=" + url.QueryEscape(customer)
-	if err := c.doVersion(ctx, invoiceListVersion, http.MethodGet, path, nil, "", &inv); err != nil {
+	path := "/v1/invoices?limit=100&status=open&customer=" + url.QueryEscape(customer)
+	if err := c.do(ctx, http.MethodGet, path, nil, "", &inv); err != nil {
 		return rep, treatMissing(err)
 	}
 	for _, in := range inv.Data {
@@ -389,7 +415,7 @@ func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit Vo
 		case in.AmountPaid != 0:
 			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "paid"})
 			continue
-		case in.Payment != nil && (in.Payment.Status == "processing" || in.Payment.Status == "requires_capture"):
+		case inFlightCheck(ctx, c, in.ID):
 			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "payment_in_flight"})
 			continue
 		case limit.Cents <= 0 || cur != limit.Currency:

@@ -39,7 +39,7 @@ type fakeStripe struct {
 	invoiceSubtotal  map[string]int64 // customer -> subtotal (cents) of each open invoice; default 3499
 	invoiceCurrency  map[string]string
 	invoicePI        map[string]string // customer -> payment_intent status
-	invoiceListVers  []string          // Stripe-Version of each GET /v1/invoices
+	versions         []string          // Stripe-Version header of every request
 	voidRefuse       bool              // POST void answers 400 and the invoice reads as void
 	voidedInvoices   map[string]bool
 	voidPosts        []string
@@ -70,6 +70,7 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			http.Error(w, `{"error":{"type":"invalid_request_error","message":"bad key"}}`, http.StatusUnauthorized)
 			return
 		}
+		f.versions = append(f.versions, r.Header.Get("Stripe-Version"))
 		w.Header().Set("Content-Type", "application/json")
 		if f.fail {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -123,7 +124,6 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": end < len(all)})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
 			cust := r.URL.Query().Get("customer")
-			f.invoiceListVers = append(f.invoiceListVers, r.Header.Get("Stripe-Version"))
 			if f.gone[cust] {
 				f.missing(w)
 				return
@@ -141,11 +141,8 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 				if cur == "" {
 					cur = "usd"
 				}
-				inv := map[string]any{"id": id, "status": "open", "amount_paid": f.invoicePaid[cust], "subtotal": sub, "currency": cur}
-				if st := f.invoicePI[cust]; st != "" {
-					inv["payment_intent"] = map[string]any{"id": "pi_x", "status": st}
-				}
-				data = append(data, inv)
+				// From API version 2025-03-31 an invoice has no payment_intent; its payments are InvoicePayment objects (below).
+				data = append(data, map[string]any{"id": id, "status": "open", "amount_paid": f.invoicePaid[cust], "subtotal": sub, "currency": cur})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
 		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/invoices/") && strings.HasSuffix(r.URL.Path, "/void"):
@@ -163,6 +160,19 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "void"})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/invoices/"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": strings.TrimPrefix(r.URL.Path, "/v1/invoices/"), "status": "void"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoice_payments":
+			// The invoice id is "in_open_<customer>_<n>"; a customer with a PaymentIntent status has one payment on it.
+			inv := r.URL.Query().Get("invoice")
+			cust := strings.TrimSuffix(strings.TrimPrefix(inv, "in_open_"), inv[strings.LastIndex(inv, "_"):])
+			var data []map[string]any
+			if f.invoicePI[cust] != "" {
+				data = append(data, map[string]any{"id": "inpay_1", "status": "open", "payment": map[string]any{"type": "payment_intent", "payment_intent": "pi_" + cust}})
+			}
+			data = append(data, map[string]any{"id": "inpay_2", "status": "canceled", "payment": map[string]any{"type": "out_of_band"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/payment_intents/"):
+			cust := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/"), "pi_")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pi_" + cust, "status": f.invoicePI[cust]})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/charges":
 			cust := r.URL.Query().Get("customer")
 			if f.gone[cust] {
@@ -600,11 +610,14 @@ func TestCloseCustomerVoidsOpenInvoices(t *testing.T) {
 	if err != nil || len(rep.Voided) != 2 || rep.Voided[0].ID != "in_open_cus_v_0" || rep.Voided[0].AmountCents != 3499 || rep.Voided[0].Currency != "usd" || len(rep.Left) != 0 {
 		t.Fatalf("report %+v, %v; want both open invoices voided with their amounts", rep, err)
 	}
-	// The open-invoice list pins the API version that still carries invoice.payment_intent (basil removed it), whatever the account defaults to.
-	for _, v := range f.invoiceListVers[:1] {
-		if v != invoiceListVersion {
-			t.Errorf("the open-invoice list was sent with Stripe-Version %q, want %q", v, invoiceListVersion)
+	// Every call pins one explicit API version, never the account's default.
+	for i, v := range f.versions {
+		if v != APIVersion {
+			t.Errorf("request %d was sent with Stripe-Version %q, want %q", i, v, APIVersion)
 		}
+	}
+	if len(f.versions) == 0 {
+		t.Error("no requests recorded")
 	}
 	if strings.Join(f.deleted, ",") != "sub_v" || strings.Join(f.customersDeleted, ",") != "cus_v" {
 		t.Errorf("cancelled %v, customer deleted %v; want the subscription cancelled and the customer deleted", f.deleted, f.customersDeleted)

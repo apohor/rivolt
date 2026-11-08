@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -65,13 +66,29 @@ func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
 	limit := VoidCap{Cents: p.UnitAmount, Currency: p.Currency}
 	t.Logf("cap = %d %s", limit.Cents, limit.Currency)
 
-	// The account's default API version (what a request without a Stripe-Version gets) is in the response header; the open-invoice list pins
-	// invoiceListVersion instead, because from basil on invoice.payment_intent is gone.
+	// The account's default API version (what a request without a Stripe-Version gets) is in the response header; every call of the client pins
+	// APIVersion instead. The webhook endpoints' versions (what a delivery's payload is shaped by) are logged too, to be compared by eye.
 	if req, err := http.NewRequestWithContext(ctx, "GET", DefaultAPIBase+"/v1/customers?limit=1", nil); err == nil {
 		req.Header.Set("Authorization", "Bearer "+key)
 		if resp, err := http.DefaultClient.Do(req); err == nil {
-			t.Logf("account default Stripe-Version = %s; the open-invoice list pins %s", resp.Header.Get("Stripe-Version"), invoiceListVersion)
+			t.Logf("account default Stripe-Version = %s; the client pins %s", resp.Header.Get("Stripe-Version"), APIVersion)
 			resp.Body.Close()
+		}
+	}
+	if req, err := http.NewRequestWithContext(ctx, "GET", DefaultAPIBase+"/v1/webhook_endpoints?limit=20", nil); err == nil {
+		req.Header.Set("Authorization", "Bearer "+key)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			var we struct {
+				Data []struct {
+					APIVersion string `json:"api_version"`
+					Status     string `json:"status"`
+				} `json:"data"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&we)
+			resp.Body.Close()
+			for _, e := range we.Data {
+				t.Logf("webhook endpoint: api_version=%q status=%s", e.APIVersion, e.Status)
+			}
 		}
 	}
 	// Every helper takes the t of the (sub)test that uses it, so a failure stops that subtest and its cleanups run.
@@ -103,7 +120,7 @@ func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
 	// item is created first, then attached to the invoice by id (an invoice item with no invoice is pending until an invoice includes it).
 	openInvoice := func(t *testing.T, cents int64) (cust, inv string) {
 		t.Helper()
-		cust = call(t, "POST", "/v1/customers", url.Values{"description": {"rivolt void replay"}})["id"].(string)
+		cust = call(t, "POST", "/v1/customers", url.Values{"description": {"rivolt void replay"}, "email": {"void-replay-" + strconv.FormatInt(time.Now().UnixNano(), 36) + "@example.com"}})["id"].(string)
 		t.Cleanup(func() { // best effort; a customer with an open invoice cannot always be deleted
 			if out := call(t, "GET", "/v1/invoices?status=open&customer="+cust, nil); out["data"] != nil {
 				for _, d := range out["data"].([]any) {
