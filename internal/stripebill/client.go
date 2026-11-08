@@ -461,6 +461,31 @@ func (c *Client) CloseCustomer(ctx context.Context, customer string, limit VoidC
 	return rep, c.DeleteCustomerIfClear(ctx, customer)
 }
 
+// WebhookEndpoint is the part of a Stripe webhook endpoint the launch preflight reads: its API version (what its event payloads are shaped by)
+// and whether it is enabled. No URL, no secret.
+type WebhookEndpoint struct {
+	APIVersion string
+	Enabled    bool
+}
+
+// WebhookEndpoints lists the account's webhook endpoints (read-only; a restricted key needs read access on Webhook endpoints).
+func (c *Client) WebhookEndpoints(ctx context.Context) ([]WebhookEndpoint, error) {
+	var out struct {
+		Data []struct {
+			APIVersion string `json:"api_version"`
+			Status     string `json:"status"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/webhook_endpoints?limit=100", nil, "", &out); err != nil {
+		return nil, err
+	}
+	eps := make([]WebhookEndpoint, 0, len(out.Data))
+	for _, e := range out.Data {
+		eps = append(eps, WebhookEndpoint{APIVersion: e.APIVersion, Enabled: e.Status == "enabled"})
+	}
+	return eps, nil
+}
+
 // PortalFacts is what the default Customer Portal configuration says about the things the launch pre-flight checks. Booleans only.
 type PortalFacts struct {
 	Found               bool // a default configuration exists

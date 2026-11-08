@@ -35,7 +35,8 @@ func env(extra map[string]string) func(string) string {
 func goodStripe() StripeFacts {
 	m := []string{"apple_pay", "card", "google_pay"}
 	return StripeFacts{Live: true, PricesActive: true, PortalFound: true, TermsSet: true, PrivacySet: true, PaymentMethodUpdate: true,
-		PMCRead: true, PMCFound: true, PMCActive: true, PMCLive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m}
+		PMCRead: true, PMCFound: true, PMCActive: true, PMCLive: true, PMCMethods: m, CheckoutRead: true, CheckoutMethods: m,
+		PinnedVersion: "2026-10-28.endive", WebhookRead: true, WebhookVersions: []string{"2026-10-28.endive"}}
 }
 
 func okInput() Input {
@@ -190,6 +191,22 @@ func TestPreflightProblems(t *testing.T) {
 		},
 		"the configuration is a live one with a test key": func(in *Input) {
 			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.Live = false; return f }
+		},
+		"a webhook endpoint is on another API version": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts {
+				f := goodStripe()
+				f.WebhookVersions = []string{"2026-10-28.endive", "2024-06-20"}
+				return f
+			}
+		},
+		"a webhook endpoint follows the account default (no version)": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.WebhookVersions = []string{""}; return f }
+		},
+		"the webhook endpoints are unreadable": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.WebhookRead = false; return f }
+		},
+		"no enabled webhook endpoint": func(in *Input) {
+			in.Stripe = func(context.Context) StripeFacts { f := goodStripe(); f.WebhookVersions = nil; return f }
 		},
 		"the payment method configuration is not set": func(in *Input) {
 			in.Getenv = env(map[string]string{"RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG": ""})

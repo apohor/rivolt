@@ -173,6 +173,11 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/payment_intents/"):
 			cust := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/"), "pi_")
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pi_" + cust, "status": f.invoicePI[cust]})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/webhook_endpoints":
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []map[string]any{
+				{"id": "we_1", "api_version": APIVersion, "status": "enabled", "url": "https://example.test/hook", "secret": "whsec_must_not_be_read"},
+				{"id": "we_2", "api_version": "2024-06-20", "status": "disabled"},
+			}, "has_more": false})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/charges":
 			cust := r.URL.Query().Get("customer")
 			if f.gone[cust] {
@@ -783,5 +788,14 @@ func TestNoPaymentMethodTypesInTheSource(t *testing.T) {
 				t.Errorf("%s:%d sends payment_method_types: %s", e.Name(), n+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// The preflight reads the webhook endpoints' API versions: only the version and whether each is enabled, nothing else.
+func TestWebhookEndpointsReadsVersionAndStatusOnly(t *testing.T) {
+	f := newFakeStripe(t)
+	eps, err := (&Client{BaseURL: f.srv.URL, SecretKey: testKey}).WebhookEndpoints(context.Background())
+	if err != nil || len(eps) != 2 || eps[0] != (WebhookEndpoint{APIVersion: APIVersion, Enabled: true}) || eps[1] != (WebhookEndpoint{APIVersion: "2024-06-20", Enabled: false}) {
+		t.Errorf("endpoints = %+v, %v", eps, err)
 	}
 }
