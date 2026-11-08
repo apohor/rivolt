@@ -32,6 +32,8 @@ type forwardRunner struct {
 }
 
 func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	// The owner's runner was admitted on a held lease (Owner admission checks it): its Rivian calls carry the forward runner's permit.
+	ctx = rivian.WithCallPermit(ctx, rivian.HolderForwardRun)
 	switch kind {
 	case forward.KindAdopt:
 		return r.adopt(ctx, user)

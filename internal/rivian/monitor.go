@@ -914,10 +914,10 @@ func shortVehicle(id string) string {
 func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID, site string) (context.Context, context.CancelFunc, bool) {
 	noop := func() {}
 	if m.fenceSrc == nil {
-		return ctx, noop, true
+		return WithCallPermit(ctx, HolderMonitor), noop, true
 	}
 	if _, st := m.fenceSrc.Fence(vehicleID); st == fence.Off {
-		return ctx, noop, true
+		return WithCallPermit(ctx, HolderMonitor), noop, true
 	} else if st == fence.Lost {
 		m.refuse(vehicleID, "rivian")
 		m.refuseCall(site)
@@ -930,11 +930,11 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID, site string) (c
 				m.refuseCall(site)
 				return ctx, noop, false
 			}
-			dctx, cancel := context.WithDeadline(ctx, at)
+			dctx, cancel := context.WithDeadline(WithCallPermit(ctx, HolderMonitor), at)
 			return dctx, cancel, true
 		}
 	}
-	return ctx, noop, true
+	return WithCallPermit(ctx, HolderMonitor), noop, true
 }
 
 // redisCtx is the context for a live-state write to Redis: with the fence token when this pod holds
@@ -1693,7 +1693,9 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// killed the WS" (= the symptom we want to escalate on) from
 		// "TCP RST / network error" (= retry quietly), since both
 		// surface as `err = context canceled` once cancelSub fires.
-		subCtx, cancelSub := context.WithCancelCause(ctx)
+		// The gate just allowed this dial, so this subscription (and only it) carries the monitor's permit. The monitor's other calls (the
+		// extra subscriptions, RefreshVehicleInfo, the schedule read) are not marked, so observe mode counts them (DA, M4-1b).
+		subCtx, cancelSub := context.WithCancelCause(WithCallPermit(ctx, HolderMonitor))
 		// Publish the cancel handle so periodicRefresh can poke us
 		// when REST detects the car just woke up (otherwise we'd
 		// wait up to wsStaleThreshold for the watchdog). Cleared
