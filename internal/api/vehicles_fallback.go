@@ -49,8 +49,19 @@ const (
 	vehicleFallbackBackoff   = 15 * time.Second
 )
 
+// vehicleFallbackKey derives the gate's HMAC key from the limiters' key (a purpose-labelled subkey, as FailLimiterKey does from the server's
+// secret), so one secret is not used raw for two purposes. nil stays nil: without a key the gate keeps its claims per pod.
+func vehicleFallbackKey(limiterKey []byte) []byte {
+	if len(limiterKey) == 0 {
+		return nil
+	}
+	m := hmac.New(sha256.New, limiterKey)
+	m.Write([]byte("rivolt/vehicles-fallback/redis-keys/v1"))
+	return m.Sum(nil)
+}
+
 func newVehicleFallbackGate(rdb *redis.Client, prefix string, key []byte, ttl time.Duration, observe func(string)) *vehicleFallbackGate {
-	return &vehicleFallbackGate{rdb: rdb, prefix: prefix, key: key, ttl: ttl, now: time.Now, observe: observe, local: map[string]vehicleFallbackEntry{}}
+	return &vehicleFallbackGate{rdb: rdb, prefix: prefix, key: vehicleFallbackKey(key), ttl: ttl, now: time.Now, observe: observe, local: map[string]vehicleFallbackEntry{}}
 }
 
 func (g *vehicleFallbackGate) redisKey(uid uuid.UUID) string {
