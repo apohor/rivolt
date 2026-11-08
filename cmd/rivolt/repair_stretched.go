@@ -135,7 +135,9 @@ func runRepairStretched(args []string) int {
 		for v := range byV {
 			vs = append(vs, v)
 		}
-		sort.Slice(vs, func(i, j int) bool { return byV[vs[i]] > byV[vs[j]] || (byV[vs[i]] == byV[vs[j]] && vs[i].String() < vs[j].String()) })
+		sort.Slice(vs, func(i, j int) bool {
+			return byV[vs[i]] > byV[vs[j]] || (byV[vs[i]] == byV[vs[j]] && vs[i].String() < vs[j].String())
+		})
 		for _, v := range vs {
 			fmt.Printf("  splits on vehicle %s: %d\n", v.String()[:8], byV[v])
 		}
