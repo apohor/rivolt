@@ -289,6 +289,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			vehicleID: req.VehicleID, packKWh: req.PackKWh, noWeather: farFuture}
 		enr.load(r.Context())
 		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
+		cctx, cancelClimb := withClimbBudget(r.Context())
+		addLegClimb(cctx, resp.WeatherAdjustment, resp.TripPlan)
+		cancelClimb()
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -334,10 +337,19 @@ type tripWeatherAdjustmentDTO struct {
 }
 
 type tripWeatherAdjLegDTO struct {
-	Multiplier  float64  `json:"multiplier"`
+	Multiplier float64 `json:"multiplier"`
+	// TempC is the apparent ("feels like") temperature when the snapshot has one, else the air temperature. AirTempC is always the plain air
+	// temperature (what the truck's display shows), absent only when the snapshot has none.
 	TempC       *float64 `json:"temp_c,omitempty"`
+	AirTempC    *float64 `json:"air_temp_c,omitempty"`
 	HeadwindKPH *float64 `json:"headwind_kph,omitempty"`
 	PrecipMM    *float64 `json:"precip_mm,omitempty"`
+	// Snow is true only when the leg's weather snapshot says snow (its own weather code). It never comes from the temperature.
+	Snow bool `json:"snow,omitempty"`
+	// ClimbM and DescentM are the total rise and fall along the leg in metres, from the self-hosted DEM along the route's road line
+	// (addLegClimb). Absent when there is no line or no DEM. They do not change any energy figure.
+	ClimbM   *float64 `json:"climb_m,omitempty"`
+	DescentM *float64 `json:"descent_m,omitempty"`
 }
 
 // computeTripWeatherAdjustment runs FetchHourCached for each leg in
@@ -447,27 +459,38 @@ func computeTripWeatherAdjustment(
 		dto.ProfileReasons = labels
 	}
 	for i, m := range adj.Multipliers {
-		leg := tripWeatherAdjLegDTO{Multiplier: m}
-		if s := snaps[i]; s != nil {
-			if s.HasApparent {
-				v := s.ApparentTempC
-				leg.TempC = &v
-			} else if s.HasTemp {
-				v := s.TempC
-				leg.TempC = &v
-			}
-			if s.HasHeadwind {
-				v := s.HeadwindKPH
-				leg.HeadwindKPH = &v
-			}
-			if s.HasPrecip {
-				v := s.PrecipMM
-				leg.PrecipMM = &v
-			}
-		}
-		dto.Legs[i] = leg
+		dto.Legs[i] = legDTO(m, snaps[i])
 	}
 	return dto
+}
+
+// legDTO is one leg of the adjustment as the client gets it: the multiplier and what the leg's weather snapshot (nil: none) says.
+func legDTO(multiplier float64, s *weather.Snapshot) tripWeatherAdjLegDTO {
+	leg := tripWeatherAdjLegDTO{Multiplier: multiplier}
+	if s == nil {
+		return leg
+	}
+	if s.HasApparent {
+		v := s.ApparentTempC
+		leg.TempC = &v
+	} else if s.HasTemp {
+		v := s.TempC
+		leg.TempC = &v
+	}
+	if s.HasTemp {
+		v := s.TempC
+		leg.AirTempC = &v
+	}
+	if s.HasHeadwind {
+		v := s.HeadwindKPH
+		leg.HeadwindKPH = &v
+	}
+	if s.HasPrecip {
+		v := s.PrecipMM
+		leg.PrecipMM = &v
+	}
+	leg.Snow = s.Snowing()
+	return leg
 }
 
 // handleTripPlanAdvice takes a completed TripPlan (returned by

@@ -39,8 +39,8 @@ var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe",
 
 // TripPlanStages are the rivolt_trip_plan_stage_seconds stages: our own work around the planner call, so Rivian's time (the upstream
 // histogram) can be told from ours. geometry is the road line through the stops (up to three Valhalla routes, one after another);
-// enrich_load reads the user's vehicle profile, charging settings, networks and own rates; enrich is the weather adjustment and the costs.
-var TripPlanStages = []string{"geometry", "enrich_load", "enrich"}
+// enrich_load reads the user's vehicle profile, charging settings, networks and own rates; enrich is the weather adjustment and the costs; climb is the DEM read along each leg.
+var TripPlanStages = []string{"geometry", "enrich_load", "enrich", "climb"}
 
 // BillingRouteStatuses are the (route, statuses) of rivolt_http_requests_total created at 0 at boot, POST only: the billing routes whose first error
 // must not go unseen. A counter series is born at its first request, at 1, and increase() or rate() over a series that starts at 1 sees no change:

@@ -1,0 +1,196 @@
+package api
+
+import (
+	"context"
+	"math"
+	"testing"
+	"time"
+
+	"github.com/apohor/rivolt/internal/maps"
+	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/weather"
+)
+
+// fakeDEM answers a height from the latitude; missingAbove makes every point north of it unreadable.
+type fakeDEM struct {
+	h            func(lat float64) float64
+	missingAbove float64
+	reads        int
+}
+
+func (f *fakeDEM) LookupBlocking(_ context.Context, lat, _ float64) (float64, bool) {
+	f.reads++
+	if f.missingAbove != 0 && lat > f.missingAbove {
+		return 0, false
+	}
+	return f.h(lat), true
+}
+
+// A straight north-south line of 0.01 degree steps (about 1.1 km), from lat0 to lat1.
+func lineNorth(lat0, lat1 float64) [][2]float64 {
+	var out [][2]float64
+	for lat := lat0; lat <= lat1+1e-9; lat += 0.01 {
+		out = append(out, [2]float64{lat, -97.0})
+	}
+	return out
+}
+
+func wp(lat float64) rivian.PlannedWaypoint {
+	return rivian.PlannedWaypoint{Latitude: lat, Longitude: -97.0}
+}
+
+// Two legs: the first climbs 300 m and falls 100 m on a smooth ridge, the second is flat with sub-hysteresis jitter. The numbers come out
+// within a few metres, split at the stop, and the jitter adds nothing.
+func TestRouteLegClimbSplitsAtStopsAndIgnoresJitter(t *testing.T) {
+	line := lineNorth(30.0, 30.6)
+	geom := maps.EncodePolyline6(line)
+	dem := &fakeDEM{h: func(lat float64) float64 {
+		switch {
+		case lat <= 30.2: // climbs 300 m over the first 0.2 degree
+			return 100 + 300*(lat-30.0)/0.2
+		case lat <= 30.3: // falls 100 m
+			return 400 - 100*(lat-30.2)/0.1
+		default: // flat at 300 with a 1.5 m wobble
+			return 300 + 1.5*math.Sin(lat*4000)
+		}
+	}}
+	got := routeLegClimb(context.Background(), dem, geom, 6, []rivian.PlannedWaypoint{wp(30.0), wp(30.3), wp(30.6)})
+	if len(got) != 2 || !got[0].OK || !got[1].OK {
+		t.Fatalf("legs: %+v", got)
+	}
+	if math.Abs(got[0].ClimbM-300) > 10 || math.Abs(got[0].DescentM-100) > 10 {
+		t.Errorf("leg 0 climb %.1f descent %.1f, want about 300 and 100", got[0].ClimbM, got[0].DescentM)
+	}
+	if got[1].ClimbM != 0 || got[1].DescentM != 0 {
+		t.Errorf("flat leg with a 1.5 m wobble: climb %.1f descent %.1f, want 0", got[1].ClimbM, got[1].DescentM)
+	}
+}
+
+// A height that cannot be read fails that leg only, never a guess; the legs before it keep their figures.
+func TestRouteLegClimbUnreadableLegHasNoFigures(t *testing.T) {
+	line := lineNorth(30.0, 30.6)
+	dem := &fakeDEM{h: func(lat float64) float64 { return 100 + 500*(lat-30.0) }, missingAbove: 30.35}
+	got := routeLegClimb(context.Background(), dem, maps.EncodePolyline6(line), 6, []rivian.PlannedWaypoint{wp(30.0), wp(30.3), wp(30.6)})
+	if len(got) != 2 || !got[0].OK || got[1].OK {
+		t.Fatalf("legs: %+v", got)
+	}
+}
+
+// No line, the wrong precision, no DEM or fewer than two stops: nothing.
+func TestRouteLegClimbNeedsALine(t *testing.T) {
+	dem := &fakeDEM{h: func(float64) float64 { return 0 }}
+	g := maps.EncodePolyline6(lineNorth(30.0, 30.2))
+	for name, got := range map[string][]legClimb{
+		"no geometry": routeLegClimb(context.Background(), dem, "", 6, []rivian.PlannedWaypoint{wp(30), wp(30.2)}),
+		"precision 5": routeLegClimb(context.Background(), dem, g, 5, []rivian.PlannedWaypoint{wp(30), wp(30.2)}),
+		"no dem":      routeLegClimb(context.Background(), nil, g, 6, []rivian.PlannedWaypoint{wp(30), wp(30.2)}),
+		"one stop":    routeLegClimb(context.Background(), dem, g, 6, []rivian.PlannedWaypoint{wp(30)}),
+	} {
+		if got != nil {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+}
+
+// addLegClimb fills the adjustment's legs, rounded to whole metres, and leaves them alone when the request has no DEM.
+func TestAddLegClimbFillsTheAdjustment(t *testing.T) {
+	line := lineNorth(30.0, 30.2)
+	plan := &rivian.TripPlan{Routes: []rivian.TripRoute{{
+		Waypoints: []rivian.PlannedWaypoint{wp(30.0), wp(30.2)}, Geometry: maps.EncodePolyline6(line), GeometryPrecision: 6,
+	}}}
+	adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 1)}
+	addLegClimb(context.Background(), adj, plan) // no DEM on the context
+	if adj.Legs[0].ClimbM != nil {
+		t.Fatal("climb filled without a DEM")
+	}
+	ctx := withPlanElevation(context.Background(), &fakeDEM{h: func(lat float64) float64 { return 100 + 1000*(lat-30.0) }})
+	addLegClimb(ctx, adj, plan)
+	if c := adj.Legs[0].ClimbM; c == nil || math.Abs(*c-200) > 8 || *c != math.Round(*c) {
+		t.Errorf("climb %v, want about 200 whole metres", c)
+	}
+	if d := adj.Legs[0].DescentM; d == nil || *d != 0 {
+		t.Errorf("descent %v, want 0", d)
+	}
+	// A leg count that does not match the adjustment's is ignored rather than misassigned.
+	adj2 := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 3)}
+	addLegClimb(ctx, adj2, plan)
+	if adj2.Legs[0].ClimbM != nil {
+		t.Error("figures assigned to a mismatched leg list")
+	}
+}
+
+// air_temp_c is the plain air temperature; temp_c stays the apparent one when there is one.
+func TestLegDTOCarriesAirAndApparentTemperature(t *testing.T) {
+	s := &weather.Snapshot{TempC: -2, HasTemp: true, ApparentTempC: -8, HasApparent: true, Conditions: "snow", HasConditions: true}
+	leg := legDTO(1.2, s)
+	if leg.AirTempC == nil || *leg.AirTempC != -2 || leg.TempC == nil || *leg.TempC != -8 || !leg.Snow || leg.Multiplier != 1.2 {
+		t.Errorf("%+v", leg)
+	}
+	// No apparent value: temp_c falls back to the air temperature; no air value: no air_temp_c.
+	leg = legDTO(1, &weather.Snapshot{TempC: 5, HasTemp: true})
+	if leg.TempC == nil || *leg.TempC != 5 || leg.AirTempC == nil || *leg.AirTempC != 5 {
+		t.Errorf("%+v", leg)
+	}
+	leg = legDTO(1, &weather.Snapshot{ApparentTempC: 3, HasApparent: true})
+	if leg.TempC == nil || leg.AirTempC != nil {
+		t.Errorf("apparent only: %+v", leg)
+	}
+	if leg := legDTO(1, nil); leg.TempC != nil || leg.AirTempC != nil || leg.Snow {
+		t.Errorf("nil snapshot: %+v", leg)
+	}
+}
+
+// slowDEM takes d per read and gives up when the context ends.
+type slowDEM struct {
+	d time.Duration
+	h func(lat float64) float64
+}
+
+func (s slowDEM) LookupBlocking(ctx context.Context, lat, _ float64) (float64, bool) {
+	select {
+	case <-ctx.Done():
+		return 0, false
+	case <-time.After(s.d):
+		return s.h(lat), true
+	}
+}
+
+// Several days sharing one deadline finish within it: the days after the budget has run out get no figures, and the whole climb step never
+// takes longer than the budget (plus a little), however many days there are.
+func TestClimbBudgetIsSharedAcrossDays(t *testing.T) {
+	line := lineNorth(30.0, 30.4) // 45 km: 180 samples per leg at 25 ms each is far over the budget
+	plan := &rivian.TripPlan{Routes: []rivian.TripRoute{{
+		Waypoints: []rivian.PlannedWaypoint{wp(30.0), wp(30.4)}, Geometry: maps.EncodePolyline6(line), GeometryPrecision: 6,
+	}}}
+	dem := slowDEM{d: 25 * time.Millisecond, h: func(lat float64) float64 { return 100 + 1000*(lat-30.0) }}
+	ctx := withPlanElevation(context.Background(), dem)
+	budget := 400 * time.Millisecond
+	bctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	start := time.Now()
+	var adjs []*tripWeatherAdjustmentDTO
+	for day := 0; day < 7; day++ {
+		adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 1)}
+		addLegClimb(bctx, adj, plan)
+		adjs = append(adjs, adj)
+	}
+	if took := time.Since(start); took > budget+300*time.Millisecond {
+		t.Errorf("seven days took %v, want about the one budget of %v", took, budget)
+	}
+	for i, a := range adjs {
+		if a.Legs[0].ClimbM != nil {
+			t.Errorf("day %d got figures although its heights cannot be read in the budget", i)
+		}
+	}
+	// With a fast DEM all seven days fit in the same single budget.
+	fast := withPlanElevation(context.Background(), slowDEM{d: 0, h: dem.h})
+	fctx, cancel2 := context.WithTimeout(fast, budget)
+	defer cancel2()
+	for day := 0; day < 7; day++ {
+		adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 1)}
+		addLegClimb(fctx, adj, plan)
+		if adj.Legs[0].ClimbM == nil {
+			t.Errorf("day %d: no figures with a fast DEM", day)
+		}
+	}
+}

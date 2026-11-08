@@ -30,6 +30,16 @@ type planGeometry struct {
 	metrics *metrics.Metrics
 }
 
+type planElevationKey struct{}
+
+// withPlanElevation puts the DEM on the request's context for the plan handlers (nil: no climb figures, as before).
+func withPlanElevation(ctx context.Context, el ElevationBlocking) context.Context {
+	if el == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, planElevationKey{}, el)
+}
+
 // withPlanGeometry puts the router on the request's context for the plan handlers (a nil router: no geometry, as before).
 func withPlanGeometry(ctx context.Context, r geometryRouter, m *metrics.Metrics) context.Context {
 	return context.WithValue(ctx, planGeometryKey{}, planGeometry{router: r, metrics: m})

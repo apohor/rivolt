@@ -531,6 +531,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
 	weatherClient, werr := newWeatherClient(os.Getenv, appMetrics)
 	if werr != nil {
 		logger.Error("weather", "err", werr.Error())
@@ -1687,6 +1688,14 @@ func runServer() {
 				Logger:   logger.With("component", "elevation"),
 			})
 			monitorRegistry.SetElevationLookup(elevResolver)
+			// The plan reads terrain along routes anywhere in North America, where the mirror has z0-10 (z=12 is Texas only, for the recorder):
+			// its own resolver at zoom 10 (about 100 m a pixel), sharing the tile URL and the on-disk cache directory.
+			planElevation = elevation.New(elevation.Config{
+				TileURL:  tileURL,
+				CacheDir: cacheDir,
+				Zoom:     planElevationZoom,
+				Logger:   logger.With("component", "elevation-plan"),
+			})
 			logger.Info("elevation lookup enabled",
 				"source", source,
 				"cache_dir", cacheDir,
@@ -3197,6 +3206,7 @@ func runServer() {
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),
+		PlanElevation:    planElevation,
 		WeatherClient:    weatherClient,
 		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,

@@ -410,6 +410,8 @@ type Deps struct {
 	Photon *geocoding.PhotonClient
 	// GeocodeOpenMeteo (RIVOLT_GEOCODE_OPEN_METEO=true) lets /api/geocode fall back to Open-Meteo's geocoding API, a third-party call. Off by default.
 	GeocodeOpenMeteo bool
+	// PlanElevation is the self-hosted DEM the plan handlers read the climb along each leg from (nil: no climb figures).
+	PlanElevation ElevationBlocking
 	// WeatherClient is the shared Open-Meteo HTTP client used by
 	// trip-planner weather adjustment. Distinct from the per-callsite
 	// weather.NewClient() instances used elsewhere because the
@@ -1703,7 +1705,7 @@ func New(d Deps) http.Handler {
 			// The no-commit "what if" preview of a via edit: our own Valhalla only, no Rivian call, nothing stored (trip_whatif.go).
 			r.With(requireTripPlannerEnabledMW(d.Flags), ls.user("trips-what-if", tripsWhatIfPerMin).Middleware).Post("/trips/what-if", handleTripWhatIf(d.geometryRouter(), d.Metrics))
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics)))
+				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation)))
 			}))
 			// Multi-day plan is mounted in the AI-bound group below
 			// (5-minute timeout). N sequential planTrip2 calls easily
@@ -1782,7 +1784,7 @@ func New(d Deps) http.Handler {
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
 			r.With(requireTripPlannerEnabledMW(d.Flags), multidayProMiddleware(d.Entitlements)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics)))
+				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation)))
 			}))
 		})
 
