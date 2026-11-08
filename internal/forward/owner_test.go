@@ -273,9 +273,27 @@ func TestOwnerRejectsWhatFailsAdmission(t *testing.T) {
 	if total != 8 {
 		t.Errorf("rejected = %v, want 8", total)
 	}
+	// A bad signature, garbage and an oversize message get no reply (nobody authenticated is owed one). A message our own key signed that fails
+	// the schema does: it is our bug, and the requester must not wait out its timeout. Two of the eight (the unknown kind and the bad
+	// fresh_state args); the adopt one has no waiting requester by design.
 	keys, _ := r.rdb.Keys(context.Background(), r.keys.Reply("*")).Result()
-	if len(keys) != 0 {
-		t.Errorf("a rejected message must get no reply, found %v", keys)
+	if len(keys) != 2 {
+		t.Errorf("reply keys = %v, want exactly the two signed-but-invalid requests answered", keys)
+	}
+}
+
+// A signed request whose arguments fail the schema is answered at once with 400 bad_request, counted rejected, and never run. This is the
+// Nov 8 preview failure: an unknown drive mode made the owner drop the request in silence and the requester waited 28 s for a reply.
+func TestOwnerAnswersASignedRequestWithBadArgs(t *testing.T) {
+	r := newRig(t, nil)
+	r.start()
+	req := r.push(forward.KindPlanLegs, `{"vehicle_id":"v-1","starting_soc":80,"waypoints":[{"lat":1,"lon":2},{"lat":3,"lon":4}],"drive_mode":"NOT_A_MODE"}`, nil)
+	rep := r.reply(req)
+	if rep == nil || rep.OK || rep.Status != forward.StatusBadRequest || rep.Class != forward.ClassBadRequest {
+		t.Fatalf("reply = %+v, want a signed 400 bad_request", rep)
+	}
+	if len(r.runner.Calls()) != 0 || count(r, forward.KindPlanLegs, "rejected") != 1 {
+		t.Errorf("runs %d, rejected %v; want 0 and 1", len(r.runner.Calls()), count(r, forward.KindPlanLegs, "rejected"))
 	}
 }
 

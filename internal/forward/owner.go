@@ -19,6 +19,8 @@ const (
 	StatusBusy       = 503 // the user already has the maximum in flight
 	StatusInternal   = 500
 	StatusTooBig     = 502
+	StatusBadRequest = 400 // a message our own key signed that fails the kind's schema: a bug on the sending side, answered at once
+	ClassBadRequest  = "bad_request"
 	ClassMoved       = "moved"
 	ClassBusy        = "busy"
 	ClassInternal    = "internal"
@@ -211,6 +213,12 @@ func (o *Owner) dispatch(ctx context.Context, raw []byte) {
 	args, err := Check(o.cfg.Signer, req)
 	if err != nil {
 		o.count(kindOrUnknown(req.Kind), "rejected")
+		if !errors.Is(err, ErrBadSig) {
+			// The signature held, so the sender is one of our servers and the arguments are a bug of ours: say so now instead of leaving the
+			// requester to wait out its timeout for an answer that will never come. A bad signature stays silent.
+			o.cfg.Logger.Warn("forward: a signed request failed its schema", "kind", string(kindOrUnknown(req.Kind)), "reason", err.Error())
+			o.reply(ctx, req, Reply{OK: false, Status: StatusBadRequest, Class: ClassBadRequest})
+		}
 		return
 	}
 	now, err := o.redisTimeMS(ctx)

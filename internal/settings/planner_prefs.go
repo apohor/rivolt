@@ -34,6 +34,10 @@ const (
 	DriveModeOffRoadAuto = "OFF_ROAD_AUTO"
 )
 
+// DriveModes is every drive mode the trip planner accepts, in the order above. The trip handlers drop anything else to "" before it reaches
+// the planner, and the forwarder's plan_legs schema must accept exactly these (TestForwardedDriveModesMatchTheHandlers).
+var DriveModes = []string{DriveModeEveryday, DriveModeDistance, DriveModeSport, DriveModeWinter, DriveModeOffRoadAuto}
+
 // PlannerPrefs are the user's saved trip-planner defaults. The SPA
 // pre-fills the per-trip form from these so the user doesn't have
 // to pick the same drive mode every time.

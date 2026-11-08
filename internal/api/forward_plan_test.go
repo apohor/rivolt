@@ -3,11 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,6 +25,7 @@ import (
 	"github.com/apohor/rivolt/internal/forward/forwardtest"
 	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // planForwarder answers every plan_legs with a canned plan and counts the calls.
@@ -340,5 +343,70 @@ func TestPlanLegsSoftCasesPlanLocally(t *testing.T) {
 	plan, err = p.PlanTrip(context.Background(), sampleInput())
 	if err != nil || plan.Status != "LOCAL" || local.Load() != 1 || count("local") != 1 {
 		t.Errorf("redis down: plan %+v err %v, %d local plans, local=%v", plan, err, local.Load(), count("local"))
+	}
+}
+
+// Every planner input the trip handlers can produce is one the forwarded schema accepts. The Nov 8 preview flip failed because it was not: the
+// schema listed Rivian's old drive-mode enum and refused EVERYDAY and DISTANCE, the web's own defaults, so those plans were dropped by the owner
+// in silence. This runs the real handlers over every drive mode (and unknown ones, which the handlers drop to the default) and checks each input
+// they hand the planner against the owner's own admission test.
+func TestForwardedSchemaAcceptsEveryInputTheHandlersProduce(t *testing.T) {
+	signer, err := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(what string, in rivian.PlanTripInput) {
+		t.Helper()
+		args, _ := json.Marshal(planLegsArgs(in))
+		req := &forward.Request{V: forward.Version, ID: strings.Repeat("a", 32), User: uuid.NewString(), Group: "g", Epoch: 1, Kind: forward.KindPlanLegs, Args: args}
+		signer.SignRequest(req)
+		if _, err := forward.Check(signer, req); err != nil {
+			t.Errorf("%s: the owner would refuse this input (%v): %+v", what, err, in)
+		}
+	}
+	modes := append([]string{"", "CONSERVE", "ALL_PURPOSE", "bogus"}, settings.DriveModes...)
+	for _, mode := range modes {
+		var seen []rivian.PlanTripInput
+		single := planFuncAPI(func(_ context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+			seen = append(seen, in)
+			return samplePlan(), nil
+		})
+		body := `{"vehicle_id":"v1","starting_soc":80,"drive_mode":"` + mode + `","waypoints":[
+		 {"latitude":34.0562,"longitude":-118.2427,"waypoint_type":"origin"},
+		 {"latitude":36.0,"longitude":-119.0,"waypoint_type":"waypoint"},
+		 {"latitude":32.7157,"longitude":-117.1611,"waypoint_type":"destination"}]}`
+		rec := httptest.NewRecorder()
+		handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: single}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
+			httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(body)))
+		if len(seen) != 1 {
+			t.Fatalf("single plan, mode %q: %d planner calls (status %d: %s)", mode, len(seen), rec.Code, rec.Body)
+		}
+		check("single plan, mode "+mode, seen[0])
+
+		days := &daysPlanner{sim: true}
+		_, _ = runMultiday(t, days, `{`+mdVehicle+`"drive_mode":"`+mode+`","start_at":"2026-10-20T08:00:00-07:00","tz":"America/Los_Angeles",
+		  "origin":{"lat":34.16,"lon":-118.17,"label":"Home"},
+		  "days":[{"end":{"lat":36.0,"lon":-119.96,"label":"Kettleman"},"overnight":{"l2_kw":3.3,"until":"08:00","max_soc_pct":80}},
+		   {"vias":[{"lat":36.5,"lon":-120.5,"label":"Via"}],"end":{"lat":37.79,"lon":-122.39,"label":"SF"}}]}`)
+		if len(days.calls) == 0 {
+			t.Fatalf("multi-day, mode %q: no planner call", mode)
+		}
+		for i, in := range days.calls {
+			check(fmt.Sprintf("multi-day leg %d, mode %s", i+1, mode), in)
+		}
+	}
+}
+
+// The schema's drive modes are the settings' list: neither can grow without the other.
+func TestForwardedDriveModesMatchTheHandlers(t *testing.T) {
+	for _, m := range settings.DriveModes {
+		if !forward.ValidDriveMode(m) {
+			t.Errorf("settings drive mode %q is refused by the forwarded schema", m)
+		}
+	}
+	for _, m := range []string{"CONSERVE", "ALL_PURPOSE", "bogus", "everyday"} {
+		if forward.ValidDriveMode(m) {
+			t.Errorf("%q is accepted by the forwarded schema but the handlers drop it", m)
+		}
 	}
 }
