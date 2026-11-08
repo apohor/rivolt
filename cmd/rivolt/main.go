@@ -121,25 +121,25 @@ func main() {
 		case "migrate":
 			os.Exit(runMigrate(os.Args[2:]))
 		case "reprice":
-			os.Exit(runReprice(os.Args[2:]))
+			exitRepair(runReprice(os.Args[2:]))
 		case "repair-charge-fragments":
-			os.Exit(runRepairChargeFragments(os.Args[2:]))
+			exitRepair(runRepairChargeFragments(os.Args[2:]))
 		case "repair-charge-energy":
-			os.Exit(runRepairChargeEnergy(os.Args[2:]))
+			exitRepair(runRepairChargeEnergy(os.Args[2:]))
 		case "repair-phantom-charges":
-			os.Exit(runRepairPhantoms(os.Args[2:]))
+			exitRepair(runRepairPhantoms(os.Args[2:]))
 		case "repair-charge-blips":
-			os.Exit(runRepairBlips(os.Args[2:]))
+			exitRepair(runRepairBlips(os.Args[2:]))
 		case "repair-charge-close-stale":
-			os.Exit(runRepairCloseStale(os.Args[2:]))
+			exitRepair(runRepairCloseStale(os.Args[2:]))
 		case "repair-charge-stretched":
-			os.Exit(runRepairStretched(os.Args[2:]))
+			exitRepair(runRepairStretched(os.Args[2:]))
 		case "repair-r2-history":
-			os.Exit(runRepairR2History(os.Args[2:]))
+			exitRepair(runRepairR2History(os.Args[2:]))
 		case "repair-route-gaps":
-			os.Exit(runRepairRouteGaps(os.Args[2:]))
+			exitRepair(runRepairRouteGaps(os.Args[2:]))
 		case "repair-route-points":
-			os.Exit(runRepairRoutePoints(os.Args[2:]))
+			exitRepair(runRepairRoutePoints(os.Args[2:]))
 		case "announce":
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "entitlements-founding":
@@ -483,6 +483,24 @@ func runServer() {
 				for {
 					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
 					db.EnsureAppGrants(gctx, pgPool, role, logger)
+					gcancel()
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+					}
+				}
+			}()
+		}
+		// The repair role (M4-4): the repair CLIs' audited operator path. The server applies its grants like the others', when the role is
+		// there; off unless RIVOLT_REPAIR_ROLE=1 (the role is created by the infra repo, not on every install).
+		if os.Getenv("RIVOLT_REPAIR_ROLE") == "1" && !adminOnlyMode {
+			go func() {
+				t := time.NewTicker(6 * time.Hour)
+				defer t.Stop()
+				for {
+					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
+					db.EnsureRepairGrants(gctx, pgPool, logger)
 					gcancel()
 					select {
 					case <-ctx.Done():

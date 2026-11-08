@@ -72,7 +72,7 @@ func runRepairRouteGaps(args []string) int {
 	}
 
 	ctx := context.Background()
-	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	pool, err := openRepair(ctx, "repair-route-gaps", *apply)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-route-gaps: postgres:", err)
 		return 1

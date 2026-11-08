@@ -54,7 +54,7 @@ func runRepairChargeFragments(args []string) int {
 	ctx := context.Background()
 	// Never migrate: a binary newer than the database must not change
 	// the production schema as a side effect of a repair.
-	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	pool, err := openRepair(ctx, "repair-charge-fragments", *apply)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-fragments: postgres:", err)
 		return 1

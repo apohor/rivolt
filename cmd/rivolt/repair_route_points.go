@@ -55,7 +55,7 @@ func runRepairRoutePoints(args []string) int {
 	}
 
 	ctx := context.Background()
-	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	pool, err := openRepair(ctx, "repair-route-points", *apply)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-route-points: postgres:", err)
 		return 1

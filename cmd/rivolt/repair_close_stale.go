@@ -33,7 +33,7 @@ func runRepairCloseStale(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	pool, err := openRepair(ctx, "repair-charge-close-stale", *apply)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-close-stale: postgres:", err)
 		return 1
