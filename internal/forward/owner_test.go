@@ -141,6 +141,8 @@ func count(r *rig, kind forward.Kind, outcome string) float64 {
 	return testutil.ToFloat64(r.m.Total.WithLabelValues(string(kind), outcome))
 }
 
+const planArgsJSON = `{"vehicle_id":"v-1","starting_soc":80,"starting_range_meters":0,"origin_bearing":0,"waypoints":[{"lat":34,"lon":-118},{"lat":35,"lon":-117}]}`
+
 const fresh = `{"vehicle_id":"v-1","max_age_ms":30000}`
 
 func TestOwnerRunsAKindAndAnswersWithASignedReply(t *testing.T) {
@@ -405,4 +407,18 @@ func TestNewOwnerValidates(t *testing.T) {
 		}
 	}
 	_ = strings.Repeat
+}
+
+// An answer that does not fit the reply cap is counted `too_big`, never `ok`: the user gets an error, and the metric must not call it success.
+func TestOwnerOversizeAnswerIsItsOwnOutcome(t *testing.T) {
+	r := newRig(t, nil)
+	r.runner.Reply = forward.Result{Status: 200, Body: json.RawMessage(`"` + strings.Repeat("x", forward.MaxReplyBytes) + `"`)}
+	r.start()
+	rep := r.reply(r.push(forward.KindPlanLegs, planArgsJSON, nil))
+	if rep == nil || rep.OK || rep.Status != forward.StatusTooBig || rep.Class != forward.ClassReplyTooBig {
+		t.Fatalf("reply = %+v, want a signed reply_too_big", rep)
+	}
+	if count(r, forward.KindPlanLegs, "too_big") != 1 || count(r, forward.KindPlanLegs, "ok") != 0 {
+		t.Errorf("too_big=%v ok=%v, want 1 and 0", count(r, forward.KindPlanLegs, "too_big"), count(r, forward.KindPlanLegs, "ok"))
+	}
 }

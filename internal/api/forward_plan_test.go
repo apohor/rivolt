@@ -201,3 +201,30 @@ func TestLegCacheAndQuotaComeBeforeTheForward(t *testing.T) {
 		t.Error("a non-live planner was forwarded")
 	}
 }
+
+// Reply size (DA: measure it). The plans the planner returns are small: Rivian's RouteResponseRaw is empty (our own Valhalla adds the
+// geometry on the requester, after the cache), so a leg is its stops. The stored plans of the demo are about 1.5-2 KB each. This bounds the
+// worst plan we would accept in practice, three routes of forty fully populated stops (a cross-country leg has a dozen or so; a full stop is about 0.5 KB, so the cap holds around 500), at a
+// fraction of the reply cap, with room to spare for the signature envelope.
+func TestWorstCasePlanFitsTheReplyCapWithRoom(t *testing.T) {
+	stop := rivian.PlannedWaypoint{WaypointType: "charger", EntityID: "00000000-0000-0000-0000-000000000000", Name: "A fairly long charging station name, Some Town, ST",
+		Latitude: 34.123456, Longitude: -118.123456, MaxPowerKW: 350, ChargeDurationSec: 1800, ArrivalSoC: 12.345678, DepartureSoC: 80.123456,
+		ArrivalReachableMeters: 123456.789, DepartureReachableMeters: 234567.891, AdapterRequired: true,
+		ArrivalTimeUTC: "2026-11-08T10:00:00Z", DepartureTimeUTC: "2026-11-08T10:30:00Z", DistanceFromOriginMeters: 345678.912}
+	plan := &rivian.TripPlan{Status: "OK", ChargeStationsAvailable: true}
+	for r := 0; r < 3; r++ {
+		route := rivian.TripRoute{DestinationReached: true}
+		for i := 0; i < 40; i++ {
+			route.Waypoints = append(route.Waypoints, stop)
+		}
+		plan.Routes = append(plan.Routes, route)
+	}
+	res := ServePlanLegs(context.Background(), plannerClient{Client: rivian.NewStub(), TripPlanner: planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) { return plan, nil })}, sampleInput())
+	if res.Status != 200 {
+		t.Fatalf("status %d", res.Status)
+	}
+	t.Logf("worst plausible plan_legs body: %d bytes (cap %d)", len(res.Body), forward.MaxReplyBytes)
+	if limit := forward.MaxReplyBytes / 2; len(res.Body) > limit {
+		t.Errorf("a plausible worst-case plan is %d bytes, more than half the %d cap: gzip or a larger cap is needed", len(res.Body), forward.MaxReplyBytes)
+	}
+}
