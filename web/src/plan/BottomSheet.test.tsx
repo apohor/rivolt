@@ -78,7 +78,7 @@ describe("BottomSheet", () => {
     expect(document.querySelector("[data-plan-sheet-body]")).toHaveAttribute("inert");
   });
 
-  it("click toggles peek and half; keys step, jump and fold; Escape folds from inside", () => {
+  it("click cycles peek, half, full and back; keys step, jump and fold; Escape folds from inside", () => {
     mockViewport(false);
     const seen: Snap[] = [];
     render(
@@ -91,7 +91,13 @@ describe("BottomSheet", () => {
     fireEvent.click(handle);
     expect(region).toHaveAttribute("data-snap", "half");
     expect(document.querySelector("[data-plan-sheet-body]")).not.toHaveAttribute("inert");
+    expect(screen.getByRole("button", { name: "Expand Trip details fully" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(handle);
+    expect(region).toHaveAttribute("data-snap", "full");
     expect(screen.getByRole("button", { name: "Collapse Trip details" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(handle);
+    expect(region).toHaveAttribute("data-snap", "peek");
+    fireEvent.click(handle);
     fireEvent.keyDown(handle, { key: "ArrowUp" });
     expect(region).toHaveAttribute("data-snap", "full");
     fireEvent.keyDown(handle, { key: "ArrowDown" });
@@ -103,7 +109,7 @@ describe("BottomSheet", () => {
     fireEvent.keyDown(handle, { key: "End" });
     fireEvent.keyDown(screen.getByText("stop details"), { key: "Escape" });
     expect(region).toHaveAttribute("data-snap", "peek");
-    expect(seen).toEqual(["half", "full", "half", "full", "peek", "full", "peek"]);
+    expect(seen).toEqual(["half", "full", "peek", "half", "full", "half", "full", "peek", "full", "peek"]);
   });
 
   it("dragging the handle up settles on a snap and exposes --sheet-h while dragging", () => {

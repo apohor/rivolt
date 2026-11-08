@@ -247,6 +247,8 @@
   background: oklch(13.5% 0.009 262);
   box-shadow: 0 -8px 24px oklch(0% 0 0 / 0.35);
   transition: height 0.22s ease;
+  /* At the full detent the sheet stops below the sticky top bar (z-index 1100): its handle would sit under the bar and could not be tapped. */
+  max-height: calc(100dvh - var(--plan-sheet-bottom) - 3.5rem - env(safe-area-inset-top, 0px) - 0.5rem);
   overflow: hidden;
 }
 @media (max-width: 767.98px) {
