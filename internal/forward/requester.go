@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // Statuses and classes the requester itself produces (an owner's replies carry their own).
@@ -42,6 +44,9 @@ type RequesterConfig struct {
 	// AcquireOnRequest (RIVOLT_ACQUIRE_ON_REQUEST) replaces the fail-soft "run it here" with acquire-or-503: the only trigger for an
 	// acquire is a lease row absent or expired; a live lease (owner not ready, Redis down, busy, moved to someone) is a 503, never an acquire.
 	AcquireOnRequest bool
+	// Token returns this pod's fence token for the group, after an acquire (the lease store's view). The call that runs as the new owner carries
+	// it in its context, so the owner guard and the permit see the new epoch. Nil: the context is unchanged.
+	Token func(group string) (fence.Token, bool)
 }
 
 // Forwarder is the requester side: it decides whether a call that needs Rivian is served here or by the group's owner, and if by the
@@ -183,13 +188,29 @@ func (f *Forwarder) fallback(ctx context.Context, c Call, softOutcome string, ma
 		if err != nil {
 			f.cfg.Logger.Warn("forward: acquire on request failed", "err", err.Error())
 		}
+		if lf, isLF := f.cfg.Leases.(LeaseForgetter); isLF {
+			lf.Forget(c.Group)
+		}
 		if ok {
-			if lf, isLF := f.cfg.Leases.(LeaseForgetter); isLF {
-				lf.Forget(c.Group)
-			}
 			f.count(c.Kind, "acquired")
+			// The call runs as the new owner: the new epoch's token is on its context.
+			if f.cfg.Token != nil {
+				if tok, has := f.cfg.Token(c.Group); has {
+					ctx = fence.With(ctx, tok)
+				}
+			}
 			res, lerr := local(ctx)
 			return res, "acquired", lerr
+		}
+		// Lost the race: another requester took the primary key. Read the lease again and, if a live owner is there now, ask it once rather
+		// than answering a burst of losers with 503s (design risk 3).
+		if o, oerr := f.cfg.Leases.Owner(ctx, c.Group); oerr == nil && o.Found && o.Pod != f.cfg.Pod && ValidPod(o.Pod) {
+			res, outcome := f.attempt(ctx, c, o)
+			switch outcome {
+			case "ok", "error", "rejected":
+				f.count(c.Kind, outcome)
+				return res, outcome, nil
+			}
 		}
 	}
 	f.count(c.Kind, "unavailable")

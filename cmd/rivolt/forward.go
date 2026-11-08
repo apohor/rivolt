@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/apohor/rivolt/internal/api"
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -200,6 +201,14 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 		// draining pod acquires nothing), so a live lease is never taken.
 		AcquireOnRequest: acquireOnRequest,
 		Acquire:          func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
+		Token: func(group string) (fence.Token, bool) {
+			for _, t := range store.GroupTokens() {
+				if t.Group == group {
+					return fence.Token{Group: t.Group, Pod: store.PodID(), Epoch: t.Epoch}, true
+				}
+			}
+			return fence.Token{}, false
+		},
 	})
 	if err != nil {
 		logger.Error("forward: requester", "err", err.Error())
