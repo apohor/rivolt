@@ -34,10 +34,19 @@ func TestAccountDeleteClearsChargeBackups(t *testing.T) {
 			t.Fatalf("seed backup: %v", err)
 		}
 	}
+	capped := func(uid uuid.UUID) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, `
+			INSERT INTO charges_capped_backup (batch_id, charge_id, user_id, row, capped_to, reason)
+			VALUES ($1, $2, $3, '{}'::jsonb, now(), 'test')`,
+			uuid.New(), uuid.New(), uid); err != nil {
+			t.Fatalf("seed capped backup: %v", err)
+		}
+	}
 	count := func(uid uuid.UUID) int {
 		t.Helper()
 		var n int
-		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges_deleted_backup WHERE user_id = $1`, uid).Scan(&n); err != nil {
+		if err := pool.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM charges_deleted_backup WHERE user_id = $1) + (SELECT count(*) FROM charges_capped_backup WHERE user_id = $1)`, uid).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -59,6 +68,7 @@ func TestAccountDeleteClearsChargeBackups(t *testing.T) {
 		backup(uid, "charge")
 		backup(uid, "pack_health_sample")
 		backup(uid, "charge_restamp")
+		capped(uid)
 	}
 
 	if err := db.DeleteUserAccount(ctx, pool, gone); err != nil {
@@ -73,7 +83,7 @@ func TestAccountDeleteClearsChargeBackups(t *testing.T) {
 	if n := count(rolledBack); n != 0 {
 		t.Errorf("DeleteUser left %d backup rows", n)
 	}
-	if n := count(kept); n != 3 {
-		t.Errorf("another user's backups: %d rows, want 3", n)
+	if n := count(kept); n != 4 {
+		t.Errorf("another user's backups: %d rows, want 4", n)
 	}
 }

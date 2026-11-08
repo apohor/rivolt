@@ -378,7 +378,8 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 //
 // charges_deleted_backup (repair-phantom-charges' undo copies) has no FK
 // either: it must outlive the charges it backs up. A deleted user's
-// copies go with them.
+// copies go with them, and so do charges_capped_backup's (the stretched-row
+// repair's undo copies: whole charge rows, coordinates included).
 func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 	if d == nil || uid == uuid.Nil {
 		return nil
@@ -412,6 +413,9 @@ func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM charges_deleted_backup WHERE user_id = $1`, uid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM charges_capped_backup WHERE user_id = $1`, uid); err != nil {
 		return err
 	}
 	// The cascade below removes the user's archive key (crypto-shredding every
@@ -487,6 +491,9 @@ func DeleteUserHistoryBefore(ctx context.Context, d *sql.DB, uid uuid.UUID, cuto
 		`DELETE FROM charges_deleted_backup WHERE user_id = $1
 		   AND CASE WHEN COALESCE(row->>'started_at', row->>'at', row->>'created_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.]+(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$'
 		            THEN COALESCE(row->>'started_at', row->>'at', row->>'created_at')::timestamptz ELSE deleted_at END < $2`,
+		`DELETE FROM charges_capped_backup WHERE user_id = $1
+		   AND CASE WHEN row->>'started_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.]+(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$'
+		            THEN (row->>'started_at')::timestamptz ELSE capped_at END < $2`,
 		`DELETE FROM trip_plan_links WHERE user_id = $1 AND started_at < $2`,
 		`DELETE FROM push_notifications WHERE user_id = $1 AND created_at < $2`,
 		`DELETE FROM left_open_alerts WHERE user_id = $1 AND episode_started_at < $2`,
