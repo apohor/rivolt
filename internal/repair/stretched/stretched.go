@@ -89,6 +89,13 @@ type NewRow struct {
 	ActiveSeconds    float64
 	FinalState       string // the original's for the last segment, charging_complete for an earlier one
 	Lat, Lon         float64
+	// Priced by Options.Price when it is set (zero values: left unpriced, "Not set").
+	Cost       float64
+	PricePerKW float64
+	Currency   string
+	CostSource string
+	Network    string
+	Place      string
 }
 
 // Split is the plan for a row that holds absorbed charges: the original keeps what was before the first drive
@@ -111,7 +118,15 @@ type Options struct {
 	Flag Flagger
 	// Split turns rows with plugged frames after a drive into splits instead of flags.
 	Split bool
+	// Price, when set, prices and places each new row of a split (see PriceFn). It runs in the plan, so the digest covers its
+	// result and the apply recomputes it: a changed rate or home location aborts the apply as drift.
+	Price PriceFn
 }
+
+// PriceFn fills Cost, PricePerKWh, Currency, CostSource, Network and Place on a charge built from a new row (it reads
+// StartedAt, EndedAt, Lat, Lon, MaxPowerKW, ActiveSeconds and EnergyAddedKWh), for the user. It must not call Rivian, and
+// must leave a row it cannot price as it is.
+type PriceFn func(userID uuid.UUID, c *charges.Charge)
 
 // Verdict is the rule's answer for one row.
 type Verdict struct {
@@ -163,7 +178,7 @@ func Classify(r Row, now time.Time, opt Options) Verdict {
 	}
 	if why := flag(r); why != "" {
 		if opt.Split {
-			if sp, cut, reason := trySplit(r); reason == "" {
+			if sp, cut, reason := trySplit(r, opt); reason == "" {
 				return Verdict{CapTo: cut, Split: sp}
 			} else {
 				return Verdict{Reason: reason, Flag: true}
@@ -390,13 +405,31 @@ func (p Plan) Digest() string {
 			}
 			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec)
 			for _, n := range sp.News {
-				line += fmt.Sprintf(" | %s %s %s kwh=%.4f soc=%.2f-%.2f state=%s max=%.3f avg=%.3f active=%.0f", n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh, n.SoCStart, n.SoCEnd, n.FinalState, n.MaxPowerKW, n.AvgPowerKW, n.ActiveSeconds)
+				line += fmt.Sprintf(" | %s %s %s kwh=%.4f soc=%.2f-%.2f state=%s max=%.3f avg=%.3f active=%.0f cost=%.4f ppk=%.6f %s src=%s net=%s place=%s",
+					n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh, n.SoCStart, n.SoCEnd, n.FinalState, n.MaxPowerKW, n.AvgPowerKW, n.ActiveSeconds,
+					n.Cost, n.PricePerKW, n.Currency, n.CostSource, n.Network, n.Place)
 			}
 		}
 		lines[i] = line
 	}
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n") + "\n"))
 	return hex.EncodeToString(sum[:])
+}
+
+// PricedBySource counts the new rows by the cost source the pricing step gave them ("unpriced" for those it left alone: a
+// fast charge, or AC away from home).
+func (p Plan) PricedBySource() map[string]int {
+	m := map[string]int{}
+	for _, sp := range p.Splits {
+		for _, n := range sp.News {
+			src := n.CostSource
+			if src == "" {
+				src = "unpriced"
+			}
+			m[src]++
+		}
+	}
+	return m
 }
 
 // NewRowKinds counts the new rows by charge type, by peak power: DC fast (the recorder's DCFCMinKW) or L2/AC. The
@@ -571,14 +604,17 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			created := make([]string, 0, len(sp.News))
 			for _, nr := range sp.News {
 				var id uuid.UUID
-				// No cost, place or network: the new row is priced by the normal detection afterwards (never a copied home_rate).
+				// Priced and placed by Options.Price in the plan (never a copied home_rate); unpriced where it declined.
 				if err := tx.QueryRowContext(ctx, `
 					INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, start_soc_pct, end_soc_pct,
-					                     energy_added_kwh, max_power_kw, avg_power_kw, final_state, lat, lon, source, active_seconds, metadata)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9::float8,0),NULLIF($10::float8,0),$11,NULLIF($12::float8,0),NULLIF($13::float8,0),'live',NULLIF($14::float8,0),$15::jsonb)
+					                     energy_added_kwh, max_power_kw, avg_power_kw, final_state, lat, lon, source, active_seconds, metadata,
+					                     cost, price_per_kwh, currency, cost_source, network, place)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9::float8,0),NULLIF($10::float8,0),$11,NULLIF($12::float8,0),NULLIF($13::float8,0),'live',NULLIF($14::float8,0),$15::jsonb,
+					        NULLIF($16::numeric,0), NULLIF($17::numeric,0), NULLIF($18,''), NULLIF($19,''), NULLIF($20,''), NULLIF($21,''))
 					RETURNING id`,
 					r.UserID, r.VehicleID, nr.ExternalID, nr.Start, nr.End, nr.SoCStart, nr.SoCEnd,
-					nr.KWh, nr.MaxPowerKW, nr.AvgPowerKW, nr.FinalState, nr.Lat, nr.Lon, nr.ActiveSeconds, mark).Scan(&id); err != nil {
+					nr.KWh, nr.MaxPowerKW, nr.AvgPowerKW, nr.FinalState, nr.Lat, nr.Lon, nr.ActiveSeconds, mark,
+					nr.Cost, nr.PricePerKW, nr.Currency, nr.CostSource, nr.Network, nr.Place).Scan(&id); err != nil {
 					return 0, fmt.Errorf("stretched: creating %s: %w", nr.ExternalID, err)
 				}
 				created = append(created, id.String())
