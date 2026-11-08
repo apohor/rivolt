@@ -62,3 +62,33 @@ func TestUnpermittedCounterStartsAtZeroPerOp(t *testing.T) {
 	}
 	t.Fatal("rivolt_rivian_unpermitted_total is not registered")
 }
+
+// The Rivian latency histogram has a child per operation and the reconnect counter one per reason, all present from boot (so the first sample is
+// an increase and a rate over a quiet period reads 0), and the label lists are the client's.
+func TestRivianLatencyAndReconnectSeriesExistFromBoot(t *testing.T) {
+	if !reflect.DeepEqual(rivian.WSReconnectReasons, metrics.RivianWSReconnectReasons) {
+		t.Fatalf("rivian.WSReconnectReasons %v differs from metrics.RivianWSReconnectReasons %v", rivian.WSReconnectReasons, metrics.RivianWSReconnectReasons)
+	}
+	mfs, err := metrics.New().Registry().Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantOps := len(rivian.PermitOps) - 1 // every operation but ws_dial
+	for _, mf := range mfs {
+		switch mf.GetName() {
+		case "rivolt_rivian_request_seconds":
+			if len(mf.GetMetric()) != wantOps {
+				t.Errorf("request_seconds has %d children, want %d (one per GraphQL operation)", len(mf.GetMetric()), wantOps)
+			}
+			for _, m := range mf.GetMetric() {
+				if m.GetHistogram().GetSampleCount() != 0 || len(m.GetHistogram().GetBucket()) != 8 {
+					t.Errorf("a child starts with %d samples and %d buckets, want 0 and 8", m.GetHistogram().GetSampleCount(), len(m.GetHistogram().GetBucket()))
+				}
+			}
+		case "rivolt_rivian_ws_reconnects_total":
+			if len(mf.GetMetric()) != len(rivian.WSReconnectReasons) {
+				t.Errorf("ws_reconnects has %d series, want %d", len(mf.GetMetric()), len(rivian.WSReconnectReasons))
+			}
+		}
+	}
+}

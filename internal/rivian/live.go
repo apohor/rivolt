@@ -274,6 +274,12 @@ type ResultObserver interface {
 	OnResult(op, class string)
 }
 
+// DurationObserver is an optional second interface of a ResultObserver: it also receives how long each call that reached Rivian took, from the
+// moment the request was sent to the end of the call (rivolt_rivian_request_seconds{op}). A call stopped before the network is not reported.
+type DurationObserver interface {
+	OnDuration(op string, d time.Duration)
+}
+
 // WithResultObserver attaches o (nil to remove).
 func (c *LiveClient) WithResultObserver(o ResultObserver) *LiveClient {
 	c.results = o
@@ -794,6 +800,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			return zero, err
 		}
 	}
+	var sentAt time.Time // set when the request is about to leave: the start of rivolt_rivian_request_seconds
 	c.noteAction(vehicleOf(req.Variables), "request", req.OperationName, actionReason(ctx))
 
 	// Wrap the call in a span named after the GraphQL operation so
@@ -815,6 +822,9 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 		if c.results != nil {
 			if class, ok := resultClass(ctx, err); ok {
 				c.results.OnResult(req.OperationName, class)
+				if do, isDO := c.results.(DurationObserver); isDO && !sentAt.IsZero() {
+					do.OnDuration(req.OperationName, time.Since(sentAt))
+				}
 			}
 		}
 		if err != nil {
@@ -853,6 +863,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 		}
 	}
 
+	sentAt = time.Now()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		class, reason := ClassifyNetwork(err)
