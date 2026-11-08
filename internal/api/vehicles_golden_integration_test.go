@@ -119,12 +119,16 @@ func TestVehiclesBodyIsUnchangedForEveryKindOfAccount(t *testing.T) {
 	if err := db.UpsertVehicleFromSync(ctx, pool, uid2, db.VehicleSync{RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear, Trim: v.TrimID, PackKWh: v.PackKWh}); err != nil {
 		t.Fatal(err)
 	}
-	gate := newVehicleFallbackGate(nil, "", nil, 5*time.Minute, nil)
+	var seen []string
+	gate := newVehicleFallbackGate(nil, "", nil, 5*time.Minute, func(o string) { seen = append(seen, o) })
 	c2 := &listingClient{vs: []rivian.Vehicle{v}}
 	first := goldenGet(t, ctx, uid2, func() http.HandlerFunc {
 		return handleVehicles(c2, nil, pool, nil, nil, nil, &vehiclesFromDB{account: linkedAccount, gate: gate})
 	})
 	if c2.calls != 1 || !contains(first, `"make":"Rivian"`) || !contains(first, `"pack_kwh":131`) {
 		t.Errorf("unsynced connected row: %d calls, body %s; want the old path's body from one Rivian call", c2.calls, first)
+	}
+	if len(seen) == 0 || seen[0] != "unsynced" {
+		t.Errorf("outcomes = %v, want the transition path counted first as unsynced", seen)
 	}
 }

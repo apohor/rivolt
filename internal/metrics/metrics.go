@@ -136,7 +136,7 @@ type Metrics struct {
 	// fails, so a broken watcher would read as "all clear"; an alert on time() minus this catches it. No labels.
 	ChargewatchLastSuccess prometheus.Gauge
 	// VehiclesFallbackTotal counts the "linked account, no vehicle stored yet" Rivian lookups of /api/vehicles by outcome: stored (vehicles came back
-	// and were stored), empty, error, skipped (inside the 5-minute window after an attempt, no Rivian call). A steady rate of error means an
+	// and were stored), empty, error, skipped (inside the 5-minute window after an attempt, no Rivian call), unsynced (a connected account's rows the owner has not marked synced yet: the transition path, expected to fall to 0). A steady rate of error means an
 	// account whose lookup keeps failing; none at all is the goal (single-owner M3-5a). Outcome label only.
 	VehiclesFallbackTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
@@ -450,7 +450,7 @@ func New() *Metrics {
 		}, []string{"state"}),
 		VehiclesFallbackTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_vehicles_fallback_total",
-			Help: "The linked-account-with-no-stored-vehicle Rivian lookups of /api/vehicles, by outcome (stored, empty, error, skipped).",
+			Help: "The linked-account-with-no-stored-vehicle Rivian lookups of /api/vehicles, by outcome (stored, empty, error, skipped, unsynced).",
 		}, []string{"outcome"}),
 		ChargewatchLastSuccess: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "rivolt_chargewatch_last_success_timestamp_seconds",
