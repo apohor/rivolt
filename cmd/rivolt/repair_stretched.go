@@ -29,6 +29,7 @@ func runRepairStretched(args []string) int {
 	idsOut := fs.String("ids-out", "", "dry run: write the sorted capped id list here (0600), for `rivolt reprice --ids`")
 	flaggedOut := fs.String("flagged-out", "", "dry run: write the flagged id list here (0600) for review")
 	split := fs.Bool("split", false, "split rows that hold absorbed charges (parked segments after a drive) instead of only flagging them")
+	capSoC := fs.Bool("cap-by-soc", false, "also cap rows with no plugged frame and no charging after their first drive at the last pre-drive SoC rise (vehicles that report no charger status)")
 	allowOpen := fs.Bool("allow-open", false, "with --apply: run although a live charge was written in the last 15 minutes")
 	restore := fs.String("restore", "", "undo a batch id from charges_capped_backup (dry run unless --apply)")
 	if err := fs.Parse(args); err != nil {
@@ -91,11 +92,11 @@ func runRepairStretched(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: --apply requires --backup <csv path>")
 		return 2
 	}
-	opts := stretched.Options{Split: *split}
+	opts := stretched.Options{Split: *split, CapBySoC: *capSoC}
 	if *split {
 		opts.Price = stretched.NewPriceFn(ctx, pool)
 	}
-	rows, err := stretched.Select(ctx, pool, false, *split)
+	rows, err := stretched.Select(ctx, pool, false, *split || *capSoC)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: select:", err)
 		return 1
@@ -123,6 +124,10 @@ func runRepairStretched(args []string) int {
 		fmt.Printf("  vehicle %s: %d\n", v.String()[:8], byVehicle[v])
 	}
 	fmt.Printf("hours removed: %.1f\n", plan.HoursRemoved())
+	if *capSoC {
+		n, off := plan.SoCModeTotals()
+		fmt.Printf("capped by SoC rise (mode A, no plugged frame and no charging after the first drive): %d row(s), %d of them with stored kWh disagreeing with the pre-drive SoC gain by more than 25%% (capped; energy not changed)\n", n, off)
+	}
 	if *split {
 		n, created, kwh := plan.SplitTotals()
 		acHome, acAway, acOther, dc := plan.NewRowTypes()
