@@ -91,6 +91,20 @@ enum PlanRouteLogic {
         along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "", emphasis: $0.preferred, kind: $0.kind == "hotel" ? 1 : $0.kind == "camp" ? 2 : $0.kind == "l2" ? 3 : 0) }
     }
 
+    /// The days map as shown: the drawing with the ringed pin, the layer pins and, for one day, the camera framed on that day's line.
+    static func daysShown(_ base: RouteSnap.Drawing, focus: Int?, along: [AlongCharger], lines: [[RouteSnap.Coord]], day: Int?) -> RouteSnap.Drawing {
+        var d = base
+        d.focus = focus
+        d.along = alongStops(along)
+        d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }
+        return d
+    }
+
+    /// The line the layers are searched along: the picked day's, else every day's.
+    static func layerLine(lines: [[RouteSnap.Coord]], day: Int?) -> [RouteSnap.Coord] {
+        day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil } ?? lines.flatMap { $0 }
+    }
+
     /// Both days of a two-day trip as one drawing: each day's line, a pin for every charging stop and one for each night.
     static func drawing(days: [TripMultiday.Day], lines: [[RouteSnap.Coord]]) -> RouteSnap.Drawing? {
         let pieces = lines.filter { $0.count >= 2 }.map { RouteSnap.Piece(coords: $0, speed: nil) }
@@ -239,11 +253,11 @@ struct PlanDaysMap: View {
 
     private func reportLine() {
         guard !lines.isEmpty else { return }
-        onLine(day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil } ?? lines.flatMap { $0 })
+        onLine(PlanRouteLogic.layerLine(lines: lines, day: day))
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = PlanRouteLogic.alongStops(along); d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }; return d },
+        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day) },
                       onStop: onStop, fills: fills, bottomInset: bottomInset)
             // The layers follow the line on show: the whole trip, or the day the person picked.
             .onChange(of: day) { reportLine() }
