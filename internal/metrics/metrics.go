@@ -128,7 +128,7 @@ type Metrics struct {
 	Accounts       prometheus.Gauge
 	BillingEnabled prometheus.Gauge
 	// OpenCharges is the open live charge rows now by state (charging: the vehicle's latest frame still reads plugged in and charging, by the
-	// stale-charge janitor's own rule; not_charging: it does not), and OpenChargesOldestSeconds the age of the oldest of each since its last
+	// stale-charge janitor's own rule; not_charging: it does not; no_frame: the vehicle sent nothing in 2 days, a dormant account's leftover row), and OpenChargesOldestSeconds the age of the oldest of each since its last
 	// write. A not_charging row much older than the janitor's hour is one it could not close (#1619, #1670). No vehicle or user labels.
 	OpenCharges              *prometheus.GaugeVec
 	OpenChargesOldestSeconds *prometheus.GaugeVec
@@ -439,7 +439,7 @@ func New() *Metrics {
 		}, []string{"kind"}),
 		OpenCharges: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rivolt_open_charges",
-			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule); no vehicle or user labels.",
+			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
 		OpenChargesOldestSeconds: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rivolt_open_charges_oldest_seconds",

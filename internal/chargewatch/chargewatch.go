@@ -13,14 +13,16 @@ import (
 )
 
 // Summary is the open live charge rows now, split by what the vehicle's latest frame says. Age is measured from the row's last write
-// (ended_at), which the recorder keeps moving while the car is plugged in and charging: the janitor acts an hour after it stops.
+// (ended_at), which the recorder keeps moving while the car is plugged in and charging: the janitor acts an hour after it stops. A row whose
+// vehicle has sent no frame at all within frameWindow is counted apart (NoFrame): a dormant account's leftover row is not a stuck charge, and
+// is what the --close-stale-open repair (#1641) is for, so it must not trip the not-charging rule.
 type Summary struct {
-	Charging, NotCharging                   int
-	OldestChargingSec, OldestNotChargingSec float64
+	Charging, NotCharging, NoFrame                            int
+	OldestChargingSec, OldestNotChargingSec, OldestNoFrameSec float64
 }
 
 // frameWindow bounds the latest-frame lookup so it prunes to the recent partitions; a row whose vehicle has sent nothing for longer than this
-// counts as not charging.
+// is counted as no_frame.
 const frameWindow = 2 * 24 * time.Hour
 
 // Measure reads the open live rows (every user: pass the system pool) and, per vehicle that has one, the latest vehicle_state frame within
@@ -50,9 +52,14 @@ func Measure(ctx context.Context, db *sql.DB, now time.Time) (Summary, error) {
 		return Summary{}, err
 	}
 	var sum Summary
-	charging := map[string]bool{} // per vehicle: one latest-frame read, however many open rows it has
+	const (
+		stCharging = iota + 1
+		stNot
+		stNoFrame
+	)
+	verdict := map[string]int{} // per vehicle: one latest-frame read, however many open rows it has
 	for _, o := range all {
-		still, seen := charging[o.vehicle]
+		v, seen := verdict[o.vehicle]
 		if !seen {
 			var cs, status, gear sql.NullString
 			var kw sql.NullFloat64
@@ -61,27 +68,30 @@ func Measure(ctx context.Context, db *sql.DB, now time.Time) (Summary, error) {
 				 WHERE vehicle_id = $1::uuid AND at > $2 ORDER BY at DESC LIMIT 1`, o.vehicle, now.Add(-frameWindow)).Scan(&cs, &status, &kw, &gear)
 			switch {
 			case err == sql.ErrNoRows:
+				v = stNoFrame
 			case err != nil:
 				return Summary{}, err
+			case rivian.FrameStillCharging(cs.String, status.String, kw.Float64, gear.String):
+				v = stCharging
 			default:
-				still = rivian.FrameStillCharging(cs.String, status.String, kw.Float64, gear.String)
+				v = stNot
 			}
-			charging[o.vehicle] = still
+			verdict[o.vehicle] = v
 		}
 		age := now.Sub(o.endedAt).Seconds()
 		if age < 0 {
 			age = 0
 		}
-		if still {
+		switch v {
+		case stCharging:
 			sum.Charging++
-			if age > sum.OldestChargingSec {
-				sum.OldestChargingSec = age
-			}
-		} else {
+			sum.OldestChargingSec = max(sum.OldestChargingSec, age)
+		case stNoFrame:
+			sum.NoFrame++
+			sum.OldestNoFrameSec = max(sum.OldestNoFrameSec, age)
+		default:
 			sum.NotCharging++
-			if age > sum.OldestNotChargingSec {
-				sum.OldestNotChargingSec = age
-			}
+			sum.OldestNotChargingSec = max(sum.OldestNotChargingSec, age)
 		}
 	}
 	return sum, nil

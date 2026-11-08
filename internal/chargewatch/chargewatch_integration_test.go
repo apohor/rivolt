@@ -62,7 +62,7 @@ func TestMeasureSplitsOpenRowsByTheLatestFrame(t *testing.T) {
 	mkFrame(stuck, now.Add(-2*time.Hour), "charging_ready", "chrgr_sts_connected_no_chrg", "P", 0)
 	mkFrame(stuck, now.Add(-1*time.Hour), "charging_ready", "chrgr_sts_not_connected", "D", 0)
 
-	silent := mkVehicle("silent") // no frame at all in the window: not charging
+	silent := mkVehicle("silent") // no frame at all in the window: counted apart, not as a stuck charge
 	mkCharge(silent, "charging_active", "live", now.Add(-5*time.Hour))
 
 	closed := mkVehicle("closed") // a closed row and a non-live one are not open rows
@@ -76,11 +76,17 @@ func TestMeasureSplitsOpenRowsByTheLatestFrame(t *testing.T) {
 	if d := got.Charging - base.Charging; d != 1 {
 		t.Errorf("charging grew by %d, want 1", d)
 	}
-	if d := got.NotCharging - base.NotCharging; d != 2 {
-		t.Errorf("not_charging grew by %d, want 2 (a stuck row and a silent vehicle)", d)
+	if d := got.NotCharging - base.NotCharging; d != 1 {
+		t.Errorf("not_charging grew by %d, want 1 (the stuck row only: a vehicle with no recent frame is dormant, not stuck)", d)
 	}
-	if got.OldestNotChargingSec < (5 * time.Hour).Seconds() {
-		t.Errorf("oldest not_charging = %.0f s, want at least 5 h (the silent vehicle's row, from its last write)", got.OldestNotChargingSec)
+	if d := got.NoFrame - base.NoFrame; d != 1 {
+		t.Errorf("no_frame grew by %d, want 1", d)
+	}
+	if got.OldestNotChargingSec < (3 * time.Hour).Seconds() {
+		t.Errorf("oldest not_charging = %.0f s, want at least 3 h (the stuck row, from its last write)", got.OldestNotChargingSec)
+	}
+	if got.OldestNoFrameSec < (5 * time.Hour).Seconds() {
+		t.Errorf("oldest no_frame = %.0f s, want at least 5 h", got.OldestNoFrameSec)
 	}
 	if got.OldestChargingSec < (10 * time.Minute).Seconds() {
 		t.Errorf("oldest charging = %.0f s, want at least 10 min", got.OldestChargingSec)

@@ -534,13 +534,17 @@ func runServer() {
 	if pgPool != nil {
 		appMetrics.OpenCharges.WithLabelValues("charging").Set(0)
 		appMetrics.OpenCharges.WithLabelValues("not_charging").Set(0)
+		appMetrics.OpenCharges.WithLabelValues("no_frame").Set(0)
 		appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(0)
 		appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(0)
+		appMetrics.OpenChargesOldestSeconds.WithLabelValues("no_frame").Set(0)
 		go chargewatch.Run(ctx, pgPool, 5*time.Minute, time.Now, func(s chargewatch.Summary) {
 			appMetrics.OpenCharges.WithLabelValues("charging").Set(float64(s.Charging))
 			appMetrics.OpenCharges.WithLabelValues("not_charging").Set(float64(s.NotCharging))
+			appMetrics.OpenCharges.WithLabelValues("no_frame").Set(float64(s.NoFrame))
 			appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(s.OldestChargingSec)
 			appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(s.OldestNotChargingSec)
+			appMetrics.OpenChargesOldestSeconds.WithLabelValues("no_frame").Set(s.OldestNoFrameSec)
 		})
 	}
 	// The launch dashboard's counts (entitlement rows by source and status, accounts), no user labels, refreshed every five minutes.
