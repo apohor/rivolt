@@ -167,7 +167,16 @@ export function TripRouteMap({
   const weatherKey = JSON.stringify(legWeather ?? null);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
-  const [showWeather, setShowWeather] = useState(true);
+  // On by default; the choice is kept on this device.
+  const [showWeather, setShowWeather] = useState(() => { try { return localStorage.getItem("rivolt.weatherLayer") !== "off"; } catch { return true; } });
+  const [weatherNote, setWeatherNote] = useState("");
+  const toggleWeather = () => {
+    const next = !showWeather;
+    setShowWeather(next);
+    try { localStorage.setItem("rivolt.weatherLayer", next ? "on" : "off"); } catch { /* a private window keeps it for the session only */ }
+    setWeatherNote(next ? "Weather on" : "Weather off");
+    window.setTimeout(() => setWeatherNote(""), 1600);
+  };
   // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
   useEffect(() => {
     const map = mapReady;
@@ -799,7 +808,7 @@ export function TripRouteMap({
 
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
-      {(!noChargerSource || hasWeather) && (
+      {!noChargerSource && (
         <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
@@ -847,18 +856,23 @@ export function TripRouteMap({
             <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")}</span>
           )}
           </>}
-          {hasWeather && (
-            <button
-              type="button"
-              aria-pressed={showWeather}
-              onClick={() => setShowWeather((v) => !v)}
-              data-weather-chip
-              title="The weather on each leg of the route"
-              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${noChargerSource ? "" : "ml-2"} ${showWeather ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
-            >
-              Weather
-            </button>
-          )}
+        </div>
+      )}
+      {hasWeather && (
+        // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
+        <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
+          <button
+            type="button"
+            aria-label="Weather"
+            aria-pressed={showWeather}
+            onClick={toggleWeather}
+            data-weather-chip
+            title="Weather on each leg of the route"
+            className={`flex h-8 w-8 items-center justify-center rounded border ${showWeather ? "border-cyan-700 bg-cyan-800 text-cyan-100" : "border-neutral-700 bg-neutral-900/90 text-neutral-400 hover:text-neutral-200"}`}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+          </button>
+          <span role="status" className="rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200 empty:hidden">{weatherNote}</span>
         </div>
       )}
       <div
