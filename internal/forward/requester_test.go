@@ -586,3 +586,35 @@ func TestAcquiredCallCarriesTheNewEpochToken(t *testing.T) {
 		t.Fatalf("outcome=%q token=%+v (has %v), want the new epoch's token %+v", outcome, got, has, want)
 	}
 }
+
+var callPlan = func(mode string) forward.Call {
+	return forward.Call{Kind: forward.KindPlanLegs, User: user, Group: group, Args: forward.PlanLegsArgs{
+		VehicleID: "v-1", StartingSoC: 80, DriveMode: mode,
+		Waypoints: []forward.Waypoint{{Latitude: 34, Longitude: -118}, {Latitude: 35, Longitude: -117}}}}
+}
+
+// Arguments the owner would refuse are not sent at all: the call is served the fail-soft way at once, counted `rejected`, and the user does
+// not wait out the kind's timeout (28 s for plan_legs) for an answer that cannot come. Every drive mode the trip handlers let through is
+// sent.
+func TestRequesterRefusesBadArgsBeforeSending(t *testing.T) {
+	f := newFleet(t)
+	f.owner("pod-a", 7, true, nil)
+	start := time.Now()
+	var local localCounter
+	_, outcome, err := f.requester(nil).Do(context.Background(), callPlan("NOT_A_MODE"), local.fn)
+	if err != nil || outcome != "rejected" || local.n.Load() != 1 || time.Since(start) > 2*time.Second {
+		t.Fatalf("outcome=%q local=%d err=%v after %v, want rejected, served locally, at once", outcome, local.n.Load(), err, time.Since(start))
+	}
+	if n, _ := f.rdb.LLen(context.Background(), f.keys.Queue("pod-a")).Result(); n != 0 || len(f.runners["pod-a"].Calls()) != 0 {
+		t.Errorf("a refused request reached the owner (queue %d, runs %d)", n, len(f.runners["pod-a"].Calls()))
+	}
+	if f.out(forward.KindPlanLegs, "rejected") != 1 || f.out(forward.KindPlanLegs, "timeout") != 0 {
+		t.Errorf("rejected=%v timeout=%v, want 1 and 0", f.out(forward.KindPlanLegs, "rejected"), f.out(forward.KindPlanLegs, "timeout"))
+	}
+	for _, mode := range []string{"", "EVERYDAY", "DISTANCE", "SPORT", "WINTER", "OFF_ROAD_AUTO"} {
+		var l localCounter
+		if _, outcome, err := f.requester(nil).Do(context.Background(), callPlan(mode), l.fn); err != nil || outcome != "ok" || l.n.Load() != 0 {
+			t.Errorf("drive mode %q: outcome=%q local=%d err=%v, want it forwarded and served by the owner", mode, outcome, l.n.Load(), err)
+		}
+	}
+}

@@ -137,6 +137,10 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		case "unavailable":
 			f.count(c.Kind, "unavailable")
 			return res, "unavailable", nil
+		case "badargs":
+			// Our own arguments fail the kind's schema (a bug): nothing was sent. The call is served the way any fail-soft call is, and counted
+			// `rejected` so it shows.
+			return f.fallback(ctx, c, "rejected", false, local)
 		case "redis":
 			return f.fallback(ctx, c, "local", false, local) // the lease is live: not ready, or Redis is down
 		case "busy":
@@ -244,6 +248,12 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 	if err != nil {
 		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected"
 	}
+	// The same test the owner applies, before anything is sent: a request the owner would refuse is never pushed, so the user does not wait
+	// out the kind's timeout for an answer that cannot come.
+	if _, verr := Kinds[c.Kind].Validate(args); verr != nil {
+		f.cfg.Logger.Warn("forward: arguments refused before sending", "kind", string(c.Kind), "reason", verr.Error())
+		return Result{}, "badargs"
+	}
 	id, err := NewID()
 	if err != nil {
 		return Result{}, "redis"
@@ -294,6 +304,8 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 		return res, "moved"
 	case rep.Class == ClassBusy:
 		return res, "busy"
+	case rep.Class == ClassBadRequest:
+		return res, "badargs"
 	case rep.Class == "timeout":
 		return res, "timeout"
 	case rep.Class == ClassInternal && rep.Status == StatusInternal:
