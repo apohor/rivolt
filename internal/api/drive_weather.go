@@ -105,7 +105,7 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 				continue
 			}
 			resp.Processed++
-			if _, err := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); err != nil {
+			if _, err := fetchAndCacheDriveWeather(r.Context(), cache, d.WeatherClient, uid, drv); err != nil {
 				resp.Failed++
 				if d.Logger != nil {
 					d.Logger.Warn("weather backfill fetch failed", "err", err.Error(), "drive_id", drv.ID)
@@ -130,7 +130,7 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 // after a successful snapshot fetch is logged at the call site
 // but does not roll back the snapshot -- the recap can still
 // render with start-hour data while the chart stays empty.
-func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uuid.UUID, drv *drives.Drive) (*weather.Snapshot, error) {
+func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, client *weather.Client, uid uuid.UUID, drv *drives.Drive) (*weather.Snapshot, error) {
 	if drv == nil {
 		return nil, nil
 	}
@@ -139,6 +139,7 @@ func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uu
 		drv.StartedAt, drv.EndedAt,
 		drv.StartLat, drv.StartLon,
 		drv.EndLat, drv.EndLon,
+		client,
 	)
 }
 

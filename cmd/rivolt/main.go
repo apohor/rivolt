@@ -509,6 +509,11 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	weatherClient, werr := newWeatherClient(os.Getenv, appMetrics)
+	if werr != nil {
+		logger.Error("weather", "err", werr.Error())
+		os.Exit(1)
+	}
 	singleton.SetObserver(func(job, outcome string) { appMetrics.SingletonRunsTotal.WithLabelValues(job, outcome).Inc() })
 	appMetrics.RegisterDBPool("system", pgPool)
 	if pgPool != nil {
@@ -1348,6 +1353,7 @@ func runServer() {
 						drv.StartedAt, drv.EndedAt,
 						drv.StartLat, drv.StartLon,
 						drv.EndLat, drv.EndLon,
+						weatherClient,
 					); err != nil {
 						logger.Debug("auto weather fetch failed",
 							"user_id", uid.String(),
@@ -3161,7 +3167,7 @@ func runServer() {
 		DEMProxy:         demProxy,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
-		WeatherClient:    weather.NewClient(),
+		WeatherClient:    weatherClient,
 		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,

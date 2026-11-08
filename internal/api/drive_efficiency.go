@@ -136,7 +136,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			cache := weather.NewCache(d.DB)
 			snap, _ := cache.Get(r.Context(), uid, drv.ID)
 			if snap == nil {
-				if fetched, ferr := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); ferr == nil && fetched != nil {
+				if fetched, ferr := fetchAndCacheDriveWeather(r.Context(), cache, d.WeatherClient, uid, drv); ferr == nil && fetched != nil {
 					snap = fetched
 				}
 			}

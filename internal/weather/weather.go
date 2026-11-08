@@ -378,14 +378,71 @@ INSERT INTO drive_weather_series (
 // Stateless; safe to share.
 type Client struct {
 	HTTP    *http.Client
-	BaseURL string // override for tests; defaults to https://archive-api.open-meteo.com
+	BaseURL string // archive API; override for tests; defaults to https://archive-api.open-meteo.com
+	// ForecastURL is the forecast API's base; defaults to https://api.open-meteo.com.
+	ForecastURL string
+	// SelfHosted marks a client pointed at our own Open-Meteo (NewSelfHostedClient): the server keeps only a few days of past hours and has
+	// no archive, so a request older than selfHostedWindowDays is skipped (ErrTooOld) instead of sent.
+	SelfHosted bool
+	// Observe is told the outcome of every upstream call ("forecast" or "archive"; "ok", "error", "skipped_old"); nil is fine.
+	Observe func(endpoint, outcome string)
+}
+
+// ErrTooOld is returned, without a request, by a self-hosted client for a time older than its server keeps.
+var ErrTooOld = errors.New("weather: older than the self-hosted window")
+
+// selfHostedWindowDays is how many past days our Open-Meteo keeps (sync --past-days 7) less a day of margin.
+const selfHostedWindowDays = 6
+
+func (c *Client) windowDays() int {
+	if c.SelfHosted {
+		return selfHostedWindowDays
+	}
+	return forecastWindowDays
+}
+
+func (c *Client) forecastBase() string {
+	if c.ForecastURL != "" {
+		return strings.TrimRight(c.ForecastURL, "/")
+	}
+	return "https://api.open-meteo.com"
+}
+
+func (c *Client) observe(endpoint, outcome string) {
+	if c.Observe != nil {
+		c.Observe(endpoint, outcome)
+	}
+}
+
+// do sends req and counts it. A non-200 reply is an "error" outcome.
+func (c *Client) do(req *http.Request, endpoint string) (*http.Response, error) {
+	resp, err := c.HTTP.Do(req)
+	switch {
+	case err != nil:
+		c.observe(endpoint, "error")
+	case resp.StatusCode != http.StatusOK:
+		c.observe(endpoint, "error")
+	default:
+		c.observe(endpoint, "ok")
+	}
+	return resp, err
+}
+
+// NewSelfHostedClient returns a Client for our own Open-Meteo at base (forecast API only).
+func NewSelfHostedClient(base string) *Client {
+	c := NewClient()
+	c.ForecastURL = base
+	c.BaseURL = base
+	c.SelfHosted = true
+	return c
 }
 
 // NewClient returns a Client with sane defaults.
 func NewClient() *Client {
 	return &Client{
-		HTTP:    &http.Client{Timeout: 10 * time.Second},
-		BaseURL: "https://archive-api.open-meteo.com",
+		HTTP:        &http.Client{Timeout: 10 * time.Second},
+		BaseURL:     "https://archive-api.open-meteo.com",
+		ForecastURL: "https://api.open-meteo.com",
 	}
 }
 
@@ -410,6 +467,7 @@ func FetchAndCache(
 	driveID string,
 	startedAt, endedAt time.Time,
 	startLat, startLon, endLat, endLon float64,
+	client *Client, // nil: the public API
 ) (*Snapshot, error) {
 	if cache == nil {
 		return nil, errors.New("weather: nil cache")
@@ -417,7 +475,9 @@ func FetchAndCache(
 	if startLat == 0 && startLon == 0 {
 		return nil, nil
 	}
-	client := NewClient()
+	if client == nil {
+		client = NewClient()
+	}
 	bearing := Bearing(startLat, startLon, endLat, endLon)
 	hasBearing := endLat != 0 || endLon != 0
 	clat, clon := Coarsen(startLat, startLon)
@@ -463,7 +523,11 @@ func FetchAndCache(
 func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, tripBearingDeg float64, hasBearing bool) (*Snapshot, time.Time, error) {
 	clat, clon := Coarsen(lat, lon)
 	hour := at.UTC().Truncate(time.Hour)
-	useForecast := time.Since(hour) < forecastWindowDays*24*time.Hour
+	useForecast := time.Since(hour) < time.Duration(c.windowDays())*24*time.Hour
+	if !useForecast && c.SelfHosted {
+		c.observe("archive", "skipped_old")
+		return nil, hour, ErrTooOld
+	}
 	q := url.Values{}
 	q.Set("latitude", strconv.FormatFloat(clat, 'f', 4, 64))
 	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
@@ -481,7 +545,7 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	q.Set("timezone", "UTC")
 	var endpoint string
 	if useForecast {
-		endpoint = "https://api.open-meteo.com/v1/forecast?" + q.Encode()
+		endpoint = c.forecastBase() + "/v1/forecast?" + q.Encode()
 	} else {
 		endpoint = strings.TrimRight(c.BaseURL, "/") + "/v1/archive?" + q.Encode()
 	}
@@ -489,7 +553,7 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	if err != nil {
 		return nil, hour, err
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req, epName(useForecast))
 	if err != nil {
 		return nil, hour, err
 	}
@@ -572,6 +636,13 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 // margin so a drive on the boundary still resolves.
 const forecastWindowDays = 80
 
+func epName(forecast bool) string {
+	if forecast {
+		return "forecast"
+	}
+	return "archive"
+}
+
 // FetchRange returns one weather sample per cadence step covering
 // [start, end] at the rounded (lat, lon). Picks 15-minute cadence
 // from the forecast endpoint when the drive is within the past
@@ -589,7 +660,11 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 		return nil, fmt.Errorf("weather: empty time range")
 	}
 	clat, clon := Coarsen(lat, lon)
-	useForecast := time.Since(start) < forecastWindowDays*24*time.Hour
+	useForecast := time.Since(start) < time.Duration(c.windowDays())*24*time.Hour
+	if !useForecast && c.SelfHosted {
+		c.observe("archive", "skipped_old")
+		return nil, ErrTooOld
+	}
 	q := url.Values{}
 	q.Set("latitude", strconv.FormatFloat(clat, 'f', 4, 64))
 	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
@@ -615,7 +690,7 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 		q.Set("start_date", s.Format("2006-01-02"))
 		q.Set("end_date", e.Format("2006-01-02"))
 		q.Set("minutely_15", strings.Join(vars, ","))
-		endpoint = "https://api.open-meteo.com/v1/forecast?" + q.Encode()
+		endpoint = c.forecastBase() + "/v1/forecast?" + q.Encode()
 	} else {
 		blockName = "hourly"
 		cadence = 60
@@ -630,7 +705,7 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.do(req, epName(useForecast))
 	if err != nil {
 		return nil, err
 	}

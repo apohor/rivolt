@@ -566,6 +566,11 @@ maps:
     # home addresses, goes to komoot, who ask for fair, light use and
     # guarantee nothing.
     baseUrl: ""
+  weather:
+    # Optional Open-Meteo of your own for weather (RIVOLT_WEATHER_BASE_URL), e.g. "http://open-meteo.open-meteo.svc.cluster.local" (the
+    # open-meteo image's /v1/forecast API, synced with --past-days 7; no archive, so recaps cover recent drives only). Empty: the public API
+    # (api.open-meteo.com), which is free for non-commercial use only.
+    baseUrl: ""
   tiles:
     baseUrl: ""
   # Terrain tiles for the web map's hillshade (RIVOLT_DEM_BASE_URL). When set, the API mounts /api/maps/dem/{z}/{x}/{y}.png, forwards
