@@ -595,3 +595,49 @@ func TestRestQuietSafetyPoll(t *testing.T) {
 	tick(7*time.Hour, false)
 	want("switch off", 5, "periodic_refresh")
 }
+
+// The stale-charge janitor refreshes an open row only while the vehicle reads plugged in. Rivian's charger state
+// sticks at charging_* for hours after an unplug; a row refreshed on that alone stayed open ("Charging Now",
+// no pricing) through the drives that followed (#1619).
+func TestConfirmStillChargingNeedsPlug(t *testing.T) {
+	m := NewStateMonitor(NewLive(), slog.New(slog.NewTextHandler(&syncBuffer{}, nil)))
+	rest := 0
+	m.restFn = func(ctx context.Context, vid string) (*State, error) {
+		rest++
+		return &State{VehicleID: vid, ChargerState: "charging_ready", ChargerStatus: "chrgr_sts_not_connected"}, nil
+	}
+	for _, c := range []struct {
+		name string
+		st   State
+		want bool
+	}{
+		{"R1 charging, plugged", State{ChargerState: "charging_active", ChargerStatus: "chrgr_sts_connected_charging", ChargerPowerKW: 7}, true},
+		{"R1 sticky charging_ready after unplug", State{ChargerState: "charging_ready", ChargerStatus: "chrgr_sts_not_connected"}, false},
+		{"R1 sticky charging_active after unplug", State{ChargerState: "charging_active", ChargerStatus: "chrgr_sts_not_connected", ChargerPowerKW: 7}, false},
+		{"R2 sticky charging_ready, no status", State{ChargerState: "charging_ready"}, false},
+		{"R2 charging_active, power", State{ChargerState: "charging_active", ChargerPowerKW: 7}, true},
+		{"R2 charging_active stuck at 0 kW, no status", State{ChargerState: "charging_active"}, false},
+		{"R1 plugged status but in gear D", State{ChargerState: "charging_active", ChargerStatus: "chrgr_sts_connected_charging", ChargerPowerKW: 7, Gear: "D"}, false},
+		{"R2 charging_active with power, gear R", State{ChargerState: "charging_active", ChargerPowerKW: 7, Gear: "R"}, false},
+		{"parked in P stays charging", State{ChargerState: "charging_active", ChargerPowerKW: 7, Gear: "P"}, true},
+	} {
+		st := c.st
+		st.VehicleID = "veh-1"
+		m.mu.Lock()
+		m.cache["veh-1"] = &st
+		m.mu.Unlock()
+		if got, _ := m.confirmStillCharging(context.Background(), "veh-1"); got != c.want {
+			t.Errorf("%s: confirm=%v, want %v", c.name, got, c.want)
+		}
+	}
+	if rest != 0 {
+		t.Errorf("a cached charging_* state must not REST-poll, got %d calls", rest)
+	}
+	// No cached charging state: the REST answer is judged the same way.
+	m.mu.Lock()
+	delete(m.cache, "veh-1")
+	m.mu.Unlock()
+	if got, _ := m.confirmStillCharging(context.Background(), "veh-1"); got || rest != 1 {
+		t.Errorf("REST says charging_ready, unplugged: confirm=%v rest=%d, want false after one call", got, rest)
+	}
+}

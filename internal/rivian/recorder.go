@@ -2389,6 +2389,12 @@ func IsChargingState(chargerState string) bool { return isChargingCS(chargerStat
 // charging_ready, disconnected) reads as unplugged, which closes the
 // charge as before. Must be called with m.sessMu held.
 func (s *liveSessions) plugged(curr *State) bool {
+	return chargerPlugged(curr, s.charge != nil)
+}
+
+// chargerPlugged is plugged for a frame alone: chargeOpen says a charge is already open for the vehicle (a
+// 0 kW pause mid-session doesn't unplug it). The stale-charge janitor asks it with false (see stillChargingFrame).
+func chargerPlugged(curr *State, chargeOpen bool) bool {
 	if strings.TrimSpace(curr.ChargerStatus) != "" {
 		// A Parallax status (R2) that says unplugged or fault doesn't
 		// overrule the power inference below: a wrong reading must not
@@ -2399,7 +2405,7 @@ func (s *liveSessions) plugged(curr *State) bool {
 	}
 	switch strings.ToLower(strings.TrimSpace(curr.ChargerState)) {
 	case "charging_active", "charging_connecting":
-		return curr.ChargerPowerKW > 0 || s.charge != nil
+		return curr.ChargerPowerKW > 0 || chargeOpen
 	}
 	return false
 }
