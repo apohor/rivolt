@@ -27,6 +27,8 @@ import { MAP_CAPTION_PX } from "../lib/mapCaption";
 import { ALL_LABEL, chargerLabel, type ChargerKind } from "../lib/chargerLabels";
 import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
+import { drawLegBadges, type LegWeatherInfo } from "./legBadges";
+import { legWeatherTags } from "../plan/legWeather";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, sameSpot, valhallaMultiRoute, waypointTooltip,
@@ -109,6 +111,7 @@ export function TripRouteMap({
   dayLabel,
   originLabel,
   destLabel,
+  legWeather,
 }: {
   route: TripRoute;
   height?: number;
@@ -129,6 +132,8 @@ export function TripRouteMap({
   // The names on the origin and destination pills; without them the waypoints' own names.
   originLabel?: string;
   destLabel?: string;
+  // The weather on each leg (leg i runs from waypoint i to i+1; null where there is none): drawn as a badge on the route, with a "Weather" chip.
+  legWeather?: (LegWeatherInfo | null)[];
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -157,6 +162,52 @@ export function TripRouteMap({
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
+  const hasWeather = !!legWeather?.some((l) => l);
+  // The caller builds the array afresh each render; redraw only when its content changes.
+  const weatherKey = JSON.stringify(legWeather ?? null);
+  const legWeatherRef = useRef(legWeather);
+  legWeatherRef.current = legWeather;
+  const [showWeather, setShowWeather] = useState(true);
+  // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
+  useEffect(() => {
+    const map = mapReady;
+    const legs = legWeatherRef.current;
+    if (!map || !showWeather || !legs || !hasWeather) return;
+    let alive = true;
+    let remove = () => {};
+    let legPopup: Popup | null = null;
+    void loadMapLibre().then((ml) => {
+      if (!alive || mapRef.current !== map) return;
+      const stops = route.Waypoints.map((w) => [w.Latitude, w.Longitude] as LatLng);
+      remove = drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
+        legPopup?.remove();
+        const lines = [legWeatherTags(info.facts).join(" · "), ...info.note].filter(Boolean);
+        const root = document.createElement("div");
+        root.setAttribute("data-leg-popup", "");
+        const h = document.createElement("div");
+        h.style.fontWeight = "600";
+        h.textContent = info.title;
+        root.appendChild(h);
+        for (const l of lines) {
+          const d = document.createElement("div");
+          d.textContent = l;
+          root.appendChild(d);
+        }
+        legPopup = new ml.Popup({ closeButton: true, offset: 14, maxWidth: "280px", className: "rivolt-popup" });
+        // Pinned so it stays inside the map: below the badge in the upper half, above it in the lower, leaning in from either side edge.
+        const ll = { lng: at[1], lat: at[0] };
+        if (legPopup.options) legPopup.options.anchor = pinSide(map, map.project(ll).y < mapRoomBottom(map) / 2 ? "top" : "bottom", ll, 280);
+        legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
+        exclusive(legPopup);
+        reclearOfChips(map, legPopup, ll);
+      });
+    });
+    return () => {
+      alive = false;
+      remove();
+      legPopup?.remove();
+    };
+  }, [mapReady, showWeather, weatherKey, hasWeather, routePath, route.Waypoints]);
   // Refs so async handlers call the latest callbacks without being effect dependencies (which would re-mount the map every render).
   const onAddStopRef = useRef(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
@@ -748,8 +799,9 @@ export function TripRouteMap({
 
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
-      {!noChargerSource && (
+      {(!noChargerSource || hasWeather) && (
         <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+          {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp", "all"] as const).filter((f) => f !== "camp" || campCount > 0 || chargerFilter === "camp").map((f) => (
             <button
@@ -793,6 +845,19 @@ export function TripRouteMap({
           )}
           {chargerFilter === "hotels" && (
             <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")}</span>
+          )}
+          </>}
+          {hasWeather && (
+            <button
+              type="button"
+              aria-pressed={showWeather}
+              onClick={() => setShowWeather((v) => !v)}
+              data-weather-chip
+              title="The weather on each leg of the route"
+              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${noChargerSource ? "" : "ml-2"} ${showWeather ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
+            >
+              Weather
+            </button>
           )}
         </div>
       )}
