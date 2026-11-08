@@ -49,7 +49,7 @@ func trySplit(r Row) (*Split, time.Time, string) {
 	sp := &Split{}
 	var moved float64
 	prevEnd := cut
-	for _, sg := range segs {
+	for i, sg := range segs {
 		if !sg.FirstActive.After(prevEnd) {
 			return flag("a segment overlaps the original or another segment")
 		}
@@ -68,8 +68,14 @@ func trySplit(r Row) (*Split, time.Time, string) {
 		if r.Taken[ext] {
 			return flag("external id already used: " + ext)
 		}
-		n := NewRow{ExternalID: ext, Start: sg.FirstActive, End: end, SoCStart: sg.SoCStart, SoCEnd: sg.SoCEnd, KWh: sg.IntegralKWh}
+		// The SoC at the charge's own start and end, not the parked stretch's: idle drain around it would skew the row.
+		n := NewRow{ExternalID: ext, Start: sg.FirstActive, End: end, SoCStart: socAt(r.Frames, sg.FirstActive, sg.SoCStart), SoCEnd: socAt(r.Frames, end, sg.SoCEnd), KWh: sg.IntegralKWh}
 		n.MaxPowerKW, n.ActiveSeconds = activeStats(r.Frames, n.Start, n.End)
+		n.AvgPowerKW = avgKW(n.KWh, n.ActiveSeconds)
+		n.FinalState = "charging_complete"
+		if i == len(segs)-1 {
+			n.FinalState = r.FinalState // the stretched row's last state belongs to its last charge
+		}
 		n.Lat, n.Lon = nearestLoc(r.Locs, n.Start)
 		sp.News = append(sp.News, n)
 		moved += n.KWh
@@ -80,12 +86,30 @@ func trySplit(r Row) (*Split, time.Time, string) {
 		return flag("the new rows' energy exceeds the row's stored energy")
 	}
 	sp.OrigEndSoC = socAt(r.Frames, cut, r.EndSoC)
+	// The remainder must agree with the original's own SoC gain, or the stored energy may not have held the tail.
+	if !Agree(sp.OrigKWh, (sp.OrigEndSoC-r.StartSoC)/100*r.PackKWh) {
+		return flag("the original's remainder disagrees with its own SoC gain")
+	}
+	sp.OrigMaxKW, sp.OrigActiveSec = activeStats(r.Frames, r.StartedAt, cut)
+	sp.OrigAvgKW = avgKW(sp.OrigKWh, sp.OrigActiveSec)
+	sp.OrigFinalState = "abandoned"
+	if sp.OrigEndSoC > r.StartSoC {
+		sp.OrigFinalState = "charging_complete"
+	}
 	// An auto-priced original is re-priced by energy share (its own rate times what it keeps); a user's price never gets here.
 	if (r.CostSource == "home_rate" || r.CostSource == "network_estimate") && r.PricePerKWh > 0 {
 		c := math.Round(r.PricePerKWh*sp.OrigKWh*1e4) / 1e4
 		sp.OrigCost = &c
 	}
 	return sp, cut, ""
+}
+
+// avgKW is the average power over the active hours (0 when there is none).
+func avgKW(kwh, activeSec float64) float64 {
+	if activeSec <= 0 {
+		return 0
+	}
+	return kwh / (activeSec / 3600)
 }
 
 // activeStats is the peak power and the active charging time of the frames in [from, to].
@@ -99,7 +123,7 @@ func activeStats(frames []Frame, from, to time.Time) (maxKW, activeSec float64) 
 		if f.PowerKW > maxKW {
 			maxKW = f.PowerKW
 		}
-		if prev != nil && f.ChargingState == "charging_active" && f.PowerKW > 0 {
+		if prev != nil && prev.active() && f.active() {
 			if dt := f.At.Sub(prev.At); dt > 0 && dt <= maxActiveGap {
 				activeSec += dt.Seconds()
 			}

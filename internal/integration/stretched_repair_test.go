@@ -233,7 +233,7 @@ func TestStretchedSplit(t *testing.T) {
 	var orig uuid.UUID
 	if err := pool.QueryRowContext(ctx, `
 		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh, start_soc_pct, end_soc_pct, final_state, cost, cost_source, price_per_kwh, created_at, updated_at)
-		VALUES ($1,$2,'live_rv-split_c_1',$3,$4,'live',40,40,70,'charging_user_stopped',10,'home_rate',0.25,$3,$5) RETURNING id`,
+		VALUES ($1,$2,'live_rv-split_c_1',$3,$4,'live',25.8,47,70,'charging_user_stopped',10,'home_rate',0.25,$3,$5) RETURNING id`,
 		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour)).Scan(&orig); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestStretchedSplit(t *testing.T) {
 	if nr.KWh < 17 || nr.KWh > 19.5 || nr.SoCStart < 49 || nr.SoCEnd < 69 {
 		t.Fatalf("new row = %+v", nr)
 	}
-	if got := sp.OrigKWh + nr.KWh; got < 39.999 || got > 40.001 {
+	if got := sp.OrigKWh + nr.KWh; got < 25.799 || got > 25.801 {
 		t.Fatalf("energy not conserved: %v", got)
 	}
 	digest := plan.Digest()
@@ -299,15 +299,20 @@ func TestStretchedSplit(t *testing.T) {
 	}
 	var cost *float64
 	var kwh, endSoC float64
-	var ext, meta string
-	_ = pool.QueryRowContext(ctx, `SELECT cost::float8, energy_added_kwh, end_soc_pct, metadata::text FROM charges WHERE id=$1`, orig).Scan(&cost, &kwh, &endSoC, &meta)
-	if cost == nil || *cost < 5 || *cost > 6.6 || kwh > 23 || endSoC < 54 || endSoC > 56 || !strings.Contains(meta, "stretched_repair") {
-		t.Fatalf("original after split: cost=%v kwh=%v end soc=%v meta=%s", cost, kwh, endSoC, meta)
+	var ext, meta, state string
+	_ = pool.QueryRowContext(ctx, `SELECT cost::float8, energy_added_kwh, end_soc_pct, metadata::text, final_state FROM charges WHERE id=$1`, orig).Scan(&cost, &kwh, &endSoC, &meta, &state)
+	if cost == nil || *cost < 1.5 || *cost > 2.2 || kwh < 6.5 || kwh > 8.5 || endSoC < 54 || endSoC > 56 || !strings.Contains(meta, "stretched_repair") || state != "charging_complete" {
+		t.Fatalf("original after split: cost=%v kwh=%v end soc=%v state=%s meta=%s", cost, kwh, endSoC, state, meta)
 	}
 	var newID uuid.UUID
 	var newCost, newPlace, newNet *string
-	if err := pool.QueryRowContext(ctx, `SELECT id, external_id, cost::text, place, network FROM charges WHERE user_id=$1 AND id<>$2`, uid, orig).Scan(&newID, &ext, &newCost, &newPlace, &newNet); err != nil {
+	var newState string
+	var newActive, newMax, newAvg *float64
+	if err := pool.QueryRowContext(ctx, `SELECT id, external_id, cost::text, place, network, final_state, active_seconds, max_power_kw, avg_power_kw FROM charges WHERE user_id=$1 AND id<>$2`, uid, orig).Scan(&newID, &ext, &newCost, &newPlace, &newNet, &newState, &newActive, &newMax, &newAvg); err != nil {
 		t.Fatal(err)
+	}
+	if newState != "charging_user_stopped" || newActive == nil || *newActive < 17000 || newMax == nil || *newMax != 3.7 || newAvg == nil || *newAvg < 3.5 || *newAvg > 3.9 {
+		t.Fatalf("new row figures: state=%s active=%v max=%v avg=%v", newState, newActive, newMax, newAvg)
 	}
 	if ext != nr.ExternalID || newCost != nil {
 		t.Fatalf("new row: ext=%q cost=%v; want external id %q and no copied price", ext, newCost, nr.ExternalID)

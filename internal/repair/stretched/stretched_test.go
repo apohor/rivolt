@@ -84,9 +84,10 @@ func TestSplit(t *testing.T) {
 		r := base()
 		r.PluggedAfterDrive = true
 		r.LastPluggedBeforeDrive = r.LastPlugged
-		r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, 40, "rv-fake-1"
+		r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, 25.3, "rv-fake-1"
+		r.StartSoC, r.EndSoC = 47, 70
 		r.CostSource, r.PricePerKWh = "home_rate", 0.25
-		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 47, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(2 * time.Hour), SoC: 55}}
+		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 47, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(90 * time.Minute), SoC: 51, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(2 * time.Hour), SoC: 55}}
 		r.Taken = map[string]bool{}
 		return r
 	}
@@ -105,11 +106,17 @@ func TestSplit(t *testing.T) {
 	if sp.News[0].ExternalID != "live_rv-fake-1_c_"+itoa(seg.FirstActive.Unix()) {
 		t.Errorf("external id = %q", sp.News[0].ExternalID)
 	}
-	if sp.OrigCost == nil || *sp.OrigCost != 5.5 { // 0.25 * (40-18)
+	if sp.OrigCost == nil || *sp.OrigCost < 1.82 || *sp.OrigCost > 1.83 { // 0.25 * (25.3-18)
 		t.Errorf("auto-priced original should be re-priced by energy share, got %v", sp.OrigCost)
 	}
 	if !p.CapTo[r.ID].Equal(r.LastPlugged) || sp.OrigEndSoC != 55 {
 		t.Errorf("cap %v end soc %v", p.CapTo[r.ID], sp.OrigEndSoC)
+	}
+	if sp.OrigFinalState != "charging_complete" || sp.News[0].FinalState != r.FinalState {
+		t.Errorf("final states: original %q, last new row %q (want complete / the stretched row's %q)", sp.OrigFinalState, sp.News[0].FinalState, r.FinalState)
+	}
+	if sp.OrigActiveSec != 1800 || sp.OrigMaxKW != 7 || sp.OrigAvgKW != sp.OrigKWh/0.5 {
+		t.Errorf("original figures from its own window: active %v max %v avg %v", sp.OrigActiveSec, sp.OrigMaxKW, sp.OrigAvgKW)
 	}
 	if n, c, kwh := p.SplitTotals(); n != 1 || c != 1 || kwh != 18 {
 		t.Errorf("totals %d %d %v", n, c, kwh)
@@ -123,6 +130,7 @@ func TestSplit(t *testing.T) {
 		mut  func(*Row)
 	}{
 		{"energy figures disagree", func(r *Row) { r.PackKWh = 20 }},
+		{"the original's remainder disagrees with its own SoC gain", func(r *Row) { r.EnergyKWh = 33 }},
 		{"remainder would go negative", func(r *Row) { r.EnergyKWh = 10 }},
 		{"external id collision", func(r *Row) { r.Taken[liveSessionID(r.RivianVehicleID, seg.FirstActive)] = true }},
 		{"no plugged frame before the drive", func(r *Row) { r.LastPluggedBeforeDrive = time.Time{} }},
@@ -148,8 +156,9 @@ func TestSplit(t *testing.T) {
 		return []Segment{seg, s2}
 	}
 	r = mk()
+	r.EnergyKWh = 25.3 + 9
 	q := MakePlan([]Row{r}, now, Options{Split: true})
-	if sp := q.Splits[r.ID]; sp == nil || len(sp.News) != 2 || sp.OrigKWh != 40-18-9 {
+	if sp := q.Splits[r.ID]; sp == nil || len(sp.News) != 2 || sp.News[0].FinalState != "charging_complete" || sp.News[1].FinalState != r.FinalState {
 		t.Fatalf("two segments: %+v", sp)
 	}
 	d1 := q.Digest()

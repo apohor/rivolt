@@ -110,7 +110,7 @@ func runRepairStretched(args []string) int {
 	fmt.Printf("hours removed: %.1f\n", plan.HoursRemoved())
 	if *split {
 		n, created, kwh := plan.SplitTotals()
-		fmt.Printf("split: %d row(s) create %d new row(s), %.1f kWh re-attributed (new rows are unpriced: run rivolt reprice --detect on them afterwards)\n", n, created, kwh)
+		fmt.Printf("split: %d row(s) create %d new row(s), %.1f kWh re-attributed, %.1f h of idle inside the new rows (new rows are unpriced: run rivolt reprice --detect on them afterwards)\n", n, created, kwh, plan.IdleHoursInNewRows())
 	}
 	fmt.Printf("capped rows priced from the home rate or a network estimate (re-price candidates): %d\n", plan.Repriceable())
 	reasons := make([]string, 0, len(plan.Skipped))

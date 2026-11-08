@@ -84,7 +84,9 @@ type NewRow struct {
 	SoCStart, SoCEnd float64
 	KWh              float64
 	MaxPowerKW       float64
+	AvgPowerKW       float64 // kWh over the active hours
 	ActiveSeconds    float64
+	FinalState       string // the original's for the last segment, charging_complete for an earlier one
 	Lat, Lon         float64
 }
 
@@ -94,7 +96,12 @@ type Split struct {
 	OrigEndSoC float64
 	OrigKWh    float64
 	OrigCost   *float64 // set when the original is auto-priced and re-priced by energy share
-	News       []NewRow
+	// The original's figures recomputed from the frames inside its own window: the stored ones may belong to an
+	// absorbed (DC) session.
+	OrigMaxKW, OrigAvgKW, OrigActiveSec float64
+	// charging_complete when the SoC rose over the original's window, else abandoned.
+	OrigFinalState string
+	News           []NewRow
 }
 
 // Options select the optional behaviour of a plan.
@@ -380,15 +387,29 @@ func (p Plan) Digest() string {
 			if sp.OrigCost != nil {
 				cost = fmt.Sprintf("%.4f", *sp.OrigCost)
 			}
-			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s", sp.OrigEndSoC, sp.OrigKWh, cost)
+			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec)
 			for _, n := range sp.News {
-				line += fmt.Sprintf(" | %s %s %s %.4f", n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh)
+				line += fmt.Sprintf(" | %s %s %s kwh=%.4f soc=%.2f-%.2f state=%s max=%.3f avg=%.3f active=%.0f", n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh, n.SoCStart, n.SoCEnd, n.FinalState, n.MaxPowerKW, n.AvgPowerKW, n.ActiveSeconds)
 			}
 		}
 		lines[i] = line
 	}
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n") + "\n"))
 	return hex.EncodeToString(sum[:])
+}
+
+// IdleHoursInNewRows is the time the new rows span beyond their active charging (a segment that held a charge, a
+// long idle and another charge becomes one row; its energy is right, its duration includes the idle).
+func (p Plan) IdleHoursInNewRows() float64 {
+	var h float64
+	for _, sp := range p.Splits {
+		for _, n := range sp.News {
+			if d := n.End.Sub(n.Start).Seconds() - n.ActiveSeconds; d > 0 {
+				h += d / 3600
+			}
+		}
+	}
+	return h
 }
 
 // SplitTotals is the number of rows split, the rows they create, and the energy re-attributed to the new rows.
@@ -519,9 +540,10 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			}
 			res, err = tx.ExecContext(ctx, `
 				UPDATE charges SET ended_at = $2, end_soc_pct = $5, energy_added_kwh = $6, cost = COALESCE($7::numeric, cost),
+				       final_state = $8, max_power_kw = NULLIF($9::float8, 0), avg_power_kw = NULLIF($10::float8, 0), active_seconds = NULLIF($11::float8, 0),
 				       metadata = metadata || $4::jsonb, updated_at = now()
 				 WHERE id = $1 AND source = 'live' AND ended_at = $3 AND $2 < ended_at AND $2 >= started_at`,
-				r.ID, to, r.EndedAt, mark, sp.OrigEndSoC, sp.OrigKWh, cost)
+				r.ID, to, r.EndedAt, mark, sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec)
 		}
 		if err != nil {
 			return 0, err
@@ -533,18 +555,14 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			created := make([]string, 0, len(sp.News))
 			for _, nr := range sp.News {
 				var id uuid.UUID
-				avg := 0.0
-				if h := nr.End.Sub(nr.Start).Hours(); h > 0 {
-					avg = nr.KWh / h
-				}
 				// No cost, place or network: the new row is priced by the normal detection afterwards (never a copied home_rate).
 				if err := tx.QueryRowContext(ctx, `
 					INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, start_soc_pct, end_soc_pct,
 					                     energy_added_kwh, max_power_kw, avg_power_kw, final_state, lat, lon, source, active_seconds, metadata)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,0),NULLIF($13,0),'live',$14,$15::jsonb)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9::float8,0),NULLIF($10::float8,0),$11,NULLIF($12::float8,0),NULLIF($13::float8,0),'live',NULLIF($14::float8,0),$15::jsonb)
 					RETURNING id`,
 					r.UserID, r.VehicleID, nr.ExternalID, nr.Start, nr.End, nr.SoCStart, nr.SoCEnd,
-					nr.KWh, nr.MaxPowerKW, avg, r.FinalState, nr.Lat, nr.Lon, nr.ActiveSeconds, mark).Scan(&id); err != nil {
+					nr.KWh, nr.MaxPowerKW, nr.AvgPowerKW, nr.FinalState, nr.Lat, nr.Lon, nr.ActiveSeconds, mark).Scan(&id); err != nil {
 					return 0, fmt.Errorf("stretched: creating %s: %w", nr.ExternalID, err)
 				}
 				created = append(created, id.String())
@@ -563,7 +581,7 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 }
 
 // Restore undoes a batch from charges_capped_backup: the original row's columns the repair changed (ended_at,
-// end_soc_pct, energy_added_kwh, cost, metadata) go back, and the rows it created are deleted. updated_at is touched
+// end_soc_pct, energy_added_kwh, cost, final_state, the power figures and metadata) go back, and the rows it created are deleted. updated_at is touched
 // by the table's trigger on every update, so it reads the restore time (the old value stays in the backup row). A
 // group is left alone, and counted in skipped, when the original's ended_at is no longer the capped value or a
 // created row has been touched since (a user price, override, note, tag, place correction or receipt): nothing is
@@ -639,6 +657,10 @@ func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipp
 			       end_soc_pct = (b.row->>'end_soc_pct')::double precision,
 			       energy_added_kwh = (b.row->>'energy_added_kwh')::double precision,
 			       cost = (b.row->>'cost')::numeric,
+			       final_state = b.row->>'final_state',
+			       max_power_kw = (b.row->>'max_power_kw')::double precision,
+			       avg_power_kw = (b.row->>'avg_power_kw')::double precision,
+			       active_seconds = (b.row->>'active_seconds')::double precision,
 			       metadata = b.row->'metadata'
 			  FROM charges_capped_backup b
 			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.id = b.charge_id AND c.ended_at = b.capped_to`, batchID, g.charge)
