@@ -65,6 +65,7 @@ type Row struct {
 	EnergyKWh              float64
 	StartSoC, EndSoC       float64
 	PricePerKWh            float64
+	Cost                   float64 // the stored cost (0: none)
 	LastPluggedBeforeDrive time.Time
 	Frames                 []Frame
 	Locs                   []Loc
@@ -109,7 +110,10 @@ type Split struct {
 	OrigMaxKW, OrigAvgKW, OrigActiveSec float64
 	// charging_complete when the SoC rose over the original's window, else abandoned.
 	OrigFinalState string
-	News           []NewRow
+	// EmptyOriginal: nothing in the original's span before the first drive was a charge (no plugged frame, no SoC gain). It
+	// is kept as a zero-energy abandoned row ended at the first drive; its remainder is still stored minus the new rows.
+	EmptyOriginal bool
+	News          []NewRow
 }
 
 // Options select the optional behaviour of a plan.
@@ -173,7 +177,8 @@ func Classify(r Row, now time.Time, opt Options) Verdict {
 		return skip("carries a user override, note or tag")
 	case r.FirstDrive.IsZero():
 		return skip("no drive inside")
-	case r.LastPlugged.IsZero():
+	case r.LastPlugged.IsZero() && !(opt.Split && flag(r) != ""):
+		// With --split a row whose only charging came after its first drive goes on to the split (an empty original).
 		return skip("no plugged frame inside")
 	}
 	if why := flag(r); why != "" {
@@ -229,7 +234,7 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		  SELECT c.id, c.user_id, c.vehicle_id, c.started_at, c.ended_at, c.updated_at,
 		         COALESCE(c.final_state,'') AS final_state, c.source, COALESCE(c.cost_source,'') AS cost_source,
 		         COALESCE(c.energy_added_kwh,0) AS kwh, COALESCE(c.start_soc_pct,0) AS soc0, COALESCE(c.end_soc_pct,0) AS soc1,
-		         COALESCE(c.price_per_kwh,0)::float8 AS ppk,
+		         COALESCE(c.price_per_kwh,0)::float8 AS ppk, COALESCE(c.cost,0)::float8 AS cost0,
 		         (SELECT min(d.started_at) FROM drives d
 		           WHERE d.vehicle_id = c.vehicle_id AND d.started_at > c.started_at AND d.started_at < c.ended_at) AS first_drive,
 		         EXISTS (SELECT 1 FROM charge_restamps r WHERE r.charge_id = c.id) AS restamp,
@@ -246,7 +251,7 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		       EXISTS (SELECT 1 FROM vehicle_state s
 		         WHERE s.vehicle_id = cand.vehicle_id AND s.at > cand.first_drive AND s.at <= cand.ended_at AND `+activeFrame+`),
 		       cand.restamp, cand.receipt, cand.edited,
-		       cand.kwh, cand.soc0, cand.soc1, cand.ppk,
+		       cand.kwh, cand.soc0, cand.soc1, cand.ppk, cand.cost0,
 		       COALESCE(v.pack_kwh,0), v.rivian_vehicle_id
 		  FROM cand JOIN vehicles v ON v.id = cand.vehicle_id
 		 WHERE cand.first_drive IS NOT NULL
@@ -260,7 +265,7 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		var drive, pluggedBefore sql.NullTime
 		if err := rows.Scan(&r.ID, &r.UserID, &r.VehicleID, &r.StartedAt, &r.EndedAt, &r.UpdatedAt, &r.FinalState, &r.Source, &r.CostSource,
 			&drive, &pluggedBefore, &r.PluggedAfterDrive, &r.HasRestamp, &r.HasReceipt, &r.Edited,
-			&r.EnergyKWh, &r.StartSoC, &r.EndSoC, &r.PricePerKWh, &r.PackKWh, &r.RivianVehicleID); err != nil {
+			&r.EnergyKWh, &r.StartSoC, &r.EndSoC, &r.PricePerKWh, &r.Cost, &r.PackKWh, &r.RivianVehicleID); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -403,7 +408,7 @@ func (p Plan) Digest() string {
 			if sp.OrigCost != nil {
 				cost = fmt.Sprintf("%.4f", *sp.OrigCost)
 			}
-			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec)
+			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f empty=%t", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec, sp.EmptyOriginal)
 			for _, n := range sp.News {
 				line += fmt.Sprintf(" | %s %s %s kwh=%.4f soc=%.2f-%.2f state=%s max=%.3f avg=%.3f active=%.0f cost=%.4f ppk=%.6f %s src=%s net=%s place=%s",
 					n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh, n.SoCStart, n.SoCEnd, n.FinalState, n.MaxPowerKW, n.AvgPowerKW, n.ActiveSeconds,
@@ -445,6 +450,65 @@ func (p Plan) NewRowKinds() (l2, dc int) {
 		}
 	}
 	return
+}
+
+// EmptyOriginals counts the splits whose original holds no charge before the first drive.
+func (p Plan) EmptyOriginals() int {
+	n := 0
+	for _, sp := range p.Splits {
+		if sp.EmptyOriginal {
+			n++
+		}
+	}
+	return n
+}
+
+// NewRowTypes counts the new rows as AC at home, AC away from home, AC with no place (no saved home) and DC fast.
+func (p Plan) NewRowTypes() (acHome, acAway, acOther, dc int) {
+	for _, sp := range p.Splits {
+		for _, n := range sp.News {
+			switch {
+			case n.MaxPowerKW >= rivian.DCFCMinKW:
+				dc++
+			case n.Place == "home":
+				acHome++
+			case n.Place == "away":
+				acAway++
+			default:
+				acOther++
+			}
+		}
+	}
+	return
+}
+
+// CostDelta is the change in cost the split makes: the originals' re-pricing by energy share (negative when they give
+// energy away) and the cost of the new rows.
+func (p Plan) CostDelta() (originals, newRows float64) {
+	byID := map[uuid.UUID]Row{}
+	for _, r := range p.Cap {
+		byID[r.ID] = r
+	}
+	for id, sp := range p.Splits {
+		if sp.OrigCost != nil {
+			originals += *sp.OrigCost - byID[id].Cost
+		}
+		for _, n := range sp.News {
+			newRows += n.Cost
+		}
+	}
+	return
+}
+
+// SplitsByVehicle counts the split rows per vehicle id.
+func (p Plan) SplitsByVehicle() map[uuid.UUID]int {
+	m := map[uuid.UUID]int{}
+	for _, r := range p.Cap {
+		if p.Splits[r.ID] != nil {
+			m[r.VehicleID]++
+		}
+	}
+	return m
 }
 
 // IdleHoursInNewRows is the time the new rows span beyond their active charging (a segment that held a charge, a

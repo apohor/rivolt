@@ -125,8 +125,22 @@ func runRepairStretched(args []string) int {
 	fmt.Printf("hours removed: %.1f\n", plan.HoursRemoved())
 	if *split {
 		n, created, kwh := plan.SplitTotals()
-		l2, dc := plan.NewRowKinds()
-		fmt.Printf("new rows by type: %d L2/AC, %d DC fast (DC fast rows are left unpriced here: `rivolt reprice --detect` prices them)\n", l2, dc)
+		acHome, acAway, acOther, dc := plan.NewRowTypes()
+		fmt.Printf("new rows by type: %d AC at home, %d AC away, %d AC with no place, %d DC fast (DC fast rows are left unpriced here: `rivolt reprice --detect` prices them)\n", acHome, acAway, acOther, dc)
+		fmt.Printf("split originals that are empty (no charge before the first drive; kept as zero-energy abandoned rows ended at the first drive): %d\n", plan.EmptyOriginals())
+		origDelta, newCost := plan.CostDelta()
+		fmt.Printf("cost delta: originals %+.2f, new rows %+.2f, net %+.2f\n", origDelta, newCost, origDelta+newCost)
+		byV := plan.SplitsByVehicle()
+		vs := make([]uuid.UUID, 0, len(byV))
+		for v := range byV {
+			vs = append(vs, v)
+		}
+		sort.Slice(vs, func(i, j int) bool {
+			return byV[vs[i]] > byV[vs[j]] || (byV[vs[i]] == byV[vs[j]] && vs[i].String() < vs[j].String())
+		})
+		for _, v := range vs {
+			fmt.Printf("  splits on vehicle %s: %d\n", v.String()[:8], byV[v])
+		}
 		bySrc := plan.PricedBySource()
 		srcs := make([]string, 0, len(bySrc))
 		for k := range bySrc {
