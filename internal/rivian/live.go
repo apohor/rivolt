@@ -70,8 +70,10 @@ type LiveClient struct {
 	chargingEndpoint string
 	// wsEndpointOverride points the WebSocket dial somewhere else (tests).
 	wsEndpointOverride string
-	clientName         string
-	clientVersion      string
+	// wsHTTPClient dials the WebSocket when set (nil: the library default).
+	wsHTTPClient  *http.Client
+	clientName    string
+	clientVersion string
 	// rivoltVersion is stamped into X-Rivolt-Version. Defaults to "dev".
 	rivoltVersion string
 
@@ -533,6 +535,22 @@ func (c *LiveClient) clearNeedsReauth(ctx context.Context) {
 // WithEndpoint points the client at an alternate GraphQL URL.
 func (c *LiveClient) WithEndpoint(url string) *LiveClient {
 	c.endpoint = url
+	return c
+}
+
+// WithChargingEndpoint points the charging gateway (session history, receipts) at another URL.
+// Only the forward e2e test binary calls it (cmd/rivolt/rivian_endpoint_e2e.go).
+func (c *LiveClient) WithChargingEndpoint(url string) *LiveClient {
+	c.chargingEndpoint = url
+	return c
+}
+
+// WithWSEndpoint points the subscription WebSocket at another URL and dials it with h, so a
+// caller that restricts where the REST client may connect restricts the socket the same way.
+// Only the forward e2e test binary calls it.
+func (c *LiveClient) WithWSEndpoint(url string, h *http.Client) *LiveClient {
+	c.wsEndpointOverride = url
+	c.wsHTTPClient = h
 	return c
 }
 
@@ -1525,7 +1543,7 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 	if vehicleID == "" {
 		return nil, errors.New("rivian: vehicleID is required")
 	}
-	data, err := doGraphQLAt[liveSessionData](ctx, c, DefaultChargingEndpoint, graphQLRequest{
+	data, err := doGraphQLAt[liveSessionData](ctx, c, c.receiptsEndpoint(), graphQLRequest{
 		OperationName: "getLiveSessionHistory",
 		Query:         qLiveSession,
 		Variables:     map[string]any{"vehicleId": vehicleID},
@@ -1607,7 +1625,7 @@ func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, e
     }
   }
 }`
-	data, err := doGraphQLAt[map[string]any](ctx, c, DefaultChargingEndpoint, graphQLRequest{
+	data, err := doGraphQLAt[map[string]any](ctx, c, c.receiptsEndpoint(), graphQLRequest{
 		OperationName: "__Introspect",
 		Query:         q,
 	}, c.authHeaders())
@@ -1647,7 +1665,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 	}
 	// Raw POST so error bodies surface instead of being swallowed by doGraphQLAt.
 	body, _ := json.Marshal(graphQLRequest{OperationName: "Probe", Query: q, Variables: vars})
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, DefaultChargingEndpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.receiptsEndpoint(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

@@ -1007,15 +1007,15 @@ func runServer() {
 		// Set once the registry exists (below); read by each client's reauth guard.
 		var accountSyncer atomic.Pointer[rivian.AccountSyncer]
 		// The Rivian gateway URL override exists only in a binary built with -tags e2e_forward (loopback hosts only); the default build returns "".
-		rivianGateway, gwErr := rivianEndpointOverride()
+		rivianOverride, gwErr := rivianEndpointOverride()
 		if gwErr != nil {
 			logger.Error("rivian endpoint override", "err", gwErr.Error())
 			os.Exit(1)
 		}
 		buildLive := func(uid uuid.UUID) *rivian.LiveClient {
 			lc := rivian.NewLive().WithRivoltVersion(version)
-			if rivianGateway != "" {
-				lc = lc.WithEndpoint(rivianGateway)
+			if rivianOverride != nil {
+				lc = rivianOverride(lc)
 			}
 			if flagsStore != nil {
 				// Gate every outbound Rivian call on the kill switch.

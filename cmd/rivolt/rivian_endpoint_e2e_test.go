@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -45,15 +48,49 @@ func TestTaggedBuildAcceptsOnlyLoopbackEndpoints(t *testing.T) {
 
 func TestTaggedBuildReadsTheVariableAndRefusesARemoteHost(t *testing.T) {
 	t.Setenv("RIVOLT_RIVIAN_ENDPOINT", "")
-	if g, err := rivianEndpointOverride(); g != "" || err != nil {
-		t.Errorf("unset: %q, %v", g, err)
+	if apply, err := rivianEndpointOverride(); apply != nil || err != nil {
+		t.Errorf("unset: %v, %v", apply != nil, err)
 	}
 	t.Setenv("RIVOLT_RIVIAN_ENDPOINT", "http://127.0.0.1:9000/graphql")
-	if g, err := rivianEndpointOverride(); g != "http://127.0.0.1:9000/graphql" || err != nil {
-		t.Errorf("loopback: %q, %v", g, err)
+	if apply, err := rivianEndpointOverride(); apply == nil || err != nil {
+		t.Errorf("loopback: %v, %v", apply != nil, err)
 	}
 	t.Setenv("RIVOLT_RIVIAN_ENDPOINT", "https://rivian.com/x")
 	if _, err := rivianEndpointOverride(); err == nil {
 		t.Error("a remote host was accepted")
+	}
+}
+
+// A name that resolves to loopback at boot and elsewhere on a later lookup (DNS rebinding) cannot be reached: the dial refuses it.
+func TestTaggedTransportRefusesARebindingName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	var n atomic.Int32
+	lookup := func(context.Context, string) ([]net.IPAddr, error) {
+		if n.Add(1) == 1 {
+			return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+		}
+		return []net.IPAddr{{IP: net.ParseIP("10.0.0.1")}}, nil
+	}
+	if err := loopbackURL(context.Background(), "http://rebind.test:"+port, lookup); err != nil {
+		t.Fatalf("boot check: %v", err)
+	}
+	c := &http.Client{Transport: loopbackTransport(lookup)}
+	if _, err := c.Get("http://rebind.test:" + port); err == nil {
+		t.Fatal("a name that now resolves to 10.0.0.1 was dialled")
+	}
+	// A name that stays on loopback works, so the guard is not just failing everything.
+	ok := func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+	}
+	resp, err := (&http.Client{Transport: loopbackTransport(ok)}).Get("http://steady.test:" + port)
+	if err != nil {
+		t.Fatalf("loopback name refused: %v", err)
+	}
+	resp.Body.Close()
+	// An IP literal that is not loopback is refused too, without any lookup.
+	if _, err := (&http.Client{Transport: loopbackTransport(ok)}).Get("http://203.0.113.9:" + port); err == nil {
+		t.Fatal("a non-loopback literal was dialled")
 	}
 }
