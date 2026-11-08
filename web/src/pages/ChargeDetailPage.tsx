@@ -437,7 +437,7 @@ export default function ChargeDetailPage() {
           value={chargeCostLabel(charge)}
           hint={
             [
-              chargeCostHint(charge, demo),
+              chargeCostHint(charge, demo, active),
               isEnergyEstimated(charge) && charge.Cost > 0 ? "follows the estimated energy" : undefined,
               groupReceipt && groupReceipt.cost != null
                 ? `Part of a ${formatMoney(groupReceipt.cost, charge.Currency || "USD")} receipt with ${groupReceipt.sessions.length} sessions (Money shows the whole plug-in)`
@@ -808,12 +808,13 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // it implies, plus a flag noting whether this is a real billed
 // number or a home-rate estimate. Falls back to undefined so the
 // tile collapses cleanly when we have nothing useful to say.
-export function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): string | undefined {
+export function chargeCostHint(c: import("../lib/api").Charge, readOnly = false, open = false): string | undefined {
   if (c.classification_unavailable) return "price classification unavailable right now";
   if (isFreeCharge(c)) return "marked free by you";
   if (c.cost_source_effective === "home_rate_misapplied") return "estimate pending · was priced at your home rate";
   // The price editor is not shown in the read-only demo.
-  if (c.cost_source_effective === "unknown") return readOnly ? "price unknown" : "price unknown · add it below";
+  // An open charge can't be priced yet (the server answers 409), so it doesn't point at the form below.
+  if (c.cost_source_effective === "unknown") return readOnly ? "price unknown" : open ? "price it once the charge ends" : "price unknown · add it below";
   if (c.cost_source_effective === "network_estimate") return "estimated from a charging-network rate";
   if ((c.cost_source_effective ?? c.cost_source) === "observed_estimate") {
     // Never an undated tracker figure: without a real month the caption doesn't name the tracker either.
@@ -1482,8 +1483,8 @@ function PricingCard({
           </button>
         </div>
         {mutation.isError ? (
-          <p className="sm:col-span-2 text-xs text-rose-400">
-            {String(mutation.error)}
+          <p role="alert" className="sm:col-span-2 text-xs text-rose-400">
+            {saveErrorText(mutation.error)}
           </p>
         ) : null}
       </form>
