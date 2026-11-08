@@ -1233,8 +1233,10 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 	if cached != nil && isChargingCS(cached.ChargerState) {
 		// WS-cached state agrees the car is still charging. Don't
 		// REST-poll \u2014 that would risk waking a sleeping car
-		// unnecessarily. Refresh on cached state alone.
-		return true, cached.ChargerState
+		// unnecessarily. Refresh on cached state alone, but only
+		// while it reads plugged in: the charger state sticks after
+		// an unplug, and a row refreshed on it alone never closed.
+		return chargerPlugged(cached, true), cached.ChargerState
 	}
 
 	// Cache says NOT charging (terminal state) or has no entry. The
@@ -1256,7 +1258,9 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 		}
 		return false, ""
 	}
-	if !isChargingCS(st.ChargerState) {
+	// Plugged as well as charging_*: Rivian's charger state sticks for hours after an unplug, and a row refreshed
+	// on that alone stayed open (and "Charging Now") through the drives that followed.
+	if !isChargingCS(st.ChargerState) || !chargerPlugged(st, true) {
 		return false, st.ChargerState
 	}
 	return true, st.ChargerState
