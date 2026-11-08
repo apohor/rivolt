@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/repair/closestale"
 	"github.com/apohor/rivolt/internal/repair/phantom"
+	"github.com/apohor/rivolt/internal/repair/stretched"
 )
 
 // The stale-open repair against Postgres (#1641): it closes exactly the open-state rows of dormant accounts by the SoC rule, leaves a
@@ -179,6 +180,17 @@ func TestCloseStaleOpenRepair(t *testing.T) {
 	blocked("a user prices a closed row", fmt.Sprintf(`UPDATE charges SET cost_source = 'user' WHERE id = '%s'`, rose), fmt.Sprintf(`UPDATE charges SET cost_source = NULL WHERE id = '%s'`, rose))
 	blocked("a user notes a closed row", fmt.Sprintf(`UPDATE charges SET notes = 'mine' WHERE id = '%s'`, flat), fmt.Sprintf(`UPDATE charges SET notes = NULL WHERE id = '%s'`, flat))
 	blocked("a closed row was reopened", fmt.Sprintf(`UPDATE charges SET final_state = 'charging_active' WHERE id = '%s'`, rose), fmt.Sprintf(`UPDATE charges SET final_state = 'charging_complete' WHERE id = '%s'`, rose))
+
+	// Each tool restores only its own batches: the other repair's restore is refused, with nothing changed.
+	if r, err := stretched.Restore(ctx, pool, batch); !errors.Is(err, stretched.ErrRestoreBlocked) || r != 0 {
+		t.Fatalf("stretched.Restore of a close-stale batch = %d %v, want ErrRestoreBlocked", r, err)
+	}
+	if bl, err := stretched.RestoreBlockers(ctx, pool, batch); err != nil || len(bl) == 0 {
+		t.Fatalf("stretched restore dry run lists %v %v, want blockers", bl, err)
+	}
+	if got := snap(); fmt.Sprint(got) != fmt.Sprint(afterApply) {
+		t.Fatal("the other repair's refused restore changed rows")
+	}
 
 	// A key added to the metadata after the apply survives; the repair's own key goes; only final_state is put back.
 	exec(`UPDATE charges SET metadata = metadata || '{"later": 1}'::jsonb WHERE id = $1`, rose)

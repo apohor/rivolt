@@ -14,6 +14,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/repair/closestale"
 	"github.com/apohor/rivolt/internal/repair/phantom"
 	"github.com/apohor/rivolt/internal/repair/stretched"
 	"github.com/apohor/rivolt/internal/settings"
@@ -191,6 +192,16 @@ func TestStretchedRepair(t *testing.T) {
 	// A second pass finds nothing more to cap.
 	if p, _ := digestOf(); len(p.Cap) != 0 {
 		t.Fatalf("second pass would cap %d more", len(p.Cap))
+	}
+
+	// The close-stale tool must not restore a stretched batch: it requires its own mark, so it refuses with nothing changed.
+	if r, err := closestale.Restore(ctx, pool, batch); !errors.Is(err, closestale.ErrRestoreBlocked) || r != 0 {
+		t.Fatalf("closestale.Restore of a stretched batch = %d %v, want ErrRestoreBlocked", r, err)
+	}
+	for id, j := range snapshot() {
+		if after[id] != j {
+			t.Fatalf("the other repair's refused restore changed row %s", id)
+		}
 	}
 
 	// Undo: the row comes back byte-identical, the batch is marked restored and cannot be restored twice.

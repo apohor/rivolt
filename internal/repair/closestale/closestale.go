@@ -48,7 +48,8 @@ type Row struct {
 	FinalState string
 	StartSoC   *float64
 	EndSoC     *float64
-	// LastFrameAt is the vehicle's newest vehicle_state frame (zero: none).
+	// LastFrameAt is the vehicle's newest vehicle_state frame within QuietFor of now (zero: none in that window). The lookup is
+	// bounded so the partitioned table is pruned to the last day's partitions.
 	LastFrameAt time.Time
 	// What a person or another table says about the row.
 	CostSource string
@@ -112,7 +113,7 @@ func Select(ctx context.Context, q Queryer, forUpdate bool) ([]Row, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT c.id, c.user_id, c.vehicle_id, c.started_at, c.ended_at, c.updated_at, COALESCE(c.final_state,''),
 		       c.start_soc_pct, c.end_soc_pct, COALESCE(c.cost_source,''),
-		       (SELECT max(s.at) FROM vehicle_state s WHERE s.vehicle_id = c.vehicle_id),
+		       (SELECT max(s.at) FROM vehicle_state s WHERE s.vehicle_id = c.vehicle_id AND s.at > now() - $2::interval),
 		       EXISTS (SELECT 1 FROM charge_restamps r WHERE r.charge_id = c.id),
 		       EXISTS (SELECT 1 FROM rivian_receipts rr WHERE rr.charge_id = c.id),
 		       (c.place_override IS NOT NULL OR c.location_override IS NOT NULL OR COALESCE(c.notes,'') <> '' OR cardinality(c.tags) > 0)
@@ -120,7 +121,7 @@ func Select(ctx context.Context, q Queryer, forUpdate bool) ([]Row, error) {
 		 WHERE c.source = 'live'
 		   AND c.final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')
 		   AND c.ended_at < now() - $1::interval
-		 ORDER BY c.vehicle_id, c.started_at, c.id`+lock, fmt.Sprintf("%d seconds", int(OlderThan.Seconds())))
+		 ORDER BY c.vehicle_id, c.started_at, c.id`+lock, fmt.Sprintf("%d seconds", int(OlderThan.Seconds())), fmt.Sprintf("%d seconds", int(QuietFor.Seconds())))
 	if err != nil {
 		return nil, err
 	}
