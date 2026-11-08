@@ -20,12 +20,17 @@ import (
 )
 
 // handleGeocode resolves a free-text query to a list of locations.
-// When a self-hosted Photon is wired (RIVOLT_PHOTON_BASE_URL),
-// queries hit Photon first for street-level resolution; on empty
-// results or transient failure we fall back to Open-Meteo's city-
-// level search. With Photon unwired the handler is just Open-Meteo.
-func handleGeocode(photon *geocoding.PhotonClient) http.HandlerFunc {
-	gc := geocoding.NewClient()
+// Photon (RIVOLT_PHOTON_BASE_URL) is the geocoder: street-level, and the query stays on
+// our servers. Open-Meteo's city-level search is a third-party call, so it is used only
+// when the operator turns it on (openMeteoFallback, RIVOLT_GEOCODE_OPEN_METEO=true; off by
+// default, for self-hosters without Photon): on empty results or a Photon failure the
+// handler then asks Open-Meteo. Without the fallback, a Photon failure or an unwired Photon
+// answers "unavailable" and nothing leaves the server.
+func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool) http.HandlerFunc {
+	var gc *geocoding.Client
+	if openMeteoFallback {
+		gc = geocoding.NewClient()
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		if strings.TrimSpace(q) == "" {
@@ -39,13 +44,19 @@ func handleGeocode(photon *geocoding.PhotonClient) http.HandlerFunc {
 			}
 		}
 		var results []geocoding.Result
+		photonFailed := false
 		if photon.Enabled() {
 			r1, err := photon.Search(r.Context(), q, count)
 			if err == nil && len(r1) > 0 {
 				results = r1
 			}
+			photonFailed = err != nil
 		}
-		if len(results) == 0 {
+		if gc == nil && len(results) == 0 && (photonFailed || !photon.Enabled()) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "place search unavailable"})
+			return
+		}
+		if len(results) == 0 && gc != nil {
 			r2, err := gc.Search(r.Context(), q, count)
 			if err != nil {
 				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})

@@ -3178,6 +3178,7 @@ func runServer() {
 		DEMProxy:         demProxy,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
+		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),
 		WeatherClient:    weatherClient,
 		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
