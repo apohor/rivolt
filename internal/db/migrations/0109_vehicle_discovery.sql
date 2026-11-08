@@ -6,6 +6,10 @@
 --   error  the lookup failed (Rivian down, a network error). Looked at again after next_check_at (half an hour).
 -- No row means nobody has asked yet ("looking"). A lookup that stores vehicles deletes the row. Tenant isolation like every table with a
 -- user_id; the row goes with the account (ON DELETE CASCADE).
+-- The FOREIGN KEY on users takes a short SHARE ROW EXCLUSIVE lock on users while the table is created; a bounded lock_timeout (SET LOCAL: each migration
+-- runs in its own transaction) makes a busy users table fail the migration, which retries on the next boot, instead of queueing every sign-in behind it.
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE IF NOT EXISTS vehicle_discovery (
     user_id       UUID        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     state         TEXT        NOT NULL CHECK (state IN ('none', 'error')),
